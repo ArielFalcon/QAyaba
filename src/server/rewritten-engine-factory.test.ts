@@ -217,6 +217,33 @@ test("P0-3: explorer:true wires groundingCollaborators.exploreBrief for an e2e a
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
 });
 
+test("multi-repo: explorer:false + services.length>0 wires groundingCollaborators.exploreBrief for an e2e app", () => {
+  const app: AppConfig = { ...cfg("factory-explorer-services-auto"), services: [{ repo: "org/ms-orders" }] };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
+});
+
+test("multi-repo: explorer:false + empty services[] stays opt-in (no exploreBrief)", () => {
+  const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
+  assert.deepEqual(config.groundingCollaborators, {});
+});
+
+test("multi-repo: explorer:false + undefined services stays opt-in", () => {
+  const app = cfg("factory-explorer-undefined-services");
+  assert.equal(app.services, undefined);
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
+  assert.deepEqual(config.groundingCollaborators, {});
+});
+
+test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
+  const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.deepEqual(config.groundingCollaborators, {});
+});
+
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-code"), code: true, dev: undefined };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });

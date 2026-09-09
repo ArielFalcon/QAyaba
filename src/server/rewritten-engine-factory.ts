@@ -1035,6 +1035,7 @@ export function buildRewrittenCompositionConfig(
   // invocation on this composition reuses the same real fs/runner wiring, mirroring learningRepo's
   // own "single source, not re-constructed per call" precedent immediately above.
   const setupAdapter = buildSetupAdapter();
+  const shouldExplore = app.qa.explorer || (app.services?.length ?? 0) > 0;
 
   return {
     repo: app.repo,
@@ -1122,10 +1123,12 @@ export function buildRewrittenCompositionConfig(
     // three files away. wireBridges() itself skips both ports entirely on the code target
     // (isCode guard, mirroring legacy's own `!isCode` guards, pipeline.ts:1466/1643/2078), so no
     // target check is needed here.
-    // P0-3: when qa.explorer is true, run the read-only qa-explorer pass fail-open and feed the
-    // brief into buildContextPack. Omitted / false keeps the empty object so the adapter falls
+    // P0-3 / T1: run the read-only qa-explorer pass fail-open and feed the brief into
+    // buildContextPack when qa.explorer is true, or when the app declares services[] (multi-repo
+    // auto-enable). Omitted / false with no services keeps the empty object so the adapter falls
     // back to the real pack builder without a brief (legacy "explorer disabled" degradation).
-    groundingCollaborators: app.qa.explorer && !isCode
+    // Code-mode still skips via !isCode even if services[] is present.
+    groundingCollaborators: shouldExplore && !isCode
       ? {
           exploreBrief: async ({ specDir, diff, signal }) => {
             const cwd = dirname(specDir);
