@@ -65,6 +65,34 @@ export function validateSession(token: string, secret: string, now = Date.now())
 // The principal a request is authorized as: the literal "machine" for a static-token
 // (CI/automation) caller, or the GitHub username for a user-session caller.
 export const MACHINE_PRINCIPAL = "machine";
+// Same-origin web console bootstrap (GET /api/auth/local). Distinct from MACHINE_PRINCIPAL
+// so an audit can tell a pasted machine token from an auto-minted local session.
+export const LOCAL_CONSOLE_PRINCIPAL = "local-console";
+
+export function isLoopbackAddress(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+// The web console may mint a short-lived session without pasting QA_API_TOKEN when:
+//   • QA_WEB_AUTO_LOGIN=true (local docker-compose.override — the browser hits the
+//     published port, so the container sees a docker-bridge IP, not loopback), or
+//   • the request is loopback (npm start on the host).
+// Docker-bridge / LAN IPs are NEVER trusted without the flag — that would make a
+// published :8080 an open control plane.
+export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: string }): boolean {
+  return opts.enabled || isLoopbackAddress(opts.remoteAddress);
+}
+
+// Pre-auth control-plane surface. Login MUST be public (it is how a client with no
+// token yet obtains one). /auth/local is public too — the handler itself refuses
+// untrusted callers with 404, so the gate does not have to know about docker IPs.
+export function isPublicControlPlaneRoute(method: string, apiPath: string): boolean {
+  if (method === "GET" && (apiPath === "/api/health" || apiPath === "/api/version" || apiPath === "/api/auth/local")) {
+    return true;
+  }
+  return method === "POST" && apiPath === "/api/auth/login";
+}
 
 // authorizeBearer is the request authorizer: it accepts EITHER the static machine token
 // (constant-time compared) OR a valid user-session JWT, and returns the principal it

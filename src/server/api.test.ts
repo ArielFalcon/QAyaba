@@ -937,6 +937,39 @@ test("POST /api/auth/login without the dep wired returns 501", async () => {
   assert.equal(res.status, 501);
 });
 
+test("GET /api/auth/local mints a session when the dep returns one", async () => {
+  const res = mkRes();
+  const ok = await handleApi(
+    mkReq("GET", "/api/v1/auth/local"),
+    res,
+    deps({
+      localLogin: () => ({
+        token: "sess.local.sig",
+        username: "local-console",
+        expiresAt: "2026-06-15T00:00:00Z",
+      }),
+    }),
+  );
+  assert.equal(ok, true);
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.token, "sess.local.sig");
+  assert.equal(body.username, "local-console");
+  assert.equal(body.expiresAt, "2026-06-15T00:00:00Z");
+});
+
+test("GET /api/auth/local returns 404 when the dep refuses (not trusted)", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({ localLogin: () => null }));
+  assert.equal(res.status, 404);
+});
+
+test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({}));
+  assert.equal(res.status, 404);
+});
+
 // ── SSE stream robustness (OBS): the stream must never hang, and must surface events
 // produced by ANOTHER process whose publishes never reach this server's in-process bus. ──
 

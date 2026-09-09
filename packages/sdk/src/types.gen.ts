@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/local": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Mint a short-lived session for the same-origin web console. Unauthenticated; succeeds only on loopback or when QA_WEB_AUTO_LOGIN=true. Never returns the machine token. */
+        get: operations["localLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs": {
         parameters: {
             query?: never;
@@ -166,6 +183,57 @@ export interface paths {
         put: operations["updateApp"];
         post?: never;
         delete: operations["deleteApp"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{name}/boundaries/propose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a boundary-profile onboarding job (read-only propose; mirrors provisioned server-side) */
+        post: operations["proposeBoundaries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{name}/boundaries/propose/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll the current (or most recent) onboarding job status for this app */
+        get: operations["getBoundaryStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{name}/boundaries/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm a winning boundary profile — the ONLY write step (splices config/apps/<name>.yaml) */
+        post: operations["confirmBoundaries"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -423,6 +491,8 @@ export interface components {
             type: "run.verdict";
             /** @enum {string} */
             verdict: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
+            /** @enum {string} */
+            engineStatus: "success" | "error";
             passed?: number;
             failed?: number;
             outcome?: string;
@@ -452,6 +522,8 @@ export interface components {
             stepDetail?: string;
             /** @enum {string} */
             verdict?: "pass" | "fail" | "flaky" | "invalid" | "infra-error" | "skipped";
+            /** @enum {string} */
+            engineStatus?: "success" | "error";
             passed?: number;
             failed?: number;
             note?: string;
@@ -522,6 +594,7 @@ export interface components {
             compatible: boolean;
             capabilities: string[];
             message?: string;
+            githubClientId?: string;
         };
         LoginRequest: {
             githubToken: string;
@@ -634,6 +707,70 @@ export interface components {
             repos: components["schemas"]["RepoListItem"][];
             hasMore: boolean;
         };
+        OnboardingJobStatus: {
+            /** @enum {string} */
+            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "done" | "failed";
+            app?: string;
+            round: number;
+            ceiling: number;
+            candidatesScored: number;
+            lastResolvedScore?: number;
+            resolvedProfile?: {
+                /** @enum {string} */
+                transport: "http";
+                frontFiles: string;
+                frontCallSite: {
+                    kind: string;
+                    receiver?: string;
+                };
+                servicePrefixTemplate: string;
+                serviceRepoTemplate: string;
+                openApiPath: string;
+            } | {
+                /** @enum {string} */
+                transport: "event";
+                files: string;
+                eventPattern: {
+                    kind: string;
+                    listenerBaseType: string;
+                    listenerEventCall: string;
+                    subscriberBaseType: string;
+                    publishCall: string;
+                };
+            };
+            /** @enum {string} */
+            outcome?: "winner" | "no-profile";
+            error?: string;
+            startedAt?: string;
+            finishedAt?: string;
+            indexProgress?: {
+                repo: string;
+                /** @enum {string} */
+                status: "ok" | "failed";
+                nodeCount?: number;
+                error?: string;
+            }[];
+            resolution?: {
+                edges: {
+                    fromRepo: string;
+                    toRepo: string;
+                    /** @enum {string} */
+                    transport: "http" | "event" | "rpc";
+                    calls: number;
+                }[];
+                unresolved: number;
+                external: number;
+                drift: number;
+            };
+        };
+        ProposeBoundariesInput: {
+            repo?: string;
+            services?: string[];
+        };
+        ConfirmBoundariesInput: {
+            /** @enum {boolean} */
+            confirm: true;
+        };
         PublicAgentConfig: {
             /** @enum {string} */
             mode: "single" | "dual";
@@ -722,7 +859,7 @@ export interface components {
             outcomeCount: number;
             successRate: number | null;
             /** @enum {string} */
-            status: "candidate" | "active" | "deprecated" | "superseded";
+            status: "pending" | "candidate" | "active" | "deprecated" | "superseded";
         };
         ScorecardView: {
             updatedAt: string;
@@ -744,6 +881,8 @@ export interface components {
                 archetype: string;
                 caughtRealBug: boolean;
                 promotionCount: number;
+                evaluated: number;
+                credited: number;
             }[];
         };
         IntelligenceView: {
@@ -929,6 +1068,33 @@ export interface operations {
             };
             /** @description GitHub login is not configured on this server */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    localLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description session minted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description local console login is not offered for this request */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1257,6 +1423,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeleteAppResult"];
                 };
+            };
+        };
+    };
+    proposeBoundaries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProposeBoundariesInput"];
+            };
+        };
+        responses: {
+            /** @description job kicked off (fire-and-forget) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingJobStatus"];
+                };
+            };
+            /** @description an onboarding job is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getBoundaryStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description onboarding job status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingJobStatus"];
+                };
+            };
+        };
+    };
+    confirmBoundaries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBoundariesInput"];
+            };
+        };
+        responses: {
+            /** @description boundaries: block written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateAppResult"];
+                };
+            };
+            /** @description no confirmable boundary profile for this app */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no confirmable boundary profile for this app */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

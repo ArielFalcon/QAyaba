@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { issueSession, validateSession, authorizeBearer } from "./auth";
+import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
 
 const secret = "test-signing-secret";
 
@@ -71,4 +71,30 @@ test("authorizeBearer rejects a wrong static token and non-bearer input", () => 
   assert.equal(authorizeBearer("Basic abc", staticToken, secret), null);
   assert.equal(authorizeBearer(undefined, staticToken, secret), null);
   assert.equal(authorizeBearer("", staticToken, secret), null);
+});
+
+test("authorizeBearer accepts a local-console session JWT", () => {
+  const now = 1_000_000_000;
+  const session = issueSession(LOCAL_CONSOLE_PRINCIPAL, secret, 3600, now);
+  assert.equal(authorizeBearer(`Bearer ${session}`, staticToken, secret, now), LOCAL_CONSOLE_PRINCIPAL);
+});
+
+test("allowLocalWebLogin is opt-in or loopback-only — never a docker-bridge IP", () => {
+  assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "172.17.0.1" }), false);
+  assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "192.168.1.10" }), false);
+  assert.equal(allowLocalWebLogin({ enabled: false }), false);
+  assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "127.0.0.1" }), true);
+  assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "::1" }), true);
+  assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "::ffff:127.0.0.1" }), true);
+  assert.equal(allowLocalWebLogin({ enabled: true, remoteAddress: "172.17.0.1" }), true);
+  assert.equal(allowLocalWebLogin({ enabled: true, remoteAddress: "8.8.8.8" }), true);
+});
+
+test("isPublicControlPlaneRoute includes the local-console bootstrap and the existing pre-auth surface", () => {
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/health"), true);
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/version"), true);
+  assert.equal(isPublicControlPlaneRoute("POST", "/api/auth/login"), true);
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/auth/local"), true);
+  assert.equal(isPublicControlPlaneRoute("POST", "/api/auth/local"), false);
+  assert.equal(isPublicControlPlaneRoute("GET", "/api/apps"), false);
 });

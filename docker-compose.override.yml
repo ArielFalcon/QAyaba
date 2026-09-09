@@ -43,6 +43,10 @@ services:
       # SPA monorepo like jhipster-store where the agent explores the live app via Playwright-MCP;
       # raised to 600s (10min) here so a slow-but-progressing exploration is not killed mid-flight.
       OPENCODE_PLANNER_TIMEOUT_MS: ${OPENCODE_PLANNER_TIMEOUT_MS:-600000}
+      # Same-origin web console: mint a short-lived session so the operator does not paste
+      # QA_API_TOKEN. Off in production compose (published :8080 would otherwise be an open
+      # control plane). Override here for local `docker compose up`. Set false to force login.
+      QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
     volumes:
       - ./src:/app/src
       - ./package.json:/app/package.json
@@ -56,6 +60,9 @@ services:
       # Mount target ends in .git because repo-mirror clones ${GIT_REMOTE_BASE}/${repo}.git — so for
       # repo "jhipster-store" the clone source resolves to /app/local-repos/jhipster-store.git.
       - ../jhipster-store:/app/local-repos/jhipster-store.git:ro
+      # Live-serve the vanilla console from web/public (resolveDashboardDir falls back here when
+      # web/dist has no index.html). Without this mount, only the image's COPY of web/ is served.
+      - ./web:/app/web
 
   # The agent navigates the DEV site through its Playwright MCP during generation, so it ALSO
   # needs to reach a host-local DEV target.

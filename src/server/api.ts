@@ -126,6 +126,10 @@ export interface ApiDeps {
   // Exchange a GitHub user token for a server session (POST /api/auth/login). Absent ⇒ the
   // route returns 501 (GitHub login not configured); the static QA_API_TOKEN still works.
   login?: (githubToken: string) => Promise<LoginOutcome>;
+  // Same-origin web-console bootstrap (GET /api/auth/local). Returns a minted session, or
+  // null when this request is not trusted (not loopback / QA_WEB_AUTO_LOGIN off). Absent
+  // or null ⇒ 404 — the capability is not advertised, and QA_API_TOKEN is never returned.
+  localLogin?: (remoteAddress: string) => { token: string; username: string; expiresAt: string } | null;
   // The OAuth App client id (public) advertised in the version handshake, so the console can run
   // the device flow without baking it in. Absent ⇒ not advertised (client falls back to its own).
   githubClientId?: string;
@@ -290,6 +294,10 @@ export async function handleApi(
 
   if (req.method === "POST" && path === "/api/auth/login") {
     return await handleLogin(req, res, deps);
+  }
+
+  if (req.method === "GET" && path === "/api/auth/local") {
+    return handleLocalLogin(req, res, deps);
   }
 
   if (req.method === "GET" && path === "/api/agent/config") {
@@ -1033,6 +1041,21 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, deps: ApiD
     const msg = err instanceof Error ? err.message : String(err);
     json(res, 502, { error: `GitHub login failed: ${msg}` });
   }
+  return true;
+}
+
+function handleLocalLogin(req: IncomingMessage, res: ServerResponse, deps: ApiDeps): boolean {
+  if (!deps.localLogin) {
+    json(res, 404, { error: "local console login is not available" });
+    return true;
+  }
+  const remoteAddress = req.socket?.remoteAddress ?? "";
+  const outcome = deps.localLogin(remoteAddress);
+  if (!outcome) {
+    json(res, 404, { error: "local console login is not available" });
+    return true;
+  }
+  contractJson(res, 200, LoginResponseSchema, outcome);
   return true;
 }
 

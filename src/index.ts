@@ -13,7 +13,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps } from "./server/api";
-import { authorizeBearer, issueSession } from "./server/auth";
+import { authorizeBearer, issueSession, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { toIntelligenceView } from "./server/intelligence-view";
@@ -22,7 +22,7 @@ import { toTrendsView } from "./server/trends-view";
 import { toReportView } from "./server/report-view";
 import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
-import { serveDashboard } from "./server/static";
+import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
@@ -580,6 +580,21 @@ const apiDeps: ApiDeps = {
     const token = issueSession(username, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
     return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
   },
+  // Same-origin web console: mint a short-lived session (never the machine token) when the
+  // caller is loopback or QA_WEB_AUTO_LOGIN=true (local docker, where the browser hits the
+  // published port and the container sees a bridge IP).
+  localLogin: (remoteAddress) => {
+    if (!allowLocalWebLogin({ enabled: process.env.QA_WEB_AUTO_LOGIN === "true", remoteAddress })) {
+      return null;
+    }
+    const now = Date.now();
+    const token = issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
+    return {
+      token,
+      username: LOCAL_CONSOLE_PRINCIPAL,
+      expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString(),
+    };
+  },
   agentRuntime,
   // Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
   // an enqueued or stale "running" record so the operator's stop always clears the run — never
@@ -635,21 +650,19 @@ const server = createServer(async (req, res) => {
     // and the connect screen needs the latter BEFORE auth so a stale binary can be
     // told to update even with a wrong token. Neither exposes secrets.
     const apiPath = path.replace(/^\/api\/v1(?=\/|$)/, "/api");
-    // Public (pre-auth) surface: liveness, the version handshake, and login. Login MUST be
-    // public — it is how a client with no token yet obtains one (it presents a GitHub token,
-    // not the API credential). None of these expose secrets.
-    const isLogin = req.method === "POST" && apiPath === "/api/auth/login";
-    const isPublic =
-      (req.method === "GET" && (apiPath === "/api/health" || apiPath === "/api/version")) || isLogin;
+    // Public (pre-auth) surface: liveness, the version handshake, GitHub login, and the
+    // same-origin local-console bootstrap. None of these return QA_API_TOKEN. /auth/local
+    // is public at the gate; the handler 404s untrusted callers (see allowLocalWebLogin).
+    const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
     if (!isPublic && !authorized(req)) {
       res.writeHead(401, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "unauthorized" }));
       return;
     }
-    // Throttle the public login endpoint per client IP: it is unauthenticated and each attempt
-    // fans out to the GitHub API, so an unbounded flood would amplify into GitHub traffic from
-    // this server's address. Over-limit attempts get 429 before any GitHub call is made.
-    if (isLogin && !loginLimiter.allow(req.socket.remoteAddress ?? "")) {
+    // Throttle the public auth bootstrap per client IP. Login fans out to GitHub; local
+    // minting is cheap but still unauthenticated, so it shares the same window.
+    const isAuthBootstrap = apiPath === "/api/auth/login" || apiPath === "/api/auth/local";
+    if (isAuthBootstrap && !loginLimiter.allow(req.socket.remoteAddress ?? "")) {
       res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "60" });
       res.end(JSON.stringify({ error: "too many login attempts — try again in a minute" }));
       return;
@@ -678,7 +691,7 @@ const server = createServer(async (req, res) => {
   // orchestrator's origin and the operator's credentials (no CORS). Until web/dist exists this
   // no-ops to a placeholder. The /api surface above stays Bearer-protected.
   if (req.method === "GET" && (path === "/app" || path.startsWith("/app/"))) {
-    if (await serveDashboard(req, res, { distDir: join(ROOT, "web", "dist") })) return;
+    if (await serveDashboard(req, res, { distDir: resolveDashboardDir(ROOT) })) return;
   }
 
   if (req.method === "POST") {

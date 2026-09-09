@@ -35,6 +35,15 @@ export interface ServeDashboardOptions {
   distDir: string;
 }
 
+// Prefer the vanilla console in web/public when present (the files under
+// web/public are the live source). web/dist is a vite build artifact and is
+// used only when public has no index.html, so a stale dist cannot shadow fixes.
+export function resolveDashboardDir(root: string): string {
+  const pub = join(root, "web", "public");
+  if (existsSync(join(pub, "index.html"))) return pub;
+  return join(root, "web", "dist");
+}
+
 // The deployed build is immutable at runtime, so reads are cached: index.html once (lazy), and each
 // resolved asset on first hit. Keyed by distDir so a different build dir gets its own cache.
 interface DistCache {

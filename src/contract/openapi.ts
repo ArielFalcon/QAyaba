@@ -137,6 +137,16 @@ function paths(): Record<string, unknown> {
         },
       },
     },
+    "/api/v1/auth/local": {
+      get: {
+        operationId: "localLogin",
+        summary: "Mint a short-lived session for the same-origin web console. Unauthenticated; succeeds only on loopback or when QA_WEB_AUTO_LOGIN=true. Never returns the machine token.",
+        responses: {
+          "200": { description: "session minted", content: jsonBody("LoginResponse") },
+          "404": { description: "local console login is not offered for this request" },
+        },
+      },
+    },
     "/api/v1/runs": {
       post: {
         operationId: "createRun", summary: "Enqueue a run",

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>qayaba · console</title>
+<meta name="description" content="qayaba console — the QA control panel: fleet, runs, the live run, integrity, learning and reports." />
+<meta name="theme-color" content="#f4f1e9" />
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="styles/console.css" />
+</head>
+<body>
+<div id="app"></div>
+
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:#14100e;z-index:9999;place-items:center">
+  <div style="text-align:center;max-width:28rem;padding:2rem;background:#1e1a17;border-radius:12px;border:1px solid #2a2522">
+    <h1 style="font-size:1.5rem;font-weight:500;color:#f5f1ee;margin:0 0 1.5rem">qayaba · login</h1>
+    
+    <div id="login-github" style="margin-bottom:1.5rem">
+      <p style="color:#b9aea6;font-size:0.875rem;margin:0 0 1rem">Log in with GitHub</p>
+      <div id="github-device-code" style="display:none;margin-bottom:1rem">
+        <p style="color:#f5f1ee;font-size:1.25rem;font-weight:600;margin:0.5rem 0" id="device-code-display"></p>
+        <p style="color:#b9aea6;font-size:0.875rem;margin:0.5rem 0">
+          Open <a href="#" id="verification-link" target="_blank" style="color:#d4a574">github.com/login/device</a> and enter the code above
+        </p>
+        <p style="color:#8a7f77;font-size:0.75rem;margin:0.5rem 0" id="login-status">Waiting for approval...</p>
+      </div>
+      <button id="btn-github-login" style="width:100%;padding:0.75rem;background:#24292e;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.875rem;font-weight:500">
+        Log in with GitHub
+      </button>
+    </div>
+    
+    <div style="border-top:1px solid #2a2522;padding-top:1.5rem">
+      <p style="color:#b9aea6;font-size:0.875rem;margin:0 0 1rem">Or paste your token</p>
+      <input type="password" id="token-input" placeholder="Paste token here" style="width:100%;padding:0.75rem;background:#14100e;color:#f5f1ee;border:1px solid #2a2522;border-radius:6px;font-size:0.875rem;margin-bottom:1rem;box-sizing:border-box" />
+      <button id="btn-token-login" style="width:100%;padding:0.75rem;background:#d4a574;color:#14100e;border:none;border-radius:6px;cursor:pointer;font-size:0.875rem;font-weight:500">
+        Connect
+      </button>
+    </div>
+    
+    <p id="login-error" style="color:#ff6b6b;font-size:0.75rem;margin:1rem 0 0;display:none"></p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.js"></script>
+<script src="/app/js/data.mock.js"></script>
+<script src="/app/js/format.js"></script>
+<script src="/app/js/api.js"></script>
+<script src="/app/js/console.js"></script>
+</body>
+</html>
