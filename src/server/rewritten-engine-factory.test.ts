@@ -300,6 +300,25 @@ test("buildRewrittenCompositionConfig wires codebaseMemory (the raw CLI client) 
   assert.equal(typeof config.codebaseMemory.cli, "function", "the collaborator is the raw CLI client (ProjectNameCliClient & CodebaseMemoryCliClient)");
 });
 
+test("buildRewrittenCompositionConfig sets indexStatus with getLastIndexedSha/setLastIndexedSha functions", () => {
+  const app = cfg("factory-index-status");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(config.indexStatus, "indexStatus is cheap JSON and must always be supplied — the use-case no-ops unless codeGraph is also wired");
+  assert.equal(typeof config.indexStatus.getLastIndexedSha, "function");
+  assert.equal(typeof config.indexStatus.setLastIndexedSha, "function");
+});
+
+test("qa.structuralSignals mode 'off' still supplies indexStatus (indexing is gated by omitted codebaseMemory/codeGraph, not by omitting the sidecar)", () => {
+  const app: AppConfig = {
+    ...cfg("factory-index-status-off"),
+    qa: { ...cfg("factory-index-status-off").qa, structuralSignals: { mode: "off" } },
+  };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.codebaseMemory, undefined, "mode:off omits codebaseMemory so wireBridges omits codeGraph — indexing is a no-op");
+  assert.ok(config.indexStatus, "indexStatus stays present when structural signals are off");
+  assert.equal(typeof config.indexStatus.getLastIndexedSha, "function");
+});
+
 test("buildRewrittenCompositionConfig sets mode from the passed run param, not a hardcoded 'diff'", () => {
   const app = cfg("factory-mode-manual");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "manual" });

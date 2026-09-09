@@ -24,6 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
 // ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
 // SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
@@ -1242,4 +1243,111 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
   }
+});
+
+// ── T2: per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ────────────────
+
+function memoryIndexStatus(): IndexStatusPort & { shas: Map<string, string> } {
+  const shas = new Map<string, string>();
+  return {
+    shas,
+    getLastIndexedSha: async (mirrorDir) => shas.get(mirrorDir),
+    setLastIndexedSha: async (mirrorDir, sha) => { shas.set(mirrorDir, sha); },
+  };
+}
+
+function codebaseMemoryRecording(tools: string[]) {
+  return {
+    cli: async (tool: string, jsonArg: string) => {
+      tools.push(tool);
+      if (tool === "list_projects") {
+        return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }), stderr: "" };
+      }
+      if (tool === "index_repository") {
+        return { code: 0, stdout: JSON.stringify({ nodes: 1 }), stderr: "" };
+      }
+      const parsed = JSON.parse(jsonArg) as { query?: string };
+      if (parsed.query?.includes("FILE_CHANGES_WITH")) {
+        return { code: 0, stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [], total: 0 }), stderr: "" };
+      }
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          columns: ["a_file", "a_name", "b_name", "b_file", "r1_conf"],
+          rows: [["src/x.ts", "handleX", "helperFn", "src/helper.ts", "0.9"]],
+          total: 1,
+        }),
+        stderr: "",
+      };
+    },
+  };
+}
+
+test("buildProduction(rewritten) invokes index_repository when indexStatus + codebaseMemory are supplied (new SHA)", async () => {
+  const tools: string[] = [];
+  const indexStatus = memoryIndexStatus();
+  const cfg = fakeConfig({
+    mode: "diff",
+    indexStatus,
+    codebaseMemory: codebaseMemoryRecording(tools),
+    vcs: {
+      blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
+      message: async () => "feat: add x",
+      diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
+    },
+  });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  const outcome = await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "composition-root-indexStatus-present",
+  });
+
+  assert.ok(tools.includes("index_repository"), "codeGraph.syncTo must reach index_repository when both ports are wired and SHA is new");
+  assert.equal(indexStatus.shas.get("/mirrors/org/app"), "abc1234");
+  assert.equal(outcome.verdict, "pass");
+});
+
+test("buildProduction(rewritten) omits indexing when indexStatus is absent even if codebaseMemory is wired", async () => {
+  const tools: string[] = [];
+  const cfg = fakeConfig({
+    mode: "diff",
+    codebaseMemory: codebaseMemoryRecording(tools),
+  });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "composition-root-indexStatus-absent",
+  });
+
+  assert.equal(tools.includes("index_repository"), false, "indexing requires BOTH indexStatus and codeGraph — omitting indexStatus must leave syncTo uncalled");
+});
+
+test("buildProduction(rewritten) omits indexing when codebaseMemory is absent even if indexStatus is supplied", async () => {
+  const indexStatus = memoryIndexStatus();
+  const cfg = fakeConfig({
+    mode: "diff",
+    indexStatus,
+  });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "composition-root-codeGraph-absent",
+  });
+
+  assert.equal(indexStatus.shas.size, 0, "without codebaseMemory there is no codeGraph, so lastIndexedSha must stay unset");
 });

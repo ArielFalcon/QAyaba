@@ -134,6 +134,7 @@ import { ProcessKillAdapter } from "../../qa-engine/src/shared-infrastructure/pr
 // construction at every layer: an unindexed mirror resolves to no project -> every query ok([]) ->
 // "" -> no prompt section — so supplying this unconditionally is always safe.
 import { CodebaseMemoryClient } from "../../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
+import { IndexStatusAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/index-status-port.adapter";
 
 // ── Root src/ collaborators (the REAL production pieces) ─────────────────────────────────────────
 // This module intentionally imports both qa-engine's @contexts/@kernel aliases AND root src/
@@ -1166,6 +1167,10 @@ export function buildRewrittenCompositionConfig(
         }
       : {},
     reviewDomGroundingCollaborators: {},
+    // Per-run lastIndexedSha sidecar (cheap JSON under QAYABA_ROOT/data). Always supplied —
+    // the use-case phase is a no-op unless wireBridges also builds codeGraph from codebaseMemory
+    // (gated by structuralSignalsOn). First-time full index remains onboarding.
+    indexStatus: new IndexStatusAdapter(join(process.env.QAYABA_ROOT ?? process.cwd(), "data")),
     // CodeGraph Phase 4 (design §5.3/§6, user-confirmed ACTIVE wiring): the raw CLI client for the
     // structural blast-radius signal. Reuses this factory's own `runner` (the same sandboxed spawn
     // primitive every other extractor uses). Unconditional by design — an unindexed mirror degrades

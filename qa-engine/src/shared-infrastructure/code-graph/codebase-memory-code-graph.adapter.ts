@@ -12,7 +12,8 @@
 //   - REAL (4a-i): impactedSymbols, the safe literal-inlining helpers (inlineList/inlineLiteral),
 //     shared row parsing (parseRows), the confidence floor.
 //   - REAL (4a-i, per design §6/R11): syncTo — spawns index_repository, maps a whole-index failure to
-//     IndexFailed. Implemented+tested here; NEVER called by RunQaUseCase in this change (ADR-4).
+//     IndexFailed. RunQaUseCase calls this on the per-run indexing phase when lastIndexedSha differs
+//     from the run SHA (both IndexStatusPort and CodeGraphPort must be wired).
 //   - REAL (4a-ii, this batch): coChangeCoupling (undirected FILE_CHANGES_WITH mapping, §3.2),
 //     callersOf (inbound CALLS anchored on the symbol, §3.3).
 //   - INERT ok([]) stubs, OUT OF SCOPE FOR THIS ENTIRE CHANGE: existingCoverage, structurallyRelated
@@ -456,8 +457,10 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
   }
 
   /** Real per design §6/R11: spawns index_repository, maps a whole-index failure to IndexFailed.
-   *  NEVER called by RunQaUseCase in this change (ADR-4) — implemented+tested so the capability
-   *  exists, exercised only by this adapter's own unit tests until a future phase wires it live. */
+   *  Called by RunQaUseCase's per-run indexing phase when IndexStatusPort says lastIndexedSha
+   *  differs from the run SHA (and both ports are wired). First-time full index of an unresolved
+   *  project remains onboarding (`indexRepoForOnboarding`); this path updates already-indexed
+   *  projects. IndexFailed / throw are fail-open at the use-case — lastIndexedSha is not written. */
   async syncTo(
     repoDir: string,
     changedFiles: string[],

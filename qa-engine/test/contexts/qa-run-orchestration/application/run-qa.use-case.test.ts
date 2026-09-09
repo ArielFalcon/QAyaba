@@ -38,6 +38,8 @@ import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import { GenerationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -6194,4 +6196,191 @@ test('curriculum: the fold threads a measured "unknown" verbatim — the evidenc
   assert.equal(folds.length, 1);
   assert.equal(folds[0]!.verdict, "pass");
   assert.equal(folds[0]!.coverageStatus, "unknown", "a measured \"unknown\" is threaded honestly, never normalised to a hardcoded status");
+});
+
+// ── T2: per-run mirror indexing (IndexStatusPort + CodeGraphPort) ──────────────────────────────
+// Both ports optional ([SWAP] absent = no-op). SHA skip, IndexFailed, and throws are fail-open.
+// Classify-skip returns before this phase (mirror may be GC'd). Observer vocabulary stays closed.
+
+function fakeCodeGraph(syncTo: CodeGraphPort["syncTo"]): CodeGraphPort {
+  return {
+    syncTo,
+    impactedSymbols: async () => ok([]),
+    coChangeCoupling: async () => ok([]),
+    callersOf: async () => ok([]),
+    existingCoverage: async () => ok([]),
+    structurallyRelated: async () => ok([]),
+  };
+}
+
+function memoryIndexStatus(
+  initial?: Record<string, string>,
+): IndexStatusPort & { writes: Array<{ mirrorDir: string; sha: string }> } {
+  const shas = new Map<string, string>(Object.entries(initial ?? {}));
+  const writes: Array<{ mirrorDir: string; sha: string }> = [];
+  return {
+    writes,
+    getLastIndexedSha: async (mirrorDir) => shas.get(mirrorDir),
+    setLastIndexedSha: async (mirrorDir, sha) => {
+      writes.push({ mirrorDir, sha });
+      shas.set(mirrorDir, sha);
+    },
+  };
+}
+
+test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir and classification.intent.changedFiles", async () => {
+  const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
+  const { ports } = stubPorts({
+    classify: async () => ({
+      action: "generate",
+      reason: "type=feat",
+      diff: "the-diff",
+      intent: { type: "feat", breaking: false, message: "add a", changedFiles: ["src/a.ts"] },
+    }),
+  });
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles: [...changedFiles] });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-sha-changed" });
+
+  assert.equal(syncToCalls.length, 1, "syncTo must run once when lastIndexedSha differs from the run SHA");
+  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.deepEqual(syncToCalls[0]!.changedFiles, ["src/a.ts"]);
+  assert.equal(indexStatus.writes.length, 1);
+  assert.equal(indexStatus.writes[0]!.sha, "abc1234");
+  assert.equal(out.decision.verdict, "pass");
+});
+
+test("mirror index: same SHA already recorded → syncTo NOT called", async () => {
+  const syncToCalls: unknown[] = [];
+  const { ports } = stubPorts();
+  const indexStatus = memoryIndexStatus({ "/tmp/qa-golden": "abc1234" });
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "mirror-index-same-sha-skip" });
+
+  assert.equal(syncToCalls.length, 0, "matching lastIndexedSha must skip syncTo");
+  assert.equal(indexStatus.writes.length, 0, "SHA skip must not rewrite lastIndexedSha");
+});
+
+test("mirror index: syncTo Result.ok false → run still reaches generate/pass; setLastIndexedSha NOT called", async () => {
+  let generateCalls = 0;
+  const { ports } = stubPorts();
+  ports.generation.generate = async () => {
+    generateCalls++;
+    return { specs: ["a.spec.ts"], approved: true };
+  };
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async () => ({ ok: false, error: { reason: "x" } }));
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-sync-err" });
+
+  assert.equal(generateCalls > 0, true, "IndexFailed is a modeled failure — generate must still run");
+  assert.equal(out.decision.verdict, "pass");
+  assert.notEqual(out.decision.verdict, "infra-error");
+  assert.equal(indexStatus.writes.length, 0, "IndexFailed must not setLastIndexedSha (first-time full index stays onboarding)");
+});
+
+test("mirror index: syncTo throws → run continues (fail-open); not infra-error", async () => {
+  const { ports } = stubPorts();
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async () => {
+    throw new Error("indexer crashed");
+  });
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-sync-throw" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.notEqual(out.decision.verdict, "infra-error");
+  assert.equal(indexStatus.writes.length, 0);
+});
+
+test("mirror index: absent IndexStatus/codeGraph ports → no syncTo (existing path)", async () => {
+  let generateCalls = 0;
+  const { ports } = stubPorts();
+  ports.generation.generate = async () => {
+    generateCalls++;
+    return { specs: ["a.spec.ts"], approved: true };
+  };
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-absent-ports" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCalls > 0, true);
+});
+
+test("mirror index: only one of the two ports present → syncTo NOT called", async () => {
+  const syncToCalls: unknown[] = [];
+  const { ports } = stubPorts();
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+
+  await new RunQaUseCase({ ...ports, indexStatus, config: baseConfig }).run({
+    ...baseInput,
+    runId: "mirror-index-only-indexStatus",
+  });
+  await new RunQaUseCase({ ...ports, codeGraph, config: baseConfig }).run({
+    ...baseInput,
+    runId: "mirror-index-only-codeGraph",
+  });
+
+  assert.equal(syncToCalls.length, 0);
+  assert.equal(indexStatus.writes.length, 0);
+});
+
+test("mirror index: classify skip → syncTo NOT called (skip returns before phase)", async () => {
+  const syncToCalls: unknown[] = [];
+  const { ports } = stubPorts({
+    classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }),
+  });
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-classify-skip", mode: "diff" });
+
+  assert.equal(out.decision.verdict, "skipped");
+  assert.equal(syncToCalls.length, 0, "classify skip must return before indexing — the mirror may be GC'd");
+  assert.equal(indexStatus.writes.length, 0);
+});
+
+test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when SHA new", async () => {
+  const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
+  const { ports } = stubPorts({
+    classify: async () => {
+      throw new Error("classify() must never be called outside diff mode");
+    },
+  });
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles: [...changedFiles] });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+  const useCase = new RunQaUseCase({ ...ports, indexStatus, codeGraph, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "mirror-index-manual-empty-files", mode: "manual" });
+
+  assert.equal(syncToCalls.length, 1);
+  assert.equal(syncToCalls[0]!.repoDir, "/tmp/qa-golden");
+  assert.deepEqual(syncToCalls[0]!.changedFiles, []);
+  assert.equal(indexStatus.writes.length, 1);
+  assert.equal(indexStatus.writes[0]!.sha, "abc1234");
+  assert.equal(out.decision.verdict, "pass");
 });

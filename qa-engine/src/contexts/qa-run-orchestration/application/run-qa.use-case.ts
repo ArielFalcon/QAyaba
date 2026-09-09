@@ -7,7 +7,8 @@
 // emitted as the NUMBER 0 (not undefined) when W1/W2 is unwired — pins the comparator's silent-mismatch hole.
 //
 // Phase order (legacy, verbatim): gate (DeployGatePort) -> prepare (WorkspacePort) -> classify
-// (ChangeAnalysisPort; diff mode only -> skip short-circuit) -> generate (GenerationPort) -> validate
+// (ChangeAnalysisPort; diff mode only -> skip short-circuit) -> index (optional IndexStatusPort +
+// CodeGraphPort; fail-open, SHA skip; never on classify-skip) -> generate (GenerationPort) -> validate
 // (ValidationPort) -> health -> execute (ExecutionPort) -> FixLoop (Task D.4, standalone aggregate) ->
 // measure (ObjectiveSignalPort, the keystone) -> review (ReviewPort) -> decide (RunDecisionService) ->
 // publish (PublicationPort) -> persist (RunHistoryPort) -> fold (LearningPort, off-path).
@@ -31,6 +32,8 @@ import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
+import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type {
   ChangeAnalysisPort,
   GenerationPort,
@@ -310,6 +313,14 @@ export interface RunQaUseCaseDeps {
   // the verdict or blocks the run from completing (mirrors enforceConfinement's own fault-isolation
   // contract, immediately above).
   mirrorGc?: MirrorGcPort;
+  // [SWAP] absent either port -> the per-run mirror-index phase is a no-op (existing tests stay
+  // valid without fakes). Indexing requires BOTH indexStatus and codeGraph. Fail-open: a throw or
+  // Result.ok false (IndexFailed — e.g. ProjectNameResolver cannot resolve the repo) never becomes
+  // infra-error and does not setLastIndexedSha (first-time full index remains onboarding). SHA skip:
+  // lastIndexedSha === input.sha skips syncTo. Classify-skip returns before this phase (the mirror
+  // may already have been GC'd). Observer vocabulary is closed — this phase does not emit onStep.
+  indexStatus?: IndexStatusPort;
+  codeGraph?: CodeGraphPort;
   config?: Partial<RunQaConfig>;
 }
 
@@ -558,6 +569,26 @@ export class RunQaUseCase {
       }
       generating = classification.action !== "regression";
     }
+
+    // Per-run mirror indexing. Requires BOTH ports; absent is a no-op. Classify-skip already
+    // returned above — that path may GC the mirror, so it never indexes. SHA skip: matching
+    // lastIndexedSha does not call syncTo. Result.ok false is a modeled IndexFailed: do not
+    // setLastIndexedSha. Throws are fail-open (never infra-error). No onStep("index").
+    if (this.deps.indexStatus && this.deps.codeGraph) {
+      try {
+        const lastIndexedSha = await this.deps.indexStatus.getLastIndexedSha(workspace.mirrorDir);
+        if (lastIndexedSha !== input.sha.toString()) {
+          const changedFiles = classificationIntent?.changedFiles ?? [];
+          const result = await this.deps.codeGraph.syncTo(workspace.mirrorDir, changedFiles);
+          if (result.ok) {
+            await this.deps.indexStatus.setLastIndexedSha(workspace.mirrorDir, input.sha.toString());
+          }
+        }
+      } catch (err) {
+        console.warn("[qa] mirror indexing failed (non-blocking):", err);
+      }
+    }
+
     if (signal?.aborted) {
       // sdd/migration-wiring-phase-2 Slice 2 rider (judgment-day round-1 fix): POST-prepare — the
       // mirror was already checked out above, matching the classify-skip exit's own gc call

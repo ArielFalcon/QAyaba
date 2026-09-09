@@ -52,6 +52,7 @@ import { StructuralSignalPortAdapter } from "../infrastructure/bridges/structura
 import { LazyProjectCodeGraphAdapter } from "../../../shared-infrastructure/code-graph/lazy-project-code-graph.adapter.ts";
 import { ProjectNameResolver, type ProjectNameCliClient } from "../../../shared-infrastructure/code-graph/resolve-project-name.ts";
 import type { CodebaseMemoryCliClient } from "../../../shared-infrastructure/code-graph/codebase-memory-code-graph.adapter.ts";
+import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import { ServiceLinksPortAdapter } from "../infrastructure/bridges/service-links-port.adapter.ts";
 import { MirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/mirror-registry.adapter.ts";
 import type { BoundaryProfileProviderPort } from "@contexts/service-topology/application/ports/index.ts";
@@ -203,6 +204,10 @@ export interface CompositionConfig {
   // ok([]) inside that adapter, never surfacing here — this collaborator is deliberately just the
   // raw CLI client, not a pre-resolved project name (a caller does not know the name up front).
   codebaseMemory?: ProjectNameCliClient & CodebaseMemoryCliClient;
+  // Per-run lastIndexedSha sidecar. OPTIONAL: absent-omit — never default-constructed here
+  // (tests/fakes stay byte-identical when omitted). The shell factory supplies IndexStatusAdapter.
+  // Indexing itself also needs codeGraph (built from codebaseMemory below); either absent is a no-op.
+  indexStatus?: IndexStatusPort;
   // Stitcher→Generation seam (design §3.6): the OPTIONAL serviceTopology collaborator. Mirrors
   // codebaseMemory's own [SWAP] posture — absent -> RunQaUseCaseDeps.serviceLinks stays undefined,
   // NEVER a stub ok([])-shaped fake. When present, wireBridges constructs a ServiceLinksPortAdapter
@@ -576,12 +581,16 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
 
   // StructuralSignalPort (CodeGraph Phase 4, design §5.3/§6): OPTIONAL, absent -> undefined (never
   // a stub), the SAME [SWAP] posture setup/preGenerationGrounding/cleanup already established.
-  // LazyProjectCodeGraphAdapter resolves the indexed project name from repoDir lazily, per call —
-  // this composition root stays synchronous, and an unindexed repo degrades to no section entirely
-  // inside that adapter chain (never surfacing an error here).
-  const structuralSignal = cfg.codebaseMemory
+  // ONE LazyProjectCodeGraphAdapter is constructed when codebaseMemory is present and shared with
+  // RunQaUseCaseDeps.codeGraph (per-run syncTo) — do not double-construct for structuralSignal.
+  // An unindexed repo degrades queries to no section inside that adapter chain; syncTo maps the
+  // same unresolved project to IndexFailed (fail-open at the use-case: no setLastIndexedSha).
+  const codeGraphPort = cfg.codebaseMemory
+    ? new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory))
+    : undefined;
+  const structuralSignal = codeGraphPort
     ? new StructuralSignalPortAdapter(
-        new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory)),
+        codeGraphPort,
         // The graph is indexed at the repo ROOT — cfg.mirrorDir, not workspace.specDir's e2e
         // subfolder (see StructuralSignalPortAdapter's own header for the full rationale).
         cfg.mirrorDir,
@@ -732,6 +741,8 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
     ...(preExecGrounding ? { preExecGrounding } : {}),
     ...(structuralSignal ? { structuralSignal } : {}),
+    ...(cfg.indexStatus ? { indexStatus: cfg.indexStatus } : {}),
+    ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),
