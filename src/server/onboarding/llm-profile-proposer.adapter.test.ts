@@ -323,6 +323,93 @@ test("propose(): omitting ctx.signal leaves deps.open's opts.signal undefined (n
   assert.equal(opens[0]?.signal, undefined);
 });
 
+test("propose(): prompt documents the http-backend transport shape and callPattern kinds", async () => {
+  let capturedPrompt = "";
+  const depsFactory: () => Promise<AgentDeps> = async () => ({
+    open: async () => ({
+      id: "fake-session",
+      prompt: async (text: string) => {
+        capturedPrompt = text;
+        return fencedJson(VALID_VERDICT_JSON);
+      },
+      dispose: async () => {},
+    }),
+  });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  await adapter.propose(SYSTEM, FRONT);
+
+  assert.ok(capturedPrompt.includes("http-backend"), "prompt must document the http-backend transport");
+  assert.ok(capturedPrompt.includes("sourceFiles"), "prompt must name sourceFiles exactly");
+  assert.ok(capturedPrompt.includes("callPattern"), "prompt must name callPattern exactly");
+  assert.ok(capturedPrompt.includes("rest-template-exchange"), "prompt must list rest-template-exchange");
+  assert.ok(capturedPrompt.includes("feign-client"), "prompt must list feign-client");
+  assert.ok(capturedPrompt.includes("web-client"), "prompt must list web-client");
+});
+
+test("propose(): a well-formed http-backend candidate is returned as an HttpBackendBoundaryProfile", async () => {
+  const verdict = JSON.stringify({
+    candidates: [
+      {
+        transport: "http-backend",
+        sourceFiles: "**/*.java",
+        callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+        servicePrefixTemplate: "name-{service}-api",
+        serviceRepoTemplate: "ms-name-{service}",
+        openApiPath: "openapi.yaml",
+      },
+    ],
+  });
+  const depsFactory = fakeDepsFactory({ promptResult: fencedJson(verdict) });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+
+  const result = await adapter.propose(SYSTEM, FRONT);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.transport, "http-backend");
+  if (result[0]?.transport === "http-backend") {
+    assert.equal(result[0].sourceFiles, "**/*.java");
+    assert.equal(result[0].callPattern.kind, "rest-template-exchange");
+  }
+});
+
+test("propose(): http-backend prior-round feedback is summarized without throwing", async () => {
+  let capturedPrompt = "";
+  const depsFactory: () => Promise<AgentDeps> = async () => ({
+    open: async () => ({
+      id: "fake-session",
+      prompt: async (text: string) => {
+        capturedPrompt = text;
+        return fencedJson(VALID_VERDICT_JSON);
+      },
+      dispose: async () => {},
+    }),
+  });
+  const adapter = new LlmProfileProposerAdapter(depsFactory, PROPOSER_MODEL, { app: "nname" });
+  const feedback: ProposerFeedback = {
+    priorCandidates: [
+      {
+        profile: {
+          transport: "http-backend",
+          sourceFiles: "**/*.java",
+          callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+          servicePrefixTemplate: "name-{service}-api",
+          serviceRepoTemplate: "ms-name-{service}",
+          openApiPath: "openapi.yaml",
+        },
+        score: { links: 0, drift: 1, external: 0, unresolved: 0, coverage: 1, resolutionRatio: 0, resolvedScore: 0 },
+      },
+    ],
+  };
+
+  const result = await adapter.propose(SYSTEM, FRONT, feedback);
+  assert.ok(result.length >= 0, "must not throw / fail-open-empty solely because of http-backend feedback");
+  assert.ok(capturedPrompt.includes("http-backend"), "feedback summary must name the http-backend transport");
+  assert.ok(
+    capturedPrompt.includes("rest-template-exchange") || capturedPrompt.includes("callPattern"),
+    "feedback summary must describe the http-backend shape",
+  );
+});
+
 test("propose(): when feedback.priorCandidates is non-empty, the prompt text references the prior round", async () => {
   let capturedPrompt = "";
   const depsFactory: () => Promise<AgentDeps> = async () => ({

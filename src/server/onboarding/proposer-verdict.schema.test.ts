@@ -61,6 +61,33 @@ test("ProposerVerdictSchema: parses a valid event candidate into a well-formed p
   }
 });
 
+test("ProposerVerdictSchema: parses a valid http-backend candidate into a well-formed profile", () => {
+  const input = {
+    candidates: [
+      {
+        transport: "http-backend",
+        sourceFiles: "**/*.java",
+        callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+        servicePrefixTemplate: "name-{service}-api",
+        serviceRepoTemplate: "ms-name-{service}",
+        openApiPath: "openapi.yaml",
+      },
+    ],
+  };
+  const result = ProposerVerdictSchema.parse(input);
+  assert.equal(result.candidates.length, 1);
+  const candidate = result.candidates[0];
+  assert.equal(candidate?.transport, "http-backend");
+  if (candidate?.transport === "http-backend") {
+    assert.equal(candidate.sourceFiles, "**/*.java");
+    assert.equal(candidate.callPattern.kind, "rest-template-exchange");
+    assert.equal(candidate.callPattern.receiver, "restTemplate");
+    assert.equal(candidate.servicePrefixTemplate, "name-{service}-api");
+    assert.equal(candidate.serviceRepoTemplate, "ms-name-{service}");
+    assert.equal(candidate.openApiPath, "openapi.yaml");
+  }
+});
+
 test("ProposerVerdictSchema: a malformed middle entry is dropped (sentinel), valid siblings survive", () => {
   const input = {
     candidates: [

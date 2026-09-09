@@ -737,6 +737,17 @@ export interface components {
                     subscriberBaseType: string;
                     publishCall: string;
                 };
+            } | {
+                /** @enum {string} */
+                transport: "http-backend";
+                sourceFiles: string;
+                callPattern: {
+                    kind: string;
+                    receiver?: string;
+                };
+                servicePrefixTemplate: string;
+                serviceRepoTemplate: string;
+                openApiPath: string;
             };
             /** @enum {string} */
             outcome?: "winner" | "no-profile";

@@ -40,10 +40,10 @@ function quoted(value: string): string {
 }
 
 /** Hand-builds the `boundaries:` entry lines for a single profile — the exact inverse of
- *  parseHttpBoundaryProfile / parseEventBoundaryProfile. Field order mirrors
- *  config/apps/example.yaml so a human reviewer sees the familiar shape. Every free-form string
- *  value (including `kind` fields, which are schema-unconstrained today) is emitted through
- *  `quoted()` so no interpolated value can corrupt the surrounding YAML structure. */
+ *  parseHttpBoundaryProfile / parseEventBoundaryProfile / parseHttpBackendBoundaryProfile. Field
+ *  order mirrors config/apps/example.yaml so a human reviewer sees the familiar shape. Every
+ *  free-form string value (including `kind` fields, which are schema-unconstrained today) is
+ *  emitted through `quoted()` so no interpolated value can corrupt the surrounding YAML structure. */
 export function serializeBoundary(profile: BoundaryProfile): string[] {
   if (profile.transport === "http") {
     const callSite = profile.frontCallSite.receiver
@@ -53,6 +53,20 @@ export function serializeBoundary(profile: BoundaryProfile): string[] {
       `${INDENT}- transport: http`,
       `${INDENT}${INDENT}frontFiles: ${quoted(profile.frontFiles)}`,
       `${INDENT}${INDENT}frontCallSite: ${callSite}`,
+      `${INDENT}${INDENT}servicePrefixTemplate: ${quoted(profile.servicePrefixTemplate)}`,
+      `${INDENT}${INDENT}serviceRepoTemplate: ${quoted(profile.serviceRepoTemplate)}`,
+      `${INDENT}${INDENT}openApiPath: ${quoted(profile.openApiPath)}`,
+    ];
+  }
+
+  if (profile.transport === "http-backend") {
+    const callPattern = profile.callPattern.receiver
+      ? `{ kind: ${quoted(profile.callPattern.kind)}, receiver: ${quoted(profile.callPattern.receiver)} }`
+      : `{ kind: ${quoted(profile.callPattern.kind)} }`;
+    return [
+      `${INDENT}- transport: http-backend`,
+      `${INDENT}${INDENT}sourceFiles: ${quoted(profile.sourceFiles)}`,
+      `${INDENT}${INDENT}callPattern: ${callPattern}`,
       `${INDENT}${INDENT}servicePrefixTemplate: ${quoted(profile.servicePrefixTemplate)}`,
       `${INDENT}${INDENT}serviceRepoTemplate: ${quoted(profile.serviceRepoTemplate)}`,
       `${INDENT}${INDENT}openApiPath: ${quoted(profile.openApiPath)}`,

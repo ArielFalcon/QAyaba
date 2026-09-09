@@ -10,8 +10,13 @@ import {
   YamlBoundaryProfileAdapter,
   parseHttpBoundaryProfile,
   parseEventBoundaryProfile,
+  parseHttpBackendBoundaryProfile,
 } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter.ts";
-import type { EventBoundaryProfile, HttpBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type {
+  EventBoundaryProfile,
+  HttpBoundaryProfile,
+  HttpBackendBoundaryProfile,
+} from "@contexts/service-topology/domain/index.ts";
 
 // ==========================================
 // parseHttpBoundaryProfile — pure validator unit tests
@@ -439,4 +444,148 @@ boundaries:
   const eventProfile = profiles.find((p): p is EventBoundaryProfile => p.transport === "event");
   assert.ok(eventProfile, "expected an event profile in the mixed result");
   assert.equal(eventProfile.eventPattern.kind, "class-based-domain-events");
+});
+
+// ==========================================
+// parseHttpBackendBoundaryProfile — BE→BE HTTP
+// ==========================================
+
+const VALID_HTTP_BACKEND_RAW = {
+  transport: "http-backend",
+  sourceFiles: "**/*.java",
+  callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+  servicePrefixTemplate: "name-{service}-api",
+  serviceRepoTemplate: "ms-name-{service}",
+  openApiPath: "src/main/resources/openapi/api-definition.yaml",
+};
+
+test("parseHttpBackendBoundaryProfile: a fully valid entry returns an HttpBackendBoundaryProfile", () => {
+  const result = parseHttpBackendBoundaryProfile(VALID_HTTP_BACKEND_RAW);
+  assert.ok(result !== null, "expected a non-null profile for a valid entry");
+  assert.equal(result.transport, "http-backend");
+  assert.equal(result.sourceFiles, "**/*.java");
+  assert.deepEqual(result.callPattern, { kind: "rest-template-exchange", receiver: "restTemplate" });
+  assert.equal(result.servicePrefixTemplate, "name-{service}-api");
+  assert.equal(result.serviceRepoTemplate, "ms-name-{service}");
+  assert.equal(result.openApiPath, "src/main/resources/openapi/api-definition.yaml");
+});
+
+test("parseHttpBackendBoundaryProfile: missing transport returns null", () => {
+  const { transport, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: http transport returns null (this parser is http-backend only)", () => {
+  const result = parseHttpBackendBoundaryProfile({ ...VALID_HTTP_BACKEND_RAW, transport: "http" });
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: missing sourceFiles returns null", () => {
+  const { sourceFiles, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: blank sourceFiles returns null", () => {
+  const result = parseHttpBackendBoundaryProfile({ ...VALID_HTTP_BACKEND_RAW, sourceFiles: "   " });
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: missing servicePrefixTemplate returns null", () => {
+  const { servicePrefixTemplate, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: missing serviceRepoTemplate returns null", () => {
+  const { serviceRepoTemplate, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: missing openApiPath returns null", () => {
+  const { openApiPath, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: missing callPattern returns null", () => {
+  const { callPattern, ...rest } = VALID_HTTP_BACKEND_RAW;
+  const result = parseHttpBackendBoundaryProfile(rest);
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: callPattern missing kind returns null", () => {
+  const result = parseHttpBackendBoundaryProfile({ ...VALID_HTTP_BACKEND_RAW, callPattern: { receiver: "restTemplate" } });
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: callPattern with an unknown (non-catalogued) kind returns null", () => {
+  const result = parseHttpBackendBoundaryProfile({
+    ...VALID_HTTP_BACKEND_RAW,
+    callPattern: { kind: "mystery-shape", receiver: "restTemplate" },
+  });
+  assert.equal(result, null);
+});
+
+test("parseHttpBackendBoundaryProfile: callPattern without receiver is still valid (receiver is optional)", () => {
+  const result = parseHttpBackendBoundaryProfile({ ...VALID_HTTP_BACKEND_RAW, callPattern: { kind: "feign-client" } });
+  assert.ok(result !== null, "expected a non-null profile when callPattern has no receiver");
+  assert.deepEqual(result.callPattern, { kind: "feign-client" });
+});
+
+test("parseHttpBackendBoundaryProfile: entirely malformed input (null) returns null", () => {
+  const result = parseHttpBackendBoundaryProfile(null);
+  assert.equal(result, null);
+});
+
+const VALID_HTTP_BACKEND_YAML = `
+boundaries:
+  - transport: http-backend
+    sourceFiles: "**/*.java"
+    callPattern: { kind: rest-template-exchange, receiver: "restTemplate" }
+    servicePrefixTemplate: "name-{service}-api"
+    serviceRepoTemplate: "ms-name-{service}"
+    openApiPath: "src/main/resources/openapi/api-definition.yaml"
+`;
+
+test("YamlBoundaryProfileAdapter.forApp: a valid http-backend boundaries[] entry returns one HttpBackendBoundaryProfile", async () => {
+  const adapter = new YamlBoundaryProfileAdapter(() => VALID_HTTP_BACKEND_YAML);
+  const profiles = await adapter.forApp("some-app");
+  assert.equal(profiles.length, 1);
+  const profile = profiles[0]! as HttpBackendBoundaryProfile;
+  assert.equal(profile.transport, "http-backend");
+  assert.equal(profile.sourceFiles, "**/*.java");
+  assert.equal(profile.callPattern.kind, "rest-template-exchange");
+  assert.equal(profile.callPattern.receiver, "restTemplate");
+});
+
+test("YamlBoundaryProfileAdapter.forApp: an http-backend entry missing sourceFiles is skipped (does not throw)", async () => {
+  const yaml = `
+boundaries:
+  - transport: http-backend
+    callPattern: { kind: rest-template-exchange, receiver: "restTemplate" }
+    servicePrefixTemplate: "name-{service}-api"
+    serviceRepoTemplate: "ms-name-{service}"
+    openApiPath: "src/main/resources/openapi/api-definition.yaml"
+`;
+  const adapter = new YamlBoundaryProfileAdapter(() => yaml);
+  const profiles = await adapter.forApp("missing-source");
+  assert.deepEqual(profiles, [], "an http-backend entry missing sourceFiles must be skipped, not throw");
+});
+
+test("YamlBoundaryProfileAdapter.forApp: an http-backend entry with an unknown callPattern.kind is skipped", async () => {
+  const yaml = `
+boundaries:
+  - transport: http-backend
+    sourceFiles: "**/*.java"
+    callPattern: { kind: mystery-shape, receiver: "restTemplate" }
+    servicePrefixTemplate: "name-{service}-api"
+    serviceRepoTemplate: "ms-name-{service}"
+    openApiPath: "src/main/resources/openapi/api-definition.yaml"
+`;
+  const adapter = new YamlBoundaryProfileAdapter(() => yaml);
+  const profiles = await adapter.forApp("mystery-kind");
+  assert.deepEqual(profiles, [], "an unknown callPattern.kind cannot be resolved — skip it at load time");
 });

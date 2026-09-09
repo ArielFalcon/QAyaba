@@ -14,10 +14,9 @@
 // enclosing method_definition / function_declaration / public_field_definition (arrow), giving the
 // correct method name even when the call-site is nested inside .pipe(switchMap(...), catchError(...)).
 // Falls back to a backward-scan heuristic if tree-sitter fails to load.
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
-import { parse as parseYaml } from "yaml";
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
 import type {
   RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift, ExternalCall, UnresolvedCall,
@@ -26,75 +25,12 @@ import type {
 import { CallSiteCatalog, type CallSiteOccurrence } from "./call-site-catalog.ts";
 import { compilePrefixTemplate, compileRepoTemplate, type PrefixMatch } from "./boundary-template.ts";
 import { compileFileGlob } from "./glob-suffix.ts";
+import { walkRepoFiles } from "./repo-walk.ts";
+import { parseOpenApiYaml, findOp, segs, isParam, type IngressOp } from "./openapi-ingress.ts";
 
 // ---- Constants ----
-// Standard across every profile — NOT app-specific. HTTP verbs and const-declaration syntax
-// are transport/language facts, not a watched app's convention (Invariant #1).
-const VERBS = new Set(["get", "post", "put", "patch", "delete"]);
 // Matches: const NAME = 'value' or export const NAME = 'value' (for const resolution)
 const CONST_RE = /(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(['"`])((?:\\.|(?!\2).)*)\2/g;
-
-// Vendor/build directories to SKIP during the recursive walk — not app code, never a genuine
-// call-site. Twin of event-resolver.adapter.ts's own SKIP_DIRS — keep the two in lockstep.
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "target", ".next", ".cache"]);
-
-// ---- Segment helpers ----
-function segs(p: string): string[] {
-  return String(p).replace(/^\/+/, "").replace(/\/+$/, "").split("/").filter(Boolean);
-}
-function isParam(s: string): boolean {
-  return s.startsWith("{") && s.endsWith("}");
-}
-
-// ---- Ingress: parsed OpenAPI operation ----
-interface IngressOp {
-  service: string;
-  path: string;
-  verb: string;       // uppercase
-  operationId: string;
-  segs: string[];
-}
-
-/** Parse a backend's OpenAPI YAML using the yaml package; return typed operation entries. */
-function parseOpenApiYaml(service: string, content: string): IngressOp[] {
-  const ops: IngressOp[] = [];
-  let doc: Record<string, unknown>;
-  try {
-    doc = parseYaml(content) as Record<string, unknown>;
-  } catch {
-    return ops;
-  }
-  const paths = doc["paths"] as Record<string, unknown> | undefined;
-  if (!paths) return ops;
-  for (const [path, pathItem] of Object.entries(paths)) {
-    if (typeof pathItem !== "object" || pathItem === null) continue;
-    for (const [verb, operation] of Object.entries(pathItem as Record<string, unknown>)) {
-      if (!VERBS.has(verb.toLowerCase())) continue;
-      if (typeof operation !== "object" || operation === null) continue;
-      const operationId = (operation as Record<string, unknown>)["operationId"];
-      if (typeof operationId !== "string") continue;
-      ops.push({ service, path, verb: verb.toUpperCase(), operationId, segs: segs(path) });
-    }
-  }
-  return ops;
-}
-
-/** Find an ingress operation matching (service, verb, frontSegments) via structural segment match.
- *  Determinism rule: when the contract has both a literal segment (e.g. /orders/active) and a
- *  param segment (e.g. /orders/{id}) at the same slot, the all-literal match wins.
- *  Array.find() alone would return whichever is declared first in the YAML — non-deterministic. */
-function findOp(ingress: IngressOp[], service: string, verb: string, frontSegs: string[]): IngressOp | undefined {
-  const candidates = ingress.filter((o) =>
-    o.service === service &&
-    o.verb === verb &&
-    o.segs.length === frontSegs.length &&
-    o.segs.every((c, i) => isParam(c) || c === (frontSegs[i] ?? "")),
-  );
-  if (candidates.length === 0) return undefined;
-  // Prefer an exact all-literal match (no {param} segments matched against a concrete value).
-  const exact = candidates.find((o) => o.segs.every((c) => !isParam(c)));
-  return exact ?? candidates[0];
-}
 
 // ---- Egress: parsed frontend call-site ----
 interface EgressCallSite {
@@ -103,23 +39,6 @@ interface EgressCallSite {
   rawArg: string;         // original argument text
   path: string | null;    // resolved path, or null if unresolvable
   enclosingMethod: string | null; // the method/function name enclosing this call-site (Level 2)
-}
-
-/** Recursively walk a directory, collecting files matching the predicate. */
-function walk(dir: string, predicate: (name: string) => boolean, out: string[] = []): string[] {
-  let entries: string[];
-  // .sort() for deterministic traversal order (invariant #1) — readdirSync order is FS-dependent.
-  try { entries = readdirSync(dir).sort(); } catch { return out; }
-  for (const entry of entries) {
-    const full = join(dir, entry);
-    let st;
-    try { st = statSync(full); } catch { continue; }
-    if (st.isDirectory()) {
-      if (SKIP_DIRS.has(entry)) continue; // vendor/build directory — never a genuine call-site
-      walk(full, predicate, out);
-    } else if (predicate(entry)) out.push(full);
-  }
-  return out;
 }
 
 /** Build a const-resolution map from all *.api.ts files. Cross-file const refs use the last-seen value. */
@@ -423,7 +342,7 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
     }
 
     // --- EGRESS: scan front egress files matching profile.frontFiles ---
-    const apiFiles = walk(front.mirrorDir, (name) => this.isFrontEgressFile(name));
+    const apiFiles = walkRepoFiles(front.mirrorDir, (name) => this.isFrontEgressFile(name));
     const consts = buildConstMap(apiFiles);
     const egress = await extractEgress(apiFiles, front.mirrorDir, consts, this.profile.frontCallSite);
 

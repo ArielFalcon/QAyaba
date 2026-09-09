@@ -8,7 +8,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
-import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import type {
+  HttpBoundaryProfile,
+  EventBoundaryProfile,
+  HttpBackendBoundaryProfile,
+  BoundaryProfile,
+} from "@contexts/service-topology/domain/index.ts";
 import { serializeBoundary, spliceBoundariesBlock } from "./write-boundaries";
 
 const HTTP_PROFILE: HttpBoundaryProfile = {
@@ -32,7 +37,7 @@ const EVENT_PROFILE: EventBoundaryProfile = {
   },
 };
 
-async function roundTrip(profile: HttpBoundaryProfile | EventBoundaryProfile) {
+async function roundTrip(profile: BoundaryProfile) {
   const lines = serializeBoundary(profile);
   const yaml = ["name: \"fixture\"", "repo: \"org/fixture\"", "boundaries:", ...lines].join("\n");
   const adapter = new YamlBoundaryProfileAdapter(() => yaml);
@@ -51,6 +56,31 @@ test("serializeBoundary: an event profile round-trips through the real parser un
   const profiles = await roundTrip(EVENT_PROFILE);
   assert.equal(profiles.length, 1);
   assert.deepEqual(profiles[0], EVENT_PROFILE);
+});
+
+const HTTP_BACKEND_PROFILE: HttpBackendBoundaryProfile = {
+  transport: "http-backend",
+  sourceFiles: "**/*.java",
+  callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+  servicePrefixTemplate: "name-{service}-api",
+  serviceRepoTemplate: "ms-name-{service}",
+  openApiPath: "src/main/resources/openapi/api-definition.yaml",
+};
+
+test("serializeBoundary: an http-backend profile round-trips through the real parser unchanged", async () => {
+  const profiles = await roundTrip(HTTP_BACKEND_PROFILE);
+  assert.equal(profiles.length, 1);
+  assert.deepEqual(profiles[0], HTTP_BACKEND_PROFILE);
+});
+
+test("serializeBoundary: an http-backend profile without an optional receiver round-trips unchanged", async () => {
+  const profile: HttpBackendBoundaryProfile = {
+    ...HTTP_BACKEND_PROFILE,
+    callPattern: { kind: "feign-client" },
+  };
+  const profiles = await roundTrip(profile);
+  assert.equal(profiles.length, 1);
+  assert.deepEqual(profiles[0], profile);
 });
 
 test("serializeBoundary: an http profile without an optional receiver round-trips unchanged", async () => {

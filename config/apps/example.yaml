@@ -60,6 +60,15 @@ baseBranch: "main"             # target branch for the QA pull requests
 #       listenerEventCall: "convertMsgToSpecificType"    # method that reads the consumed event, e.g. call(msg, FooEvent.class)
 #       subscriberBaseType: "DomainEventSubscriber"      # generic interface a broker interface extends, e.g. extends DomainEventSubscriber<FooModel>
 #       publishCall: "publishGenericMessage"             # method that publishes with a `.class` argument, e.g. call(subject, event, FooEvent.class)
+#   # HTTP-BACKEND transport: BE→BE REST clients (RestTemplate / Feign / WebClient). Scans
+#   # backend repos (services[] plus the primary repo) for outbound HTTP calls and joins them
+#   # to each target service's OpenAPI operationId. FE→BE HTTP stays `transport: http`.
+#   - transport: http-backend
+#     sourceFiles: "**/*.java"                          # filename-suffix glob of backend client files
+#     callPattern: { kind: rest-template-exchange, receiver: "restTemplate" }
+#     servicePrefixTemplate: "name-{service}-api"      # optional path prefix; bare /api/... matches across services
+#     serviceRepoTemplate: "ms-name-{service}"
+#     openApiPath: "src/main/resources/openapi/api-definition.yaml"
 
 # `dev` is REQUIRED for e2e apps (the default) and OMITTED for code-mode apps.
 dev:

@@ -2367,6 +2367,53 @@
                   "eventPattern"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "transport": {
+                    "type": "string",
+                    "enum": [
+                      "http-backend"
+                    ]
+                  },
+                  "sourceFiles": {
+                    "type": "string"
+                  },
+                  "callPattern": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "receiver": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "servicePrefixTemplate": {
+                    "type": "string"
+                  },
+                  "serviceRepoTemplate": {
+                    "type": "string"
+                  },
+                  "openApiPath": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "transport",
+                  "sourceFiles",
+                  "callPattern",
+                  "servicePrefixTemplate",
+                  "serviceRepoTemplate",
+                  "openApiPath"
+                ],
+                "additionalProperties": false
               }
             ]
           },

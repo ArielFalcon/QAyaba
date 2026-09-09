@@ -37,7 +37,20 @@ const EventProfileSchema = z.object({
   }),
 });
 
-const CandidateSchema = z.discriminatedUnion("transport", [HttpProfileSchema, EventProfileSchema]);
+const HttpBackendProfileSchema = z.object({
+  transport: z.literal("http-backend"),
+  sourceFiles: z.string().min(1),
+  callPattern: z.object({ kind: z.string().min(1), receiver: z.string().optional() }),
+  servicePrefixTemplate: z.string().min(1),
+  serviceRepoTemplate: z.string().min(1),
+  openApiPath: z.string().min(1),
+});
+
+const CandidateSchema = z.discriminatedUnion("transport", [
+  HttpProfileSchema,
+  EventProfileSchema,
+  HttpBackendProfileSchema,
+]);
 
 // Recognizable sentinel a malformed candidate degrades to (per-entry .catch), so the adapter can
 // filter it out while preserving valid siblings — the INVERSE intent of ReviewerVerdictSchema's
@@ -91,5 +104,11 @@ type _HttpParity = AssertNever<
 >;
 type _EventParity = AssertNever<
   KeyDiff<Extract<SchemaCandidate, { transport: "event" }>, Extract<BoundaryProfile, { transport: "event" }>>
+>;
+type _HttpBackendParity = AssertNever<
+  KeyDiff<
+    Extract<SchemaCandidate, { transport: "http-backend" }>,
+    Extract<BoundaryProfile, { transport: "http-backend" }>
+  >
 >;
 type _AllTransportsCovered = AssertNever<Exclude<BoundaryProfile["transport"], SchemaCandidate["transport"]>>;

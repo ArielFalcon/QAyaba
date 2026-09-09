@@ -8,9 +8,8 @@ import { z } from "zod";
 // ACTIVE-supply on. Do NOT re-encode the adapter's field lists here — a divergent
 // schema would drift from the adapter's authoritative rules (two validators for one
 // block is the exact anti-pattern this design forbids). Field names below are copied
-// VERBATIM from YamlBoundaryProfileAdapter's REQUIRED_HTTP_STRING_FIELDS /
-// REQUIRED_EVENT_PATTERN_STRING_FIELDS and its HttpBoundaryProfile/EventBoundaryProfile
-// domain interfaces.
+// VERBATIM from YamlBoundaryProfileAdapter's required-string-field lists and its
+// HttpBoundaryProfile/EventBoundaryProfile/HttpBackendBoundaryProfile domain interfaces.
 const HttpBoundarySchema = z.object({
   transport: z.literal("http"),
   frontFiles: z.string().min(1),
@@ -30,10 +29,22 @@ const EventBoundarySchema = z.object({
     publishCall: z.string().min(1),
   }),
 });
+const HttpBackendBoundarySchema = z.object({
+  transport: z.literal("http-backend"),
+  sourceFiles: z.string().min(1),
+  callPattern: z.object({ kind: z.string().min(1), receiver: z.string().optional() }),
+  servicePrefixTemplate: z.string().min(1),
+  serviceRepoTemplate: z.string().min(1),
+  openApiPath: z.string().min(1),
+});
 // discriminatedUnion on `transport` mirrors BoundaryProfile's own open-union discrimination
 // (service-topology domain/index.ts) — a future `rpc` transport widens BOTH this union and
 // the adapter's dispatch registry, the same extension seam resolver-factory.ts already uses.
-const BoundarySchema = z.discriminatedUnion("transport", [HttpBoundarySchema, EventBoundarySchema]);
+const BoundarySchema = z.discriminatedUnion("transport", [
+  HttpBoundarySchema,
+  EventBoundarySchema,
+  HttpBackendBoundarySchema,
+]);
 
 // ── AppConfig schema ──────────────────────────────────────────────────────────
 // Validates YAML config loaded from config/apps/<name>.yaml. Replaces the unsafe

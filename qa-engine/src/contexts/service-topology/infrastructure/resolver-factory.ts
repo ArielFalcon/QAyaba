@@ -4,26 +4,25 @@
 // ServiceBoundaryResolverPort.
 //
 // The internal registry is the SINGLE place a transport is mapped to its adapter constructor —
-// step 3 exercises exactly the extension seam step 2 designed for: widening BoundaryProfile
-// (domain/index.ts) to include EventBoundaryProfile forced TypeScript to require an `event` key
-// here (see RESOLVER_REGISTRY's type below), so adding EventResolver is the ONLY change this
-// file needed. A profile whose `transport` has no registered constructor (e.g. a future `rpc`)
-// is warned about and skipped, never a throw.
+// widening BoundaryProfile (domain/index.ts) to include a new variant forces TypeScript to
+// require a matching key here (see RESOLVER_REGISTRY's type below). A profile whose `transport`
+// has no registered constructor (e.g. a future `rpc`) is warned about and skipped, never a throw.
 import type { ServiceBoundaryResolverPort } from "../application/ports/index.ts";
-import type { BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile } from "../domain/index.ts";
+import type { BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, HttpBackendBoundaryProfile } from "../domain/index.ts";
 import { CompositeServiceBoundaryResolver } from "./composite-resolver.adapter.ts";
 import { OpenApiHttpResolver } from "./openapi-http-resolver.adapter.ts";
 import { EventResolver } from "./event-resolver.adapter.ts";
+import { HttpBackendResolver } from "./http-backend-resolver.adapter.ts";
 
 type ResolverBuilder = (profile: BoundaryProfile) => ServiceBoundaryResolverPort;
 
-// Keyed by BoundaryProfile["transport"] — "http" and "event" are members of the open union
-// (domain/index.ts), so this registry is exhaustive over the current type. Widening the union
-// further (e.g. rpc) widens the key type here first, then adds one entry — the SAME mechanism
-// that made this "event" entry a compile-time-required addition when step 3 widened the union.
+// Keyed by BoundaryProfile["transport"] — "http", "event", and "http-backend" are members of
+// the open union (domain/index.ts), so this registry is exhaustive over the current type.
+// Widening the union further (e.g. rpc) widens the key type here first, then adds one entry.
 const RESOLVER_REGISTRY: Record<BoundaryProfile["transport"], ResolverBuilder> = {
   http: (profile) => new OpenApiHttpResolver(profile as HttpBoundaryProfile),
   event: (profile) => new EventResolver(profile as EventBoundaryProfile),
+  "http-backend": (profile) => new HttpBackendResolver(profile as HttpBackendBoundaryProfile),
 };
 
 /** Compose a ServiceBoundaryResolverPort from an app's declared boundary profiles. Never

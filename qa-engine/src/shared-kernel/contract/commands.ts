@@ -239,11 +239,11 @@ export const RepoListResponseSchema = z.object({
 });
 
 // ── Boundary-onboarding DTOs (Slice 5a: TUI-integrated boundary-profile onboarding) ──────────────
-// Wire representation of service-topology's BoundaryProfile domain union (http | event, discrim.
-// by `transport`). shared-kernel MUST NOT import qa-engine/src/contexts/* (layering invariant), so
-// this schema structurally mirrors the domain type independently — same technique as the proposer's
-// own scripts-resident ProposerVerdictSchema, field names copied verbatim from
-// service-topology/domain/index.ts (HttpBoundaryProfile/EventBoundaryProfile).
+// Wire representation of service-topology's BoundaryProfile domain union (http | event |
+// http-backend, discrim. by `transport`). shared-kernel MUST NOT import qa-engine/src/contexts/*
+// (layering invariant), so this schema structurally mirrors the domain type independently — same
+// technique as the proposer's own scripts-resident ProposerVerdictSchema, field names copied
+// verbatim from service-topology/domain/index.ts.
 export const HttpBoundaryProfileSchema = z.object({
   transport: z.literal("http"),
   frontFiles: z.string(),
@@ -265,7 +265,20 @@ export const EventBoundaryProfileSchema = z.object({
   }),
 });
 
-export const BoundaryProfileSchema = z.discriminatedUnion("transport", [HttpBoundaryProfileSchema, EventBoundaryProfileSchema]);
+export const HttpBackendBoundaryProfileSchema = z.object({
+  transport: z.literal("http-backend"),
+  sourceFiles: z.string(),
+  callPattern: z.object({ kind: z.string(), receiver: z.string().optional() }),
+  servicePrefixTemplate: z.string(),
+  serviceRepoTemplate: z.string(),
+  openApiPath: z.string(),
+});
+
+export const BoundaryProfileSchema = z.discriminatedUnion("transport", [
+  HttpBoundaryProfileSchema,
+  EventBoundaryProfileSchema,
+  HttpBackendBoundaryProfileSchema,
+]);
 
 export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "done", "failed"]);
 export const OnboardOutcomeSchema = z.enum(["winner", "no-profile"]);

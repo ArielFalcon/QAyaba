@@ -5,12 +5,21 @@
 // ServiceBoundaryResolverPort, via an internal transport → adapter-constructor registry.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/resolver-factory.ts";
 import { CompositeServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/composite-resolver.adapter.ts";
 import { OpenApiHttpResolver } from "@contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts";
 import { EventResolver } from "@contexts/service-topology/infrastructure/event-resolver.adapter.ts";
-import type { RepoRef, HttpBoundaryProfile, EventBoundaryProfile, BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
+import { HttpBackendResolver } from "@contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts";
+import type {
+  RepoRef,
+  HttpBoundaryProfile,
+  EventBoundaryProfile,
+  HttpBackendBoundaryProfile,
+  BoundaryProfile,
+} from "@contexts/service-topology/domain/index.ts";
 
 // Real fixture pool used by event-resolver.adapter.test.ts (service-a: listeners incl. one
 // exact + one stem match; service-b: publishers) — reused here to prove the factory's composed
@@ -36,6 +45,15 @@ const EVENT_PROFILE: EventBoundaryProfile = {
     subscriberBaseType: "DomainEventSubscriber",
     publishCall: "publishGenericMessage",
   },
+};
+
+const HTTP_BACKEND_PROFILE: HttpBackendBoundaryProfile = {
+  transport: "http-backend",
+  sourceFiles: "**/*.java",
+  callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+  servicePrefixTemplate: "name-{service}-api",
+  serviceRepoTemplate: "ms-name-{service}",
+  openApiPath: "src/main/resources/openapi/api-definition.yaml",
 };
 
 const FRONT: RepoRef = { repo: "front/webapp", mirrorDir: "/nonexistent-front" };
@@ -128,6 +146,66 @@ test("buildServiceBoundaryResolver: only-unknown-transport profiles produces a c
   const resolver = buildServiceBoundaryResolver([unknownProfile]);
   const result = await resolver.resolveLinks([BACK], FRONT);
   assert.deepEqual(result, { links: [], drift: [], external: [], unresolved: [] });
+});
+
+test("buildServiceBoundaryResolver: one http-backend profile builds a CompositeServiceBoundaryResolver delegating to an HttpBackendResolver", () => {
+  const resolver = buildServiceBoundaryResolver([HTTP_BACKEND_PROFILE]);
+  assert.ok(resolver instanceof CompositeServiceBoundaryResolver, "expected a CompositeServiceBoundaryResolver");
+});
+
+test("buildServiceBoundaryResolver: one http-backend profile resolves via a real HttpBackendResolver (not a stub) — fail-open equivalence", async () => {
+  const direct = new HttpBackendResolver(HTTP_BACKEND_PROFILE);
+  const directResult = await direct.resolveLinks([BACK], FRONT);
+
+  const composed = buildServiceBoundaryResolver([HTTP_BACKEND_PROFILE]);
+  const composedResult = await composed.resolveLinks([BACK], FRONT);
+
+  assert.deepEqual(composedResult, directResult);
+});
+
+test("buildServiceBoundaryResolver: one http-backend profile resolves via a real HttpBackendResolver — positive-match equivalence against temp mirrors", async () => {
+  const root = mkdtempSync(join(tmpdir(), "http-backend-factory-"));
+  try {
+    const ordersDir = join(root, "orders");
+    const paymentsDir = join(root, "payments");
+    const openApiRel = "src/main/resources/openapi/api-definition.yaml";
+    mkdirSync(dirname(join(ordersDir, openApiRel)), { recursive: true });
+    writeFileSync(
+      join(ordersDir, openApiRel),
+      `openapi: "3.0.3"
+info: { title: Orders, version: "1.0" }
+paths:
+  /api/orders:
+    get:
+      operationId: listOrders
+      responses: { "200": { description: OK } }
+`,
+    );
+    mkdirSync(join(paymentsDir, "src/main/java"), { recursive: true });
+    writeFileSync(
+      join(paymentsDir, "src/main/java/OrderGateway.java"),
+      `public class OrderGateway {
+  public String listOrders() {
+    return restTemplate.exchange("/api/orders", HttpMethod.GET, null, String.class).getBody();
+  }
+}
+`,
+    );
+    const orders = { repo: "org/ms-name-orders", mirrorDir: ordersDir };
+    const payments = { repo: "org/ms-name-payments", mirrorDir: paymentsDir };
+
+    const direct = new HttpBackendResolver(HTTP_BACKEND_PROFILE);
+    const directResult = await direct.resolveLinks([orders, payments], payments);
+    assert.ok(directResult.links.length > 0, "sanity: the direct resolver must find a real link");
+
+    const composed = buildServiceBoundaryResolver([HTTP_BACKEND_PROFILE]);
+    const composedResult = await composed.resolveLinks([orders, payments], payments);
+
+    assert.deepEqual(composedResult.links, directResult.links);
+    assert.equal(composedResult.links[0]?.source, "http-backend-resolver");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("buildServiceBoundaryResolver: two http profiles produce two delegating resolvers merged by the composite", async () => {

@@ -80,16 +80,22 @@ function transportShapesDoc(): string {
     '  { "transport": "event", "files": string, "eventPattern": { "kind": string, "listenerBaseType": string,',
     '    "listenerEventCall": string, "subscriberBaseType": string, "publishCall": string } }',
     "",
+    "http-backend transport (BE→BE REST clients — RestTemplate / Feign / WebClient; FE→BE HTTP stays http):",
+    '  { "transport": "http-backend", "sourceFiles": string, "callPattern": { "kind": string, "receiver"?: string },',
+    '    "servicePrefixTemplate": string, "serviceRepoTemplate": string, "openApiPath": string }',
+    "",
     "Field dialect — a candidate violating these scores ZERO no matter how plausible it looks:",
-    '- "frontFiles"/"files": FILENAME-SUFFIX globs only — "**/*.<suffix>" or "*.<suffix>" (e.g. "**/*.api.ts").',
+    '- "frontFiles"/"files"/"sourceFiles": FILENAME-SUFFIX globs only — "**/*.<suffix>" or "*.<suffix>" (e.g. "**/*.api.ts").',
     "  Path-anchored globs (any path segment before the *) are unsupported and match NO files;",
     "  encode the convention in the filename suffix, never in directories.",
     '- "frontCallSite.kind": must be "receiver-verb-call" (calls shaped this.<receiver>.<verb>(...);',
     '  put the injected client field name in "receiver").',
     '- "eventPattern.kind": must be "class-based-domain-events".',
+    '- "callPattern.kind": must be "rest-template-exchange" | "feign-client" | "web-client".',
     '- "openApiPath": a LITERAL repo-relative file path inside each service repo (never a glob),',
     '  e.g. "src/main/resources/openapi/api-definition.yaml".',
     '- Templates use {service}: e.g. "servicePrefixTemplate": "svc-{service}-api" -> "serviceRepoTemplate": "ms-{service}".',
+    "Propose http-backend when backend repos call each other over HTTP (RestTemplate, Feign, WebClient).",
   ].join("\n");
 }
 
@@ -97,7 +103,12 @@ function transportShapesDoc(): string {
  *  so the proposer can steer away from a low-scoring guess instead of repeating it blind. */
 function feedbackSummary(feedback: ProposerFeedback): string {
   const lines = feedback.priorCandidates.map(({ profile, score }, index) => {
-    const shape = profile.transport === "http" ? `servicePrefixTemplate="${profile.servicePrefixTemplate}"` : `eventPattern.kind="${profile.eventPattern.kind}"`;
+    const shape =
+      profile.transport === "http"
+        ? `servicePrefixTemplate="${profile.servicePrefixTemplate}"`
+        : profile.transport === "event"
+          ? `eventPattern.kind="${profile.eventPattern.kind}"`
+          : `callPattern.kind="${profile.callPattern.kind}"`;
     return `  round ${index + 1}: transport=${profile.transport} ${shape} -> resolvedScore=${score.resolvedScore} (links=${score.links}, resolutionRatio=${score.resolutionRatio})`;
   });
   return ["Prior round(s) scored too low by the deterministic scorer — refine your next guess:", ...lines].join("\n");

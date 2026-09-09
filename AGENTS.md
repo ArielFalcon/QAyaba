@@ -116,6 +116,8 @@ The `src/` → `qa-engine/` migration is **complete**: new engine logic targets 
 
 Controlled alpha demo: `portfolio`, `shadow: true`, `--mode manual`, narrow homepage guidance. Do not load untracked apps with `shadow: false`.
 
+- Boundary transport `http-backend` resolves BE→BE REST clients (RestTemplate / Feign / WebClient) against OpenAPI; see the commented example in `config/apps/example.yaml`. FE→BE stays `http`.
+
 ## Persistence
 
 - **E2E suite** → git (app repo's `e2e/`). Versioned, reviewable.

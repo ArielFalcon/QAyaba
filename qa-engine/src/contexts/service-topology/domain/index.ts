@@ -61,6 +61,14 @@ export interface CallSiteRef {
   receiver?: string;  // e.g. "this.rest" — supplied by config, never hardcoded in the core
 }
 
+/** Identifies a BE→BE HTTP call-pattern SHAPE (a key into the in-core CallPatternCatalog) plus
+ *  the optional receiver an app's code uses for that shape. Sibling of CallSiteRef (FE HTTP) and
+ *  EventPatternRef (events). The shape lives in the core; the receiver is config, never hardcoded. */
+export interface CallPatternRef {
+  kind: string;      // catalog key: rest-template-exchange | feign-client | web-client
+  receiver?: string; // optional config, e.g. restTemplate — never hardcoded in core
+}
+
 /** An app's HTTP boundary convention: how its frontend calls its backends, and where each
  *  backend's OpenAPI contract lives. One HttpBoundaryProfile per app, supplied via config. */
 export interface HttpBoundaryProfile {
@@ -98,7 +106,21 @@ export interface EventBoundaryProfile {
   eventPattern: EventPatternRef;
 }
 
-/** Open union of boundary profiles, discriminated by `transport`. "http" and "event" exist
- *  today; a future transport (e.g. rpc) adds a sibling variant here, never a branch in the
- *  core — the widened union is what forces resolver-factory.ts to register a new builder. */
-export type BoundaryProfile = HttpBoundaryProfile | EventBoundaryProfile;
+/** An app's BE→BE HTTP boundary convention: how one backend calls another over HTTP
+ *  (RestTemplate / Feign / WebClient), and where each target's OpenAPI contract lives.
+ *  One HttpBackendBoundaryProfile per app, supplied via config. FE→BE HTTP stays
+ *  HttpBoundaryProfile — this transport scans backend repos, not frontend egress files. */
+export interface HttpBackendBoundaryProfile {
+  transport: "http-backend";
+  sourceFiles: string;           // filename-suffix glob, same compileFileGlob rules as frontFiles
+  callPattern: CallPatternRef;
+  servicePrefixTemplate: string;
+  serviceRepoTemplate: string;
+  openApiPath: string;
+}
+
+/** Open union of boundary profiles, discriminated by `transport`. "http", "event", and
+ *  "http-backend" exist today; a future transport (e.g. rpc) adds a sibling variant here,
+ *  never a branch in the core — the widened union is what forces resolver-factory.ts to
+ *  register a new builder. */
+export type BoundaryProfile = HttpBoundaryProfile | EventBoundaryProfile | HttpBackendBoundaryProfile;

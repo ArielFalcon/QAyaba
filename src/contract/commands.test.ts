@@ -118,6 +118,24 @@ test("OnboardingJobStatusSchema rejects an indexProgress entry with an invalid R
 
 // ── Resolution summary (Add-Project Wizard, Slice A Task A3) ────────────────────
 
+test("OnboardingJobStatusSchema accepts a resolvedProfile with transport http-backend", () => {
+  assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({
+    state: "done",
+    round: 1,
+    ceiling: 3,
+    candidatesScored: 1,
+    outcome: "winner",
+    resolvedProfile: {
+      transport: "http-backend",
+      sourceFiles: "**/*.java",
+      callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+      servicePrefixTemplate: "name-{service}-api",
+      serviceRepoTemplate: "ms-name-{service}",
+      openApiPath: "openapi.yaml",
+    },
+  }));
+});
+
 test("OnboardingJobStatusSchema accepts a resolution summary", () => {
   const parsed = OnboardingJobStatusSchema.safeParse({
     state: "done", round: 1, ceiling: 3, candidatesScored: 1, outcome: "winner",

@@ -1,7 +1,8 @@
 // service-topology/infrastructure/yaml-boundary-profile.adapter.ts
 // Piece 1 of the stitcher config→resolver loader (step 2 + step 3): reads an app's
 // `boundaries[]` declaration from config/apps/<app>.yaml and validates it into BoundaryProfile[]
-// (a mix of HttpBoundaryProfile and EventBoundaryProfile entries, dispatched by `transport`).
+// (a mix of HttpBoundaryProfile, EventBoundaryProfile, and HttpBackendBoundaryProfile entries,
+// dispatched by `transport`).
 // Invariant #1: every app-specific pattern (receiver, prefix/repo templates, OpenAPI path,
 // listener/publisher base-type and method names) is a config STRING here, never a literal in
 // the engine core.
@@ -17,9 +18,13 @@
 // that throws all degrade to [] (fail-open).
 import { parse as parseYaml } from "yaml";
 import type { BoundaryProfileProviderPort } from "../application/ports/index.ts";
-import type { BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, CallSiteRef, EventPatternRef } from "../domain/index.ts";
+import type {
+  BoundaryProfile, HttpBoundaryProfile, EventBoundaryProfile, HttpBackendBoundaryProfile,
+  CallSiteRef, EventPatternRef, CallPatternRef,
+} from "../domain/index.ts";
 import { KNOWN_CALL_SITE_KINDS } from "./call-site-catalog.ts";
 import { KNOWN_EVENT_PATTERN_KINDS } from "./event-pattern-catalog.ts";
+import { KNOWN_CALL_PATTERN_KINDS } from "./call-pattern-catalog.ts";
 
 const REQUIRED_HTTP_STRING_FIELDS = [
   "frontFiles",
@@ -33,6 +38,13 @@ const REQUIRED_EVENT_PATTERN_STRING_FIELDS = [
   "listenerEventCall",
   "subscriberBaseType",
   "publishCall",
+] as const;
+
+const REQUIRED_HTTP_BACKEND_STRING_FIELDS = [
+  "sourceFiles",
+  "servicePrefixTemplate",
+  "serviceRepoTemplate",
+  "openApiPath",
 ] as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -105,6 +117,34 @@ export function parseEventBoundaryProfile(raw: unknown): EventBoundaryProfile | 
   return { transport: "event", files, eventPattern };
 }
 
+/** Validate a single raw `boundaries[]` entry into an HttpBackendBoundaryProfile, or null if it
+ *  does not structurally conform. Pure — no I/O, no logging. Unknown callPattern.kind is
+ *  rejected at load time so it cannot silently extract zero calls downstream. */
+export function parseHttpBackendBoundaryProfile(raw: unknown): HttpBackendBoundaryProfile | null {
+  if (!isRecord(raw)) return null;
+  if (raw["transport"] !== "http-backend") return null;
+
+  for (const field of REQUIRED_HTTP_BACKEND_STRING_FIELDS) {
+    const value = raw[field];
+    if (typeof value !== "string" || value.trim().length === 0) return null;
+  }
+
+  const rawPattern = raw["callPattern"];
+  if (!isRecord(rawPattern) || typeof rawPattern["kind"] !== "string") return null;
+  if (!KNOWN_CALL_PATTERN_KINDS.has(rawPattern["kind"])) return null;
+  const callPattern: CallPatternRef = { kind: rawPattern["kind"] };
+  if (typeof rawPattern["receiver"] === "string") callPattern.receiver = rawPattern["receiver"];
+
+  return {
+    transport: "http-backend",
+    sourceFiles: raw["sourceFiles"] as string,
+    callPattern,
+    servicePrefixTemplate: raw["servicePrefixTemplate"] as string,
+    serviceRepoTemplate: raw["serviceRepoTemplate"] as string,
+    openApiPath: raw["openApiPath"] as string,
+  };
+}
+
 /** Dispatch a single raw `boundaries[]` entry to the parser matching its `transport` field.
  *  Returns null for an entry whose transport is missing/unrecognized OR whose recognized
  *  parser rejects it — the caller (forApp) cannot distinguish "unknown transport" from
@@ -117,6 +157,8 @@ function parseBoundaryProfile(raw: unknown): BoundaryProfile | null {
       return parseHttpBoundaryProfile(raw);
     case "event":
       return parseEventBoundaryProfile(raw);
+    case "http-backend":
+      return parseHttpBackendBoundaryProfile(raw);
     default:
       return null; // unsupported/missing transport — no parser registered
   }

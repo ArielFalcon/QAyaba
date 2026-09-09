@@ -203,6 +203,26 @@ test("boundaries[]: a valid event entry parses, all EventBoundarySchema fields p
   assert.deepEqual(cfg.boundaries?.[0], eventBoundary);
 });
 
+const httpBackendBoundary = {
+  transport: "http-backend",
+  sourceFiles: "**/*.java",
+  callPattern: { kind: "rest-template-exchange", receiver: "restTemplate" },
+  servicePrefixTemplate: "name-{service}-api",
+  serviceRepoTemplate: "ms-name-{service}",
+  openApiPath: "openapi/openapi.yaml",
+};
+
+test("boundaries[]: a valid http-backend entry parses, AppConfig.boundaries is a validated array", () => {
+  const cfg = AppConfigSchema.parse({ ...base, boundaries: [httpBackendBoundary] });
+  assert.equal(cfg.boundaries?.length, 1);
+  assert.deepEqual(cfg.boundaries?.[0], httpBackendBoundary);
+});
+
+test("boundaries[]: an http-backend entry missing sourceFiles THROWS", () => {
+  const { sourceFiles: _drop, ...incomplete } = httpBackendBoundary;
+  assert.throws(() => AppConfigSchema.parse({ ...base, boundaries: [incomplete] }));
+});
+
 test("boundaries[]: http + event entries together parse in the same order given", () => {
   const cfg = AppConfigSchema.parse({ ...base, boundaries: [httpBoundary, eventBoundary] });
   assert.equal(cfg.boundaries?.length, 2);
