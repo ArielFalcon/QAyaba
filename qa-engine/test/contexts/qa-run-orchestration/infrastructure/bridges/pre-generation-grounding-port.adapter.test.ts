@@ -396,6 +396,95 @@ test("ground(): a throwing loadContextMap collaborator is non-fatal — degrades
   assert.equal(result.contextPack, undefined);
 });
 
+// T4: GroundingResult must carry the per-run contextMap object (not only feed it to
+// buildContextPack) so RunQaUseCase can thread it onto GenerationEnrichment → OpencodeRunInput.
+test("ground(): returned GroundingResult includes contextMap when a valid context.json exists", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-result-contextmap-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground(dir);
+
+    assert.ok(result.contextMap, "returned GroundingResult.contextMap must be the object field, not a pack-text grep");
+    assert.deepEqual(result.contextMap, VALID_CONTEXT_JSON);
+    assert.equal(result.contextMap.api[0]?.operationId, "getOwners");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): returned GroundingResult omits contextMap when context.json is missing (fail-open, never fabricated)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-result-missing-"));
+  try {
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground(dir);
+
+    assert.equal(result.contextMap, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): returned GroundingResult omits contextMap for malformed JSON and invalid shape (fail-open, never throws)", async () => {
+  const malformedDir = mkdtempSync(join(tmpdir(), "qa-grounding-result-malformed-"));
+  const invalidDir = mkdtempSync(join(tmpdir(), "qa-grounding-result-shape-"));
+  try {
+    mkdirSync(join(malformedDir, ".qa"), { recursive: true });
+    writeFileSync(join(malformedDir, ".qa", "context.json"), "{ not valid json");
+    mkdirSync(join(invalidDir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(invalidDir, ".qa", "context.json"),
+      JSON.stringify({
+        builtAtSha: "abc1234",
+        routes: [{ path: "/owners" }],
+        api: [],
+        feBe: [{ route: "/owners", operationId: "ghost-op-not-declared-in-api" }],
+      }),
+    );
+    const noopPack = { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) };
+
+    const malformed = await new PreGenerationGroundingPortAdapter({ e2eDir: malformedDir }, noopPack).ground(malformedDir);
+    const invalid = await new PreGenerationGroundingPortAdapter({ e2eDir: invalidDir }, noopPack).ground(invalidDir);
+
+    assert.equal(malformed.contextMap, undefined);
+    assert.equal(invalid.contextMap, undefined);
+  } finally {
+    rmSync(malformedDir, { recursive: true, force: true });
+    rmSync(invalidDir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): sequential calls with different specDirs do not leak contextMap", async () => {
+  const withMap = mkdtempSync(join(tmpdir(), "qa-grounding-noleak-a-"));
+  const withoutMap = mkdtempSync(join(tmpdir(), "qa-grounding-noleak-b-"));
+  try {
+    mkdirSync(join(withMap, ".qa"), { recursive: true });
+    writeFileSync(join(withMap, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: withMap },
+      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const first = await adapter.ground(withMap);
+    const second = await adapter.ground(withoutMap);
+
+    assert.deepEqual(first.contextMap, VALID_CONTEXT_JSON);
+    assert.equal(second.contextMap, undefined, "a later specDir without context.json must not inherit the previous map");
+  } finally {
+    rmSync(withMap, { recursive: true, force: true });
+    rmSync(withoutMap, { recursive: true, force: true });
+  }
+});
+
 // ── WS5.3: [CHANGED] markers from the classified diff ────────────────────────────────────────────
 // The adapter's static context is built ONCE at composition time (before any run's diff is known),
 // so the diff must be threaded through the ground() CALL itself — the use-case has classificationDiff

@@ -119,6 +119,7 @@ Controlled alpha demo: `portfolio`, `shadow: true`, `--mode manual`, narrow home
 - Apps with a non-empty `services[]` auto-enable the read-only `qa-explorer` pass (still opt-in via `qa.explorer` when there are no services; skipped in code-mode).
 - After classify (not on skip), the run fail-open reindexes the mirror via `CodeGraphPort.syncTo` only when `lastIndexedSha` in `data/index-status.json` differs from the run SHA.
 - Boundary transport `http-backend` resolves BE→BE REST clients (RestTemplate / Feign / WebClient) against OpenAPI; see the commented example in `config/apps/example.yaml`. FE→BE stays `http`.
+- Per-run `e2e/.qa/context.json` is read into `GroundingResult.contextMap` and threaded to `OpencodeRunInput.contextMap` (absent/invalid JSON fail-open).
 
 ## Persistence
 

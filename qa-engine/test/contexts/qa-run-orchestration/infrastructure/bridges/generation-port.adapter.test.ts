@@ -303,6 +303,68 @@ test("generate() with absent enrichment.contextPack/existingSpecFiles omits both
   }
 });
 
+// T4: enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
+// renderArchitectureContext. Spreading only contextPack text is not enough.
+const T4_CONTEXT_MAP = {
+  builtAtSha: "abc1234",
+  routes: [{ path: "/owners" }],
+  api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+  feBe: [{ route: "/owners", operationId: "getOwners" }],
+};
+
+test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => {
+  const ports = fakeGenerationPorts();
+  let capturedInput: OpencodeRunInput | undefined;
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    capturedInput = input;
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+      contextMap: T4_CONTEXT_MAP,
+    });
+
+    assert.ok(capturedInput?.contextMap, "OpencodeRunInput.contextMap must be the object field, not a pack-text grep");
+    assert.deepEqual(capturedInput?.contextMap, T4_CONTEXT_MAP);
+    assert.equal(capturedInput?.contextMap?.api[0]?.operationId, "getOwners");
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
+test("generate() with absent enrichment.contextMap omits it from OpencodeRunInput (never fabricated)", async () => {
+  const ports = fakeGenerationPorts();
+  let capturedInput: OpencodeRunInput | undefined;
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    capturedInput = input;
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {
+      contextPack: "## Context Pack\n\nblast radius...",
+    });
+
+    assert.equal(capturedInput?.contextMap, undefined);
+    assert.equal(capturedInput?.contextPack, "## Context Pack\n\nblast radius...");
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
 // ── Manifest-enrichment fix: enrichment.sha must reach OpencodeRunInput.sha so
 // GenerateTestsUseCase can stamp ManifestEntry.changeRef.sha (previously hardcoded to "" here,
 // which made every manifest entry fail the real schema's changeRef.sha non-empty check).

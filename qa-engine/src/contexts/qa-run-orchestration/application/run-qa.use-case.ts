@@ -63,6 +63,7 @@ import type {
   ConfinementPort,
   MirrorGcPort,
   CurriculumPort,
+  ArchitectureContext,
 } from "./ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "./ports/index.ts";
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
@@ -731,6 +732,7 @@ export class RunQaUseCase {
     // context-pack build in legacy) — a misbehaving adapter must never abort the run over grounding.
     let groundingContextPack: string | undefined;
     let groundingExistingSpecFiles: string[] | undefined;
+    let groundingContextMap: ArchitectureContext | undefined;
     if (this.deps.preGenerationGrounding) {
       this.deps.observer?.onStep("generate", "pre-generation grounding");
       try {
@@ -741,6 +743,7 @@ export class RunQaUseCase {
         const grounding = await this.deps.preGenerationGrounding.ground(workspace.specDir, signal, classificationDiff);
         groundingContextPack = grounding.contextPack;
         groundingExistingSpecFiles = grounding.existingSpecFiles;
+        groundingContextMap = grounding.contextMap;
       } catch (err) {
         // FIX 1 (judgment-day W4 abort-plumbing): an abort DURING grounding must take the ABORT
         // route, never the degraded-ungrounded-continue route below.
@@ -847,6 +850,7 @@ export class RunQaUseCase {
       ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
       ...(groundingContextPack ? { contextPack: groundingContextPack } : {}),
       ...(groundingExistingSpecFiles?.length ? { existingSpecFiles: groundingExistingSpecFiles } : {}),
+      ...(groundingContextMap ? { contextMap: groundingContextMap } : {}),
       ...(blastRadiusSignal ? { staticSignal: blastRadiusSignal } : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),

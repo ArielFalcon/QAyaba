@@ -29,6 +29,19 @@ export interface CommitIntent {
   changedFiles: string[]; // the agent derives the scope/area from these
 }
 
+// T4: port-local structural mirror of generation's ArchitectureContext (generation-ports.ts).
+// Not imported from generation — this barrel's "every type kernel-resident, no cross-context
+// import" rule (same as CommitIntent/ServiceLink above). Generation's type is plain data and
+// structurally assignable at the bridge (PreGenerationGroundingPortAdapter already imports the
+// canonical type from generation-ports).
+export interface ArchitectureContext {
+  builtAtSha: string;
+  routes: Array<{ path: string; name?: string; component?: string; source?: string }>;
+  api: Array<{ operationId: string; method: string; path: string; service?: string; spec?: string }>;
+  feBe: Array<{ route: string; operationId: string; via?: string }>;
+  flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;
+}
+
 // The immovable strangler seam: a single input → a RunOutcome. Both LegacyPipelineAdapter and the
 // RewrittenOrchestratorAdapter satisfy this (Plan 6).
 export interface RunInput {
@@ -201,6 +214,11 @@ export interface GenerationEnrichment {
   // ContextPackAssembly.text, buildContextPack) — pushed into the VOLATILE "context-pack" prompt
   // section buildPromptAssembled already renders (OpencodeRunInput.contextPack's own doc).
   contextPack?: string;
+  // T4: the per-run ArchitectureContext loaded from `${specDir}/.qa/context.json` by
+  // PreGenerationGroundingPort. Mapped 1:1 onto OpencodeRunInput.contextMap so
+  // renderArchitectureContext can run. Distinct from contextPack (assembled markdown): this is
+  // the structured map. Absent when the json is missing/invalid (fail-open, never fabricated).
+  contextMap?: ArchitectureContext;
   // existingSpecFiles: the suite's on-disk spec file paths (relative to e2eRelDir), enumerated
   // BEFORE the first generate() call so the "existing-suite-manifest" prompt section lets the
   // generator reuse/extend instead of duplicating a flow (mirrors legacy's Seam b,
@@ -739,6 +757,9 @@ export interface GroundingResult {
   // does not exist yet or enumeration failed (mirrors legacy's Seam b try/catch, pipeline.ts:1845-
   // 1872 — graceful, never blocks).
   existingSpecFiles?: string[];
+  // T4: the per-run ArchitectureContext from `${specDir}/.qa/context.json` — feeds
+  // GenerationEnrichment.contextMap. Absent when the file is missing/invalid (fail-open).
+  contextMap?: ArchitectureContext;
 }
 export interface PreGenerationGroundingPort {
   // WS5.3 (full-flow remediation, option c — deterministic Context Pack feed): `diff` is an OPTIONAL

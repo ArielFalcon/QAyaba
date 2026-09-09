@@ -381,6 +381,52 @@ test("RunQaUseCase: PreGenerationGroundingPort wired — contextPack + existingS
   assert.deepEqual(generateCalls[0]!.enrichment?.existingSpecFiles, ["flows/checkout.spec.ts"]);
 });
 
+test("RunQaUseCase: PreGenerationGroundingPort wired — contextMap threads into generate() enrichment", async () => {
+  const contextMap = {
+    builtAtSha: "abc1234",
+    routes: [{ path: "/owners" }],
+    api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+    feBe: [{ route: "/owners", operationId: "getOwners" }],
+  };
+  const generateCalls: Array<{ enrichment?: { contextMap?: typeof contextMap; contextPack?: string } }> = [];
+  const { ports } = stubPorts({
+    ground: async () => ({
+      contextPack: "## Context Pack\n\nblast radius...",
+      contextMap,
+    }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment: enrichment as { contextMap?: typeof contextMap; contextPack?: string } });
+      return { specs: ["a.spec.ts"], approved: true };
+    },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  const out = await useCase.run(baseInput);
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.ok(generateCalls.length > 0);
+  assert.ok(generateCalls[0]!.enrichment?.contextMap, "enrichment.contextMap must be the object field, not inferred from contextPack text");
+  assert.deepEqual(generateCalls[0]!.enrichment?.contextMap, contextMap);
+  assert.equal(generateCalls[0]!.enrichment?.contextMap?.api[0]?.operationId, "getOwners");
+});
+
+test("RunQaUseCase: PreGenerationGroundingPort wired — absent grounding.contextMap is not fabricated on generate()", async () => {
+  const generateCalls: Array<{ enrichment?: { contextMap?: unknown; contextPack?: string } }> = [];
+  const { ports } = stubPorts({
+    ground: async () => ({ contextPack: "## Context Pack\n\nblast radius..." }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment });
+      return { specs: ["a.spec.ts"], approved: true };
+    },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  await useCase.run(baseInput);
+
+  assert.equal(generateCalls[0]!.enrichment?.contextMap, undefined);
+  assert.equal(generateCalls[0]!.enrichment?.contextPack, "## Context Pack\n\nblast radius...");
+});
+
 test("RunQaUseCase: PreGenerationGroundingPort wired — grounding is reused UNCHANGED across a review-correction regen (first-write ground truth)", async () => {
   const generateCalls: Array<{ enrichment?: { contextPack?: string } }> = [];
   let groundCalls = 0;

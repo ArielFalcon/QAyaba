@@ -187,6 +187,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     } catch (err) {
       console.warn(`[qa] WARNING: contextMap read-back failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
+    if (contextMap) result.contextMap = contextMap;
 
     // Seam b: enumerate existing specs BEFORE the pack build (mirrors legacy's own ordering —
     // both run before the first generate() call; order between them is not load-bearing).
