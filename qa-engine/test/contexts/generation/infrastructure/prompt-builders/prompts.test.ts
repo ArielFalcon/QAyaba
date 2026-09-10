@@ -1234,9 +1234,16 @@ test("S2.4(1): non-empty serviceLinks in generation mode renders a 'Cross-servic
   assert.match(text, /Cross-service links \(deterministic/, "must render the section header");
   assert.match(
     text,
-    /org\/front\/src\/api\.ts#getOrder.*->.*org\/orders.*GET \/orders\/\{id\}.*http, confidence 0\.90/,
-    "must render the from -> to (transport, confidence) line format",
+    /org\/front\/src\/api\.ts#getOrder.*->.*org\/orders.*GET \/orders\/\{id\}.*FE→BE HTTP, source openapi, confidence 0\.90/,
+    "must render the from -> to (kind, source, confidence) line format",
   );
+  assert.match(text, /Structural cross-service contract links/, "header must not label every hop as FE→BE");
+});
+
+test("S2.4: http-backend-resolver links render as BE→BE HTTP", () => {
+  const be = { ...link1, source: "http-backend-resolver", from: { repo: "org/orders", file: "src/Client.java", symbol: "exchange" } };
+  const text = buildPrompt(mkInput({ serviceLinks: [be] }));
+  assert.match(text, /BE→BE HTTP, source http-backend-resolver/);
 });
 
 test("S2.4(2): contractDrift alongside links renders under a DISTINCT 'Contract drift (WARNINGS' sub-heading, never merged into the link list", () => {
@@ -1328,8 +1335,12 @@ test("S2.4(7): contractDrift present with serviceLinks ABSENT/empty still render
   const withEmptyLinks = buildPrompt(mkInput({ serviceLinks: [], contractDrift: [drift1] }));
   assert.match(withEmptyLinks, /Contract drift \(WARNINGS/, "empty serviceLinks array + drift must still render drift");
 
+  // Pin the ABSENCE of a link bullet (`repo/file#symbol` -> target). Do not scan for the
+  // bare word "event": the section intro names hop kinds (FE→BE HTTP, BE→BE HTTP, event)
+  // even in the drift-only case, and `/event/` as an unanchored alternative would false-fail.
+  const beforeDrift = withoutLinks.split("Contract drift")[0] ?? "";
   assert.ok(
-    !/-.*->.*\(http|grpc|event/.test(withoutLinks.split("Contract drift")[0] ?? ""),
+    !/`[^`]+` -> /.test(beforeDrift),
     "the links sub-list itself must not render an empty/placeholder entry when serviceLinks is absent",
   );
 });
@@ -1517,8 +1528,8 @@ test("A-R3(1): worker prompt with populated serviceLinks renders the 'Cross-serv
   assert.match(text, /Cross-service links \(deterministic/, "worker prompt must render the section header when serviceLinks is populated");
   assert.match(
     text,
-    /org\/front\/src\/api\.ts#getOrder.*->.*org\/orders.*GET \/orders\/\{id\}.*http, confidence 0\.90/,
-    "worker prompt must render the from -> to (transport, confidence) line format",
+    /org\/front\/src\/api\.ts#getOrder.*->.*org\/orders.*GET \/orders\/\{id\}.*FE→BE HTTP, source openapi, confidence 0\.90/,
+    "worker prompt must render the from -> to (kind, source, confidence) line format",
   );
 });
 

@@ -44,7 +44,7 @@ baseBranch: "main"             # target branch for the QA pull requests
 #   - transport: http
 #     frontFiles: "**/*.api.ts"                       # filename-suffix glob of front egress files
 #     frontCallSite: { kind: receiver-verb-call, receiver: "this.rest" }
-#     servicePrefixTemplate: "name-{service}-api"      # e.g. name-orders-api/orders
+#     servicePrefixTemplate: "name-{service}-api"      # required {service} token; e.g. name-orders-api/orders
 #     serviceRepoTemplate: "ms-name-{service}"         # e.g. ms-name-orders
 #     openApiPath: "src/main/resources/openapi/api-definition.yaml"
 #   # EVENT transport: for repos whose backends talk to each other ONLY via events (NATS,
@@ -66,7 +66,7 @@ baseBranch: "main"             # target branch for the QA pull requests
 #   - transport: http-backend
 #     sourceFiles: "**/*.java"                          # filename-suffix glob of backend client files
 #     callPattern: { kind: rest-template-exchange, receiver: "restTemplate" }
-#     servicePrefixTemplate: "name-{service}-api"      # optional path prefix; bare /api/... matches across services
+#     servicePrefixTemplate: "name-{service}-api"      # required {service} token; e.g. name-orders-api/orders. Bare /api/... needs a prefix template that still contains {service}.
 #     serviceRepoTemplate: "ms-name-{service}"
 #     openApiPath: "src/main/resources/openapi/api-definition.yaml"
 

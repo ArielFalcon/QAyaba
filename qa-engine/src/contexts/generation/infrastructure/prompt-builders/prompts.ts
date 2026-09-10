@@ -329,13 +329,12 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     hasLinks || hasDrift
       ? [
           "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural FE→BE contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency.",
+          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
                 const tier = tierFor(l);
-                return `- ${tier ? `[IMPACTED:${s(tier)}] ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
-                  `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${s(l.transport)}, confidence ${l.confidence.toFixed(2)})`;
+                return renderServiceLinkLine(l, s, tier);
               })
             : []),
           ...(workerOmittedLinkCount > 0 ? [`...and ${workerOmittedLinkCount} more link${workerOmittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
@@ -443,6 +442,29 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
 const GROUNDING_UNCOVERED_ESCAPE =
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
   `browser_navigate that specific route before writing its selectors — never guess them.`;
+
+function linkKindLabel(l: { transport: string; source: string }): string {
+  if (l.source === "http-backend-resolver") return "BE→BE HTTP";
+  if (l.transport === "event") return "event";
+  if (l.transport === "rpc") return "RPC";
+  return "FE→BE HTTP";
+}
+
+function renderServiceLinkLine(
+  l: {
+    from: { repo: string; file: string; symbol: string };
+    to: { repo: string; symbol: string };
+    transport: string;
+    source: string;
+    contractRef?: string;
+    confidence: number;
+  },
+  s: (x: unknown) => string,
+  tier?: string,
+): string {
+  return `- ${tier ? `[IMPACTED:${s(tier)}] ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
+    `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${linkKindLabel(l)}, source ${s(l.source)}, confidence ${l.confidence.toFixed(2)})`;
+}
 
 // C1: renders the runtime evidence (httpStatus/finalUrl/runtimeErrors — captured by the
 // orchestrator, see QaCase in ../types.ts) already carried on a failing case, so a fix-cases
@@ -876,13 +898,12 @@ export function buildPromptAssembled(input: OpencodeRunInput): AssembledPrompt {
     (hasServiceLinks || hasContractDrift) && isGenerationMode
       ? [
           "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural FE→BE contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency.",
+          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasServiceLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
                 const tier = tierFor(l);
-                return `- ${tier ? `[IMPACTED:${s(tier)}] ` : ""}\`${s(l.from.repo)}/${s(l.from.file)}#${s(l.from.symbol)}\` -> ` +
-                  `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${s(l.transport)}, confidence ${l.confidence.toFixed(2)})`;
+                return renderServiceLinkLine(l, s, tier);
               })
             : []),
           ...(omittedLinkCount > 0 ? [`...and ${omittedLinkCount} more link${omittedLinkCount === 1 ? "" : "s"} (truncated at MAX_LINKS=${MAX_LINKS})`] : []),
