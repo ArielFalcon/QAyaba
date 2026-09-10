@@ -270,6 +270,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
+      ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),
       // CodeGraph Phase 4 (design §5.1, ADR-3): the rendered structural-blast-radius advisory block
       // (GenerationEnrichment.staticSignal's own doc, ports/index.ts) — mapped 1:1 onto the SAME
       // OpencodeRunInput.staticSignal field buildPromptAssembled already renders a section for.

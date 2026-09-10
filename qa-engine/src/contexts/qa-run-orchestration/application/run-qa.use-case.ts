@@ -64,6 +64,7 @@ import type {
   MirrorGcPort,
   CurriculumPort,
   ArchitectureContext,
+  ExplorationBrief,
 } from "./ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "./ports/index.ts";
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
@@ -733,6 +734,7 @@ export class RunQaUseCase {
     let groundingContextPack: string | undefined;
     let groundingExistingSpecFiles: string[] | undefined;
     let groundingContextMap: ArchitectureContext | undefined;
+    let groundingContextBrief: ExplorationBrief | undefined;
     if (this.deps.preGenerationGrounding) {
       this.deps.observer?.onStep("generate", "pre-generation grounding");
       try {
@@ -740,10 +742,16 @@ export class RunQaUseCase {
         // every other diff-mode enrichment already reuses (the "dynamic diff" fix precedent) — the
         // adapter derives deterministic [CHANGED] markers from it (no LLM). Absent outside diff mode
         // (classificationDiff stays undefined there), matching every other diff-mode-only field.
-        const grounding = await this.deps.preGenerationGrounding.ground(workspace.specDir, signal, classificationDiff);
+        const grounding = await this.deps.preGenerationGrounding.ground(
+          workspace.specDir,
+          signal,
+          classificationDiff,
+          { sha: input.sha.toString(), ...(classificationIntent ? { intent: classificationIntent } : {}) },
+        );
         groundingContextPack = grounding.contextPack;
         groundingExistingSpecFiles = grounding.existingSpecFiles;
         groundingContextMap = grounding.contextMap;
+        groundingContextBrief = grounding.contextBrief;
       } catch (err) {
         // FIX 1 (judgment-day W4 abort-plumbing): an abort DURING grounding must take the ABORT
         // route, never the degraded-ungrounded-continue route below.
@@ -851,6 +859,7 @@ export class RunQaUseCase {
       ...(groundingContextPack ? { contextPack: groundingContextPack } : {}),
       ...(groundingExistingSpecFiles?.length ? { existingSpecFiles: groundingExistingSpecFiles } : {}),
       ...(groundingContextMap ? { contextMap: groundingContextMap } : {}),
+      ...(groundingContextBrief ? { contextBrief: groundingContextBrief } : {}),
       ...(blastRadiusSignal ? { staticSignal: blastRadiusSignal } : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),

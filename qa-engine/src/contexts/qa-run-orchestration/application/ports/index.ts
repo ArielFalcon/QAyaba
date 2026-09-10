@@ -42,6 +42,20 @@ export interface ArchitectureContext {
   flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;
 }
 
+// Port-local structural mirror of generation's ExplorationBrief (generation-ports.ts). Same
+// no-cross-context-import rule as ArchitectureContext above. Extra optional fields on the
+// generation type remain assignable.
+export interface ExplorationBrief {
+  builtForSha: string;
+  objective: string;
+  blastRadius: Array<{ symbol: string; file: string; role: string }>;
+  feBe?: Array<{ route: string; operationId: string; via?: string }>;
+  contracts?: Array<{ operationId: string; method: string; path: string; fields?: string[]; errors?: string[] }>;
+  routes?: Array<{ path: string; component?: string; domLandmarks?: string[]; verified: boolean }>;
+  risks?: string[];
+  notes?: string;
+}
+
 // The immovable strangler seam: a single input → a RunOutcome. Both LegacyPipelineAdapter and the
 // RewrittenOrchestratorAdapter satisfy this (Plan 6).
 export interface RunInput {
@@ -219,6 +233,10 @@ export interface GenerationEnrichment {
   // renderArchitectureContext can run. Distinct from contextPack (assembled markdown): this is
   // the structured map. Absent when the json is missing/invalid (fail-open, never fabricated).
   contextMap?: ArchitectureContext;
+  // Distilled explorer pass (qa-explorer). Mapped 1:1 onto OpencodeRunInput.contextBrief so
+  // renderBrief runs. Distinct from contextPack (assembled markdown that already received the
+  // brief as pack input). Absent when explorer is unwired or fail-open.
+  contextBrief?: ExplorationBrief;
   // existingSpecFiles: the suite's on-disk spec file paths (relative to e2eRelDir), enumerated
   // BEFORE the first generate() call so the "existing-suite-manifest" prompt section lets the
   // generator reuse/extend instead of duplicating a flow (mirrors legacy's Seam b,
@@ -760,6 +778,9 @@ export interface GroundingResult {
   // T4: the per-run ArchitectureContext from `${specDir}/.qa/context.json` — feeds
   // GenerationEnrichment.contextMap. Absent when the file is missing/invalid (fail-open).
   contextMap?: ArchitectureContext;
+  // Distilled explorer brief — feeds GenerationEnrichment.contextBrief. Absent when explorer
+  // is unwired, throws, or returns nothing (fail-open).
+  contextBrief?: ExplorationBrief;
 }
 export interface PreGenerationGroundingPort {
   // WS5.3 (full-flow remediation, option c — deterministic Context Pack feed): `diff` is an OPTIONAL
@@ -769,7 +790,12 @@ export interface PreGenerationGroundingPort {
   // buildContextPack. Absent (non-diff modes, or a caller that omits it) -> unchanged, byte-identical
   // to before this field existed — the SAME backward-compatible precedent every other optional arg on
   // this port's siblings (GenerationPort.diff, etc.) already follows.
-  ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult>;
+  ground(
+    specDir: string,
+    signal?: AbortSignal,
+    diff?: string,
+    opts?: { sha?: string; intent?: CommitIntent },
+  ): Promise<GroundingResult>;
 }
 
 // ReviewDomGroundingPort — Plan 7-R W4: the reviewer's live-DEV-DOM grounding, mirroring legacy's

@@ -637,8 +637,9 @@ test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as
         },
       },
     );
-    await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n");
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n");
     assert.equal(seenBrief, brief);
+    assert.deepEqual(result.contextBrief, brief, "explorer brief must also reach GroundingResult.contextBrief for generate()");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -661,6 +662,51 @@ test("P0-3: exploreBrief throw is fail-open — pack still builds without a brie
     const result = await adapter.ground(dir);
     assert.equal(result.contextPack, "## pack");
     assert.equal(seenBrief, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): prChangedFiles is derived from the threaded diff when static ctx omits it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-prfiles-"));
+  try {
+    let seen: string[] | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        buildContextPack: async (input) => {
+          seen = input.prChangedFiles;
+          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        },
+      },
+    );
+    await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
+    assert.deepEqual(seen, ["src/app/checkout.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): exploreBrief receives sha and intent from the optional opts bag", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-opts-"));
+  try {
+    let seen: { sha?: string; intent?: { message: string } } = {};
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async (args) => {
+          seen = { sha: args.sha, intent: args.intent };
+          return undefined;
+        },
+        buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", {
+      sha: "abc1234",
+      intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/a.ts"] },
+    });
+    assert.equal(seen.sha, "abc1234");
+    assert.equal(seen.intent?.message, "add checkout");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

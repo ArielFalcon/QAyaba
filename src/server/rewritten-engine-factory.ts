@@ -1137,7 +1137,7 @@ export function buildRewrittenCompositionConfig(
     // Code-mode still skips via !isCode even if services[] is present.
     groundingCollaborators: shouldExplore && !isCode
       ? {
-          exploreBrief: async ({ specDir, diff, signal }) => {
+          exploreBrief: async ({ specDir, diff, signal, sha, intent }) => {
             const cwd = dirname(specDir);
             let session: Awaited<ReturnType<typeof runtimeAdapter.openSession>> | undefined;
             try {
@@ -1148,7 +1148,7 @@ export function buildRewrittenCompositionConfig(
               });
               const prompt = buildExplorerPrompt({
                 repo: app.repo,
-                sha: namespace,
+                sha: sha ?? namespace,
                 diff: diff ?? "",
                 mirrorDir: cwd,
                 e2eRelDir,
@@ -1160,6 +1160,10 @@ export function buildRewrittenCompositionConfig(
                 explorer: true,
                 ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
                 ...(run.guidance ? { guidance: run.guidance } : {}),
+                ...(intent ? { intent } : {}),
+                ...(triggerService
+                  ? { service: { repo: triggerService.repo, mirrorDir: serviceContextDir(cwd, triggerService.repo), ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
+                  : {}),
               });
               const { output } = await session.prompt(prompt, { textOnly: true });
               return parseExplorationBrief(output) ?? undefined;
@@ -1232,7 +1236,8 @@ export function buildRewrittenCompositionConfig(
     // `${specDir}/.qa/context.json` fresh on every run (specDir = the REAL per-run mirrorDir, only
     // known post-checkout — the composition-build-time gap this comment describes still holds for
     // THIS field). `config.contextMap` genuinely stays absent here, by design, unchanged. prChangedFiles
-    // remains the one still-open gap this comment describes.
+    // is derived at ground() time from the run's classification diff (DiffParserService.changedFiles),
+    // so the composition-time field stays absent.
     // CRITICAL fix (live crash, judgment-day audit): baseUrl is app-static (the live DEV URL from
     // config), so it is correct to set it once here at composition time — unlike diff/mode/guidance,
     // there is no per-run value to thread. Without this, E2eExecutionStrategy.run() (wired via

@@ -18,7 +18,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { ArchitectureContext, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
@@ -49,7 +49,13 @@ export interface PreGenerationGroundingCollaborators {
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
   // P0-3: optional explorer pass. When present, ground() calls it fail-open BEFORE buildContextPack
   // and forwards the brief. Absent (explorer disabled / not wired) → brief stays undefined.
-  exploreBrief?: (args: { specDir: string; diff?: string; signal?: AbortSignal }) => Promise<ExplorationBrief | undefined>;
+  exploreBrief?: (args: {
+    specDir: string;
+    diff?: string;
+    signal?: AbortSignal;
+    sha?: string;
+    intent?: CommitIntent;
+  }) => Promise<ExplorationBrief | undefined>;
 }
 
 // sdd/migration-wiring-phase-2 Slice 3 (D-C contextMap read-back): a minimal, faithful structural
@@ -165,7 +171,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
   // it is the run's REAL per-run workspace.specDir (run-qa.use-case.ts's own call site), used below
   // to read `${specDir}/.qa/context.json` fresh on every run instead of relying solely on the static
   // ctx.contextMap (which stays permanently absent in production).
-  async ground(specDir: string, signal?: AbortSignal, diff?: string): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha?: string; intent?: CommitIntent }): Promise<GroundingResult> {
     // Cheap, exact pre-check (FIX 1a, judgment-day W4 abort-plumbing): an already-aborted signal
     // skips BOTH collaborator calls entirely — no point starting a capture/build the caller has
     // already given up on. Mirrors the use-case's own `if (signal?.aborted) return` posture at
@@ -231,11 +237,19 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     let brief: ExplorationBrief | undefined;
     if (this.collaborators.exploreBrief) {
       try {
-        brief = await this.collaborators.exploreBrief({ specDir, ...(diff !== undefined ? { diff } : {}), ...(signal ? { signal } : {}) });
+        brief = await this.collaborators.exploreBrief({
+          specDir,
+          ...(diff !== undefined ? { diff } : {}),
+          ...(signal ? { signal } : {}),
+          ...(opts?.sha ? { sha: opts.sha } : {}),
+          ...(opts?.intent ? { intent: opts.intent } : {}),
+        });
       } catch (err) {
         console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+
+    if (brief) result.contextBrief = brief;
 
     // Context pack: brief is the explorer distillate when wired (P0-3); otherwise undefined so
     // the pack degrades to contextMap-only contract filtering + no DOM/blast radius.
@@ -267,12 +281,13 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       // WS5.3: [CHANGED] markers — pure, deterministic extraction from the run's actual diff (no
       // LLM). Absent when no diff was threaded (non-diff modes, or the caller omitted it).
       const changedElements = diff ? diffParser.changedElements(diff) : undefined;
+      const prChangedFiles = this.ctx.prChangedFiles ?? (diff ? diffParser.changedFiles(diff) : undefined);
       const buildPromise = build(
         {
           baseUrl: this.ctx.baseUrl,
           e2eDir: this.ctx.e2eDir,
           contextMap,
-          prChangedFiles: this.ctx.prChangedFiles,
+          prChangedFiles,
           testIdAttribute: this.ctx.testIdAttribute,
           ...(brief ? { brief } : {}),
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),

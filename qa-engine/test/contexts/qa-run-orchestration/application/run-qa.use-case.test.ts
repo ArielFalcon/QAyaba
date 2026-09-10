@@ -427,6 +427,45 @@ test("RunQaUseCase: PreGenerationGroundingPort wired — absent grounding.contex
   assert.equal(generateCalls[0]!.enrichment?.contextPack, "## Context Pack\n\nblast radius...");
 });
 
+test("RunQaUseCase: PreGenerationGroundingPort wired — contextBrief threads into generate() enrichment", async () => {
+  const contextBrief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
+  const generateCalls: Array<{ enrichment?: { contextBrief?: typeof contextBrief } }> = [];
+  const { ports } = stubPorts({
+    ground: async () => ({ contextPack: "## pack", contextBrief }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      generateCalls.push({ enrichment: enrichment as { contextBrief?: typeof contextBrief } });
+      return { specs: ["a.spec.ts"], approved: true };
+    },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  await useCase.run(baseInput);
+
+  assert.deepEqual(generateCalls[0]!.enrichment?.contextBrief, contextBrief);
+});
+
+test("RunQaUseCase: ground() receives the run sha and classify intent", async () => {
+  let seen: { sha?: string; intent?: { message: string } } = {};
+  const { ports } = stubPorts({
+    classify: async () => ({
+      action: "generate",
+      reason: "type=feat",
+      diff: "the-diff",
+      intent: { type: "feat", breaking: false, message: "add checkout", changedFiles: ["src/a.ts"] },
+    }),
+    ground: async (_specDir, _signal, _diff, opts) => {
+      seen = { sha: opts?.sha, intent: opts?.intent };
+      return {};
+    },
+  });
+  const useCase = new RunQaUseCase(ports);
+
+  await useCase.run(baseInput);
+
+  assert.equal(seen.sha, "abc1234");
+  assert.equal(seen.intent?.message, "add checkout");
+});
+
 test("RunQaUseCase: PreGenerationGroundingPort wired — grounding is reused UNCHANGED across a review-correction regen (first-write ground truth)", async () => {
   const generateCalls: Array<{ enrichment?: { contextPack?: string } }> = [];
   let groundCalls = 0;

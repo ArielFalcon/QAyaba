@@ -217,6 +217,42 @@ test("P0-3: explorer:true wires groundingCollaborators.exploreBrief for an e2e a
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
 });
 
+test("explorer prompt uses the commit sha, intent, and triggerService — not the run namespace as sha", async () => {
+  let captured = "";
+  const app: AppConfig = {
+    ...cfg("factory-explorer-prompt-sha"),
+    qa: { ...cfg("factory-explorer-prompt-sha").qa, explorer: true },
+    services: [{ repo: "org/orders-svc", openapi: "openapi.yaml" }],
+  };
+  const config = buildRewrittenCompositionConfig(
+    app,
+    {
+      getAgentDeps: () => ({
+        open: async () => ({
+          id: "explorer-session",
+          prompt: async (text: string) => {
+            captured = text;
+            return '{"builtForSha":"deadbeefcafebabe","objective":"orders","blastRadius":[]}';
+          },
+          dispose: async () => {},
+        }),
+      }),
+    },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", triggerRepo: "org/orders-svc" },
+  );
+  await config.groundingCollaborators!.exploreBrief!({
+    specDir: "/mirrors/org__demo/e2e",
+    diff: "diff --git a/src/x.ts b/src/x.ts\n",
+    sha: "deadbeefcafebabe",
+    intent: { type: "feat", breaking: false, message: "add order endpoint", changedFiles: ["src/x.ts"] },
+  });
+  assert.match(captured, /deadbeefcafebabe/, "explorer must map the commit SHA, not the run namespace");
+  assert.match(captured, /add order endpoint/, "explorer must receive classify intent");
+  assert.match(captured, /org\/orders-svc/, "explorer must receive the triggering service");
+  assert.equal(captured.includes("Explore the blast radius of commit qa-bot-abc1234-run1"), false, "the run namespace must not be passed as the commit sha");
+});
+
 test("multi-repo: explorer:false + services.length>0 wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer-services-auto"), services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });

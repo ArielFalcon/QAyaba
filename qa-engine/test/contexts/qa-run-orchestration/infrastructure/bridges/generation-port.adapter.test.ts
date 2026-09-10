@@ -339,6 +339,30 @@ test("generate() maps enrichment.contextMap onto OpencodeRunInput", async () => 
   }
 });
 
+test("generate() maps enrichment.contextBrief onto OpencodeRunInput", async () => {
+  const ports = fakeGenerationPorts();
+  let capturedInput: OpencodeRunInput | undefined;
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    capturedInput = input;
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+    const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { contextBrief: brief });
+
+    assert.deepEqual(capturedInput?.contextBrief, brief);
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
 test("generate() with absent enrichment.contextMap omits it from OpencodeRunInput (never fabricated)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;
