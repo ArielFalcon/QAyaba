@@ -458,9 +458,10 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
 
   /** Real per design §6/R11: spawns index_repository, maps a whole-index failure to IndexFailed.
    *  Called by RunQaUseCase's per-run indexing phase when IndexStatusPort says lastIndexedSha
-   *  differs from the run SHA (and both ports are wired). First-time full index of an unresolved
-   *  project remains onboarding (`indexRepoForOnboarding`); this path updates already-indexed
-   *  projects. IndexFailed / throw are fail-open at the use-case — lastIndexedSha is not written. */
+   *  differs from the run SHA (and both ports are wired). An unresolved project is created first
+   *  by LazyProjectCodeGraphAdapter.syncTo via index_repository `{ repo_path }` (same shape as
+   *  onboarding), then this path updates the named project. IndexFailed / throw are fail-open at
+   *  the use-case — lastIndexedSha is not written. */
   async syncTo(
     repoDir: string,
     changedFiles: string[],

@@ -317,12 +317,15 @@ export interface RunQaUseCaseDeps {
   mirrorGc?: MirrorGcPort;
   // [SWAP] absent either port -> the per-run mirror-index phase is a no-op (existing tests stay
   // valid without fakes). Indexing requires BOTH indexStatus and codeGraph. Fail-open: a throw or
-  // Result.ok false (IndexFailed — e.g. ProjectNameResolver cannot resolve the repo) never becomes
-  // infra-error and does not setLastIndexedSha (first-time full index remains onboarding). SHA skip:
-  // lastIndexedSha === input.sha skips syncTo. Classify-skip returns before this phase (the mirror
-  // may already have been GC'd). Observer vocabulary is closed — this phase does not emit onStep.
+  // Result.ok false (IndexFailed) never becomes infra-error and does not setLastIndexedSha.
+  // SHA skip: lastIndexedSha === input.sha skips syncTo. Classify-skip returns before this phase
+  // (the mirror may already have been GC'd). Observer vocabulary is closed — this phase does not
+  // emit onStep. codeGraphRepoDir (when set) is the classify-source repo; else workspace.mirrorDir.
   indexStatus?: IndexStatusPort;
   codeGraph?: CodeGraphPort;
+  // Classify-source repo root (SERVICE mirror on a webhook, PRIMARY otherwise). Absent → index
+  // workspace.mirrorDir (same-repo tests and compositions that omit the field stay unchanged).
+  codeGraphRepoDir?: string;
   config?: Partial<RunQaConfig>;
 }
 
@@ -578,12 +581,15 @@ export class RunQaUseCase {
     // setLastIndexedSha. Throws are fail-open (never infra-error). No onStep("index").
     if (this.deps.indexStatus && this.deps.codeGraph) {
       try {
-        const lastIndexedSha = await this.deps.indexStatus.getLastIndexedSha(workspace.mirrorDir);
+        const indexDir = this.deps.codeGraphRepoDir ?? workspace.mirrorDir;
+        const lastIndexedSha = await this.deps.indexStatus.getLastIndexedSha(indexDir);
         if (lastIndexedSha !== input.sha.toString()) {
           const changedFiles = classificationIntent?.changedFiles ?? [];
-          const result = await this.deps.codeGraph.syncTo(workspace.mirrorDir, changedFiles);
+          const result = await this.deps.codeGraph.syncTo(indexDir, changedFiles);
           if (result.ok) {
-            await this.deps.indexStatus.setLastIndexedSha(workspace.mirrorDir, input.sha.toString());
+            await this.deps.indexStatus.setLastIndexedSha(indexDir, input.sha.toString());
+          } else {
+            console.warn("[qa] mirror indexing failed (non-blocking):", result.error.reason);
           }
         }
       } catch (err) {
@@ -788,24 +794,16 @@ export class RunQaUseCase {
     // above): a throw from the port is caught and logged, degrading to "" (no staticSignal) —
     // this seam is advisory-only and must never abort a run.
     //
-    // WS7.5 (full-flow remediation): gated on `!input.triggerRepo` — the adapter is pinned to the
-    // PRIMARY repo's graph at composition (composition-root.ts), and this use-case had NO
-    // triggerRepo guard at all before this fix. A cross-repo run's runBlastRadius carries the
-    // SERVICE repo's changed file paths, so querying the primary graph with them is either an empty
-    // result (harmless but wasted) or, worst case, FALSE coupling bullets from convention-coincident
-    // paths (e.g. both repos have a `src/main/java/...` layout) — a wrong signal is worse than no
-    // signal, since it aims the generator with false `[coupling]` authority. The honest-empty fix is
-    // this one guard; per-service graph indexes (re-pointing the adapter itself) are separate,
-    // real-scope future work (mirrors crossRepoImpact's own per-repo resolution pattern).
+    // Composition pins StructuralSignalPortAdapter + the index phase at the classify-source repo
+    // (SERVICE mirror on a webhook, PRIMARY otherwise), so a cross-repo BlastRadius is queried
+    // against the matching graph — not skipped.
     let blastRadiusSignal = "";
-    if (this.deps.structuralSignal && !input.triggerRepo) {
+    if (this.deps.structuralSignal) {
       try {
         blastRadiusSignal = await this.deps.structuralSignal.render(workspace.specDir, runBlastRadius);
       } catch (err) {
         console.error("[qa] WARNING: structural blast-radius signal failed (non-fatal, generation continues without it):", err);
       }
-    } else if (this.deps.structuralSignal && input.triggerRepo) {
-      console.log("[qa] structural signal skipped: cross-repo run — graph is primary-scoped");
     }
 
     // Stitcher→Generation seam (design §3.5, ADR-7): UNLIKE blastRadiusSignal above, this block is

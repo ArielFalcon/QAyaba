@@ -106,11 +106,41 @@ test("existingCoverage and structurallyRelated stay inert (out of scope for this
 });
 
 test("syncTo degrades to IndexFailed when the repo cannot be resolved to a project (never silently proceeds with an empty project)", async () => {
-  const { client } = fakeClient({ listProjects: JSON.stringify({ projects: [] }) });
+  const { client, calls } = fakeClient({ listProjects: JSON.stringify({ projects: [] }) });
   const resolver = new ProjectNameResolver(client);
   const adapter = new LazyProjectCodeGraphAdapter(client, resolver);
 
   const result = await adapter.syncTo("/mirrors/unindexed/app", ["src/Foo.java"]);
 
-  assert.ok(isErr(result), "syncTo must surface IndexFailed loudly (R11) rather than silently indexing under an empty project name");
+  assert.ok(isErr(result), "a failed first-time index_repository must still surface IndexFailed");
+  assert.ok(calls.some((c) => c.tool === "index_repository"), "unresolved syncTo must attempt a first-time index_repository with repo_path");
+  const indexCall = calls.find((c) => c.tool === "index_repository");
+  assert.deepEqual(JSON.parse(indexCall!.jsonArg), { repo_path: "/mirrors/unindexed/app" });
+});
+
+test("syncTo first-time-indexes an unresolved repo then re-resolves the project name", async () => {
+  let listCalls = 0;
+  const calls: Array<{ tool: string; jsonArg: string }> = [];
+  const client = {
+    async cli(tool: string, jsonArg: string, _repoDir: string) {
+      calls.push({ tool, jsonArg });
+      if (tool === "list_projects") {
+        listCalls++;
+        const projects = listCalls === 1 ? [] : [{ name: "mirrors-unindexed-app", root_path: "/mirrors/unindexed/app" }];
+        return { code: 0, stdout: JSON.stringify({ projects }), stderr: "" };
+      }
+      if (tool === "index_repository") {
+        return { code: 0, stdout: JSON.stringify({ nodes: 12 }), stderr: "" };
+      }
+      return { code: 0, stdout: JSON.stringify({ columns: [], rows: [], total: 0 }), stderr: "" };
+    },
+  };
+  const resolver = new ProjectNameResolver(client);
+  const adapter = new LazyProjectCodeGraphAdapter(client, resolver);
+
+  const result = await adapter.syncTo("/mirrors/unindexed/app", ["src/Foo.java"]);
+
+  assert.ok(isOk(result));
+  assert.equal(result.ok && result.value.nodeCount, 12);
+  assert.equal(listCalls, 2, "list_projects must run again after invalidate so the new project is visible");
 });

@@ -1179,8 +1179,13 @@ export function buildRewrittenCompositionConfig(
     reviewDomGroundingCollaborators: {},
     // Per-run lastIndexedSha sidecar (cheap JSON under QAYABA_ROOT/data). Always supplied —
     // the use-case phase is a no-op unless wireBridges also builds codeGraph from codebaseMemory
-    // (gated by structuralSignalsOn). First-time full index remains onboarding.
+    // (gated by structuralSignalsOn). First-time full index of an unresolved project is now
+    // LazyProjectCodeGraphAdapter.syncTo (index_repository with repo_path only).
     indexStatus: new IndexStatusAdapter(join(process.env.QAYABA_ROOT ?? process.cwd(), "data")),
+    // Classify-source repo root: SERVICE mirror on a webhook, PRIMARY otherwise. Indexing and
+    // the structural-signal adapter must pin this dir — workspace.mirrorDir is the suite (primary)
+    // even on a cross-repo run, so using it would stamp the service SHA onto the frontend graph.
+    codeGraphRepoDir: vcsDir,
     // CodeGraph Phase 4 (design §5.3/§6, user-confirmed ACTIVE wiring): the raw CLI client for the
     // structural blast-radius signal. Reuses this factory's own `runner` (the same sandboxed spawn
     // primitive every other extractor uses). Unconditional by design — an unindexed mirror degrades

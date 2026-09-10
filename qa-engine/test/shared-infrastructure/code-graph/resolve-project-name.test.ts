@@ -129,3 +129,22 @@ test("ProjectNameResolver instances are independent — a fresh instance starts 
 
   assert.equal(callsB.length, 1, "a fresh ProjectNameResolver instance must not inherit another instance's cache");
 });
+
+test("ProjectNameResolver.invalidate drops a cached miss so a just-created index can resolve", async () => {
+  let calls = 0;
+  const client = {
+    async cli(_tool: string, _jsonArg: string, _repoDir: string) {
+      calls++;
+      if (calls === 1) return { code: 0, stdout: JSON.stringify({ projects: [] }), stderr: "" };
+      return {
+        code: 0,
+        stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }),
+        stderr: "",
+      };
+    },
+  };
+  const resolver = new ProjectNameResolver(client);
+  assert.equal(await resolver.resolve("/mirrors/org/app"), undefined);
+  resolver.invalidate("/mirrors/org/app");
+  assert.equal(await resolver.resolve("/mirrors/org/app"), "org-app");
+});

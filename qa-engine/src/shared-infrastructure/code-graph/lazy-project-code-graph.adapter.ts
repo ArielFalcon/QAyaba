@@ -95,17 +95,47 @@ export class LazyProjectCodeGraphAdapter implements CodeGraphPort {
     return adapter.structurallyRelated(repoDir, symbols, minJaccard);
   }
 
-  /** R11: a whole-index failure must surface LOUDLY, never a silent empty index — so an
-   *  unresolvable repoDir maps to err(IndexFailed) HERE, distinct from the ok([])-degrade every
-   *  query method above uses (a query's "not indexed" is legitimately empty; syncTo's job IS to
-   *  build the index, so "cannot even identify which project to index" is a real failure). */
+  /** R11: a whole-index failure must surface LOUDLY, never a silent empty index. An unresolvable
+   *  repoDir used to map to err(IndexFailed) without attempting a first-time index — that left
+   *  runs that skipped onboarding unable to recover. syncTo now calls index_repository with
+   *  `{ repo_path }` only (the onboarding shape; the CLI derives the project name), then
+   *  re-resolves. Still IndexFailed if the spawn fails or list_projects cannot see the new
+   *  project after indexing. */
   async syncTo(
     repoDir: string,
     changedFiles: string[],
     opts?: { semantic?: boolean },
   ): Promise<Result<{ nodeCount: number }, IndexFailed>> {
     const adapter = await this.resolveAdapter(repoDir);
-    if (adapter === UNRESOLVED) return err({ reason: `repo not indexed: ${repoDir}` });
-    return adapter.syncTo(repoDir, changedFiles, opts);
+    if (adapter !== UNRESOLVED) return adapter.syncTo(repoDir, changedFiles, opts);
+
+    const created = await this.indexUnresolvedRepo(repoDir);
+    if (!created.ok) return created;
+    this.resolver.invalidate(repoDir);
+    const resolved = await this.resolveAdapter(repoDir);
+    if (resolved === UNRESOLVED) {
+      return err({ reason: `repo indexed but project name unresolved: ${repoDir}` });
+    }
+    return created;
+  }
+
+  private async indexUnresolvedRepo(repoDir: string): Promise<Result<{ nodeCount: number }, IndexFailed>> {
+    const res = await this.client.cli("index_repository", JSON.stringify({ repo_path: repoDir }), repoDir);
+    if (res.code === null) {
+      return err({ reason: res.stderr || "codebase-memory index_repository unavailable" });
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(res.stdout);
+    } catch (e) {
+      return err({ reason: e instanceof Error ? e.message : String(e) });
+    }
+    const shape = typeof payload === "object" && payload !== null ? (payload as { nodes?: unknown; node_count?: unknown }) : {};
+    const rawCount = shape.nodes ?? shape.node_count;
+    const nodeCount = typeof rawCount === "number" && Number.isFinite(rawCount) ? rawCount : Number(rawCount);
+    if (!Number.isFinite(nodeCount)) {
+      return err({ reason: "codebase-memory index_repository response missing nodes/node_count" });
+    }
+    return ok({ nodeCount });
   }
 }

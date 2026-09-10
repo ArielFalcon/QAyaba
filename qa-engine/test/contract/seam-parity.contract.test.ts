@@ -274,6 +274,9 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     // flag would protect), the SAME "IS supplied" precedent processAudit/mirrorGc establish
     // immediately above. Asserted below as a present case.
     curriculumPort: "IS supplied (CurriculumPortAdapter over history.ts's loadCurriculum/saveCurriculum) — asserted below as a present case.",
+    indexStatus: "IS supplied (IndexStatusAdapter over QAYABA_ROOT/data) — cheap JSON sidecar; the use-case phase is a no-op unless codebaseMemory also builds codeGraph. Asserted below as a present case.",
+    codebaseMemory: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the raw CLI client LazyProjectCodeGraphAdapter wraps. Asserted below as a present-when-default case.",
+    codeGraphRepoDir: "IS supplied (classify-source mirror: SERVICE on a webhook, PRIMARY otherwise) — pins CodeGraphPort.syncTo and StructuralSignalPortAdapter off workspace.mirrorDir on cross-repo runs. Asserted below as a present case.",
   };
 
   function fakeAppConfig(overrides: Partial<AppConfig> = {}): AppConfig {
@@ -354,6 +357,9 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     // is silent by construction (the curriculum simply stays empty forever), which is why this
     // present-case assertion is the gate rather than a runtime failure.
     assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring, D6) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.indexStatus, undefined, `indexStatus (lastIndexedSha sidecar) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.codebaseMemory, undefined, `codebaseMemory (structural-signal CLI client, default mode signal) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.codeGraphRepoDir, undefined, `codeGraphRepoDir (classify-source mirror) dropped at ${dyingLayer}`);
     // W5 fix (seam-parity FIXME, flipped): readSpecSource IS wired now — assert it's a real file-read
     // collaborator, not just a truthy stub, by reading this very test file back through it.
     assert.equal(typeof cfg.readSpecSource, "function", `readSpecSource dropped at ${dyingLayer} (Lever-2 selector-contradiction check starves without it)`);

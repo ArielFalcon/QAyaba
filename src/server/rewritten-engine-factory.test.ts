@@ -344,6 +344,23 @@ test("buildRewrittenCompositionConfig sets indexStatus with getLastIndexedSha/se
   assert.equal(typeof config.indexStatus.setLastIndexedSha, "function");
 });
 
+test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the primary mirror on a same-repo run", () => {
+  const app = cfg("factory-codegraph-primary");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__demo", "same-repo indexing must pin the primary mirror, same formula as cfg.mirrorDir");
+});
+
+test("buildRewrittenCompositionConfig sets codeGraphRepoDir to the SERVICE mirror on a cross-repo run", () => {
+  const app: AppConfig = { ...cfg("factory-codegraph-service"), services: [{ repo: "org/orders-svc" }] };
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirrorRoot: "/tmp/mirrors" },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", triggerRepo: "org/orders-svc" },
+  );
+  assert.equal(config.codeGraphRepoDir, "/tmp/mirrors/org__orders-svc", "cross-repo indexing must pin the classify-source SERVICE mirror, never the primary suite dir");
+});
+
 test("qa.structuralSignals mode 'off' still supplies indexStatus (indexing is gated by omitted codebaseMemory/codeGraph, not by omitting the sidecar)", () => {
   const app: AppConfig = {
     ...cfg("factory-index-status-off"),

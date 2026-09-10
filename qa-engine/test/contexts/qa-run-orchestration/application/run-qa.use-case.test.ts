@@ -4687,13 +4687,11 @@ test("4b.5: a non-diff mode run (classificationIntent never populated) still cal
   assert.equal(recordedChangedFiles?.length, 0, "outside diff mode, classificationIntent is never populated, so the BlastRadius passed to render() must be empty — this is correct, tested behavior, not a gap");
 });
 
-// ── WS7.5 (full-flow remediation): structuralSignal must be SKIPPED on cross-repo runs — the
-// adapter is pinned to the PRIMARY repo's graph at composition, so a cross-repo run's
-// runBlastRadius carries the SERVICE repo's changed file paths; querying the primary graph with
-// them is either empty (harmless) or worst-case FALSE coupling bullets from convention-coincident
-// paths. A wrong signal is worse than no signal — this gate closes that.
+// ── WS7.5: structuralSignal used to skip cross-repo runs because the adapter was pinned to the
+// PRIMARY graph. Composition now indexes/queries the classify-source repo, so a service webhook
+// MUST still render (the BlastRadius files belong to that service).
 
-test("WS7.5: structuralSignal.render() is NEVER called when input.triggerRepo is set (cross-repo run)", async () => {
+test("WS7.5: structuralSignal.render() IS called when input.triggerRepo is set (graph is classify-source scoped)", async () => {
   let renderCallCount = 0;
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
@@ -4703,10 +4701,10 @@ test("WS7.5: structuralSignal.render() is NEVER called when input.triggerRepo is
 
   await useCase.run({ ...baseInput, runId: "ws7.5-cross-repo-skip", triggerRepo: "org/orders-svc" });
 
-  assert.equal(renderCallCount, 0, "a cross-repo run must never query the primary-scoped structural graph");
+  assert.equal(renderCallCount, 1, "a cross-repo run must query the classify-source graph, not skip the signal");
 });
 
-test("WS7.5: baseEnrichment carries NO staticSignal key at all on a cross-repo run, even though structuralSignal is wired", async () => {
+test("WS7.5: baseEnrichment carries staticSignal on a cross-repo run when structuralSignal is wired", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
@@ -4722,7 +4720,7 @@ test("WS7.5: baseEnrichment carries NO staticSignal key at all on a cross-repo r
 
   assert.ok(capturedEnrichments.length > 0, "generate() must have been called at least once");
   for (const captured of capturedEnrichments) {
-    assert.ok(captured && !("staticSignal" in captured), "staticSignal must not exist at all on a cross-repo run — never a stale/wrong signal");
+    assert.equal(captured?.staticSignal, "## Structural blast radius\nsome content");
   }
 });
 
@@ -6338,6 +6336,37 @@ test("mirror index: SHA changed → syncTo called once with workspace.mirrorDir 
   assert.equal(indexStatus.writes.length, 1);
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
   assert.equal(out.decision.verdict, "pass");
+});
+
+test("mirror index: codeGraphRepoDir is indexed and stamped instead of workspace.mirrorDir", async () => {
+  const syncToCalls: Array<{ repoDir: string; changedFiles: string[] }> = [];
+  const { ports } = stubPorts({
+    classify: async () => ({
+      action: "generate",
+      reason: "type=feat",
+      diff: "the-diff",
+      intent: { type: "feat", breaking: false, message: "add a", changedFiles: ["src/svc.ts"] },
+    }),
+  });
+  const indexStatus = memoryIndexStatus();
+  const codeGraph = fakeCodeGraph(async (repoDir, changedFiles) => {
+    syncToCalls.push({ repoDir, changedFiles: [...changedFiles] });
+    return { ok: true, value: { nodeCount: 1 } };
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    indexStatus,
+    codeGraph,
+    codeGraphRepoDir: "/mirrors/org__orders-svc",
+    config: baseConfig,
+  });
+
+  await useCase.run({ ...baseInput, runId: "mirror-index-service-dir", triggerRepo: "org/orders-svc" });
+
+  assert.equal(syncToCalls[0]!.repoDir, "/mirrors/org__orders-svc");
+  assert.deepEqual(syncToCalls[0]!.changedFiles, ["src/svc.ts"]);
+  assert.equal(indexStatus.writes[0]!.mirrorDir, "/mirrors/org__orders-svc");
+  assert.equal(indexStatus.writes[0]!.sha, "abc1234");
 });
 
 test("mirror index: same SHA already recorded → syncTo NOT called", async () => {

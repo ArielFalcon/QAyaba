@@ -208,6 +208,9 @@ export interface CompositionConfig {
   // (tests/fakes stay byte-identical when omitted). The shell factory supplies IndexStatusAdapter.
   // Indexing itself also needs codeGraph (built from codebaseMemory below); either absent is a no-op.
   indexStatus?: IndexStatusPort;
+  // Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter.
+  // Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir.
+  codeGraphRepoDir?: string;
   // Stitcher→Generation seam (design §3.6): the OPTIONAL serviceTopology collaborator. Mirrors
   // codebaseMemory's own [SWAP] posture — absent -> RunQaUseCaseDeps.serviceLinks stays undefined,
   // NEVER a stub ok([])-shaped fake. When present, wireBridges constructs a ServiceLinksPortAdapter
@@ -591,9 +594,9 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
   const structuralSignal = codeGraphPort
     ? new StructuralSignalPortAdapter(
         codeGraphPort,
-        // The graph is indexed at the repo ROOT — cfg.mirrorDir, not workspace.specDir's e2e
-        // subfolder (see StructuralSignalPortAdapter's own header for the full rationale).
-        cfg.mirrorDir,
+        // Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e
+        // subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter).
+        cfg.codeGraphRepoDir ?? cfg.mirrorDir,
       )
     : undefined;
 
@@ -743,6 +746,7 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(structuralSignal ? { structuralSignal } : {}),
     ...(cfg.indexStatus ? { indexStatus: cfg.indexStatus } : {}),
     ...(codeGraphPort ? { codeGraph: codeGraphPort } : {}),
+    ...(cfg.codeGraphRepoDir ? { codeGraphRepoDir: cfg.codeGraphRepoDir } : {}),
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),

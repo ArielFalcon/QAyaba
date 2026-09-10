@@ -73,4 +73,9 @@ export class ProjectNameResolver {
     this.cache.set(repoDir, resolved);
     return resolved;
   }
+
+  /** Drop a cached miss/hit so a just-created index can be resolved on the next call. */
+  invalidate(repoDir: string): void {
+    this.cache.delete(repoDir);
+  }
 }
