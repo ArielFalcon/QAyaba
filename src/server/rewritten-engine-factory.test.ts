@@ -1832,18 +1832,22 @@ test("cross-repo: mode 'context' WITHOUT a triggerRepo does not throw (same-repo
   );
 });
 
-test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service branch, no throw)", async () => {
+test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service-webhook branch, no throw)", async () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-selfrepo"), services: [{ repo: "org/orders-svc" }] };
   const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+  const { stageServiceContext, calls } = spyStageServiceContext();
   const config = buildRewrittenCompositionConfig(
     app,
-    { getAgentDeps: stubAgentDeps, mirror },
+    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
     { mode: "diff", triggerRepo: "org/demo" },
   );
-  await config.checkout(Sha.of("abc1234567"));
-  assert.deepEqual(ensureMirrorCalls, [{ repo: "org/demo", sha: "abc1234567", deps: defaultMirrorDeps }]);
-  assert.deepEqual(ensureMirrorAtBranchCalls, [], "triggerRepo === app.repo must behave exactly like the same-repo (no triggerRepo) path");
+  const dir = await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(ensureMirrorCalls, [{ repo: "org/demo", sha: "abc1234567", deps: defaultMirrorDeps }], "the primary stays the event-sha checkout — not a service-webhook ensureMirror of org/demo");
+  assert.deepEqual(ensureMirrorAtBranchCalls, [
+    { repo: "org/orders-svc", branch: "main", deps: defaultMirrorDeps },
+  ], "declared services still clone at branch HEAD so the stitcher does not scan leftover onboarding dirs");
+  assert.deepEqual(calls, [{ workingCopyDir: dir, repo: "org/orders-svc" }], "sibling services stage contracts-only (no event sha) on a primary-repo trigger");
   assert.strictEqual(ensureMirrorCalls[0]?.deps, defaultMirrorDeps);
 });
 
@@ -1973,15 +1977,58 @@ test("context mode: checkout(sha) materializes every declared service via ensure
   ], "each declared service's context must be staged INTO the primary working copy — context-mode services carry no per-run sha");
 });
 
-test("non-context mode: checkout(sha) never materializes declared services, even when app.services[] is set", async () => {
-  const app: AppConfig = { ...cfg("factory-diff-mode-no-service-checkout"), services: [{ repo: "org/orders-svc" }] };
-  const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+test("diff mode: checkout(sha) materializes every declared service via ensureMirrorAtBranch at svc.baseBranch ?? 'main'", async () => {
+  const app: AppConfig = {
+    ...cfg("factory-diff-mode-service-checkout"),
+    services: [
+      { repo: "org/orders-svc" },
+      { repo: "org/payments-svc", baseBranch: "develop" },
+    ],
+  };
+  const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+  const { stageServiceContext, calls } = spyStageServiceContext();
   const config = buildRewrittenCompositionConfig(
     app,
-    { getAgentDeps: stubAgentDeps, mirror },
+    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
     "qa-bot-abc1234-run1",
     { mode: "diff" },
   );
-  await config.checkout(Sha.of("abc1234567"));
-  assert.deepEqual(ensureMirrorAtBranchCalls, [], "a diff-mode run must never mirror declared services — that materialization is context-mode only");
+  const dir = await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(ensureMirrorCalls, [{ repo: "org/demo", sha: "abc1234567", deps: defaultMirrorDeps }], "the primary repo must still be ensured at the event sha");
+  assert.deepEqual(ensureMirrorAtBranchCalls, [
+    { repo: "org/orders-svc", branch: "main", deps: defaultMirrorDeps },
+    { repo: "org/payments-svc", branch: "develop", deps: defaultMirrorDeps },
+  ], "a diff-mode run must mirror declared services so the stitcher does not scan leftover/missing onboarding dirs");
+  assert.deepEqual(calls, [
+    { workingCopyDir: dir, repo: "org/orders-svc" },
+    { workingCopyDir: dir, repo: "org/payments-svc" },
+  ], "each declared service's contracts must be staged INTO the primary working copy");
+});
+
+test("cross-repo: checkout(sha) stages sibling services at branch HEAD without re-cloning the trigger at branch", async () => {
+  const app: AppConfig = {
+    ...cfg("factory-crossrepo-sibling-checkout"),
+    services: [
+      { repo: "org/orders-svc" },
+      { repo: "org/payments-svc", baseBranch: "develop" },
+    ],
+  };
+  const { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+  const { stageServiceContext, calls } = spyStageServiceContext();
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", triggerRepo: "org/orders-svc" },
+  );
+  const dir = await config.checkout(Sha.of("def5678901"));
+  assert.deepEqual(ensureMirrorCalls, [{ repo: "org/orders-svc", sha: "def5678901", deps: defaultMirrorDeps }], "the triggering service stays at the event sha");
+  assert.deepEqual(ensureMirrorAtBranchCalls, [
+    { repo: "org/demo", branch: "main", deps: defaultMirrorDeps },
+    { repo: "org/payments-svc", branch: "develop", deps: defaultMirrorDeps },
+  ], "siblings clone at their own baseBranch; the trigger is not also cloned at branch HEAD");
+  assert.deepEqual(calls, [
+    { workingCopyDir: dir, repo: "org/orders-svc", sha: "def5678901" },
+    { workingCopyDir: dir, repo: "org/payments-svc" },
+  ], "trigger is staged with the event sha; siblings are contracts-only");
 });

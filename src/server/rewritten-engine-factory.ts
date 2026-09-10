@@ -994,6 +994,24 @@ export function buildRewrittenCompositionConfig(
   // (contracts + this commit's diff) INTO the primary working copy, at the SAME deterministic path
   // (serviceContextDir) already threaded into CompositionConfig.triggerService/services below — so
   // by the time generation reads that path, real staged content is sitting there.
+  // Stitcher / explorer / generate read service OpenAPI from on-disk mirrors (and from the
+  // in-root staged snapshot). Context mode already cloned every services[] entry; a FE diff or
+  // service-webhook run that skipped this loop left the stitcher scanning leftover onboarding
+  // dirs (stale) or existsSync-skipping them ([]). Clone every declared service on every run.
+  // The triggering service (if any) is already at the event SHA above — do not also check it
+  // out at branch HEAD. Sibling staging is contracts-only (no sha).
+  const stageDeclaredServices = async (primaryDir: string, skipRepo?: string): Promise<void> => {
+    if (!app.services?.length) return;
+    for (const svc of app.services) {
+      if (skipRepo && svc.repo === skipRepo) continue;
+      const svcDir = await mirror.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main", defaultMirrorDeps);
+      await stage({
+        workingCopyDir: primaryDir,
+        service: { repo: svc.repo, mirrorDir: svcDir, ...(svc.openapi ? { openapi: svc.openapi } : {}) },
+      });
+    }
+  };
+
   const checkout = async (checkoutSha: Sha): Promise<string> => {
     if (triggerService) {
       await mirror.ensureMirror(triggerService.repo, checkoutSha.value, defaultMirrorDeps);
@@ -1003,23 +1021,11 @@ export function buildRewrittenCompositionConfig(
         service: { repo: triggerService.repo, mirrorDir: vcsDir, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) },
         sha: checkoutSha.value,
       });
+      await stageDeclaredServices(primaryDir, triggerService.repo);
       return primaryDir;
     }
     const primaryDir = await mirror.ensureMirror(app.repo, checkoutSha.value, defaultMirrorDeps);
-    // Context-mode multi-service parity (legacy pipeline.ts:1330-1355 buildContextMap): mirror every
-    // declared service READ-ONLY at its OWN svc.baseBranch ?? "main", sequentially like the legacy
-    // loop — these are advisory prompt-context sources for the FE<->BE architecture map, never the
-    // diff/classify source (that stays PRIMARY-bound for context mode by the sibling guard above), so
-    // there is no ordering dependency against ChangeAnalysis.classify() the way triggerService's
-    // cross-repo branch has. Config paths (CompositionConfig.services, composed above) are static —
-    // this is where the actual clones are brought into existence by run time. No sha: context-mode
-    // services carry no per-run commit, so staging is contracts-only (see service-context.ts).
-    if (run.mode === "context" && app.services?.length) {
-      for (const svc of app.services) {
-        const svcDir = await mirror.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main", defaultMirrorDeps);
-        await stage({ workingCopyDir: primaryDir, service: { repo: svc.repo, mirrorDir: svcDir, ...(svc.openapi ? { openapi: svc.openapi } : {}) } });
-      }
-    }
+    await stageDeclaredServices(primaryDir);
     return primaryDir;
   };
 
