@@ -709,7 +709,7 @@ export interface components {
         };
         OnboardingJobStatus: {
             /** @enum {string} */
-            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "done" | "failed";
+            state: "idle" | "resolvingMirrors" | "proposing" | "scoring" | "indexing" | "mapping" | "done" | "failed";
             app?: string;
             round: number;
             ceiling: number;
@@ -761,6 +761,11 @@ export interface components {
                 nodeCount?: number;
                 error?: string;
             }[];
+            mappingProgress?: {
+                runId?: string;
+                step?: string;
+                verdict?: string;
+            };
             resolution?: {
                 edges: {
                     fromRepo: string;

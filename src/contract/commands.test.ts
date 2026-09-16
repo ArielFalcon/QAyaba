@@ -79,10 +79,15 @@ test("app onboarding command schemas parse create/update/delete/repo list payloa
 // ── Indexing phase (onboarding-auto-index, Slice 1, design §2.2, §2.7.1) ────────
 
 test("OnboardStateSchema accepts the new 'indexing' member alongside every existing state", () => {
-  for (const state of ["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "done", "failed"]) {
+  for (const state of ["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]) {
     assert.doesNotThrow(() => OnboardStateSchema.parse(state));
   }
   assert.throws(() => OnboardStateSchema.parse("indexingXYZ"));
+});
+
+test("OnboardStateSchema accepts the post-confirm 'mapping' member", () => {
+  assert.doesNotThrow(() => OnboardStateSchema.parse("mapping"));
+  assert.throws(() => OnboardStateSchema.parse("mappingXYZ"));
 });
 
 test("RepoIndexOutcomeSchema accepts ok/failed outcomes and rejects an invalid status", () => {
@@ -113,6 +118,18 @@ test("OnboardingJobStatusSchema rejects an indexProgress entry with an invalid R
     ceiling: 3,
     candidatesScored: 6,
     indexProgress: [{ repo: "org/shop", status: "pending" }],
+  }));
+});
+
+test("OnboardingJobStatusSchema accepts state:'mapping' with mappingProgress", () => {
+  assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({
+    state: "mapping",
+    app: "shop",
+    round: 3,
+    ceiling: 3,
+    candidatesScored: 6,
+    outcome: "winner",
+    mappingProgress: { runId: "run_1", step: "generate", verdict: "pass" },
   }));
 });
 

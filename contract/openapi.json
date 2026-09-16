@@ -2252,6 +2252,7 @@
               "proposing",
               "scoring",
               "indexing",
+              "mapping",
               "done",
               "failed"
             ]
@@ -2461,6 +2462,21 @@
               ],
               "additionalProperties": false
             }
+          },
+          "mappingProgress": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "step": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           },
           "resolution": {
             "type": "object",

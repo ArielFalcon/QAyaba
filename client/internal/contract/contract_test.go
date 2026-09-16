@@ -201,6 +201,31 @@ func TestOnboardingJobStatusDecodesIndexingStateFromServerJSON(t *testing.T) {
 	}
 }
 
+func TestOnboardingJobStatusDecodesMappingStateFromServerJSON(t *testing.T) {
+	const payload = `{
+		"state":"mapping","app":"shop","round":3,"ceiling":3,"candidatesScored":6,
+		"outcome":"winner",
+		"mappingProgress":{"runId":"run_1","step":"generate","verdict":"pass"},
+		"startedAt":"2026-09-13T00:00:00.000Z"
+	}`
+	var s OnboardingJobStatus
+	if err := json.Unmarshal([]byte(payload), &s); err != nil {
+		t.Fatalf("decode OnboardingJobStatus (mapping): %v", err)
+	}
+	if s.State != OnboardingJobStatusStateMapping {
+		t.Fatalf("state not decoded: %v", s.State)
+	}
+	if s.Outcome == nil || *s.Outcome != Winner {
+		t.Fatalf("outcome must stay winner during mapping: %v", s.Outcome)
+	}
+	if s.MappingProgress == nil || s.MappingProgress.RunId == nil || *s.MappingProgress.RunId != "run_1" {
+		t.Fatalf("mappingProgress.runId not decoded: %+v", s.MappingProgress)
+	}
+	if s.MappingProgress.Step == nil || *s.MappingProgress.Step != "generate" {
+		t.Fatalf("mappingProgress.step not decoded: %+v", s.MappingProgress)
+	}
+}
+
 // Decoding a payload whose "resolution" carries the full per-edge summary (Add-Project Wizard,
 // Slice A hardening: `drift` added to ResolutionSummarySchema alongside edges/unresolved/external)
 // — the same no-drift guarantee as the tests above, now proving the whole resolution block,

@@ -280,7 +280,13 @@ export const BoundaryProfileSchema = z.discriminatedUnion("transport", [
   HttpBackendBoundaryProfileSchema,
 ]);
 
-export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "done", "failed"]);
+export const MappingProgressSchema = z.object({
+  runId: z.string().optional(),
+  step: z.string().optional(),
+  verdict: z.string().optional(),
+});
+
+export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]);
 export const OnboardOutcomeSchema = z.enum(["winner", "no-profile"]);
 
 // Per-repo advisory-index outcome (onboarding-auto-index, Slice 1, design §2.2). Flat schema — no
@@ -334,6 +340,9 @@ export const OnboardingJobStatusSchema = z.object({
   // (design §2.1-§2.2). Absent for a job whose deps never supply indexRepo (additive-optional,
   // ADR-4) — never present on a pre-indexing job either.
   indexProgress: z.array(RepoIndexOutcomeSchema).optional(),
+  // Post-confirm (and no-profile) architecture-map run. Absent until the mapping phase starts;
+  // additive-optional like indexProgress.
+  mappingProgress: MappingProgressSchema.optional(),
   // Winning run's front->service edge summary (Task A1 aggregation). Absent for noProfile runs
   // and for jobs whose deps don't supply resolveLinks (additive-optional, mirrors indexProgress).
   resolution: ResolutionSummarySchema.optional(),

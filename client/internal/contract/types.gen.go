@@ -471,12 +471,28 @@ func (e OnboardingJobStatusResolvedProfile1Transport) Valid() bool {
 	}
 }
 
+// Defines values for OnboardingJobStatusResolvedProfile2Transport.
+const (
+	HttpBackend OnboardingJobStatusResolvedProfile2Transport = "http-backend"
+)
+
+// Valid indicates whether the value is a known member of the OnboardingJobStatusResolvedProfile2Transport enum.
+func (e OnboardingJobStatusResolvedProfile2Transport) Valid() bool {
+	switch e {
+	case HttpBackend:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OnboardingJobStatusState.
 const (
 	OnboardingJobStatusStateDone             OnboardingJobStatusState = "done"
 	OnboardingJobStatusStateFailed           OnboardingJobStatusState = "failed"
 	OnboardingJobStatusStateIdle             OnboardingJobStatusState = "idle"
 	OnboardingJobStatusStateIndexing         OnboardingJobStatusState = "indexing"
+	OnboardingJobStatusStateMapping          OnboardingJobStatusState = "mapping"
 	OnboardingJobStatusStateProposing        OnboardingJobStatusState = "proposing"
 	OnboardingJobStatusStateResolvingMirrors OnboardingJobStatusState = "resolvingMirrors"
 	OnboardingJobStatusStateScoring          OnboardingJobStatusState = "scoring"
@@ -492,6 +508,8 @@ func (e OnboardingJobStatusState) Valid() bool {
 	case OnboardingJobStatusStateIdle:
 		return true
 	case OnboardingJobStatusStateIndexing:
+		return true
+	case OnboardingJobStatusStateMapping:
 		return true
 	case OnboardingJobStatusStateProposing:
 		return true
@@ -1267,9 +1285,14 @@ type OnboardingJobStatus struct {
 		Repo      string                                 `json:"repo"`
 		Status    OnboardingJobStatusIndexProgressStatus `json:"status"`
 	} `json:"indexProgress,omitempty"`
-	LastResolvedScore *float32                    `json:"lastResolvedScore,omitempty"`
-	Outcome           *OnboardingJobStatusOutcome `json:"outcome,omitempty"`
-	Resolution        *struct {
+	LastResolvedScore *float32 `json:"lastResolvedScore,omitempty"`
+	MappingProgress   *struct {
+		RunId   *string `json:"runId,omitempty"`
+		Step    *string `json:"step,omitempty"`
+		Verdict *string `json:"verdict,omitempty"`
+	} `json:"mappingProgress,omitempty"`
+	Outcome    *OnboardingJobStatusOutcome `json:"outcome,omitempty"`
+	Resolution *struct {
 		Drift float32 `json:"drift"`
 		Edges []struct {
 			Calls     float32                                     `json:"calls"`
@@ -1326,6 +1349,22 @@ type OnboardingJobStatusResolvedProfile1 struct {
 
 // OnboardingJobStatusResolvedProfile1Transport defines model for OnboardingJobStatus.ResolvedProfile.1.Transport.
 type OnboardingJobStatusResolvedProfile1Transport string
+
+// OnboardingJobStatusResolvedProfile2 defines model for .
+type OnboardingJobStatusResolvedProfile2 struct {
+	CallPattern struct {
+		Kind     string  `json:"kind"`
+		Receiver *string `json:"receiver,omitempty"`
+	} `json:"callPattern"`
+	OpenApiPath           string                                       `json:"openApiPath"`
+	ServicePrefixTemplate string                                       `json:"servicePrefixTemplate"`
+	ServiceRepoTemplate   string                                       `json:"serviceRepoTemplate"`
+	SourceFiles           string                                       `json:"sourceFiles"`
+	Transport             OnboardingJobStatusResolvedProfile2Transport `json:"transport"`
+}
+
+// OnboardingJobStatusResolvedProfile2Transport defines model for OnboardingJobStatus.ResolvedProfile.2.Transport.
+type OnboardingJobStatusResolvedProfile2Transport string
 
 // OnboardingJobStatus_ResolvedProfile defines model for OnboardingJobStatus.ResolvedProfile.
 type OnboardingJobStatus_ResolvedProfile struct {
@@ -1773,6 +1812,32 @@ func (t *OnboardingJobStatus_ResolvedProfile) FromOnboardingJobStatusResolvedPro
 
 // MergeOnboardingJobStatusResolvedProfile1 performs a merge with any union data inside the OnboardingJobStatus_ResolvedProfile, using the provided OnboardingJobStatusResolvedProfile1
 func (t *OnboardingJobStatus_ResolvedProfile) MergeOnboardingJobStatusResolvedProfile1(v OnboardingJobStatusResolvedProfile1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsOnboardingJobStatusResolvedProfile2 returns the union data inside the OnboardingJobStatus_ResolvedProfile as a OnboardingJobStatusResolvedProfile2
+func (t OnboardingJobStatus_ResolvedProfile) AsOnboardingJobStatusResolvedProfile2() (OnboardingJobStatusResolvedProfile2, error) {
+	var body OnboardingJobStatusResolvedProfile2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromOnboardingJobStatusResolvedProfile2 overwrites any union data inside the OnboardingJobStatus_ResolvedProfile as the provided OnboardingJobStatusResolvedProfile2
+func (t *OnboardingJobStatus_ResolvedProfile) FromOnboardingJobStatusResolvedProfile2(v OnboardingJobStatusResolvedProfile2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeOnboardingJobStatusResolvedProfile2 performs a merge with any union data inside the OnboardingJobStatus_ResolvedProfile, using the provided OnboardingJobStatusResolvedProfile2
+func (t *OnboardingJobStatus_ResolvedProfile) MergeOnboardingJobStatusResolvedProfile2(v OnboardingJobStatusResolvedProfile2) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
