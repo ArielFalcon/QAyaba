@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -491,6 +492,28 @@ const onboardingJob = createOnboardingJob({
   writeConfig: (path, content) => writeFileSync(path, content, "utf8"),
   configPath: (app) => join(ROOT, "config", "apps", `${app}.yaml`),
   indexRepo: (repo, mirrorDir) => indexRepoForOnboarding(repo, mirrorDir),
+  enqueueContextRun: ({ app, mirrorDir }) => {
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: mirrorDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    }).trim();
+    // shadow: false is the onboarding exception: this run publishes e2e/.qa/context.json even when
+    // the app YAML has qa.shadow: true (req.shadow overrides YAML in enqueueTrackedRun). Never pass
+    // triggerRepo — context mode cannot be driven from a service repo.
+    return enqueueTrackedRun(
+      queue,
+      { app, sha, target: "e2e", mode: "context", shadow: false, source: "manual" },
+      { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() },
+    );
+  },
+  getContextRun: (runId) => {
+    const rec = getRecord(runId);
+    if (!rec) return undefined;
+    return { runId: rec.id, status: rec.status, step: rec.step, verdict: rec.verdict };
+  },
+  isCodeApp: (app) => Boolean(loadAppConfig(app).code),
 });
 
 const apiDeps: ApiDeps = {

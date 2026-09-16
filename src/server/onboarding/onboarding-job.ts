@@ -7,8 +7,8 @@
 // resolvingMirrors (own ONBOARD_MIRROR_TIMEOUT_MS, front + every service repo) -> compose the
 // proposer + OnboardingService (onRound observer feeds live status) -> proposing/scoring, wrapped
 // in a Promise.race against ONBOARD_JOB_TIMEOUT_MS with an owned AbortController -> done (winner |
-// no-profile) | failed. The mutex is released in a finally on every exit path. propose() never
-// writes; only confirm() does, and only against a state===done && outcome==="winner" job.
+// no-profile) | failed. Confirm writes YAML then fire-and-forgets indexing (busy held) and/or
+// mapping (busy released — a mode:context QA run). Mapping never flips the durable outcome.
 //
 // propose()'s mutex decision is SYNCHRONOUS (returns a plain ProposeResult, not a promise, when
 // rejecting a concurrent request) so a second caller sees the 409 immediately; on acceptance it
@@ -37,6 +37,9 @@ export const ONBOARD_STATE = {
   // verdict. The phase always transitions back to "done" (never a new terminal state) so the Go
   // TUI's isTerminalOnboardState (Done||Failed) stays correct without any change there.
   indexing: "indexing",
+  // Post-confirm (and no-profile) architecture-map phase. NOT terminal and does NOT hold `busy`
+  // (holding it would park the context run on isOnboardingActive). propose() still rejects.
+  mapping: "mapping",
   done: "done",
   failed: "failed",
 } as const;
@@ -89,6 +92,27 @@ export interface OnboardingJobStatus {
    *  (design §2.1-§2.2). Absent for a job whose deps never supply indexRepo (additive-optional,
    *  ADR-4), and absent before indexing starts. */
   indexProgress?: RepoIndexOutcome[];
+  /** Architecture-map run progress, populated once the mapping phase starts. Absent when the job
+   *  has no enqueueContextRun dep or the app is code-mode. */
+  mappingProgress?: MappingProgress;
+}
+
+export interface MappingProgress {
+  runId?: string;
+  step?: string;
+  verdict?: string;
+}
+
+export interface ContextMapRunRequest {
+  app: string;
+  mirrorDir: string;
+}
+
+export interface ContextMapRunSnapshot {
+  runId: string;
+  status: "enqueued" | "running" | "done";
+  step?: string;
+  verdict?: string;
 }
 
 export interface ProposeBoundariesRequest {
@@ -143,12 +167,24 @@ export interface OnboardingJobDeps {
   /** Per-repo bound on indexRepo (design §2.4). Default 5 min — conservative, a full first index is
    *  unmeasured. A timeout degrades that repo to `failed` and the phase continues. */
   indexTimeoutMs?: number;
+  /** OPTIONAL, additive: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
+   *  A job without this dep skips mapping (byte-identical to the indexing-only tail). Composition
+   *  resolves HEAD in mirrorDir and calls enqueueTrackedRun with shadow: false. */
+  enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
+  /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
+  getContextRun?(runId: string): ContextMapRunSnapshot | undefined;
+  /** OPTIONAL: true for code-mode apps (no e2e/.qa/context.json). Missing ⇒ treat as e2e. */
+  isCodeApp?(app: string): boolean;
+  mappingPollMs?: number;
+  mappingTimeoutMs?: number;
 }
 
 const DEFAULT_MIRROR_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_JOB_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_INDEX_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_RESOLVE_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_MAPPING_POLL_MS = 1500;
+const DEFAULT_MAPPING_TIMEOUT_MS = 60 * 60 * 1000;
 
 function defaultConfigPath(app: string): string {
   return `config/apps/${app}.yaml`;
@@ -211,9 +247,24 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
   // resolvingMirrors, read only by confirm()'s indexing kickoff. Cleared on a fresh propose() so a
   // stale round's mirrors can never be indexed under a NEW round's (possibly different) profile.
   let lastRepoRefs: RepoRef[] = [];
+  let pendingNoProfileMap = false;
 
   function fail(error: string): void {
     status = { ...status, state: ONBOARD_STATE.failed, error, finishedAt: new Date().toISOString() };
+  }
+
+  function shouldMap(app: string): boolean {
+    if (!deps.enqueueContextRun) return false;
+    if (!deps.isCodeApp) return true;
+    try {
+      return !deps.isCodeApp(app);
+    } catch {
+      return false;
+    }
+  }
+
+  function finishDone(patch: Partial<OnboardingJobStatus> = {}): void {
+    status = { ...status, ...patch, state: ONBOARD_STATE.done, finishedAt: new Date().toISOString() };
   }
 
   /** Wraps one repo's indexRepo call with the per-repo bounded timeout (design §2.4) and fail-open
@@ -234,11 +285,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
   }
 
   /** The post-confirm advisory-index phase (design §2.1, §2.4-§2.6). Sequential (front, then every
-   *  service, in order) — a single local codebase-memory process contending on disk + shared cache
-   *  DB makes parallel spawns unsafe, and onboarding is rare enough that wall-clock is not a
-   *  concern (design §2.4). Re-acquires `busy` for its own duration (§2.6: a QA checkout mid-index
-   *  would tear the index) and ALWAYS transitions back to done/winner — an indexing failure is
-   *  advisory and must never flip the durable onboarding outcome (§2.5). Never rethrows. */
+   *  service, in order). Re-acquires `busy` for its own duration (§2.6: a QA checkout mid-index
+   *  would tear the index). Does NOT set done — the post-confirm coordinator does, so a following
+   *  mapping phase is never preceded by a terminal snapshot the TUI could observe. Never rethrows. */
   async function runIndexing(repoRefs: RepoRef[], indexTimeoutMs: number): Promise<void> {
     busy = true;
     status = { ...status, state: ONBOARD_STATE.indexing, indexProgress: [] };
@@ -249,14 +298,67 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         progress.push(outcome);
         status = { ...status, indexProgress: [...progress] };
       }
-      status = { ...status, state: ONBOARD_STATE.done, indexProgress: progress, finishedAt: new Date().toISOString() };
+      status = { ...status, indexProgress: progress };
     } catch (err) {
-      // Defensive-only: indexOneRepo never throws, so this is a belt-and-suspenders guard against
-      // an unforeseen synchronous failure in the loop itself. The phase still ends done/winner —
-      // indexing is advisory (§2.5) — just without further per-repo progress.
-      status = { ...status, state: ONBOARD_STATE.done, error: redactionPort.redactError(err), finishedAt: new Date().toISOString() };
+      // Defensive-only: indexOneRepo never throws. Stay non-terminal so mapping can still run.
+      status = { ...status, error: redactionPort.redactError(err) };
     } finally {
       busy = false;
+    }
+  }
+
+  async function runMapping(app: string, mirrorDir: string): Promise<void> {
+    status = { ...status, state: ONBOARD_STATE.mapping };
+    try {
+      const runId = await deps.enqueueContextRun!({ app, mirrorDir });
+      if (!runId) {
+        // Spec skip: enqueue "" (shutdown) is not a fail-open warning.
+        finishDone();
+        return;
+      }
+      status = { ...status, mappingProgress: { runId } };
+      if (!deps.getContextRun) {
+        finishDone({ error: "architecture map status unavailable" });
+        return;
+      }
+      const pollMs = deps.mappingPollMs ?? DEFAULT_MAPPING_POLL_MS;
+      const timeoutMs = deps.mappingTimeoutMs ?? DEFAULT_MAPPING_TIMEOUT_MS;
+      const started = Date.now();
+      for (;;) {
+        const snap = deps.getContextRun(runId);
+        if (snap) {
+          status = {
+            ...status,
+            mappingProgress: { runId, step: snap.step, verdict: snap.verdict },
+          };
+          if (snap.status === "done") break;
+        }
+        if (Date.now() - started > timeoutMs) {
+          finishDone({ error: "architecture map timed out" });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+      finishDone();
+    } catch (err) {
+      finishDone({ error: redactionPort.redactError(err) });
+    }
+  }
+
+  async function runPostConfirm(repoRefs: RepoRef[]): Promise<void> {
+    try {
+      if (deps.indexRepo && repoRefs.length > 0) {
+        await runIndexing(repoRefs, deps.indexTimeoutMs ?? DEFAULT_INDEX_TIMEOUT_MS);
+      }
+      const app = status.app ?? "";
+      const front = repoRefs[0];
+      if (shouldMap(app) && front) {
+        await runMapping(app, front.mirrorDir);
+      } else {
+        finishDone();
+      }
+    } catch (err) {
+      finishDone({ error: redactionPort.redactError(err) });
     }
   }
 
@@ -266,6 +368,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     const startedAt = new Date().toISOString();
     status = { state: ONBOARD_STATE.resolvingMirrors, app: req.app, round: 0, ceiling: 3, candidatesScored: 0, startedAt };
     lastRepoRefs = []; // fresh round — never index a stale round's mirrors under this round's profile
+    pendingNoProfileMap = false;
 
     try {
       // Env-guard (both branches) — BEFORE the runner-busy guard and BEFORE resolvingMirrors, per
@@ -363,6 +466,11 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
           }
         }
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.winner, resolvedProfile: result.profile, resolution, finishedAt };
+      } else if (shouldMap(req.app) && lastRepoRefs.length > 0) {
+        // Set mapping BEFORE run() returns so the TUI never observes a premature done/no-profile
+        // and stops polling. busy is released in finally; propose()'s continuation then maps.
+        status = { ...status, state: ONBOARD_STATE.mapping, outcome: ONBOARD_OUTCOME.noProfile };
+        pendingNoProfileMap = true;
       } else {
         status = { ...status, state: ONBOARD_STATE.done, outcome: ONBOARD_OUTCOME.noProfile, finishedAt };
       }
@@ -392,11 +500,18 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
     },
 
     propose(req: ProposeBoundariesRequest): ProposeResult | Promise<ProposeResult> {
-      if (busy) {
+      if (busy || status.state === ONBOARD_STATE.mapping || status.state === ONBOARD_STATE.indexing) {
         return { ok: false, error: "an onboarding job is already running" };
       }
       busy = true;
-      const promise = run(req).then((): ProposeResult => ({ ok: true }));
+      const promise = run(req).then(async (): Promise<ProposeResult> => {
+        if (pendingNoProfileMap) {
+          pendingNoProfileMap = false;
+          const front = lastRepoRefs[0];
+          if (front) await runMapping(status.app ?? req.app, front.mirrorDir);
+        }
+        return { ok: true };
+      });
       inFlight = promise.then(() => undefined);
       return promise;
     },
@@ -424,14 +539,13 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         return { ok: false, error: redactionPort.redactError(err) };
       }
       // Boundaries are WRITTEN at this point — onboarding has durably succeeded regardless of
-      // what indexing does next (design §2.1, §2.5). Indexing is fire-and-forget, mirroring
-      // propose()'s own contract: confirm() returns synchronously; the HTTP handler does not await
-      // the indexing tail. Additive-optional (ADR-4) — a job built without deps.indexRepo skips
-      // this entirely and confirm() stays byte-identical to today (S1.4).
-      if (deps.indexRepo && lastRepoRefs.length > 0) {
-        const indexTimeoutMs = deps.indexTimeoutMs ?? DEFAULT_INDEX_TIMEOUT_MS;
-        const indexingPromise = runIndexing(lastRepoRefs, indexTimeoutMs);
-        inFlight = indexingPromise;
+      // what indexing/mapping does next. Both tails are fire-and-forget: confirm() returns
+      // synchronously. Additive-optional — without indexRepo AND without enqueueContextRun the
+      // job stays done (S1.4).
+      const wantsIndex = Boolean(deps.indexRepo && lastRepoRefs.length > 0);
+      const wantsMap = shouldMap(resolvedApp) && lastRepoRefs.length > 0;
+      if (wantsIndex || wantsMap) {
+        inFlight = runPostConfirm(lastRepoRefs);
       }
       return { ok: true };
     },

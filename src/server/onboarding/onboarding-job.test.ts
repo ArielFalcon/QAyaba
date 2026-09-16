@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ONBOARD_STATE,
+  ONBOARD_OUTCOME,
   createOnboardingJob,
   type OnboardingJobDeps,
   type OnboardingJobStatus,
@@ -94,7 +95,7 @@ function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDep
 test("ONBOARD_STATE is a const-object, not a raw string union (typescript SKILL convention)", () => {
   assert.deepEqual(
     Object.values(ONBOARD_STATE).sort(),
-    ["done", "failed", "idle", "indexing", "proposing", "resolvingMirrors", "scoring"].sort(),
+    ["done", "failed", "idle", "indexing", "mapping", "proposing", "resolvingMirrors", "scoring"].sort(),
   );
 });
 
@@ -643,4 +644,227 @@ test("a winning run whose resolveLinks throws still finishes winner; resolution 
   } finally {
     console.warn = originalWarn;
   }
+});
+
+// ── Post-confirm / no-profile architecture-map phase (context.json onboarding) ──
+// Spec 2026-09-13-onboarding-architecture-map-design.md. enqueueContextRun is additive-optional
+// (mirrors indexRepo). Mapping never holds busy (the context run would deadlock on isActive()).
+
+function buildMappedDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
+  return buildIndexedDeps({
+    indexRepo: async (repo: string): Promise<RepoIndexOutcome> => ({ repo, status: "ok", nodeCount: 10 }),
+    enqueueContextRun: () => "run_map_1",
+    getContextRun: () => ({ runId: "run_map_1", status: "done", step: "decide", verdict: "pass" }),
+    mappingPollMs: 1,
+    ...overrides,
+  });
+}
+
+test("M1: confirm() indexes then maps then done — outcome stays winner, mappingProgress carries the run", async () => {
+  const job = createOnboardingJob(buildMappedDeps());
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
+
+  const result = job.confirm();
+  assert.equal(result.ok, true);
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+  assert.equal(status.mappingProgress?.verdict, "pass");
+  assert.equal(status.indexProgress?.length, 2, "indexing still populated when mapping follows");
+});
+
+test("M2: after indexing the next observed state is mapping, never a premature done", async () => {
+  let resolveIndex!: (o: RepoIndexOutcome) => void;
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    indexRepo: () => new Promise<RepoIndexOutcome>((resolve) => { resolveIndex = resolve; }),
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+    getContextRun: () => ({ runId: "run_map_1", status: "done", verdict: "pass" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(job.status().state, ONBOARD_STATE.indexing);
+
+  resolveIndex({ repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 1 });
+  for (let i = 0; i < 10 && job.status().state === ONBOARD_STATE.indexing; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  assert.equal(job.status().state, ONBOARD_STATE.mapping, "coordinator must not set done between indexing and mapping");
+  assert.equal(job.isActive(), false, "busy is released so the context run is not parked");
+
+  resolveEnqueue("run_map_1");
+  await job.settled();
+});
+
+test("M3: isCodeApp true skips mapping — enqueue is never called, phase ends done after indexing", async () => {
+  let enqueued = 0;
+  const job = createOnboardingJob(buildMappedDeps({
+    isCodeApp: () => true,
+    enqueueContextRun: () => { enqueued += 1; return "run_map_1"; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  assert.equal(enqueued, 0);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().mappingProgress, undefined);
+});
+
+test("M4: enqueueContextRun throws — fail-open done/winner with error, never failed", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    enqueueContextRun: () => { throw new Error("queue exploded"); },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.match(status.error ?? "", /queue exploded/);
+});
+
+test("M5: propose() is rejected while mapping is in flight", async () => {
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  for (let i = 0; i < 20 && job.status().state !== ONBOARD_STATE.mapping; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(job.status().state, ONBOARD_STATE.mapping);
+
+  const blocked = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  assert.equal(blocked instanceof Promise, false, "mutex rejection is synchronous");
+  assert.deepEqual(blocked, { ok: false, error: "an onboarding job is already running" });
+
+  resolveEnqueue("run_map_1");
+  await job.settled();
+});
+
+test("M6: no-profile propose maps then done/no-profile — never a premature done", async () => {
+  let resolveEnqueue!: (id: string) => void;
+  const job = createOnboardingJob(buildMappedDeps({
+    buildProposer: () => noWinnerProposer(),
+    indexRepo: undefined,
+    enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
+  }));
+  const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  for (let i = 0; i < 20 && job.status().state !== ONBOARD_STATE.mapping; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+
+  const mid = job.status();
+  assert.equal(mid.state, ONBOARD_STATE.mapping);
+  assert.equal(mid.outcome, ONBOARD_OUTCOME.noProfile);
+
+  resolveEnqueue("run_map_1");
+  await kickoff;
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, ONBOARD_OUTCOME.noProfile);
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+});
+
+test("M7: a job with enqueueContextRun but no indexRepo still maps after confirm", async () => {
+  const job = createOnboardingJob(buildDeps({
+    readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
+    writeConfig: () => {},
+    enqueueContextRun: () => "run_map_1",
+    getContextRun: () => ({ runId: "run_map_1", status: "done", verdict: "pass" }),
+    mappingPollMs: 1,
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().mappingProgress?.runId, "run_map_1");
+  assert.equal(job.status().indexProgress, undefined);
+});
+
+test("M8: enqueue returns empty string (shutdown) — skip mapping, done/winner, no error", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    enqueueContextRun: () => "",
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.error, undefined, "empty enqueue is a skip, not a fail-open warning");
+});
+
+test("M9: isCodeApp throw skips mapping (fail-open skip), enqueue never called", async () => {
+  let enqueued = 0;
+  const job = createOnboardingJob(buildMappedDeps({
+    isCodeApp: () => { throw new Error("config unreadable"); },
+    enqueueContextRun: () => { enqueued += 1; return "run_map_1"; },
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  assert.equal(enqueued, 0);
+  assert.equal(job.status().state, ONBOARD_STATE.done);
+  assert.equal(job.status().outcome, "winner");
+  assert.equal(job.status().mappingProgress, undefined);
+});
+
+test("M10: getContextRun missing after enqueue — fail-open done/winner with error, never failed", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    getContextRun: undefined,
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.match(status.error ?? "", /architecture map status unavailable/);
+});
+
+test("M11: poll exceeding mappingTimeoutMs — fail-open done/winner with error, run left running", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    mappingPollMs: 5,
+    mappingTimeoutMs: 20,
+    getContextRun: () => ({ runId: "run_map_1", status: "running", step: "generate" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.match(status.error ?? "", /architecture map timed out/);
+  assert.equal(status.mappingProgress?.runId, "run_map_1");
+});
+
+test("M12: map completing with verdict fail is still successful onboarding — verdict in mappingProgress, not error", async () => {
+  const job = createOnboardingJob(buildMappedDeps({
+    getContextRun: () => ({ runId: "run_map_1", status: "done", step: "decide", verdict: "fail" }),
+  }));
+  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+  job.confirm();
+  await job.settled();
+
+  const status = job.status();
+  assert.equal(status.state, ONBOARD_STATE.done);
+  assert.equal(status.outcome, "winner");
+  assert.equal(status.mappingProgress?.verdict, "fail");
+  assert.equal(status.error, undefined, "a failed map verdict must not be copied into job error");
 });
