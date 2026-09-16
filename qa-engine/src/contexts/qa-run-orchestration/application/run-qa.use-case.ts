@@ -82,11 +82,19 @@ import type { CoordinationTelemetryPort } from "./coordination/coordination-tele
 import type { CoordinationActivePoint } from "./coordination/active-gate.ts";
 import type { SidekickExecutor } from "./coordination/sidekick-executor.ts";
 import {
+  buildProgressSnapshot,
+  capabilityForFixLoopRound,
   createDelegationBrief,
   evidenceFromBudget,
   evidenceFromChangeAnalysis,
+  evidenceFromExecution,
+  evidenceFromSelectors,
   proposeFromDecision,
+  routeOrchestration,
   shouldHonorActiveDelegation,
+  shouldHonorFixLoopSidekick,
+  type AgentCapability,
+  type ProgressSnapshot,
 } from "./coordination/index.ts";
 import type { ProposedOrchestrationDecision } from "./coordination/proposed-orchestration-decision.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
@@ -346,7 +354,8 @@ export interface RunQaUseCaseDeps {
   // [SWAP] absent -> proposals are only logged via observer log.line when coordination is wired.
   coordinationTelemetry?: CoordinationTelemetryPort;
   // Fase 13: which active-mode points may govern. Absent/empty -> active still records proposals
-  // but never replaces generation (safe default). Typical production active wire: ["pre-generate"].
+  // but never replaces generation (safe default). Points are independent: ["pre-generate"] and/or
+  // ["fix-loop-regen"]. Typical production active wire: both.
   coordinationEnabledPoints?: readonly CoordinationActivePoint[];
   // [SWAP] absent -> active delegate cannot run; fail-open to GenerationPort (lead path).
   sidekick?: SidekickExecutor;
@@ -974,7 +983,8 @@ export class RunQaUseCase {
     // Fase 13 controlled active: when coordination proposes delegate AND pre-generate is enabled
     // AND a SidekickExecutor is wired, try the sidekick first. Success with in-scope files becomes
     // the generation result; needs-lead/blocked/failed/empty FAIL OPEN to GenerationPort (lead).
-    // Shadow/off never take this branch (advisoryOnly). Reviewer + FixLoop stay untouched.
+    // Shadow/off never take this branch (advisoryOnly). FixLoop regen is a SEPARATE point
+    // (fix-loop-regen) wired on FixLoopGenerationPort below — never implied by pre-generate.
     this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
     let generated: {
       specs: string[];
@@ -1589,6 +1599,22 @@ export class RunQaUseCase {
           return { verdict: r.verdict, cases: r.cases };
         },
       };
+      // Fase 8: who regenerates is selected here; FixLoop keeps retries/adjudication/selector checks.
+      // Seed capability from the pre-generate proposal when it named a sidekick; otherwise lead.
+      let fixLoopCapability: AgentCapability =
+        coordinationProposal?.decision.nextCapability ?? "lead";
+      let fixLoopPreviousProgress: ProgressSnapshot | undefined;
+      const e2eRelForFix = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
+      const writableRootForFix = cfg.isCode ? "." : `${e2eRelForFix}/`;
+      const mapSidekickSpecs = (files: readonly { path: string }[]): string[] => {
+        const prefix = writableRootForFix.endsWith("/") ? writableRootForFix : `${writableRootForFix}/`;
+        return files.map((f) => {
+          const p = f.path.replace(/\\/g, "/");
+          if (p.startsWith(prefix)) return p.slice(prefix.length);
+          if (!cfg.isCode && p.startsWith(`${e2eRelForFix}/`)) return p.slice(e2eRelForFix.length + 1);
+          return p;
+        });
+      };
       const fixLoopGeneration: FixLoopGenerationPort = {
         // W2 fix (F2, audit-verified cutover blocker): the FixLoop calls this closure with
         // FixLoopGenerateInput (fixCases, selectorContradictions, domSnapshot, cycleBudget,
@@ -1617,6 +1643,110 @@ export class RunQaUseCase {
             ...pendingSelectorContradictions,
             ...(fixLoopInput.selectorContradictions ?? []),
           ];
+
+          // Capability selection for THIS regen round (no second retry loop — FixLoop still owns
+          // when to regenerate). Budgets are passed intact to GenerationPort below when lead runs.
+          const failingNames = fixLoopInput.fixCases
+            .filter((c) => c.status === "fail")
+            .map((c) => c.name);
+          const progress = buildProgressSnapshot({
+            failureClass: "fail",
+            failingNames,
+            selectorContradictions: mergedSelectorContradictions,
+          });
+          const evidence = [
+            evidenceFromExecution({ verdict: "fail", failing: failingNames.length }),
+            ...(mergedSelectorContradictions.length
+              ? [evidenceFromSelectors({ contradictions: mergedSelectorContradictions.length })]
+              : []),
+            evidenceFromBudget({
+              cycleCeiling: cycleBudget.ceiling,
+              cycleCount: cycleBudget.cycleCount,
+              wallClockMs: wallClockBudget.budgetMs,
+            }),
+          ];
+          const orchestration = routeOrchestration({
+            evidence,
+            currentCapability: fixLoopCapability,
+            previous: fixLoopPreviousProgress,
+            current: progress,
+            budgetExhausted: wallClockArmed && wallClockBudget.exhausted(Date.now() - startedAt),
+            infraFailure: false,
+          });
+          fixLoopCapability = capabilityForFixLoopRound({
+            orchestration,
+            fallback: fixLoopCapability,
+          });
+          fixLoopPreviousProgress = progress;
+
+          const honorSidekick = shouldHonorFixLoopSidekick({
+            coordinationMode: this.deps.coordination?.mode ?? "off",
+            enabledPoints: this.deps.coordinationEnabledPoints ?? [],
+            capability: fixLoopCapability,
+            sidekickAvailable: !!this.deps.sidekick,
+          });
+          if (honorSidekick && this.deps.sidekick) {
+            try {
+              const failSummary = failingNames.slice(0, 8).join(", ") || "failing tests";
+              const brief = createDelegationBrief({
+                delegationId: `${input.runId}-fix-loop-regen`,
+                runId: input.runId,
+                objective: `Repair failing QA specs: ${failSummary}`,
+                task: `Fix the failing tests (${failSummary}) within scope; keep suite green.`,
+                acceptanceCriteria: ["Failing cases pass on re-execute", "No writes outside scope"],
+                scope: {
+                  readablePaths: cfg.isCode ? ["."] : [e2eRelForFix, "src/", "app/"],
+                  writablePaths: [writableRootForFix],
+                  allowedCommands: [],
+                },
+                knownFacts: evidence,
+              });
+              const delegation = await this.deps.sidekick.execute(brief, {
+                cwd: workspace.mirrorDir,
+                capability: fixLoopCapability,
+                signal,
+                timeoutMs: cfg.agentTimeoutMs,
+              });
+              this.deps.coordinationTelemetry?.record({
+                runId: input.runId,
+                mode: this.deps.coordination!.mode,
+                kind: "delegation",
+                action: orchestration.action,
+                capability: fixLoopCapability,
+                reason: `fix-loop-regen sidekick status=${delegation.status}`,
+                at: Date.now(),
+              });
+              const usable =
+                (delegation.status === "completed" || delegation.status === "completed-with-concerns") &&
+                delegation.filesChanged.length > 0;
+              if (usable) {
+                const specs = mapSidekickSpecs(delegation.filesChanged);
+                await enforceConfinement();
+                pendingSelectorContradictions = [];
+                this.deps.observer?.onEvent({
+                  type: "log.line",
+                  level: "info",
+                  text: `coordination active fix-loop-regen: sidekick ${delegation.status} specs=${specs.length}`,
+                });
+                return {
+                  specs,
+                  approved: true,
+                  note: delegation.summary,
+                  specMetas: specs.map((s) => ({ flow: s, objective: brief.objective })),
+                };
+              }
+              this.deps.observer?.onEvent({
+                type: "log.line",
+                level: "info",
+                text: `coordination active fix-loop-regen: sidekick ${delegation.status} — falling back to lead GenerationPort`,
+              });
+            } catch (err) {
+              console.error(
+                `[qa] coordination fix-loop sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+
           const r = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
             ...baseEnrichment,
             fixCases: fixLoopInput.fixCases,

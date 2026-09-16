@@ -784,7 +784,8 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
           coordination: createCoordinationPort(cfg.coordinationMode),
           ...(cfg.coordinationMode === "active"
             ? {
-                coordinationEnabledPoints: ["pre-generate"] as const,
+                // Points listed independently — enabling active does not imply either alone.
+                coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
                 sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
               }
             : {}),

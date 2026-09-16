@@ -73,6 +73,7 @@ export {
 export {
   COORDINATION_ACTIVE_POINTS,
   shouldHonorActiveDelegation,
+  shouldHonorFixLoopSidekick,
   type CoordinationActivePoint,
 } from "./active-gate.ts";
 export { ProposingCoordinationAdapter } from "./proposing-coordination.adapter.ts";
