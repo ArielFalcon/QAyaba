@@ -82,18 +82,26 @@ import type { CoordinationTelemetryPort } from "./coordination/coordination-tele
 import type { CoordinationActivePoint } from "./coordination/active-gate.ts";
 import type { SidekickExecutor } from "./coordination/sidekick-executor.ts";
 import {
+  advanceAfterNeedsLead,
+  appendLeadDecision,
+  appendLeadDelegation,
+  appendLeadQuestions,
   buildProgressSnapshot,
   capabilityForFixLoopRound,
+  classifyShadowDivergence,
   createDelegationBrief,
+  createLeadContext,
   evidenceFromBudget,
   evidenceFromChangeAnalysis,
   evidenceFromExecution,
   evidenceFromSelectors,
   proposeFromDecision,
+  raiseCapabilityFloor,
   routeOrchestration,
   shouldHonorActiveDelegation,
   shouldHonorFixLoopSidekick,
   type AgentCapability,
+  type LeadContext,
   type ProgressSnapshot,
 } from "./coordination/index.ts";
 import type { ProposedOrchestrationDecision } from "./coordination/proposed-orchestration-decision.ts";
@@ -909,9 +917,13 @@ export class RunQaUseCase {
     // Fase 5 — coordination proposal (after classification+grounding, before generate).
     // Advisory in off/shadow: record only. Never alters the generate call below unless a future
     // active-mode gate is explicitly enabled (Fase 13). Fail-open on decide() errors.
+    // Fase 10 — LeadContext accumulates decisions/delegations (never a second OpencodeRunInput).
     let coordinationProposal: ProposedOrchestrationDecision | undefined;
+    let leadContext: LeadContext | undefined;
     if (this.deps.coordination) {
       try {
+        const objective = input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
+        leadContext = createLeadContext({ runId: input.runId, objective });
         const evidence = [
           ...(classificationReason !== undefined
             ? [
@@ -931,12 +943,13 @@ export class RunQaUseCase {
         ];
         const decision = await this.deps.coordination.decide({
           runId: input.runId,
-          objective: input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`,
+          objective,
           acceptanceCriteria: [],
           evidence,
           budgets: { cycle: cycleBudget, wallClock: wallClockBudget },
         });
         coordinationProposal = proposeFromDecision(this.deps.coordination.mode, decision);
+        leadContext = appendLeadDecision(leadContext, decision);
         this.deps.coordinationTelemetry?.record({
           runId: input.runId,
           mode: this.deps.coordination.mode,
@@ -1039,6 +1052,16 @@ export class RunQaUseCase {
             reason: `sidekick status=${delegation.status}`,
             at: Date.now(),
           });
+          if (leadContext) {
+            leadContext = appendLeadDelegation(leadContext, {
+              delegationId: brief.delegationId,
+              status: delegation.status,
+              summary: delegation.summary,
+            });
+            if (delegation.unresolvedQuestions.length) {
+              leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
+            }
+          }
           const usable =
             (delegation.status === "completed" || delegation.status === "completed-with-concerns") &&
             delegation.filesChanged.length > 0;
@@ -1599,11 +1622,14 @@ export class RunQaUseCase {
           return { verdict: r.verdict, cases: r.cases };
         },
       };
-      // Fase 8: who regenerates is selected here; FixLoop keeps retries/adjudication/selector checks.
-      // Seed capability from the pre-generate proposal when it named a sidekick; otherwise lead.
+      // Fase 8/9: who regenerates is selected here; FixLoop keeps retries/adjudication/selector checks.
+      // Seed capability from the proposal when it named a sidekick; escalate on needs-lead / no-progress;
+      // never demote below the escalation floor (architecture failure stays escalated).
       let fixLoopCapability: AgentCapability =
         coordinationProposal?.decision.nextCapability ?? "lead";
+      let fixLoopCapabilityFloor: AgentCapability | undefined;
       let fixLoopPreviousProgress: ProgressSnapshot | undefined;
+      let fixLoopSidekickNeedsLead = false;
       const e2eRelForFix = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
       const writableRootForFix = cfg.isCode ? "." : `${e2eRelForFix}/`;
       const mapSidekickSpecs = (files: readonly { path: string }[]): string[] => {
@@ -1672,12 +1698,32 @@ export class RunQaUseCase {
             current: progress,
             budgetExhausted: wallClockArmed && wallClockBudget.exhausted(Date.now() - startedAt),
             infraFailure: false,
+            sidekickNeedsLead: fixLoopSidekickNeedsLead,
           });
-          fixLoopCapability = capabilityForFixLoopRound({
-            orchestration,
-            fallback: fixLoopCapability,
-          });
+          fixLoopCapability = raiseCapabilityFloor(
+            capabilityForFixLoopRound({
+              orchestration,
+              fallback: fixLoopCapability,
+            }),
+            fixLoopCapabilityFloor,
+          );
+          if (
+            orchestration.action === "escalate-sidekick" ||
+            orchestration.action === "lead-takeover"
+          ) {
+            fixLoopCapabilityFloor = fixLoopCapability;
+            this.deps.coordinationTelemetry?.record({
+              runId: input.runId,
+              mode: this.deps.coordination?.mode ?? "off",
+              kind: "escalation",
+              action: orchestration.action,
+              capability: fixLoopCapability,
+              reason: orchestration.reason,
+              at: Date.now(),
+            });
+          }
           fixLoopPreviousProgress = progress;
+          fixLoopSidekickNeedsLead = false;
 
           const honorSidekick = shouldHonorFixLoopSidekick({
             coordinationMode: this.deps.coordination?.mode ?? "off",
@@ -1716,6 +1762,31 @@ export class RunQaUseCase {
                 reason: `fix-loop-regen sidekick status=${delegation.status}`,
                 at: Date.now(),
               });
+              if (leadContext) {
+                leadContext = appendLeadDelegation(leadContext, {
+                  delegationId: brief.delegationId,
+                  status: delegation.status,
+                  summary: delegation.summary,
+                });
+                if (delegation.unresolvedQuestions.length) {
+                  leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
+                }
+              }
+              if (delegation.status === "needs-lead") {
+                fixLoopSidekickNeedsLead = true;
+                const advanced = advanceAfterNeedsLead(fixLoopCapability);
+                fixLoopCapability = advanced;
+                fixLoopCapabilityFloor = advanced;
+                this.deps.coordinationTelemetry?.record({
+                  runId: input.runId,
+                  mode: this.deps.coordination!.mode,
+                  kind: "escalation",
+                  action: "lead-takeover",
+                  capability: advanced,
+                  reason: "sidekick needs-lead — advance escalation ladder",
+                  at: Date.now(),
+                });
+              }
               const usable =
                 (delegation.status === "completed" || delegation.status === "completed-with-concerns") &&
                 delegation.filesChanged.length > 0;
@@ -2257,6 +2328,32 @@ export class RunQaUseCase {
       onFailure: cfg.onFailure,
     };
     const decision = decide(evidence);
+
+    // Fase 12 — shadow validation: classify proposal vs pipeline outcome. Advisory only;
+    // never changes publish/verdict. Adaptive routing stays off.
+    if (this.deps.coordination?.mode === "shadow" && coordinationProposal) {
+      const divergence = classifyShadowDivergence({
+        mode: "shadow",
+        proposal: coordinationProposal.decision,
+        pipelineVerdict: decision.verdict,
+      });
+      if (divergence) {
+        this.deps.coordinationTelemetry?.record({
+          runId: input.runId,
+          mode: "shadow",
+          kind: "router",
+          action: coordinationProposal.decision.action,
+          capability: coordinationProposal.decision.nextCapability,
+          reason: `shadow-divergence=${divergence}; leadDelegations=${leadContext?.delegations.length ?? 0}`,
+          at: Date.now(),
+        });
+        this.deps.observer?.onEvent({
+          type: "log.line",
+          level: "info",
+          text: `coordination shadow divergence: ${divergence} (proposal=${coordinationProposal.decision.action})`,
+        });
+      }
+    }
 
     // Phase: publish (PublicationPort).
     //

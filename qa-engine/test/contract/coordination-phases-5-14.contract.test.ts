@@ -18,6 +18,9 @@ import {
   InMemoryCoordinationTelemetry,
   nextEscalation,
   canRetrySameCapability,
+  advanceAfterNeedsLead,
+  raiseCapabilityFloor,
+  classifyShadowDivergence,
   proposeFromDecision,
   routeOrchestration,
   sameProgress,
@@ -147,6 +150,11 @@ test("escalation ladder and FixLoop capability selection", () => {
   assert.equal(nextEscalation("sidekick-standard"), "sidekick-escalated");
   assert.equal(nextEscalation("lead"), "human");
   assert.equal(canRetrySameCapability({ capability: "sidekick-standard", sameFingerprint: true, needsLead: false }), false);
+  assert.equal(advanceAfterNeedsLead("sidekick-standard"), "sidekick-escalated");
+  assert.equal(advanceAfterNeedsLead("sidekick-escalated"), "lead");
+  assert.equal(advanceAfterNeedsLead("lead"), "lead");
+  assert.equal(raiseCapabilityFloor("sidekick-standard", "sidekick-escalated"), "sidekick-escalated");
+  assert.equal(raiseCapabilityFloor("lead", "sidekick-escalated"), "lead");
   assert.equal(
     capabilityForFixLoopRound({
       orchestration: { action: "lead-takeover", reason: "x", evidence: [], nextCapability: "lead" },
@@ -160,6 +168,41 @@ test("escalation ladder and FixLoop capability selection", () => {
       fallback: "lead",
     }),
     "lead",
+  );
+});
+
+test("shadow divergence: direct is same; delegate is non-comparable; infra is infrastructure", () => {
+  assert.equal(
+    classifyShadowDivergence({
+      mode: "shadow",
+      proposal: { action: "direct", reason: "simple", evidence: [] },
+      pipelineVerdict: "pass",
+    }),
+    "same",
+  );
+  assert.equal(
+    classifyShadowDivergence({
+      mode: "shadow",
+      proposal: { action: "delegate", reason: "hard", evidence: [], nextCapability: "sidekick-standard" },
+      pipelineVerdict: "pass",
+    }),
+    "non-comparable",
+  );
+  assert.equal(
+    classifyShadowDivergence({
+      mode: "shadow",
+      proposal: { action: "direct", reason: "x", evidence: [] },
+      pipelineVerdict: "infra-error",
+    }),
+    "infrastructure",
+  );
+  assert.equal(
+    classifyShadowDivergence({
+      mode: "active",
+      proposal: { action: "direct", reason: "x", evidence: [] },
+      pipelineVerdict: "pass",
+    }),
+    undefined,
   );
 });
 

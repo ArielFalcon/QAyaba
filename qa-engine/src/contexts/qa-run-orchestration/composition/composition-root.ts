@@ -33,6 +33,7 @@ import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } f
 import { selectEngine } from "./pipeline-engine-flag.ts";
 import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
+import { InMemoryCoordinationTelemetry } from "../application/coordination/coordination-telemetry.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -782,6 +783,7 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(cfg.coordinationMode && cfg.coordinationMode !== "off"
       ? {
           coordination: createCoordinationPort(cfg.coordinationMode),
+          coordinationTelemetry: new InMemoryCoordinationTelemetry(),
           ...(cfg.coordinationMode === "active"
             ? {
                 // Points listed independently — enabling active does not imply either alone.

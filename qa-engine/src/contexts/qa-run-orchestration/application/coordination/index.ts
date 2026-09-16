@@ -99,6 +99,8 @@ export {
   canRetrySameCapability,
   ESCALATION_LADDER,
   nextEscalation,
+  raiseCapabilityFloor,
+  advanceAfterNeedsLead,
 } from "./escalation-ladder.ts";
 export {
   appendLeadDecision,
@@ -114,6 +116,11 @@ export {
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";
 export { capabilityForFixLoopRound } from "./fix-loop-capability.ts";
+export {
+  classifyShadowDivergence,
+  SHADOW_DIVERGENCE_CLASSES,
+  type ShadowDivergenceClass,
+} from "./shadow-divergence.ts";
 export {
   DEFAULT_ADAPTIVE_POLICY,
   type AdaptiveRoutingPolicy,

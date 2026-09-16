@@ -260,3 +260,62 @@ test("shadow never routes FixLoop regen through sidekick", async () => {
   assert.ok(generateCalls >= 2);
   assert.equal(sidekickCalls, 0);
 });
+
+test("FixLoop needs-lead advances escalation ladder and fails open to GenerationPort", async () => {
+  let generateCalls = 0;
+  let executeCalls = 0;
+  const capabilities: string[] = [];
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return { specs: ["lead.spec.ts"], approved: true };
+    },
+    execute: async () => {
+      executeCalls++;
+      if (executeCalls === 1) {
+        return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
+      }
+      return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
+    },
+  });
+  const tel = new InMemoryCoordinationTelemetry();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () =>
+        sessionReturning({
+          delegationId: "coord-fixloop-needs-fix-loop-regen",
+          runId: "coord-fixloop-needs",
+          status: "needs-lead",
+          summary: "architecture unclear",
+          filesChanged: [],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: ["which layout?"],
+          recommendation: "escalate",
+        }),
+    },
+  });
+  const originalExecute = sidekick.execute.bind(sidekick);
+  sidekick.execute = async (brief, opts) => {
+    capabilities.push(opts.capability);
+    return originalExecute(brief, opts);
+  };
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort("active"),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-needs" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.deepEqual(capabilities, ["sidekick-standard"]);
+  assert.equal(generateCalls, 2, "initial generate + FixLoop fail-open GenerationPort");
+  assert.ok(
+    tel.events.some(
+      (e) => e.kind === "escalation" && e.capability === "sidekick-escalated" && e.reason.includes("needs-lead"),
+    ),
+  );
+});
