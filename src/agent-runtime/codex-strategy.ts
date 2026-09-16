@@ -548,6 +548,7 @@ const ROLE_SKILLS: Partial<Record<AgentRole, readonly string[]>> = {
   reviewer: ["test-value-review"],
   worker: ["playwright-authoring"],
   workerCode: ["playwright-authoring"],
+  sidekick: ["playwright-authoring"],
 };
 
 function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string): string {
@@ -590,6 +591,7 @@ export function rolePromptName(role: AgentRole): string {
   if (role === "chat") return "qa-assistant";
   if (role === "worker") return "qa-worker";
   if (role === "workerCode") return "qa-worker";
+  if (role === "sidekick") return "qa-sidekick";
   if (role === "reflector") return "qa-reflector";
   if (role === "explorer") return "qa-explorer";
   if (role === "proposer") return "qa-proposer";

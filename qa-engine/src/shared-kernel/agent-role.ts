@@ -7,7 +7,7 @@
 
 export type AgentRole =
   | "primary" | "reviewer" | "chat" | "worker"
-  | "workerCode" | "maintainer" | "reflector" | "explorer" | "proposer";
+  | "workerCode" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
 
 export type AgentProvider = "opencode" | "codex";
 

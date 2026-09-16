@@ -221,6 +221,7 @@ export function roleToAgentName(role: AgentRole): string {
     chat: "qa-assistant",
     worker: "qa-worker",
     workerCode: "qa-worker-code",
+    sidekick: "qa-sidekick",
     maintainer: "qa-maintainer",
     reflector: "qa-reflector",
     explorer: "qa-explorer",
@@ -1061,6 +1062,21 @@ export function buildRewrittenCompositionConfig(
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
+    // Multi-agent coordination is ALWAYS wired (single operating mode — probe evidence
+    // 2026-09-16 validated the full chain against a live app; the off/shadow/active selector
+    // was removed from the engine). Fail-open paths inside RunQaUseCase are the incident
+    // safety net; telemetry lands in the durable JSONL sink below.
+    // Distinct from qa.shadow (PR/Issue publishing side effects).
+    // Durable coordination telemetry (JSONL): default root matches HISTORY_DB_PATH's data/
+    // root. COORDINATION_TELEMETRY_PATH overrides (e.g. a mounted volume in Docker).
+    coordinationTelemetryPath:
+      process.env.COORDINATION_TELEMETRY_PATH?.trim() ||
+      join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "coordination-events.jsonl"),
+    // Escalated sidekick model — infra only; threaded as OpenSessionOpts.model when capability is
+    // sidekick-escalated. Absent → same worker model as sidekick-standard.
+    ...(process.env.COORDINATION_ESCALATED_MODEL?.trim()
+      ? { sidekickEscalatedModel: process.env.COORDINATION_ESCALATED_MODEL.trim() }
+      : {}),
     // Derived from coveragePolicy.mode (computed once, above) — single source, see this fn's own
     // header comment near `const coveragePolicy = ...`.
     coveragePolicyMode: coveragePolicy.mode,

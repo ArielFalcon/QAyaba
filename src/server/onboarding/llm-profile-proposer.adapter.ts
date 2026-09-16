@@ -35,7 +35,7 @@ import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } fro
  *  module doc above). Chip: keep in sync with agents/opencode.json's qa-proposer.model entry —
  *  that roster field is NOT authoritative for this CLI path, only for any future facade-routed
  *  caller + the modelsFromOpenCodeConfig catalog. */
-export const PROPOSER_MODEL = "opencode-go/qwen3.7-plus";
+export const PROPOSER_MODEL = "opencode-go/glm-5.3-flash";
 
 /** Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;

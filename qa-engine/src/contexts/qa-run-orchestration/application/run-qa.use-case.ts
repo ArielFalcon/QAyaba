@@ -27,6 +27,7 @@
 // into evidence assembly") — absent DeployGatePort (static sites/code target) defaults to always-healthy.
 
 import { Sha } from "@kernel/sha.ts";
+import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -76,6 +77,35 @@ import { resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { shouldDistillLearning } from "../domain/helpers/should-distill-learning.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
+import type { CoordinationPort } from "./ports/coordination.port.ts";
+import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
+import type { CoordinationActivePoint } from "./coordination/active-gate.ts";
+import type { SidekickExecutor } from "./coordination/sidekick-executor.ts";
+import {
+  advanceAfterNeedsLead,
+  appendLeadDecision,
+  appendLeadDelegation,
+  appendLeadQuestions,
+  buildProgressSnapshot,
+  capabilityForFixLoopRound,
+  createDelegationBrief,
+  createLeadContext,
+  evidenceFromBudget,
+  evidenceFromChangeAnalysis,
+  evidenceFromExecution,
+  evidenceFromSelectors,
+  proposeFromDecision,
+  raiseCapabilityFloor,
+  routeOrchestration,
+  existingWritableFiles,
+  resolveSidekickModel,
+  shouldHonorActiveDelegation,
+  shouldHonorFixLoopSidekick,
+  type AgentCapability,
+  type LeadContext,
+  type ProgressSnapshot,
+} from "./coordination/index.ts";
+import type { ProposedOrchestrationDecision } from "./coordination/proposed-orchestration-decision.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { checkPreExecGrounding, checkPersistingAmbiguity } from "../domain/pre-exec-grounding.service.ts";
 // reflector-rewire (design ADR-5): ReflectorPort/ReflectionInput are declared in cross-run-learning
@@ -326,6 +356,27 @@ export interface RunQaUseCaseDeps {
   // Classify-source repo root (SERVICE mirror on a webhook, PRIMARY otherwise). Absent → index
   // workspace.mirrorDir (same-repo tests and compositions that omit the field stay unchanged).
   codeGraphRepoDir?: string;
+  // [SWAP] absent -> no coordination proposal; path identical to today. When present (Fase 5+),
+  // decide() runs after grounding and BEFORE generate. Shadow/off proposals are advisory-only and
+  // MUST NOT change generation/publish; active may honor enabled points later (Fase 13).
+  coordination?: CoordinationPort;
+  // [SWAP] absent -> proposals are only logged via observer log.line when coordination is wired.
+  coordinationTelemetry?: CoordinationTelemetryPort;
+  // Fase 13: which active-mode points may govern. Absent/empty -> active still records proposals
+  // but never replaces generation (safe default). Points are independent: ["pre-generate"] and/or
+  // ["fix-loop-regen"]. Typical production active wire: both.
+  coordinationEnabledPoints?: readonly CoordinationActivePoint[];
+  // [SWAP] absent -> active delegate cannot run; fail-open to GenerationPort (lead path).
+  sidekick?: SidekickExecutor;
+  // Infra model id for sidekick-escalated openSession; absent → same worker model as standard.
+  sidekickEscalatedModel?: string;
+  // Grounding hint (artifact-threaded, not env): the app's DEV base URL for sidekick browser
+  // grounding. Reuse over re-exploration is the coordination contract (doc §16).
+  sidekickDevBaseUrl?: string;
+  // Per-delegation wall-clock cap. WITHOUT it a slow/hung sidekick session eats the whole
+  // run's agentTimeout (probe: 900s) before fail-open fires. Default set by composition;
+  // absent → cfg.agentTimeoutMs (unchanged behavior).
+  sidekickTimeoutMs?: number;
   config?: Partial<RunQaConfig>;
 }
 
@@ -872,6 +923,64 @@ export class RunQaUseCase {
       ...(classificationReason ? { classificationReason } : {}),
       ...(classificationContradiction ? { contradiction: true } : {}),
     };
+
+    // Coordination proposal (after classification+grounding, before generate). Fail-open on
+    // decide() errors — generation continues unchanged, already the single operating mode.
+    // Fase 10 — LeadContext accumulates decisions/delegations (never a second OpencodeRunInput).
+    let coordinationProposal: ProposedOrchestrationDecision | undefined;
+    let leadContext: LeadContext | undefined;
+    let coordinationEscalations = 0;
+    let preGenerateAttempt = 0;
+    if (this.deps.coordination) {
+      try {
+        const objective = input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
+        leadContext = createLeadContext({ runId: input.runId, objective });
+        const evidence = [
+          ...(classificationReason !== undefined
+            ? [
+                evidenceFromChangeAnalysis({
+                  action: generating ? "generate" : "regression",
+                  reason: classificationReason,
+                  fileCount: classificationIntent?.changedFiles.length ?? 0,
+                  ...(classificationContradiction ? { contradiction: true } : {}),
+                }),
+              ]
+            : []),
+          evidenceFromBudget({
+            cycleCeiling: cycleBudget.ceiling,
+            cycleCount: cycleBudget.cycleCount,
+            wallClockMs: wallClockBudget.budgetMs,
+          }),
+        ];
+        const decision = await this.deps.coordination.decide({
+          runId: input.runId,
+          objective,
+          acceptanceCriteria: [],
+          evidence,
+          budgets: { cycle: cycleBudget, wallClock: wallClockBudget },
+        });
+        coordinationProposal = proposeFromDecision(decision);
+        leadContext = appendLeadDecision(leadContext, decision);
+        this.deps.coordinationTelemetry?.record({
+          runId: input.runId,
+          kind: "proposal",
+          action: decision.action,
+          capability: decision.nextCapability,
+          reason: decision.reason,
+          at: coordinationProposal.recordedAt,
+        });
+        this.deps.observer?.onEvent({
+          type: "log.line",
+          level: "info",
+          text: `coordination proposal: ${decision.action} (${decision.reason})`,
+        });
+      } catch (err) {
+        console.error(
+          `[qa] coordination.decide failed (fail-open — generation continues unchanged): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     // The reviewer's own enrichment base — SEPARATE from baseEnrichment (generation-shaped) because
     // ReviewEnrichment carries domSnapshot, not contextPack/existingSpecFiles (generation-only
     // fields; ReviewPort has no slot for either). domSnapshot is threaded per-round at the review
@@ -893,13 +1002,141 @@ export class RunQaUseCase {
     // synthetic { specs: [], approved: true } stand-in matches the legacy's own `result: AgentResult
     // | null = null` default read downstream as `result?.specs.length ?? 0` (always 0) — it is NOT a
     // real GenerationPort call, so no tokens are spent and no agent decision is fabricated.
+    //
+    // Fase 13 controlled active: when coordination proposes delegate AND pre-generate is enabled
+    // AND a SidekickExecutor is wired, try the sidekick first. Success with in-scope files becomes
+    // the generation result; needs-lead/blocked/failed/empty FAIL OPEN to GenerationPort (lead).
+    // FixLoop regen is a SEPARATE point
+    // (fix-loop-regen) wired on FixLoopGenerationPort below — never implied by pre-generate.
     this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
-    let generated = generating
-      ? await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, baseEnrichment)
-      : { specs: [] as string[], approved: true };
+    let generated: {
+      specs: string[];
+      approved: boolean;
+      note?: string;
+      specSources?: string[];
+      parsed?: boolean;
+      specMetas?: { flow?: string; objective?: string }[];
+    };
+    if (!generating) {
+      generated = { specs: [], approved: true };
+    } else {
+      let fromSidekick: typeof generated | undefined;
+      const honorDelegate = shouldHonorActiveDelegation({
+        proposal: coordinationProposal,
+        enabledPoints: this.deps.coordinationEnabledPoints ?? [],
+        point: "pre-generate",
+        sidekickAvailable: !!this.deps.sidekick,
+      });
+      if (honorDelegate && this.deps.sidekick && coordinationProposal) {
+        try {
+          const e2eRel = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
+          const writableRoot = cfg.isCode ? "." : `${e2eRel}/`;
+          const objective =
+            input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
+          const brief = createDelegationBrief({
+            delegationId: `${input.runId}-pre-generate`,
+            runId: input.runId,
+            objective,
+            // Executor instruction, not the bare intent: the sidekick must WRITE the specs now and
+            // close with the DelegationResult JSON contract. A bare objective fed to an LLM produced
+            // plan-shaped JSON and zero files on disk (probe run-8d703ca-mu4dntoa).
+            task: `Write the Playwright E2E spec file(s) NOW, inside ${writableRoot}, covering this objective: ${objective}\n`
+              + `Rules: real selectors only (fixture import + grounding rules apply); do not stop at a plan; finish by emitting the DelegationResult JSON contract from the brief.`,
+            acceptanceCriteria: [],
+            scope: {
+              readablePaths: cfg.isCode ? ["."] : [e2eRel, "src/", "app/"],
+              writablePaths: [writableRoot],
+              allowedCommands: [],
+            },
+            knownFacts: coordinationProposal.decision.evidence,
+            // DEV grounding hint: give the sidekick the app's base URL so it verifies selectors
+            // against live DEV instead of booting its own local server (reuse > re-exploration).
+            ...(this.deps.sidekickDevBaseUrl
+              ? { artifactRefs: [{ id: "dev-base-url", path: this.deps.sidekickDevBaseUrl }] }
+              : {}),
+          });
+          const capability = coordinationProposal.decision.nextCapability ?? "sidekick-standard";
+          const sidekickModel = resolveSidekickModel(capability, this.deps.sidekickEscalatedModel);
+          preGenerateAttempt += 1;
+          const delegationStarted = Date.now();
+          const delegation = await this.deps.sidekick.execute(brief, {
+            cwd: workspace.mirrorDir,
+            capability,
+            ...(sidekickModel ? { model: sidekickModel } : {}),
+            signal,
+            timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
+          });
+          this.deps.coordinationTelemetry?.record({
+            runId: input.runId,
+            kind: "delegation",
+            action: coordinationProposal.decision.action,
+            capability,
+            reason: `sidekick status=${delegation.status}`,
+            delegationId: brief.delegationId,
+            attempt: preGenerateAttempt,
+            durationMs: Date.now() - delegationStarted,
+            at: Date.now(),
+          });
+          if (leadContext) {
+            leadContext = appendLeadDelegation(leadContext, {
+              delegationId: brief.delegationId,
+              status: delegation.status,
+              summary: delegation.summary,
+            });
+            if (delegation.unresolvedQuestions.length) {
+              leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
+            }
+          }
+          // JSON claims alone are not success — require files on disk under writable scope (fail-open).
+          const onDisk =
+            delegation.status === "completed" || delegation.status === "completed-with-concerns"
+              ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRoot])
+              : [];
+          if (onDisk.length > 0) {
+            const prefix = writableRoot.endsWith("/") ? writableRoot : `${writableRoot}/`;
+            const specs = onDisk.map((f) => {
+              const p = f.path.replace(/\\/g, "/");
+              if (p.startsWith(prefix)) return p.slice(prefix.length);
+              if (!cfg.isCode && p.startsWith(`${e2eRel}/`)) return p.slice(e2eRel.length + 1);
+              return p;
+            });
+            fromSidekick = {
+              specs,
+              approved: true,
+              parsed: true,
+              note: delegation.summary,
+              specMetas: specs.map((s) => ({ flow: s, objective })),
+            };
+            this.deps.observer?.onEvent({
+              type: "log.line",
+              level: "info",
+              text: `coordination active pre-generate: sidekick ${delegation.status} specs=${specs.length}`,
+            });
+          } else {
+            const claimed = delegation.filesChanged.length;
+            this.deps.observer?.onEvent({
+              type: "log.line",
+              level: "info",
+              text:
+                claimed > 0 &&
+                (delegation.status === "completed" || delegation.status === "completed-with-concerns")
+                  ? `coordination active pre-generate: sidekick claimed ${claimed} files but none on disk — falling back to lead GenerationPort`
+                  : `coordination active pre-generate: sidekick ${delegation.status} — falling back to lead GenerationPort`,
+            });
+          }
+        } catch (err) {
+          console.error(
+            `[qa] coordination sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      generated = fromSidekick
+        ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, baseEnrichment));
+    }
     // sdd/migration-remediation Slice 3: confinement after every agent-write-capable generate() call
     // — only when `generating` genuinely invoked the real GenerationPort (the regression branch's
     // synthetic stand-in above never wrote anything, so there is nothing to enforce against).
+    // Sidekick writes are also agent-write-capable — enforce when generating regardless of path.
     if (generating) await enforceConfinement();
 
     // Diagnosability fix (live-run root cause): when generation comes back with ZERO specs AND
@@ -1417,6 +1654,26 @@ export class RunQaUseCase {
           return { verdict: r.verdict, cases: r.cases };
         },
       };
+      // Fase 8/9: who regenerates is selected here; FixLoop keeps retries/adjudication/selector checks.
+      // Seed capability from the proposal when it named a sidekick; escalate on needs-lead / no-progress;
+      // never demote below the escalation floor (architecture failure stays escalated).
+      let fixLoopCapability: AgentCapability =
+        coordinationProposal?.decision.nextCapability ?? "lead";
+      let fixLoopCapabilityFloor: AgentCapability | undefined;
+      let fixLoopPreviousProgress: ProgressSnapshot | undefined;
+      let fixLoopSidekickNeedsLead = false;
+      let fixLoopSidekickAttempt = 0;
+      const e2eRelForFix = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
+      const writableRootForFix = cfg.isCode ? "." : `${e2eRelForFix}/`;
+      const mapSidekickSpecs = (files: readonly { path: string }[]): string[] => {
+        const prefix = writableRootForFix.endsWith("/") ? writableRootForFix : `${writableRootForFix}/`;
+        return files.map((f) => {
+          const p = f.path.replace(/\\/g, "/");
+          if (p.startsWith(prefix)) return p.slice(prefix.length);
+          if (!cfg.isCode && p.startsWith(`${e2eRelForFix}/`)) return p.slice(e2eRelForFix.length + 1);
+          return p;
+        });
+      };
       const fixLoopGeneration: FixLoopGenerationPort = {
         // W2 fix (F2, audit-verified cutover blocker): the FixLoop calls this closure with
         // FixLoopGenerateInput (fixCases, selectorContradictions, domSnapshot, cycleBudget,
@@ -1428,9 +1685,7 @@ export class RunQaUseCase {
         // alongside the SAME classificationDiff/classificationIntent every other generate() call
         // site already threads.
         generate: async (fixLoopInput) => {
-          if (wallClockArmed && wallClockBudget.exhausted(Date.now() - startedAt)) {
-            return { specs: [], approved: lastGenerated.approved, note: "wall-clock budget exhausted" };
-          }
+          // Wall-clock / infra aborts go through routeOrchestration → abort-human (honored below).
           // "Dynamic diff" fix: the FixLoop's own regenerate() call also reuses the SAME
           // classificationDiff — every generation attempt across the whole run sees the same real
           // per-run diff, never a stale/empty static fallback.
@@ -1445,6 +1700,227 @@ export class RunQaUseCase {
             ...pendingSelectorContradictions,
             ...(fixLoopInput.selectorContradictions ?? []),
           ];
+
+          // Capability selection for THIS regen round (no second retry loop — FixLoop still owns
+          // when to regenerate). Budgets are passed intact to GenerationPort below when lead runs.
+          const failingNames = fixLoopInput.fixCases
+            .filter((c) => c.status === "fail")
+            .map((c) => c.name);
+          const progress = buildProgressSnapshot({
+            failureClass: "fail",
+            failingNames,
+            selectorContradictions: mergedSelectorContradictions,
+          });
+          const evidence = [
+            evidenceFromExecution({ verdict: "fail", failing: failingNames.length }),
+            ...(mergedSelectorContradictions.length
+              ? [evidenceFromSelectors({ contradictions: mergedSelectorContradictions.length })]
+              : []),
+            evidenceFromBudget({
+              cycleCeiling: cycleBudget.ceiling,
+              cycleCount: cycleBudget.cycleCount,
+              wallClockMs: wallClockBudget.budgetMs,
+            }),
+          ];
+          const orchestration = routeOrchestration({
+            evidence,
+            currentCapability: fixLoopCapability,
+            previous: fixLoopPreviousProgress,
+            current: progress,
+            budgetExhausted: wallClockArmed && wallClockBudget.exhausted(Date.now() - startedAt),
+            infraFailure: false,
+            sidekickNeedsLead: fixLoopSidekickNeedsLead,
+          });
+          if (orchestration.action === "abort-human") {
+            coordinationEscalations += 1;
+            this.deps.coordinationTelemetry?.record({
+              runId: input.runId,
+              kind: "escalation",
+              action: "abort-human",
+              capability: fixLoopCapability,
+              reason: orchestration.reason,
+              progressFingerprint: progress.failureFingerprint,
+              failureClass: "fail",
+              escalations: coordinationEscalations,
+              at: Date.now(),
+            });
+            if (leadContext) {
+              leadContext = appendLeadDecision(leadContext, {
+                action: "abort",
+                reason: orchestration.reason,
+                evidence,
+              });
+            }
+            return {
+              specs: [],
+              approved: lastGenerated.approved,
+              note: `coordination abort-human: ${orchestration.reason}`,
+            };
+          }
+          fixLoopCapability = raiseCapabilityFloor(
+            capabilityForFixLoopRound({
+              orchestration,
+              fallback: fixLoopCapability,
+            }),
+            fixLoopCapabilityFloor,
+          );
+          if (
+            orchestration.action === "escalate-sidekick" ||
+            orchestration.action === "lead-takeover"
+          ) {
+            fixLoopCapabilityFloor = fixLoopCapability;
+            coordinationEscalations += 1;
+            this.deps.coordinationTelemetry?.record({
+              runId: input.runId,
+              kind: "escalation",
+              action: orchestration.action,
+              capability: fixLoopCapability,
+              reason: orchestration.reason,
+              progressFingerprint: progress.failureFingerprint,
+              failureClass: "fail",
+              escalations: coordinationEscalations,
+              at: Date.now(),
+            });
+          }
+          fixLoopPreviousProgress = progress;
+          fixLoopSidekickNeedsLead = false;
+
+          const honorSidekick = shouldHonorFixLoopSidekick({
+            enabledPoints: this.deps.coordinationEnabledPoints ?? [],
+            capability: fixLoopCapability,
+            sidekickAvailable: !!this.deps.sidekick,
+          });
+          if (honorSidekick && this.deps.sidekick) {
+            try {
+              const failSummary = failingNames.slice(0, 8).join(", ") || "failing tests";
+              const selectorLines = mergedSelectorContradictions.slice(0, 20);
+              const taskParts = [
+                `Fix the failing tests (${failSummary}) within scope; keep suite green.`,
+                failingNames.length
+                  ? `Failing cases:\n${failingNames.slice(0, 20).map((n) => `- ${n}`).join("\n")}`
+                  : "",
+                selectorLines.length
+                  ? `Selector contradictions:\n${selectorLines.map((s) => `- ${s}`).join("\n")}`
+                  : "",
+              ].filter(Boolean);
+              const brief = createDelegationBrief({
+                delegationId: `${input.runId}-fix-loop-regen`,
+                runId: input.runId,
+                objective: `Repair failing QA specs: ${failSummary}`,
+                task: taskParts.join("\n\n"),
+                acceptanceCriteria: ["Failing cases pass on re-execute", "No writes outside scope"],
+                scope: {
+                  readablePaths: cfg.isCode ? ["."] : [e2eRelForFix, "src/", "app/"],
+                  writablePaths: [writableRootForFix],
+                  allowedCommands: [],
+                },
+                knownFacts: evidence,
+                artifactRefs: [
+                  ...(this.deps.sidekickDevBaseUrl
+                    ? [{ id: "dev-base-url", path: this.deps.sidekickDevBaseUrl }]
+                    : []),
+                  ...(selectorLines.length
+                    ? selectorLines.slice(0, 8).map((s, i) => ({
+                        id: `selector-${i}`,
+                        path: s.slice(0, 200),
+                      }))
+                    : []),
+                ],
+              });
+              const sidekickModel = resolveSidekickModel(fixLoopCapability, this.deps.sidekickEscalatedModel);
+              const leadFeedback =
+                leadContext?.unresolvedQuestions.length
+                  ? leadContext.unresolvedQuestions.slice(0, 12).join("\n")
+                  : undefined;
+              const delegationStarted = Date.now();
+              fixLoopSidekickAttempt += 1;
+              const delegation = await this.deps.sidekick.execute(brief, {
+                cwd: workspace.mirrorDir,
+                capability: fixLoopCapability,
+                ...(sidekickModel ? { model: sidekickModel } : {}),
+                ...(leadFeedback ? { feedback: leadFeedback } : {}),
+                signal,
+                timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
+              });
+              this.deps.coordinationTelemetry?.record({
+                runId: input.runId,
+                    kind: "delegation",
+                action: orchestration.action,
+                capability: fixLoopCapability,
+                reason: `fix-loop-regen sidekick status=${delegation.status}`,
+                delegationId: brief.delegationId,
+                attempt: fixLoopSidekickAttempt,
+                durationMs: Date.now() - delegationStarted,
+                progressFingerprint: progress.failureFingerprint,
+                failureClass: "fail",
+                at: Date.now(),
+              });
+              if (leadContext) {
+                leadContext = appendLeadDelegation(leadContext, {
+                  delegationId: brief.delegationId,
+                  status: delegation.status,
+                  summary: delegation.summary,
+                });
+                if (delegation.unresolvedQuestions.length) {
+                  leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
+                }
+              }
+              if (delegation.status === "needs-lead") {
+                fixLoopSidekickNeedsLead = true;
+                const advanced = advanceAfterNeedsLead(fixLoopCapability);
+                fixLoopCapability = advanced;
+                fixLoopCapabilityFloor = advanced;
+                coordinationEscalations += 1;
+                this.deps.coordinationTelemetry?.record({
+                  runId: input.runId,
+                        kind: "escalation",
+                  action: "lead-takeover",
+                  capability: advanced,
+                  reason: "sidekick needs-lead — advance escalation ladder",
+                  delegationId: brief.delegationId,
+                  attempt: fixLoopSidekickAttempt,
+                  progressFingerprint: progress.failureFingerprint,
+                  escalations: coordinationEscalations,
+                  at: Date.now(),
+                });
+              }
+              const onDisk =
+                delegation.status === "completed" || delegation.status === "completed-with-concerns"
+                  ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRootForFix])
+                  : [];
+              if (onDisk.length > 0) {
+                const specs = mapSidekickSpecs(onDisk);
+                await enforceConfinement();
+                pendingSelectorContradictions = [];
+                this.deps.observer?.onEvent({
+                  type: "log.line",
+                  level: "info",
+                  text: `coordination active fix-loop-regen: sidekick ${delegation.status} specs=${specs.length}`,
+                });
+                return {
+                  specs,
+                  approved: true,
+                  note: delegation.summary,
+                  specMetas: specs.map((s) => ({ flow: s, objective: brief.objective })),
+                };
+              }
+              const claimed = delegation.filesChanged.length;
+              this.deps.observer?.onEvent({
+                type: "log.line",
+                level: "info",
+                text:
+                  claimed > 0 &&
+                  (delegation.status === "completed" || delegation.status === "completed-with-concerns")
+                    ? `coordination active fix-loop-regen: sidekick claimed ${claimed} files but none on disk — falling back to lead GenerationPort`
+                    : `coordination active fix-loop-regen: sidekick ${delegation.status} — falling back to lead GenerationPort`,
+              });
+            } catch (err) {
+              console.error(
+                `[qa] coordination fix-loop sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+
           const r = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
             ...baseEnrichment,
             fixCases: fixLoopInput.fixCases,
@@ -1955,6 +2431,27 @@ export class RunQaUseCase {
       onFailure: cfg.onFailure,
     };
     const decision = decide(evidence);
+
+    // Fase 11 — terminal coordination outcome (pipeline still owns the verdict).
+    if (this.deps.coordination && this.deps.coordinationTelemetry) {
+      const reviewOutcome =
+        !cfg.needsReview ? "skipped" as const
+        : reviewerApproved === true ? "approved" as const
+        : reviewerApproved === false ? "rejected" as const
+        : "n/a" as const;
+      this.deps.coordinationTelemetry.record({
+        runId: input.runId,
+        kind: "outcome",
+        action: coordinationProposal?.decision.action,
+        capability: coordinationProposal?.decision.nextCapability,
+        reason: `pipeline verdict=${decision.verdict}`,
+        finalOutcome: decision.verdict,
+        reviewOutcome,
+        escalations: coordinationEscalations,
+        durationMs: Date.now() - startedAt,
+        at: Date.now(),
+      });
+    }
 
     // Phase: publish (PublicationPort).
     //

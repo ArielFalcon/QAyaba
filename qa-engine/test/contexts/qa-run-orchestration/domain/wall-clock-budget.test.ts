@@ -33,6 +33,13 @@ test("WallClockBudget.exhausted: true once elapsedMs exceeds budgetMs", () => {
   assert.equal(budget.exhausted(16001), true);
 });
 
+test("WallClockBudget.exhausted: non-positive ceiling is already spent", () => {
+  const cycleBudget = CycleBudget.derive({ maxRetries: 0 });
+  const budget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 1000, wallClockBudgetMs: 0 });
+  assert.equal(budget.exhausted(0), true);
+  assert.equal(budget.exhausted(1), true);
+});
+
 test("WallClockBudget.recomputeFrom: recomputes budgetMs against a RAISED CycleBudget when no override is set", () => {
   const cycleBudget = CycleBudget.derive({ maxRetries: 2 }); // ceiling=24
   const budget = WallClockBudget.derive({ cycleBudget, agentTimeoutMs: 1000 }); // budgetMs=24000

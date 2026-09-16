@@ -805,8 +805,11 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
   const LEARNED_MARKER = "PINNING_LEARNED_RULES_MARKER";
   const GAP_MARKER = "PINNING_COVERAGE_GAP_MARKER";
 
-  // Each section ~100k bytes. Together ~200k — exceeds the 192k role budget (deepseek-v4-pro:
-  // 64k tokens × 0.75 safety × 4 bytes/token = 192k). At least one section must shed.
+  // Each section ~100k bytes. Together ~200k — exceeds the injected 192k budget, so at least
+  // one section must shed. The budget is injected via buildPromptAssembled's budgetBytes seam
+  // (64k tokens × 0.75 safety × 4 bytes/token = 192k — the value the old 64K catalog entry
+  // produced) so the assertion is INDEPENDENT of the live model-window catalog: raising a
+  // real model window to 1M must never silently void this shed-order reasoning test.
   // coverage-gap is promoted to the critical-recap shed band (WS5.2) — it no longer competes with
   // learned-rules in the volatile shed band at all, so learned-rules (still volatile p2) sheds first.
   const learnedContent = padTo(LEARNED_MARKER, 100_000);
@@ -816,7 +819,7 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
     mode: "diff",
     learnedRules: learnedContent,
     coverageGap: gapContent,
-  }));
+  }), { budgetBytes: 192_000 });
 
   assert.ok(
     result.text.includes(GAP_MARKER),

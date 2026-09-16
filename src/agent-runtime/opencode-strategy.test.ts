@@ -18,7 +18,7 @@ import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
 
 describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => {
-  it("the fallback roster includes the LIVE default primary model (deepseek-v4-pro), not a stale one", async () => {
+  it("the fallback roster includes the LIVE default primary model (from agents/opencode.json), not a stale one", async () => {
     // Point at a config path that does not exist, forcing the FALLBACK_MODELS path.
     const strategy = new OpenCodeRuntimeStrategy({
       env: { OPENCODE_API_KEY: "test-key" },
@@ -28,9 +28,14 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => 
     const models = await strategy.listModels();
     const ids = models.map((m) => m.id);
 
+    const liveConfig = JSON.parse(readFileSync(join(REPO_ROOT, "agents", "opencode.json"), "utf8")) as {
+      agent?: Record<string, { model?: string }>;
+    };
+    const livePrimary = liveConfig.agent?.["qa-generator"]?.model;
+    assert.ok(livePrimary, "agents/opencode.json must declare a qa-generator model");
     assert.ok(
-      ids.includes("opencode-go/deepseek-v4-pro"),
-      `the fallback roster must include the live qa-generator/qa-proposer default (opencode-go/deepseek-v4-pro). Got: ${ids.join(", ")}`,
+      ids.includes(livePrimary),
+      `the fallback roster must include the live qa-generator default (${livePrimary}). Got: ${ids.join(", ")}`,
     );
   });
 
@@ -112,9 +117,14 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => 
         configPath,
       });
       const ids = (await strategy.listModels()).map((m) => m.id);
+      const liveConfig = JSON.parse(readFileSync(join(REPO_ROOT, "agents", "opencode.json"), "utf8")) as {
+        agent?: Record<string, { model?: string }>;
+      };
+      const livePrimary = liveConfig.agent?.["qa-generator"]?.model;
+      assert.ok(livePrimary, "agents/opencode.json must declare a qa-generator model");
       assert.ok(
-        ids.includes("opencode-go/deepseek-v4-pro"),
-        `malformed-config fallback must still include the live default primary. Got: ${ids.join(", ")}`,
+        ids.includes(livePrimary),
+        `malformed-config fallback must still include the live default primary (${livePrimary}). Got: ${ids.join(", ")}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
