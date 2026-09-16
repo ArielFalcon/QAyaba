@@ -27,6 +27,7 @@
 // into evidence assembly") — absent DeployGatePort (static sites/code target) defaults to always-healthy.
 
 import { Sha } from "@kernel/sha.ts";
+import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -76,6 +77,18 @@ import { resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { shouldDistillLearning } from "../domain/helpers/should-distill-learning.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
+import type { CoordinationPort } from "./ports/coordination.port.ts";
+import type { CoordinationTelemetryPort } from "./coordination/coordination-telemetry.ts";
+import type { CoordinationActivePoint } from "./coordination/active-gate.ts";
+import type { SidekickExecutor } from "./coordination/sidekick-executor.ts";
+import {
+  createDelegationBrief,
+  evidenceFromBudget,
+  evidenceFromChangeAnalysis,
+  proposeFromDecision,
+  shouldHonorActiveDelegation,
+} from "./coordination/index.ts";
+import type { ProposedOrchestrationDecision } from "./coordination/proposed-orchestration-decision.ts";
 import { renderCoverageGap } from "@contexts/objective-signal/domain/render-coverage-gap.ts";
 import { checkPreExecGrounding, checkPersistingAmbiguity } from "../domain/pre-exec-grounding.service.ts";
 // reflector-rewire (design ADR-5): ReflectorPort/ReflectionInput are declared in cross-run-learning
@@ -326,6 +339,17 @@ export interface RunQaUseCaseDeps {
   // Classify-source repo root (SERVICE mirror on a webhook, PRIMARY otherwise). Absent → index
   // workspace.mirrorDir (same-repo tests and compositions that omit the field stay unchanged).
   codeGraphRepoDir?: string;
+  // [SWAP] absent -> no coordination proposal; path identical to today. When present (Fase 5+),
+  // decide() runs after grounding and BEFORE generate. Shadow/off proposals are advisory-only and
+  // MUST NOT change generation/publish; active may honor enabled points later (Fase 13).
+  coordination?: CoordinationPort;
+  // [SWAP] absent -> proposals are only logged via observer log.line when coordination is wired.
+  coordinationTelemetry?: CoordinationTelemetryPort;
+  // Fase 13: which active-mode points may govern. Absent/empty -> active still records proposals
+  // but never replaces generation (safe default). Typical production active wire: ["pre-generate"].
+  coordinationEnabledPoints?: readonly CoordinationActivePoint[];
+  // [SWAP] absent -> active delegate cannot run; fail-open to GenerationPort (lead path).
+  sidekick?: SidekickExecutor;
   config?: Partial<RunQaConfig>;
 }
 
@@ -872,6 +896,59 @@ export class RunQaUseCase {
       ...(classificationReason ? { classificationReason } : {}),
       ...(classificationContradiction ? { contradiction: true } : {}),
     };
+
+    // Fase 5 — coordination proposal (after classification+grounding, before generate).
+    // Advisory in off/shadow: record only. Never alters the generate call below unless a future
+    // active-mode gate is explicitly enabled (Fase 13). Fail-open on decide() errors.
+    let coordinationProposal: ProposedOrchestrationDecision | undefined;
+    if (this.deps.coordination) {
+      try {
+        const evidence = [
+          ...(classificationReason !== undefined
+            ? [
+                evidenceFromChangeAnalysis({
+                  action: generating ? "generate" : "regression",
+                  reason: classificationReason,
+                  fileCount: classificationIntent?.changedFiles.length ?? 0,
+                  ...(classificationContradiction ? { contradiction: true } : {}),
+                }),
+              ]
+            : []),
+          evidenceFromBudget({
+            cycleCeiling: cycleBudget.ceiling,
+            cycleCount: cycleBudget.cycleCount,
+            wallClockMs: wallClockBudget.budgetMs,
+          }),
+        ];
+        const decision = await this.deps.coordination.decide({
+          runId: input.runId,
+          objective: input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`,
+          acceptanceCriteria: [],
+          evidence,
+          budgets: { cycle: cycleBudget, wallClock: wallClockBudget },
+        });
+        coordinationProposal = proposeFromDecision(this.deps.coordination.mode, decision);
+        this.deps.coordinationTelemetry?.record({
+          runId: input.runId,
+          mode: this.deps.coordination.mode,
+          kind: "proposal",
+          action: decision.action,
+          capability: decision.nextCapability,
+          reason: decision.reason,
+          at: coordinationProposal.recordedAt,
+        });
+        this.deps.observer?.onEvent({
+          type: "log.line",
+          level: "info",
+          text: `coordination proposal: ${decision.action} advisoryOnly=${coordinationProposal.advisoryOnly} (${decision.reason})`,
+        });
+      } catch (err) {
+        console.error(
+          `[qa] coordination.decide failed (fail-open — generation continues unchanged): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     // The reviewer's own enrichment base — SEPARATE from baseEnrichment (generation-shaped) because
     // ReviewEnrichment carries domSnapshot, not contextPack/existingSpecFiles (generation-only
     // fields; ReviewPort has no slot for either). domSnapshot is threaded per-round at the review
@@ -893,13 +970,108 @@ export class RunQaUseCase {
     // synthetic { specs: [], approved: true } stand-in matches the legacy's own `result: AgentResult
     // | null = null` default read downstream as `result?.specs.length ?? 0` (always 0) — it is NOT a
     // real GenerationPort call, so no tokens are spent and no agent decision is fabricated.
+    //
+    // Fase 13 controlled active: when coordination proposes delegate AND pre-generate is enabled
+    // AND a SidekickExecutor is wired, try the sidekick first. Success with in-scope files becomes
+    // the generation result; needs-lead/blocked/failed/empty FAIL OPEN to GenerationPort (lead).
+    // Shadow/off never take this branch (advisoryOnly). Reviewer + FixLoop stay untouched.
     this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
-    let generated = generating
-      ? await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, baseEnrichment)
-      : { specs: [] as string[], approved: true };
+    let generated: {
+      specs: string[];
+      approved: boolean;
+      note?: string;
+      specSources?: string[];
+      parsed?: boolean;
+      specMetas?: { flow?: string; objective?: string }[];
+    };
+    if (!generating) {
+      generated = { specs: [], approved: true };
+    } else {
+      let fromSidekick: typeof generated | undefined;
+      const honorDelegate = shouldHonorActiveDelegation({
+        proposal: coordinationProposal,
+        enabledPoints: this.deps.coordinationEnabledPoints ?? [],
+        point: "pre-generate",
+        sidekickAvailable: !!this.deps.sidekick,
+      });
+      if (honorDelegate && this.deps.sidekick && coordinationProposal) {
+        try {
+          const e2eRel = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
+          const writableRoot = cfg.isCode ? "." : `${e2eRel}/`;
+          const objective =
+            input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
+          const brief = createDelegationBrief({
+            delegationId: `${input.runId}-pre-generate`,
+            runId: input.runId,
+            objective,
+            task: objective,
+            acceptanceCriteria: [],
+            scope: {
+              readablePaths: cfg.isCode ? ["."] : [e2eRel, "src/", "app/"],
+              writablePaths: [writableRoot],
+              allowedCommands: [],
+            },
+            knownFacts: coordinationProposal.decision.evidence,
+          });
+          const capability = coordinationProposal.decision.nextCapability ?? "sidekick-standard";
+          const delegation = await this.deps.sidekick.execute(brief, {
+            cwd: workspace.mirrorDir,
+            capability,
+            signal,
+            timeoutMs: cfg.agentTimeoutMs,
+          });
+          this.deps.coordinationTelemetry?.record({
+            runId: input.runId,
+            mode: this.deps.coordination!.mode,
+            kind: "delegation",
+            action: coordinationProposal.decision.action,
+            capability,
+            reason: `sidekick status=${delegation.status}`,
+            at: Date.now(),
+          });
+          const usable =
+            (delegation.status === "completed" || delegation.status === "completed-with-concerns") &&
+            delegation.filesChanged.length > 0;
+          if (usable) {
+            const prefix = writableRoot.endsWith("/") ? writableRoot : `${writableRoot}/`;
+            const specs = delegation.filesChanged.map((f) => {
+              const p = f.path.replace(/\\/g, "/");
+              if (p.startsWith(prefix)) return p.slice(prefix.length);
+              if (!cfg.isCode && p.startsWith(`${e2eRel}/`)) return p.slice(e2eRel.length + 1);
+              return p;
+            });
+            fromSidekick = {
+              specs,
+              approved: true,
+              parsed: true,
+              note: delegation.summary,
+              specMetas: specs.map((s) => ({ flow: s, objective })),
+            };
+            this.deps.observer?.onEvent({
+              type: "log.line",
+              level: "info",
+              text: `coordination active pre-generate: sidekick ${delegation.status} specs=${specs.length}`,
+            });
+          } else {
+            this.deps.observer?.onEvent({
+              type: "log.line",
+              level: "info",
+              text: `coordination active pre-generate: sidekick ${delegation.status} — falling back to lead GenerationPort`,
+            });
+          }
+        } catch (err) {
+          console.error(
+            `[qa] coordination sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+      generated = fromSidekick
+        ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, baseEnrichment));
+    }
     // sdd/migration-remediation Slice 3: confinement after every agent-write-capable generate() call
     // — only when `generating` genuinely invoked the real GenerationPort (the regression branch's
     // synthetic stand-in above never wrote anything, so there is nothing to enforce against).
+    // Sidekick writes are also agent-write-capable — enforce when generating regardless of path.
     if (generating) await enforceConfinement();
 
     // Diagnosability fix (live-run root cause): when generation comes back with ZERO specs AND

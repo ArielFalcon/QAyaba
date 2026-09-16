@@ -1061,6 +1061,12 @@ export function buildRewrittenCompositionConfig(
     onFailure: app.report.onFailure,
     maxRetries: app.qa.fixLoop?.maxRetries ?? 2,
     isCode,
+    // Multi-agent coordination (Fase 5+). Env COORDINATION_MODE=off|shadow|active — absent/off
+    // leaves CoordinationPort unwired (byte-identical). Distinct from qa.shadow (PR/Issue side
+    // effects). Not inventing AppConfig.qa.coordination until ops need YAML control.
+    ...(process.env.COORDINATION_MODE === "shadow" || process.env.COORDINATION_MODE === "active"
+      ? { coordinationMode: process.env.COORDINATION_MODE as "shadow" | "active" }
+      : {}),
     // Derived from coveragePolicy.mode (computed once, above) — single source, see this fn's own
     // header comment near `const coveragePolicy = ...`.
     coveragePolicyMode: coveragePolicy.mode,

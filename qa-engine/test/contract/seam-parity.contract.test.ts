@@ -240,6 +240,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     historyFilePath: "supplied ONLY as an explicit escape hatch (deps.historyFilePath) — production default path uses `runHistory` (SqliteRunHistoryAdapter) instead, asserted below.",
     runHistory: "IS supplied by default (SqliteRunHistoryAdapter) — asserted below as a present case; historyFilePath above is the opt-OUT alternative, mutually exclusive with this field.",
     observer: "supplied ONLY when the caller passes one — asserted below as a present-when-given case; legitimately absent for callers (tests, the F.2 operator) that omit it.",
+    coordinationMode: "OPTIONAL multi-agent coordination flag (off|shadow|active). Absent/off -> no CoordinationPort wired (byte-identical to pre-coordination). Factory does not invent a default — operators set it explicitly when enabling shadow/active.",
     assembleChangeCoverage: "IS supplied (the value keystone) — asserted below as a present case.",
     baselineCases: "IS supplied ([]) — asserted below as a present case.",
     coverageBlocksForPublish: "IS supplied (false) — asserted below as a present case.",

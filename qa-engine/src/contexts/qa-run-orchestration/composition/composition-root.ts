@@ -31,6 +31,8 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort } from "../application/ports/index.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
+import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
+import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -411,6 +413,12 @@ export interface CompositionConfig {
   // has no RunRecord/RunEventStore concept of its own (that is root src/'s concern, per CLAUDE.md
   // "App-specificity lives only in config/; nothing app-specific in src/... [qa-engine]").
   observer?: ObserverPort;
+
+  // Multi-agent coordination mode (Fase 5+). OPTIONAL: absent/"off" -> no CoordinationPort wired
+  // (byte-identical to pre-coordination). "shadow" records advisory proposals without changing
+  // generation/publish. "active" enables the pre-generate point and wires SidekickExecutor onto
+  // the same AgentRuntimePort as review (capability→worker role; model from OpenSessionOpts later).
+  coordinationMode?: "off" | "shadow" | "active";
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
@@ -771,6 +779,17 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     // above — absent cfg.curriculumPort means RunQaUseCaseDeps.curriculum is omitted entirely (never
     // a fabricated no-op stub), so select() returns nothing and the fold never fires.
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    ...(cfg.coordinationMode && cfg.coordinationMode !== "off"
+      ? {
+          coordination: createCoordinationPort(cfg.coordinationMode),
+          ...(cfg.coordinationMode === "active"
+            ? {
+                coordinationEnabledPoints: ["pre-generate"] as const,
+                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+              }
+            : {}),
+        }
+      : {}),
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,
