@@ -15,6 +15,7 @@
 - [2. How it works](#2-how-it-works)
   - [Architecture](#architecture)
   - [The QA pipeline](#the-qa-pipeline)
+  - [Multi-agent coordination](#multi-agent-coordination)
   - [What happens at the end](#what-happens-at-the-end)
   - [The learning layer](#the-learning-layer)
 - [3. Getting started](#3-getting-started)
@@ -43,6 +44,7 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 | Capability | What it means |
 |---|---|
 | **Commit-aware testing** | Reads the diff and commit message to understand what changed. Skips style-only commits, writes targeted tests for features and fixes, runs regression-only for refactors. |
+| **Multi-agent coordination** | A deterministic router decides who does the work: the lead agent for simple changes, a bounded sidekick agent for larger blast radii — both subject to the same quality gates. Escalates instead of retrying blindly. |
 | **Provider-agnostic runtime** | Runs on OpenCode, Codex, or dual mode through one facade. Primary, reviewer, and chat models are configurable from the CLI or Dashboard. |
 | **Two-model review** | A different AI model reviews every generated test for value. Tests that click without asserting, use fragile selectors, or miss the actual change are rejected before they reach the suite. |
 | **Self-improving suite** | When tests pass and the reviewer approves, they are committed to the app's repository via PR with auto-merge. The suite grows with every deploy and never degrades into "green noise." |
@@ -68,14 +70,16 @@ qayaba turns every deploy into a QA checkpoint, automatically.
 ```mermaid
 flowchart LR
     GH["GitHub push to DEV"] -->|webhook| O[Orchestrator]
-    O -->|AgentFacade HTTP/session| OC[Dual Agent Container]
-    OC -->|reads code via| SE[Serena LSP]
-    OC -->|writes specs| WC[(Repo Working Copy)]
-    OC -->|stores memory in| EN[Engram]
-    O -->|runs Playwright| DEV[DEV Environment]
-    O -->|publishes| PR[GitHub PR / Issue]
-    O -->|writes outcomes + rules| LD[(Learning Ledger)]
-    LD -->|retrieval injected into prompt| OC
+    O -->|"evidence-based route"| CO[Coordination Router]
+    CO -->|"simple / direct"| LEAD[Lead Agent]
+    CO -->|"delegable blast radius"| SK[Sidekick Agent]
+    LEAD -->|specs| V{{"Same deterministic gates\nstatic · execution · coverage"}}
+    SK --> V
+    V -->|green| RV[Independent Reviewer]
+    RV --> DEC[PR with auto-merge / Issue]
+    DEC -->|outcomes + rules| LD[(Learning Ledger)]
+    DEC -->|telemetry events| TL[(Coordination Telemetry JSONL)]
+    LD -->|retrieval injected into prompt| LEAD
 ```
 
 <table>
@@ -85,7 +89,7 @@ flowchart LR
 ### Orchestrator
 **Node.js** deterministic infrastructure.
 
-Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. Runs mutation testing to measure test quality (valueScore). Maintains the learning ledger: labels errors, reflects on failures, distills rules, and injects learned knowledge into future runs. Every side-effecting step is dependency-injected and unit-tested with stubs.
+Receives webhooks, manages the sequential queue, clones repos, runs Playwright against DEV, publishes results. A deterministic router inspects the change's evidence and decides whether the lead generates directly or the sidekick executes a bounded delegation. Runs mutation testing to measure test quality (valueScore), maintains the learning ledger, and appends every coordination decision to a durable telemetry ledger. Every side-effecting step is dependency-injected and unit-tested with stubs.
 
 </td>
 <td width="50%" valign="top">
@@ -93,7 +97,7 @@ Receives webhooks, manages the sequential queue, clones repos, runs Playwright a
 ### Agent Runtime
 **OpenCode, Codex, or dual mode** behind one provider-neutral facade.
 
-The primary agent reads code via Serena (semantic LSP navigation) and writes Playwright specs. The reviewer independently judges quality. Engram provides persistent episodic memory across runs. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
+The primary (lead) agent reads code via Serena and writes Playwright specs. For larger changes the coordination router delegates to a dedicated sidekick agent with a bounded scope — it may only write inside `e2e/`, must report what it actually wrote, and can push the work back when the brief is wrong. The reviewer stays a fully independent judge: neither agent can influence it. Engram provides persistent episodic memory across runs. `qayaba agent` or the Dashboard's Agent Runtime screen selects provider, role assignments, models, and API keys.
 
 </td>
 </tr>
@@ -110,15 +114,45 @@ Every run follows the same sequence, whether triggered by a webhook or manually:
 | **1. Deploy gate** | Waits until DEV reports the right commit SHA and is healthy. Skipped if no health endpoint is configured, or in code mode. |
 | **2. Classification** | Reads the commit message and diff. Conventional Commits like `style:` with no logic changes are skipped before spending a single token. |
 | **3. Retrieval** | Loads learned rules, structural patterns, and proven scenario archetypes from past runs — injects them into the agent prompt. |
-| **4. Generation** | The AI agent reads the blast radius of the change using semantic code navigation, writes tests into the repo, and invokes the reviewer. |
-| **5. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
-| **6. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. |
-| **7. Oracle** | For code mode green runs: mutation testing via Stryker measures how many injected bugs the tests actually catch (valueScore). |
-| **8. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
-| **9. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. |
+| **4. Coordination** | A deterministic router weighs the change's evidence (file count, contradiction signals, remaining budgets) and decides: direct generation by the lead, or a bounded sidekick delegation. Large blast radii and contradictory signals get delegated; the sidekick writes its specs, the orchestrator verifies them on disk against a validation plan, and anything unclear is escalated back to the lead. |
+| **5. Generation** | Whoever the router picked (lead or sidekick) reads the blast radius using semantic code navigation and writes tests into the repo. A failed or unclear delegation always falls back to the lead — a coordination hiccup can never void a run. |
+| **6. Static gate** | TypeScript compilation, ESLint, and Playwright's test list must pass. Invalid code is rejected before execution. |
+| **7. Execution** | Runs tests against the live DEV URL (e2e) or the repo's own test runner (code mode). Results are classified as pass, fail, or flaky. Repairs re-run inside the same fix loop: the router picks whether the sidekick or the lead performs the regeneration, while the fix loop keeps owning retries, adjudication, and regression checks. |
+| **8. Oracle** | For code mode green runs: mutation testing via Stryker measures how many injected bugs the tests actually catch (valueScore). |
+| **9. Reflection** | On failed runs, an LLM reflects on the error and produces a preventive rule. The rule is distilled and stored for future runs. |
+| **10. Decision** | Green and approved: PR with auto-merge. Failures: GitHub Issue. Flaky: quarantined. DEV down: infrastructure error. Every coordination decision made along the way is appended to the telemetry ledger. |
 
 > [!NOTE]
 > **Shadow mode** (`qa.shadow: true` in the app config) runs the full pipeline but does not publish PRs or open Issues. Use this when onboarding a repo for the first time.
+
+### Multi-agent coordination
+
+Coordination is always on — there is no mode to enable. Who executes a unit of QA work is decided by evidence, not by configuration:
+
+| Piece | Role |
+|---|---|
+| **Router (deterministic, zero LLM)** | Reads pipeline signals — diff size, contradiction signals, remaining budgets — and returns `delegate` (with a capability tier) or `direct`. When recent telemetry shows an escalation trend, it raises the delegation threshold automatically. |
+| **Sidekick agent (bounded executor)** | Writes or repairs specs strictly inside the app's `e2e/` scope, using the same harness, fixtures, and selector discipline as the lead. It may only answer with a structured result: what it did, which files it touched, what validation it ran, and whether it can finish the task at all. |
+| **Delegation brief** | The self-contained work order: objective, acceptance criteria, scope, known facts (confidence-ranked), artifacts (including the app's DEV base URL), validation plan and escalation policy. The sidekick never needs the lead's transcript. |
+| **External validation** | Authority is enforced in code, not in the prompt: files claimed by the sidekick must actually exist on disk within the permitted scope, else the result is `blocked`. Acceptance criteria cannot be modified by the agent. |
+| **Escalation ladder** | `sidekick-standard → sidekick-escalated → lead takeover`. Repeating the same observable failure state with the same capability is rejected as an unproductive retry. |
+| **Independent reviewer** | Never merged with, influenced by, or executed from the coordinator — whoever wrote the specs, the reviewer judges the same way. |
+
+Every delegation result must be earned: a claimed success that doesn't produce verifiable files on disk is scored as a failure, and generation falls back to the lead. Coordination is therefore a latency/cost optimization with gates, not an alternative path around them.
+
+**Coordination telemetry** — every proposal, delegation, escalation, and final outcome is appended to `data/coordination-events.jsonl` (one JSON object per line, survives restarts). Inspect it at any time:
+
+```bash
+tail -n 5 data/coordination-events.jsonl
+```
+
+Optional environment tuning (defaults are production-safe, no configuration required):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
+| `COORDINATION_SIDEKICK_TIMEOUT_MS` | `420000` | Wall-clock cap per delegation; exceeded delegations fall back to the lead. |
+| `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions. |
 
 ### What happens at the end
 
@@ -222,9 +256,11 @@ The project uses provider-neutral role assignments. Configure them from the Dash
 
 | Role | Default provider/model | Purpose |
 |---|---|---|
-| `primary` | `opencode-go/deepseek-v4-pro` | Reads code, writes Playwright tests, invokes the reviewer |
-| `reviewer` | `opencode-go/qwen3.7-max` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
-| `chat` | `opencode-go/deepseek-v4-flash` | Read-only operator assistant |
+| `primary` (lead) | `opencode-go/glm-5.3-flash` | Reads code, writes Playwright tests, coordinates delegations |
+| `reviewer` | `opencode-go/muse-spark-1.3-contributor` | Read-only quality judge; rejects tests with trivial assertions or fragile patterns |
+| `chat` | `opencode-go/glm-5.3-flash` | Read-only operator assistant |
+
+The coordination sidekick runs on its own role (`sidekick`) with the same base model as the lead tier; assign it a stronger model via `COORDINATION_ESCALATED_MODEL` when you want escalated sidekick sessions to use a different capacity.
 
 > [!TIP]
 > `qayaba --opencode`, `qayaba --codex`, and `qayaba --dual` select the runtime before a command. `qayaba agent` opens the runtime editor; `qayaba agent status` prints the current config.
@@ -249,6 +285,7 @@ The project uses provider-neutral role assignments. Configure them from the Dash
 | Playwright authoring skills | `agent/skills/playwright-authoring/` | Login, geolocation, mobile, uploads |
 | Quality review criteria | `agent/skills/test-value-review/` | False-positive pattern catalog |
 | MCP servers (Serena, Engram, Playwright) | `agents/opencode.json` and agent container | Code navigation + persistent memory |
+| Multi-agent coordination | wired by default | Always-on router + sidekick agent (`qa-sidekick`), durable telemetry at `data/coordination-events.jsonl`, bounded delegation wall-clock. No configuration required. |
 | Docker images | `Dockerfile`, `agents/Dockerfile` | Both services build from these |
 | Control-plane API token | `config/.api_token` (auto-generated on first boot) | The machine credential — protects the API (`Bearer` auth on every non-public route). On the same machine the `qayaba` console auto-loads it from `$QA_API_TOKEN` or this file; people sign in with GitHub instead (see below). Set `QA_API_TOKEN` to pin your own. |
 
