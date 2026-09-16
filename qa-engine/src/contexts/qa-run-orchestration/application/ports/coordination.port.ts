@@ -4,9 +4,7 @@
 // not a re-export from that barrel.
 import type { CoordinationContext } from "../coordination/coordination-context.ts";
 import type { CoordinationDecision } from "../coordination/coordination-decision.ts";
-import type { CoordinationMode } from "../coordination/coordination-mode.ts";
 
 export interface CoordinationPort {
-  readonly mode: CoordinationMode;
   decide(context: CoordinationContext): Promise<CoordinationDecision>;
 }

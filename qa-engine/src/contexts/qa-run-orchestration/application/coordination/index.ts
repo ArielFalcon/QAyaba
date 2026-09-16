@@ -5,11 +5,6 @@ export {
   type CoordinationAction,
   type CoordinationDecision,
 } from "./coordination-decision.ts";
-export {
-  COORDINATION_MODES,
-  resolveCoordinationMode,
-  type CoordinationMode,
-} from "./coordination-mode.ts";
 export { createCoordinationPort, type CreateCoordinationPortOpts } from "./create-coordination-port.ts";
 export type { CoordinationBudget } from "./coordination-budget.ts";
 export type { AcceptanceCriterion, CoordinationContext } from "./coordination-context.ts";
@@ -84,6 +79,13 @@ export {
   type PushbackFinding,
   type PushbackReason,
 } from "./pushback.ts";
+export { isPathWithinWritableRoots } from "./path-scope.ts";
+export { existingWritableFiles } from "./existing-writable-files.ts";
+export {
+  getSharedCoordinationTelemetry,
+  resetSharedCoordinationTelemetryForTests,
+} from "./shared-telemetry.ts";
+export { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 export {
   buildProgressSnapshot,
   fingerprintOf,
@@ -118,11 +120,6 @@ export {
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";
 export { capabilityForFixLoopRound } from "./fix-loop-capability.ts";
-export {
-  classifyShadowDivergence,
-  SHADOW_DIVERGENCE_CLASSES,
-  type ShadowDivergenceClass,
-} from "./shadow-divergence.ts";
 export {
   DEFAULT_ADAPTIVE_POLICY,
   type AdaptiveRoutingPolicy,

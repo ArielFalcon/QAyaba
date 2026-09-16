@@ -1,12 +1,11 @@
-// Deterministic proposer for shadow/active decide(). No LLM. Prefers direct for simple
-// change-analysis; proposes delegate to sidekick-standard when the change looks hard.
-// Fase 14: optional AdaptiveRoutingPolicy raises the file threshold when recent escalate
-// rate is high — never skips budgets, evidence gates, reviewer, FixLoop, or authority.
+// Deterministic proposer. No LLM. Prefers direct for simple change-analysis; proposes
+// delegate to sidekick-standard when the change looks hard. Fase 14: optional
+// AdaptiveRoutingPolicy raises the file threshold when recent escalate rate is high —
+// never skips budgets, evidence gates, reviewer, FixLoop, or authority.
 import type { CoordinationPort } from "../ports/coordination.port.ts";
 import type { AdaptiveRoutingPolicy, AdaptiveRoutingSignals } from "./adaptive-routing.ts";
 import type { CoordinationContext } from "./coordination-context.ts";
 import type { CoordinationDecision } from "./coordination-decision.ts";
-import type { CoordinationMode } from "./coordination-mode.ts";
 
 export interface ProposingCoordinationAdapterOpts {
   readonly policy?: AdaptiveRoutingPolicy;
@@ -35,7 +34,6 @@ function looksDelegable(
 
 export class ProposingCoordinationAdapter implements CoordinationPort {
   constructor(
-    readonly mode: Exclude<CoordinationMode, "off">,
     private readonly opts: ProposingCoordinationAdapterOpts = {},
   ) {}
 
@@ -48,14 +46,14 @@ export class ProposingCoordinationAdapter implements CoordinationPort {
     if (looksDelegable(context, fileThreshold)) {
       return {
         action: "delegate",
-        reason: `coordination.mode=${this.mode}: change analysis suggests sidekick (fileThreshold=${fileThreshold})`,
+        reason: `change analysis suggests sidekick (fileThreshold=${fileThreshold})`,
         evidence: context.evidence,
         nextCapability: "sidekick-standard",
       };
     }
     return {
       action: "direct",
-      reason: `coordination.mode=${this.mode}: simple/direct path (fileThreshold=${fileThreshold})`,
+      reason: `simple/direct path (fileThreshold=${fileThreshold})`,
       evidence: context.evidence,
     };
   }

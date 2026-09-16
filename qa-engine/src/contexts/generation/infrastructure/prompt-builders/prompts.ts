@@ -487,7 +487,13 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
   return lines;
 }
 
-export function buildPromptAssembled(input: OpencodeRunInput): AssembledPrompt {
+export interface BuildPromptAssembledOpts {
+  /** Explicit byte-budget override for tests/telemetry that must not depend on the
+   *  live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
+  budgetBytes?: number;
+}
+
+export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptAssembledOpts = {}): AssembledPrompt {
   const isGenerationMode = input.mode !== "context";
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
@@ -1052,7 +1058,7 @@ export function buildPromptAssembled(input: OpencodeRunInput): AssembledPrompt {
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
       return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable" })] : [];
     })(),
-  ], { budgetBytes: roleWindowBytes("qa-generator") });
+  ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
 }
 
 export function buildPrompt(input: OpencodeRunInput): string {

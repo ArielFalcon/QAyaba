@@ -21,10 +21,10 @@
 // unavailable or the role is absent, the DEFAULT_WINDOW_TOKENS fallback is used —
 // a conservative value that is safe for any current model in the roster.
 //
-// ⚠ PROVISIONAL VALUES — must be confirmed against `opencode models` once
-// Phase-0 telemetry is available. The numbers below are conservative: they are
-// well below advertised context windows so a mis-identification can never cause a
-// hard context-overflow inside the agent's own tool calls.
+// ⚠ VALUES SOURCED from the live provider catalog (`opencode models --refresh` →
+// ~/.cache/opencode/models.json). Older hard-coded rosters (qwen3.7-plus, qwen3.8-flash,
+// minimax-m3) keep their conservative legacy entries since they may still appear in
+// historical run inputs; confirm before reusing them as active roster entries.
 //
 // Compaction coordination note (Phase 2 / Slice F):
 //   The budget here bounds only the ORCHESTRATOR-ASSEMBLED INPUT PROMPT. It cannot
@@ -67,30 +67,28 @@ export const BYTES_PER_TOKEN = 4;
 export const INPUT_PROMPT_SAFETY_MARGIN = 0.75;
 
 // Per-model context-window catalog in TOKENS.
-// ⚠ PROVISIONAL — confirm with `opencode models` once Phase-0 telemetry lands.
+// Values sourced from the OpenCode provider catalog (~/.cache/opencode/models.json after
+// `opencode models --refresh`), cross-checked across providers for each model. The "probe
+// with real serving limits" rule: entries hold the ADVERTISED context; the 0.75 safety
+// margin below leaves the 25% headroom for system prompt/tools/output.
 //
-// Conservative methodology: all values are set significantly below the advertised
-// maximums to account for uncertainty in model identification and tokenizer
-// differences. Current roster (from agents/opencode.json):
-//   kimi-k2.7-code    → ga-generator, qa-maintainer (primary writer)
-//   minimax-m3        → qa-reviewer (independent judge)
-//   deepseek-v4-flash → qa-assistant, qa-reflector, qa-worker, qa-worker-code, qa-explorer
-//
-// These opencode-go/* prefixed names are gateway-specific. Advertised context
-// windows for the underlying models vary widely (32K–128K+), but we use 64K
-// as a safe conservative starting point for all, to be refined per-model as
-// Phase-0 data accumulates. kimi-k2.7-code is a large-context coder model;
-// deepseek-v4-flash and minimax-m3 are smaller/faster. All can safely handle
-// 64K input tokens with the 0.75 margin.
+// Current roster (from agents/opencode.json):
+//   glm-5.3-flash              → qa-generator, qa-proposer, qa-explorer, qa-worker(+code),
+//                                qa-assistant, qa-reflector (primary writer + high-frequency roles)
+//   muse-spark-1.3-contributor → qa-reviewer (independent judge)
+//   kimi-k2.7-code             → qa-maintainer (self-maintenance; smallest input window of the roster)
 const MODEL_WINDOW_TOKENS: Record<string, number> = {
-  // Generator / maintainer model: kimi-k2.7-code.
-  // Likely supports 128K+ but we use 64K conservatively until telemetry confirms.
-  "kimi-k2.7-code": 64_000,
   // Generator model (current qa-generator in agents/opencode.json): qwen3.7-plus.
   // 64K conservative starting point (matches kimi) until the real window is confirmed — raise after
   // telemetry. Without this entry the model falls to the 32K DEFAULT, halving the qa-generator prompt
   // budget (which is what shed the volatile sections and broke the two seam-d pinning tests).
   "qwen3.7-plus": 64_000,
+  // Advertised 1M context / 128K output (cached-read 0.03). Workhorse of the roster.
+  "glm-5.3-flash": 1_000_000,
+  // Advertised 1,048,576 context (Meta contributor tier).
+  "muse-spark-1.3-contributor": 1_048_576,
+  // Advertised 262,144 context with a 224,000 input sub-limit (smaller of the two documented).
+  "kimi-k2.7-code": 224_000,
   // Reviewer model: minimax-m3.
   // Reviewer prompts are typically smaller (spec contents + DOM slice), so 32K
   // is used as a conservative starting value. Raise after Phase-0 data.

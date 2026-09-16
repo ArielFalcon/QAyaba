@@ -1100,7 +1100,8 @@ test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchange
 
 test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
   // A minimal diff-mode prompt is well within the qa-generator budget
-  // (roleWindowBytes("qa-generator") = floor(64000 × 0.75 × 4) = 192,000 bytes).
+  // (roleWindowBytes("qa-generator") = floor(window × 0.75 × 4) — with the GLM 1M
+  // catalog entry this is 3,000,000 bytes).
   // All sections must survive when the prompt is normal-sized.
   const { text, sectionSizes } = buildPromptAssembled({
     ...input,
@@ -1116,7 +1117,7 @@ test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal p
   assert.ok("working-rules" in sectionSizes, "working-rules in sectionSizes");
   assert.ok("task" in sectionSizes, "task in sectionSizes");
 
-  // The total byte size must be well under the qa-generator budget (192,000 bytes).
+  // The total byte size must be well under the qa-generator catalog budget.
   const totalBytes = Buffer.byteLength(text, "utf8");
   const budget = roleWindowBytes("qa-generator");
   assert.ok(budget > 0, "roleWindowBytes must return a positive budget");
@@ -1127,19 +1128,20 @@ test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal p
 });
 
 test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
-  // The qa-reviewer budget = floor(32000 × 0.75 × 4) = 96,000 bytes.
-  // To force an overflow: pad learnedRules to exceed the budget when combined with
-  // the other sections (role-framing + instructions + objective + specs + output-contract
-  // together are ~4–6 KB; so learnedRules > 92 KB reliably overflows the 96 KB budget).
+  // The qa-reviewer budget is derived from the model-window catalog (roleWindowBytes("qa-reviewer")).
+  // To force an overflow size-independently: pad learnedRules to the ROLE BUDGET + 8 KB so the
+  // combined prompt exceeds the budget whatever window the reviewer's model resolves to.
   // reviewer-learned-rules has priority: 3 within volatile (the lowest-priority volatile
   // section in the reviewer), so it is shed FIRST by the global budget pass.
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-budget-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec\ntest('login', async () => {});");
 
-  // A learnedRules string that is guaranteed to push the total over the budget.
-  // reviewer budget = 96,000 bytes; 100,000 bytes of learnedRules is safely over.
-  const hugeLearnedRules = "- rule: " + "x".repeat(100_000);
+  // role-framing + instructions + objective + specs + output-contract together are ~4–6 KB,
+  // so a learnedRules body of budget + 8 KB reliably overflows whatever the budget is.
+  const roleBudget = roleWindowBytes("qa-reviewer");
+  const padLen = roleBudget + 8_192;
+  const hugeLearnedRules = "- rule: " + "x".repeat(padLen);
 
   try {
     const { text, sectionSizes } = buildReviewerPromptAssembled(

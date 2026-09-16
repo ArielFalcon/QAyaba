@@ -30,6 +30,10 @@ test("P0-3: roleToAgentName maps the kernel explorer role to qa-explorer, not qa
   assert.equal(roleToAgentName("explorer"), "qa-explorer");
 });
 
+test("roleToAgentName maps the sidekick role to its own qa-sidekick agent (not qa-worker)", () => {
+  assert.equal(roleToAgentName("sidekick"), "qa-sidekick");
+});
+
 // ---------------------------------------------------------------------------
 // Kernel/runtime AgentRole union parity gate.
 //
@@ -54,11 +58,11 @@ type _KernelRuntimeRoleParity = AssertNever<KeyDiff<RuntimeAgentRole, KernelAgen
 // compared as sets. This gives a readable node:test failure (not just a tsc error) if the two
 // literal lists themselves fall out of sync with one another.
 const RUNTIME_ROLES = [
-  "primary", "reviewer", "chat", "worker", "workerCode", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "worker", "workerCode", "sidekick", "maintainer", "reflector", "explorer", "proposer",
 ] as const satisfies readonly RuntimeAgentRole[];
 
 const KERNEL_ROLES = [
-  "primary", "reviewer", "chat", "worker", "workerCode", "maintainer", "reflector", "explorer", "proposer",
+  "primary", "reviewer", "chat", "worker", "workerCode", "sidekick", "maintainer", "reflector", "explorer", "proposer",
 ] as const satisfies readonly KernelAgentRole[];
 
 test("kernel and runtime AgentRole unions contain the exact same member set (includes proposer)", () => {

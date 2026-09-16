@@ -3,12 +3,10 @@ import {
   DEFAULT_ADAPTIVE_POLICY,
   type AdaptiveRoutingPolicy,
 } from "./adaptive-routing.ts";
-import type { CoordinationMode } from "./coordination-mode.ts";
 import {
   deriveAdaptiveSignals,
   type CoordinationTelemetryEvent,
 } from "./coordination-telemetry.ts";
-import { OffCoordinationAdapter } from "./off-coordination.adapter.ts";
 import { ProposingCoordinationAdapter } from "./proposing-coordination.adapter.ts";
 
 export interface CreateCoordinationPortOpts {
@@ -19,18 +17,17 @@ export interface CreateCoordinationPortOpts {
   readonly adaptiveMinSamples?: number;
 }
 
+// Coordination is the single operating mode (granular modes were removed with probe
+// evidence 2026-09-16: complete E2E chain validated against a live app). The adaptive
+// policy only raises the file threshold — it never bypasses budgets, gates, reviewer,
+// FixLoop, or authority; fail-open paths inside RunQaUseCase remain the real safety net.
 export function createCoordinationPort(
-  mode: CoordinationMode = "off",
   opts: CreateCoordinationPortOpts = {},
 ): CoordinationPort {
-  if (mode === "off") return new OffCoordinationAdapter();
-  // shadow + active share the deterministic proposer; RunQaUseCase treats shadow as advisory-only
-  // and only honors active at explicitly enabled points (Fase 13). Adaptive policy only raises
-  // the file threshold — it never bypasses budgets, gates, reviewer, FixLoop, or authority.
   const telemetry = opts.telemetry;
   const policy = opts.policy ?? DEFAULT_ADAPTIVE_POLICY;
   const minSamples = opts.adaptiveMinSamples ?? 5;
-  return new ProposingCoordinationAdapter(mode, {
+  return new ProposingCoordinationAdapter({
     policy,
     signals: telemetry
       ? () => deriveAdaptiveSignals(telemetry.events, minSamples)

@@ -2,6 +2,7 @@
 // FixLoop keeps retries/adjudication. Point is independent of pre-generate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
@@ -28,9 +29,18 @@ import {
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
+const MIRROR = "/tmp/qa-fixloop";
+const SPEC_DIR = `${MIRROR}/e2e`;
+
+function ensureFixedSpec() {
+  mkdirSync(SPEC_DIR, { recursive: true });
+  writeFileSync(`${MIRROR}/e2e/fixed.spec.ts`, "// fixed");
+}
+
 function basePorts(opts: {
   generate: GenerationPort["generate"];
   execute: ExecutionPort["execute"];
+  wallClockBudgetMs?: number;
 }) {
   const changeAnalysis: ChangeAnalysisPort = {
     classify: async () => ({
@@ -59,7 +69,7 @@ function basePorts(opts: {
   const publication: PublicationPort = { publish: async () => ({ outcome: "pr" }) };
   const learning: LearningPort = { fold: async () => {}, retrieve: async () => [] };
   const workspace: WorkspacePort = {
-    prepare: async () => ({ specDir: "/tmp/qa-fixloop/e2e", mirrorDir: "/tmp/qa-fixloop" }),
+    prepare: async () => ({ specDir: SPEC_DIR, mirrorDir: MIRROR }),
   };
   const deployGate: DeployGatePort = { waitUntilServing: async () => ok(true) };
   const runHistory: RunHistoryPort = { save: async () => {} };
@@ -86,6 +96,7 @@ function basePorts(opts: {
       maxRetries: 2,
       isCode: false,
       coveragePolicyMode: "signal" as const,
+      ...(opts.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: opts.wallClockBudgetMs } : {}),
     },
   };
 }
@@ -109,6 +120,7 @@ function sessionReturning(result: DelegationResult): AgentSession {
 }
 
 test("active fix-loop-regen uses sidekick for FixLoop regen and skips GenerationPort on that round", async () => {
+  ensureFixedSpec();
   let generateCalls = 0;
   let executeCalls = 0;
   let sidekickCalls = 0;
@@ -148,7 +160,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
   });
   const useCase = new RunQaUseCase({
     ...ports,
-    coordination: createCoordinationPort("active"),
+    coordination: createCoordinationPort(),
     // Only FixLoop point — pre-generate stays off so initial gen is still GenerationPort.
     coordinationEnabledPoints: ["fix-loop-regen"],
     coordinationTelemetry: tel,
@@ -202,7 +214,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
   });
   const useCase = new RunQaUseCase({
     ...ports,
-    coordination: createCoordinationPort("active"),
+    coordination: createCoordinationPort(),
     coordinationEnabledPoints: ["pre-generate"],
     sidekick,
   });
@@ -210,55 +222,6 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
   assert.equal(out.decision.verdict, "pass");
   assert.ok(generateCalls >= 2, "FixLoop regen must use GenerationPort when fix-loop-regen is disabled");
   assert.equal(sidekickCalls, 1, "pre-generate may call sidekick once; FixLoop must not");
-});
-
-test("shadow never routes FixLoop regen through sidekick", async () => {
-  let generateCalls = 0;
-  let executeCalls = 0;
-  let sidekickCalls = 0;
-  const ports = basePorts({
-    generate: async () => {
-      generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
-    },
-    execute: async () => {
-      executeCalls++;
-      if (executeCalls === 1) {
-        return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
-      }
-      return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
-    },
-  });
-  const sidekick = new SidekickExecutor({
-    runtime: {
-      openSession: async () => {
-        sidekickCalls++;
-        return sessionReturning({
-          delegationId: "shadow",
-          runId: "coord-fixloop-1",
-          status: "completed",
-          summary: "should not run",
-          filesChanged: [{ path: "e2e/x.spec.ts" }],
-          evidence: [],
-          validation: [],
-          assumptions: [],
-          concerns: [],
-          unresolvedQuestions: [],
-          recommendation: "accept",
-        });
-      },
-    },
-  });
-  const useCase = new RunQaUseCase({
-    ...ports,
-    coordination: createCoordinationPort("shadow"),
-    coordinationEnabledPoints: ["fix-loop-regen"],
-    sidekick,
-  });
-  const out = await useCase.run({ ...input, runId: "coord-fixloop-3" });
-  assert.equal(out.decision.verdict, "pass");
-  assert.ok(generateCalls >= 2);
-  assert.equal(sidekickCalls, 0);
 });
 
 test("FixLoop needs-lead advances escalation ladder and fails open to GenerationPort", async () => {
@@ -304,7 +267,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
   };
   const useCase = new RunQaUseCase({
     ...ports,
-    coordination: createCoordinationPort("active"),
+    coordination: createCoordinationPort(),
     coordinationEnabledPoints: ["fix-loop-regen"],
     coordinationTelemetry: tel,
     sidekick,
@@ -318,4 +281,55 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
       (e) => e.kind === "escalation" && e.capability === "sidekick-escalated" && e.reason.includes("needs-lead"),
     ),
   );
+});
+
+test("FixLoop honors abort-human when wall-clock budget is exhausted", async () => {
+  let generateCalls = 0;
+  let executeCalls = 0;
+  let sidekickCalls = 0;
+  const ports = basePorts({
+    // 0 ms ceiling: any positive elapsed trips exhausted() → router abort-human.
+    wallClockBudgetMs: 0,
+    generate: async () => {
+      generateCalls++;
+      return { specs: ["lead.spec.ts"], approved: true };
+    },
+    execute: async () => {
+      executeCalls++;
+      return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
+    },
+  });
+  const tel = new InMemoryCoordinationTelemetry();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        sidekickCalls++;
+        return sessionReturning({
+          delegationId: "coord-fixloop-abort-fix-loop-regen",
+          runId: "coord-fixloop-abort",
+          status: "completed",
+          summary: "should not matter",
+          filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+        });
+      },
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-abort" });
+  assert.equal(out.decision.verdict, "fail");
+  assert.equal(generateCalls, 1, "abort-human must not call GenerationPort for FixLoop regen");
+  assert.equal(sidekickCalls, 0, "abort-human must not call sidekick");
+  assert.ok(tel.events.some((e) => e.kind === "escalation" && e.action === "abort-human"));
 });

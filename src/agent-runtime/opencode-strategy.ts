@@ -37,6 +37,7 @@ export const ROLE_TO_OPENCODE_AGENT: Record<AgentRole, string> = {
   chat: "qa-assistant",
   worker: "qa-worker",
   workerCode: "qa-worker-code",
+  sidekick: "qa-sidekick",
   maintainer: "qa-maintainer",
   reflector: "qa-reflector",
   explorer: "qa-explorer",
@@ -45,16 +46,13 @@ export const ROLE_TO_OPENCODE_AGENT: Record<AgentRole, string> = {
 
 // Used ONLY when opencode.json is missing/unreadable (otherwise the live agent catalog wins). Kept
 // aligned with the models actually assigned in agents/opencode.json (WS9.4(b): re-synced to the
-// LIVE roster — the previous list omitted the actual default primary, deepseek-v4-pro, and named
-// a stale "Config A" roster the live config no longer has) so a fallback never rejects a valid
-// default: generator/proposer=deepseek-v4-pro, reviewer=minimax-m3, maintainer=kimi-k2.7-code,
-// chat/reflector/workers/explorer=deepseek-v4-flash. Re-verify against `opencode models` (or
-// agents/opencode.json directly) whenever the live roster changes.
+// LIVE roster) so a fallback never rejects a valid default: generator/proposer/workers=glm-5.3-flash,
+// reviewer=muse-spark-1.3-contributor, maintainer=kimi-k2.7-code. Re-verify against `opencode models`
+// (or agents/opencode.json directly) whenever the live roster changes.
 const FALLBACK_MODELS: AgentModelInfo[] = [
-  { id: "opencode-go/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-  { id: "opencode-go/minimax-m3", label: "MiniMax M3" },
+  { id: "opencode-go/glm-5.3-flash", label: "GLM 5.3 Flash" },
+  { id: "opencode-go/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
   { id: "opencode-go/kimi-k2.7-code", label: "Kimi K2.7 Code" },
-  { id: "opencode-go/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
 ];
 
 export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {

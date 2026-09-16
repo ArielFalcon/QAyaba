@@ -33,7 +33,7 @@ import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } f
 import { selectEngine } from "./pipeline-engine-flag.ts";
 import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
-import { InMemoryCoordinationTelemetry } from "../application/coordination/coordination-telemetry.ts";
+import { getSharedCoordinationTelemetry } from "../application/coordination/shared-telemetry.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -415,11 +415,14 @@ export interface CompositionConfig {
   // "App-specificity lives only in config/; nothing app-specific in src/... [qa-engine]").
   observer?: ObserverPort;
 
-  // Multi-agent coordination mode (Fase 5+). OPTIONAL: absent/"off" -> no CoordinationPort wired
-  // (byte-identical to pre-coordination). "shadow" records advisory proposals without changing
-  // generation/publish. "active" enables the pre-generate point and wires SidekickExecutor onto
-  // the same AgentRuntimePort as review (capability→worker role; model from OpenSessionOpts later).
-  coordinationMode?: "off" | "shadow" | "active";
+  // Multi-agent coordination is ALWAYS wired (single operating mode; see wireBridges below).
+  // Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this.
+  sidekickEscalatedModel?: string;
+  // Durable JSONL sink for coordination telemetry: events appended here survive process
+  // restarts so routing/cost signals can be analyzed offline. Absent -> memory-only.
+  coordinationTelemetryPath?: string;
+  // Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000.
+  sidekickTimeoutMs?: number;
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
@@ -427,6 +430,12 @@ const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
 
 // Builds the 11 REAL bridge adapters from a CompositionConfig, shared by both buildProduction's
 // "rewritten" branch and buildShadow (which only swaps the publication + runHistory ports below).
+function sidekickTimeoutFromEnv(): number {
+  const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 420_000;
+}
+
 function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
   publication: RewrittenOrchestratorAdapterDeps["publication"];
   runHistory: RewrittenOrchestratorAdapterDeps["runHistory"];
@@ -780,24 +789,32 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     // above — absent cfg.curriculumPort means RunQaUseCaseDeps.curriculum is omitted entirely (never
     // a fabricated no-op stub), so select() returns nothing and the fold never fires.
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
-    ...(cfg.coordinationMode && cfg.coordinationMode !== "off"
-      ? (() => {
-          const coordinationTelemetry = new InMemoryCoordinationTelemetry();
-          return {
-            coordination: createCoordinationPort(cfg.coordinationMode, {
-              telemetry: coordinationTelemetry,
-            }),
-            coordinationTelemetry,
-            ...(cfg.coordinationMode === "active"
-              ? {
-                  // Points listed independently — enabling active does not imply either alone.
-                  coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
-                  sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
-                }
-              : {}),
-          };
-        })()
-      : {}),
+    // Coordination is ALWAYS wired (single operating mode — probe evidence 2026-09-16 removed the
+    // off/shadow/active selector). Its governing points are the two live ones; the sidekick shares
+    // the reviewer's runtime (same AgentRuntimePort seam, its own session lifecycle).
+    ...(() => {
+      // Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition).
+      const coordinationTelemetry = cfg.coordinationTelemetryPath
+        ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
+        : getSharedCoordinationTelemetry();
+      return {
+        coordination: createCoordinationPort({
+          telemetry: coordinationTelemetry,
+        }),
+        coordinationTelemetry,
+        ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
+        // Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of
+        // eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright
+        // MCP bootstrap + navigation.
+        sidekickTimeoutMs: cfg.sidekickTimeoutMs ?? sidekickTimeoutFromEnv(),
+        ...(cfg.sidekickEscalatedModel
+          ? { sidekickEscalatedModel: cfg.sidekickEscalatedModel }
+          : {}),
+        // Points listed independently — enabling one does not imply the other.
+        coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
+        sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+      };
+    })(),
     config: {
       needsReview: cfg.needsReview,
       shadow: cfg.shadow,

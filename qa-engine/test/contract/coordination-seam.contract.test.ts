@@ -11,10 +11,8 @@ import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-cloc
 import {
   AGENT_CAPABILITIES,
   COORDINATION_ACTIONS,
-  COORDINATION_MODES,
   isAgentCapability,
   isCoordinationAction,
-  resolveCoordinationMode,
   createCoordinationPort,
   type CoordinationContext,
   type CoordinationDecision,
@@ -142,35 +140,6 @@ test("CoordinationBudget holds the run CycleBudget and WallClockBudget intact �
   assert.equal(ctx.budgets.wallClock.budgetMs, 4_000);
 });
 
-test("coordination.mode defaults to off, and only off | shadow | active are valid", () => {
-  assert.deepEqual([...COORDINATION_MODES], ["off", "shadow", "active"]);
-  assert.equal(resolveCoordinationMode(undefined), "off");
-  assert.equal(resolveCoordinationMode(""), "off");
-  assert.equal(resolveCoordinationMode("off"), "off");
-  assert.equal(resolveCoordinationMode("shadow"), "shadow");
-  assert.equal(resolveCoordinationMode("active"), "active");
-  assert.throws(() => resolveCoordinationMode("legacy"), /unknown coordination\.mode/);
-});
-
-test("createCoordinationPort defaults to off and always decides direct without a provider", async () => {
-  const port = createCoordinationPort();
-  assert.equal(port.mode, "off");
-  const decision = await port.decide(sampleContext());
-  assert.equal(decision.action, "direct");
-  assert.equal(decision.reason, "coordination.mode=off");
-  assert.deepEqual(decision.evidence, [sampleEvidence()]);
-  assert.equal(decision.nextCapability, undefined);
-});
-
-test("createCoordinationPort builds a deterministic proposer for shadow and active", async () => {
-  const shadow = createCoordinationPort("shadow");
-  assert.equal(shadow.mode, "shadow");
-  const active = createCoordinationPort("active");
-  assert.equal(active.mode, "active");
-  const simple = await shadow.decide(sampleContext());
-  assert.equal(simple.action, "direct");
-});
-
 test("Fase 5 wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {
   const forbidden = [
     "src/contexts/generation/application/generate-tests.use-case.ts",
@@ -196,5 +165,14 @@ test("Fase 5 wires coordination only into RunQaUseCase — generation/FixLoop/Ag
     "utf8",
   );
   assert.equal(useCase.includes("CoordinationPort"), true);
-  assert.equal(useCase.includes("advisoryOnly"), true);
+  assert.equal(useCase.includes("advisoryOnly"), false, "advisory downgrade was removed with the modes");
+  const composition = readFileSync(
+    join(qaEngineRoot, "src/contexts/qa-run-orchestration/composition/composition-root.ts"),
+    "utf8",
+  );
+  assert.equal(
+    composition.includes("coordinationMode"),
+    false,
+    "the mode selector is gone — coordination is the single mode",
+  );
 });

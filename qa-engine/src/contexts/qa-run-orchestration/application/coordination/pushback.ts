@@ -2,6 +2,7 @@
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { belongsToBrief, type DelegationResult } from "./delegation-result.ts";
+import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 export const PUSHBACK_REASONS = [
   "missing-artifact",
@@ -20,14 +21,6 @@ export interface PushbackFinding {
   readonly detail: string;
 }
 
-function pathAllowed(path: string, writable: readonly string[]): boolean {
-  return writable.some((prefix) => {
-    if (path === prefix) return true;
-    const normalized = prefix.endsWith("/") ? prefix : `${prefix}/`;
-    return path.startsWith(normalized) || path.startsWith(prefix);
-  });
-}
-
 export function validateDelegationAuthority(
   brief: DelegationBrief,
   result: DelegationResult,
@@ -37,7 +30,7 @@ export function validateDelegationAuthority(
     findings.push({ reason: "foreign-brief", detail: "delegationId/runId mismatch" });
   }
   for (const file of result.filesChanged) {
-    if (!pathAllowed(file.path, brief.scope.writablePaths)) {
+    if (!isPathWithinWritableRoots(file.path, brief.scope.writablePaths)) {
       findings.push({ reason: "path-outside-scope", detail: file.path });
     }
   }

@@ -20,7 +20,6 @@ import {
   canRetrySameCapability,
   advanceAfterNeedsLead,
   raiseCapabilityFloor,
-  classifyShadowDivergence,
   deriveAdaptiveSignals,
   proposeFromDecision,
   routeOrchestration,
@@ -39,20 +38,20 @@ const scope = {
   allowedCommands: [],
 };
 
-test("shadow proposal is advisoryOnly; active is not", () => {
+test("proposal wraps the decision verbatim with a recordedAt stamp", () => {
   const decision = {
     action: "delegate" as const,
     reason: "hard",
     evidence: [],
     nextCapability: "sidekick-standard" as const,
   };
-  assert.equal(proposeFromDecision("shadow", decision).advisoryOnly, true);
-  assert.equal(proposeFromDecision("off", decision).advisoryOnly, true);
-  assert.equal(proposeFromDecision("active", decision).advisoryOnly, false);
+  const proposal = proposeFromDecision(decision, 1234);
+  assert.equal(proposal.decision, decision);
+  assert.equal(proposal.recordedAt, 1234);
 });
 
-test("shadow proposer delegates large/contradictory changes and keeps simple ones direct", async () => {
-  const port = createCoordinationPort("shadow");
+test("proposer delegates large/contradictory changes and keeps simple ones direct", async () => {
+  const port = createCoordinationPort();
   const direct = await port.decide({
     runId: "r1",
     objective: "o",
@@ -172,41 +171,6 @@ test("escalation ladder and FixLoop capability selection", () => {
   );
 });
 
-test("shadow divergence: direct is same; delegate is non-comparable; infra is infrastructure", () => {
-  assert.equal(
-    classifyShadowDivergence({
-      mode: "shadow",
-      proposal: { action: "direct", reason: "simple", evidence: [] },
-      pipelineVerdict: "pass",
-    }),
-    "same",
-  );
-  assert.equal(
-    classifyShadowDivergence({
-      mode: "shadow",
-      proposal: { action: "delegate", reason: "hard", evidence: [], nextCapability: "sidekick-standard" },
-      pipelineVerdict: "pass",
-    }),
-    "non-comparable",
-  );
-  assert.equal(
-    classifyShadowDivergence({
-      mode: "shadow",
-      proposal: { action: "direct", reason: "x", evidence: [] },
-      pipelineVerdict: "infra-error",
-    }),
-    "infrastructure",
-  );
-  assert.equal(
-    classifyShadowDivergence({
-      mode: "active",
-      proposal: { action: "direct", reason: "x", evidence: [] },
-      pipelineVerdict: "pass",
-    }),
-    undefined,
-  );
-});
-
 test("LeadContext accumulates decisions without OpencodeRunInput fields", () => {
   let lead = createLeadContext({ runId: "r1", objective: "cover form" });
   lead = appendLeadDecision(lead, {
@@ -223,7 +187,6 @@ test("coordination telemetry records proposals", () => {
   const tel = new InMemoryCoordinationTelemetry();
   tel.record({
     runId: "r1",
-    mode: "shadow",
     kind: "proposal",
     action: "delegate",
     reason: "large change",
@@ -238,7 +201,6 @@ test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () =>
   for (let i = 0; i < 5; i++) {
     tel.record({
       runId: `r${i}`,
-      mode: "shadow",
       kind: "delegation",
       reason: "x",
       durationMs: 100,
@@ -246,7 +208,6 @@ test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () =>
     });
     tel.record({
       runId: `r${i}`,
-      mode: "shadow",
       kind: "escalation",
       reason: "no progress at sidekick-standard",
       at: i,
@@ -263,7 +224,6 @@ test("adaptive proposer raises file threshold when escalate rate is high", async
   for (let i = 0; i < 5; i++) {
     tel.record({
       runId: `r${i}`,
-      mode: "active",
       kind: "delegation",
       reason: "x",
       durationMs: 50,
@@ -271,13 +231,12 @@ test("adaptive proposer raises file threshold when escalate rate is high", async
     });
     tel.record({
       runId: `r${i}`,
-      mode: "active",
       kind: "escalation",
       reason: "no progress",
       at: i,
     });
   }
-  const port = createCoordinationPort("shadow", { telemetry: tel, adaptiveMinSamples: 5 });
+  const port = createCoordinationPort({ telemetry: tel, adaptiveMinSamples: 5 });
   // 10 files: default threshold 8 would delegate; adaptive escalate rate → threshold 12 → direct.
   // Use a non-generate action so the half-threshold generate branch does not force delegate.
   const decision = await port.decide({

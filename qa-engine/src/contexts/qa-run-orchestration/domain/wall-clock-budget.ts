@@ -31,6 +31,8 @@ export class WallClockBudget {
   }
 
   exhausted(elapsedMs: number): boolean {
+    // A non-positive ceiling means the budget is already spent (no generation time left).
+    if (this.budgetMs <= 0) return true;
     return elapsedMs > this.budgetMs;
   }
 

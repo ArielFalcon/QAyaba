@@ -16,10 +16,15 @@ import {
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { applyPushback } from "./pushback.ts";
+import { isPathWithinWritableRoots } from "./path-scope.ts";
 
 export function resolveCapabilityRole(capability: AgentCapability): AgentRole {
   if (capability === "lead") return "primary";
-  return "worker";
+  // Dedicated sidekick role: its agents/agent/qa-sidekick.md prompt matches the DelegationResult
+  // JSON contract and multi-file scope — reusing "worker" would ship qa-worker.md's
+  // "write exactly ONE spec, do NOT edit other files" instructions against a brief that may
+  // need to repair several failing specs (contradictory instructions, doc §34).
+  return "sidekick";
 }
 
 export interface SidekickRender {
@@ -40,26 +45,38 @@ export interface SidekickExecuteOpts {
   feedback?: string;
 }
 
-function pathAllowed(path: string, writable: readonly string[]): boolean {
-  return writable.some((prefix) => path === prefix || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`) || path.startsWith(prefix));
-}
-
+// brace-balanced first-object scan (string/escape aware). The naive lastIndexOf("{") strategy
+// false-failed on valid DelegationResults with nested arrays/objects followed by a trailing
+// fence — extracting from the LAST "{" to the last "}" starts mid-structure and JSON.parse
+// throws, so a COMPLIANT sidekick was scored failed. Fence-wrapped output works here as a side
+// effect: the first "{" of a fenced block is the object's own opening brace.
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.lastIndexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(trimmed.slice(start, end + 1));
-      } catch {
-        return undefined;
+  const start = trimmed.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(trimmed.slice(start, i + 1));
+        } catch {
+          return undefined;
+        }
       }
     }
-    return undefined;
   }
+  return undefined;
 }
 
 function asStringArray(value: unknown): string[] {
@@ -163,7 +180,7 @@ export class SidekickExecutor {
       if (!belongsToBrief(parsed, brief.delegationId, brief.runId)) {
         return failedResult(brief, "sidekick result did not belong to this brief");
       }
-      const illegal = parsed.filesChanged.filter((f) => !pathAllowed(f.path, brief.scope.writablePaths));
+      const illegal = parsed.filesChanged.filter((f) => !isPathWithinWritableRoots(f.path, brief.scope.writablePaths));
       if (illegal.length > 0) {
         return {
           ...parsed,

@@ -27,10 +27,10 @@ function brief(overrides: { task?: string } = {}) {
   });
 }
 
-test("resolveCapabilityRole maps lead→primary and sidekicks→worker without model names", () => {
+test("resolveCapabilityRole maps lead→primary and sidekicks→dedicated sidekick role without model names", () => {
   assert.equal(resolveCapabilityRole("lead"), "primary");
-  assert.equal(resolveCapabilityRole("sidekick-standard"), "worker");
-  assert.equal(resolveCapabilityRole("sidekick-escalated"), "worker");
+  assert.equal(resolveCapabilityRole("sidekick-standard"), "sidekick");
+  assert.equal(resolveCapabilityRole("sidekick-escalated"), "sidekick");
 });
 
 test("renderSidekickBrief includes authority, scope, validation and escalation — not a lead transcript", () => {
@@ -44,7 +44,7 @@ test("renderSidekickBrief includes authority, scope, validation and escalation �
   assert.ok(Object.keys(sectionSizes).length > 0);
 });
 
-test("SidekickExecutor opens worker session, prompts, disposes, and parses DelegationResult", async () => {
+test("SidekickExecutor opens sidekick session, prompts, disposes, and parses DelegationResult", async () => {
   const prompts: string[] = [];
   let disposed = false;
   const session: AgentSession = {
@@ -82,7 +82,7 @@ test("SidekickExecutor opens worker session, prompts, disposes, and parses Deleg
     cwd: "/tmp/mirror",
     capability: "sidekick-standard",
   });
-  assert.deepEqual(roles, ["worker"]);
+  assert.deepEqual(roles, ["sidekick"]);
   assert.equal(prompts.length, 1);
   assert.equal(disposed, true);
   assert.equal(result.status, "completed");

@@ -5,7 +5,7 @@ import type { RunEventBody } from "../contract/events";
 
 export type AgentProvider = "opencode" | "codex";
 export type AgentMode = "single" | "dual";
-export type AgentRole = "primary" | "reviewer" | "chat" | "worker" | "workerCode" | "maintainer" | "reflector" | "explorer" | "proposer";
+export type AgentRole = "primary" | "reviewer" | "chat" | "worker" | "workerCode" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
 
 // What a role is structurally allowed to do, independent of the runtime provider — the single,
 // provider-agnostic capability policy. Each AgentRuntimeStrategy translates it to its own mechanism

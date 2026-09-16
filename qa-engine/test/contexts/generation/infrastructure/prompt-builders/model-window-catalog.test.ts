@@ -41,9 +41,10 @@ test("catalog: modelWindowBytes applies BYTES_PER_TOKEN and safety margin", () =
   // We just test the formula holds for known models by deriving the expected value
   // from the catalog's published window (exposed indirectly via the calculation).
   const bytes = modelWindowBytes("kimi-k2.7-code");
-  // The catalog sets 64_000 tokens for kimi-k2.7-code.
-  const expected = Math.floor(64_000 * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
-  assert.equal(bytes, expected, "kimi-k2.7-code budget must equal floor(64000 × margin × 4)");
+  // The catalog sets 224_000 tokens for kimi-k2.7-code (advertised 262,144 context with a
+  // 224,000 input sub-limit — the smaller documented value).
+  const expected = Math.floor(224_000 * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN);
+  assert.equal(bytes, expected, "kimi-k2.7-code budget must equal floor(224000 × margin × 4)");
   // Must be expressible as bytes, not tokens (i.e. >> 64_000).
   assert.ok(bytes > 64_000, "byte budget must be larger than token count");
 });

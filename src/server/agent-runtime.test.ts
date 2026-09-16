@@ -26,9 +26,9 @@ function strategy(
 ): AgentRuntimeStrategy {
   const models = provider === "opencode"
     ? [
-        { id: "opencode-go/deepseek-v4-pro" },
-        { id: "opencode-go/minimax-m3" },
-        { id: "opencode-go/deepseek-v4-flash" },
+        { id: "opencode-go/glm-5.3-flash" },
+        { id: "opencode-go/muse-spark-1.3-contributor" },
+        { id: "opencode-go/kimi-k2.7-code" },
       ]
     : [
         { id: "gpt-5.4" },

@@ -1,8 +1,8 @@
 // Coordination telemetry (Fase 11). Records cost/decision signals without owning pipeline verdicts.
 // Token/cost aggregation stays on AgentRuntimePort (onUsage/onTurn) — this port never double-counts.
+import { appendFileSync, readFileSync } from "node:fs";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
-import type { CoordinationMode } from "./coordination-mode.ts";
 import type { AdaptiveRoutingSignals } from "./adaptive-routing.ts";
 import type { OrchestrationAction } from "./orchestration-router.ts";
 
@@ -16,7 +16,7 @@ export type CoordinationTelemetryKind =
 
 export interface CoordinationTelemetryEvent {
   readonly runId: string;
-  readonly mode: CoordinationMode;
+
   readonly kind: CoordinationTelemetryKind;
   readonly action?: CoordinationAction | OrchestrationAction;
   readonly capability?: AgentCapability;
@@ -43,8 +43,54 @@ export interface CoordinationTelemetryPort {
 
 export class InMemoryCoordinationTelemetry implements CoordinationTelemetryPort {
   readonly events: CoordinationTelemetryEvent[] = [];
+  private readonly persistPath: string | undefined;
+  private warnedPersistFailure = false;
+
+  // persistPath: OPTIONAL durable sink (JSONL, one event per line). Without it the store is
+  // process-lifetime only. When present, events are appended live AND reloaded at construction
+  // so adaptive thresholds and shadow-divergence evidence survive process restarts (Fase 11/12).
+  constructor(persistPath?: string) {
+    this.persistPath = persistPath ? this.normalize(persistPath) : undefined;
+    if (this.persistPath) this.rehydrate();
+  }
   record(event: CoordinationTelemetryEvent): void {
     this.events.push(event);
+    if (this.persistPath) this.persist(event);
+  }
+  private normalize(path: string): string {
+    return path.replace(/\\/g, "/");
+  }
+  private rehydrate(): void {
+    try {
+      const raw = readFileSync(this.persistPath!, "utf8");
+      for (const line of raw.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          this.events.push(JSON.parse(trimmed) as CoordinationTelemetryEvent);
+        } catch {
+          // Corrupt/partial tail line: skip it, never fail startup or previous runs' data.
+        }
+      }
+    } catch {
+      // Absent file on first boot is the normal cold-start case — not an error.
+    }
+  }
+  private persist(event: CoordinationTelemetryEvent): void {
+    try {
+      appendFileSync(this.persistPath!, `${JSON.stringify(event)}\n`, { encoding: "utf8" });
+      this.warnedPersistFailure = false;
+    } catch (err) {
+      // Telemetry is observational: a sink failure must never break the QA run, but it must not
+      // stay silent either (invariant: surface integration errors loudly). Warn once per burst,
+      // reset on the next success.
+      if (!this.warnedPersistFailure) {
+        this.warnedPersistFailure = true;
+        console.error(
+          `[qa] coordination telemetry persist failed (events kept in memory only): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 }
 
