@@ -1001,3 +1001,7 @@ export interface MirrorGcPort {
   prune(mirrorDir: string): Promise<void>;
 }
 
+// CoordinationPort is application-layer (CoordinationContext holds CycleBudget /
+// WallClockBudget), so it is not kernel-resident and is not re-exported here.
+// See ./coordination.port.ts. Fase 1 created the seam; RunQaUseCase does not call it.
+
