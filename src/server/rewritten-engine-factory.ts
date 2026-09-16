@@ -214,6 +214,15 @@ import { expandEnv } from "../orchestrator/config-loader";
 // Same role→agent-name mapping the F.2 operator template uses (roleToAgentName) — the
 // AgentRuntimeAdapter needs it to resolve which of the agents container's role configs
 // (qa-generator/qa-reviewer/qa-worker/…) an AgentRole maps to.
+// Single source for the durable coordination telemetry path — composition wires it AND the
+// control plane reads it (both must agree or the audit tail would diverge from what runs record).
+export function resolveCoordinationTelemetryPath(): string {
+  return (
+    process.env.COORDINATION_TELEMETRY_PATH?.trim() ||
+    join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "coordination-events.jsonl")
+  );
+}
+
 export function roleToAgentName(role: AgentRole): string {
   const map: Record<AgentRole, string> = {
     primary: "qa-generator",
@@ -1069,9 +1078,7 @@ export function buildRewrittenCompositionConfig(
     // Distinct from qa.shadow (PR/Issue publishing side effects).
     // Durable coordination telemetry (JSONL): default root matches HISTORY_DB_PATH's data/
     // root. COORDINATION_TELEMETRY_PATH overrides (e.g. a mounted volume in Docker).
-    coordinationTelemetryPath:
-      process.env.COORDINATION_TELEMETRY_PATH?.trim() ||
-      join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "coordination-events.jsonl"),
+    coordinationTelemetryPath: resolveCoordinationTelemetryPath(),
     // Escalated sidekick model — infra only; threaded as OpenSessionOpts.model when capability is
     // sidekick-escalated. Absent → same worker model as sidekick-standard.
     ...(process.env.COORDINATION_ESCALATED_MODEL?.trim()

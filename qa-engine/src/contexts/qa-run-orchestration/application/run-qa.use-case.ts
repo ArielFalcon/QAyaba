@@ -2447,6 +2447,12 @@ export class RunQaUseCase {
         reason: `pipeline verdict=${decision.verdict}`,
         finalOutcome: decision.verdict,
         reviewOutcome,
+        // Deterministic quality, sampled at the same instant the outcome is stamped — the JSONL
+        // consumer reads efficiency (durations, escalations) AND quality off the same row.
+        ...(coverageRatio !== undefined
+          ? { coverageRatio }
+          : {}),
+        ...(valueScore !== null ? { valueScore } : {}),
         escalations: coordinationEscalations,
         durationMs: Date.now() - startedAt,
         at: Date.now(),

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveDashboardDir, serveDashboard } from "./static";
@@ -66,6 +66,29 @@ test("serveDashboard returns the placeholder when index.html is missing", async 
     await serveDashboard({ url: "/app", method: "GET" } as never, res as never, { distDir: dist });
     assert.equal(res.status, 200);
     assert.match(String(res.body), /not built yet/);
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test("serveDashboard re-reads an asset when its mtime changes (bind-mount edits)", async () => {
+  const dist = mkdtempSync(join(tmpdir(), "dash-mtime-"));
+  try {
+    mkdirSync(join(dist, "js"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    const asset = join(dist, "js", "format.js");
+    writeFileSync(asset, "v1");
+    const first = mkRes();
+    await serveDashboard({ url: "/app/js/format.js", method: "GET" } as never, first as never, { distDir: dist });
+    assert.equal(String(first.body), "v1");
+
+    writeFileSync(asset, "v2-uniqueAbbrevs");
+    const later = new Date(Date.now() + 2000);
+    utimesSync(asset, later, later);
+
+    const second = mkRes();
+    await serveDashboard({ url: "/app/js/format.js", method: "GET" } as never, second as never, { distDir: dist });
+    assert.equal(String(second.body), "v2-uniqueAbbrevs");
   } finally {
     rmSync(dist, { recursive: true, force: true });
   }

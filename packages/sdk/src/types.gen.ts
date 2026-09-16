@@ -324,6 +324,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coordination-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only) */
+        get: operations["getCoordinationEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/repos": {
         parameters: {
             query?: never;
@@ -924,6 +941,37 @@ export interface components {
                 measuredRuns: number;
                 totalRuns: number;
             };
+            coordination?: {
+                measured: boolean;
+                totalRuns: number;
+                delegateRuns: number;
+                escalationRate: number | null;
+                contractFailureRate: number | null;
+                avgDelegationMs: number | null;
+            };
+        };
+        CoordinationEvent: {
+            runId: string;
+            /** @enum {string} */
+            kind: "proposal" | "delegation" | "escalation" | "router" | "pushback" | "outcome";
+            action?: string;
+            capability?: string;
+            reason: string;
+            durationMs?: number;
+            delegationId?: string;
+            attempt?: number;
+            failureClass?: string;
+            progressFingerprint?: string;
+            finalOutcome?: string;
+            reviewOutcome?: string;
+            valueScore?: number | null;
+            coverageRatio?: number | null;
+            escalations?: number;
+            at: number;
+        };
+        CoordinationEventsView: {
+            events: components["schemas"]["CoordinationEvent"][];
+            truncated: boolean;
         };
         TrendWindow: {
             current: number;
@@ -1657,6 +1705,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignalsView"];
+                };
+            };
+        };
+    };
+    getCoordinationEvents: {
+        parameters: {
+            query?: {
+                runId?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description coordination events ledger tail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinationEventsView"];
                 };
             };
         };

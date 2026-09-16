@@ -25,6 +25,7 @@ import {
   AgentProviderHealthSchema, AgentModelInfoSchema, RoleAssignmentSchema,
   LearningRuleViewSchema, ScorecardViewSchema, CurriculumViewSchema, IntelligenceViewSchema,
   SignalsViewSchema,
+  CoordinationEventSchema, CoordinationEventsViewSchema,
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
 } from "./commands";
@@ -78,6 +79,8 @@ const NAMED_SCHEMAS = {
   CurriculumView: CurriculumViewSchema,
   IntelligenceView: IntelligenceViewSchema,
   SignalsView: SignalsViewSchema,
+  CoordinationEvent: CoordinationEventSchema,
+  CoordinationEventsView: CoordinationEventsViewSchema,
   TrendWindow: TrendWindowSchema,
   CoverageTrend: CoverageTrendSchema,
   ValueTrend: ValueTrendSchema,
@@ -296,6 +299,17 @@ function paths(): Record<string, unknown> {
         operationId: "getSignals",
         summary: "Fleet-wide integrity readout: ground-truth value-oracle vs. proxy pass-rate (read-only)",
         responses: { "200": { description: "signals view", content: jsonBody("SignalsView") } },
+      },
+    },
+    "/api/v1/coordination-events": {
+      get: {
+        operationId: "getCoordinationEvents",
+        summary: "Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only)",
+        parameters: [
+          { name: "runId", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", default: 200, maximum: 1000 } },
+        ],
+        responses: { "200": { description: "coordination events ledger tail", content: jsonBody("CoordinationEventsView") } },
       },
     },
     "/api/v1/repos": {

@@ -547,6 +547,19 @@ export const IntelligenceViewSchema = z.object({
 
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
 
+// Fleet-wide coordination health: how often the router delegated, how often the
+// sidekick's contract failed (useful retry signal), and what a delegation costs.
+export const CoordinationSignalsSchema = z.object({
+  measured: z.boolean(),
+  totalRuns: z.number().int().nonnegative(),
+  delegateRuns: z.number().int().nonnegative(),
+  escalationRate: z.number().nullable(), // escalations per delegated run; null when no delegations
+  contractFailureRate: z.number().nullable(), // failed/parse-failed delegations per delegation
+  avgDelegationMs: z.number().nullable(), // null when no delegation carried a duration
+});
+
+export type CoordinationSignals = z.infer<typeof CoordinationSignalsSchema>;
+
 // ── Signals (fleet-wide integrity readout — the anti-Goodhart panel) ───────────────
 // The honest answer to "can I trust the fleet's green?". It juxtaposes the ground-truth
 // value-oracle (◆, real, from the aggregated scorecards) against the proxy the rest of
@@ -574,9 +587,47 @@ export const SignalsViewSchema = z.object({
     measuredRuns: z.number().int().nonnegative(),
     totalRuns: z.number().int().nonnegative(),
   }),
+  // ◇ multi-agent execution health: optional (absent when the telemetry ledger is empty) —
+  // router delegation share, escalation rate, sidekick contract failures and delegation cost.
+  coordination: CoordinationSignalsSchema.optional(),
 });
 
 export type SignalsView = z.infer<typeof SignalsViewSchema>;
+
+// ── Coordination (multi-agent execution audit) ────────────────────────────────
+// The coordination layer records every router proposal, sidekick delegation,
+// escalation and final outcome. These schemas expose that ledger to the control
+// plane (read-only) so the operator can audit WHO produced specs and HOW WELL
+// the layer behaves across runs. Optional fields everywhere: the ledger may be
+// absent (fresh install) or a run may not have touched the layer.
+export const CoordinationEventSchema = z.object({
+  runId: z.string(),
+  // Lifecycle marker: which coordination stage produced the record.
+  kind: z.enum(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]),
+  action: z.string().optional(),
+  capability: z.string().optional(),
+  reason: z.string(),
+  durationMs: z.number().int().nonnegative().optional(),
+  delegationId: z.string().optional(),
+  attempt: z.number().int().nonnegative().optional(),
+  failureClass: z.string().optional(),
+  progressFingerprint: z.string().optional(),
+  finalOutcome: z.string().optional(),
+  reviewOutcome: z.string().optional(),
+  valueScore: z.number().nullable().optional(),
+  coverageRatio: z.number().nullable().optional(),
+  escalations: z.number().int().nonnegative().optional(),
+  at: z.number().int().nonnegative(),
+});
+
+export const CoordinationEventsViewSchema = z.object({
+  events: z.array(CoordinationEventSchema),
+  truncated: z.boolean(), // true when more events satisfied the filter than limit returned
+});
+
+export type CoordinationEvent = z.infer<typeof CoordinationEventSchema>;
+export type CoordinationEventsView = z.infer<typeof CoordinationEventsViewSchema>;
+
 
 // ── Trends & report (period-over-period analytics the report surface renders) ──────────────
 // Derived from persisted run outcomes (change-coverage ratio, value-oracle score, verdict,

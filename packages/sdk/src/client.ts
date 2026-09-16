@@ -13,6 +13,7 @@ import type {
   AppView,
   IntelligenceView,
   SignalsView,
+  CoordinationEventsView,
   TrendsView,
   ReportView,
   RunReportView,
@@ -53,6 +54,13 @@ export function createClient(opts: ClientOptions) {
 
     getQueue: () => request<QueueStatus>("GET", "/api/v1/queue"),
     getSignals: () => request<SignalsView>("GET", "/api/v1/signals"),
+    getCoordinationEvents: (filter: { runId?: string; limit?: number } = {}) => {
+      const params = new URLSearchParams();
+      if (filter.runId) params.set("runId", filter.runId);
+      if (filter.limit !== undefined) params.set("limit", String(filter.limit));
+      const qs = params.toString();
+      return request<CoordinationEventsView>("GET", `/api/v1/coordination-events${qs ? `?${qs}` : ""}`);
+    },
 
     listApps: () => request<AppView[]>("GET", "/api/v1/apps"),
     getApp: (name: string) => request<AppView>("GET", `/api/v1/apps/${q(name)}`),

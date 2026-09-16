@@ -1,3 +1,4 @@
+import type { CoordinationSignals } from "../contract/commands";
 import type { Scorecard } from "../qa/learning/oracle-types";
 import type { RunRecord, RunOutcome } from "../types";
 
@@ -8,6 +9,7 @@ import type { RunRecord, RunOutcome } from "../types";
 // compatible with SignalsViewSchema — tsc catches any drift between this and the contract.
 export function toSignalsView(
   inputs: Array<{ scorecard: Scorecard | null; runs: RunRecord[]; outcomes?: RunOutcome[] }>,
+  coordination?: CoordinationSignals,
 ) {
   // ◆ ground truth: the value-oracle scorecard, aggregated across the fleet. The fleet
   // average is weighted by measured runs so a tiny app with one measured run doesn't
@@ -85,5 +87,8 @@ export function toSignalsView(
       measuredRuns: covMeasured,
       totalRuns: covTotal,
     },
+    // ◇ multi-agent coordination health: attached when the caller sampled the ledger — omitted
+    // entirely when not (keeps the panel honest instead of painting an unmeasured block).
+    ...(coordination ? { coordination } : {}),
   };
 }

@@ -790,6 +790,44 @@
         }
       }
     },
+    "/api/v1/coordination-events": {
+      "get": {
+        "operationId": "getCoordinationEvents",
+        "summary": "Multi-agent coordination audit: router proposals, sidekick delegations, escalations, outcomes (read-only)",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "coordination events ledger tail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoordinationEventsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/repos": {
       "get": {
         "operationId": "listRepos",
@@ -3192,12 +3230,148 @@
               "totalRuns"
             ],
             "additionalProperties": false
+          },
+          "coordination": {
+            "type": "object",
+            "properties": {
+              "measured": {
+                "type": "boolean"
+              },
+              "totalRuns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "delegateRuns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "escalationRate": {
+                "nullable": true,
+                "type": "number"
+              },
+              "contractFailureRate": {
+                "nullable": true,
+                "type": "number"
+              },
+              "avgDelegationMs": {
+                "nullable": true,
+                "type": "number"
+              }
+            },
+            "required": [
+              "measured",
+              "totalRuns",
+              "delegateRuns",
+              "escalationRate",
+              "contractFailureRate",
+              "avgDelegationMs"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "valueOracle",
           "reviewer",
           "coverage"
+        ],
+        "additionalProperties": false
+      },
+      "CoordinationEvent": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "proposal",
+              "delegation",
+              "escalation",
+              "router",
+              "pushback",
+              "outcome"
+            ]
+          },
+          "action": {
+            "type": "string"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "delegationId": {
+            "type": "string"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "failureClass": {
+            "type": "string"
+          },
+          "progressFingerprint": {
+            "type": "string"
+          },
+          "finalOutcome": {
+            "type": "string"
+          },
+          "reviewOutcome": {
+            "type": "string"
+          },
+          "valueScore": {
+            "nullable": true,
+            "type": "number"
+          },
+          "coverageRatio": {
+            "nullable": true,
+            "type": "number"
+          },
+          "escalations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "at": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "runId",
+          "kind",
+          "reason",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "CoordinationEventsView": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CoordinationEvent"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "events",
+          "truncated"
         ],
         "additionalProperties": false
       },

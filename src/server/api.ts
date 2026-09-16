@@ -41,6 +41,7 @@ import {
   ConfirmBoundariesInputSchema,
   IntelligenceViewSchema,
   SignalsViewSchema,
+  CoordinationEventsViewSchema,
   TrendsViewSchema,
   ReportViewSchema,
   RunReportViewSchema,
@@ -89,6 +90,8 @@ export interface ApiDeps {
   // Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
   // Absent ⇒ the /signals route returns 501.
   signals?: () => z.infer<typeof SignalsViewSchema>;
+  // Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501.
+  coordinationEvents?: (filter?: { runId?: string; limit?: number }) => z.infer<typeof CoordinationEventsViewSchema>;
   // Read-only period-over-period trends + the ad-hoc interestingness-ranked report for an app.
   // Absent ⇒ the /trends and /report routes return 501.
   trends?: (app: string, window?: number) => z.infer<typeof TrendsViewSchema>;
@@ -268,6 +271,11 @@ export async function handleApi(
 
   if (req.method === "GET" && path === "/api/signals") {
     return handleSignals(res, deps);
+  }
+
+  const coordinationMatch = path.match(/^\/api\/coordination-events$/);
+  if (req.method === "GET" && coordinationMatch) {
+    return handleCoordinationEvents(res, deps, url.searchParams.get("runId") ?? undefined, parseLimit(url.searchParams.get("limit")));
   }
 
   if (req.method === "GET" && path === "/api/apps") {
@@ -630,6 +638,22 @@ function handleSignals(res: ServerResponse, deps: ApiDeps): boolean {
   return true;
 }
 
+function handleCoordinationEvents(res: ServerResponse, deps: ApiDeps, runId: string | undefined, limit: number | undefined): boolean {
+  if (!deps.coordinationEvents) {
+    json(res, 501, { error: "coordinationEvents is not available" });
+    return true;
+  }
+  contractJson(res, 200, CoordinationEventsViewSchema, deps.coordinationEvents({ runId, limit }));
+  return true;
+}
+
+// Parses "?limit=" defensively: absent/invalid falls back to the view's default (200), values
+// beyond the schema cap (1000) are clamped by the reader itself.
+function parseLimit(raw: string | null): number | undefined {
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 // A client-supplied trends window (?window=N), clamped to [1,50] — listRunOutcomes caps the read at
 // 100 rows, so the current + previous windows (window*2) must stay within it. Invalid/absent →
 // undefined (the view falls back to its default of 20).

@@ -44,11 +44,17 @@ export function resolveDashboardDir(root: string): string {
   return join(root, "web", "dist");
 }
 
-// The deployed build is immutable at runtime, so reads are cached: index.html once (lazy), and each
-// resolved asset on first hit. Keyed by distDir so a different build dir gets its own cache.
+// Reads are cached by (path, mtime). A bind-mounted web/public (local docker) can
+// change on disk while the process lives; a byte cache keyed only by path would
+// keep serving the first hit until restart. Production dist still hits the cache
+// on every request because the build is immutable (mtime stays put).
+interface CachedFile {
+  mtimeMs: number;
+  body: Buffer;
+}
 interface DistCache {
-  index: Buffer | null; // null until first read
-  assets: Map<string, Buffer>; // resolved absolute path → bytes
+  index: CachedFile | null;
+  assets: Map<string, CachedFile>;
 }
 const distCaches = new Map<string, DistCache>();
 
@@ -59,6 +65,12 @@ function cacheFor(distDir: string): DistCache {
     distCaches.set(distDir, c);
   }
   return c;
+}
+
+function readFresh(file: string, cached: CachedFile | null | undefined): CachedFile {
+  const mtimeMs = statSync(file).mtimeMs;
+  if (cached && cached.mtimeMs === mtimeMs) return cached;
+  return { mtimeMs, body: readFileSync(file) };
 }
 
 // Returns true when it has written the response (always, for a /app request). The caller only
@@ -96,15 +108,13 @@ export async function serveDashboard(
 
   let body: Buffer;
   if (file === index) {
-    if (cache.index === null) cache.index = readFileSync(index);
-    body = cache.index;
+    const fresh = readFresh(index, cache.index);
+    cache.index = fresh;
+    body = fresh.body;
   } else {
-    let cached = cache.assets.get(file);
-    if (!cached) {
-      cached = readFileSync(file);
-      cache.assets.set(file, cached);
-    }
-    body = cached;
+    const fresh = readFresh(file, cache.assets.get(file));
+    cache.assets.set(file, fresh);
+    body = fresh.body;
   }
 
   res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream" });

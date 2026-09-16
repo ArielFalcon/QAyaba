@@ -19,6 +19,7 @@ import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { toIntelligenceView } from "./server/intelligence-view";
 import { toSignalsView } from "./server/signals-view";
+import { readRecentCoordinationEvents, toCoordinationSignals } from "./server/coordination-events";
 import { toTrendsView } from "./server/trends-view";
 import { toReportView } from "./server/report-view";
 import { toRunReportView } from "./server/run-report-view";
@@ -555,7 +556,13 @@ const apiDeps: ApiDeps = {
   // Same retrieve cap the engine injects into generation (listLearningRules(app, 200)) so the
   // operator ledger is the live set, not a 20-row preview that silently drops the rest.
   intelligence: (app) => toIntelligenceView(app, listLearningRules(app, 200), loadScorecard(app), loadCurriculum(app)),
-  signals: () => toSignalsView(listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) }))),
+  signals: () => toSignalsView(
+    listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),
+    toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
+  ),
+  // Durable coordination ledger tail — full window (cap 1000 per read) so the audit UI can
+  // scroll back further than a single run.
+  coordinationEvents: (filter) => readRecentCoordinationEvents(filter),
   // Each handler builds its own TrendsView via buildTrends (one SQLite read per request); report
   // then feeds that view to toReportView. buildTrends is the single home for the read + the 100
   // window literal — it does NOT dedup across the (separate) trends and report requests.
