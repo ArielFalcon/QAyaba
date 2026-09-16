@@ -235,9 +235,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.apps) > 0 {
 			m.sys.apps = msg.apps
 		}
-		// A non-terminal jobState (e.g. "indexing") means the server kicked off the post-confirm
-		// advisory-index phase (design §2.8) — stay on the propose screen and resume polling
-		// instead of navigating to the dashboard, so the human can see per-repo indexing progress.
+		// A non-terminal jobState (e.g. "indexing" or "mapping") means the server kicked off a
+		// post-confirm phase — stay on the propose screen and resume polling instead of
+		// navigating to the dashboard, so the human can see indexing/mapping progress.
 		// The dashboard navigation only happens once the job actually reaches a terminal state.
 		if !isTerminalOnboardState(msg.jobState) {
 			m.boundaryPropose.status.State = msg.jobState

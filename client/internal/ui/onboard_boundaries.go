@@ -205,6 +205,8 @@ func (m boundaryProposeModel) View() string {
 		b.WriteString(m.renderFailed())
 	case m.status.State == contract.OnboardingJobStatusStateIndexing:
 		b.WriteString(m.renderIndexing())
+	case m.status.State == contract.OnboardingJobStatusStateMapping:
+		b.WriteString(m.renderMapping())
 	case m.isConfirmableWinner():
 		b.WriteString(m.renderWinnerCard())
 	case m.status.State == contract.OnboardingJobStatusStateDone && m.status.Outcome != nil && *m.status.Outcome == contract.NoProfile:
@@ -233,6 +235,8 @@ func (m boundaryProposeModel) badgeLabelAndStyle() (string, lipgloss.Style) {
 		return "scoring", infoStyle
 	case contract.OnboardingJobStatusStateIndexing:
 		return "indexing", infoStyle
+	case contract.OnboardingJobStatusStateMapping:
+		return "mapping", infoStyle
 	case contract.OnboardingJobStatusStateDone:
 		if m.status.Outcome != nil && *m.status.Outcome == contract.Winner {
 			return "resolved", okStyle
@@ -303,6 +307,29 @@ func (m boundaryProposeModel) renderIndexing() string {
 	return b.String()
 }
 
+// renderMapping shows the post-confirm (and no-profile) architecture-map phase — a mode:context
+// QA run that writes e2e/.qa/context.json. Progress is the run id plus the latest step/verdict
+// the job copied off the run record.
+func (m boundaryProposeModel) renderMapping() string {
+	var b strings.Builder
+	b.WriteString(hintStyle.Render("building FE↔BE architecture map…") + "\n")
+	if m.status.MappingProgress == nil {
+		return b.String()
+	}
+	p := m.status.MappingProgress
+	if p.RunId != nil && *p.RunId != "" {
+		b.WriteString(labelStyle.Render("run " + *p.RunId))
+		if p.Step != nil && *p.Step != "" {
+			b.WriteString(labelStyle.Render(" · " + *p.Step))
+		}
+		if p.Verdict != nil && *p.Verdict != "" {
+			b.WriteString(labelStyle.Render(" · " + *p.Verdict))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // renderAppMismatch reports that the polled status belongs to a different app than this screen —
 // only possible if another onboarding run started for a different app concurrently. There is
 // nothing actionable here except going back; no confirm affordance is ever offered.
@@ -331,8 +358,8 @@ func (m boundaryProposeModel) renderWinnerCard() string {
 		if attention := m.renderNeedsAttention(); attention != "" {
 			b.WriteString("\n" + attention)
 		}
-		b.WriteString("\n" + hintStyle.Render(fmt.Sprintf("on confirm: writes boundaries[] to config/apps/%s.yaml and indexes the repos", m.app)) + "\n")
 	}
+	b.WriteString("\n" + hintStyle.Render(fmt.Sprintf("on confirm: writes boundaries[] to config/apps/%s.yaml, indexes the repos, and opens a PR for e2e/.qa/context.json", m.app)) + "\n")
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colPass).

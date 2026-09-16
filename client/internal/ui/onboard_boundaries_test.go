@@ -130,6 +130,8 @@ func TestBoundaryProposeFoldsEveryStateIntoDistinctView(t *testing.T) {
 		{"resolvingMirrors", inProgressStatus(contract.OnboardingJobStatusStateResolvingMirrors, 0), []string{"resolving"}},
 		{"proposing", inProgressStatus(contract.OnboardingJobStatusStateProposing, 1), []string{"proposing", "1", "3"}},
 		{"scoring", inProgressStatus(contract.OnboardingJobStatusStateScoring, 2), []string{"scoring"}},
+		{"indexing", indexingStatus(), []string{"indexing"}},
+		{"mapping", mappingStatus(), []string{"mapping", "architecture map"}},
 		{"winner", winnerStatus(), []string{"confirm"}},
 		{"no-profile", noProfileStatus(), []string{"no repo connections", "configured"}},
 		{"failed", failedStatus(), []string{"onboarding timed out"}},
@@ -240,10 +242,13 @@ func TestBoundaryProposeWinnerWithNilResolutionFallsBackToMinimalLine(t *testing
 	if !strings.Contains(out, "boundary profile resolved") || !strings.Contains(out, "shop") {
 		t.Fatalf("nil-Resolution winner must still render the minimal ready line:\n%s", out)
 	}
-	for _, unwanted := range []string{"how the repos connect", "needs attention", "on confirm:"} {
+	for _, unwanted := range []string{"how the repos connect", "needs attention"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatalf("nil-Resolution winner must not render the connections block, found %q:\n%s", unwanted, out)
 		}
+	}
+	if !strings.Contains(out, "context.json") {
+		t.Fatalf("nil-Resolution winner must still mention the context.json confirm hint:\n%s", out)
 	}
 }
 
@@ -404,5 +409,58 @@ func TestConfirmedBoundariesMsgCarriesStatusStateSoTheScreenCanDecideWhetherToSt
 	msg := confirmedBoundariesMsg{status: "boundaries confirmed for shop", jobState: contract.OnboardingJobStatusStateIndexing}
 	if msg.jobState != contract.OnboardingJobStatusStateIndexing {
 		t.Fatalf("confirmedBoundariesMsg must carry the job's state so the caller can avoid navigating away mid-index: %+v", msg)
+	}
+}
+
+func mappingStatus() contract.OnboardingJobStatus {
+	outcome := contract.Winner
+	profile := winnerProfile()
+	runId := "run_1"
+	step := "generate"
+	progress := &struct {
+		RunId   *string `json:"runId,omitempty"`
+		Step    *string `json:"step,omitempty"`
+		Verdict *string `json:"verdict,omitempty"`
+	}{RunId: &runId, Step: &step}
+	return contract.OnboardingJobStatus{
+		State: contract.OnboardingJobStatusStateMapping, App: strPtr("shop"), Round: 3, Ceiling: 3,
+		CandidatesScored: 6, Outcome: &outcome, ResolvedProfile: &profile, MappingProgress: progress,
+	}
+}
+
+func TestBoundaryProposeRendersMappingBadgeAndProgress(t *testing.T) {
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	m, _ = m.Update(boundaryStatusMsg{status: mappingStatus()})
+	out := strings.ToLower(m.View())
+	for _, want := range []string{"mapping", "architecture map", "run_1", "generate"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("View() missing %q for a mapping status:\n%s", want, out)
+		}
+	}
+}
+
+func TestMappingStateIsNotTerminal(t *testing.T) {
+	if isTerminalOnboardState(contract.OnboardingJobStatusStateMapping) {
+		t.Fatal("mapping must be non-terminal — the ticker must keep polling through it")
+	}
+}
+
+func TestBoundaryProposeKeepsTickingThroughMapping(t *testing.T) {
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	_, cmd := m.Update(boundaryStatusMsg{status: mappingStatus()})
+	if cmd == nil {
+		t.Fatal("a mapping status must reschedule the next tick")
+	}
+}
+
+func TestWinnerCardMentionsArchitectureMapOnConfirm(t *testing.T) {
+	m := newBoundaryProposeModel(nil, "shop")
+	m.width, m.height = 100, 30
+	m, _ = m.Update(boundaryStatusMsg{status: winnerStatus()})
+	out := strings.ToLower(m.View())
+	if !strings.Contains(out, "context.json") {
+		t.Fatalf("winner confirm hint must mention context.json:\n%s", out)
 	}
 }
