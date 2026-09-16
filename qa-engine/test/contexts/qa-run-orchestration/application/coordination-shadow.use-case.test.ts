@@ -117,4 +117,8 @@ test("shadow mode records non-comparable divergence for delegate proposals", asy
     tel.events.some((e) => e.kind === "router" && e.reason.includes("shadow-divergence=non-comparable")),
   );
   assert.ok(logs.some((t) => t.includes("shadow divergence: non-comparable")));
+  const outcome = tel.events.find((e) => e.kind === "outcome");
+  assert.ok(outcome);
+  assert.equal(outcome!.finalOutcome, "pass");
+  assert.equal(outcome!.reviewOutcome, "approved");
 });

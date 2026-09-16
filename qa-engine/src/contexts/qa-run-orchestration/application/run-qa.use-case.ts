@@ -920,6 +920,8 @@ export class RunQaUseCase {
     // Fase 10 — LeadContext accumulates decisions/delegations (never a second OpencodeRunInput).
     let coordinationProposal: ProposedOrchestrationDecision | undefined;
     let leadContext: LeadContext | undefined;
+    let coordinationEscalations = 0;
+    let preGenerateAttempt = 0;
     if (this.deps.coordination) {
       try {
         const objective = input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
@@ -1037,6 +1039,8 @@ export class RunQaUseCase {
             knownFacts: coordinationProposal.decision.evidence,
           });
           const capability = coordinationProposal.decision.nextCapability ?? "sidekick-standard";
+          preGenerateAttempt += 1;
+          const delegationStarted = Date.now();
           const delegation = await this.deps.sidekick.execute(brief, {
             cwd: workspace.mirrorDir,
             capability,
@@ -1050,6 +1054,9 @@ export class RunQaUseCase {
             action: coordinationProposal.decision.action,
             capability,
             reason: `sidekick status=${delegation.status}`,
+            delegationId: brief.delegationId,
+            attempt: preGenerateAttempt,
+            durationMs: Date.now() - delegationStarted,
             at: Date.now(),
           });
           if (leadContext) {
@@ -1630,6 +1637,7 @@ export class RunQaUseCase {
       let fixLoopCapabilityFloor: AgentCapability | undefined;
       let fixLoopPreviousProgress: ProgressSnapshot | undefined;
       let fixLoopSidekickNeedsLead = false;
+      let fixLoopSidekickAttempt = 0;
       const e2eRelForFix = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
       const writableRootForFix = cfg.isCode ? "." : `${e2eRelForFix}/`;
       const mapSidekickSpecs = (files: readonly { path: string }[]): string[] => {
@@ -1712,6 +1720,7 @@ export class RunQaUseCase {
             orchestration.action === "lead-takeover"
           ) {
             fixLoopCapabilityFloor = fixLoopCapability;
+            coordinationEscalations += 1;
             this.deps.coordinationTelemetry?.record({
               runId: input.runId,
               mode: this.deps.coordination?.mode ?? "off",
@@ -1719,6 +1728,9 @@ export class RunQaUseCase {
               action: orchestration.action,
               capability: fixLoopCapability,
               reason: orchestration.reason,
+              progressFingerprint: progress.failureFingerprint,
+              failureClass: "fail",
+              escalations: coordinationEscalations,
               at: Date.now(),
             });
           }
@@ -1747,6 +1759,8 @@ export class RunQaUseCase {
                 },
                 knownFacts: evidence,
               });
+              const delegationStarted = Date.now();
+              fixLoopSidekickAttempt += 1;
               const delegation = await this.deps.sidekick.execute(brief, {
                 cwd: workspace.mirrorDir,
                 capability: fixLoopCapability,
@@ -1760,6 +1774,11 @@ export class RunQaUseCase {
                 action: orchestration.action,
                 capability: fixLoopCapability,
                 reason: `fix-loop-regen sidekick status=${delegation.status}`,
+                delegationId: brief.delegationId,
+                attempt: fixLoopSidekickAttempt,
+                durationMs: Date.now() - delegationStarted,
+                progressFingerprint: progress.failureFingerprint,
+                failureClass: "fail",
                 at: Date.now(),
               });
               if (leadContext) {
@@ -1777,6 +1796,7 @@ export class RunQaUseCase {
                 const advanced = advanceAfterNeedsLead(fixLoopCapability);
                 fixLoopCapability = advanced;
                 fixLoopCapabilityFloor = advanced;
+                coordinationEscalations += 1;
                 this.deps.coordinationTelemetry?.record({
                   runId: input.runId,
                   mode: this.deps.coordination!.mode,
@@ -1784,6 +1804,10 @@ export class RunQaUseCase {
                   action: "lead-takeover",
                   capability: advanced,
                   reason: "sidekick needs-lead — advance escalation ladder",
+                  delegationId: brief.delegationId,
+                  attempt: fixLoopSidekickAttempt,
+                  progressFingerprint: progress.failureFingerprint,
+                  escalations: coordinationEscalations,
                   at: Date.now(),
                 });
               }
@@ -2330,7 +2354,7 @@ export class RunQaUseCase {
     const decision = decide(evidence);
 
     // Fase 12 — shadow validation: classify proposal vs pipeline outcome. Advisory only;
-    // never changes publish/verdict. Adaptive routing stays off.
+    // never changes publish/verdict. Fase 14 adaptive only adjusts proposer thresholds.
     if (this.deps.coordination?.mode === "shadow" && coordinationProposal) {
       const divergence = classifyShadowDivergence({
         mode: "shadow",
@@ -2353,6 +2377,28 @@ export class RunQaUseCase {
           text: `coordination shadow divergence: ${divergence} (proposal=${coordinationProposal.decision.action})`,
         });
       }
+    }
+
+    // Fase 11 — terminal coordination outcome (pipeline still owns the verdict).
+    if (this.deps.coordination && this.deps.coordinationTelemetry) {
+      const reviewOutcome =
+        !cfg.needsReview ? "skipped" as const
+        : reviewerApproved === true ? "approved" as const
+        : reviewerApproved === false ? "rejected" as const
+        : "n/a" as const;
+      this.deps.coordinationTelemetry.record({
+        runId: input.runId,
+        mode: this.deps.coordination.mode,
+        kind: "outcome",
+        action: coordinationProposal?.decision.action,
+        capability: coordinationProposal?.decision.nextCapability,
+        reason: `pipeline verdict=${decision.verdict}`,
+        finalOutcome: decision.verdict,
+        reviewOutcome,
+        escalations: coordinationEscalations,
+        durationMs: Date.now() - startedAt,
+        at: Date.now(),
+      });
     }
 
     // Phase: publish (PublicationPort).

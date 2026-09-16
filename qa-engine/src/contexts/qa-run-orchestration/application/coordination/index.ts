@@ -10,7 +10,7 @@ export {
   resolveCoordinationMode,
   type CoordinationMode,
 } from "./coordination-mode.ts";
-export { createCoordinationPort } from "./create-coordination-port.ts";
+export { createCoordinationPort, type CreateCoordinationPortOpts } from "./create-coordination-port.ts";
 export type { CoordinationBudget } from "./coordination-budget.ts";
 export type { AcceptanceCriterion, CoordinationContext } from "./coordination-context.ts";
 export type { EvidenceConfidence, EvidenceKind, EvidenceRef } from "./evidence-ref.ts";
@@ -76,7 +76,7 @@ export {
   shouldHonorFixLoopSidekick,
   type CoordinationActivePoint,
 } from "./active-gate.ts";
-export { ProposingCoordinationAdapter } from "./proposing-coordination.adapter.ts";
+export { ProposingCoordinationAdapter, type ProposingCoordinationAdapterOpts } from "./proposing-coordination.adapter.ts";
 export {
   applyPushback,
   PUSHBACK_REASONS,
@@ -112,7 +112,9 @@ export {
 } from "./lead-context.ts";
 export {
   InMemoryCoordinationTelemetry,
+  deriveAdaptiveSignals,
   type CoordinationTelemetryEvent,
+  type CoordinationTelemetryKind,
   type CoordinationTelemetryPort,
 } from "./coordination-telemetry.ts";
 export { capabilityForFixLoopRound } from "./fix-loop-capability.ts";

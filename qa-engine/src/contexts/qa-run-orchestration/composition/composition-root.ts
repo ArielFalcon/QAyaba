@@ -781,17 +781,22 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     // a fabricated no-op stub), so select() returns nothing and the fold never fires.
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
     ...(cfg.coordinationMode && cfg.coordinationMode !== "off"
-      ? {
-          coordination: createCoordinationPort(cfg.coordinationMode),
-          coordinationTelemetry: new InMemoryCoordinationTelemetry(),
-          ...(cfg.coordinationMode === "active"
-            ? {
-                // Points listed independently — enabling active does not imply either alone.
-                coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
-                sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
-              }
-            : {}),
-        }
+      ? (() => {
+          const coordinationTelemetry = new InMemoryCoordinationTelemetry();
+          return {
+            coordination: createCoordinationPort(cfg.coordinationMode, {
+              telemetry: coordinationTelemetry,
+            }),
+            coordinationTelemetry,
+            ...(cfg.coordinationMode === "active"
+              ? {
+                  // Points listed independently — enabling active does not imply either alone.
+                  coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
+                  sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
+                }
+              : {}),
+          };
+        })()
       : {}),
     config: {
       needsReview: cfg.needsReview,

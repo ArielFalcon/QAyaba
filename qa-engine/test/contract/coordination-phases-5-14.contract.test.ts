@@ -21,6 +21,7 @@ import {
   advanceAfterNeedsLead,
   raiseCapabilityFloor,
   classifyShadowDivergence,
+  deriveAdaptiveSignals,
   proposeFromDecision,
   routeOrchestration,
   sameProgress,
@@ -229,6 +230,65 @@ test("coordination telemetry records proposals", () => {
     at: 1,
   });
   assert.equal(tel.events.length, 1);
+});
+
+test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () => {
+  assert.equal(deriveAdaptiveSignals([], 5), undefined);
+  const tel = new InMemoryCoordinationTelemetry();
+  for (let i = 0; i < 5; i++) {
+    tel.record({
+      runId: `r${i}`,
+      mode: "shadow",
+      kind: "delegation",
+      reason: "x",
+      durationMs: 100,
+      at: i,
+    });
+    tel.record({
+      runId: `r${i}`,
+      mode: "shadow",
+      kind: "escalation",
+      reason: "no progress at sidekick-standard",
+      at: i,
+    });
+  }
+  const signals = deriveAdaptiveSignals(tel.events, 5);
+  assert.ok(signals);
+  assert.ok(signals!.recentEscalateRate >= 0.9);
+  assert.equal(DEFAULT_ADAPTIVE_POLICY.delegationFileThreshold(signals!), 12);
+});
+
+test("adaptive proposer raises file threshold when escalate rate is high", async () => {
+  const tel = new InMemoryCoordinationTelemetry();
+  for (let i = 0; i < 5; i++) {
+    tel.record({
+      runId: `r${i}`,
+      mode: "active",
+      kind: "delegation",
+      reason: "x",
+      durationMs: 50,
+      at: i,
+    });
+    tel.record({
+      runId: `r${i}`,
+      mode: "active",
+      kind: "escalation",
+      reason: "no progress",
+      at: i,
+    });
+  }
+  const port = createCoordinationPort("shadow", { telemetry: tel, adaptiveMinSamples: 5 });
+  // 10 files: default threshold 8 would delegate; adaptive escalate rate → threshold 12 → direct.
+  // Use a non-generate action so the half-threshold generate branch does not force delegate.
+  const decision = await port.decide({
+    runId: "r-adapt",
+    objective: "o",
+    acceptanceCriteria: [],
+    evidence: [evidenceFromChangeAnalysis({ action: "feat", reason: "feat", fileCount: 10 })],
+    budgets: budgets(),
+  });
+  assert.equal(decision.action, "direct");
+  assert.match(decision.reason, /fileThreshold=12/);
 });
 
 test("adaptive policy raises delegation threshold when escalate rate is high", () => {
