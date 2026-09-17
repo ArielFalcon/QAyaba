@@ -1,7 +1,15 @@
 // Sidekick prompt assembly. Lives in coordination so generation does not import DelegationBrief
 // (no sibling-context dependency). Injected into SidekickExecutor; PromptRenderingPort.renderWorker
 // stays intact for the dormant ParallelWorker path.
+//
+// Free-form brief fields are scrubbed with sanitizeText at this egress — same twin the
+// lead/worker prompt builders use for objective/guidance — so secrets never reach the provider.
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
+
+function scrub(text: string): string {
+  return sanitizeText(text).text;
+}
 
 export function renderSidekickBrief(brief: DelegationBrief): {
   text: string;
@@ -25,14 +33,14 @@ export function renderSidekickBrief(brief: DelegationBrief): {
   const acceptance =
     brief.acceptanceCriteria.length === 0
       ? "## Acceptance criteria\n(none)"
-      : ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c) => `- ${c}`)].join("\n");
+      : ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c) => `- ${scrub(c)}`)].join("\n");
 
   const facts =
     brief.knownFacts.length === 0
       ? "## Known facts\n(none)"
       : [
           "## Known facts",
-          ...brief.knownFacts.map((f) => `- [${f.confidence}/${f.kind}] ${f.summary}`),
+          ...brief.knownFacts.map((f) => `- [${f.confidence}/${f.kind}] ${scrub(f.summary)}`),
         ].join("\n");
 
   const artifacts =
@@ -45,7 +53,7 @@ export function renderSidekickBrief(brief: DelegationBrief): {
       ? "## Validation plan\n(none)"
       : [
           "## Validation plan",
-          ...brief.validationPlan.map((v) => `- ${v.id}: ${v.description}`),
+          ...brief.validationPlan.map((v) => `- ${v.id}: ${scrub(v.description)}`),
         ].join("\n");
 
   const escalation = [
@@ -59,8 +67,8 @@ export function renderSidekickBrief(brief: DelegationBrief): {
     "## Task",
     `delegationId: ${brief.delegationId}`,
     `runId: ${brief.runId}`,
-    `objective: ${brief.objective}`,
-    `task: ${brief.task}`,
+    `objective: ${scrub(brief.objective)}`,
+    `task: ${scrub(brief.task)}`,
   ].join("\n");
 
   const contract = [

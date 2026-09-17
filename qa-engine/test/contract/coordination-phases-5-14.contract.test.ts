@@ -73,6 +73,23 @@ test("proposer delegates large/contradictory changes and keeps simple ones direc
   assert.equal(delegated.nextCapability, "sidekick-standard");
 });
 
+// Intentional policy (not a missing-field accident): non-diff modes (manual/complete/exhaustive/
+// context) never emit change-analysis evidence — RunQaUseCase only classifies in mode==="diff".
+// Without that evidence the deterministic proposer stays on the direct/lead path. Documented so a
+// future "delegate in complete" decision is explicit, not inferred from absent files=N.
+test("proposer stays direct when change-analysis evidence is absent (manual/complete shape)", async () => {
+  const port = createCoordinationPort();
+  const decision = await port.decide({
+    runId: "r-manual",
+    objective: "toggle dark mode",
+    acceptanceCriteria: [],
+    evidence: [evidenceFromValidation({ ok: true, errors: 0 })],
+    budgets: budgets(),
+  });
+  assert.equal(decision.action, "direct");
+  assert.match(decision.reason, /simple\/direct/);
+});
+
 test("pushback blocks writes outside scope and foreign briefs", () => {
   const brief = createDelegationBrief({
     delegationId: "d1",

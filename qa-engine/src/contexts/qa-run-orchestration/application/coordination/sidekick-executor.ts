@@ -1,8 +1,10 @@
 // Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief.
 // Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass
 // OpenSessionOpts.model for escalated capacity from external config.
+// Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes.
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import {
@@ -17,6 +19,14 @@ import type { EvidenceRef } from "./evidence-ref.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
+
+function scrub(text: string): string {
+  return sanitizeText(text).text;
+}
+
+function scrubStrings(values: readonly string[]): string[] {
+  return values.map(scrub);
+}
 
 export function resolveCapabilityRole(capability: AgentCapability): AgentRole {
   if (capability === "lead") return "primary";
@@ -108,42 +118,45 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
         .map((v) => ({ id: v.id, ok: v.ok }))
     : [];
   const evidence: EvidenceRef[] = Array.isArray(o.evidence)
-    ? o.evidence.filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
+    ? o.evidence
+        .filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
+        .map((e) => ({ ...e, summary: typeof e.summary === "string" ? scrub(e.summary) : e.summary }))
     : [];
   return {
     delegationId: o.delegationId,
     runId: o.runId,
     status: status as DelegationStatus,
-    summary: typeof o.summary === "string" ? o.summary : "",
+    summary: typeof o.summary === "string" ? scrub(o.summary) : "",
     filesChanged,
     evidence,
     validation,
-    assumptions: asStringArray(o.assumptions),
-    concerns: asStringArray(o.concerns),
-    unresolvedQuestions: asStringArray(o.unresolvedQuestions),
+    assumptions: scrubStrings(asStringArray(o.assumptions)),
+    concerns: scrubStrings(asStringArray(o.concerns)),
+    unresolvedQuestions: scrubStrings(asStringArray(o.unresolvedQuestions)),
     recommendation: recommendation as DelegationRecommendation,
   };
 }
 
 function failedResult(brief: DelegationBrief, summary: string): DelegationResult {
+  const safe = scrub(summary);
   return {
     delegationId: brief.delegationId,
     runId: brief.runId,
     status: "failed",
-    summary,
+    summary: safe,
     filesChanged: [],
     evidence: [
       {
         id: "sidekick-parse",
         kind: "agent-observation",
         source: "SidekickExecutor",
-        summary,
+        summary: safe,
         confidence: "inferred",
       },
     ],
     validation: [],
     assumptions: [],
-    concerns: [summary],
+    concerns: [safe],
     unresolvedQuestions: [],
     recommendation: "escalate",
   };
@@ -162,7 +175,7 @@ export class SidekickExecutor {
       signal: opts.signal,
       timeoutMs: opts.timeoutMs,
       model: opts.model,
-      descriptor: { runId: brief.runId, role, objective: brief.objective },
+      descriptor: { runId: brief.runId, role, objective: scrub(brief.objective) },
     });
     try {
       const assembled = this.render(brief);
@@ -170,7 +183,12 @@ export class SidekickExecutor {
       let output = first.output;
       if (opts.feedback) {
         const second = await session.prompt(
-          [`## Feedback from lead`, opts.feedback, ``, `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`].join("\n"),
+          [
+            `## Feedback from lead`,
+            scrub(opts.feedback),
+            ``,
+            `Respond with the SAME JSON output contract for delegationId=${brief.delegationId} runId=${brief.runId}.`,
+          ].join("\n"),
           { isRepair: true },
         );
         output = second.output;

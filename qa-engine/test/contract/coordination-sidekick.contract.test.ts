@@ -44,6 +44,33 @@ test("renderSidekickBrief includes authority, scope, validation and escalation �
   assert.ok(Object.keys(sectionSizes).length > 0);
 });
 
+// Model-bound egress: sidekick prompt must scrub free-form brief fields the same way lead/worker
+// prompts do via sanitizeText — secrets in guidance/commit message must not reach the provider.
+test("renderSidekickBrief redacts secrets in objective, task, knownFacts, and acceptance criteria", () => {
+  const secret = "token: ghs_supersecretvalue";
+  const { text } = renderSidekickBrief(
+    createDelegationBrief({
+      delegationId: "d1",
+      runId: "r1",
+      objective: `cover checkout with ${secret}`,
+      task: `write smoke; leak ${secret}`,
+      acceptanceCriteria: [`passes when ${secret} is absent`],
+      scope,
+      knownFacts: [
+        {
+          id: "f1",
+          kind: "change-analysis",
+          source: "test",
+          summary: `generate; files=9: ${secret}`,
+          confidence: "deterministic",
+        },
+      ],
+    }),
+  );
+  assert.doesNotMatch(text, /ghs_supersecretvalue/);
+  assert.match(text, /\[REDACTED\]/);
+});
+
 test("SidekickExecutor opens sidekick session, prompts, disposes, and parses DelegationResult", async () => {
   const prompts: string[] = [];
   let disposed = false;
@@ -88,6 +115,55 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
   assert.equal(result.status, "completed");
   assert.equal(result.delegationId, "d1");
   assert.equal(result.recommendation, "accept");
+});
+
+// Free-form DelegationResult fields re-enter lead context / notes — scrub before they leave the
+// executor boundary (same sanitizer twin as Issue/prompt egress elsewhere).
+test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, and assumptions", async () => {
+  const secret = "token: ghs_supersecretvalue";
+  const session: AgentSession = {
+    async prompt() {
+      return {
+        output: JSON.stringify({
+          delegationId: "d1",
+          runId: "r1",
+          status: "completed-with-concerns",
+          summary: `wrote smoke; saw ${secret}`,
+          filesChanged: [{ path: "e2e/specs/checkout.spec.ts" }],
+          evidence: [
+            {
+              id: "obs",
+              kind: "agent-observation",
+              source: "sidekick",
+              summary: `DOM had ${secret}`,
+              confidence: "observed",
+            },
+          ],
+          validation: [],
+          assumptions: [`env still has ${secret}`],
+          concerns: [`selector near ${secret}`],
+          unresolvedQuestions: [`why is ${secret} in the page?`],
+          recommendation: "review",
+        }),
+      };
+    },
+    async dispose() {},
+  };
+  const executor = new SidekickExecutor({
+    runtime: { openSession: async () => session },
+    render: renderSidekickBrief,
+  });
+  const result = await executor.execute(brief(), {
+    cwd: "/tmp/mirror",
+    capability: "sidekick-standard",
+  });
+  assert.equal(result.status, "completed-with-concerns");
+  assert.doesNotMatch(result.summary, /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.assumptions.join("\n"), /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.unresolvedQuestions.join("\n"), /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.evidence.map((e) => e.summary).join("\n"), /ghs_supersecretvalue/);
+  assert.match(result.summary, /\[REDACTED\]/);
 });
 
 test("SidekickExecutor can send feedback on the same session before dispose", async () => {
