@@ -13,11 +13,11 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/events"
 )
 
-// StreamRunEvents opens the SSE stream for a run and calls onEvent for each decoded
-// RunEvent, until the stream ends (the server closes it when the run finishes), ctx
-// is cancelled, or an error occurs. lastEventID >= 0 resumes from that seq via the
-// Last-Event-ID header; pass -1 for the full replay + live tail. Malformed events
-// are skipped (the server validates on egress, so this is belt-and-suspenders).
+/* StreamRunEvents opens the SSE stream for a run and calls onEvent for each decoded
+   RunEvent, until the stream ends (the server closes it when the run finishes), ctx
+   is cancelled, or an error occurs. lastEventID >= 0 resumes from that seq via the
+   Last-Event-ID header; pass -1 for the full replay + live tail. Malformed events
+   are skipped (the server validates on egress, so this is belt-and-suspenders). */
 func (c *Client) StreamRunEvents(ctx context.Context, id string, lastEventID int, onEvent func(events.RunEvent)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/runs/"+url.PathEscape(id)+"/events", nil)
 	if err != nil {
@@ -40,7 +40,7 @@ func (c *Client) StreamRunEvents(ctx context.Context, id string, lastEventID int
 	}
 
 	sc := bufio.NewScanner(resp.Body)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024) // tolerate large data lines
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024) /* tolerate large data lines */
 	var data strings.Builder
 	dispatch := func() {
 		if data.Len() == 0 {
@@ -54,29 +54,29 @@ func (c *Client) StreamRunEvents(ctx context.Context, id string, lastEventID int
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
-		case line == "": // blank line = event boundary → dispatch
+		case line == "": /* blank line = event boundary → dispatch */
 			dispatch()
 		case strings.HasPrefix(line, "data:"):
 			if data.Len() > 0 {
-				data.WriteByte('\n') // SSE joins multiple data: lines with newline
+				data.WriteByte('\n') /* SSE joins multiple data: lines with newline */
 			}
 			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		default:
-			// id: / event: / comment lines — the seq lives in the JSON envelope, ignore
+			/* id: / event: / comment lines — the seq lives in the JSON envelope, ignore */
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return err
 	}
-	// Flush a final event that arrived without a trailing blank line (SSE spec:
-	// the last event need not be terminated, e.g. on an abrupt connection close).
+	/* Flush a final event that arrived without a trailing blank line (SSE spec:
+	   the last event need not be terminated, e.g. on an abrupt connection close). */
 	dispatch()
 	return nil
 }
 
-// StreamRunEventsReconnect keeps the SSE stream alive across disconnects, resuming
-// from the last seen seq (Last-Event-ID) with capped backoff. It returns nil once a
-// terminal run.verdict event is seen (the run finished), or ctx's error on cancel.
+/* StreamRunEventsReconnect keeps the SSE stream alive across disconnects, resuming
+   from the last seen seq (Last-Event-ID) with capped backoff. It returns nil once a
+   terminal run.verdict event is seen (the run finished), or ctx's error on cancel. */
 func (c *Client) StreamRunEventsReconnect(ctx context.Context, id string, onEvent func(events.RunEvent)) error {
 	const initialBackoff = 500 * time.Millisecond
 	const maxBackoff = 10 * time.Second
@@ -91,7 +91,7 @@ func (c *Client) StreamRunEventsReconnect(ctx context.Context, id string, onEven
 				lastSeq = ev.Seq
 			}
 			if ev.Type == "run.verdict" {
-				done = true // the run finished — stop reconnecting (server closed the stream)
+				done = true /* the run finished — stop reconnecting (server closed the stream) */
 			}
 			onEvent(ev)
 		})
@@ -101,8 +101,8 @@ func (c *Client) StreamRunEventsReconnect(ctx context.Context, id string, onEven
 		if done {
 			return nil
 		}
-		// Permanent server errors must not be retried forever (else a 401/404 is an
-		// infinite busy-loop). Surface them; only transient failures reconnect.
+		/* Permanent server errors must not be retried forever (else a 401/404 is an
+		   infinite busy-loop). Surface them; only transient failures reconnect. */
 		var apiErr *APIError
 		if errors.As(streamErr, &apiErr) {
 			switch apiErr.Status {
@@ -110,9 +110,9 @@ func (c *Client) StreamRunEventsReconnect(ctx context.Context, id string, onEven
 				return streamErr
 			}
 		}
-		// A productive connection (the cursor advanced) resets the backoff, so a
-		// long healthy stream that drops reconnects fast; only repeated unproductive
-		// failures grow the delay.
+		/* A productive connection (the cursor advanced) resets the backoff, so a
+		   long healthy stream that drops reconnects fast; only repeated unproductive
+		   failures grow the delay. */
 		if lastSeq > prevSeq {
 			backoff = initialBackoff
 		} else {

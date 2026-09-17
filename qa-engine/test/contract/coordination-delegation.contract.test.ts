@@ -1,4 +1,4 @@
-// Fase 3 — DelegationBrief / DelegationResult contracts and frozen sidekick authority.
+/* DelegationBrief / DelegationResult contracts and frozen sidekick authority. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

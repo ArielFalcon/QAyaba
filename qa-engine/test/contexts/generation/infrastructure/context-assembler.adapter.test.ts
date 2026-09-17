@@ -1,4 +1,3 @@
-// test/contexts/generation/infrastructure/context-assembler.adapter.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";

@@ -1,9 +1,9 @@
-// sdd/migration-wiring-phase-2 Slice 1 (D-A, task 1.1): pins resolveWebhookDispatch's output as
-// BYTE-IDENTICAL to the legacy loadAppConfigsByRepo-driven dispatch it replaces at
-// src/index.ts:699-705 — single-app, multi-app A-primary/B-service, unwatched-repo, and
-// malformed-config-skip scenarios. Exercises the REAL production adapter (YamlAppConfigAdapter)
-// wired with the REAL shell loaders (loadAppConfig/listAppConfigs) over a temp config root, so this
-// is a genuine integration pin, not a hand-rolled fake standing in for the adapter.
+/* pins resolveWebhookDispatch's output as BYTE-IDENTICAL to the loadAppConfigsByRepo-driven
+   dispatch at src/index.ts — single-app, multi-app A-primary/B-service, unwatched-repo, and
+   malformed-config-skip scenarios. Exercises the REAL production adapter (YamlAppConfigAdapter)
+   wired with the REAL shell loaders (loadAppConfig/listAppConfigs) over a temp config root, so this
+   is a genuine integration pin, not a hand-rolled fake standing in for the adapter.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -47,8 +47,8 @@ report:
   onFailure: "github-issue"
 `;
 
-// Mirrors src/index.ts:699-705's PRE-swap dispatch derivation exactly (the legacy oracle this
-// slice's GREEN step replaces) — the acceptance bar resolveWebhookDispatch must clear.
+/* src/index.ts's dispatch derivation — the acceptance bar resolveWebhookDispatch must clear.
+ */
 function legacyDispatch(matches: RepoMatch[], repo: string, opts: { mode: string; guidance?: string; baseSha?: string }): WebhookDispatch[] {
   return matches
     .map((m): WebhookDispatch =>

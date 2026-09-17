@@ -1,19 +1,4 @@
-// qa-engine/src/shared-infrastructure/code-graph/lazy-project-code-graph.adapter.ts
-//
-// CodeGraph Phase 4 (design §6, deferred 4a.10, tasks 4b.6): wraps CodebaseMemoryCodeGraphAdapter's
-// static `project` constructor arg with a per-call, memoized, fail-open resolution via
-// ProjectNameResolver — this is what lets composition-root.ts (synchronous) wire the real
-// CodeGraphPort chain WITHOUT knowing the indexed project name up front (it is only knowable by
-// asking `list_projects` against the real repoDir, an inherently async, per-repoDir fact).
-//
-// Fail-open (ADR-4, §6, R10): a repoDir that does not resolve to any indexed project degrades every
-// structural query to `ok([])` — the SAME "legitimate empty result" contract CodeGraphPort's own
-// existingCoverage/impactedSymbols already use for a genuinely empty graph (§4.3's Lombok-omission
-// precedent: absence is never miscast as an error). Crucially, this NEVER falls through to invoking
-// the underlying adapter with `project: ""` — an empty-string project would silently query the
-// CLI's own default/wrong scope rather than cleanly reporting "not indexed". `syncTo` is the one
-// exception: R11 requires a whole-index failure to surface LOUDLY, so an unresolvable repoDir there
-// maps to `err(IndexFailed)`, not a silent success.
+/* Fail-open (ADR-4, §6, R10): a repoDir that does not resolve to any indexed project degrades every structural query to `ok([])` — the SAME "legitimate empty result" contract CodeGraphPort's own existingCoverage/impactedSymbols already use for a genuinely empty graph (§4.3's Lombok-omission precedent: absence is never miscast as an error). Crucially, this NEVER falls through to invoking the underlying adapter with `project: ""` — an empty-string project would silently query the CLI's own default/wrong scope rather than cleanly reporting "not indexed". `syncTo` is the one exception: R11 requires a whole-index failure to surface LOUDLY, so an unresolvable repoDir there maps to `err(IndexFailed)`, not a silent success. */
 import { err, ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
@@ -30,11 +15,6 @@ import { ProjectNameResolver } from "./resolve-project-name.ts";
 const UNRESOLVED = Symbol("unresolved-project");
 
 export class LazyProjectCodeGraphAdapter implements CodeGraphPort {
-  // One CodebaseMemoryCodeGraphAdapter instance PER resolved project name — the underlying adapter
-  // is stateless besides its constructor-injected project string, so caching by name (not by
-  // repoDir) lets two different repoDirs that happen to resolve to the SAME project reuse one
-  // instance, while never risking a stale adapter after a resolution change (there is none — the
-  // resolver itself is the single source of truth per repoDir, and this map is keyed off ITS output).
   private readonly adapters = new Map<string, CodebaseMemoryCodeGraphAdapter>();
 
   constructor(
@@ -95,12 +75,7 @@ export class LazyProjectCodeGraphAdapter implements CodeGraphPort {
     return adapter.structurallyRelated(repoDir, symbols, minJaccard);
   }
 
-  /** R11: a whole-index failure must surface LOUDLY, never a silent empty index. An unresolvable
-   *  repoDir used to map to err(IndexFailed) without attempting a first-time index — that left
-   *  runs that skipped onboarding unable to recover. syncTo now calls index_repository with
-   *  `{ repo_path }` only (the onboarding shape; the CLI derives the project name), then
-   *  re-resolves. Still IndexFailed if the spawn fails or list_projects cannot see the new
-   *  project after indexing. */
+  /** A whole-index failure must surface loudly, never a silent empty index. An unresolvable repoDir indexes once via index_repository with `{ repo_path }` only (the CLI derives the project name), then re-resolves. Still IndexFailed if the spawn fails or list_projects cannot see the new project. */
   async syncTo(
     repoDir: string,
     changedFiles: string[],

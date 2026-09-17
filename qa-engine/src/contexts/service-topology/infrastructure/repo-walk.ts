@@ -1,7 +1,4 @@
-// service-topology/infrastructure/repo-walk.ts
-// Deterministic recursive directory walk shared by HTTP boundary resolvers. Vendor/build
-// directories are skipped — they are never a genuine call-site. readdirSync order is
-// filesystem-dependent, so entries are sorted before descent (project invariant #1).
+/* service-topology/infrastructure/repo-walk.ts Deterministic recursive directory walk shared by HTTP boundary resolvers. Vendor/build directories are skipped — they are never a genuine call-site. readdirSync order is filesystem-dependent, so entries are sorted before descent (project invariant #1). */
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 

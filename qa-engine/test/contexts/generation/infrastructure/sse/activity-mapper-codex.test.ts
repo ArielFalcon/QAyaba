@@ -1,15 +1,7 @@
-// qa-engine/test/contexts/generation/infrastructure/sse/activity-mapper-codex.test.ts
-// Moved from src/integrations/activity-mapper-codex.test.ts (migration-tier-4c Slice 3, D-4c-2).
-//
-// Tests for the Codex JSONL event mapper (T-P1-4 / AC1.4.1-2).
-//
-// These tests use SYNTHETIC JSONL fixtures shaped after the defensive 4-field probe
-// in extractCodexLastMessage (codex-strategy.ts:378: event.msg ?? event.message ??
-// event.text ?? event.content). The exact real shape is UNVERIFIED pending T-P1-0
-// (image-gated fixture capture in the built agents image).
-//
-// When T-P1-0 is completed and the real fixture committed, these tests MUST be
-// extended/updated to cover the real event types and field names.
+/* Codex JSONL event mapper. These tests use SYNTHETIC JSONL fixtures shaped after the defensive
+   4-field probe in extractCodexLastMessage (event.msg ?? event.message ?? event.text ?? event.content).
+   When a captured real fixture is committed, extend these tests to cover the real event types and field names.
+ */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -23,8 +15,8 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     const ev = events[0]!;
     assert.equal(ev.type, "agent.activity");
     if (ev.type === "agent.activity") {
-      assert.equal(ev.kind, "analyzing"); // read → analyzing
-      assert.equal(ev.target, "foo.ts");  // basename extracted
+      assert.equal(ev.kind, "analyzing");
+      assert.equal(ev.target, "foo.ts");
       assert.equal(ev.status, "running");
     }
   });
@@ -91,9 +83,7 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
 
   it("interleaved stderr-like non-JSON lines do not discard valid tool event (AC1.4.2)", () => {
     const toolLine = JSON.stringify({ type: "tool_use", name: "read", input: {} });
-    // Interleaved non-JSON line is skipped
     assert.equal(mapCodexExecEvent("stderr: warn: something").length, 0);
-    // Valid line still parses
     const events = mapCodexExecEvent(toolLine);
     assert.equal(events.length, 1);
   });

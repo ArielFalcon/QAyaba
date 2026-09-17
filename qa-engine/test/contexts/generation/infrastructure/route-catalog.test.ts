@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning } from "@contexts/generation/infrastructure/route-catalog.ts";
 
-// Pillar 2 (selector grounding — docs/superpowers/selector-grounding-root-cause-and-design.md):
-// the per-route Selector Catalog exposes a test-id index the verification gate can check getByTestId
-// against — the family that was NON_EXTRACTABLE and so caught only by a 30s timeout. The index is built
-// from a ROLE-INDEPENDENT capture (a `<div data-cy=x>` with no ARIA role must be included — the
-// computedRole gate at dom-snapshot.ts:700 drops it today) and COUNTS occurrences (count>1 ⇒ a
-// strict-mode ambiguity that would otherwise only surface at runtime).
+/* The per-route Selector Catalog exposes a test-id index the verification gate can check
+   getByTestId against — the family that was NON_EXTRACTABLE and so caught only by a 30s timeout.
+   The index is built from a ROLE-INDEPENDENT capture (a `<div data-cy=x>` with no ARIA role must
+   be included) and COUNTS occurrences (count>1 ⇒ a strict-mode ambiguity that would otherwise only
+   surface at runtime).
+ */
 
 test("buildTestIdIndex counts each captured test-id value (presence + uniqueness)", () => {
   const idx = buildTestIdIndex(["submit", "username", "submit"]);
@@ -27,13 +27,13 @@ test("buildTestIdIndex ignores blank / whitespace-only values", () => {
   assert.equal(idx.get("ok"), 1);
 });
 
-// Slice 2 — capture confidence (status/settled) + loud degraded.
-// buildRouteCatalog is the PURE adapter from the capture DTO (RouteSnapshot) to the gate-facing
-// RouteCatalog. status/settled gate whether the future fail-closed path may trust the catalog: a
-// capture error ⇒ "degraded"; absence of an explicit settle ⇒ settled:false (conservative — never
-// fail-closed on an unknown). degradedRouteWarning surfaces real capture failures LOUDLY (CLAUDE.md:
-// never swallow), replacing the silent `catch{return []}` reopen — unsettled is NOT warned per-route
-// (expected on SPAs; it stays advisory in the catalog).
+/* buildRouteCatalog is the PURE adapter from the capture DTO (RouteSnapshot) to the gate-facing
+   RouteCatalog. status/settled gate whether the future fail-closed path may trust the catalog: a
+   capture error ⇒ "degraded"; absence of an explicit settle ⇒ settled:false (conservative — never
+   fail-closed on an unknown). degradedRouteWarning surfaces real capture failures LOUDLY (CLAUDE.md:
+   never swallow), replacing the silent `catch{return []}` reopen — unsettled is NOT warned per-route
+   (expected on SPAs; it stays advisory in the catalog).
+ */
 
 test("buildRouteCatalog maps a captured+settled snapshot to a trusted catalog", () => {
   const testIds = new Map([["save", 1]]);
@@ -52,8 +52,9 @@ test("buildRouteCatalog marks a capture error as degraded (never trusted)", () =
 });
 
 test("buildRouteCatalog defaults settled to false when the capture did not confirm it", () => {
-  // A snapshot that captured nodes but never resolved the secondary networkidle settle (late-hydration
-  // SPA): present-but-unsettled ⇒ advisory, never fail-closed.
+  /* A snapshot that captured nodes but never resolved the secondary networkidle settle (late-hydration
+     SPA): present-but-unsettled ⇒ advisory, never fail-closed.
+   */
   const cat = buildRouteCatalog({ route: "/spa", nodes: ["link: Home"] });
   assert.equal(cat.status, "captured");
   assert.equal(cat.settled, false);
@@ -70,14 +71,15 @@ test("degradedRouteWarning lists the degraded routes loudly and is undefined whe
   assert.equal(degradedRouteWarning([captured]), undefined, "all-captured ⇒ no warning");
 });
 
-// ── Grounding trust is STRUCTURAL: degrade only on zero nodes, a capture error, or a redirect ──
-// Live-probe fix (transversal): a route that renders a full DOM but emits a runtime error (a missing
-// FontAwesome icon, a 401 on an optional auth probe, an uncaught handler somewhere on the page) is
-// STILL a trustworthy source of real selectors — its captured nodes are real. Runtime errors are
-// ADJUDICATION evidence (agent-facing "possibly broken app" warning + the FixLoop adjudicator on a
-// FAILING test), NOT a grounding-trust signal. Degrading the catalog on them disabled the selector
-// gate on essentially every production app that logs anything. So runtimeErrors — console OR
-// pageerror — no longer degrade a route that actually rendered; only structural render failure does.
+/* ── Grounding trust is STRUCTURAL: degrade only on zero nodes, a capture error, or a redirect ──
+   Live-probe fix (transversal): a route that renders a full DOM but emits a runtime error (a missing
+   FontAwesome icon, a 401 on an optional auth probe, an uncaught handler somewhere on the page) is
+   STILL a trustworthy source of real selectors — its captured nodes are real. Runtime errors are
+   ADJUDICATION evidence (agent-facing "possibly broken app" warning + the FixLoop adjudicator on a
+   FAILING test), NOT a grounding-trust signal. Degrading the catalog on them disabled the selector
+   gate on essentially every production app that logs anything. So runtimeErrors — console OR
+   pageerror — no longer degrade a route that actually rendered; only structural render failure does.
+ */
 
 test("buildRouteCatalog does NOT degrade a rendered route on a pageerror — a rendered DOM's selectors stay trustworthy (runtime errors are adjudication evidence, not grounding-trust)", () => {
   const cat = buildRouteCatalog({
@@ -123,9 +125,10 @@ test("buildRouteCatalog does NOT degrade when finalUrl matches the requested rou
 });
 
 test("buildRouteCatalog does NOT degrade a hash-routed SPA route (the route lives in the fragment, not the URL path)", () => {
-  // AngularJS-style hash router (e.g. PetClinic "/#!/owners/new"): the requested route's URL pathname
-  // is "/" and so is the finalUrl's — comparing the RAW route string against finalUrl.pathname would
-  // falsely degrade EVERY hash route. Redirect detection must compare parsed pathnames only.
+  /* AngularJS-style hash router (e.g. PetClinic "/#!/owners/new"): the requested route's URL pathname
+     is "/" and so is the finalUrl's — comparing the RAW route string against finalUrl.pathname would
+     falsely degrade EVERY hash route. Redirect detection must compare parsed pathnames only.
+   */
   const cat = buildRouteCatalog({ route: "/#!/owners/new", nodes: ["button: Submit"], settled: true, finalUrl: "http://dev.example.com/#!/owners/new" });
   assert.equal(cat.status, "captured", "a hash route whose finalUrl carries the same fragment must NOT be treated as a redirect");
 });

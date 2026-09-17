@@ -1,7 +1,7 @@
-// test/characterization/shadow-run-args.test.ts
-// RED-first (Task F.2): parseShadowRunArgs(argv) extracts --app/--sha for the operator script.
-// Pure — no process.env, no filesystem, no network. Mirrors the style of src/cli.ts parseArgs
-// (a flat --key value scan), scoped to the two flags shadow-run.operator.ts needs.
+/* test/characterization/shadow-run-args.test.ts
+   Pure — no process.env, no filesystem, no network. Mirrors the style of src/cli.ts parseArgs
+   (a flat --key value scan), scoped to the two flags shadow-run.operator.ts needs.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseShadowRunArgs } from "./shadow-run-args.ts";

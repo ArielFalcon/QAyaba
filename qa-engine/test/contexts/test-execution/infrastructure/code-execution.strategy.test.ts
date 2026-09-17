@@ -1,4 +1,3 @@
-// test/contexts/test-execution/infrastructure/code-execution.strategy.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
@@ -21,8 +20,9 @@ test("a non-zero exit is a fail (binary classify — no flaky)", async () => {
   assert.equal(out.verdict, "fail");
 });
 
-// TE-02: pin optional-field threading — a silently-dropped changedFiles breaks monorepo
-// diff-driven module scoping (narrows the test command to the changed module) with no failing test.
+/* TE-02: pin optional-field threading — a silently-dropped changedFiles breaks monorepo
+   diff-driven module scoping (narrows the test command to the changed module) with no failing test.
+ */
 test("threads namespace to the injected runCode fn", async () => {
   type Opts = { namespace: string; changedFiles?: string[] };
   let capturedOpts: Opts | null = null;

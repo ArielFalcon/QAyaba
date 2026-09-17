@@ -1,13 +1,12 @@
-// test/contexts/qa-run-orchestration/infrastructure/execution-evidence-flow.test.ts
-// G1 kernel widening — end-to-end evidence-flow pin: proves the runtime evidence a failing case
-// carries (httpStatus, runtimeErrors, and friends) survives BOTH boundaries it must cross before
-// the FixLoop aggregate can read it for adjudicator Rules 2.5/2.6 and Lever-2:
-//   1. E2eExecutionStrategy.run() — the legacy runE2E result -> kernel QaCase (test-execution
-//      infrastructure layer; pinned in isolation by e2e-execution.strategy.test.ts).
-//   2. ExecutionPortAdapter.execute() — the ExecutionPort bridge in front of the strategy
-//      (qa-run-orchestration infrastructure layer; the layer the FixLoop actually depends on).
-// Imports ONLY qa-engine modules via @contexts/... aliases — no src/ import, so no tsconfig
-// exclude is needed.
+/* End-to-end evidence-flow pin: the runtime evidence a failing case carries (httpStatus,
+   runtimeErrors, and friends) survives BOTH boundaries it must cross before the FixLoop aggregate
+   can read it for adjudicator Rules 2.5/2.6 and Lever-2:
+   1. E2eExecutionStrategy.run() — runner result -> kernel QaCase (pinned in isolation by
+   e2e-execution.strategy.test.ts).
+   2. ExecutionPortAdapter.execute() — the ExecutionPort bridge in front of the strategy (the
+   layer the FixLoop actually depends on).
+   Imports ONLY qa-engine modules via @contexts/... aliases — no src/ import.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts";

@@ -9,8 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// A focus card must be a clean rectangle: top border, every body row, and the bottom
-// border all exactly `width` display cells. A mismatch is the "broken corner" bug.
+/* A focus card must be a clean rectangle: top border, every body row, and the bottom
+   border all exactly `width` display cells. A mismatch is the "broken corner" bug. */
 func TestFocusCardLinesAreEqualWidth(t *testing.T) {
 	for _, w := range []int{60, 80, 84} {
 		card := focusCard(w, colEmber,
@@ -31,13 +31,13 @@ func TestFocusCardLinesAreEqualWidth(t *testing.T) {
 	}
 }
 
-// The focus card reads sticky state, not the rolling activity window, so a written file
-// stays on screen even after many later tool calls push it out of that window.
+/* The focus card reads sticky state, not the rolling activity window, so a written file
+   stays on screen even after many later tool calls push it out of that window. */
 func TestFocusCardRowsStayStickyAsActivityWindowSlides(t *testing.T) {
 	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 90, 30)
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "step.changed", Body: events.StepChanged{Step: "generate"}}))
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "agent.activity", Body: events.AgentActivity{CallID: "w", Kind: "writing", Target: "a.spec.ts", Status: "completed"}}))
-	// Far more reads than maxActivity, so the write slides out of the rolling window.
+	/* Far more reads than maxActivity, so the write slides out of the rolling window. */
 	for i := 0; i < maxActivity*3; i++ {
 		m, _ = m.Update(runEventMsg(events.RunEvent{Type: "agent.activity", Body: events.AgentActivity{CallID: fmt.Sprintf("r%d", i), Kind: "reading", Target: "x.go", Status: "completed"}}))
 	}

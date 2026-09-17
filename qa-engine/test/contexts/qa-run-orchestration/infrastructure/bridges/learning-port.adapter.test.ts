@@ -1,13 +1,9 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter.test.ts
-// RED-first (Task E.0): LearningPortAdapter delegates fold() to the REAL LearningRepositoryPort.
-// applyOutcome and retrieve() to topRules. Off-path by contract: a fold failure is logged and
-// swallowed, NEVER thrown/re-raised — the caller (RunQaUseCase) must never see a learning fault.
-//
-// W3 F1/F3a (dual-judge round): retrieve() now projects the FULL structured RetrievedRule shape
-// (trigger/action/errorClass/status/confidence), not bare trigger strings — the projection tests
-// below assert every field survives the LearningRule -> RetrievedRule mapping. F3a: retrieve() also
-// calls the store's optional incrementUsage on exactly the retrieved ids, mirroring legacy's
-// retrieveRules() -> incrementRuleUsage(included.map(r => r.id)) (src/qa/learning/retrieval.ts).
+/* fold() maps applyOutcome and retrieve() to topRules. Off-path by contract: a fold failure is
+   logged and swallowed, NEVER thrown/re-raised — the caller (RunQaUseCase) must never see a
+   learning fault. retrieve() projects the FULL structured RetrievedRule shape
+   (trigger/action/errorClass/status/confidence), not bare trigger strings, and calls the store's
+   optional incrementUsage on exactly the retrieved ids.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LearningPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter.ts";
@@ -46,7 +42,7 @@ test("fold() swallows a failure — off-path by contract, never gates publish", 
   };
   const adapter = new LearningPortAdapter(repo, "app");
 
-  // Must NOT throw/reject — a fold failure is logged and swallowed, per the port's own contract.
+  /* Must NOT throw/reject — a fold failure is logged and swallowed, per the port's own contract. */
   await assert.doesNotReject(() => adapter.fold(outcome));
 });
 
@@ -75,13 +71,13 @@ test("retrieve() delegates to LearningRepositoryPort.topRules and returns the FU
   }]);
 });
 
-// WS1.1 (full-flow remediation, most critical finding): retrieve() previously dropped the
-// repository row's real id at this exact projection — RunOutcome.rulesRetrieved persisted trigger
-// TEXT instead of ids, so the factory's by-id fold (rewritten-engine-factory.ts's recordOutcome)
-// missed every row and outcome_count stayed frozen at 0 forever (no promotion/demotion ever
-// engaged). This test pins the id surviving the LearningRule -> RetrievedRule projection —
-// it is the row's PRIMARY KEY used for outcome-fold attribution, distinct from `trigger` (the
-// prompt-facing text).
+/* repository row's real id at this exact projection — RunOutcome.rulesRetrieved persisted trigger
+   TEXT instead of ids, so the factory's by-id fold (rewritten-engine-factory.ts's recordOutcome)
+   missed every row and outcome_count stayed frozen at 0 forever (no promotion/demotion ever
+   engaged). This test pins the id surviving the LearningRule -> RetrievedRule projection —
+   it is the row's PRIMARY KEY used for outcome-fold attribution, distinct from `trigger` (the
+   prompt-facing text).
+ */
 test("retrieve() includes the repository row's real id in each RetrievedRule (WS1.1 fold-attribution fix)", async () => {
   const rule: LearningRule = {
     id: "rule-id-distinct-from-trigger", trigger: "selector absent", action: "use role+name",
@@ -128,8 +124,8 @@ test("retrieve() with the StubLearningRepository (v1 default) returns [] — pro
   assert.deepEqual(result, []);
 });
 
-// ── W3 F3a (dual-judge round): usageCount tracking — retrieve() must increment usage on exactly
-// the retrieved set, mirroring legacy's own retrieveRules() -> incrementRuleUsage() call. ────────
+/* retrieve() must increment usage on exactly the retrieved set.
+ */
 
 test("retrieve() calls LearningRepositoryPort.incrementUsage with the retrieved rule ids", async () => {
   const rule: LearningRule = {
@@ -166,11 +162,9 @@ test("retrieve() never calls incrementUsage when nothing was retrieved (no phant
   assert.equal(incrementCalled, false);
 });
 
-// ── FIX 3 (judgment-day hardening): incrementUsage is isolated in its own try/catch — a telemetry
-// write failure must NEVER discard the already-successful topRules() retrieval. Mirrors fold()'s
-// own documented off-path contract on this SAME port. Legacy (src/qa/learning/retrieval.ts) has NO
-// equivalent isolation — this is a deliberate hardening over legacy, justified by fold()'s own
-// precedent, not a preserved legacy behavior. ───────────────────────────────────────────────────
+/* write failure must NEVER discard the already-successful topRules() retrieval. Mirrors fold()'s
+   own documented off-path contract on this SAME port.
+ */
 
 test("retrieve() still returns the retrieved rules when incrementUsage REJECTS, and logs a warning (isolated, off-path)", async () => {
   const rule: LearningRule = {
@@ -217,11 +211,11 @@ test("retrieve() with a rejecting incrementUsage does NOT reject the caller's ow
   await assert.doesNotReject(() => adapter.retrieve(Sha.of("abc1234")));
 });
 
-// ── Slice 7.1 (sdd/migration-remediation, verify-first spike -> confirmed fix): retrieve() had NO
-// char-budget step — only the count limit (DEFAULT_RETRIEVE_LIMIT). An oversized rule set could
-// reach the generator prompt uncapped. Legacy oracle: src/qa/learning/retrieval.ts's retrieveRules()
-// budget-fits (fitRulesToBudget) BEFORE recording usage, so usageCount/retrieved-ids reflect EXACTLY
-// what the generator sees — no phantom "used" rules truncated out of the render. ─────────────────
+/* Retrieve applies a char-budget step, not only the count limit (DEFAULT_RETRIEVE_LIMIT). An
+   oversized rule set must not reach the generator prompt uncapped. Budget-fit happens BEFORE
+   recording usage, so usageCount/retrieved-ids reflect EXACTLY what the generator sees — no
+   phantom "used" rules truncated out of the render.
+ */
 
 function makeRule(id: string, trigger: string, action: string): LearningRule {
   return {
@@ -232,8 +226,9 @@ function makeRule(id: string, trigger: string, action: string): LearningRule {
 }
 
 test("retrieve() drops the lowest-ranked (tail) rules until the rendered prompt section fits the char budget", async () => {
-  // topRules() returns rules already ranked best-first (RuleGovernanceService's own contract) —
-  // r1 is the highest-ranked, r3 the lowest.
+  /* topRules() returns rules already ranked best-first (RuleGovernanceService's own contract) —
+     r1 is the highest-ranked, r3 the lowest.
+   */
   const rules: LearningRule[] = [
     makeRule("r1", "trigger one padded to a realistic length for a rule description", "action one padded to a realistic length for a rule fix"),
     makeRule("r2", "trigger two padded to a realistic length for a rule description", "action two padded to a realistic length for a rule fix"),
@@ -244,8 +239,9 @@ test("retrieve() drops the lowest-ranked (tail) rules until the rendered prompt 
     topRules: async () => rules,
     applyOutcome: async () => {},
   };
-  // Budget fits exactly the first rule's rendered section, not all three — derived from the SAME
-  // render function the generation bridge actually uses, so the test is not fragile to header text.
+  /* Budget fits exactly the first rule's rendered section, not all three — derived from the SAME
+     render function the generation bridge actually uses, so the test is not fragile to header text.
+   */
   const oneRuleBudget = renderLearnedRules([
     { id: "r1", trigger: rules[0]!.trigger, action: rules[0]!.action, errorClass: rules[0]!.errorClass, status: "active", confidence: "high" },
   ]).length;
@@ -302,7 +298,6 @@ test("retrieve() tolerates a store without incrementUsage wired (optional method
     save: async () => {},
     topRules: async () => [rule],
     applyOutcome: async () => {},
-    // incrementUsage intentionally omitted
   };
   const adapter = new LearningPortAdapter(repo, "app");
 

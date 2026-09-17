@@ -2,11 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-// Pillar 3 (selector grounding — docs/superpowers/selector-grounding-root-cause-and-design.md):
-// the agent must NEVER fabricate a selector it did not observe. This guard pins that the fabrication
-// license ("derive selectors from source code when no live DOM is reachable") is removed from BOTH
-// authoring roles in BOTH prompt trees, and that the grounded-only contract is explicit. The license
-// has crept back across five "definitive" fixes — this test fails CI if it returns.
+/* The agent must NEVER fabricate a selector it did not observe. The fabrication license
+   ("derive selectors from source code when no live DOM is reachable") is removed from BOTH
+   authoring roles in BOTH prompt trees, and the grounded-only contract is explicit. This test
+   fails CI if that license returns.
+ */
 
 const AUTHORING_PROMPTS = [
   "agent/roles/qa-generator.md",

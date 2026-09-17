@@ -1,11 +1,4 @@
-// Parity test (FIXTURE-SNAPSHOT, migration-wiring-phase-2 Slice 8b-4): pins the ported qa-engine
-// catalog-window functions against src/qa/selector-check.ts's confidentWindowEnd +
-// extractTestIdSelectorsWithIndex. That legacy module was deleted (this was a THIRD pin the
-// deletion design missed alongside qa-run-orchestration/domain/helpers/selector-check-parity.test.ts
-// and execute.test.ts's selectorPresent import — recorded as a load-bearing correction). Expected
-// values were captured by running the legacy module directly against these exact samples before
-// deletion. This file no longer imports src/, so it was removed from qa-engine/tsconfig.json's
-// "exclude" list and qa-engine/tsconfig.parity.json's "include" list in the same commit.
+/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 

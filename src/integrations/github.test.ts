@@ -2,13 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clampTitle, clampBody, GITHUB_MAX_TITLE, GITHUB_MAX_BODY, github, GitHubDeps } from "./github";
 
-// ghHeaders() requires GITHUB_TOKEN; provide a dummy so the boundary tests exercise
-// the fetch logic, not the env-check logic.
+/* ghHeaders() requires GITHUB_TOKEN; provide a dummy so the boundary tests exercise
+   the fetch logic, not the env-check logic.
+ */
 process.env.GITHUB_TOKEN = "ghp_dummy_token_for_tests";
 
-// These are the boundary guards: the single choke point every Issue/PR passes
-// through, so NO caller can produce a 422 ("title/body is too long"). The real
-// fetch is the deliberately-uncovered integration; the pure clamp logic is not.
+/* These are the boundary guards: the single choke point every Issue/PR passes
+   through, so NO caller can produce a 422 ("title/body is too long"). The real
+   fetch is the deliberately-uncovered integration; the pure clamp logic is not.
+ */
 
 test("clampTitle leaves a short title unchanged", () => {
   assert.equal(clampTitle("QA E2E tests failed at abc123"), "QA E2E tests failed at abc123");
@@ -29,8 +31,6 @@ test("clampBody truncates an oversized body to GitHub's 65536-char limit", () =>
   assert.ok(out.length <= GITHUB_MAX_BODY, `body length ${out.length} should be <= ${GITHUB_MAX_BODY}`);
   assert.match(out, /truncated/);
 });
-
-// ── Integration tests: GitHub API boundary failure modes ────────────────────
 
 function mockDeps(response: { ok: boolean; status: number; statusText?: string; json?: unknown; headers?: Record<string, string> }): GitHubDeps {
   return {
@@ -65,10 +65,10 @@ test("getPrStatus(requiredContext): aggregate that LACKS the named 'ci' check �
     url.includes("/pulls/")
       ? { merged: false, state: "open", head: { sha: "abc" } }
       : url.includes("/check-runs")
-        ? { check_runs: [{ name: "lint", status: "completed", conclusion: "success" }] } // 'ci' absent
+        ? { check_runs: [{ name: "lint", status: "completed", conclusion: "success" }] }
         : { state: "success", total_count: 0, statuses: [] });
   const s = await github.getPrStatus("o/r", 1, deps, "ci");
-  assert.equal(s.checks, "none"); // the required 'ci' check never ran → never treated as green
+  assert.equal(s.checks, "none"); /* the required 'ci' check never ran → never treated as green */
 });
 
 test("getPrStatus(requiredContext): only the named 'ci' decides — an unrelated red check is ignored", async () => {
@@ -82,7 +82,7 @@ test("getPrStatus(requiredContext): only the named 'ci' decides — an unrelated
           ] }
         : { state: "failure", total_count: 1, statuses: [{ context: "preview-deploy", state: "failure" }] });
   const s = await github.getPrStatus("o/r", 1, deps, "ci");
-  assert.equal(s.checks, "success"); // 'ci' passed; the unrelated preview-deploy failure does not block
+  assert.equal(s.checks, "success"); /* 'ci' passed; the unrelated preview-deploy failure does not block */
 });
 
 test("createPullRequest throws on GitHub 422 validation error", async () => {
@@ -124,7 +124,6 @@ test("getPrStatus throws on check-runs fetch failure", async () => {
     fetch: async (_input, _init?) => {
       callCount++;
       if (callCount === 1) {
-        // PR fetch succeeds
         return {
           ok: true,
           status: 200,
@@ -133,7 +132,6 @@ test("getPrStatus throws on check-runs fetch failure", async () => {
           json: async () => ({ merged: false, state: "open", head: { sha: "abc" } }),
         } as unknown as Response;
       }
-      // check-runs fails
       return {
         ok: false,
         status: 500,

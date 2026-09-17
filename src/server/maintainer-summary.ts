@@ -1,11 +1,9 @@
-// Parsing + validation of the qa-maintainer agent's closing summary. Extracted from the index.ts
-// god entrypoint (ARCH-01): this is pure, self-contained logic (no server/queue/fs state) that
-// gates whether a self-fix is allowed to merge, so it belongs in its own testable module.
+/* Parsing + validation of the qa-maintainer closing summary — gates whether a self-fix may merge. */
 
 export interface MaintainerJustification {
-  rootCause: string; // what actually causes the incident
-  whyNecessary: string; // why this change is needed (vs. doing nothing)
-  whyMinimal: string; // why this is the smallest safe fix (not over-engineering)
+  rootCause: string;
+  whyNecessary: string;
+  whyMinimal: string;
 }
 
 export interface MaintainerSummary {
@@ -15,9 +13,7 @@ export interface MaintainerSummary {
   justification?: MaintainerJustification;
 }
 
-// A justification is only valid when all three arguments are present and non-trivial — the
-// requirement that the system "prove the change is necessary and the solution is optimal and safe"
-// before it is allowed to self-merge and hot-swap.
+/* All three arguments must be present and non-trivial before a self-merge/hot-swap. */
 export function validJustification(j: unknown): MaintainerJustification | undefined {
   if (!j || typeof j !== "object") return undefined;
   const o = j as Record<string, unknown>;

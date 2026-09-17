@@ -228,10 +228,7 @@ func TestAppOnboardingMethodsUseContractPaths(t *testing.T) {
 	assertReq(4, http.MethodGet, "/api/v1/repos", "owner=org&page=2")
 }
 
-// TestBoundaryOnboardingMethodsUseContractPaths pins the 3 boundary-onboarding verbs
-// (propose/status/confirm) to the paths the server registers (design §D.1): same
-// c.do(...) shape as every other verb, so auth header + error mapping are already
-// covered by the shared do() tests above — this only proves method/path/body wiring.
+/* Pins the 3 boundary-onboarding verbs (propose/status/confirm) to the paths the server registers: same c.do(...) shape as every other verb, so auth header + error mapping are already covered by the shared do() tests — this only proves method/path/body wiring. */
 func TestBoundaryOnboardingMethodsUseContractPaths(t *testing.T) {
 	type seenRequest struct {
 		method string

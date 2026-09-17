@@ -1,5 +1,4 @@
-// Adaptive routing (Fase 14 / P3). Policy interface only — default is deterministic proposer
-// thresholds. No LLM router.
+/* Adaptive routing policy. Default is deterministic proposer thresholds — no LLM router. */
 export interface AdaptiveRoutingSignals {
   readonly recentEscalateRate: number;
   readonly recentNoProgressRate: number;

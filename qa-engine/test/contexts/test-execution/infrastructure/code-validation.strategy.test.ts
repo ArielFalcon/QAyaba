@@ -1,9 +1,3 @@
-// test/contexts/test-execution/infrastructure/code-validation.strategy.test.ts
-// WS2.2 (full-flow remediation, code-mode restoration): the code-target compile-feedback gate —
-// Filter B for CODE mode. Ported from src/qa/code-validate.ts's validateCodeProject (never wired
-// into qa-engine's ValidationPort before this fix; qa-engine had NOTHING for code target's
-// pre-execution feedback, unlike e2e's StaticGateAdapter). Mirrors code-execution.strategy.test.ts's
-// own style exactly (injected run fn, no real toolchain spawned).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy.ts";

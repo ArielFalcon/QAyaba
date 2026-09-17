@@ -7,10 +7,11 @@ import { createMaintainerRuntime, type MaintainerSideEffects, type MaintainerCon
 import { recordIncident, getIncident, getIncidents, getMaintainerStatus } from "./maintainer";
 import type { AgentDeps } from "../integrations/opencode-client";
 
-// These are the FIRST tests of the self-deploy path — ARCH-01 extracted it from index.ts behind a DI
-// factory precisely so the safety-layer SEQUENCING (open PR → justify → kill-switch → scope → rate →
-// self-test → canary swap) can be asserted without actually swapping code, merging a PR, exec-ing npm,
-// or exiting the process. The irreversible boundaries are injected as spies.
+/* These are the FIRST tests of the self-deploy path — ARCH-01 extracted it from index.ts behind a DI
+   factory precisely so the safety-layer SEQUENCING (open PR → justify → kill-switch → scope → rate →
+   self-test → canary swap) can be asserted without actually swapping code, merging a PR, exec-ing npm,
+   or exiting the process. The irreversible boundaries are injected as spies.
+ */
 
 function freshRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "maint-rt-"));
@@ -18,7 +19,7 @@ function freshRoot(): string {
   return root;
 }
 
-// A well-formed agent reply: a real fix with a valid (3-field, non-trivial) justification.
+/* A well-formed agent reply: a real fix with a valid (3-field, non-trivial) justification. */
 function fixReply(): string {
   const j = {
     fixed: true,
@@ -49,8 +50,8 @@ interface Spies {
 function harness(opts: { root: string; autonomous: boolean; promptReturn: string }) {
   const calls: Spies = { createPR: 0, performSwap: 0, exit: [], gateCmds: [] };
   const git = async (args: string[]): Promise<string> => {
-    if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n"; // dirty → commit
-    if (args[0] === "diff" && args[1] === "--numstat") return "1\t0\tsrc/foo.ts\n"; // 1 file/1 line, unprotected
+    if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n";
+    if (args[0] === "diff" && args[1] === "--numstat") return "1\t0\tsrc/foo.ts\n"; /* 1 file/1 line, unprotected */
     return "";
   };
   const fx: MaintainerSideEffects = {
@@ -90,8 +91,9 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
   return { runtime: createMaintainerRuntime(cfg, fx), calls };
 }
 
-// THE kill-switch invariant: with SELF_MAINTAINER_AUTOMERGE off, a perfectly fixable incident still
-// stops at an OPEN PR — it is never swapped into the running service and never exits to restart.
+/* THE kill-switch invariant: with SELF_MAINTAINER_AUTOMERGE off, a perfectly fixable incident still
+   stops at an OPEN PR — it is never swapped into the running service and never exits to restart.
+ */
 test("triggerMaintainer opens a PR but does NOT auto-deploy when autonomous=false (kill-switch)", async () => {
   const root = freshRoot();
   const inc = recordIncident({ source: "health-check", severity: "critical", summary: "kill-switch case" });
@@ -106,8 +108,9 @@ test("triggerMaintainer opens a PR but does NOT auto-deploy when autonomous=fals
   assert.equal(getMaintainerStatus(), "idle");
 });
 
-// The full green path: all five gates pass → the fix IS hot-swapped into the running service and the
-// process exits(0) to restart into it (canary). performSwap + exit(0) are the proof it deployed.
+/* The full green path: all five gates pass → the fix IS hot-swapped into the running service and the
+   process exits(0) to restart into it (canary). performSwap + exit(0) are the proof it deployed.
+ */
 test("triggerMaintainer canary-deploys when autonomous=true and every gate is green", async () => {
   const root = freshRoot();
   recordIncident({ source: "health-check", severity: "critical", summary: "green path case" });
@@ -118,11 +121,11 @@ test("triggerMaintainer canary-deploys when autonomous=true and every gate is gr
   assert.equal(calls.createPR, 1);
   assert.equal(calls.performSwap, 1, "the verified fix is swapped into the running tree");
   assert.deepEqual(calls.exit, [0], "the service restarts into the canary");
-  // The pre-deploy self-test gate ran install + typecheck + test on the fix branch before the swap.
+  /* The pre-deploy self-test gate ran install + typecheck + test on the fix branch before the swap. */
   assert.ok(calls.gateCmds.some((c) => c.includes("typecheck")) && calls.gateCmds.some((c) => c.includes("test")));
 });
 
-// An agent that produces no usable fix never opens a PR; the incident is returned to "diagnosing".
+/* An agent that produces no usable fix never opens a PR; the incident is returned to "diagnosing". */
 test("triggerMaintainer records no PR and re-queues the incident when the agent produces no fix", async () => {
   const root = freshRoot();
   const inc = recordIncident({ source: "health-check", severity: "warn", summary: "no-fix case" });
@@ -136,9 +139,10 @@ test("triggerMaintainer records no PR and re-queues the incident when the agent 
   assert.equal(getMaintainerStatus(), "idle");
 });
 
-// boot-guard.mjs (which can't use the app's modules) leaves a bridge file when it rolls back a
-// crash-looping swap. recoverRollbackRecord must fold it into failure memory + a critical incident so
-// the agent learns the fix crash-looped, then delete the bridge.
+/* boot-guard.mjs (which can't use the app's modules) leaves a bridge file when it rolls back a
+   crash-looping swap. recoverRollbackRecord must fold it into failure memory + a critical incident so
+   the agent learns the fix crash-looped, then delete the bridge.
+ */
 test("recoverRollbackRecord folds a boot-guard rollback bridge into failure memory + an incident", () => {
   const root = freshRoot();
   const bridge = join(root, "data", "last-rollback.json");
@@ -157,17 +161,14 @@ test("recoverRollbackRecord folds a boot-guard rollback bridge into failure memo
   );
 });
 
-// Security (Slice 2, onboarding-hardening): the session-failed catch (maintainer-runtime.ts:362)
-// interpolates the caught error's raw .message into a console.error log. If the underlying error
-// carries a secret-shaped value (e.g. the mirror git call embeds a token before repo-mirror's own
-// scrub applies — or a future non-git error reaches this path), that log line must NOT leak it.
-// The fix routes it through redactError so this site is self-safe regardless of the error's origin.
+/* The session-failed catch interpolates error.message — redact before logging. */
 test("triggerMaintainer redacts a secret-shaped error before logging the session-failed line", async () => {
   const root = freshRoot();
   recordIncident({ source: "health-check", severity: "critical", summary: "session failure case" });
   const secret = "ghp_SECRETvalue1234567890abcdefghijklmno";
-  // An agent whose prompt() rejects with a secret-shaped error propagates up through the inner
-  // try/finally into the outer catch (err) at maintainer-runtime.ts:362.
+  /* An agent whose prompt() rejects with a secret-shaped error propagates up through the inner
+     try/finally into the outer catch (err) at maintainer-runtime.ts:362.
+   */
   const failingAgentDeps: AgentDeps = {
     open: async () => ({
       id: "s1",
@@ -221,11 +222,7 @@ test("triggerMaintainer redacts a secret-shaped error before logging the session
   }
 });
 
-// Security (Slice 2, onboarding-hardening): the post-swap npm-install-failed catch
-// (maintainer-runtime.ts:350) interpolates the caught error's raw .message. npm output CAN echo
-// .npmrc / private-registry tokens on a failing install, so this site must be redacted too — it was
-// missed by the original (too-narrow) audit because the caught variable is named `installErr`, not
-// `err`.
+/* The post-swap npm-install-failed catch interpolates error.message — redact before logging. */
 test("triggerMaintainer redacts a token-shaped error before logging the post-swap npm-install-failed line", async () => {
   const root = freshRoot();
   recordIncident({ source: "health-check", severity: "critical", summary: "post-swap install failure case" });
@@ -252,15 +249,16 @@ test("triggerMaintainer redacts a token-shaped error before logging the post-swa
     } as unknown as MaintainerSideEffects["mirrorDeps"],
     exec: () => {
       execCalls++;
-      // Calls 1-3 are the pre-deploy gate (install/typecheck/test on the fix branch) — succeed.
-      // Call 4 is the post-swap npm install (maintainer-runtime.ts:348) — fail with a token-shaped
-      // message to drive the :350 log site.
+      /* Calls 1-3 are the pre-deploy gate (install/typecheck/test on the fix branch) — succeed.
+         Call 4 is the post-swap npm install (maintainer-runtime.ts:348) — fail with a token-shaped
+         message to drive the :350 log site.
+       */
       if (execCalls === 4) {
         throw new Error(`npm install failed: Authorization: Bearer ${secret}`);
       }
     },
     exit: (() => {
-      // Swallow the exit so the test can observe the logged line instead of terminating.
+      /* Swallow the exit so the test can observe the logged line instead of terminating. */
     }) as unknown as MaintainerSideEffects["exit"],
     fetchHealth: async () => ({ ok: true }),
   };

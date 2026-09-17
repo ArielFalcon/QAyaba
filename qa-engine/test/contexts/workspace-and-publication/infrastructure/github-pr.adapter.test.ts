@@ -1,8 +1,8 @@
-// test/contexts/workspace-and-publication/infrastructure/github-pr.adapter.test.ts
-// migration-tier-4a: GitHubPrAdapter now owns the createPullRequest/enableAutoMerge/mergePullRequest
-// HTTP calls itself — the fake here plays the role src/integrations/github.ts's `github` object used
-// to play, routed by URL so the adapter's own request-shape (endpoint/headers/clamped body) is pinned,
-// not just the call sequence.
+/* test/contexts/workspace-and-publication/infrastructure/github-pr.adapter.test.ts
+   HTTP calls itself — the fake here plays the role src/integrations/github.ts's `github` object used
+   to play, routed by URL so the adapter's own request-shape (endpoint/headers/clamped body) is pinned,
+   not just the call sequence.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter.ts";
@@ -92,10 +92,10 @@ test("falls back to a direct merge when auto-merge is unavailable", async () => 
   assert.equal(calls[2]!.url.endsWith("/pulls/7/merge"), true);
 });
 
-// WP-05 (test-only — pins TODAY's behavior; the throw-vs-return contract decision is DEFERRED).
-// When BOTH enableAutoMerge AND mergePullRequest throw, the adapter returns a PullRequest without
-// throwing. The caller has no way to distinguish 'PR merged' from 'PR open but both merge paths
-// failed', but changing the return type is a GitHubPrPort contract change — deferred to Phase 2.
+/* WP-05 (test-only — pins TODAY's behavior; the throw-vs-return contract decision is DEFERRED).
+   When BOTH enableAutoMerge AND mergePullRequest throw, the adapter returns a PullRequest without
+   throwing. The caller has no way to distinguish 'PR merged' from 'PR open but both merge paths
+ */
 test("returns a PullRequest without throwing when both auto-merge and direct-merge fail (double-failure path, current behavior)", async () => {
   const { http } = fakeHttp((url) => {
     if (url.endsWith("/pulls")) return { ok: true, json: prPayload };

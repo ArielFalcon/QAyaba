@@ -1,54 +1,10 @@
-// Prompt/task assembly for the agent boundary, extracted from opencode-client.ts (BND-08). The
-// "how" lives in agents/agent/*.md and the skills; these functions assemble the dynamic per-run
-// TASK + CONTEXT (diff, intent, namespace, architecture map, learned rules) the agent receives.
-// Pure string assembly with cheap defense-in-depth sanitization; no client/session/network state.
-//
-// Phase 1b: each builder declares typed Section descriptors and delegates final assembly to the
-// ContextAssembler, which enforces canonical order (STABLE → SEMI-STABLE → VOLATILE → TASK →
-// CRITICAL recap) and emits per-section sectionSizes for Phase-0 telemetry. The FUNCTIONAL
-// CONTENT of every section is preserved exactly; only the ORDER between sections changes.
-//
-// The input types are imported TYPE-ONLY from opencode-client (erased at runtime), so although
-// opencode-client imports these functions as values, there is no runtime import cycle.
-//
-// migration-tier-4c Slice 5a: relocated from src/integrations/prompts.ts (pure relocation — the
-// string-assembly logic below is byte-for-byte unchanged; only imports were re-pointed, per a fresh
-// dependency audit run before this move):
-//   - sanitizeText/assertNoSecretLeak/SanitizeMode + capText/capDiff/extractDiffFilePath now resolve
-//     to their qa-engine ports (sanitize-text.ts / prompt-cap.ts) instead of src/orchestrator/
-//     sanitizer.ts — containsSecrets/assertNoSecretLeak were ADDED to sanitize-text.ts and
-//     extractDiffFilePath was newly EXPORTED from prompt-cap.ts (both were src/-only before; this is
-//     this migration's genuine new call site, per those modules' own "port it at its own call site
-//     when needed" policy) — extractDiffFilePath is otherwise UNCHANGED, verbatim.
-//   - ArchitectureContext/QaCase re-point to their EXISTING canonical qa-engine mirrors
-//     (generation-ports.ts / @kernel/qa-case.ts) — no new type, no shape change.
-//   - renderExplorationBrief now resolves through the (previously dormant) ExplorationBriefAdapter —
-//     REQUIRED, not optional: src/qa/exploration-brief.ts stays in shell (other, unrelated production
-//     value-consumers of parseExplorationBrief/coerceExplorationBrief were confirmed absent, but the
-//     design's own D-4c-6 explicitly calls for wiring this twin, not relocating its source), so this
-//     module needs an injection seam to keep working post-move without importing src/. See
-//     `setExplorationBriefCollaborators` below — wired from rewritten-engine-factory.ts (the
-//     composition root) at module load, mirroring the RawAgentTransport/RawEventStreamOpener
-//     late-bound-injection discipline already established in Slices 2/3.
-//   - matchExemplars/renderExemplarsForPrompt (skill-exemplar.ts) and detectStructuralPatterns
-//     (structural-pattern.ts) moved alongside this file as RIDERS (this file was their only
-//     production value-consumer) — same "riders move with the file they serve" precedent as Slice
-//     1/3's activity-mapper.ts/agent-activity.ts.
-//   - assemble/section/AssembledPrompt (context-assembler.ts) and roleWindowBytes
-//     (model-window-catalog.ts) moved alongside this file too (mechanically required: both are
-//     imported as plain siblings, `./context-assembler`/`./model-window-catalog`, which could not
-//     resolve if either stayed in src/ while this file moved to qa-engine).
+/* Assembles the per-run TASK + CONTEXT the agent receives. The "how" lives in agents/agent/*.md. Diffs are capped then secret-scrubbed; never import src/. */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-// Seam-2 break: these input contracts are canonical in the qa-engine generation context. Re-rooting
-// this type-only import off ./opencode-client dissolves the opencode-client ⇄ prompts cycle (the
-// generation-ports parity test keeps the legacy opencode-client copies structurally in sync).
-// ArchitectureContext re-points here too (migration-tier-4c Slice 5a) — the SAME canonical mirror,
-// no shape change.
 import type {
   ArchitectureContext,
   CommitIntent,
@@ -63,21 +19,9 @@ import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 
-// Re-export AssembledPrompt so callers that use the assembled variants only need one import.
 export type { AssembledPrompt };
 
-// migration-tier-4c Slice 5a (D-4c-6 twin wiring): the previously-dormant ExplorationBriefAdapter
-// (built ahead of this relocation, parity-tested against src/qa/exploration-brief.ts — see that
-// adapter's own header) now gets a genuine production call path. `renderExplorationBrief`'s
-// underlying implementation stays in shell (src/qa/exploration-brief.ts has other internal
-// concerns and is not itself part of this migration's scope), so this module needs an injected
-// seam to keep calling it without importing src/ (arch:check's one-way rule). Mirrors the
-// RawAgentTransport (Slice 2) / RawEventStreamOpener (Slice 3) late-bound-injection pattern: a
-// module-level mutable slot + setter, wired ONCE by the composition root (rewritten-engine-factory.ts)
-// at module load. Throws loudly if a brief render is attempted before wiring — never a silent no-op
-// (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires
-// this before any run starts, and every test either wires it locally or never exercises `w.brief`/
-// `input.contextBrief` (renderBrief is only called when a brief is actually present).
+/* Throws loudly if a brief render is attempted before wiring — never a silent no-op (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires this before any run starts, and every test either wires it locally or never exercises `w.brief`/ `input.contextBrief` (renderBrief is only called when a brief is actually present). */
 let explorationBriefAdapter: ExplorationBriefAdapter | undefined;
 
 export function setExplorationBriefCollaborators(fns: BriefFns): void {
@@ -93,65 +37,21 @@ function renderBrief(brief: ExplorationBrief, opts?: { suppressFeBe?: boolean })
   return explorationBriefAdapter.render(brief, opts);
 }
 
-// The author's commit message as ONE block: subject + (optionally) body. The body is the richest
-// statement of intent; the subject alone is often too terse to derive a concrete objective from. The
-// subject is parsed for the TYPE deterministically upstream (first line only — robust against false
-// matches in the body); here we just hand the agent the whole message to read as one coherent
-// statement. The body is bounded (capText — attacker-influenceable prose with no natural length
-// limit) and the whole thing sanitized. CommitIntent.message stays the subject ONLY so the GitHub
-// Issue title is a concise one-liner; the agent gets subject+body merged.
 function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean): string {
   const subject = intent?.message ?? "";
   const body = includeBody ? intent?.body : undefined;
   return sanitizeText(body ? `${subject}\n\n${capText(body)}` : subject).text;
 }
 
-// The single source of the "commit to a concrete objective BEFORE writing" rule, shared by the
-// single-agent diff task AND the manual task so the wording cannot drift (judgment-day finding: the
-// single-agent diff path delegated the objective with no acceptance criterion, while the planner
-// already required one — the rigor existed in one path and not the other). Phrased as the OBSERVABLE
-// OUTCOME the change introduces — deliberately NOT full given/when/then ceremony, which over-constrains
-// a trivial diff (the planner keeps G/W/T for structured multi-objective planning, a different surface).
-// It ties the assertion to the CHANGE: the verifiable half of "does the change do what it should" — the
-// spec must FAIL if the new behavior regresses (change-coverage then measures this deterministically).
-// This is intentionally NOT the unverifiable "your assertion must fail on the pre-commit build" framing
-// (the agent only ever runs against live DEV — it cannot check that), which would be an LLM proxy.
 const ACCEPTANCE_CRITERION_RULE =
   `Before writing, state in ONE line the concrete, user-observable OUTCOME this change introduces — ` +
   `the specific thing a user can see that proves it works (e.g. "the discounted total shows after the ` +
   `cart re-queries"). Write the test to ASSERT that outcome, not merely that the flow runs: the spec ` +
   `MUST fail if this specific behavior regresses.`;
 
-// THE single way to embed a commit diff into any prompt: capped FIRST (capDiff needs raw
-// `diff --git` boundaries to split/rank files), then secret-scrubbed. Every render site MUST
-// use this — history shows per-site discipline does not scale (WS5.1 fixed 3 sites, the
-// reviewer fix found a 4th, judgment-day found a 5th in the planner).
-//
-// sdd/migration-wiring-phase-2 Slice 6b (diff→model egress boundary): this is THE diff→model site —
-// every call site below feeds a generator/explorer/reviewer prompt, never an Issue body (verified:
-// the 4 callers are buildPromptAssembled/buildCodeTask/buildExplorerPrompt/reviewObjective —
-// migration-tier-4c Slice 1 deleted the 5th, the dead buildPlanPromptAssembled). WS5.4a ("model-bound diffs keep auth-shaped code that the aggressive Issue-bound
-// pattern would redact") was never actually wired here — this function sanitized with the default
-// "issue" mode, silently defeating WS5.4a's own stated purpose for the diff itself (domSnapshot/
-// classificationReason DID get "model" mode; the diff embed did not). Fixed to "model" mode + the
-// post-redaction fail-loud guard (AMENDMENT 1's assertNoSecretLeak): a secret that survives
-// model-mode redaction throws SecretLeakError rather than reaching the model silently.
-//
-// judgment-day FIX 1 (file-aware redaction): "model" mode's code-shape narrowing (WS5.4a) is correct
-// for a TS/JS/etc. source hunk (`password: string` reads as a type annotation, not a secret) but WRONG
-// for a config-file hunk (docker-compose.yml, .env, CI YAML), where an unquoted lowercase-key
-// credential IS the norm — applying "model" mode to the WHOLE diff let those leak. cappedDiffText now
-// re-splits the already-capped diff at each `diff --git` header (the same split capDiff itself uses)
-// and picks the sanitize mode PER SECTION from its target file's extension: "model" only for a known
-// CODE extension, "issue" (the aggressive, unnarrowed policy) for everything else — config files,
-// unknown/no extension, and any preamble before the first header. Each section is redacted AND
-// guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header
-// at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a
-// mode off, so the whole text keeps the prior "model" mode — unchanged for those callers.
+/* THE single way to embed a commit diff into any prompt: capped FIRST (capDiff needs raw `diff --git` boundaries to split/rank files), then secret-scrubbed. Each section is redacted AND guarded (assertNoSecretLeak) independently, with that section's own mode. A diff with no file header at all (several unit-test fixtures pass raw, header-less snippets as `diff`) has no file to key a mode off, so the whole text keeps the prior "model" mode — unchanged for those callers. */
 const CODE_FILE_EXTENSIONS = new Set([
-  // Every language this system's watched apps and self-maintenance target today (see CLAUDE.md's
-  // "Java + JavaScript/TypeScript" scope note) plus common ecosystems, so a diff hunk touching source
-  // code keeps model-mode's narrower, code-aware redaction instead of the config-file default.
+  /* Every language this system's watched apps and self-maintenance target today (see CLAUDE.md's "Java + JavaScript/TypeScript" scope note) plus common ecosystems, so a diff hunk touching source code keeps model-mode's narrower, code-aware redaction instead of the config-file default. */
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs", "kt", "cs", "rb", "php", "swift",
 ]);
 
@@ -166,24 +66,15 @@ const DIFF_HEADER_RE = /^diff --git /;
 
 function cappedDiffText(diff: string): string {
   const capped = capDiff(diff);
-  // Re-split at each file header — mirrors capDiff's own `diff --git` split so the mode decision is
-  // keyed off the exact same file boundaries the cap already used. NOTE: when the text STARTS with
-  // "diff --git" (the normal case for a real `git diff`), JS split's zero-width lookahead does NOT
-  // yield a leading empty element — sections[0] IS the first file's own section, not a preamble. So
-  // "is this a preamble" is decided per-section (does it start with its own header), never by index.
   const sections = capped.split(/^(?=diff --git )/m);
   const hasFileHeader = sections.some((s) => DIFF_HEADER_RE.test(s));
   if (!hasFileHeader) {
-    // No file header found at all — nothing to key a per-file mode off (see doc above).
     const redacted = sanitizeText(capped, "model").text;
     assertNoSecretLeak(redacted, "model", "diff→model");
     return redacted;
   }
   return sections
     .map((section) => {
-      // A section starting with its own "diff --git a/... b/<path>" header picks mode by that file's
-      // extension; any OTHER content (real preamble before the first header, e.g. a `git log -p`
-      // commit-header prefix) conservatively gets the aggressive "issue" mode.
       const mode: SanitizeMode = DIFF_HEADER_RE.test(section) ? diffSectionMode(extractDiffFilePath(section)) : "issue";
       const redacted = sanitizeText(section, mode).text;
       assertNoSecretLeak(redacted, mode, "diff→model");
@@ -192,21 +83,10 @@ function cappedDiffText(diff: string): string {
     .join("");
 }
 
-// ── (functions appended below from the original module, verbatim) ────────────────────────────
-// A spec filename derived from a flow, safe for the filesystem and Playwright's testMatch.
 export function specFileForFlow(flow: string): string {
   const safe = flow.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "flow";
   return `flows/${safe}.spec.ts`;
 }
-// Surgical, self-contained instructions for ONE worker. Adapts based on needsUi:
-// UI workers transcribe the injected a11y tree — they have NO Playwright MCP and MUST NOT navigate.
-// Code-only workers use serena exclusively to derive tests from the affected symbols.
-// (Q2: Playwright MCP removed from qa-worker — navigation was ×N expensive, concurrent DEV pressure,
-// and the prior 1/7 failure rate was caused by exploration+write competing for the step budget.
-// The planner (qa-generator) explores ONCE with the MCP and injects the tree; workers transcribe it.)
-//
-// Phase 1b: internally uses the ContextAssembler. Return type is unchanged (string).
-// Use buildWorkerPromptAssembled() to get the sectionSizes map for telemetry.
 export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPrompt {
   const rules = w.needsUi
     ? [
@@ -225,10 +105,7 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
         `- Do NOT attempt to navigate or use browser tools — you have no Playwright MCP.`,
       ];
 
-  // STABLE prefix: procedural rules for this worker role (stable across turns/runs for same role).
-  // The JSON output contract is kept in its own critical-recap section (canonical order places it
-  // after volatile content such as learned-rules, so the "lessons precede the JSON contract" invariant
-  // is preserved while also reinforcing the contract at the very end of the prompt).
+  /* STABLE prefix: procedural rules for this worker role (stable across turns/runs for same role). The JSON output contract is kept in its own critical-recap section (canonical order places it after volatile content such as learned-rules, so the "lessons precede the JSON contract" invariant is preserved while also reinforcing the contract at the very end of the prompt). */
   const rulesBlock = [
     ``,
     `## Rules`,
@@ -239,10 +116,8 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     `- Do NOT write to the manifest — the orchestrator records metadata. Do NOT read or edit other workers' files.`,
   ].join("\n");
 
-  // CRITICAL recap: JSON output contract repeated at the end (canonical order enforces this).
   const outputContract = `- End your reply with ONLY this JSON: {"spec":"${w.specFile}"}`;
 
-  // TASK header: the critical "file must exist" requirement + objective.
   const taskHeader = [
     `Write ONE test for this objective. Write ONLY your assigned file.`,
     ``,
@@ -256,7 +131,6 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     sanitizeText(w.objective).text,
   ].join("\n");
 
-  // SEMI-STABLE: context block (symbols, namespace, brief) — stable for this worker assignment.
   const contextLines = [
     `## Context`,
     `- Flow: ${w.flow}`,
@@ -269,7 +143,6 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     ...(w.brief ? [``, renderBrief(w.brief)] : []),
   ].join("\n");
 
-  // VOLATILE: injected a11y tree (changes per worker assignment based on route capture).
   const domContent = w.needsUi && w.domSnapshot
     ? [
         `## Injected a11y tree (GROUND TRUTH — your ONLY source of DOM truth)`,
@@ -286,25 +159,15 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
       ].join("\n")
     : "";
 
-  // VOLATILE: lessons from past runs (injected at call time, may change across runs).
   const learnedRulesContent = w.learnedRules
     ? [`## Lessons learned from past runs (avoid repeating these)`, w.learnedRules].join("\n")
     : "";
 
-  // Stitcher→Generation seam (design §3.4/A.3, Slice A — structural-signals-expansion): worker-scoped
-  // mirror of the single-agent S2.4 "Cross-service links" section. Same local s() sanitizer / caps /
-  // gating discipline; the worker builder has NO isGenerationMode gate (workers always generate), so
-  // that guard is dropped here. Dormant today — nothing constructs a worker with these fields yet.
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_LINKS = 40;
   const MAX_DRIFT = 20;
   const hasLinks = Boolean(w.serviceLinks?.length);
   const hasDrift = Boolean(w.contractDrift?.length);
-  // Slice C (structural-signals-expansion, design §3.6) worker counterpart: extends this SAME
-  // section with inline "[IMPACTED:<tier>]" markers on matched bullets — NOT a new/duplicate
-  // subsection, mirroring the single-agent S2.4 section exactly. The lookup key matches the
-  // bullet's own from/to identity exactly; built ONCE, byte-identical when crossRepoImpact is
-  // absent (empty map -> tierFor always undefined -> prefix always "").
   const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
     `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
   const impactedTierByKey = new Map(
@@ -312,10 +175,6 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
   );
   const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
     impactedTierByKey.get(linkKey(l));
-  // A link's [IMPACTED:tier] marker must survive the MAX_LINKS ceiling: the resolver returns links
-  // in discovery order, so on a >MAX_LINKS app the one impacted link can sit past the cut and lose
-  // the exact annotation this run exists to surface. Impacted links render first (stable order
-  // inside each partition); an empty impacted set skips the reorder — byte-identical when absent.
   const orderedLinks =
     impactedTierByKey.size > 0 && hasLinks
       ? [
@@ -323,7 +182,6 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
           ...w.serviceLinks!.filter((l) => tierFor(l) === undefined),
         ]
       : w.serviceLinks ?? [];
-  // WS5.5(a): mirrors the single-agent path's own omitted-links marker exactly (see buildPromptAssembled).
   const workerOmittedLinkCount = hasLinks ? Math.max(0, orderedLinks.length - MAX_LINKS) : 0;
   const workerServiceLinksContent =
     hasLinks || hasDrift
@@ -347,29 +205,14 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
       : "";
 
   return assemble([
-    // STABLE prefix: procedural rules (deterministic given the worker role + needsUi).
     section("worker-rules", "stable-prefix", rulesBlock, { priority: 1, cacheable: true }),
-    // SEMI-STABLE: objective + context (changes per worker assignment but stable within a turn).
     section("worker-context", "semi-stable", contextLines, { priority: 1 }),
-    // SEMI-STABLE: static signal — same priority/role as the single-agent path (priority 3).
     ...(w.staticSignal ? [section("static-signal", "semi-stable", w.staticSignal, { priority: 3 })] : []),
-    // Stitcher→Generation seam (design §3.4/A.3): priority 3 alongside static-signal, matching the
-    // single-agent S2.4 precedent exactly.
     ...(workerServiceLinksContent ? [section("worker-service-links", "semi-stable", workerServiceLinksContent, { priority: 3 })] : []),
-    // VOLATILE: injected DOM (changes per captured route snapshot).
     ...(domContent ? [section("worker-dom", "volatile", domContent, { priority: 1 })] : []),
-    // VOLATILE: learned rules (changes as the learning layer accumulates knowledge).
     ...(learnedRulesContent ? [section("worker-learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
-    // TASK: the write mandate + concrete objective.
     section("worker-task", "task", taskHeader, { priority: 1 }),
-    // CRITICAL recap: output contract at the end so it is the last thing the agent sees before replying.
     section("worker-output-contract", "critical-recap", outputContract, { priority: 1 }),
-  // migration-tier-4c Slice 5b (qa-worker budget bug fix): the budget role must mirror w.needsUi,
-  // exactly like the session-open role mapping already does (rewritten-engine-factory.ts's
-  // worker/workerCode -> "qa-worker"/"qa-worker-code"). BEFORE this fix, a code-only worker
-  // (needsUi:false, opens its session as "qa-worker-code") had its prompt budget computed against
-  // "qa-worker"'s catalog entry regardless — latent-correct only because the current roster happens
-  // to assign both roles the same model.
   ], { budgetBytes: roleWindowBytes(w.needsUi ? "qa-worker" : "qa-worker-code") });
 }
 
@@ -377,12 +220,8 @@ export function buildWorkerPrompt(w: ParallelWorkerInput): string {
   return buildWorkerPromptAssembled(w).text;
 }
 
-// Fase 3: the dynamic task for the read-only explorer (single-agent diff path). The "how" + the
-// ExplorationBrief schema live in agents/agent/qa-explorer.md; here we hand it the change to map.
 export function buildExplorerPrompt(input: OpencodeRunInput): string {
-  // FIX 2: in manual mode there is no commit diff — the scope is the user's guidance. Rendering the
-  // (empty) diff would give the explorer nothing to map, so its brief would be empty and the manual
-  // Context Pack would carry no grounding. Drive the exploration from the guidance instead.
+  /* Rendering the (empty) diff would give the explorer nothing to map, so its brief would be empty and the manual Context Pack would carry no grounding. Drive the exploration from the guidance instead. */
   if (input.mode === "manual") {
     const guidance = sanitizeText((input.guidance ?? "(no guidance provided)").trim()).text;
     return [
@@ -415,10 +254,6 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
     ``,
     `## Commit diff`,
     "```diff",
-    // WS5.1: capDiff runs on the raw diff BEFORE sanitizeText — see cappedDiffText's own note.
-    // The explorer prompt carried NO budget at all before this fix (unlike buildPromptAssembled's
-    // assembler-enforced budget, this is a plain string builder with no shedding), so a giant diff
-    // here was strictly unbounded.
     cappedDiffText(input.diff),
     "```",
     ...(input.baseUrl ? [``, `Route context only — you do NOT navigate; selectors stay unverified. LIVE DEV URL: ${input.baseUrl}`] : []),
@@ -430,15 +265,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-// Assembles the dynamic message for the agent. The "how" lives in
-// agents/agent/qa-generator.md and the skills; only the task + context go here.
-// The diff/guidance are sanitized (cheap defense in depth).
-//
-// Phase 1b: internally uses the ContextAssembler (P3 canonical order fix). Return type
-// is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry.
-// JD-C3: `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes /
-// failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation
-// into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape.
+/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. JD-C3: `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
 const GROUNDING_UNCOVERED_ESCAPE =
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
   `browser_navigate that specific route before writing its selectors — never guess them.`;
@@ -466,12 +293,6 @@ function renderServiceLinkLine(
     `${s(l.to.repo)} ${s(l.contractRef ?? l.to.symbol)} (${linkKindLabel(l)}, source ${s(l.source)}, confidence ${l.confidence.toFixed(2)})`;
 }
 
-// C1: renders the runtime evidence (httpStatus/finalUrl/runtimeErrors — captured by the
-// orchestrator, see QaCase in ../types.ts) already carried on a failing case, so a fix-cases
-// regen prompt can tell an app defect (5xx, console error) apart from a test defect instead of
-// seeing only the Playwright error `detail`. Matches the fix-cases section's existing convention
-// of NOT running `detail` through sanitizeText (only truncating) — these fields come from the
-// SAME orchestrator-captured evidence, not user input.
 function renderFixCaseEvidenceLines(c: QaCase): string[] {
   const lines: string[] = [];
   if (c.httpStatus !== undefined || c.finalUrl !== undefined) {
@@ -488,8 +309,7 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
 }
 
 export interface BuildPromptAssembledOpts {
-  /** Explicit byte-budget override for tests/telemetry that must not depend on the
-   *  live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
+  /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
   budgetBytes?: number;
 }
 
@@ -498,17 +318,13 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
   const memTarget = input.mode === "context" ? "context" : input.target;
-  // RE-1: the prompt carries authoritative grounding when a Context Pack (with its DOM slice) or an
-  // injected a11y tree is present — in that case the regeneration prompts must NOT command a
-  // re-navigation/re-orientation (the agent fixes from the injected grounding instead).
+  /* Authoritative grounding (Context Pack DOM slice or injected a11y tree): regeneration must not command a re-navigation — the agent fixes from the injected grounding. */
   const hasInjectedGrounding = isGenerationMode && Boolean(input.contextPack || input.domSnapshot);
-  // RE-1: a re-generation turn (fix / reviewer-corrections / coverage-gap) has already explored and
-  // distilled the blast radius — it must not re-activate serena or re-skim the repo.
+  /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
   const isReGen =
     isGenerationMode &&
     Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
 
-  // STABLE prefix: working rules for the generator role (mode-specific but stable within a session).
   const workingRulesLines: string[] = [
     `## Working rules`,
     ...(input.mode === "context"
@@ -572,12 +388,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
                 `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses). Drive the app through the web UI like a user — never call the API directly.`,
               ]
             : []),
-          // A3: selector-priority rule in the STABLE band — fires regardless of whether a DOM snapshot
-          // was captured. When a DOM snapshot IS present, its section already contains a `-> [attr]`
-          // hint for getByTestId; this stable rule is concise (no duplication of the tree guidance).
-          // Audit C4a defect 1: `-> [attr]` hints are ALSO emitted for id=/name=/href/type= (see
-          // buildAttrHint in dom-snapshot.ts) — only a hint STARTING WITH the testIdAttribute name
-          // (e.g. "data-testid=value") is a test-id hint; other hints must NOT trigger getByTestId.
           `- Selector priority: (1) getByTestId when the tree line's \`-> [attr]\` hint STARTS WITH the configured testIdAttribute name (e.g. \`data-testid=value\`) — an \`id=\`/\`name=\`/href hint does NOT qualify; (2) getByRole / getByLabel when no test-id hint; (3) getByText for text-only elements; (4) scoped CSS/locator only as last resort. No raw CSS classes or XPath — these break on refactor.`,
         ]),
     `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, mem_context, and mem_session_summary calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
@@ -587,10 +397,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   ];
   const workingRulesContent = workingRulesLines.join("\n");
 
-  // SEMI-STABLE: architecture map (stable for this run, changes between runs).
-  // Seam c: when a Context Pack is present, its blast-radius section already contains FE↔BE links;
-  // pass suppressFeBeLinks:true to renderArchitectureContext so it omits the arch-map FE↔BE block,
-  // keeping "FE↔BE links" rendered at most twice across the assembled prompt (pack + context-brief).
   const archMapContent = input.contextMap
     ? [
         renderArchitectureContext(
@@ -602,10 +408,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  // SEMI-STABLE: exploration brief (set by the pre-write explorer pass; stable for this turn).
-  // D3 fix: when a Context Pack is also present, the pack already carries FE↔BE links; pass
-  // suppressFeBe:true so the brief's FE↔BE section is omitted and the deduplication budget is
-  // freed for other signal. When only the brief is present, feBe renders normally.
   const contextBriefContent = input.contextBrief
     ? [
         renderBrief(input.contextBrief, { suppressFeBe: !!input.contextPack }),
@@ -614,17 +416,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  // WS5.4c: the live DOM capture is rendered by the actual DEV page — it can legitimately contain a
-  // leaked secret-shaped string (an admin debug banner echoing a key, a stray attribute value that
-  // reads like a credential assignment). Every OTHER model-bound text in this file already goes
-  // through sanitizeText; the raw DOM embeds were the one inconsistent gap. "model" mode (WS5.4a)
-  // is correct here: this text is diff→model-shaped (never an Issue body).
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
-  // VOLATILE: Live DEV accessibility tree of the target routes — the DETERMINISTIC ground truth for
-  // selectors. When `failureSourced` is true, the domSnapshot is the captured failure-point tree
-  // (not a live pre-write snapshot); the heading switches to "GROUND TRUTH AT FAILURE" and
-  // source-framing, counterfactual, and quote-then-assert instructions are prepended (design §6.1).
   const domContent = sanitizedDomSnapshot && isGenerationMode
     ? input.failureSourced
       ? [
@@ -673,25 +466,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
     : "";
 
-  // VOLATILE: Lever-2 deterministic selector contradictions (W1). Each is a VERIFIED finding from
-  // comparing the generated specs' selectors against the captured failure-point a11y tree — an absent
-  // selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one
-  // ("matches MULTIPLE nodes …"). Rendered as its OWN section so it is never truncated by the
-  // 500-char detail slice. Positioned after the DOM (reads the contradiction against the tree).
-  //
-  // judgment-day round 2 (FIX 4, both judges): each item embeds `sel.name`, extracted VERBATIM from
-  // the agent's own spec source (qa-run-orchestration/domain/helpers/selector-check.ts's
-  // checkSpecSelectors) — an agent can write a locator whose `name` is a secret it read from a repo
-  // file, guaranteed not to match, and have it echoed straight into the NEXT regen prompt. SECURITY:
-  // same sanitization as this file's own reviewCorrections section (immediately below) — a reviewer
-  // rejection carries the identical risk (agent-authored text embedding what it read from the repo).
-  //
-  // judgment-day round 2 (FIX 5, Judge B): sanitized in the DEFAULT ("issue") mode, not "model" —
-  // "model" mode's narrowing exists to keep a full CODE DIFF from being over-redacted (a bare
-  // `password: string` type annotation is legitimate code); a selector-mismatch description is SHORT
-  // AGENT PROSE, not code, so the utility cost of over-redacting here is near zero while the cost of
-  // under-redacting (an ordinary, unquoted credential like `password: hunter2` sails through "model"
-  // mode unredacted — verified by direct probe) is real.
+  /* VOLATILE: Lever-2 deterministic selector contradictions (W1). Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
   const selectorContradictionsContent =
     input.selectorContradictions?.length && isGenerationMode
       ? [
@@ -708,16 +483,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  // WS5.5(d): WS4.3 threads the static-gate (Filter B: tsc/eslint) validation errors as a synthetic
-  // fixCases entry named "static-gate" so the repair round sees the actual compile/lint error text.
-  // Nothing was ever EXECUTED for that entry (Filter B runs before Filter C) — the "tests FAILED
-  // during execution against DEV" framing is misleading there. Switch to a "failing gate" framing
-  // when a static-gate entry is present; ordinary execution failures keep the original wording.
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
 
-  // VOLATILE: Fix instructions for failed test cases. When `failureSourced` is true the fix
-  // instructions remove the browser_navigate + browser_snapshot steps — the injected tree IS
-  // the ground truth. Positioned after selector contradictions (references the tree above).
   const fixContent = input.fixCases?.length && isGenerationMode
     ? [
         `## Fix failing tests`,
@@ -783,9 +550,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  // VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must
-  // resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM
-  // grounding is already established when the corrections reference it.
+  /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
         `## Apply reviewer corrections (HIGHEST priority)`,
@@ -796,21 +561,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ? `Re-verify against the injected grounding above (Context Pack / DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
           : `Where a fix concerns a selector or an assertion, re-verify it against the live DOM with the Playwright MCP before editing.`,
         ``,
-        // SECURITY: the reviewer has read/bash/glob on the ACTUAL repo files (not just the
-        // pre-sanitized diff this module assembles) — a secret it quotes in a rejection rationale
-        // must be redacted before this regen call, matching every sibling field in this function
-        // (diff, commit body, guidance, DOM snapshot, classificationReason).
-        //
-        // judgment-day round 2 (FIX 5, Judge B): DEFAULT ("issue") mode, not "model" — see
-        // selectorContradictionsContent's own doc above for the full rationale (short agent prose,
-        // not a code diff; "model" mode's code-shape narrowing let an ordinary, unquoted credential
-        // like `password: hunter2` sail through unredacted).
+
         ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
         ``,
       ].join("\n")
     : "";
 
-  // VOLATILE: Coverage improvement — the executed tests did not exercise some changed lines.
   const coverageContent = input.coverageGap && isGenerationMode
     ? [
         `## Cover the change (HIGH priority)`,
@@ -831,13 +587,11 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  // VOLATILE: learned anti-patterns from past runs.
   const learnedRulesContent = input.learnedRules && isGenerationMode
     ? [input.learnedRules, ``].join("\n")
     : "";
 
-  // RE-1: regen-discipline — a re-generation turn must not re-orient; the blast radius was already
-  // distilled into the grounding above. Suppress serena re-activation / blast-radius re-derivation.
+  /* A re-generation turn must not re-orient; the blast radius is already in the grounding above. Suppress serena re-activation. */
   const regenDisciplineContent = isReGen
     ? [
         `## Re-generation turn — do NOT re-orient`,
@@ -850,34 +604,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  // VOLATILE: Context Pack — pushed by the orchestrator before the first write (Slice G / P8).
-  // Carries the blast-radius (code symbols from the ExplorationBrief), the live DOM slice
-  // (captured orchestrator-side via Playwright), and the relevant API contracts.
-  // Positioned at priority 0 within VOLATILE so it is the FIRST volatile section seen by
-  // the model — near the task, within the compaction preserve window. When the pack is
-  // present the generator transcribes; when absent the explore-first mandate stays active.
   const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
 
-  // TASK: mode-specific task (the concrete objective for this session).
   const taskContent = buildTask(input);
 
-  // SEMI-STABLE: static signal (deterministic pre-computed analysis — stable for this diff).
   const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
 
-  // Stitcher→Generation seam (design §3.4, S2.4): "Cross-service links (deterministic)" — the
-  // deterministic FE→BE contract links ServiceLinksPort.resolve() produced, plus any contract-drift
-  // WARNINGS. Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared
-  // inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data
-  // leaving/entering the model boundary) are redacted before reaching the prompt.
+  /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
-  const MAX_LINKS = 40; // advisory noise ceiling — this section's own budget guard.
+  const MAX_LINKS = 40;
   const MAX_DRIFT = 20;
   const hasServiceLinks = Boolean(input.serviceLinks?.length);
   const hasContractDrift = Boolean(input.contractDrift?.length);
-  // Slice C (structural-signals-expansion, design §3.6): extends this SAME section with inline
-  // "[IMPACTED:<tier>]" markers on matched bullets — NOT a new/duplicate subsection. The lookup key
-  // matches the bullet's own from/to identity exactly; built ONCE, byte-identical when
-  // crossRepoImpact is absent (empty map -> tierFor always undefined -> prefix always "").
   const linkKey = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string =>
     `${l.from.repo}/${l.from.file}#${l.from.symbol}->${l.to.repo}`;
   const impactedTierByKey = new Map(
@@ -885,10 +623,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   );
   const tierFor = (l: { from: { repo: string; file: string; symbol: string }; to: { repo: string } }): string | undefined =>
     impactedTierByKey.get(linkKey(l));
-  // A link's [IMPACTED:tier] marker must survive the MAX_LINKS ceiling: the resolver returns links
-  // in discovery order, so on a >MAX_LINKS app the one impacted link can sit past the cut and lose
-  // the exact annotation this run exists to surface. Impacted links render first (stable order
-  // inside each partition); an empty impacted set skips the reorder — byte-identical when absent.
   const orderedLinks =
     impactedTierByKey.size > 0 && hasServiceLinks
       ? [
@@ -896,9 +630,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ...input.serviceLinks!.filter((l) => tierFor(l) === undefined),
         ]
       : input.serviceLinks ?? [];
-  // WS5.5(a): unimpacted links beyond MAX_LINKS were silently dropped with no trace — neither the
-  // generator nor a human reading a captured prompt could tell more links existed past the cut.
-  // Append an observability marker naming the omitted count (never affects which links render).
   const omittedLinkCount = hasServiceLinks ? Math.max(0, orderedLinks.length - MAX_LINKS) : 0;
   const serviceLinksContent =
     (hasServiceLinks || hasContractDrift) && isGenerationMode
@@ -921,48 +652,19 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  // C1: diff archetypes — a one-line structural hint for the generator ("Change shape
-  // (deterministic): auth-flow, data-list — prioritise tests that exercise these").
-  // Rendered only when archetypes are present and non-empty; absent = no section.
   const diffArchetypesContent =
     input.diffArchetypes?.length && isGenerationMode
       ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
       : "";
 
-  // sdd/migration-wiring-phase-2 Slice 4 (D-E skill-exemplar restore): matches each detected
-  // structural pattern against the built-in exemplar catalog (@kernel/scenario-catalog.ts).
-  // matchExemplars() itself takes a SINGULAR StructuralPattern (not an array), so this consumer
-  // loops + flatMaps across input.structuralPatterns, then dedupes by exemplar name before
-  // rendering — a diff can independently match multiple patterns (e.g. a form AND an api-call), and
-  // some pattern shapes (data-list) can match more than one catalog entry on their own.
-  // renderExemplarsForPrompt([]) already returns "" for no match, so absent/empty/no-match all
-  // degrade to no section, never a fabricated heading.
-  //
-  // CHANGE-COVERAGE OBSERVATION marker (design D-E rationale): no deterministic oracle exists for
-  // "did the rich exemplar template change generation quality" — flagging here (+ engram) so a
-  // future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate.
-  //
-  // apply-batch-3 rider (orchestrator-directed): no live caller populates input.structuralPatterns,
-  // so without a local derivation the "archetype-matched templates re-enter the generation prompt"
-  // scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the
-  // diff (this function already reads input.diff for cappedDiffText above), rather than adding new
-  // qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely
-  // absent/empty one falls back to a local derivation from the diff already in scope.
+  /* CHANGE-COVERAGE OBSERVATION marker (design D-E rationale): no deterministic oracle exists for "did the rich exemplar template change generation quality" — flagging here (+ engram) so a future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate. apply-batch-3 rider (orchestrator-directed): no live caller populates input.structuralPatterns, so without a local derivation the "archetype-matched templates re-enter the generation prompt" scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the diff (this function already reads input.diff for cappedDiffText above), rather than adding new qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely absent/empty one falls back to a local derivation from the diff already in scope. */
   const skillExemplarsContent = (() => {
     if (!isGenerationMode) return "";
-    // A curriculum-ranked set is AUTHORITATIVE: it is already deduped, already ordered by this app's
-    // evidence, and already capped to fit this section's byte budget (MAX_SELECTED_EXEMPLARS, proven
-    // exhaustively in qa-engine/test/shared-kernel/scenario-catalog.test.ts). Rendering exactly what
-    // was handed down is what lets the curriculum fold "what the generator was shown" honestly.
     if (input.skillExemplars?.length) {
       const proven: Record<string, number> = {};
       for (const e of input.skillExemplars) if (e.proven && e.promotionCount > 0) proven[e.archetype] = e.promotionCount;
       return renderExemplarsForPrompt(input.skillExemplars, { proven });
     }
-    // Fallback: the local derivation, unchanged. Reached when no CurriculumPort is wired (the
-    // [SWAP]-optional default), outside diff mode where there is no diff to rank against, or when a
-    // wired select() returns nothing — no diff, no catalog match, or a swallowed store fault, all of
-    // which the adapter deliberately degrades to an empty list rather than propagating.
     const patterns = input.structuralPatterns?.length
       ? input.structuralPatterns
       : detectStructuralPatterns(input.diff, input.intent?.changedFiles ?? []);
@@ -977,19 +679,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   })();
 
   return assemble([
-    // STABLE prefix: working rules (mode-specific but stable for the generator role per session).
     section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true }),
-    // JD-C2: regen-discipline in the STABLE band (not volatile) so it sheds no earlier than the
-    // navigate/serena commands it overrides — a volatile placement shed FIRST under budget pressure,
-    // silently no-opping RE-1 exactly on the largest prompts. Renders right after working-rules.
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-    // SEMI-STABLE: architecture map and exploration brief (change between runs, stable within).
     ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true })] : []),
     ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2 })] : []),
-    // Seam b: existing-suite-manifest — a deterministic filesystem-enumerated list of existing spec
-    // file paths, rendered here so the generator can see what flows are already covered without a
-    // serena delegation. Priority 2 (alongside context-brief, sheds before arch-map). Guarded by
-    // isGenerationMode (diff and manual only; not emitted for complete/exhaustive/context).
     ...(() => {
       const specFiles = isGenerationMode && (input.mode === "diff" || input.mode === "manual")
         ? input.existingSpecFiles
@@ -1002,58 +695,19 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2 })];
     })(),
     ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3 })] : []),
-    // Stitcher→Generation seam (design §3.4): priority 3 alongside static-signal — sheds before
-    // arch-map, after existing-suite-manifest, matching staticSignal's own precedence exactly.
     ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3 })] : []),
-    // C1: diff archetypes one-line hint (tiny semi-stable section, priority 3 alongside static-signal).
-    // Absent when no archetypes or non-generation mode — no empty header emitted.
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
-    // sdd/migration-wiring-phase-2 Slice 4 (D-E skill-exemplar restore): matched exemplar templates,
-    // alongside diffArchetypes at priority 3 (feeds the SAME structural-shape signal, richer form).
-    // Byte-budget capped at ~1.5KB, matching design's "no window starvation" requirement — an
-    // over-budget match set is OMITTED ENTIRELY (overflow:"drop" default), never a mid-template
-    // truncation, and never starves another section's share of the role's window.
     ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
-    // VOLATILE priority 0: Context Pack (blast-radius + DOM + contracts, pushed by orchestrator).
-    // Placed FIRST in VOLATILE so the ground-truth is nearest the task and within the
-    // compaction-preserved tail. The domSnapshot (failure-point capture) stays at priority 1
-    // so it follows the pack on regen passes without conflicting.
-    // FIX 5: shedAs "critical-recap" → the pack is LEAST-SHEDABLE under budget pressure. Its DOM
-    // ground-truth is captured live and is NOT recoverable by the agent, whereas the raw diff (in the
-    // TASK band) is recoverable via `git show`. Without this, VOLATILE sheds FIRST and the pack died
-    // before the diff. Assembly POSITION is unchanged (still volatile, near the task); only the shed
-    // precedence moves so the diff/task content is dropped before the unrecoverable pack.
     ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap" })] : []),
-    // VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the
-    // selectorContradictions section can reference "the tree above" correctly).
+    /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
     ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1 })] : []),
-    // VOLATILE: selector contradictions must appear AFTER the DOM tree (priority 2).
     ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2 })] : []),
-    // VOLATILE: fix instructions reference the DOM tree above (priority 3).
     ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3 })] : []),
-    // VOLATILE: reviewer corrections (priority 4 — after grounding context is established).
+    /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
     ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
-    // VOLATILE: coverage gap (priority 5 for POSITION — renders after reviewer-corrections/fix-cases,
-    // same as before). WS5.2 (full-flow remediation): shedAs "critical-recap" promotes its SHED
-    // precedence to least-shedable — on an enforce-mode coverage regen this section is the ENTIRE
-    // payload of the turn (the diff is also empty on regens), so losing it to budget pressure
-    // silently degrades the one-shot regen into a blind repeat of the original prompt. Mirrors the
-    // context-pack section's own precedent (shedAs:"critical-recap" for unrecoverable-this-turn
-    // content) — bounded at source (≤10 files' worth of gap text), so promoting it is nearly free.
     ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
-    // VOLATILE: learned rules — raised to priority 2 (from p6) so the cross-run learning signal
-    // outlasts lower-value volatile sections. Shed order (within the VOLATILE shed band):
-    // reviewer-corrections (p4) → fix-cases (p3) → learned-rules (p2) → dom-snapshot (p1).
-    // coverage-gap no longer sheds in this band at all (see its own shedAs note above) — it now
-    // sheds only alongside context-pack, after every other volatile/semi-stable/task section.
     ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
-    // TASK: the concrete mode-specific objective (criterion before diff — seam e).
     section("task", "task", taskContent, { priority: 1 }),
-    // Seam a: the commit diff in its own task-band section with shedAs:"semi-stable".
-    // Assembly order: task(p1) renders before diff(p2) → criterion precedes diff in output (seam e ✓).
-    // Shed order: shedAs:"semi-stable" places this in band 2, so it sheds after volatile DOM/pack
-    // (band 1) and before arch-map (semi-stable p1) — the diff is recoverable via `git show`, unlike
-    // the DOM ground-truth, so it correctly sheds before the unrecoverable context-pack (band 4).
     ...(() => {
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
       return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable" })] : [];
@@ -1065,11 +719,6 @@ export function buildPrompt(input: OpencodeRunInput): string {
   return buildPromptAssembled(input).text;
 }
 
-// RE-3: the follow-up prompt for a re-generation on a CONTINUED session. The session already holds
-// the working rules, blast-radius brief, Context Pack and diff from the initial turn, so re-sending
-// them wastes tokens and invites re-exploration. This carries ONLY the new failure signal + a
-// "do not re-explore" framing. The failure-point a11y tree IS new (captured at the failure), so it
-// is injected; everything else the agent already has in its session history.
 export function buildFollowupPrompt(input: OpencodeRunInput): string {
   const parts: string[] = [
     `## Continuation — same session; do NOT re-explore`,
@@ -1082,8 +731,6 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
     ``,
   ];
   if (input.domSnapshot && input.failureSourced) {
-    // WS5.4c: same model-mode sanitization as buildPromptAssembled's own DOM sections — the captured
-    // failure-point tree can legitimately contain a leaked secret-shaped string.
     parts.push(
       `## GROUND TRUTH AT FAILURE`,
       ``,
@@ -1095,11 +742,6 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
     );
   }
   if (input.selectorContradictions?.length) {
-    // judgment-day round 2 (FIX 4): same sanitization as buildPromptAssembled's own
-    // selectorContradictions section above — `sel.name` is agent-authored, extracted verbatim from
-    // the spec source, and can carry a secret it read from the actual repo files.
-    // judgment-day round 2 (FIX 5): DEFAULT ("issue") mode, not "model" — see
-    // buildPromptAssembled's own selectorContradictionsContent doc for the full rationale.
     parts.push(
       `## ⚠ Selector contradictions (DETERMINISTIC — resolve EVERY one)`,
       `Each was checked against the captured tree and FAILED — replace it with a role/name that appears there:`,
@@ -1122,10 +764,6 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
     parts.push(
       `## Apply reviewer corrections (HIGHEST priority)`,
       `An independent reviewer REJECTED the previous specs. Fix EACH item; do NOT rewrite specs not flagged.`,
-      // SECURITY: same sanitization as buildPromptAssembled's own reviewContent section above — the
-      // reviewer's rejection text can carry a secret it read from the actual repo files.
-      // judgment-day round 2 (FIX 5): DEFAULT ("issue") mode, not "model" — see
-      // buildPromptAssembled's own reviewContent doc for the full rationale.
       ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
       ``,
     );
@@ -1141,23 +779,11 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   return parts.join("\n");
 }
 
-// ── Architecture context injection ──────────────────────────────────────────
-//
-// The orchestrator loads e2e/.qa/context.json and passes it via contextMap. This
-// function renders the relevant slice as a prompt section so the agent receives
-// the FE↔BE map as a FIRST-CLASS input — no "read it if it exists" ambiguity.
-// For diff mode, it filters to only the routes/operations touched by the changed
-// files. For other modes (complete/exhaustive/manual), it renders the full map.
 
-// context.json is read from the WATCHED repo (and committed by this system's own PRs), so
-// it is attacker-influenceable. Every field is sanitized before it reaches the test-writing
-// agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file
-// cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section.
+/** context.json is read from the WATCHED repo (and committed by this system's own PRs), so it is attacker-influenceable. Every field is sanitized before it reaches the test-writing agent (prompt-injection / secret-exfil defense), and the map is BOUNDED so a huge file cannot blow the token budget. `s()` redacts; MAX_ITEMS caps each section. */
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  // Seam c: when a Context Pack is present, its blast-radius section already contains FE↔BE links;
-  // suppress the arch-map duplicate to keep FE↔BE rendered ≤2x across the assembled prompt.
   opts: { suppressFeBeLinks?: boolean } = {},
 ): string | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
@@ -1168,8 +794,6 @@ export function renderArchitectureContext(
 
   const relevantLinks = (changedFiles?.length
     ? ctx.feBe?.filter((link) => {
-        // Scope by terms specific enough to be meaningful: a route of "/" (or any 1-2 char
-        // term) is a substring of EVERY file path and would defeat the scoping entirely.
         const terms = [link.route, link.via ?? "", link.operationId].filter((t) => t && t.length >= 3);
         return changedFiles.some((f) => terms.some((t) => f.includes(t)));
       }) ?? ctx.feBe ?? []
@@ -1203,8 +827,6 @@ export function renderArchitectureContext(
   }
 
   if (relevantLinks.length && !opts.suppressFeBeLinks) {
-    // Seam c: when a Context Pack is present, its blast-radius section already contains FE↔BE links;
-    // suppress the arch-map duplicate to keep FE↔BE rendered ≤2x across the assembled prompt.
     lines.push(`### FE↔BE links (${relevantLinks.length} of ${ctx.feBe?.length ?? 0} total)`);
     lines.push("Each link tells you which frontend route calls which backend operation — use this to widen the blast radius:");
     for (const l of relevantLinks) {
@@ -1229,13 +851,6 @@ export function renderArchitectureContext(
   return out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out;
 }
 
-// ── context mode: build the FE↔BE architecture map ──────────────────────────
-//
-// The agent extracts routes from Angular routing, API operations from OpenAPI specs,
-// and joins them via the generated API clients' operationIds. The result is written
-// to e2e/.qa/context.json and validated deterministically by the orchestrator.
-// This map is then consumed by diff-mode runs to cross the FE→BE boundary without
-// re-deriving the architecture from raw code on every run.
 
 export function buildContextTask(input: OpencodeRunInput): string {
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
@@ -1249,10 +864,6 @@ export function buildContextTask(input: OpencodeRunInput): string {
         `"service" field to the repo name shown here:`,
         ``,
         ...input.services.flatMap((s) => {
-          // Hints name paths relative to the SERVICE'S OWN mirror, but stageServiceContext (this
-          // module's own consumer, src/server/service-context.ts) copies matched files under a
-          // contracts/ prefix inside the staged snapshot — so the hint the agent should actually
-          // look for is contracts/<hint>, not the bare original path.
           const hints = s.openapi ? (Array.isArray(s.openapi) ? s.openapi : [s.openapi]) : undefined;
           const stagedHint = hints?.map((h) => `contracts/${h}`).join(", ");
           return [
@@ -1319,9 +930,6 @@ export function buildContextTask(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-// The mode-specific task block.
-// The CODE-mode task: source-code testing framed for the agent. No "E2E", no page/browser, no
-// context.json, no page-scope budget — the code-mode failures the e2e tasks would otherwise inject.
 function buildCodeTask(input: OpencodeRunInput): string {
   if (input.mode === "manual") {
     return [
@@ -1350,7 +958,6 @@ function buildCodeTask(input: OpencodeRunInput): string {
     ].join("\n");
   }
 
-  // diff (default): test the source-code change of one commit.
   const intent = input.intent;
   const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
   return [
@@ -1368,7 +975,6 @@ function buildCodeTask(input: OpencodeRunInput): string {
     ``,
     `## Commit diff`,
     "```diff",
-    // WS5.1: capDiff runs on the raw diff BEFORE sanitizeText — see cappedDiffText's own note.
     cappedDiffText(input.diff),
     "```",
     ``,
@@ -1378,9 +984,6 @@ function buildCodeTask(input: OpencodeRunInput): string {
 }
 
 function buildTask(input: OpencodeRunInput): string {
-  // CODE mode is source-code testing — no web/browser, no Playwright, no FE↔BE context map, no
-  // page-scope budget. Falling through to the e2e tasks below would tell the agent to "Generate E2E
-  // tests", read e2e/.qa/context.json, and "explore ONLY the page(s)" — all meaningless here.
   if (input.target === "code") return buildCodeTask(input);
   if (input.mode === "complete" || input.mode === "exhaustive") {
     return [
@@ -1416,16 +1019,8 @@ function buildTask(input: OpencodeRunInput): string {
   }
   if (input.mode === "context") return buildContextTask(input);
 
-  // diff (default)
   const intent = input.intent;
-  // The body is richest on the FIRST pass; the re-generation passes (fix / reviewer-corrections /
-  // coverage-gap) already carry a sharper established objective, so rendering it again would only
-  // re-spend tokens on the system's largest prompts. capText bounds it on the first pass either way.
   const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  // Hints name paths relative to the SERVICE'S OWN mirror, but stageServiceContext (this module's
-  // own consumer, src/server/service-context.ts) copies matched files under a contracts/ prefix
-  // inside the staged snapshot — so the hint the agent should actually look for is
-  // contracts/<hint>, not the bare original path.
   const svcOpenapiHints = input.service?.openapi
     ? Array.isArray(input.service.openapi)
       ? input.service.openapi
@@ -1447,9 +1042,6 @@ function buildTask(input: OpencodeRunInput): string {
         `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
       ]
     : [];
-  // Seam e: acceptance-criterion appears BEFORE the diff block. The diff itself is moved to a
-  // dedicated section in buildPromptAssembled (buildDiffSection) so that it can carry
-  // shedAs:"semi-stable" while the task band retains the objective/criterion/scope content.
   return [
     `Generate/update E2E tests for the flows affected by commit ${input.sha} of ${input.repo}.`,
     ``,
@@ -1460,12 +1052,6 @@ function buildTask(input: OpencodeRunInput): string {
     `## Commit message (the author's intent — derive each test's objective from this)`,
     renderCommitMessage(intent, !isReGen),
     ``,
-    // WS5.5(b): "Cross-check against the diff" instructs the agent to compare the message against
-    // the diff — but the diff itself is a SEPARATE section (buildDiffSection) that returns "" on
-    // every regen pass (fixCases/reviewCorrections/coverageGap; see buildDiffSection's own isReGen
-    // gate). Rendering this instruction unconditionally told the agent to cross-check evidence that
-    // was never in the prompt on a regen turn. Gate on the SAME isReGen predicate buildDiffSection
-    // uses, so the instruction only appears when the diff it references is actually present.
     ...(isReGen
       ? []
       : [
@@ -1473,19 +1059,7 @@ function buildTask(input: OpencodeRunInput): string {
           `the code actually changes, not just what the message promises.`,
           ``,
         ]),
-    // WS7.4 (full-flow remediation): classifyCommit's own explanation of ITS decision — the
-    // highest-value aiming hint for a commit whose message and diff disagree (a "refactor"/"chore"
-    // message that actually adds behavior). Rendered whenever the classifier computed a reason,
-    // regardless of regen round (unlike the diff cross-check instruction above, this explains a
-    // decision already made, not evidence that may have shed).
-    //
-    // F2 fix (adversarial review, LOW): classificationReason is a MODEL-bound string (it only ever
-    // reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode —
-    // matching the sibling model-bound calls on this path (domSnapshot at :687/:1083/:1743). The
-    // previous call omitted the mode arg, defaulting to the aggressive "issue" (Issue-bound) policy:
-    // it failed safe (over-redacted) but contradicted this very comment. `contradiction` only
-    // toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to
-    // sanitize on that field.
+    /* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction above, this explains a decision already made, not evidence that may have shed). F2 fix (adversarial review, LOW): classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot at :687/:1083/:1743). The previous call omitted the mode arg, defaulting to the aggressive "issue" (Issue-bound) policy: it failed safe (over-redacted) but contradicted this very comment. `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
     ...(input.classificationReason
       ? [
           `## Classifier note`,
@@ -1493,11 +1067,6 @@ function buildTask(input: OpencodeRunInput): string {
           ``,
         ]
       : []),
-    // Seam e: objective/acceptance-criterion now precedes the diff block so the agent reads
-    // the GOAL before the evidence. The diff is rendered as a separate task-band section in
-    // buildPromptAssembled (with shedAs:"semi-stable") so both orderings are satisfied:
-    // assembly order places criterion first (task band, declared before diff section), and
-    // the diff sheds as semi-stable (band 2) under budget pressure.
     `## Objective — commit to this BEFORE writing`,
     ACCEPTANCE_CRITERION_RULE,
     ``,
@@ -1508,10 +1077,7 @@ function buildTask(input: OpencodeRunInput): string {
     `backend behaviour and vice-versa. If the map is missing or stale, note the`,
     `limitation explicitly in your verdict note.`,
     ``,
-    // JD-C1: the first pass scopes the blast radius (serena + page exploration). A RE-generation pass
-    // already has that grounding distilled above and is governed by the regen-discipline section —
-    // re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let
-    // the agent justify re-exploring. So the scope-budget orientation lines are first-pass only.
+    /* JD-C1: the first pass scopes the blast radius (serena + page exploration). A RE-generation pass already has that grounding distilled above and is governed by the regen-discipline section — re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let the agent justify re-exploring. So the scope-budget orientation lines are first-pass only. */
     ...(isReGen
       ? [
           `## Scope (re-generation pass)`,
@@ -1531,20 +1097,13 @@ function buildTask(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-// Seam a: the diff content for diff-mode generator prompts. Extracted from buildTask so it can be
-// placed as its own section in the task band with shedAs:"semi-stable" — this way the assembly order
-// (task band) keeps the criterion BEFORE the diff (seam e) while the shed order treats the diff as
-// semi-stable (band 2), making it shed after volatile DOM/pack (band 1) and before arch-map (band 2 p1).
-// Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff
-// is already distilled in the grounding above and repeating it burns tokens).
+/* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */
 function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
   const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
   if (isReGen) return "";
-  // WS5.1: cap BEFORE sanitizing — capDiff splits on `diff --git` file-header boundaries, so it must
-  // see the raw diff structure; sanitizeText only redacts secret-shaped substrings and never touches
-  // those boundaries, so running it second is safe and matches every other diff render site.
+  /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
     `## Commit diff`,
     "```diff",
@@ -1553,19 +1112,8 @@ function buildDiffSection(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-// ── Reviewer prompt assembly (Phase 1a precursor) ──────────────────────────
-//
-// The prompt for the independent reviewer session. Extracted from the inline
-// build inside reviewIndependently so the ContextAssembler (Phase 1b) can own
-// the boundary — the assembly logic is pure and can be unit-tested without
-// opening a session. The contract-repair re-prompt and session lifecycle stay
-// in reviewIndependently; only the BUILD of the initial prompt string lives here.
+/* ── Reviewer prompt assembly (Phase 1a precursor) ────────────────────────── The prompt for the independent reviewer session. The contract-repair re-prompt and session lifecycle stay in reviewIndependently; only the BUILD of the initial prompt string lives here. */
 
-// The "what must these tests defend?" framing, per run mode.  Diff runs judge
-// against the commit's changed code; MANUAL runs against the user's guidance;
-// whole-repo (complete/exhaustive) runs against each spec's own stated objective.
-// `targetNoun` flows into the question, the rationale ask, and the [wrong-objective]
-// definition so the judge measures the spec against the RIGHT goal.
 export function reviewObjective(input: ReviewInput): { subject: string; heading: string; body: string[]; targetNoun: string } {
   if (input.mode === "manual") {
     const g = sanitizeText(((input.guidance ?? "").trim() || "(no guidance was provided)")).text;
@@ -1590,30 +1138,18 @@ export function reviewObjective(input: ReviewInput): { subject: string; heading:
   const commitDiffObjective = () => ({
     subject: "this commit",
     heading: `## Commit diff`,
-    // WS5.1-parity: cap BEFORE sanitizing — capDiff splits on `diff --git` file-header boundaries,
-    // so it must see the raw diff structure; sanitizeText only redacts secret-shaped substrings and
-    // never touches those boundaries, so running it second is safe. All diff render sites now go
-    // through the single cappedDiffText helper (see its own doc for the history).
+    /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
     body: ["```diff", cappedDiffText(input.diff), "```"],
     targetNoun: "the change",
   });
-  // diff and code-mode runs are commit-driven: the commit's changed code is the objective.
   if (input.mode === "diff" || input.target === "code") return commitDiffObjective();
-  // Any other (unexpected) mode reached the reviewer. Fall back to the commit-diff framing so the
-  // reviewer still has a concrete objective, but log it: a future mode must not silently
-  // mis-objective the independent judge.
   console.warn(`[qa] reviewObjective: unhandled review mode ${JSON.stringify(input.mode)} — defaulting to the commit-diff objective`);
   return commitDiffObjective();
 }
 
 const REVIEW_SPECS_MAX_BYTES = 40_000;
 
-// Read and inline the spec files for the reviewer. Byte-caps at REVIEW_SPECS_MAX_BYTES;
-// above the cap, degrades to a file-list so the reviewer reads files itself (surfaced loudly
-// as a mode switch). A spec that cannot be read is replaced with a placeholder — never
-// silently dropped — so the gate cannot be bypassed by an unreadable spec.
 export function renderReviewSpecs(input: ReviewInput): string {
-  // e2e specs are e2e/-relative; code-mode tests are repo-relative (e2eRelDir = "").
   const rel = (s: string) => (input.e2eRelDir ? `${input.e2eRelDir}/${s}` : s);
   const contents: string[] = [];
   let totalBytes = 0;
@@ -1622,9 +1158,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
     try {
       content = readFileSync(join(input.mirrorDir, input.e2eRelDir, s), "utf8");
     } catch (err) {
-      // A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that
-      // silently bypasses the quality gate. Surface it loudly (CLAUDE.md: never swallow), like the
-      // byte-cap branch below does for its own mode switch.
+      /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (CLAUDE.md: never swallow), like the byte-cap branch below does for its own mode switch. */
       console.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);
       contents.push(`### ${rel(s)}\n( could not read file — review skipped for this spec )`);
       continue;
@@ -1632,9 +1166,6 @@ export function renderReviewSpecs(input: ReviewInput): string {
     const block = `### ${rel(s)}\n\`\`\`typescript\n${content}\n\`\`\``;
     totalBytes += Buffer.byteLength(block, "utf8");
     if (totalBytes > REVIEW_SPECS_MAX_BYTES) {
-      // The review silently degrades from "judge inline content" (deterministic, what the
-      // orchestrator placed in the prompt) to "agent reads the files itself" (a weaker,
-      // agent-driven path). Surface that mode switch to the operator instead of hiding it.
       console.warn(
         `[qa] WARNING: the combined contents of ${input.specs.length} spec(s) exceed the ${REVIEW_SPECS_MAX_BYTES}-byte inline cap — ` +
           `the reviewer will read files itself instead of judging inlined contents (weaker determinism).`,
@@ -1646,15 +1177,7 @@ export function renderReviewSpecs(input: ReviewInput): string {
   return `## Specs to review (${contents.length} file(s) — contents provided inline)\n\n${contents.join("\n\n")}`;
 }
 
-// Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's
-// evidence (HTTP status codes and final URLs captured during test execution). This is
-// authoritative evidence the reviewer can use to distinguish an app defect (5xx) from a
-// test defect — injected by the orchestrator, not inferred from the generator's reasoning,
-// so reviewer independence is preserved.
-//
-// Output is bounded at 4000 chars total; per-case detail is capped at 500 chars.
-// finalUrl is sanitized via sanitizeText before being included in the prompt (prevents
-// secrets in redirect URLs from leaking to the reviewer model).
+/** Renders a deterministic RUNTIME EXECUTION RESULT section from the orchestrator's evidence (HTTP status codes and final URLs captured during test execution). This is authoritative evidence the reviewer can use to distinguish an app defect (5xx) from a test defect — injected by the orchestrator, not inferred from the generator's reasoning, so reviewer independence is preserved. Output is bounded at 4000 chars total; per-case detail is capped at 500 chars. finalUrl is sanitized via sanitizeText before being included in the prompt (prevents secrets in redirect URLs from leaking to the reviewer model). */
 export interface ExecutionResultCase {
   name: string;
   httpStatus?: number;
@@ -1666,11 +1189,8 @@ export function renderExecutionResult(evidence: {
   verdict: string;
   cases: ExecutionResultCase[];
 }): string {
-  // 4000 is the user-visible bound; capText appends a truncation note of up to ~120 chars
-  // when the raw content exceeds the limit. Reserve that headroom so the FINAL output
-  // (including the note) stays at or below 4000 chars.
   const CAP_TOTAL = 4000;
-  const CAP_TOTAL_INTERNAL = CAP_TOTAL - 130; // truncation note headroom
+  const CAP_TOTAL_INTERNAL = CAP_TOTAL - 130;
   const CAP_DETAIL = 500;
   const CAP_DETAIL_INTERNAL = CAP_DETAIL - 130;
 
@@ -1701,25 +1221,12 @@ export function renderExecutionResult(evidence: {
   return capText(raw, CAP_TOTAL_INTERNAL);
 }
 
-// Assemble the reviewer prompt string for `input`. Pure: reads spec files from disk
-// (paths come from ReviewInput) but otherwise depends only on its argument. The
-// contract-repair re-prompt and session lifecycle stay in reviewIndependently —
-// only this initial BUILD moves here so it can be owned by the ContextAssembler later.
-//
-// Phase 1b: internally uses the ContextAssembler. Return type is unchanged (string).
-// Use buildReviewerPromptAssembled() to get the sectionSizes map for telemetry.
 export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPrompt {
   const changeType = input.intent?.type ?? input.mode;
   const specBlock = renderReviewSpecs(input);
   const kind = input.target === "code" ? "tests" : "E2E tests";
-  // What these tests must defend depends on the run mode. A diff run is judged against the
-  // commit's changed code; a MANUAL run against the user's guidance; a whole-repo
-  // (complete/exhaustive) run against each spec's own stated objective. Judging a
-  // manual/whole-repo run against the commit diff is the [wrong-objective] bug: it rejects good
-  // tests for "not testing the change" when the change was never the objective.
   const obj = reviewObjective(input);
 
-  // STABLE prefix: the reviewer's role framing + independence mandate (same for every review).
   const roleFramingContent = [
     `## Independent review — judge these ${kind} WITHOUT the generator's reasoning`,
     ``,
@@ -1732,7 +1239,6 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `- Base URL: ${input.baseUrl ?? "(not provided)"}`,
   ].join("\n");
 
-  // STABLE prefix: the reviewing instructions (stable for the reviewer role).
   const rulesInstruction = input.learnedRules
     ? [`6. Also REJECT if any spec violates an app-specific reject-on-sight rule provided in this prompt.`]
     : [];
@@ -1751,14 +1257,6 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...rulesInstruction,
   ].join("\n");
 
-  // CRITICAL recap: the output contract — must appear last so the model's final action is the JSON.
-  // Phase 4: each correction is a structured object with `text` and `severity`.
-  // - "blocking": the test is broken/worthless as-is (false-positive, wrong-objective, missing-cleanup).
-  // - "advisory": style/robustness nit that does not make the test worthless on its own.
-  // The gate passes when zero BLOCKING corrections remain (advisory corrections are recorded but
-  // do not fail the gate and do not require regeneration).
-  // When priorCorrections are present, APPROVE once the previously-raised BLOCKING issues are
-  // resolved — do NOT invent new nits on specs that were not changed.
   const outputContractContent = [
     `Output your verdict as JSON with no text before or after. Always include a one or two`,
     `sentence "rationale" explaining the verdict — on APPROVAL too (why these tests genuinely`,
@@ -1774,14 +1272,9 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     `{"approved":false,"rationale":"why, in 1-2 sentences","corrections":[{"text":"[fragile-selector] file.spec.ts: specific actionable fix","severity":"blocking"},{"text":"[other] file.spec.ts: minor style nit","severity":"advisory"}]}`,
   ].join("\n");
 
-  // SEMI-STABLE: the objective heading + body (changes per run — diff commits vs guidance).
   const objectiveContent = [obj.heading, ...obj.body].join("\n");
 
-  // VOLATILE: Live DEV DOM — the ACTUAL roles + accessible names on the routes this spec targets.
-  // Captured deterministically by the ORCHESTRATOR (independence holds). Grounds the reviewer's
-  // UI-fact claims in reality instead of training memory of "similar apps".
-  // WS5.4c: model-mode sanitization (see buildPromptAssembled's own DOM sections for the rationale) —
-  // the reviewer's captured DOM is diff→model-shaped text, never an Issue body.
+  /* Live DEV DOM: actual roles + accessible names on the routes this spec targets. Captured by the orchestrator (reviewer independence). Model-mode sanitization — this is prompt text, never an Issue body. */
   const domContent = input.domSnapshot
     ? [
         `## Live DEV DOM — the ACTUAL roles + accessible names on the routes this spec targets`,
@@ -1793,24 +1286,10 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       ].join("\n")
     : "";
 
-  // VOLATILE: spec contents to review (the actual test code — changes each review session).
-  // P5: typed maxBytes cap on reviewer corrections via REVIEW_SPECS_MAX_BYTES in renderReviewSpecs.
   const specContent = specBlock;
 
-  // VOLATILE: proven app-specific rules as extra reject criteria (changes as the learning layer grows).
   const learnedRulesContent = input.learnedRules ? [``, input.learnedRules].join("\n") : "";
 
-  // VOLATILE: Phase 4 — prior-round corrections. Injected on round 2+ so the reviewer can
-  // converge: approve once the previously-raised BLOCKING issues are resolved; do not invent
-  // new nits on specs that were not changed since the last round.
-  // Capped at 8,000 bytes: this section is supplementary context, not the primary artifact.
-  //
-  // judgment-day round 2 (FIX 4 sweep — the 5th unsanitized site): priorCorrections is the SAME
-  // reviewer-authored correction text as reviewCorrections (the W2 convergence mechanism threads a
-  // PRIOR round's own corrections back in) — same provenance (the reviewer read arbitrary repo
-  // files last round), same risk, same sanitization.
-  // judgment-day round 2 (FIX 5): DEFAULT ("issue") mode, not "model" — see buildPromptAssembled's
-  // own selectorContradictionsContent doc for the full rationale (short agent prose, not diff code).
   const PRIOR_CORRECTIONS_MAX_BYTES = 8_000;
   const priorCorrectionsContent = (() => {
     if (!input.priorCorrections || input.priorCorrections.length === 0) return "";
@@ -1825,7 +1304,6 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
       ``,
       lines,
     ].join("\n");
-    // Truncate to budget if needed (graceful degradation — reviewer still has the spec contents).
     if (Buffer.byteLength(raw, "utf8") > PRIOR_CORRECTIONS_MAX_BYTES) {
       const truncated = raw.slice(0, PRIOR_CORRECTIONS_MAX_BYTES);
       return truncated + "\n… (truncated — see spec contents for the full picture)";
@@ -1833,44 +1311,20 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     return raw;
   })();
 
-  // VOLATILE: runtime execution evidence — D4/D5 injection. Deterministic orchestrator evidence
-  // (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec
-  // contents so the reviewer can weigh the objective server-error signal before reading test code.
-  // Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves.
-  // Absent when the run produced no execution evidence (first-time generate, code mode, etc.).
+  /* VOLATILE: runtime execution evidence — D4/D5 injection. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
   const executionResultContent = input.executionResult ?? "";
 
   return assemble([
-    // STABLE prefix: role framing + independence mandate.
     section("reviewer-role-framing", "stable-prefix", roleFramingContent, { priority: 1, cacheable: true }),
-    // STABLE prefix: reviewing instructions (stable for the reviewer role).
     section("reviewer-instructions", "stable-prefix", instructionsContent, { priority: 2, cacheable: true }),
-    // SEMI-STABLE: the objective (commit diff for diff mode, guidance for manual, etc.).
-    // Reviewer-budget-starvation fix: a local maxBytes backstop with overflow:"summarize" (never
-    // "drop") so a residual overflow degrades to a visibly-marked truncation instead of being
-    // silently shed whole by the cross-section budget pass. 56,000B sits above capDiff's 50,000-CHAR
-    // ceiling (a multibyte-heavy capped diff can still exceed 50,000 bytes) plus fixed-prose headroom.
     section("reviewer-objective", "semi-stable", objectiveContent, { priority: 1, language: "verbatim", maxBytes: 56_000, overflow: "summarize" }),
-    // VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that
-    // reference it; the instructions refer to it position-independently as "the Live DEV DOM section").
-    // 20,000B mirrors the reviewer-corrections idiom; overflow:"summarize" for a visible-marker
-    // truncation instead of a silent whole-section drop.
+    /* VOLATILE: DOM grounding (priority 1 — first in VOLATILE so it precedes the spec contents that reference it; the instructions refer to it position-independently as "the Live DEV DOM section"). 20,000B mirrors the reviewer-corrections idiom; overflow:"summarize" for a visible-marker truncation instead of a silent whole-section drop. */
     ...(domContent ? [section("reviewer-dom", "volatile", domContent, { priority: 1, maxBytes: 20_000, overflow: "summarize" })] : []),
-    // VOLATILE: runtime execution result — authoritative orchestrator evidence (HTTP statuses,
-    // final URLs). Priority 1.5 (after DOM, before specs) so the reviewer weighs the objective
-    // 5xx signal before reading test code. Absent when execution evidence is not available.
     ...(executionResultContent ? [section("reviewer-execution-result", "volatile", executionResultContent, { priority: 1.5 })] : []),
-    // VOLATILE: spec contents (priority 2 — the primary content the reviewer judges). 44,000B is a
-    // belt-and-suspenders backstop just above renderReviewSpecs's own 40,000B inline cap; a realistic
-    // 2-4 spec payload is never truncated by this section-level cap. overflow:"summarize" — the
-    // payload the reviewer exists to read must never be silently dropped.
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
-    // VOLATILE: proven app-specific learned rules (priority 3 — supplementary reject criteria).
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
-    // VOLATILE: Phase 4 prior-round corrections (priority 4 — convergence context; lowest priority
-    // in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow).
+    /* VOLATILE: Phase 4 prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
-    // CRITICAL recap: the output contract (must appear at the very end).
     section("reviewer-output-contract", "critical-recap", outputContractContent, { priority: 1 }),
   ], { budgetBytes: roleWindowBytes("qa-reviewer") });
 }

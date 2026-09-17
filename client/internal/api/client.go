@@ -1,6 +1,6 @@
-// Package api is the UI-agnostic client for the Qayaba control plane: the
-// command verbs (typed with the codegen'd contract DTOs) and the RunEvent SSE
-// stream. Bubble Tea wraps these as tea.Cmds; nothing here knows about the UI.
+/* Package api is the UI-agnostic client for the Qayaba control plane: the
+   command verbs (typed with the codegen'd contract DTOs) and the RunEvent SSE
+   stream. Bubble Tea wraps these as tea.Cmds; nothing here knows about the UI. */
 package api
 
 import (
@@ -23,13 +23,13 @@ type Client struct {
 	http    *http.Client
 }
 
-// ClientVersion is the wire version this binary reports to the server's handshake.
-// Release builds inject it via -ldflags "-X .../internal/api.ClientVersion=v1.2.3".
+/* ClientVersion is the wire version this binary reports to the server's handshake.
+   Release builds inject it via -ldflags "-X .../internal/api.ClientVersion=v1.2.3". */
 var ClientVersion = "0.1.0"
 
-// New builds a client for baseURL (e.g. "http://localhost:8080"). The http.Client
-// has no global timeout on purpose — the SSE stream is long-lived; per-request
-// deadlines come from the ctx the caller passes.
+/* New builds a client for baseURL (e.g. "http://localhost:8080"). The http.Client
+   has no global timeout on purpose — the SSE stream is long-lived; per-request
+   deadlines come from the ctx the caller passes. */
 func New(baseURL, token string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -38,7 +38,6 @@ func New(baseURL, token string) *Client {
 	}
 }
 
-// APIError is a non-2xx response carrying the server's error message.
 type APIError struct {
 	Status int
 	Msg    string
@@ -70,8 +69,8 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	// Cap the read: a rogue/misconfigured server must not OOM the client.
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MiB
+	/* Cap the read: a rogue/misconfigured server must not OOM the client. */
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{Status: resp.StatusCode, Msg: errorMessage(data)}
 	}
@@ -96,8 +95,8 @@ func errorMessage(data []byte) string {
 			return e.Message
 		}
 	}
-	// Non-JSON body (e.g. a proxy's plain-text 502): keep a truncated snippet
-	// rather than masking it behind a generic message.
+	/* Non-JSON body (e.g. a proxy's plain-text 502): keep a truncated snippet
+	   rather than masking it behind a generic message. */
 	if s := strings.TrimSpace(string(data)); s != "" {
 		if len(s) > 256 {
 			s = s[:256]
@@ -107,11 +106,11 @@ func errorMessage(data []byte) string {
 	return "request failed"
 }
 
-// ── Command verbs ─────────────────────────────────────────────────────────────
+/* ── Command verbs ───────────────────────────────────────────────────────────── */
 
-// Handshake is the unauthenticated version/capability negotiation — the first
-// call the connect screen makes. It reports this binary's version so the server
-// (the compatibility authority) can flag an out-of-date client.
+/* Handshake is the unauthenticated version/capability negotiation — the first
+   call the connect screen makes. It reports this binary's version so the server
+   (the compatibility authority) can flag an out-of-date client. */
 func (c *Client) Handshake(ctx context.Context) (contract.VersionInfo, error) {
 	q := url.Values{}
 	q.Set("client", ClientVersion)
@@ -155,41 +154,41 @@ func (c *Client) GetApp(ctx context.Context, name string) (contract.AppView, err
 	return out, err
 }
 
-// GetIntelligence fetches the read-only learning ledger, value-oracle scorecard and
-// curriculum for an app — what the system has actually learned.
+/* GetIntelligence fetches the read-only learning ledger, value-oracle scorecard and
+   curriculum for an app — what the system has actually learned. */
 func (c *Client) GetIntelligence(ctx context.Context, app string) (contract.IntelligenceView, error) {
 	var out contract.IntelligenceView
 	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/intelligence", nil, &out)
 	return out, err
 }
 
-// GetSignals fetches the fleet-wide integrity readout (ground-truth value-oracle vs.
-// proxy pass-rate) that backs the dashboard's SIGNALS panel.
+/* GetSignals fetches the fleet-wide integrity readout (ground-truth value-oracle vs.
+   proxy pass-rate) that backs the dashboard's SIGNALS panel. */
 func (c *Client) GetSignals(ctx context.Context) (contract.SignalsView, error) {
 	var out contract.SignalsView
 	err := c.do(ctx, http.MethodGet, "/api/v1/signals", nil, &out)
 	return out, err
 }
 
-// GetTrends fetches the period-over-period trends for an app (change-coverage, value-oracle,
-// verdict mix, flaky rate, error classes) — the source data the report ranks.
+/* GetTrends fetches the period-over-period trends for an app (change-coverage, value-oracle,
+   verdict mix, flaky rate, error classes) — the source data the report ranks. */
 func (c *Client) GetTrends(ctx context.Context, app string) (contract.TrendsView, error) {
 	var out contract.TrendsView
 	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/trends", nil, &out)
 	return out, err
 }
 
-// GetReport fetches the ad-hoc report for an app: interestingness-ranked, self-describing
-// insights (each declares its chart intent + unit + semantic) the TUI renders as charts.
+/* GetReport fetches the ad-hoc report for an app: interestingness-ranked, self-describing
+   insights (each declares its chart intent + unit + semantic) the TUI renders as charts. */
 func (c *Client) GetReport(ctx context.Context, app string) (contract.ReportView, error) {
 	var out contract.ReportView
 	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(app)+"/report", nil, &out)
 	return out, err
 }
 
-// GetRunReport fetches the run-scoped report for a finished run: `Current` — the report about that
-// execution (verdict, case mix, this run's change-coverage/value/duration) — plus `Evolution`, the
-// app's period-over-period report as it stood at that run (nil until there is history to compare).
+/* GetRunReport fetches the run-scoped report for a finished run: `Current` — the report about that
+   execution (verdict, case mix, this run's change-coverage/value/duration) — plus `Evolution`, the
+   app's period-over-period report as it stood at that run (nil until there is history to compare). */
 func (c *Client) GetRunReport(ctx context.Context, runID string) (contract.RunReportView, error) {
 	var out contract.RunReportView
 	err := c.do(ctx, http.MethodGet, "/api/v1/runs/"+url.PathEscape(runID)+"/report", nil, &out)
@@ -218,27 +217,27 @@ func (c *Client) DeleteApp(ctx context.Context, name string, purge bool) (contra
 	return out, err
 }
 
-// ── Boundary-profile onboarding (propose/status/confirm) ──────────────────────
+/* ── Boundary-profile onboarding (propose/status/confirm) ────────────────────── */
 
-// ProposeBoundaries starts a boundary-profile onboarding job for app (or resumes polling
-// its already-running job — the server enforces the one-job mutex, see APIError 409). The
-// server provisions mirrors and proposes read-only; nothing is written until Confirm.
+/* ProposeBoundaries starts a boundary-profile onboarding job for app (or resumes polling
+   its already-running job — the server enforces the one-job mutex, see APIError 409). The
+   server provisions mirrors and proposes read-only; nothing is written until Confirm. */
 func (c *Client) ProposeBoundaries(ctx context.Context, name string, in contract.ProposeBoundariesInput) (contract.OnboardingJobStatus, error) {
 	var out contract.OnboardingJobStatus
 	err := c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(name)+"/boundaries/propose", in, &out)
 	return out, err
 }
 
-// GetBoundaryStatus polls the current (or most recent) onboarding job status for app.
+/* GetBoundaryStatus polls the current (or most recent) onboarding job status for app. */
 func (c *Client) GetBoundaryStatus(ctx context.Context, name string) (contract.OnboardingJobStatus, error) {
 	var out contract.OnboardingJobStatus
 	err := c.do(ctx, http.MethodGet, "/api/v1/apps/"+url.PathEscape(name)+"/boundaries/propose/status", nil, &out)
 	return out, err
 }
 
-// ConfirmBoundaries writes the job's winning boundary profile into config/apps/<name>.yaml —
-// the only write step in the onboarding flow. The server rejects (409/422) a confirm against a
-// non-winner job (no-profile, failed, or still in progress).
+/* ConfirmBoundaries writes the job's winning boundary profile into config/apps/<name>.yaml —
+   the only write step in the onboarding flow. The server rejects (409/422) a confirm against a
+   non-winner job (no-profile, failed, or still in progress). */
 func (c *Client) ConfirmBoundaries(ctx context.Context, name string, in contract.ConfirmBoundariesInput) (contract.CreateAppResult, error) {
 	var out contract.CreateAppResult
 	err := c.do(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(name)+"/boundaries/confirm", in, &out)
@@ -284,7 +283,7 @@ func (c *Client) Help(ctx context.Context, in contract.AskRequest) (contract.Ask
 	return out, err
 }
 
-// ── Agent runtime ─────────────────────────────────────────────────────────────
+/* ── Agent runtime ───────────────────────────────────────────────────────────── */
 
 func (c *Client) GetAgentConfig(ctx context.Context) (contract.PublicAgentConfig, error) {
 	var out contract.PublicAgentConfig

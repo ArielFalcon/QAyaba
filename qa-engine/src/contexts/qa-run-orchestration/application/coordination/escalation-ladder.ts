@@ -1,4 +1,4 @@
-// Escalation ladder (Fase 9). Capability steps only — human abort is terminal, not a capability.
+/* Capability rungs only — human abort is terminal, not a capability. */
 import type { AgentCapability } from "./agent-capability.ts";
 
 export const ESCALATION_LADDER: readonly AgentCapability[] = [

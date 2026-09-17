@@ -60,7 +60,7 @@ test("passing run: PASS headline with coverage, case-mix donut, single-run windo
   assert.equal(mix.intent, "composition");
   assert.equal(mix.chart, "donut");
   assert.equal(mix.value, 3);
-  // A clean run has only the pass slice — fail/flaky slices are omitted, not painted as zero bars.
+  /* A clean run has only the pass slice — fail/flaky slices are omitted, not painted as zero bars. */
   assert.deepEqual(mix.breakdown, [{ label: "pass", value: 3, semantic: "good" }]);
 
   const cov = view.insights.find((i) => i.id === "change-coverage")!;
@@ -74,11 +74,9 @@ test("clean run ranks by importance: case-mix first, agent-usage last (below sui
   const view = toRunReportView({ record: record(), outcome: outcome() });
   const ids = view.insights.map((i) => i.id);
   assert.equal(ids[0], "case-mix");
-  // agent-usage (score 0.25) ranks below suite-duration (0.3), so it is the lowest-ranked insight.
+  /* agent-usage (score 0.25) ranks below suite-duration (0.3), so it is the lowest-ranked insight. */
   assert.equal(ids[ids.length - 1], "agent-usage");
-  // suite-duration still appears immediately above agent-usage.
   assert.ok(ids.indexOf("suite-duration") < ids.indexOf("agent-usage"));
-  // No flow misbehaved, so the flow-results insight is absent entirely.
   assert.ok(!ids.includes("flow-results"));
 });
 
@@ -103,8 +101,9 @@ test("failing run: FAIL headline with error class, flow-results surfaces and out
   assert.equal(flows.chart, "ranked-bars");
   assert.deepEqual(flows.breakdown, [{ label: "checkout", value: 2, semantic: "bad" }]);
 
-  // Concern boosts problems to the top: case-mix (lots failed) and flows lead; below-target
-  // coverage outranks the (here-absent-from-concern) clean value/duration.
+  /* Concern boosts problems to the top: case-mix (lots failed) and flows lead; below-target
+     coverage outranks the (here-absent-from-concern) clean value/duration.
+   */
   const ids = view.insights.map((i) => i.id);
   assert.ok(ids.indexOf("flow-results") < ids.indexOf("suite-duration"));
   assert.ok(ids.indexOf("change-coverage") < ids.indexOf("suite-duration"));
@@ -117,7 +116,6 @@ test("coverage not measured: value is null (never a hard zero), caption says so"
   assert.equal(cov.caption, "not measured this run");
   const val = view.insights.find((i) => i.id === "value-oracle")!;
   assert.equal(val.value, null);
-  // Headline omits the coverage tail when there is none.
   assert.equal(view.headline, "PASS — 3/3 cases green");
 });
 
@@ -145,7 +143,6 @@ test("weights override the base importance of an insight", () => {
   const baseDur = base.insights.find((i) => i.id === "suite-duration")!.score;
   const boostedDur = boosted.insights.find((i) => i.id === "suite-duration")!.score;
   assert.ok(boostedDur > baseDur);
-  // With a 9 weight, duration now headlines the run report.
   assert.equal(boosted.insights[0]!.id, "suite-duration");
 });
 
@@ -173,8 +170,6 @@ test("suite duration sums case timings; null when no case carried timing", () =>
   });
   assert.equal(untimed.insights.find((i) => i.id === "suite-duration")!.value, null);
 });
-
-// ── Agent usage display ───────────────────────────────────────────────────────
 
 test("agent-usage: present + complete → value=total, caption with tokens and cost, no (partial)", () => {
   const out = outcome({ usage: { tokens: { input: 1000, output: 500, reasoning: 200, cacheRead: 0, cacheWrite: 0, total: 1700 }, cost: 0.0123, complete: true } });

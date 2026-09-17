@@ -1,6 +1,4 @@
-// Process-lifetime coordination telemetry so adaptive thresholds and cross-run signals
-// survive composition-per-run rebuilds while COORDINATION_MODE is on. With a persistPath the
-// store also survives process restarts (JSONL reload) — the shadow-divergence evidence base.
+/* Process-lifetime coordination telemetry so adaptive thresholds survive composition-per-run rebuilds. With a persistPath the store also survives process restarts (JSONL reload). */
 import { InMemoryCoordinationTelemetry } from "./coordination-telemetry.ts";
 
 let shared: InMemoryCoordinationTelemetry | undefined;

@@ -7,7 +7,6 @@ const srcDiff = (added: string[]) => [
   `@@ -1,1 +1,${added.length + 1} @@`, " export class S {", ...added.map((l) => "+" + l), " }",
 ].join("\n");
 
-// WS7.3(b): a diff that REMOVES logic lines (no additions), across a source file.
 const removalDiff = (removed: string[]) => [
   "diff --git a/src/svc.ts b/src/svc.ts", "--- a/src/svc.ts", "+++ b/src/svc.ts",
   `@@ -1,${removed.length + 1} +1,1 @@`, " export class S {", ...removed.map((l) => "-" + l), " }",
@@ -32,8 +31,6 @@ test("breaking change always generates", () => {
   assert.equal(classifyCommit("chore!: drop v1", srcDiff(["return;"])).action, "generate");
 });
 
-// ── WS7.3(a): .html/.astro template extensions ────────────────────────────────────────────────
-
 test("WS7.3(a): a .html template diff with added logic escalates a skip-typed commit to generate", () => {
   const d = [
     "diff --git a/src/index.html b/src/index.html", "--- a/src/index.html", "+++ b/src/index.html",
@@ -53,7 +50,7 @@ test("WS7.3(a): a .astro template diff with added logic escalates a skip-typed c
   assert.equal(c.action, "generate");
 });
 
-// ── WS7.3(b): removal-heavy skip-typed commits escalate to REGRESSION (not generate) ───────────
+/* Removal-heavy skip-typed commits escalate to REGRESSION (not generate). */
 
 test("WS7.3(b): a chore commit that REMOVES logic escalates to regression, not generate", () => {
   const c = classifyCommit("chore: cleanup dead code", removalDiff(["if (legacyFlag) doOldThing();"]));
@@ -71,12 +68,9 @@ test("WS7.3(b): a pure relocation (removed logic line re-added elsewhere) does N
 });
 
 test("WS7.3(b): a regression-typed commit (refactor) with removed logic stays regression (untouched by this escalation)", () => {
-  // The (b) escalation only fires for action === "skip" — a refactor already runs the suite.
   const c = classifyCommit("refactor: drop dead branch", removalDiff(["if (deadFlag) noop();"]));
   assert.equal(c.action, "regression");
 });
-
-// ── WS7.3(c): SQL migrations escalate a skip-typed commit to regression ────────────────────────
 
 test("WS7.3(c): a Flyway-style migration file escalates a chore commit to regression", () => {
   const d = [
@@ -106,8 +100,6 @@ test("WS7.3(c): an unrelated .sql file OUTSIDE a migration path/naming conventio
   ].join("\n");
   assert.equal(classifyCommit("chore: report tweak", d).action, "skip");
 });
-
-// ── WS7.1: classifyRange — MAX-severity reduction over a commit range ──────────────────────────
 
 test("classifyRange: a single message (no range) is byte-identical to classifyCommit", () => {
   const diff = srcDiff(["if (x) return 1;"]);

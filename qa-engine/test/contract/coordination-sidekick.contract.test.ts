@@ -1,4 +1,3 @@
-// Fase 4 — SidekickExecutor over AgentRuntimePort. Fake runtime; no network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
@@ -44,8 +43,9 @@ test("renderSidekickBrief includes authority, scope, validation and escalation �
   assert.ok(Object.keys(sectionSizes).length > 0);
 });
 
-// Model-bound egress: sidekick prompt must scrub free-form brief fields the same way lead/worker
-// prompts do via sanitizeText — secrets in guidance/commit message must not reach the provider.
+/* Model-bound egress: sidekick prompt must scrub free-form brief fields the same way lead/worker
+   prompts do via sanitizeText — secrets in guidance/commit message must not reach the provider.
+ */
 test("renderSidekickBrief redacts secrets in objective, task, knownFacts, and acceptance criteria", () => {
   const secret = "token: ghs_supersecretvalue";
   const { text } = renderSidekickBrief(
@@ -117,8 +117,9 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
   assert.equal(result.recommendation, "accept");
 });
 
-// Free-form DelegationResult fields re-enter lead context / notes — scrub before they leave the
-// executor boundary (same sanitizer twin as Issue/prompt egress elsewhere).
+/* Free-form DelegationResult fields re-enter lead context / notes — scrub before they leave the
+   executor boundary (same sanitizer twin as Issue/prompt egress elsewhere).
+ */
 test("SidekickExecutor redacts secrets in DelegationResult summary, concerns, and assumptions", async () => {
   const secret = "token: ghs_supersecretvalue";
   const session: AgentSession = {

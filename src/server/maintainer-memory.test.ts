@@ -45,7 +45,6 @@ test("renderFailureMemory surfaces the recent failures with their assumed root c
   assert.match(out, /fix: B/);
   assert.match(out, /null deref/);
   assert.match(out, /canary-unhealthy/);
-  // most-recent-first
   assert.ok(out.indexOf("fix: B") < out.indexOf("fix: A"), "newest failure shown first");
 });
 

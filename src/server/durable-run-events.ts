@@ -7,14 +7,10 @@ export interface DurableRunEventDeps {
   loadRunEvents?: (runId: string, afterSeq: number) => Array<{ runId: string; seq: number; ts: number; body: unknown }>;
 }
 
-// The orchestrator's run-event store + its durable backing (OBS-01), assembled in ONE place so
-// EVERY trigger that owns a queue — the long-lived server (src/index.ts) and the manual CLI
-// (src/cli.ts) — persists run events identically. A CLI run uses its own in-process queue, and
-// previously wired no run-event store at all, so it wrote zero run_events; the TUI attaching to
-// it through the server then saw an empty, never-closing SSE stream. Routing both processes
-// through this factory means an out-of-process run's events land in the shared store, where the
-// server's durable poll (handleRunEvents) can replay and tail them. The save/load collaborators
-// are injected for tests; production uses the real SQLite-backed history functions.
+/*
+ * Shared durable run-event store for every trigger that owns a queue (long-lived server and
+ * manual CLI). CLI and server persist identically so the TUI can replay and tail a CLI run.
+ */
 export function createDurableRunEventStore(deps: DurableRunEventDeps = {}): RunEventStore {
   const save = deps.saveRunEvent ?? defaultSaveRunEvent;
   const load = deps.loadRunEvents ?? defaultLoadRunEvents;

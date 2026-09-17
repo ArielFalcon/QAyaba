@@ -1,15 +1,5 @@
-// migration-tier-4c Slice 5a: relocated from src/integrations/prompts.test.ts (pure relocation — no
-// assertion changes; only import paths were re-pointed). `OpencodeRunInput`/`QaCase` now resolve to
-// their existing canonical qa-engine mirrors.
-//
-// `setExplorationBriefCollaborators` is wired here with a LOCAL test double, not the real
-// src/qa/exploration-brief.ts functions — qa-engine's tsconfig.json is a COMPOSITE project with
-// rootDir pinned to qa-engine/ (`tsc -b`), so a qa-engine test file cannot import a src/ path at
-// type-check time without being excluded from that project entirely (the `-parity.test.ts`
-// convention). This file is the main behavioral suite for prompts.ts (not a parity comparison), so
-// it stays IN the main project; the D3 FE↔BE-suppression tests below only exercise prompts.ts's OWN
-// suppression logic (suppressFeBe), never exploration-brief.ts's rendering details — a minimal
-// double that renders the same "FE↔BE links" marker is the correct-layer fake, not a shortcut.
+/* setExplorationBriefCollaborators is a local test double — this suite cannot import src/ at
+   typecheck (qa-engine rootDir). It only needs the same "FE↔BE links" marker prompts.ts suppresses. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
@@ -44,11 +34,11 @@ setExplorationBriefCollaborators({
   },
 });
 
-// RE-1 — the orchestrator's regeneration prompts must NOT command the agent to re-navigate /
-// re-snapshot / re-activate serena when authoritative grounding (a Context Pack DOM slice or an
-// injected a11y tree) is already in the prompt. They MUST keep commanding exploration when there
-// is NO grounding (a blind regen still needs to see the page). "Grounding present" = contextPack
-// || domSnapshot.
+/* Regeneration prompts must NOT command the agent to re-navigate / re-snapshot / re-activate
+   serena when authoritative grounding (a Context Pack DOM excerpt or an injected a11y tree) is
+   already in the prompt. They MUST keep commanding exploration when there is NO grounding (a
+   blind regen still needs to see the page). "Grounding present" = contextPack || domSnapshot.
+ */
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -69,8 +59,9 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 
 const failingCase: QaCase = { name: "owners list", status: "fail", detail: "locator not found" };
 
-// ── Code mode: the task must be source-code-framed (no E2E/page/browser wording) and instruct a
-//    compile-before-finish step (the code analogue of e2e's `playwright test --list`). ──
+/* ── Code mode: the task must be source-code-framed (no E2E/page/browser wording) and instruct a
+   compile-before-finish step (the code analogue of e2e's `playwright test --list`). ──
+ */
 test("code mode task: frames source-code testing, not the e2e flow/page wording", () => {
   const text = buildPrompt(mkInput({ target: "code" }));
   assert.match(text, /UNIT\/INTEGRATION|source-code/i, "code task must be framed as source-code testing");
@@ -83,8 +74,9 @@ test("code mode working-rules: instruct compile-before-finish", () => {
   assert.match(text, /test-compile|testClasses|go vet|cargo check|tsc --noEmit/, "with the per-ecosystem compile command");
 });
 
-// ── fixContent (the motivating bug: a backend-500 failure has no failure DOM, so failureSourced is
-//    false, but the Context Pack is still injected — the prompt must not order a re-navigation). ──
+/* ── fixContent (the motivating bug: a backend-500 failure has no failure DOM, so failureSourced is
+   false, but the Context Pack is still injected — the prompt must not order a re-navigation). ──
+ */
 
 test("RE-1 fix-loop: with grounding present and no failure DOM, the fix prompt does NOT command browser_navigate", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM here" }));
@@ -115,8 +107,6 @@ test("RE-1 fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate fra
   );
 });
 
-// ── reviewContent (reviewer-corrections / static-fix path) ──
-
 test("RE-1 reviewer-corrections: with grounding present, do NOT command re-verify against the live DOM", () => {
   const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], contextPack: "## Context Pack\n\nDOM here" }));
   assert.ok(
@@ -137,11 +127,12 @@ test("RE-1 reviewer-corrections: with NO grounding, keep the live-DOM re-verify 
   );
 });
 
-// SECURITY CRITICAL: the reviewer agent has read/bash/glob on the ACTUAL repo files, not just the
-// pre-sanitized diff the orchestrator assembles — a secret it reads and quotes in a rejection
-// rationale must never reach a second model call unredacted. Every sibling field (diff, commit
-// body, guidance, DOM snapshot, classificationReason) already runs through sanitizeText(..., "model");
-// reviewCorrections was the one gap.
+/* SECURITY CRITICAL: the reviewer agent has read/bash/glob on the ACTUAL repo files, not just the
+   pre-sanitized diff the orchestrator assembles — a secret it reads and quotes in a rejection
+   rationale must never reach a second model call unredacted. Every sibling field (diff, commit
+   body, guidance, DOM snapshot, classificationReason) already runs through sanitizeText(..., "model");
+   reviewCorrections was the one gap.
+ */
 const SECRET_IN_REVIEW_CORRECTION = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
 
 test("SECURITY: a secret quoted in a reviewCorrection is redacted before reaching the generation prompt", () => {
@@ -160,16 +151,16 @@ test("SECURITY: a secret quoted in a reviewCorrection is redacted in the followu
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-// judgment-day round 2 (FIX 5, Judge B, verified by direct probe): reviewCorrections/
-// selectorContradictions/priorCorrections were all sanitized in "model" mode — the SAME mode used
-// for the diff (deliberately narrowed to avoid over-redacting legitimate code shapes like
-// `password: string`). But these three fields are SHORT AGENT PROSE (a rejection rationale, a
-// selector-mismatch description), not diff code — model mode's narrowing means an ORDINARY,
-// unquoted credential like `password: hunter2` sails through unredacted. Direct probe:
-// sanitizeText("password: hunter2", "model") -> {redacted:false}. DECISION: these three fields move
-// to the stricter default ("issue") mode — the same mode already used for the logs->Issue egress
-// boundary — because the utility cost of over-redacting short agent prose is near zero, unlike a
-// full code diff where model mode's narrowing genuinely protects legitimate type annotations.
+/* selectorContradictions/priorCorrections were all sanitized in "model" mode — the SAME mode used
+   for the diff (deliberately narrowed to avoid over-redacting legitimate code shapes like
+   `password: string`). But these three fields are SHORT AGENT PROSE (a rejection rationale, a
+   selector-mismatch description), not diff code — model mode's narrowing means an ORDINARY,
+   unquoted credential like `password: hunter2` sails through unredacted. Direct probe:
+   sanitizeText("password: hunter2", "model") -> {redacted:false}. DECISION: these three fields move
+   to the stricter default ("issue") mode — the same mode already used for the logs->Issue egress
+   boundary — because the utility cost of over-redacting short agent prose is near zero, unlike a
+   full code diff where model mode's narrowing genuinely protects legitimate type annotations.
+ */
 const ORDINARY_CREDENTIAL = "hunter2";
 
 test("SECURITY (FIX 5): an ordinary unquoted credential in a reviewCorrection is redacted (stricter default mode, not model mode — prose is not code)", () => {
@@ -204,12 +195,13 @@ test("SECURITY (FIX 5): an ordinary unquoted credential in a priorCorrection is 
   assert.match(text, /\[REDACTED\]/);
 });
 
-// judgment-day round 2 (FIX 4, both judges — Judge A proved it live): selectorContradictions is
-// built by checkSpecSelectors (qa-run-orchestration/domain/helpers/selector-check.ts), which embeds
-// `sel.name` extracted VERBATIM from the agent's own spec source — an agent can write
-// `page.getByRole('button', { name: '<secret it read from a repo file>' })` (a locator guaranteed
-// not to match) and that name is echoed unredacted into the NEXT regen prompt, right next to
-// reviewCorrections (already fixed) but itself never sanitized.
+/* selectorContradictions is
+   built by checkSpecSelectors (qa-run-orchestration/domain/helpers/selector-check.ts), which embeds
+   `sel.name` extracted VERBATIM from the agent's own spec source — an agent can write
+   `page.getByRole('button', { name: '<secret it read from a repo file>' })` (a locator guaranteed
+   not to match) and that name is echoed unredacted into the NEXT regen prompt, right next to
+   reviewCorrections (already fixed) but itself never sanitized.
+ */
 const SECRET_IN_SELECTOR_CONTRADICTION = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
 
 test("SECURITY (FIX 4): a secret embedded in a selectorContradiction (agent-authored locator name) is redacted before reaching the generation prompt", () => {
@@ -230,7 +222,7 @@ test("SECURITY (FIX 4): a secret embedded in a selectorContradiction is redacted
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-// ── workingRules: a DOM snapshot (no pack) is still grounding → suppress the explore-first mandate ──
+/* ── workingRules: a DOM snapshot (no pack) is still grounding → suppress the explore-first mandate ── */
 
 test("RE-1 working-rules: domSnapshot present without a pack suppresses the explore-first mandate", () => {
   const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
@@ -252,8 +244,6 @@ test("RE-1 working-rules: no pack AND no DOM keeps the explore-first mandate (bl
   );
 });
 
-// ── coverageContent ──
-
 test("RE-1 coverage-enforce: with grounding present, instruct to resolve from grounding, not re-navigate", () => {
   const text = buildPrompt(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: "## Context Pack\n\nDOM here" }));
   assert.ok(
@@ -262,7 +252,7 @@ test("RE-1 coverage-enforce: with grounding present, instruct to resolve from gr
   );
 });
 
-// ── regen-discipline: a re-generation turn must not re-orient (serena/blast-radius already distilled) ──
+/* ── regen-discipline: a re-generation turn must not re-orient (serena/blast-radius already distilled) ── */
 
 test("RE-1 regen-discipline: a re-generation turn suppresses serena re-orientation", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
@@ -280,10 +270,6 @@ test("RE-1 regen-discipline: a FIRST-PASS (non-regen) turn keeps full orientatio
   );
 });
 
-// ── Judgment-day fixes (RE-1 efficacy hardening) ──────────────────────────────
-
-// JD-C1: the task's "Scope budget" re-commanded find_referencing_symbols on every diff regen,
-// directly contradicting regen-discipline. Gate it on the first pass only.
 test("JD-C1: a diff RE-gen prompt does NOT re-command the blast-radius scan (no contradiction)", () => {
   const regen = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM" }));
   assert.ok(!regen.includes("Read ONLY the changed symbols"), "regen must not re-command find_referencing_symbols");
@@ -291,8 +277,9 @@ test("JD-C1: a diff RE-gen prompt does NOT re-command the blast-radius scan (no 
   assert.ok(firstPass.includes("Read ONLY the changed symbols"), "the first pass keeps the scope budget");
 });
 
-// JD-C3: hasInjectedGrounding is a coarse boolean; the grounding may not cover the failing route.
-// The agent must be explicitly told to navigate an uncovered route rather than guess blindly.
+/* hasInjectedGrounding is a coarse boolean; the grounding may not cover the failing route.
+   The agent must be explicitly told to navigate an uncovered route rather than guess blindly.
+ */
 test("JD-C3: a grounded RE-gen prompt MANDATES navigating a route absent from the grounding (anti-blinding)", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM" }));
   assert.ok(
@@ -301,7 +288,7 @@ test("JD-C3: a grounded RE-gen prompt MANDATES navigating a route absent from th
   );
 });
 
-// JD-S-A4: the serena suppression was absolute; a fix may legitimately need a symbol not in the brief.
+/* the serena suppression was absolute; a fix may legitimately need a symbol not in the brief. */
 test("JD-SA4: regen-discipline carves out reading a symbol the grounding lacks", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.ok(
@@ -310,9 +297,9 @@ test("JD-SA4: regen-discipline carves out reading a symbol the grounding lacks",
   );
 });
 
-// JD-C2: regen-discipline was VOLATILE, so it shed before the (TASK-band) command it overrides.
-// Moving it to the stable-prefix band makes it render before the volatile context-pack, proving it
-// sheds no earlier than the volatile/task content it must outlive.
+/* Moving it to the stable-prefix band makes it render before the volatile context-pack, proving it
+   sheds no earlier than the volatile/task content it must outlive.
+ */
 test("JD-C2: regen-discipline is in the stable band (renders before the volatile context-pack)", () => {
   const a = buildPromptAssembled(mkInput({ fixCases: [failingCase], contextPack: "## CTXPACK-MARKER" }));
   const iRegen = a.text.indexOf("do NOT re-run find_referencing_symbols");
@@ -321,9 +308,10 @@ test("JD-C2: regen-discipline is in the stable band (renders before the volatile
   assert.ok(iRegen < iPack, "regen-discipline (stable) must render before the volatile context-pack");
 });
 
-// RE-3: a re-generation on a CONTINUED session sends a short follow-up — the session already holds
-// the working-rules, context-pack, brief and diff, so re-sending them wastes tokens. The follow-up
-// carries only the new failure/correction signal + a "do not re-explore" continuation framing.
+/* RE-3: a re-generation on a CONTINUED session sends a short follow-up — the session already holds
+   the working-rules, context-pack, brief and diff, so re-sending them wastes tokens. The follow-up
+   carries only the new failure/correction signal + a "do not re-explore" continuation framing.
+ */
 test("RE-3 buildFollowupPrompt: continuation carries the failures but NOT the full re-sent context", () => {
   const input = mkInput({
     fixCases: [failingCase],
@@ -353,8 +341,7 @@ test("RE-3 buildFollowupPrompt: a failure-sourced continuation still injects the
   assert.ok(followup.includes("Add Owner"), "the captured failure DOM is present");
 });
 
-// JD-R2: the failure-sourced fix branch is also grounded (the captured failure tree), so it shares the
-// anti-blinding gap — a fix that must touch a route NOT in that tree needs the same escape.
+/* anti-blinding gap — a fix that must touch a route NOT in that tree needs the same escape. */
 test("JD-R2: the failure-sourced fix branch carries the anti-blinding escape too", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   assert.ok(
@@ -363,12 +350,11 @@ test("JD-R2: the failure-sourced fix branch carries the anti-blinding escape too
   );
 });
 
-// ── WS5.4c: raw DOM embeds must be sanitized like every other model-bound section ──────────────
-// domSnapshot is captured live from DEV — the rendered page can legitimately contain a leaked
-// secret-shaped string (e.g. an admin panel echoing an API key in a debug banner, or a stray
-// data-testid that happens to look like a credential assignment). Every OTHER text section in this
-// file (diff, commit message, guidance) is already routed through sanitizeText; the DOM embeds were
-// the one inconsistent gap (context-pack.ts's own DOM section has the SAME gap, fixed alongside).
+/* Raw DOM embeds must be sanitized like every other model-bound section.
+   domSnapshot is captured live from DEV — the rendered page can contain a leaked secret-shaped
+   string. Every other text section in this file (diff, commit message, guidance) is already routed
+   through sanitizeText; DOM embeds must follow the same rule (context-pack.ts's DOM section too).
+ */
 const secretShapedDom = 'button: Submit\ntextbox: apiKey: "sk-liveSECRETVALUE123456"';
 
 test("WS5.4c: the generator's live-DOM section sanitizes a secret-shaped DOM string", () => {
@@ -400,11 +386,12 @@ test("WS5.4c: buildReviewerPrompt's live-DOM section sanitizes a secret-shaped s
   assert.ok(!text.includes("sk-liveSECRETVALUE123456"), "the reviewer's captured DOM must be sanitized too");
 });
 
-// judgment-day round 2 (FIX 4 sweep — the 5th unsanitized site): priorCorrections carries the SAME
-// reviewer-authored correction text as reviewCorrections (the W2 "reviewGenerated threads the prior
-// round's own corrections into the NEXT review call" convergence mechanism) — just fed back into
-// the REVIEWER's own next-round prompt instead of the generator's. Same provenance, same risk,
-// same fix.
+/* priorCorrections carries the SAME
+   reviewer-authored correction text as reviewCorrections (the prior round's own corrections
+   thread into the NEXT review call) — just fed back into
+   the REVIEWER's own next-round prompt instead of the generator's. Same provenance, same risk,
+   same fix.
+ */
 const SECRET_IN_PRIOR_CORRECTION = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
 
 test("SECURITY (FIX 4 sweep): a secret quoted in a priorCorrection is redacted before reaching the reviewer's next-round prompt", () => {
@@ -422,12 +409,13 @@ test("SECURITY (FIX 4 sweep): a secret quoted in a priorCorrection is redacted b
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-// ── C1: fix-cases evidence rendering (httpStatus/finalUrl/runtimeErrors) ─────
-// The FixLoop already carries runtime evidence on each failing QaCase (A2), but the fix-cases
-// prompt sections rendered only `name` + `detail`, discarding the strongest signal available for
-// telling an app defect (5xx, console error) apart from a test defect. Both render sites — the
-// initial fixContent in buildPromptAssembled/buildPrompt and the RE-3 buildFollowupPrompt — must
-// surface it.
+/* ── C1: fix-cases evidence rendering (httpStatus/finalUrl/runtimeErrors) ─────
+   The FixLoop already carries runtime evidence on each failing QaCase (A2), but the fix-cases
+   prompt sections rendered only `name` + `detail`, discarding the strongest signal available for
+   telling an app defect (5xx, console error) apart from a test defect. Both render sites — the
+   initial fixContent in buildPromptAssembled/buildPrompt and the RE-3 buildFollowupPrompt — must
+   surface it.
+ */
 
 const evidenceCase: QaCase = {
   name: "owners list",
@@ -495,19 +483,15 @@ test("C1: buildFollowupPrompt fix-cases section also renders httpStatus/finalUrl
   assert.match(followup, /\[pageerror\] TypeError: cannot read properties of undefined/);
 });
 
-// ── Slice 4: prompt-info-architecture seams a/b/c/d/e ────────────────────────
-
-// Helper: pad a string to a given byte count.
 function padTo(s: string, bytes: number): string {
   const current = Buffer.byteLength(s, "utf8");
   if (current >= bytes) return s;
   return s + " ".repeat(bytes - current);
 }
 
-// ── Seam e — acceptance-criterion appears BEFORE diff in diff mode ─────────────────────────
+/* ── Seam e — acceptance-criterion appears BEFORE diff in diff mode ───────────────────────── */
 
-// [RED seam a/e] 1.2: in buildPrompt diff mode, criterion must appear before the diff block.
-// Currently the diff block appears first in buildTask, so this test is expected to be RED.
+/* 1.2: in buildPrompt diff mode, criterion must appear before the diff block. */
 test("seam-e: criterion precedes diff block in diff mode (buildPrompt)", () => {
   const text = buildPrompt(mkInput());
   const iCriterion = text.indexOf("commit to this BEFORE writing");
@@ -520,14 +504,13 @@ test("seam-e: criterion precedes diff block in diff mode (buildPrompt)", () => {
   );
 });
 
-// ── Seam a — diff sheds as semi-stable (shedAs:"semi-stable") ────────────────
-
-// [seam a] 1.1: diff section exists as a dedicated section (not embedded in task).
-// We verify this via sectionSizes when the diff fits within budget.
-// Also asserts that under shed pressure (using assemble directly), diff (shedAs semi-stable, band 2)
-// sheds BEFORE task (band 3).
+/* [seam a] 1.1: diff section exists as a dedicated section (not embedded in task).
+   We verify this via sectionSizes when the diff fits within budget.
+   Also asserts that under shed pressure (using assemble directly), diff (shedAs semi-stable, band 2)
+   sheds BEFORE task (band 3).
+ */
 test("seam-a: diff is a dedicated section (shedAs semi-stable) and sheds before task under budget pressure", () => {
-  // Part 1: When diff fits within budget, sectionSizes must have a "diff" key separate from "task".
+  /* Part 1: When diff fits within budget, sectionSizes must have a "diff" key separate from "task". */
   const result = buildPromptAssembled(mkInput({
     diff: "diff --git a/src/foo.ts\n+export function foo() {}",
   }));
@@ -536,19 +519,17 @@ test("seam-a: diff is a dedicated section (shedAs semi-stable) and sheds before 
     `expected a dedicated "diff" section in sectionSizes; got: ${Object.keys(result.sectionSizes).join(", ")}`,
   );
 
-  // Part 2: diff section (shedAs semi-stable → band 2) sheds BEFORE task (band 3) under tight budget.
-  // Use caAssemble to control budget precisely.
   const DIFF_MARKER = "DIFF_SECTION_MARKER";
   const TASK_MARKER = "TASK_SECTION_MARKER";
   const padded = (s: string) => padTo(s, 20_000);
-  const budget = 22_000; // fits 1 of 2 sections
+  const budget = 22_000;
 
   const shedResult = caAssemble([
     caSection("task", "task", padded(TASK_MARKER), { priority: 1 }),
     caSection("diff", "task", padded(DIFF_MARKER), { priority: 2, shedAs: "semi-stable" }),
   ], { budgetBytes: budget });
 
-  // diff (shedAs semi-stable, band 2) sheds before task (band 3) → DIFF_MARKER absent, TASK_MARKER present.
+  /* diff (shedAs semi-stable, band 2) sheds before task (band 3) → DIFF_MARKER absent, TASK_MARKER present. */
   assert.ok(
     shedResult.text.includes(TASK_MARKER),
     "task section must survive when diff (shedAs semi-stable) is shed under budget pressure",
@@ -559,21 +540,23 @@ test("seam-a: diff is a dedicated section (shedAs semi-stable) and sheds before 
   );
 });
 
-// [seam a] 1.3 (regression guard, STRENGTHENED): critical-recap (context-pack shedAs:critical-recap,
-// band 4) outlasts the diff (shedAs:semi-stable, band 2) AND learned-rules (volatile, band 1) under
-// real budget enforcement. Shed order: learned-rules (volatile, band 1) → diff (semi-stable, band 2)
-// → context-pack (critical-recap, band 4). Budget forces both learned-rules AND diff to shed while
-// the pack survives — proving the invariant under enforcement, not just by construction.
+/* [seam a] 1.3 (regression guard, STRENGTHENED): critical-recap (context-pack shedAs:critical-recap,
+   band 4) outlasts the diff (shedAs:semi-stable, band 2) AND learned-rules (volatile, band 1) under
+   real budget enforcement. Shed order: learned-rules (volatile, band 1) → diff (semi-stable, band 2)
+   → context-pack (critical-recap, band 4). Budget forces both learned-rules AND diff to shed while
+   the pack survives — proving the invariant under enforcement, not just by construction.
+ */
 test("seam-a + regression: critical-recap context-pack sheds LAST — survives when diff AND learned-rules are shed", () => {
   const PACK_MARKER = "PACK_MARKER_CONTENT";
   const DIFF_MARKER = "DIFF_SECTION_MARKER";
   const LEARNED_MARKER = "LEARNED_RULES_MARKER";
 
   const padded = (s: string) => padTo(s, 25_000);
-  // Budget: fits only 1 of 3 sections (each ~25k, budget 27k).
-  // Shed order: learned-rules (volatile, band 1) → diff (shedAs:semi-stable, band 2)
-  //             → context-pack (shedAs:critical-recap, band 4).
-  // Expected: LEARNED_MARKER shed, DIFF_MARKER shed, PACK_MARKER survives.
+  /* Budget: fits only 1 of 3 sections (each ~25k, budget 27k).
+     Shed order: learned-rules (volatile, band 1) → diff (shedAs:semi-stable, band 2)
+     → context-pack (shedAs:critical-recap, band 4).
+     Expected: LEARNED_MARKER shed, DIFF_MARKER shed, PACK_MARKER survives.
+   */
   const budget = 27_000;
 
   const result = caAssemble([
@@ -596,9 +579,6 @@ test("seam-a + regression: critical-recap context-pack sheds LAST — survives w
   );
 });
 
-// ── Seam b — existingSpecFiles renders manifest section ───────────────────────
-
-// [RED seam b] 1.4: existingSpecFiles renders as existing-suite-manifest section in diff mode.
 test("seam-b: existingSpecFiles renders manifest section in diff mode", () => {
   const text = buildPrompt(mkInput({ existingSpecFiles: ["e2e/flows/login.spec.ts", "e2e/flows/checkout.spec.ts"] }));
   assert.ok(
@@ -611,7 +591,6 @@ test("seam-b: existingSpecFiles renders manifest section in diff mode", () => {
   );
 });
 
-// [RED seam b] 1.5: empty existingSpecFiles emits no manifest section.
 test("seam-b: empty existingSpecFiles produces no manifest section", () => {
   const text = buildPrompt(mkInput({ existingSpecFiles: [] }));
   assert.ok(
@@ -620,7 +599,6 @@ test("seam-b: empty existingSpecFiles produces no manifest section", () => {
   );
 });
 
-// [RED seam b] 1.6: absent existingSpecFiles emits no manifest section (backward-compat).
 test("seam-b: absent existingSpecFiles produces no manifest section (backward-compat)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
@@ -629,9 +607,6 @@ test("seam-b: absent existingSpecFiles produces no manifest section (backward-co
   );
 });
 
-// ── Seam c — FE↔BE appears ≤2 times when contextPack present ─────────────────
-
-// [RED seam c] 1.7: at most 2 occurrences of "FE↔BE links" when contextPack is present.
 test("seam-c: FE↔BE appears at most twice when contextPack is present", () => {
   const contextMap = {
     builtAtSha: "abc1234",
@@ -639,7 +614,6 @@ test("seam-c: FE↔BE appears at most twice when contextPack is present", () => 
     api: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
     feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
   };
-  // The contextPack itself also mentions FE↔BE links.
   const contextPack = "### FE↔BE links (1 of 1 total)\n- Route `/checkout` → `createOrder`";
   const text = buildPrompt(mkInput({ contextMap, contextPack }));
   const count = (text.match(/FE↔BE links/g) ?? []).length;
@@ -649,7 +623,6 @@ test("seam-c: FE↔BE appears at most twice when contextPack is present", () => 
   );
 });
 
-// [RED seam c] 1.8 (non-regression): FE↔BE rendered when contextPack absent.
 test("seam-c: full FE↔BE rendered when contextPack is absent (non-regression)", () => {
   const contextMap = {
     builtAtSha: "abc1234",
@@ -664,10 +637,9 @@ test("seam-c: full FE↔BE rendered when contextPack is absent (non-regression)"
   );
 });
 
-// ── D3: suppress FE↔BE from exploration brief when contextPack is present ─────
-
-// D3-1: when BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
-// must appear at most ONCE in the assembled prompt (from the pack, not the brief).
+/* D3-1: when BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
+   must appear at most ONCE in the assembled prompt (from the pack, not the brief).
+ */
 test("D3: FE↔BE links appear only once when both contextBrief (with feBe) and contextPack are present", () => {
   const contextBrief = {
     builtForSha: "abc1234",
@@ -686,8 +658,9 @@ test("D3: FE↔BE links appear only once when both contextBrief (with feBe) and 
   );
 });
 
-// D3-2 (non-regression): when only contextBrief is present (no contextPack), the brief's
-// FE↔BE section must still render normally — suppression must NOT apply.
+/* D3-2 (non-regression): when only contextBrief is present (no contextPack), the brief's
+   FE↔BE section must still render normally — suppression must NOT apply.
+ */
 test("D3: FE↔BE links in contextBrief render normally when contextPack is absent", () => {
   const contextBrief = {
     builtForSha: "abc1234",
@@ -703,50 +676,49 @@ test("D3: FE↔BE links in contextBrief render normally when contextPack is abse
   );
 });
 
-// D3-3: when contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack.
+/* D3-3: when contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack. */
 test("D3: no FE↔BE section in brief when brief.feBe is absent — no change with or without contextPack", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
     blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "applies discount" }],
-    // No feBe property
     routes: [{ path: "/checkout", verified: false as const }],
   };
   const contextPack = "### FE↔BE links (1 of 1 total)\n- Route `/checkout` → `createOrder`";
   const text = buildPrompt(mkInput({ contextBrief, contextPack }));
-  // Only the pack's FE↔BE appears (brief has no feBe to suppress)
   const count = (text.match(/FE↔BE links/g) ?? []).length;
   assert.equal(count, 1, "when brief has no feBe, only the pack's FE↔BE link must appear");
 });
 
-// ── Seam d — learned-rules shed priority ──────────────────────────────────────
-
-// [seam d] 1.9: learned-rules sheds AFTER reviewer-corrections and coverage-gap.
-// After seam d, learned-rules priority is p2 in buildPromptAssembled.
-// Use caAssemble to verify the shed order invariant directly.
+/* [seam d] 1.9: learned-rules sheds AFTER reviewer-corrections and coverage-gap.
+   After seam d, learned-rules priority is p2 in buildPromptAssembled.
+   Use caAssemble to verify the shed order invariant directly.
+ */
 test("seam-d: learned-rules (p2) sheds AFTER reviewer-corrections (p4) and coverage-gap (p5) in shed order", () => {
-  // With seam-d priority p2: volatile shed order is coverage-gap(5) → reviewer-corrections(4) →
-  // fix-cases(3) → learned-rules(2) → dom(1). So learned-rules (p2) sheds LAST among these.
-  // We verify: with a budget that forces shedding of coverage-gap (p5) only, learned-rules and
-  // reviewer-corrections both survive; with more shedding, reviewer-corrections (p4) goes before learned-rules.
+  /* With seam-d priority p2: volatile shed order is coverage-gap(5) → reviewer-corrections(4) →
+     fix-cases(3) → learned-rules(2) → dom(1). So learned-rules (p2) sheds LAST among these.
+     We verify: with a budget that forces shedding of coverage-gap (p5) only, learned-rules and
+     reviewer-corrections both survive; with more shedding, reviewer-corrections (p4) goes before learned-rules.
+   */
 
   const REVIEWER_MARKER = "REVIEWER_CORRECTIONS_MARKER";
   const LEARNED_MARKER = "LEARNED_RULES_MARKER";
   const GAP_MARKER = "COVERAGE_GAP_MARKER";
 
   const padded = (s: string) => padTo(s, 20_000);
-  // Budget: fits 2 of 3 sections. coverage-gap (p5) sheds first (highest number = first to go).
-  // After that, reviewer-corrections (p4) sheds next if still over budget.
-  // learned-rules (p2) sheds LAST — so with budget=42k, coverage-gap is shed, both others survive.
+  /* Budget: fits 2 of 3 sections. coverage-gap (p5) sheds first (highest number = first to go).
+     After that, reviewer-corrections (p4) sheds next if still over budget.
+     learned-rules (p2) sheds LAST — so with budget=42k, coverage-gap is shed, both others survive.
+   */
   const budget = 42_000;
 
   const result = caAssemble([
     caSection("reviewer-corrections", "volatile", padded(REVIEWER_MARKER), { priority: 4 }),
     caSection("coverage-gap", "volatile", padded(GAP_MARKER), { priority: 5 }),
-    caSection("learned-rules", "volatile", padded(LEARNED_MARKER), { priority: 2 }), // seam-d target priority
+    caSection("learned-rules", "volatile", padded(LEARNED_MARKER), { priority: 2 }),
   ], { budgetBytes: budget });
 
-  // With p2: coverage-gap (p5) sheds first → LEARNED_MARKER and REVIEWER_MARKER both survive.
+  /* With p2: coverage-gap (p5) sheds first → LEARNED_MARKER and REVIEWER_MARKER both survive. */
   assert.ok(
     result.text.includes(LEARNED_MARKER),
     `learned-rules (p2) must survive budget shedding — coverage-gap (p5) should shed first. ` +
@@ -762,24 +734,26 @@ test("seam-d: learned-rules (p2) sheds AFTER reviewer-corrections (p4) and cover
   );
 });
 
-// [seam d] 1.10: plan-lessons (p2 after seam d) survives budget pressure that evicts plan-arch-map (p2, declared first).
-// With both at p2 (after seam d), the stable sort orders shed candidates by declaration order:
-// plan-arch-map is declared FIRST in the array → shed FIRST. plan-lessons SURVIVES.
+/* [seam d] 1.10: plan-lessons (p2 after seam d) survives budget pressure that evicts plan-arch-map (p2, declared first).
+   With both at p2 (after seam d), the stable sort orders shed candidates by declaration order:
+   plan-arch-map is declared FIRST in the array → shed FIRST. plan-lessons SURVIVES.
+ */
 test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2, declared first) is shed", () => {
   const LESSONS_MARKER = "PLAN_LESSONS_MARKER";
   const ARCH_MAP_MARKER = "PLAN_ARCH_MAP_MARKER";
 
   const padded = (s: string) => padTo(s, 20_000);
-  // Budget: fits 1 of 2 sections. Both at p2 → tied priority, declaration order decides.
-  // plan-arch-map declared first → sheds first. plan-lessons survives.
+  /* Budget: fits 1 of 2 sections. Both at p2 → tied priority, declaration order decides.
+     plan-arch-map declared first → sheds first. plan-lessons survives.
+   */
   const budget = 22_000;
 
   const result = caAssemble([
     caSection("plan-arch-map", "semi-stable", padded(ARCH_MAP_MARKER), { priority: 2 }),
-    caSection("plan-lessons", "semi-stable", padded(LESSONS_MARKER), { priority: 2 }), // seam-d target: p2 (tied with arch-map)
+    caSection("plan-lessons", "semi-stable", padded(LESSONS_MARKER), { priority: 2 }), /* seam-d target: p2 (tied with arch-map) */
   ], { budgetBytes: budget });
 
-  // Both p2 → stable sort keeps declaration order → plan-arch-map sheds first → plan-lessons survives.
+  /* Both p2 → stable sort keeps declaration order → plan-arch-map sheds first → plan-lessons survives. */
   assert.ok(
     result.text.includes(LESSONS_MARKER),
     `plan-lessons (p2) must survive when plan-arch-map (also p2, declared first) sheds first.`,
@@ -790,28 +764,25 @@ test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2,
   );
 });
 
-// ── Seam-d PINNING TESTS: pin REAL production priority scalars (FIX 2 regression guard) ──────────
+/* ── Seam-d PINNING TESTS: pin REAL production priority scalars (FIX 2 regression guard) ────────── */
 
-// PINNING: generator path (prompts.ts line ~828). Calls buildPromptAssembled with large
-// learnedRules + coverageGap content so the role budget (192k for kimi-k2.7-code) forces shedding.
-//
-// WS5.2 (full-flow remediation) SUPERSEDES this pinning's original premise: coverage-gap is now
-// rendered with shedAs:"critical-recap" (least-shedable — it is the ENTIRE payload of an enforce-
-// mode coverage regen, and losing it silently degrades the one-shot regen into a blind repeat of
-// the original prompt). So the assertion FLIPS from the pre-WS5.2 state: coverage-gap now SURVIVES
-// budget pressure and learned-rules (still p2, unchanged) is the one that sheds instead — proving
-// the shedAs promotion actually took effect, not merely that learned-rules kept its own priority.
+/* Generator path: buildPromptAssembled with large learnedRules + coverageGap content so the role
+   budget (192k for kimi-k2.7-code) forces shedding. coverage-gap is rendered with
+   shedAs:"critical-recap" (least-shedable — it is the ENTIRE payload of an enforce-mode coverage
+   regen). Under budget pressure, learned-rules (still p2) sheds instead — proving the shedAs
+   promotion took effect, not merely that learned-rules kept its own priority.
+ */
 test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives budget pressure that sheds learned-rules (p2)", () => {
   const LEARNED_MARKER = "PINNING_LEARNED_RULES_MARKER";
   const GAP_MARKER = "PINNING_COVERAGE_GAP_MARKER";
 
-  // Each section ~100k bytes. Together ~200k — exceeds the injected 192k budget, so at least
-  // one section must shed. The budget is injected via buildPromptAssembled's budgetBytes seam
-  // (64k tokens × 0.75 safety × 4 bytes/token = 192k — the value the old 64K catalog entry
-  // produced) so the assertion is INDEPENDENT of the live model-window catalog: raising a
-  // real model window to 1M must never silently void this shed-order reasoning test.
-  // coverage-gap is promoted to the critical-recap shed band (WS5.2) — it no longer competes with
-  // learned-rules in the volatile shed band at all, so learned-rules (still volatile p2) sheds first.
+  /* Each section ~100k bytes. Together ~200k — exceeds the injected 192k budget, so at least
+     one section must shed. The budget is injected via buildPromptAssembled's budgetBytes seam
+     (64k tokens × 0.75 safety × 4 bytes/token = 192k — the value the old 64K catalog entry
+     produced) so the assertion is INDEPENDENT of the live model-window catalog: raising a
+     real model window to 1M must never silently void this shed-order reasoning test.
+     learned-rules in the volatile shed band at all, so learned-rules (still volatile p2) sheds first.
+   */
   const learnedContent = padTo(LEARNED_MARKER, 100_000);
   const gapContent = padTo(GAP_MARKER, 100_000);
 
@@ -834,34 +805,33 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
   );
 });
 
+/* ── A3: selector-priority rule in the STABLE band ────────────────────────────────────────────────
+   Goal: the selector-priority guidance (prefer getByTestId > getByRole > getByLabel/getByText >
+   scoped locator) must appear in the STABLE band of the generated prompt so it fires even when
+   DOM capture failed (i.e. when no domSnapshot is present). The rule must be present REGARDLESS
+   of whether a domSnapshot is included.
+   Idempotency: when a domSnapshot IS present, the rule should appear exactly once in the stable
+   band (not duplicated in the DOM snapshot section, which already carries its own selector guidance).
+   These tests are RED until A3 is implemented (the stable-band rule does not exist yet).
+ */
 
-// ── A3: selector-priority rule in the STABLE band ────────────────────────────────────────────────
-//
-// Goal: the selector-priority guidance (prefer getByTestId > getByRole > getByLabel/getByText >
-// scoped locator) must appear in the STABLE band of the generated prompt so it fires even when
-// DOM capture failed (i.e. when no domSnapshot is present). The rule must be present REGARDLESS
-// of whether a domSnapshot is included.
-//
-// Idempotency: when a domSnapshot IS present, the rule should appear exactly once in the stable
-// band (not duplicated in the DOM snapshot section, which already carries its own selector guidance).
-//
-// These tests are RED until A3 is implemented (the stable-band rule does not exist yet).
-
-// A3-1: selector-priority rule is present in the prompt when NO domSnapshot is injected.
-// Currently the priority guidance only lives in the volatile DOM snapshot section, so this FAILS.
+/* A3-1: selector-priority rule is present in the prompt when NO domSnapshot is injected.
+   Currently the priority guidance only lives in the volatile DOM snapshot section, so this FAILS.
+ */
 test("A3: selector-priority rule is present in the stable band even when no domSnapshot is injected", () => {
-  // No domSnapshot → the volatile DOM section is empty; the stable rule must still appear.
+  /* No domSnapshot → the volatile DOM section is empty; the stable rule must still appear. */
   const text = buildPrompt(mkInput({ domSnapshot: undefined }));
-  // The stable rule must mention the priority order: getByTestId > getByRole > getByLabel/getByText
+  /* The stable rule must mention the priority order: getByTestId > getByRole > getByLabel/getByText */
   assert.ok(
     /getByTestId.*getByRole|getByRole.*getByLabel|selector.*priority|priority.*selector/i.test(text),
     "the stable band must include a selector-priority rule even when no domSnapshot is present",
   );
 });
 
-// A3-2: selector-priority rule is present in the prompt when a domSnapshot IS injected.
-// The rule must appear in the stable band (fired regardless), and the DOM snapshot section
-// may also carry its own guidance — but neither should be absent when the other is present.
+/* A3-2: selector-priority rule is present in the prompt when a domSnapshot IS injected.
+   The rule must appear in the stable band (fired regardless), and the DOM snapshot section
+   may also carry its own guidance — but neither should be absent when the other is present.
+ */
 test("A3: selector-priority rule is present in the stable band when a domSnapshot IS injected", () => {
   const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
   assert.ok(
@@ -870,15 +840,17 @@ test("A3: selector-priority rule is present in the stable band when a domSnapsho
   );
 });
 
-// A3-3: the stable-band selector-priority rule does NOT duplicate the DOM snapshot section's guidance.
-// When a domSnapshot is present, the priority mention in the stable band must be present but
-// the full DOM grounding section is separate. We check there is no exact verbatim duplication of
-// the stable rule. (Idempotency guard.)
+/* A3-3: the stable-band selector-priority rule does NOT duplicate the DOM snapshot section's guidance.
+   When a domSnapshot is present, the priority mention in the stable band must be present but
+   the full DOM grounding section is separate. We check there is no exact verbatim duplication of
+   the stable rule. (Idempotency guard.)
+ */
 test("A3: selector-priority rule appears no more than twice across the prompt (idempotency guard)", () => {
-  // With both domSnapshot and grounding, the rule may appear in the stable band AND in the
-  // volatile grounding section. It must NOT be duplicated beyond those two natural occurrences.
+  /* With both domSnapshot and grounding, the rule may appear in the stable band AND in the
+     volatile grounding section. It must NOT be duplicated beyond those two natural occurrences.
+   */
   const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
-  // Count occurrences of "Selector priority" (case-insensitive) — must be ≤ 2
+  /* Count occurrences of "Selector priority" (case-insensitive) — must be ≤ 2 */
   const STABLE_RULE_MARKER = "Selector priority";
   const matches = (text.match(new RegExp(STABLE_RULE_MARKER, "gi")) ?? []).length;
   assert.ok(
@@ -887,10 +859,9 @@ test("A3: selector-priority rule appears no more than twice across the prompt (i
   );
 });
 
-// ── C1: diff archetypes surfaced to the generator as a one-line hint ──────────
-
-// C1-1: when diffArchetypes are present in the input, the prompt must contain
-// the one-line "Change shape (deterministic):" hint.
+/* C1-1: when diffArchetypes are present in the input, the prompt must contain
+   the one-line "Change shape (deterministic):" hint.
+ */
 test("C1: diffArchetypes line appears in the prompt when archetypes are present", () => {
   const text = buildPrompt(mkInput({ diffArchetypes: ["auth-flow", "data-list"] }));
   assert.ok(
@@ -907,7 +878,7 @@ test("C1: diffArchetypes line appears in the prompt when archetypes are present"
   );
 });
 
-// C1-2: when diffArchetypes are absent, NO empty header must appear.
+/* C1-2: when diffArchetypes are absent, NO empty header must appear. */
 test("C1: no diffArchetypes line when archetypes are absent", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
@@ -916,7 +887,7 @@ test("C1: no diffArchetypes line when archetypes are absent", () => {
   );
 });
 
-// C1-3: when diffArchetypes is an empty array, NO empty header must appear.
+/* C1-3: when diffArchetypes is an empty array, NO empty header must appear. */
 test("C1: no diffArchetypes line when archetypes array is empty", () => {
   const text = buildPrompt(mkInput({ diffArchetypes: [] }));
   assert.ok(
@@ -925,12 +896,12 @@ test("C1: no diffArchetypes line when archetypes array is empty", () => {
   );
 });
 
-// ── sdd/migration-wiring-phase-2 Slice 4 (D-E skill-exemplar restore) ────────────────────────────
-// matchExemplars/renderExemplarsForPrompt (src/qa/learning/skill-exemplar.ts) run during prompt
-// assembly, keyed off input.structuralPatterns (a StructuralPattern[], NOT a single pattern —
-// matchExemplars itself takes ONE pattern, so the consumer here loops + flatMaps + dedupes before
-// rendering). Wired into buildPromptAssembled alongside the existing diffArchetypes path (same
-// semi-stable/priority-3 band), byte-budget capped at ~1.5KB like other capped sections.
+/* matchExemplars/renderExemplarsForPrompt (src/qa/learning/skill-exemplar.ts) run during prompt
+   assembly, keyed off input.structuralPatterns (a StructuralPattern[], NOT a single pattern —
+   matchExemplars itself takes ONE pattern, so the consumer here loops + flatMaps + dedupes before
+   rendering). Wired into buildPromptAssembled alongside the existing diffArchetypes path (same
+   semi-stable/priority-3 band), byte-budget capped at ~1.5KB like other capped sections.
+ */
 
 test("Slice 4: a matched structural pattern (form+validation) includes its exemplar template in the prompt", () => {
   const text = buildPrompt(mkInput({
@@ -975,9 +946,10 @@ test("Slice 4: an empty structuralPatterns array omits the Skill exemplars secti
 });
 
 test("Slice 4: matched exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
-  // Every BUILT_IN_EXEMPLARS entry matches — 6 exemplars, ~1.7KB rendered (measured), over the 1536
-  // byte cap. The whole section must drop rather than silently truncating mid-template or starving
-  // other sections' budget.
+  /* Every BUILT_IN_EXEMPLARS entry matches — 6 exemplars, ~1.7KB rendered (measured), over the 1536
+     byte cap. The whole section must drop rather than silently truncating mid-template or starving
+     other sections' budget.
+   */
   const text = buildPrompt(mkInput({
     structuralPatterns: [
       { kind: "form", hasOnSubmit: true, hasValidation: true },
@@ -994,9 +966,10 @@ test("Slice 4: matched exemplars whose rendered content exceeds the ~1.5KB budge
 });
 
 test("Slice 4: duplicate exemplar matches across multiple patterns are deduped by name (never rendered twice)", () => {
-  // Two data-list-shaped patterns both match BOTH data-list exemplars (matchExemplars' own
-  // kind==='data-list' branch returns true unconditionally) — without dedup this would render
-  // "Data list empty state" twice.
+  /* Two data-list-shaped patterns both match BOTH data-list exemplars (matchExemplars' own
+     kind==='data-list' branch returns true unconditionally) — without dedup this would render
+     "Data list empty state" twice.
+   */
   const text = buildPrompt(mkInput({
     structuralPatterns: [
       { kind: "data-list", hasFilter: false, hasPagination: false, hasEmptyState: true },
@@ -1007,12 +980,11 @@ test("Slice 4: duplicate exemplar matches across multiple patterns are deduped b
   assert.equal(occurrences, 1, "a duplicate exemplar match across patterns must render exactly once, never duplicated");
 });
 
-// ── sdd/migration-wiring-phase-2 apply-batch-3 rider (orchestrator-directed) ──────────────────────
-// Slice 4 wired structuralPatterns[] end-to-end but nothing on the live path ever populated it
-// (verified: zero references in run-qa.use-case.ts, generation-port.adapter.ts,
-// rewritten-engine-factory.ts) — the "archetype-matched templates re-enter the generation prompt"
-// scenario went unmet for a real run. Fixed by deriving structuralPatterns from input.diff (the SAME
-// diff cappedDiffText already reads) when the caller supplies none — no new qa-engine plumbing.
+/* (verified: zero references in run-qa.use-case.ts, generation-port.adapter.ts,
+   rewritten-engine-factory.ts) — the "archetype-matched templates re-enter the generation prompt"
+   scenario went unmet for a real run. Fixed by deriving structuralPatterns from input.diff (the SAME
+   diff cappedDiffText already reads) when the caller supplies none — no new qa-engine plumbing.
+ */
 
 test("rider: a diff matching a structural archetype re-enters the generation prompt (structuralPatterns derived from the diff, never explicitly supplied)", () => {
   const text = buildPrompt(mkInput({
@@ -1040,7 +1012,6 @@ test("rider: a diff matching a structural archetype re-enters the generation pro
 });
 
 test("rider: a shape-less diff derives only the generic pattern — no exemplar section (never fabricated)", () => {
-  // mkInput()'s default diff ("export function foo() {}") matches no archetype.
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("## Skill exemplars for the detected structural patterns"),
@@ -1049,8 +1020,9 @@ test("rider: a shape-less diff derives only the generic pattern — no exemplar 
 });
 
 test("rider: an explicitly-supplied structuralPatterns still wins over derivation from the diff", () => {
-  // The diff here would derive an api-call pattern if it were consulted; the explicit
-  // structuralPatterns (form) must win instead — proves the derivation is a FALLBACK, not an override.
+  /* The diff here would derive an api-call pattern if it were consulted; the explicit
+     structuralPatterns (form) must win instead — proves the derivation is a FALLBACK, not an override.
+   */
   const text = buildPrompt(mkInput({
     diff: 'diff --git a/src/api.ts b/src/api.ts\n+fetch("/x", { body: x, method: "POST" });\n try { } catch (error) {}\n',
     structuralPatterns: [{ kind: "form", hasOnSubmit: true, hasValidation: true }],
@@ -1059,25 +1031,27 @@ test("rider: an explicitly-supplied structuralPatterns still wins over derivatio
   assert.ok(!text.includes("API error handling"), "the diff-derived api-call pattern must NOT also render when structuralPatterns was explicitly supplied");
 });
 
-// ── Curriculum wiring (D3/D4): a supplied, curriculum-ranked exemplar list ───────────────────────
-// input.skillExemplars is CurriculumPort.select()'s output: the same catalog entries, already
-// deduped, already ordered by this app's evidence, and already capped. It REPLACES the local
-// derivation above, and prompts.ts must render it verbatim — re-sorting here would decouple "what
-// the generator was shown" from "what the curriculum folds".
-// This diff derives the api-call pattern ("API error handling"), so a supplied list that does NOT
-// contain it proves replacement rather than addition.
+/* ── Curriculum wiring (D3/D4): a supplied, curriculum-ranked exemplar list ───────────────────────
+   input.skillExemplars is CurriculumPort.select()'s output: the same catalog entries, already
+   deduped, already ordered by this app's evidence, and already capped. It REPLACES the local
+   derivation above, and prompts.ts must render it verbatim — re-sorting here would decouple "what
+   the generator was shown" from "what the curriculum folds".
+   This diff derives the api-call pattern ("API error handling"), so a supplied list that does NOT
+   contain it proves replacement rather than addition.
+ */
 const CURRICULUM_API_CALL_DIFF = [
   "diff --git a/src/api.ts b/src/api.ts",
   '+const res = await fetch("/api/orders", { method: "POST", body: JSON.stringify(payload) });',
   '+if (!res.ok) throw new Error("failed");',
 ].join("\n");
 
-// The supplied order below is deliberately at odds with EVERY ordering this renderer could
-// plausibly impose on its own: it is neither ascending nor descending by catalog index (0, 4, 3),
-// by name (F, D, R), by id (f, d, s) or by archetype (i, e, r), and the only PROVEN entry sits in
-// the MIDDLE, so a "proven first" re-sort would fail too. Ranking already happened in the adapter;
-// any sort here would decouple "what the generator was shown" from "what the curriculum folds".
-// Three entries is also the realistic maximum payload (MAX_SELECTED_EXEMPLARS).
+/* The supplied order below is deliberately at odds with EVERY ordering this renderer could
+   plausibly impose on its own: it is neither ascending nor descending by catalog index (0, 4, 3),
+   by name (F, D, R), by id (f, d, s) or by archetype (i, e, r), and the only PROVEN entry sits in
+   the MIDDLE, so a "proven first" re-sort would fail too. Ranking already happened in the adapter;
+   any sort here would decouple "what the generator was shown" from "what the curriculum folds".
+   Three entries is also the realistic maximum payload (MAX_SELECTED_EXEMPLARS).
+ */
 test("curriculum: a supplied skillExemplars list renders in the SUPPLIED order, with the inline PROVEN marker", () => {
   const text = buildPrompt(mkInput({
     diff: CURRICULUM_API_CALL_DIFF,
@@ -1106,10 +1080,9 @@ test("curriculum: with no skillExemplars supplied the local diff derivation stil
   assert.ok(text.includes("API error handling"), "the fallback must still render the diff-derived exemplar");
 });
 
-// ── sdd/migration-wiring-phase-2 Slice 6b (diff→model egress boundary) ────────────────────────────
-// cappedDiffText — THE single way every prompt embeds a commit diff — now sanitizes in "model" mode
-// (previously "issue" mode, silently defeating WS5.4a's own stated intent for the diff itself) and
-// runs the post-redaction fail-loud guard (assertNoSecretLeak) immediately after.
+/* cappedDiffText — THE single way every prompt embeds a commit diff — now sanitizes in "model" mode
+   runs the post-redaction fail-loud guard (assertNoSecretLeak) immediately after.
+ */
 
 test("Slice 6b (mode fix): the diff embedded in the generator prompt uses 'model' mode — an auth-shaped type annotation is NOT over-redacted", () => {
   const text = buildPrompt(mkInput({
@@ -1140,25 +1113,24 @@ test("Slice 6b.4: an auth.ts-shaped diff never trips the diff→model guard (fal
   })));
 });
 
-// 6b.2 ("a secret survives redaction at diff→model → SecretLeakError thrown") is covered at the unit
-// level in src/orchestrator/sanitizer.test.ts (assertNoSecretLeak's own dedicated tests) rather than
-// as an end-to-end prompts.ts fixture: sanitizeText and containsSecrets share ONE pattern table with
-// identical skip/modelSkip logic, so a secret genuinely surviving redaction is not constructible
-// through this real pipeline today (by design — the guard exists as an invariant check against a
-// FUTURE regression, e.g. a pattern added to one function but not the other). cappedDiffText is
-// FILE-AWARE (judgment-day FIX 1): it re-splits the capped diff at each `diff --git` header and picks
-// "model" mode only for a section whose target path has a known code extension, "issue" mode for
-// everything else (config files, unknown/no extension, and any preamble before the first header) — and
-// runs `assertNoSecretLeak` per section, immediately after sanitizeText, with THAT section's own mode.
-// This is the reviewable proof the guard is wired into the diff→model path for every section, not just
-// a single whole-text call.
+/* "a secret survives redaction at diff→model → SecretLeakError thrown" is covered at the unit
+   level in src/orchestrator/sanitizer.test.ts (assertNoSecretLeak's own dedicated tests) rather than
+   as an end-to-end prompts.ts fixture: sanitizeText and containsSecrets share ONE pattern table with
+   identical skip/modelSkip logic, so a secret genuinely surviving redaction is not constructible
+   through this real pipeline today (by design — the guard exists as an invariant check against a
+   FUTURE regression, e.g. a pattern added to one function but not the other). cappedDiffText is
+   "model" mode only for a section whose target path has a known code extension, "issue" mode for
+   everything else (config files, unknown/no extension, and any preamble before the first header) — and
+   runs `assertNoSecretLeak` per section, immediately after sanitizeText, with THAT section's own mode.
+   This is the reviewable proof the guard is wired into the diff→model path for every section, not just
+   a single whole-text call.
+ */
 
-// ── judgment-day FIX 1: file-aware diff redaction (model-mode narrowing applies only to code hunks) ──
-// WS5.4a's "model" mode narrows the api-key-assignment pattern to skip ordinary code shapes (a bare,
-// short, lowercase value like `password: hunter2` reads as a type annotation / call expression, not a
-// secret) — correct for TS/JS source hunks, but this narrowing was applied to the WHOLE diff, so
-// config-file hunks (docker-compose.yml, .env, CI YAML) — where an unquoted lowercase-key credential IS
-// the norm — silently escaped redaction in model mode despite being redacted in issue mode.
+/* short, lowercase value like `password: hunter2` reads as a type annotation / call expression, not a
+   secret) — correct for TS/JS source hunks, but this narrowing was applied to the WHOLE diff, so
+   config-file hunks (docker-compose.yml, .env, CI YAML) — where an unquoted lowercase-key credential IS
+   the norm — silently escaped redaction in model mode despite being redacted in issue mode.
+ */
 
 test("FIX 1 (file-aware redaction): a .ts hunk stays code-shaped (unredacted) while a docker-compose.yml hunk in the SAME diff gets its unquoted credential redacted", () => {
   const diff = [
@@ -1186,9 +1158,7 @@ test("FIX 1 (file-aware redaction, regression): a headerless diff fixture (no 'd
   assert.match(text, /hunter2/, "with no file header to key a mode off, the whole text must still fall back to model mode (prior behavior, unchanged)");
 });
 
-// ── C2: static-signal rendered in CODE-MODE prompts ──────────────────────────
-
-// C2-1: a code-mode generation input WITH staticSignal renders the static-signal section.
+/* C2-1: a code-mode generation input WITH staticSignal renders the static-signal section. */
 test("C2: code-mode with staticSignal renders the static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code", staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
   assert.ok(
@@ -1197,7 +1167,7 @@ test("C2: code-mode with staticSignal renders the static-signal section", () => 
   );
 });
 
-// C2-2: a code-mode generation input WITHOUT staticSignal must NOT add an empty section.
+/* C2-2: a code-mode generation input WITHOUT staticSignal must NOT add an empty section. */
 test("C2: code-mode without staticSignal emits no static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code" }));
   assert.ok(
@@ -1206,8 +1176,9 @@ test("C2: code-mode without staticSignal emits no static-signal section", () => 
   );
 });
 
-// C2-3 (regression): the e2e path must be byte-identical when nothing changes — staticSignal present
-// must still render in e2e mode (non-regression).
+/* C2-3 (regression): the e2e path must be byte-identical when nothing changes — staticSignal present
+   must still render in e2e mode (non-regression).
+ */
 test("C2 regression: e2e-mode with staticSignal still renders static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "e2e", staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
   assert.ok(
@@ -1216,7 +1187,8 @@ test("C2 regression: e2e-mode with staticSignal still renders static-signal sect
   );
 });
 
-// ── Stitcher→Generation seam (design §3.4, S2.4): "Cross-service links (deterministic)" section ──
+/* "Cross-service links (deterministic)" section of the generator prompt.
+ */
 
 const link1 = {
   from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" },
@@ -1290,9 +1262,9 @@ test("S2.4(5): more than MAX_LINKS (40) links renders only the first 40; more th
   assert.ok(!text.includes("/path20") && !text.includes("/path24"), "drift entries beyond the 20-cap must be dropped");
 });
 
-// WS5.5(a): unimpacted service links beyond MAX_LINKS were silently dropped with no trace — the
-// generator (and any human reading a captured prompt) had no way to know MORE links existed past the
-// cut. Append an observability marker naming how many were omitted.
+/* generator (and any human reading a captured prompt) had no way to know MORE links existed past the
+   cut. Append an observability marker naming how many were omitted.
+ */
 test("WS5.5a: more than MAX_LINKS (40) links appends a '...and N more links' marker (single-agent prompt)", () => {
   const manyLinks = Array.from({ length: 45 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
@@ -1338,9 +1310,10 @@ test("S2.4(7): contractDrift present with serviceLinks ABSENT/empty still render
   const withEmptyLinks = buildPrompt(mkInput({ serviceLinks: [], contractDrift: [drift1] }));
   assert.match(withEmptyLinks, /Contract drift \(WARNINGS/, "empty serviceLinks array + drift must still render drift");
 
-  // Pin the ABSENCE of a link bullet (`repo/file#symbol` -> target). Do not scan for the
-  // bare word "event": the section intro names hop kinds (FE→BE HTTP, BE→BE HTTP, event)
-  // even in the drift-only case, and `/event/` as an unanchored alternative would false-fail.
+  /* Pin the ABSENCE of a link bullet (`repo/file#symbol` -> target). Do not scan for the
+     bare word "event": the section intro names hop kinds (FE→BE HTTP, BE→BE HTTP, event)
+     even in the drift-only case, and `/event/` as an unanchored alternative would false-fail.
+   */
   const beforeDrift = withoutLinks.split("Contract drift")[0] ?? "";
   assert.ok(
     !/`[^`]+` -> /.test(beforeDrift),
@@ -1366,9 +1339,9 @@ test("S2.4(6): serviceLinks string fields pass through the local s() sanitize wr
   assert.match(text, /REDACTED/, "the sanitize wrapper must have actually redacted the secret pattern");
 });
 
-// ── Slice C (structural-signals-expansion, design §3.6/C-R6): inline "[IMPACTED:<tier>]" markers on
-// the EXISTING "Cross-service links" section bullets — NOT a new/duplicate subsection. Byte-identical
-// when crossRepoImpact is absent (empty lookup, tierFor always undefined, prefix always ""). ────────
+/* the EXISTING "Cross-service links" section bullets — NOT a new/duplicate subsection. Byte-identical
+   when crossRepoImpact is absent (empty lookup, tierFor always undefined, prefix always ""). ────────
+ */
 
 test("C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix", () => {
   const text = buildPrompt(mkInput({
@@ -1389,7 +1362,7 @@ test("C-R6(2): no duplicate '### Impacted by this change' (or similarly named) s
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
   }));
   assert.ok(!/impacted by this change/i.test(text), "no separate 'Impacted by this change' subsection must ever be rendered — the design corrects an earlier duplicate-subsection revision");
-  // The existing "Cross-service links" section header must still appear exactly once.
+  /* The existing "Cross-service links" section header must still appear exactly once. */
   const occurrences = text.split("Cross-service links").length - 1;
   assert.equal(occurrences, 1, "the Cross-service links section header must render exactly once, never duplicated for the impacted subset");
 });
@@ -1432,7 +1405,7 @@ test("C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH its ma
     source: "openapi",
   }));
   const text = buildPrompt(mkInput({
-    serviceLinks: [...filler, link1], // the impacted link sits at index 44 — past the 40-link ceiling
+    serviceLinks: [...filler, link1], /* the impacted link sits at index 44 — past the 40-link ceiling */
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
   }));
   assert.match(
@@ -1442,13 +1415,12 @@ test("C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH its ma
   );
 });
 
-// ── Audit C4a — two prompt defects (docs/superpowers/plans/2026-07-02-qa-engine-audit-remediation.md) ──
-//
-// Defect 1: buildAttrHint (qa-engine dom-snapshot.ts / legacy src/qa/dom-snapshot.ts) emits a
-// `-> [attr]` hint for id=/name=/href/type= too, not just test-id. The selector-priority rule
-// wrongly instructs getByTestId for ANY `-> [attr]` hint, which cannot resolve for a non-test-id
-// hint. The rule must name the discriminator: the hint text must start with the configured
-// testIdAttribute name (e.g. "data-testid=") — NOT just "carries a hint".
+/* buildAttrHint (qa-engine dom-snapshot.ts) emits a `-> [attr]` hint for id=/name=/href/type= too,
+   not just test-id. The selector-priority rule must not instruct getByTestId for ANY `-> [attr]`
+   hint — that cannot resolve for a non-test-id hint. The rule must name the discriminator: the hint
+   text must start with the configured testIdAttribute name (e.g. "data-testid=") — NOT just
+   "carries a hint".
+ */
 
 function mkWorkerInput(overrides: Partial<ParallelWorkerInput> = {}): ParallelWorkerInput {
   return {
@@ -1471,9 +1443,10 @@ test("C4a defect 1: worker selector-priority rule names the test-id-attribute-na
   const text = buildWorkerPrompt(mkWorkerInput({ domSnapshot: "button: Add Owner -> [data-testid=add-owner]" }));
   const rule = /Selector priority:[^\n]*/.exec(text)?.[0] ?? "";
   assert.ok(rule.length > 0, "worker prompt must contain a Selector priority rule");
-  // The old wording ("carries a ... hint") is ambiguous about id=/name=/href hints. The fixed
-  // wording must name the discriminator concretely: the hint must START WITH the testIdAttribute
-  // name (e.g. "data-testid=") — not merely "a hint is present".
+  /* The old wording ("carries a ... hint") is ambiguous about id=/name=/href hints. The fixed
+     wording must name the discriminator concretely: the hint must START WITH the testIdAttribute
+     name (e.g. "data-testid=") — not merely "a hint is present".
+   */
   assert.ok(
     /starts with|begins with|testIdAttribute name|the configured test-id attribute/i.test(rule),
     `worker selector-priority rule must name the test-id-only discriminator concretely; got: ${rule}`,
@@ -1497,8 +1470,9 @@ test("C4a defect 1: stable-band selector-priority rule names the test-id-attribu
 
 test("C4a defect 1: DOM-snapshot section guidance also names the test-id-only discriminator (not 'any hint')", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: false }));
-  // The volatile "Live DEV accessibility tree" section explains the `-> [attr]` hint; it must not
-  // claim ANY hint implies a test-id — it must name the discriminator (attribute-name prefix).
+  /* The volatile "Live DEV accessibility tree" section explains the `-> [attr]` hint; it must not
+     claim ANY hint implies a test-id — it must name the discriminator (attribute-name prefix).
+   */
   const domSection = text.slice(text.indexOf("Live DEV accessibility tree"));
   assert.ok(
     /starts with|begins with|testIdAttribute name|the configured test-id attribute/i.test(domSection),
@@ -1506,10 +1480,10 @@ test("C4a defect 1: DOM-snapshot section guidance also names the test-id-only di
   );
 });
 
-// Defect 2: the GROUND-TRUTH-AT-FAILURE quote-then-assert block currently offers a CSS/data-testid
-// fallback for an unquotable locator — a fabrication license (Pillar 3 forbids inventing
-// data-testid/CSS values not present in any grounding). The ONLY permitted fallback is getByText
-// quoted from the failure tree.
+/* The GROUND-TRUTH-AT-FAILURE quote-then-assert block must not offer a CSS/data-testid fallback
+   for an unquotable locator — that invites inventing a data-testid/CSS value not present in any
+   grounding. The ONLY permitted fallback is getByText quoted from the failure tree.
+ */
 test("C4a defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/data-testid", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   const block = text.slice(text.indexOf("GROUND TRUTH AT FAILURE"), text.indexOf("GROUND TRUTH AT FAILURE") + 1500);
@@ -1521,10 +1495,10 @@ test("C4a defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not 
   );
 });
 
-// ── Slice A (structural-signals-expansion): worker-prompt "Cross-service links" section ──
-// Mirrors the single-agent S2.4 discipline exactly (local s() sanitizer, MAX_LINKS/MAX_DRIFT caps,
-// (hasLinks||hasDrift)-gated content) but with NO isGenerationMode gate — the worker builder has no
-// such mode switch (workers always generate).
+/* The worker prompt uses the same local s() sanitizer, MAX_LINKS/MAX_DRIFT caps, and
+   (hasLinks||hasDrift)-gated content as the single-agent builder, but with NO isGenerationMode
+   gate — the worker builder has no such mode switch (workers always generate).
+ */
 
 test("A-R3(1): worker prompt with populated serviceLinks renders the 'Cross-service links' section with from -> to (transport, confidence)", () => {
   const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1] }));
@@ -1536,10 +1510,10 @@ test("A-R3(1): worker prompt with populated serviceLinks renders the 'Cross-serv
   );
 });
 
-// ── A-R3/C-R6 (worker counterpart): the worker-prompt "Cross-service links" section gains the SAME
-// inline "[IMPACTED:<tier>] markers on matched bullets — NOT a new/duplicate subsection, the same
-// impacted-first-before-MAX_LINKS ordering from 62b6bb4, and the same byte-identical-when-absent
-// guarantee — mirroring the single-agent C-R6 family exactly, now on ParallelWorkerInput. ────────
+/* The worker-prompt "Cross-service links" section uses the SAME inline "[IMPACTED:<tier>]" markers
+   on matched bullets — NOT a new/duplicate subsection — plus impacted-first-before-MAX_LINKS
+   ordering and a byte-identical-when-absent guarantee, on ParallelWorkerInput.
+ */
 
 test("A-R3-C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix in the worker prompt", () => {
   const text = buildWorkerPrompt(mkWorkerInput({
@@ -1602,7 +1576,7 @@ test("A-R3-C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH i
     source: "openapi",
   }));
   const text = buildWorkerPrompt(mkWorkerInput({
-    serviceLinks: [...filler, link1], // the impacted link sits at index 44 — past the 40-link ceiling
+    serviceLinks: [...filler, link1], /* the impacted link sits at index 44 — past the 40-link ceiling */
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
   }));
   assert.match(
@@ -1662,15 +1636,15 @@ test("A-R3(6): worker prompt serviceLinks string fields pass through the local s
   assert.match(text, /REDACTED/, "the sanitize wrapper must have actually redacted the secret pattern");
 });
 
-// ── WS5.1: capDiff is wired at every render boundary that embeds the raw diff ───────────────────
-// PromptBudgetPort's capDiff existed but was never called — buildDiffSection (the e2e task-band diff
-// section), buildCodeTask (code-mode diff), and buildExplorerPrompt (the explorer's diff embed) all
-// interpolated `sanitizeText(input.diff).text` UNCAPPED. A giant commit (huge autogenerated file,
-// vendored dependency, wide refactor) could blow the per-role prompt budget on the diff ALONE before
-// the assembler's own shedding logic ever runs. capDiff keeps whole per-file sections in relevance
-// order and appends a truncation marker naming the omitted files + how to read the full diff.
+/* PromptBudgetPort's capDiff existed but was never called — buildDiffSection (the e2e task-band diff
+   section), buildCodeTask (code-mode diff), and buildExplorerPrompt (the explorer's diff embed) all
+   interpolated `sanitizeText(input.diff).text` UNCAPPED. A giant commit (huge autogenerated file,
+   vendored dependency, wide refactor) could blow the per-role prompt budget on the diff ALONE before
+   the assembler's own shedding logic ever runs. capDiff keeps whole per-file sections in relevance
+   order and appends a truncation marker naming the omitted files + how to read the full diff.
+ */
 
-// Build a diff comfortably over MAX_PROMPT_DIFF_CHARS (50,000) so capDiff's truncation branch fires.
+/* Build a diff comfortably over MAX_PROMPT_DIFF_CHARS (50,000) so capDiff's truncation branch fires. */
 function bigDiff(fileCount = 5, linesPerFile = 3000): string {
   const parts: string[] = [];
   for (let i = 0; i < fileCount; i++) {
@@ -1711,7 +1685,6 @@ test("WS5.1: a small diff (under the cap) passes through buildDiffSection unmodi
   assert.ok(text.includes("export function foo()"), "a small diff must render in full");
   assert.doesNotMatch(text, /diff truncated/i, "a small diff must not trigger the truncation marker");
 });
-
 
 test("WS5.1: reviewObjective/commitDiffObjective (reviewer diff objective) caps a giant diff instead of embedding it whole", () => {
   const huge = bigDiff();
@@ -1764,12 +1737,12 @@ test("WS5.1: a small diff (under the cap) at the reviewer site passes through un
   assert.doesNotMatch(text, /diff truncated/i, "a small diff must not trigger the truncation marker");
 });
 
-// ── Judgment-day round 2 (reviewer-budget-starvation): the "reviewer defense-in-depth" test above
-// never actually reaches the reviewer-dom/reviewer-specs maxBytes backstops — capDiff already bounds
-// the diff to ~50,000 chars before the section-level cap ever sees it, so reverting the
-// maxBytes/overflow additions on those sections still passes it trivially. This test drives an
-// oversized DOM snapshot directly (independent of the diff/capDiff) so the reviewer-dom section's
-// OWN 20,000B cap is what fires.
+/* never actually reaches the reviewer-dom/reviewer-specs maxBytes backstops — capDiff already bounds
+   the diff to ~50,000 chars before the section-level cap ever sees it, so reverting the
+   maxBytes/overflow additions on those sections still passes it trivially. This test drives an
+   oversized DOM snapshot directly (independent of the diff/capDiff) so the reviewer-dom section's
+   OWN 20,000B cap is what fires.
+ */
 test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone (no huge diff) triggers the reviewer-dom maxBytes backstop", () => {
   const oversizedDom = padTo("button: Submit\nheading: Checkout\n", 25_000);
   const { text } = buildReviewerPromptAssembled({
@@ -1797,21 +1770,19 @@ test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone 
   );
 });
 
-// ── WS5.2: coverage-gap must survive its own regen prompt ────────────────────────────────────────
-// The coverage-gap section was rendered at VOLATILE priority 5 — the HIGHEST priority number in the
-// volatile band, which the assembler sheds FIRST under budget pressure (see context-assembler.ts's
-// own SHED_ROLE_ORDER + "higher priority number → shed first" comment). On an enforce-mode coverage
-// regen, coverage-gap is the ENTIRE PAYLOAD of the turn — a shed here silently converts the one-shot
-// regen into a blind repeat of the original prompt (the diff is also empty on regens). Promote it to
-// shedAs:"critical-recap" (the pack's own precedent for unrecoverable-this-turn content) so it
-// survives everything else in the volatile band.
+/* coverage-gap must survive its own regen prompt. On an enforce-mode coverage regen, coverage-gap
+   is the ENTIRE PAYLOAD of the turn — shedding it under budget pressure silently converts the
+   one-shot regen into a blind repeat of the original prompt (the diff is also empty on regens).
+   shedAs:"critical-recap" so it survives everything else in the volatile band.
+ */
 test("WS5.2: coverage-gap survives when other volatile content is large enough to force shedding", () => {
-  // qa-generator's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
-  // bytes/token = 192,000 bytes) — the payload below must genuinely exceed that so the assembler's
-  // global-budget pass actually sheds something, not merely construct a payload that already fits.
-  // learnedRules (volatile priority 2, sheds AFTER coverage-gap under the OLD priority-5 ordering)
-  // plus a large domSnapshot (volatile priority 1, sheds even later) together blow the real budget;
-  // if coverage-gap is not promoted to the critical-recap shed band, it sheds FIRST and is lost.
+  /* qa-generator's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
+     bytes/token = 192,000 bytes) — the payload below must genuinely exceed that so the assembler's
+     global-budget pass actually sheds something, not merely construct a payload that already fits.
+     learnedRules (volatile priority 2, sheds AFTER coverage-gap under the OLD priority-5 ordering)
+     plus a large domSnapshot (volatile priority 1, sheds even later) together blow the real budget;
+     if coverage-gap is not promoted to the critical-recap shed band, it sheds FIRST and is lost.
+   */
   const bigLearnedRules = "## Lessons\n" + "x".repeat(120_000);
   const bigDom = "button: Submit\n" + "row: item ".repeat(15_000);
   const coverageGapText = "## COVERAGE_GAP_UNIQUE_MARKER\nsrc/checkout.ts:42-58 not exercised by the green run.";
@@ -1823,11 +1794,11 @@ test("WS5.2: coverage-gap survives when other volatile content is large enough t
   assert.ok(text.includes("COVERAGE_GAP_UNIQUE_MARKER"), "the coverage-gap section must survive assembly even under real budget pressure");
 });
 
-// ── WS5.5(b): "Cross-check against the diff" must be conditional on the diff actually rendering ──
-// buildTask's e2e diff branch always rendered "Cross-check against the diff", but the diff ITSELF
-// lives in a separate section (buildDiffSection) that returns "" on any regen pass (fixCases /
-// reviewCorrections / coverageGap) — so a regen prompt commanded the agent to cross-check evidence
-// that was never in the prompt at all.
+/* "Cross-check against the diff" must be conditional on the diff actually rendering. The diff
+   lives in a separate section (buildDiffSection) that returns "" on any regen pass (fixCases /
+   reviewCorrections / coverageGap) — a regen prompt must not command the agent to cross-check
+   evidence that was never in the prompt at all.
+ */
 test("WS5.5b: a first-pass (non-regen) e2e prompt renders 'Cross-check against the diff' alongside the diff", () => {
   const text = buildPrompt(mkInput({ mode: "diff" }));
   assert.match(text, /Cross-check against the diff/, "first pass: the diff renders, so the instruction is valid");
@@ -1849,11 +1820,10 @@ test("WS5.5b: a coverageGap regen prompt does NOT render 'Cross-check against th
   assert.doesNotMatch(text, /Cross-check against the diff/, "coverage-gap regen: no diff section, instruction must not appear");
 });
 
-// ── WS5.5(d): static-gate fixCases framing ────────────────────────────────────────────────────
-// WS4.3 threads the static-gate (Filter B: tsc/eslint) validation errors as a synthetic fixCases
-// entry named "static-gate" so the repair round has the actual error text. But the fixCases section
-// unconditionally frames EVERY entry as "tests FAILED during execution against DEV" — misleading
-// for a compile/lint failure, since nothing was ever executed. Gate the framing on the case name.
+/* entry named "static-gate" so the repair round has the actual error text. But the fixCases section
+   unconditionally frames EVERY entry as "tests FAILED during execution against DEV" — misleading
+   for a compile/lint failure, since nothing was ever executed. Gate the framing on the case name.
+ */
 const staticGateCase: QaCase = { name: "static-gate", status: "fail", detail: "TS2322: Type 'string' is not assignable to type 'number'." };
 
 test("WS5.5d: a static-gate fixCases entry renders under a 'failing gate' framing, not 'FAILED during execution against DEV'", () => {
@@ -1869,13 +1839,14 @@ test("WS5.5d: an ordinary (non-static-gate) fixCases entry keeps the original 'F
 });
 
 test("WS5.2: the assembled coverage-gap section survives a tiny budget that sheds a lower-priority-number volatile section instead", () => {
-  // Direct structural check against the ACTUAL section descriptor buildPromptAssembled constructs
-  // for coverage-gap (priority 5, shedAs "critical-recap") vs. a lower-priority-number volatile
-  // section (dom-snapshot, priority 1 — sheds SECOND under the old per-priority-number ordering,
-  // but FIRST once coverage-gap is promoted to the critical-recap shed band).
+  /* Direct structural check against the ACTUAL section descriptor buildPromptAssembled constructs
+     for coverage-gap (priority 5, shedAs "critical-recap") vs. a lower-priority-number volatile
+     section (dom-snapshot, priority 1 — sheds SECOND under the old per-priority-number ordering,
+     but FIRST once coverage-gap is promoted to the critical-recap shed band).
+   */
   const coverageText = "## Cover the change (HIGH priority)\n\nCOVERAGE_GAP_UNIQUE_MARKER";
   const domText = "## Live DEV accessibility tree\n" + "x".repeat(5000);
-  const budgetBytes = Buffer.byteLength(coverageText, "utf8") + 50; // room for coverage-gap alone, not both
+  const budgetBytes = Buffer.byteLength(coverageText, "utf8") + 50; /* room for coverage-gap alone, not both */
   const assembled = caAssemble([
     caSection("dom-snapshot", "volatile", domText, { priority: 1 }),
     caSection("coverage-gap", "volatile", coverageText, { priority: 5, shedAs: "critical-recap" }),
@@ -1885,10 +1856,11 @@ test("WS5.2: the assembled coverage-gap section survives a tiny budget that shed
   assert.ok(assembled.sectionSizes["dom-snapshot"] === undefined, "dom-snapshot (shedAs volatile, its own default band) must be the one shed instead");
 });
 
-// ── Cross-repo prompt wording honesty (service-context staging fix) ──────────────────────────
-// input.service.mirrorDir / input.services[].mirrorDir now carry a STAGED, bounded snapshot
-// (src/server/service-context.ts), never the service's full working copy — the wording must say
-// so, and any OpenAPI hint must be rendered under the contracts/ prefix the staging actually uses.
+/* ── Cross-repo prompt wording honesty (service-context staging fix) ──────────────────────────
+   input.service.mirrorDir / input.services[].mirrorDir now carry a STAGED, bounded snapshot
+   (src/server/service-context.ts), never the service's full working copy — the wording must say
+   so, and any OpenAPI hint must be rendered under the contracts/ prefix the staging actually uses.
+ */
 
 test("cross-repo diff task: describes the service path as a staged READ-ONLY snapshot, never a 'working copy', and prefixes the openapi hint with contracts/", () => {
   const text = buildPrompt(mkInput({
@@ -1925,7 +1897,6 @@ test("cross-repo explorer prompt (manual mode): describes a staged snapshot, nev
   assert.doesNotMatch(text, /working copy/i);
 });
 
-
 test("buildContextTask: describes each microservice path as a staged contract snapshot, never a mirrored working copy, and prefixes hints with contracts/", () => {
   const text = buildContextTask(mkInput({
     mode: "context",
@@ -1940,17 +1911,15 @@ test("buildContextTask: describes each microservice path as a staged contract sn
   assert.match(text, /staged contract snapshots are local paths you can read/i);
 });
 
-// ── migration-tier-4c Slice 5b: the qa-worker budget bug fix ─────────────────────────────────
-//
-// BEFORE this fix: buildWorkerPromptAssembled hardcoded `roleWindowBytes("qa-worker")` regardless
-// of `w.needsUi` — a code-only worker (needsUi:false, opens its session as "qa-worker-code" per
-// rewritten-engine-factory.ts's own role map) had its PROMPT BUDGET computed against "qa-worker"'s
-// catalog entry, not the role it actually runs as. Latent-correct today only because the current
-// roster happens to assign both roles the same model; a real bug in the code regardless, and one
-// that silently breaks the moment the roster diverges.
-//
-// AFTER this fix: the budget role selection mirrors w.needsUi, exactly like the session-open role
-// mapping already does: needsUi ? "qa-worker" : "qa-worker-code".
+/* BEFORE this fix: buildWorkerPromptAssembled hardcoded `roleWindowBytes("qa-worker")` regardless
+   of `w.needsUi` — a code-only worker (needsUi:false, opens its session as "qa-worker-code" per
+   rewritten-engine-factory.ts's own role map) had its PROMPT BUDGET computed against "qa-worker"'s
+   catalog entry, not the role it actually runs as. Latent-correct today only because the current
+   roster happens to assign both roles the same model; a real bug in the code regardless, and one
+   that silently breaks the moment the roster diverges.
+   AFTER this fix: the budget role selection mirrors w.needsUi, exactly like the session-open role
+   mapping already does: needsUi ? "qa-worker" : "qa-worker-code".
+ */
 test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role by w.needsUi (qa-worker for UI, qa-worker-code for code-only workers)", () => {
   const dir = mkdtempSync(join(tmpdir(), "worker-budget-fix-test-"));
   mkdirSync(join(dir, "agents"), { recursive: true });
@@ -1958,11 +1927,12 @@ test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role b
     join(dir, "agents", "opencode.json"),
     JSON.stringify({
       agent: {
-        // Deliberately DIFFERENT catalog windows so the two roles are observably distinguishable —
-        // kimi-k2.7-code (64K tokens -> 192,000 byte budget) vs minimax-m3 (32K tokens -> 96,000 byte
-        // budget). The real production roster happens to assign the SAME model to both roles today,
-        // which is exactly why this bug was silent; this test proves the CALL SITE picks the right
-        // role regardless of what the roster currently happens to configure.
+        /* Deliberately DIFFERENT catalog windows so the two roles are observably distinguishable —
+           kimi-k2.7-code (64K tokens -> 192,000 byte budget) vs minimax-m3 (32K tokens -> 96,000 byte
+           budget). The real production roster happens to assign the SAME model to both roles today,
+           which is exactly why this bug was silent; this test proves the CALL SITE picks the right
+           role regardless of what the roster currently happens to configure.
+         */
         "qa-worker": { model: "opencode-go/kimi-k2.7-code" },
         "qa-worker-code": { model: "opencode-go/minimax-m3" },
       },
@@ -1973,10 +1943,11 @@ test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role b
   const originalCwd = process.cwd();
   process.chdir(dir);
   try {
-    // Sized to fit under qa-worker's 192,000-byte budget but exceed qa-worker-code's 96,000-byte
-    // budget (learned-rules is the sole VOLATILE content here — no domSnapshot — so it is the ONLY
-    // section budget shedding can act on; overflow defaults to "drop", giving a clean present/absent
-    // signal instead of a partial truncation).
+    /* Sized to fit under qa-worker's 192,000-byte budget but exceed qa-worker-code's 96,000-byte
+       budget (learned-rules is the sole VOLATILE content here — no domSnapshot — so it is the ONLY
+       section budget shedding can act on; overflow defaults to "drop", giving a clean present/absent
+       signal instead of a partial truncation).
+     */
     const learnedRules = "x".repeat(150_000);
     const uiText = buildWorkerPrompt(mkWorkerInput({ needsUi: true, learnedRules }));
     const codeText = buildWorkerPrompt(mkWorkerInput({ needsUi: false, learnedRules }));

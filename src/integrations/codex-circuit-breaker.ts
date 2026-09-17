@@ -1,16 +1,7 @@
-// Circuit breaker for the Codex transport: mirrors the OpenCode circuit breaker
-// (circuit-breaker.ts) for the Codex path. If consecutive Codex failures exceed the
-// threshold, the circuit opens and requests are rejected for a cooldown period —
-// preventing cascading failures when the Codex provider is down or overloaded.
-//
-// Kept SEPARATE from the OpenCode breaker so a Codex outage never affects OpenCode
-// availability and vice-versa. Same logic; separate process-global state.
-//
-// Usage pattern (mirrors opencode-client.ts):
-//   1. Call checkCodexCircuit() at the start of every prompt call.
-//   2. Call recordCodexCircuitSuccess() on a successful response.
-//   3. Call recordCodexCircuitFailure() in the catch block, then re-throw.
-//   4. Call resetCodexCircuit() on client disposal/restart.
+/*
+ * Codex transport circuit breaker — separate process-global state from OpenCode so one
+ * provider's outage never gates the other. Open after consecutive failures; cooldown then retry.
+ */
 
 let circuitFailures = 0;
 let circuitOpen = false;
@@ -45,9 +36,7 @@ export function recordCodexCircuitSuccess(): void {
   }
 }
 
-// Clear the breaker state. Called on client disposal/restart so the operator's recovery
-// action (rotate the API key → restart the provider) is not blocked by a stale OPEN
-// circuit from the very failures it is meant to clear.
+/* Clear on dispose/restart so rotating the API key is not blocked by a stale OPEN circuit. */
 export function resetCodexCircuit(): void {
   circuitFailures = 0;
   circuitOpen = false;

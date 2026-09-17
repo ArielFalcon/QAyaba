@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { V8BrowserCoverageAdapter } from "@contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts";
 
-// Minimal V8 coverage dump.
-// source: "export function f() {\n  return 1;\n}\n"
-//   line 1 starts at offset 0,  newline at 21
-//   line 2 starts at offset 22, newline at 33
-//   line 3 starts at offset 34, newline at 35
-// Range [0,34) covers lines 1+2 (count=3); range [34,36) covers line 3 (count=0).
+/* Minimal V8 coverage dump.
+   source: "export function f() {\n return 1;\n}\n"
+   line 1 starts at offset 0, newline at 21
+   line 2 starts at offset 22, newline at 33
+   line 3 starts at offset 34, newline at 35
+   Range [0,34) covers lines 1+2 (count=3); range [34,36) covers line 3 (count=0).
+ */
 const V8_ENTRIES = [
   {
     url: "https://dev/src/svc.ts",
@@ -15,8 +16,8 @@ const V8_ENTRIES = [
     functions: [
       {
         ranges: [
-          { startOffset: 0, endOffset: 34, count: 3 },   // lines 1-2 covered
-          { startOffset: 34, endOffset: 36, count: 0 },  // line 3 NOT covered
+          { startOffset: 0, endOffset: 34, count: 3 },
+          { startOffset: 34, endOffset: 36, count: 0 },  /* line 3 NOT covered */
         ],
       },
     ],
@@ -47,7 +48,7 @@ test("returns an empty report when no V8 dump files found (fail-open)", async ()
 test("returns an empty report when no changed file matches any entry URL (fail-open)", async () => {
   const adapter = new V8BrowserCoverageAdapter(
     async () => [{ path: "/e2e/.qa/coverage/qa-abc/dump.json", entries: V8_ENTRIES }],
-    ["other/unrelated.ts"],  // no URL suffix match
+    ["other/unrelated.ts"],
   );
   const report = await adapter.collect("/e2e", "qa-abc");
   assert.deepEqual(report.covered, []);

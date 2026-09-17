@@ -1,12 +1,12 @@
-// test/contexts/agent-runtime/ports/config.port.test.ts
-// Task A.4 compile-time guard: ConfigPort, AgentRuntimeConfigView, and AgentConfigValidationView must be
-// importable from the agent-runtime ports barrel before any adapter depends on them.
+/* ConfigPort, AgentRuntimeConfigView, and AgentConfigValidationView must be importable from the
+   agent-runtime ports barrel before any adapter depends on them.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ConfigPort, AgentRuntimeConfigView, AgentConfigValidationView } from "@contexts/agent-runtime/application/ports/index.ts";
 
 test("ConfigPort and its read-models are importable from the agent-runtime port barrel (compile-time guard)", () => {
-  // tsc is the real assertion; these null bindings verify the types resolved without elision.
+  /* tsc is the real assertion; these null bindings verify the types resolved without elision. */
   const _port: ConfigPort | null = null;
   const _view: AgentRuntimeConfigView | null = null;
   const _validation: AgentConfigValidationView | null = null;

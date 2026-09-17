@@ -47,7 +47,7 @@ func TestStreamRunEventsDecodesAndForwardsLastEventID(t *testing.T) {
 func TestStreamRunEventsFlushesFinalEventWithoutTrailingBlank(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		// A final event with no trailing blank line, then the connection closes.
+		/* A final event with no trailing blank line, then the connection closes. */
 		_, _ = w.Write([]byte("data: {\"seq\":0,\"runId\":\"r1\",\"ts\":1,\"body\":{\"type\":\"test.started\",\"name\":\"nav\"}}\n"))
 	}))
 	defer srv.Close()
@@ -65,8 +65,8 @@ func TestStreamRunEventsFlushesFinalEventWithoutTrailingBlank(t *testing.T) {
 func TestStreamRunEventsJoinsMultiLineData(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		// One JSON payload split across two data: lines — SSE joins them with \n,
-		// which is valid JSON whitespace between tokens.
+		/* One JSON payload split across two data: lines — SSE joins them with \n,
+		   which is valid JSON whitespace between tokens. */
 		_, _ = w.Write([]byte("data: {\"seq\":0,\"runId\":\"r1\",\"ts\":1,\ndata: \"body\":{\"type\":\"test.started\",\"name\":\"nav\"}}\n\n"))
 	}))
 	defer srv.Close()
@@ -85,7 +85,7 @@ func TestStreamRunEventsReconnectStopsOnPermanentError(t *testing.T) {
 	connects := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connects++
-		w.WriteHeader(http.StatusUnauthorized) // a 401 must not be retried forever
+		w.WriteHeader(http.StatusUnauthorized) /* a 401 must not be retried forever */
 	}))
 	defer srv.Close()
 
@@ -104,8 +104,8 @@ func TestStreamRunEventsReconnectStopsOnVerdict(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connects++
 		w.Header().Set("Content-Type", "text/event-stream")
-		// Immediately deliver a terminal verdict, then close — the reconnect loop
-		// must NOT reconnect (or this handler would be hit again).
+		/* Immediately deliver a terminal verdict, then close — the reconnect loop
+		   must NOT reconnect (or this handler would be hit again). */
 		_, _ = w.Write([]byte("data: {\"seq\":0,\"runId\":\"r1\",\"ts\":1,\"body\":{\"type\":\"run.verdict\",\"verdict\":\"pass\",\"passed\":0,\"failed\":0}}\n\n"))
 	}))
 	defer srv.Close()

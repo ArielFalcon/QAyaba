@@ -24,8 +24,7 @@ const cfg = (name: string): AppConfig => ({
   report: { onFailure: "github-issue" },
 });
 
-// A fake RunPipelinePort that records whether it was invoked, so the dispatch tests below can
-// assert routing without needing a real qa-engine wiring (deferred to Slice F.2's operator script).
+/* A fake RunPipelinePort that records whether it was invoked, so the dispatch tests below can */
 function fakePort(outcome: Partial<RunOutcome> = {}): { port: RunPipelinePort; calls: RunInput[] } {
   const calls: RunInput[] = [];
   const port: RunPipelinePort = {
@@ -49,9 +48,9 @@ function fakePort(outcome: Partial<RunOutcome> = {}): { port: RunPipelinePort; c
   return { port, calls };
 }
 
-// ── engineFactory dispatch (Plan 7.6: the rewritten engine is the ONLY engine) ─────────────────
-// The legacy runPipeline path is deleted. enqueueTrackedRun now REQUIRES RunnerDeps.engineFactory
-// — a missing factory throws loudly (a boot-time wiring defect), never silently falls back.
+/* enqueueTrackedRun REQUIRES RunnerDeps.engineFactory — a missing factory throws loudly
+   (a boot-time wiring defect), never silently falls back.
+ */
 
 test("enqueueTrackedRun with no engineFactory supplied — throws loudly, finalizes as infra-error (no silent fallback)", async () => {
   const queue = new JobQueue();
@@ -108,11 +107,12 @@ test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through t
   }
 });
 
-// CLAUDE.md invariant ("surface integration errors loudly — never swallow errors into an empty
-// result"): a live portfolio run once produced verdict:infra-error with NO note/log/cases on the
-// rewritten engine path — undiagnosable without instrumenting a live container. Root cause:
-// runViaRewrittenEngine (this file) mapped RunOutcome -> QaRunResult but dropped `note` entirely.
-// This test pins that the note now survives all the way out to the run record.
+/* CLAUDE.md invariant ("surface integration errors loudly — never swallow errors into an empty
+   result"): a live portfolio run once produced verdict:infra-error with NO note/log/cases on the
+   rewritten engine path — undiagnosable without instrumenting a live container. Root cause:
+   runViaRewrittenEngine (this file) mapped RunOutcome -> QaRunResult but dropped `note` entirely.
+   This test pins that the note now survives all the way out to the run record.
+ */
 test("PIPELINE_ENGINE=rewritten — outcome.note is forwarded into the run record's note field", async () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "rewritten";
@@ -139,13 +139,6 @@ test("PIPELINE_ENGINE=rewritten — outcome.note is forwarded into the run recor
   }
 });
 
-// ── CRITICAL fix (judgment-day) — the runner MUST compute a PER-RUN namespace and pass it into
-// engineFactory, mirroring the exact formula legacy uses (testDataNamespace(prefix, sha, runId) at
-// src/pipeline.ts:1222). Without this, every run of every app collided on the SAME static branch
-// literal ("qa-bot/rewritten"), which flows into BOTH GenerationPort's and ExecutionPort's
-// `namespace` — the live DEV test-data scoping. These tests pin the runner's own dispatch, NOT the
-// factory's internals (already covered in rewritten-engine-factory.test.ts).
-
 test("PIPELINE_ENGINE=rewritten — the runner passes a testDataNamespace-shaped, per-run namespace to engineFactory (never a static literal)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "rewritten";
@@ -168,8 +161,9 @@ test("PIPELINE_ENGINE=rewritten — the runner passes a testDataNamespace-shaped
     assert.equal(getRecord(id)!.verdict, "pass");
     assert.ok(receivedNamespace, "engineFactory must receive a namespace argument");
     assert.notEqual(receivedNamespace, "qa-bot/rewritten", "must never be the old static literal");
-    // testDataNamespace(prefix, sha, runId) formula: `${prefix}-${shortSha(sha)}-${runToken(runId)}`.
-    // cfg(...) fixtures use testDataPrefix "qa-bot"; shortSha("def5678") === "def5678" (already 7 chars).
+    /* testDataNamespace(prefix, sha, runId) formula: `${prefix}-${shortSha(sha)}-${runToken(runId)}`.
+       cfg(...) fixtures use testDataPrefix "qa-bot"; shortSha("def5678") === "def5678" (already 7 chars).
+     */
     assert.match(receivedNamespace!, /^qa-bot-def5678-/, "namespace must start with testDataPrefix-shortSha, matching legacy's formula");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
@@ -209,10 +203,10 @@ test("PIPELINE_ENGINE=rewritten — two DIFFERENT runs (different sha) produce D
   }
 });
 
-// ── Fix 3+4 (engram #961) — mode/guidance MUST thread through the engineFactory seam, per-run,
-// following the namespace precedent. The factory previously hardcoded mode:"diff" and never
-// received guidance at all, so a manual run with --guidance generated with a stale diff-mode
-// prompt and silently dropped the guidance.
+/* mode/guidance MUST thread through the engineFactory seam, per-run, following the namespace
+   precedent. Hardcoding mode:"diff" and dropping guidance would make a manual run with --guidance
+   generate with a stale diff-mode prompt.
+ */
 
 test("PIPELINE_ENGINE=rewritten — the runner passes req.mode to engineFactory's 3rd (run) argument", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -322,12 +316,11 @@ test("PIPELINE_ENGINE=rewritten — engineFactory's run.guidance is absent (not 
   }
 });
 
-// ── Cross-repo coverage guard (dual-judge finding) ─────────────────────────────
-// Legacy's coverage-collect gate is `mode === "diff" && ... && !triggerService`
-// (src/pipeline.ts:2912) — browser V8 coverage cannot map a service repo's changed lines, so a
-// cross-repo (deploy-event) run must degrade change-coverage to "unknown", never a real ratio.
-// runViaRewrittenEngine must thread req.triggerRepo into the RunInput it hands to port.run() so
-// RunQaUseCase can starve the ObjectiveSignalPort.measure() diff arg for these runs.
+/* Cross-repo coverage guard: the coverage-collect gate is `mode === "diff" && ... && !triggerService`.
+   A cross-repo (deploy-event) run must degrade change-coverage to "unknown", never a real ratio.
+   runViaRewrittenEngine must thread req.triggerRepo into the RunInput it hands to port.run() so
+   RunQaUseCase can starve the ObjectiveSignalPort.measure() diff arg for these runs.
+ */
 
 test("PIPELINE_ENGINE=rewritten — the runner threads req.triggerRepo into port.run's RunInput when present", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -335,9 +328,7 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.triggerRepo into port
   try {
     const queue = new JobQueue();
     const { port, calls } = fakePort({ verdict: "pass" });
-    // Must be a DECLARED service (assertTriggerRepoDeclared, judgment-day security fix) — an
-    // undeclared triggerRepo now rejects the run before it ever reaches port.run(); see the
-    // dedicated "rejects an undeclared triggerRepo" test group below.
+    /* Must be a declared service — an undeclared triggerRepo rejects before port.run(). */
     const id = enqueueTrackedRun(
       queue,
       { app: "runner-trigger-repo", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/orders-svc" },
@@ -353,16 +344,14 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.triggerRepo into port
   }
 });
 
-// ── triggerRepo validation (judgment-day, WARNING real) ────────────────────────
-// Legacy runPipeline throws `trigger repo ${x} is not a declared service of app ${y}`
-// (src/pipeline.ts:1008-1013) BEFORE the run ever starts — an unvalidated webhook-supplied
-// triggerRepo could otherwise route a real GitHub Issue (decision.issueRepo defaults to
-// input.triggerRepo, F3/643818c) into an arbitrary repo. Only the rewritten branch bypassed this
-// (RunQaUseCase has no app.services knowledge) — assertTriggerRepoDeclared closes that gap at the
-// SAME boundary the legacy branch already protects (runViaRewrittenEngine, mirroring
-// runPipeline's own check). A rejected run finalizes as verdict "infra-error" (a plain Error,
-// same as legacy — isInfraError(err) is false for it, matching the existing "unexpected internal
-// error" classification the queue callback's catch block already applies to non-InfraError throws).
+/* An undeclared triggerRepo throws `trigger repo ${x} is not a declared service of app ${y}`.
+   triggerRepo could otherwise route a real GitHub Issue (decision.issueRepo defaults to
+   input.triggerRepo) into an arbitrary repo. RunQaUseCase has no app.services knowledge —
+   assertTriggerRepoDeclared closes that gap at runViaRewrittenEngine. A rejected run finalizes
+   as verdict "infra-error" (a plain Error — isInfraError(err) is false for it, matching the
+   existing "unexpected internal error" classification the queue callback's catch block already
+   applies to non-InfraError throws).
+ */
 
 test("PIPELINE_ENGINE=rewritten — rejects an undeclared triggerRepo (finalizes infra-error, never reaches port.run)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -373,7 +362,7 @@ test("PIPELINE_ENGINE=rewritten — rejects an undeclared triggerRepo (finalizes
     const id = enqueueTrackedRun(
       queue,
       { app: "runner-trigger-repo-undeclared", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/evil-repo" },
-      // cfg() declares no services[] at all — org/evil-repo cannot be a declared service.
+      /* cfg() declares no services[] at all — org/evil-repo cannot be a declared service. */
       { loadApp: cfg, engineFactory: () => port },
     );
     await queue.drain();
@@ -417,7 +406,7 @@ test("PIPELINE_ENGINE=rewritten — an app with NO services[] rejects ANY trigge
     const id = enqueueTrackedRun(
       queue,
       { app: "runner-trigger-repo-no-services", sha: "def5678", target: "e2e", mode: "diff", source: "webhook", triggerRepo: "org/anything" },
-      // cfg() has no `services` key at all — matches legacy's `app.services?.find(...)` on undefined.
+      /* cfg() has no `services` key at all — matches `app.services?.find(...)` on undefined. */
       { loadApp: cfg, engineFactory: () => port },
     );
     await queue.drain();
@@ -450,11 +439,11 @@ test("PIPELINE_ENGINE=rewritten — RunInput.triggerRepo is absent (not fabricat
   }
 });
 
-// ── WS7.1 (full-flow remediation, multi-commit range restoration) ──────────────────────────────
-// req.baseSha was ALREADY parsed correctly at both entry points (src/index.ts's webhook handler,
-// src/cli.ts's --base-sha flag) and threaded into RunRequest — but runViaRewrittenEngine's own
-// RunInput construction (this file) dropped it before it ever reached the engine. These tests pin
-// the exact seam that fix closes: the ONE place a RunRequest becomes a RunInput.
+/* req.baseSha was ALREADY parsed correctly at both entry points (src/index.ts's webhook handler,
+   src/cli.ts's --base-sha flag) and threaded into RunRequest — but runViaRewrittenEngine's own
+   RunInput construction (this file) dropped it before it ever reached the engine. These tests pin
+   the exact seam that fix closes: the ONE place a RunRequest becomes a RunInput.
+ */
 
 test("PIPELINE_ENGINE=rewritten — the runner threads req.baseSha into port.run's RunInput when present", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -498,11 +487,10 @@ test("PIPELINE_ENGINE=rewritten — RunInput.baseSha is absent (not fabricated) 
   }
 });
 
-// ── sdd/migration-wiring-phase-2 Slice 5 (D-F parentRunId producer) ────────────────────────────
-// req.parentRunId was ALREADY set correctly by src/index.ts's continueRun (the ONLY real producer,
-// the /continue API flow) — but runViaRewrittenEngine's own RunInput construction (this file)
-// dropped it before it ever reached the engine, the SAME class of gap WS7.1 closed for baseSha
-// above. These tests pin the exact seam that fix closes.
+/* req.parentRunId was ALREADY set correctly by src/index.ts's continueRun (the ONLY real producer,
+   the /continue API flow) — but runViaRewrittenEngine's own RunInput construction (this file)
+   above. These tests pin the exact seam that fix closes.
+ */
 
 test("PIPELINE_ENGINE=rewritten — the runner threads req.parentRunId into port.run's RunInput when present (a /continue-driven run)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -546,11 +534,12 @@ test("PIPELINE_ENGINE=rewritten — RunInput.parentRunId is absent (not fabricat
   }
 });
 
-// ── Bug fix (cross-repo composition threading) — engineFactory's `run` param must ALSO carry
-// triggerRepo, not just mode/guidance. Prior to this fix, req.triggerRepo reached RunInput (pinned
-// above) but never reached the engineFactory's `run` object, so rewritten-engine-factory.ts had no
-// way to route vcs/checkout/the deploy gate to the declared service — this is the seam that closes
-// that gap. Mirrors this file's own "engineFactory's run.guidance is absent..." precedent exactly.
+/* ── Bug fix (cross-repo composition threading) — engineFactory's `run` param must ALSO carry
+   triggerRepo, not just mode/guidance. Prior to this fix, req.triggerRepo reached RunInput (pinned
+   above) but never reached the engineFactory's `run` object, so rewritten-engine-factory.ts had no
+   way to route vcs/checkout/the deploy gate to the declared service — this is the seam that closes
+   that gap. Mirrors this file's own "engineFactory's run.guidance is absent..." precedent exactly.
+ */
 
 test("PIPELINE_ENGINE=rewritten — engineFactory's run param carries req.triggerRepo when present", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -633,13 +622,12 @@ test("the rewritten path finalizes the record + publishes run.verdict RunEvents 
   }
 });
 
-// ── Bug fix: rewritten-engine runs left their RunRecord/RunEvents frozen — record.step never
-// advanced past its initial value and /api/runs/:id/events stayed empty, because nothing wired
-// RunQaUseCaseDeps.observer. The runner's own fix is buildRewrittenObserver (this file) +
-// engineFactory's widened 4th (observer) argument. These tests pin: (1) engineFactory receives a
-// live ObserverPort as its 4th argument, and (2) a port that drives that observer mid-run produces
-// the SAME updateRecord + step.changed RunEvent shape the legacy engine's own onStep callback
-// produces — so the TUI/API render identically regardless of which engine is running. ────────────
+/* Runs must not leave their RunRecord/RunEvents frozen — record.step must advance and
+   /api/runs/:id/events must populate. The runner wires this via buildRewrittenObserver +
+   engineFactory's 4th (observer) argument. These tests pin: (1) engineFactory receives a live
+   ObserverPort as its 4th argument, and (2) a port that drives that observer mid-run produces
+   the SAME updateRecord + step.changed RunEvent shape the TUI/API already render.
+ */
 
 test("PIPELINE_ENGINE=rewritten — the runner passes a live ObserverPort as engineFactory's 4th argument", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -675,16 +663,18 @@ test("PIPELINE_ENGINE=rewritten — a port that drives ObserverPort.onStep mid-r
   try {
     const queue = new JobQueue();
     const runEvents = createRunEventStore({ now: () => 1234 });
-    // A port standing in for RewrittenOrchestratorAdapter -> RunQaUseCase: it drives the SAME
-    // observer the runner handed it through a representative phase sequence BEFORE resolving,
-    // exactly as RunQaUseCase.run() now does at each phase boundary.
+    /* A port standing in for RewrittenOrchestratorAdapter -> RunQaUseCase: it drives the SAME
+       observer the runner handed it through a representative phase sequence BEFORE resolving,
+       exactly as RunQaUseCase.run() now does at each phase boundary.
+     */
     const observingPort: RunPipelinePort = {
       run: async (input) => {
         const stepsSeenMidRun = ["gate", "classify", "generate", "validate", "health", "execute"] as const;
         for (const step of stepsSeenMidRun) {
           currentObserver?.onStep(step);
-          // Assert the record already reflects this step BEFORE the run finishes — proving the
-          // update is live, not batched until the final verdict.
+          /* Assert the record already reflects this step BEFORE the run finishes — proving the
+             update is live, not batched until the final verdict.
+           */
           assert.equal(getRecord(id)?.step, step, `record.step must advance to '${step}' while the run is still in flight`);
         }
         return {
@@ -771,9 +761,10 @@ test("PIPELINE_ENGINE=rewritten — ObserverPort.onStep('retry', detail) sets re
       },
     );
     await queue.drain();
-    // The queue callback's own happy-path finalize always writes retrying:false — this proves the
-    // mid-run retrying:true was genuinely observed above (asserted synchronously inside run()),
-    // not that it survives to the terminal record.
+    /* The queue callback's own happy-path finalize always writes retrying:false — this proves the
+       mid-run retrying:true was genuinely observed above (asserted synchronously inside run()),
+       not that it survives to the terminal record.
+     */
     assert.equal(getRecord(id)?.retrying, false);
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
@@ -781,19 +772,18 @@ test("PIPELINE_ENGINE=rewritten — ObserverPort.onStep('retry', detail) sets re
   }
 });
 
-// ── Observer fault isolation (judgment-day, both judges) ───────────────────────
-// buildRewrittenObserver's onStep/onEvent wrap updateRecord/runEvents.publish in try/catch — a
-// transient write failure (e.g. a flaky event-bus subscriber) must never propagate up through
-// ObserverPort and abort an otherwise-healthy run. Before this fix, a throwing onStep call would
-// have escaped RunQaUseCase's `this.deps.observer?.onStep(...)` call site and converted a genuine
-// "pass" into an unrelated crash — the SAME class of bug CLAUDE.md's own "a bad event must never
-// break..." pattern (src/index.ts) already guards against elsewhere in this codebase.
-//
-// Scoped precisely to buildRewrittenObserver's own onStep/onEvent (not every runEvents.publish
-// call site in the runner, several of which are outside this fix's scope): the throwing stub only
-// fails on "step.changed" events, which are published EXCLUSIVELY from inside
-// buildRewrittenObserver.onStep — every other event type in this run (run.started, etc.) still
-// publishes normally, isolating the assertion to the observer's own fault boundary.
+/* buildRewrittenObserver's onStep/onEvent wrap updateRecord/runEvents.publish in try/catch — a
+   transient write failure (e.g. a flaky event-bus subscriber) must never propagate up through
+   ObserverPort and abort an otherwise-healthy run. Before this fix, a throwing onStep call would
+   have escaped RunQaUseCase's `this.deps.observer?.onStep(...)` call site and converted a genuine
+   "pass" into an unrelated crash — the SAME class of bug CLAUDE.md's own "a bad event must never
+   break..." pattern (src/index.ts) already guards against elsewhere in this codebase.
+   Scoped precisely to buildRewrittenObserver's own onStep/onEvent (not every runEvents.publish
+   call site in the runner, several of which are outside this fix's scope): the throwing stub only
+   fails on "step.changed" events, which are published EXCLUSIVELY from inside
+   buildRewrittenObserver.onStep — every other event type in this run (run.started, etc.) still
+   publishes normally, isolating the assertion to the observer's own fault boundary.
+ */
 test("PIPELINE_ENGINE=rewritten — a port that drives ObserverPort.onStep, where runEvents.publish throws on step.changed, still finalizes the run's own verdict (non-fatal, isolated)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "rewritten";
@@ -802,9 +792,10 @@ test("PIPELINE_ENGINE=rewritten — a port that drives ObserverPort.onStep, wher
     let currentObserver: { onStep(step: string, detail?: string): void } | undefined;
     const observingPort: RunPipelinePort = {
       run: async (input) => {
-        // Drive onStep through several phases — every call must swallow the publish throw below
-        // without ever propagating into this run() call (which would otherwise reject the port's
-        // own promise and convert this "pass" into an infra-error).
+        /* Drive onStep through several phases — every call must swallow the publish throw below
+           without ever propagating into this run() call (which would otherwise reject the port's
+           own promise and convert this "pass" into an infra-error).
+         */
         for (const step of ["gate", "generate", "validate", "execute"] as const) {
           currentObserver?.onStep(step);
         }
@@ -874,9 +865,10 @@ test("a crashing rewritten port finalizes the record as infra-error (no zombie)"
   }
 });
 
-// ── Plan 7.1 — closes the rewritten cancellation gap (engram #913): cancelTrackedRun must abort
-// the rewritten port's OWN in-flight run via the queue's AbortSignal, and the port's late
-// resolution (after the record is already finalized as cancelled) must NEVER overwrite it. ──────
+/* cancelTrackedRun must abort the in-flight port.run via AbortSignal so a stop does not leave
+   the record running. The port's late resolution (after the record is already finalized as
+   cancelled) must NEVER overwrite it.
+ */
 
 test("cancelTrackedRun aborts the rewritten port's in-flight run.run() AND the record is not overwritten by the port's late resolution", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -885,17 +877,19 @@ test("cancelTrackedRun aborts the rewritten port's in-flight run.run() AND the r
     const queue = new JobQueue();
     let observedAborted = false;
     let resolveLate: (() => void) | undefined;
-    // A port whose run() observes the signal (proving it was actually threaded in) and stays
-    // pending until the test explicitly resolves it late — standing in for a rewritten engine
-    // that keeps running headless after cancellation.
+    /* A port whose run() observes the signal (proving it was actually threaded in) and stays
+       pending until the test explicitly resolves it late — standing in for a rewritten engine
+       that keeps running headless after cancellation.
+     */
     const cancellablePort: RunPipelinePort = {
       run: async (input, signal) => {
         await new Promise<void>((resolve) => {
           if (signal?.aborted) { observedAborted = true; return resolve(); }
           signal?.addEventListener("abort", () => { observedAborted = true; resolve(); }, { once: true });
         });
-        // Simulate the late resolution: the port's own promise only settles AFTER this point,
-        // well after cancelTrackedRun has already finalized the record.
+        /* Simulate the late resolution: the port's own promise only settles AFTER this point,
+           well after cancelTrackedRun has already finalized the record.
+         */
         await new Promise<void>((resolve) => { resolveLate = resolve; });
         return {
           runId: input.runId,
@@ -916,16 +910,16 @@ test("cancelTrackedRun aborts the rewritten port's in-flight run.run() AND the r
       { app: "runner-rewritten-cancel", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
       { loadApp: cfg, engineFactory: () => cancellablePort },
     );
-    await new Promise((r) => setImmediate(r)); // let the job claim the queue controller
+    await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
     assert.equal(cancelTrackedRun(queue, id), true, "a live rewritten run must be cancellable via the queue signal");
-    // Give the port's abort listener a tick to fire before asserting.
     await new Promise((r) => setImmediate(r));
     assert.equal(observedAborted, true, "the rewritten port's run() must observe the queue's AbortSignal — the gap this closes");
     const cancelledRecord = getRecord(id)!;
     assert.equal(cancelledRecord.status, "done");
     assert.equal(cancelledRecord.verdict, "infra-error", "matches cancelTrackedRun's own aborted-terminal mapping");
-    // Now let the port's stale promise resolve LATE (as if it kept running headless) — this must
-    // NEVER overwrite the already-finalized cancelled record with a stale "pass" verdict.
+    /* Now let the port's stale promise resolve LATE (as if it kept running headless) — this must
+       NEVER overwrite the already-finalized cancelled record with a stale "pass" verdict.
+     */
     resolveLate?.();
     await queue.drain();
     const finalRecord = getRecord(id)!;
@@ -943,10 +937,11 @@ test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT over
   try {
     const queue = new JobQueue();
     let rejectLate: ((e: Error) => void) | undefined;
-    // A rewritten port that observes the cancel, then — in the async gap after cancelTrackedRun has
-    // already finalized the record — its own work rejects with an UNRELATED (non-cancel) error,
-    // routing to the queue callback's catch branch. Without the catch-branch guard, that catch would
-    // overwrite the accurate "cancelled" record with a crash note + fire a spurious incident.
+    /* A rewritten port that observes the cancel, then — in the async gap after cancelTrackedRun has
+       already finalized the record — its own work rejects with an UNRELATED (non-cancel) error,
+       routing to the queue callback's catch branch. Without the catch-branch guard, that catch would
+       overwrite the accurate "cancelled" record with a crash note + fire a spurious incident.
+     */
     const crashingPort: RunPipelinePort = {
       run: async (_input, signal) => {
         await new Promise<void>((resolve) => {
@@ -962,11 +957,11 @@ test("cancelTrackedRun + an UNRELATED late crash: the catch branch must NOT over
       { app: "runner-catch-cancel-race", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
       { loadApp: cfg, engineFactory: () => crashingPort },
     );
-    await new Promise((r) => setImmediate(r)); // let the job claim the queue controller
+    await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
     assert.equal(cancelTrackedRun(queue, id), true);
-    await new Promise((r) => setImmediate(r)); // let the port's abort listener fire
+    await new Promise((r) => setImmediate(r)); /* let the port's abort listener fire */
     const cancelledNote = getRecord(id)!.note;
-    // Now the port's own work rejects LATE with an unrelated error → the catch branch runs.
+    /* Now the port's own work rejects LATE with an unrelated error → the catch branch runs. */
     rejectLate?.(new Error("OpenCode 500 — unrelated crash racing the cancel"));
     await queue.drain();
     const finalRecord = getRecord(id)!;
@@ -986,7 +981,7 @@ test("the run does NOT execute synchronously — it is deferred to the queue (no
     { app: "runner-skip", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
     { loadApp: cfg, engineFactory: () => port },
   );
-  // Right after enqueue, before draining: the job has not run yet.
+  /* Right after enqueue, before draining: the job has not run yet. */
   assert.equal(getRecord(id)?.status, "enqueued");
   await queue.drain();
   const r = getRecord(id)!;
@@ -1098,24 +1093,25 @@ test("a bad app name is finalized (not a zombie) — loadApp throwing is caught"
   assert.equal(r.verdict, "infra-error");
 });
 
-// ── cancelTrackedRun ──────────────────────────────────────────────────────────
-// The operator's stop control. Two close-together but distinct failures used to make a run
-// "impossible to stop" from the dashboard: a stale "running" record the live queue no longer
-// held would answer 409 and never clear. These pin the funnel's cancel behavior.
+/* ── cancelTrackedRun ──────────────────────────────────────────────────────────
+   The operator's stop control. Two close-together but distinct failures used to make a run
+   "impossible to stop" from the dashboard: a stale "running" record the live queue no longer
+   held would answer 409 and never clear. These pin the funnel's cancel behavior.
+ */
 
 test("cancelTrackedRun aborts a LIVE run and finalizes its record (returns true)", async () => {
   const queue = new JobQueue();
   let aborted = false;
   const rec = createRecord({ app: "cancel-live", sha: "aaa1111", target: "e2e", mode: "diff" });
   updateRecord(rec.id, { status: "running" });
-  // A job that blocks until its signal aborts — stands in for an in-flight agent turn.
+  /* A job that blocks until its signal aborts — stands in for an in-flight agent turn. */
   queue.enqueue(async (signal) => {
     await new Promise<void>((resolve) => {
       if (signal.aborted) return resolve();
       signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true });
     });
   }, rec.id);
-  await new Promise((r) => setImmediate(r)); // let the job claim the queue controller
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller */
   assert.equal(cancelTrackedRun(queue, rec.id), true);
   await queue.drain();
   assert.equal(aborted, true, "the live turn must be interrupted via the signal");
@@ -1123,11 +1119,12 @@ test("cancelTrackedRun aborts a LIVE run and finalizes its record (returns true)
 });
 
 test("cancelTrackedRun finalizes a STALE running record the queue no longer holds (the stuck-at-0% bug)", () => {
-  const queue = new JobQueue(); // empty: nothing is actually executing
+  const queue = new JobQueue(); /* empty: nothing is actually executing */
   const rec = createRecord({ app: "cancel-zombie", sha: "bbb2222", target: "e2e", mode: "diff" });
-  updateRecord(rec.id, { status: "running" }); // a zombie left "running" by a restart/crash race
-  // Not the live queue job, so nothing is aborted (false) — but the stuck record MUST be
-  // finalized so the operator's stop actually clears it (the old path left it "running" → 409).
+  updateRecord(rec.id, { status: "running" }); /* a zombie left "running" by a restart/crash race */
+  /* Not the live queue job, so nothing is aborted (false) — but the stuck record MUST be
+     finalized so the operator's stop actually clears it (the old path left it "running" → 409).
+   */
   assert.equal(cancelTrackedRun(queue, rec.id), false);
   const r = getRecord(rec.id)!;
   assert.equal(r.status, "done");
@@ -1137,7 +1134,7 @@ test("cancelTrackedRun finalizes a STALE running record the queue no longer hold
 test("cancelTrackedRun dequeues an enqueued run so it never executes", () => {
   const queue = new JobQueue();
   const rec = createRecord({ app: "cancel-enq", sha: "ccc3333", target: "e2e", mode: "diff" });
-  // status stays "enqueued" (createRecord default) — never started
+  /* status stays "enqueued" (createRecord default) — never started */
   assert.equal(cancelTrackedRun(queue, rec.id), false);
   assert.equal(getRecord(rec.id)?.status, "done");
 });
@@ -1147,17 +1144,17 @@ test("cancelTrackedRun is a no-op on an already-terminal record", () => {
   const rec = createRecord({ app: "cancel-done", sha: "ddd4444", target: "e2e", mode: "diff" });
   updateRecord(rec.id, { status: "done", verdict: "pass" });
   assert.equal(cancelTrackedRun(queue, rec.id), false);
-  assert.equal(getRecord(rec.id)?.verdict, "pass"); // untouched, not overwritten to infra-error
+  assert.equal(getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
 });
 
 test("cancelTrackedRun returns false for an unknown run id", () => {
   assert.equal(cancelTrackedRun(new JobQueue(), "does-not-exist"), false);
 });
 
-// ── W3 F3 (HIGH cutover blocker): runViaRewrittenEngine maps outcome.cases -> history.addCase +
-// outcome.logs -> the run record — previously hardcoded cases:[]/logs:"" unconditionally, so every
-// passing rewritten-engine run showed passed=0/failed=0 with an empty case list regardless of what
-// actually ran. ─────────────────────────────────────────────────────────────────────────────────
+/* runViaRewrittenEngine maps outcome.cases -> history.addCase + outcome.logs -> the run record.
+   Hardcoding cases:[]/logs:"" would show passed=0/failed=0 with an empty case list regardless of
+   what actually ran.
+ */
 
 test("PIPELINE_ENGINE=rewritten — outcome.cases populate the run record's cases + passed/failed counts (was: permanent 0/0)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1210,10 +1207,10 @@ test("PIPELINE_ENGINE=rewritten — an absent outcome.cases (early-exit terminal
   }
 });
 
-// ── W3 F4 (MEDIUM): per-case RunEvents (test.passed/test.failed/test.flaky) + reviewer.verdict are
-// published from the already-returned RunOutcome, closing the "no live events on the rewritten
-// path" gap for what IS available without widening ExecutionPort (true per-case LIVE events during
-// execution need #35 — flagged, not built here). ──────────────────────────────────────────────
+/* Per-case RunEvents (test.passed/test.failed/test.flaky) + reviewer.verdict are published from
+   the already-returned RunOutcome. True per-case LIVE events during execution are a separate
+   ExecutionPort widening, not this mapping.
+ */
 
 test("PIPELINE_ENGINE=rewritten — outcome.cases publish test.passed/test.failed RunEvents", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1299,16 +1296,16 @@ test("PIPELINE_ENGINE=rewritten — outcome.gateSignals.reviewerApproved publish
   }
 });
 
-// ── liveAnnounced dedup + convergence (judgment-day CRITICAL fix) ──────────────────────────────
-// Playwright fires onTestEnd PER ATTEMPT (config/e2e/playwright.config.ts retries:2): a flaky test
-// live-announces test.failed then test.passed within ONE execute(), but the final report correctly
-// classifies it "flaky" (src/qa/playwright-report.ts). A naive Set<string> dedup ("was this name
-// announced live at all?") permanently suppressed the terminal event once ANY live event fired for
-// that name — silently dropping the correcting test.flaky the record store itself carries. These
-// tests drive the SAME seam the engineFactory-based tests above use: the port receives the live
-// ObserverPort as its 4th engineFactory argument (so it can fire onEvent mid-run, standing in for
-// RunQaUseCase's own ExecutionOpts.onCase streaming) and returns outcome.cases for the post-hoc
-// recordCase loop — exactly how runViaRewrittenEngine wires the two paths together.
+/* Playwright fires onTestEnd PER ATTEMPT (config/e2e/playwright.config.ts retries:2): a flaky test
+   live-announces test.failed then test.passed within ONE execute(), but the final report correctly
+   classifies it "flaky" (src/qa/playwright-report.ts). A naive Set<string> dedup ("was this name
+   announced live at all?") permanently suppressed the terminal event once ANY live event fired for
+   that name — silently dropping the correcting test.flaky the record store itself carries. These
+   tests drive the SAME seam the engineFactory-based tests above use: the port receives the live
+   ObserverPort as its 4th engineFactory argument (so it can fire onEvent mid-run, standing in for
+   RunQaUseCase's own ExecutionOpts.onCase streaming) and returns outcome.cases for the post-hoc
+   recordCase loop — exactly how runViaRewrittenEngine wires the two paths together.
+ */
 
 test("liveAnnounced dedup — a case announced live with a MATCHING final status publishes its terminal event exactly once (no re-publish)", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1319,8 +1316,9 @@ test("liveAnnounced dedup — a case announced live with a MATCHING final status
     let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
     const port: RunPipelinePort = {
       run: async (input, _signal) => {
-        // Live-announce a clean pass for "login flow" BEFORE the run resolves — mirrors
-        // ExecutionOpts.onCase streaming test.passed through the use-case's own onEvent.
+        /* Live-announce a clean pass for "login flow" BEFORE the run resolves — mirrors
+           ExecutionOpts.onCase streaming test.passed through the use-case's own onEvent.
+         */
         observer?.onEvent({ type: "test.passed", name: "login flow", durationMs: 500 });
         return {
           runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
@@ -1346,7 +1344,7 @@ test("liveAnnounced dedup — a case announced live with a MATCHING final status
     await queue.drain();
     const r = getRecord(id)!;
     assert.equal(r.status, "done");
-    // The record store's own write (addCase) still happened — the case is present in the record.
+    /* The record store's own write (addCase) still happened — the case is present in the record. */
     assert.equal(r.cases.length, 1);
     assert.equal(r.cases[0]?.status, "pass");
     const passedEvents = runEvents.replay(id).map((e) => e.body).filter((b) => b.type === "test.passed");
@@ -1366,9 +1364,10 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
     let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
     const port: RunPipelinePort = {
       run: async (input, _signal) => {
-        // Playwright retries:2 — attempt 1 fails live, attempt 2 (retry) passes live. The final
-        // report classifies the case as "flaky" (src/qa/playwright-report.ts), which diverges from
-        // the LAST live-announced status ("passed").
+        /* Playwright retries:2 — attempt 1 fails live, attempt 2 (retry) passes live. The final
+           report classifies the case as "flaky" (src/qa/playwright-report.ts), which diverges from
+           the LAST live-announced status ("passed").
+         */
         observer?.onEvent({ type: "test.failed", name: "checkout flow" });
         observer?.onEvent({ type: "test.passed", name: "checkout flow", durationMs: 300 });
         return {
@@ -1401,8 +1400,9 @@ test("liveAnnounced dedup — the flaky divergence: live announces failed then p
     const bodies = runEvents.replay(id).map((e) => e.body);
     const flakyEvents = bodies.filter((b) => b.type === "test.flaky");
     assert.equal(flakyEvents.length, 1, "the divergence (live: passed, final: flaky) must publish exactly one correcting test.flaky event");
-    // The live-announced test.failed/test.passed from onEvent are still present (they are real
-    // per-attempt announcements) — the correction is additive, not a rewrite of history.
+    /* The live-announced test.failed/test.passed from onEvent are still present (they are real
+       per-attempt announcements) — the correction is additive, not a rewrite of history.
+     */
     assert.ok(bodies.some((b) => b.type === "test.failed" && (b as { name: string }).name === "checkout flow"));
     assert.ok(bodies.some((b) => b.type === "test.passed" && (b as { name: string }).name === "checkout flow"));
   } finally {
@@ -1417,7 +1417,7 @@ test("liveAnnounced dedup — a case NEVER announced live (e.g. code-mode) alway
   try {
     const queue = new JobQueue();
     const runEvents = createRunEventStore();
-    // No onEvent calls at all — standing in for a strategy without live callbacks (code-mode).
+    /* No onEvent calls at all — standing in for a strategy without live callbacks (code-mode). */
     const { port } = fakePort({
       verdict: "pass",
       cases: [{ name: "unit: parses config", status: "pass" }],
@@ -1446,8 +1446,8 @@ test("liveAnnounced dedup — addCase (the record-store write) always runs regar
     let observer: { onEvent(body: { type: string; name?: string; durationMs?: number; attempts?: number }): void } | undefined;
     const port: RunPipelinePort = {
       run: async (input, _signal) => {
-        observer?.onEvent({ type: "test.passed", name: "case A", durationMs: 100 }); // live-announced, matching final
-        // "case B" is never live-announced at all.
+        observer?.onEvent({ type: "test.passed", name: "case A", durationMs: 100 }); /* live-announced, matching final */
+        /* "case B" is never live-announced at all. */
         return {
           runId: input.runId, app: input.app, sha: input.sha.value, mode: input.mode, target: input.target,
           verdict: "pass", errorClass: null,
@@ -1488,7 +1488,7 @@ test("PIPELINE_ENGINE=rewritten — no reviewer.verdict event when outcome.gateS
   try {
     const queue = new JobQueue();
     const runEvents = createRunEventStore();
-    const { port } = fakePort({ verdict: "invalid" }); // no reviewerApproved on the default outcome
+    const { port } = fakePort({ verdict: "invalid" }); /* no reviewerApproved on the default outcome */
     const id = enqueueTrackedRun(
       queue,
       { app: "runner-w3f4-no-reviewer-event", sha: "def5678", target: "e2e", mode: "diff", source: "manual" },
@@ -1503,16 +1503,16 @@ test("PIPELINE_ENGINE=rewritten — no reviewer.verdict event when outcome.gateS
   }
 });
 
-// ── Mirror-race guard: bounded poll loop deferring to an in-flight onboarding job ──────────────
-// (onboarding-hardening, Slice 1). RunnerDeps.isOnboardingActive is OPTIONAL and ADDITIVE — a
-// caller (or test) that omits it gets () => false, so the guard is a byte-identical no-op on the
-// idle path. onboardingPollMs/onboardingWaitMaxMs/sleep are also injectable so tests never wait
-// out real timers.
+/* ── Mirror-race guard: bounded poll loop deferring to an in-flight onboarding job ──────────────
+   caller (or test) that omits it gets () => false, so the guard is a byte-identical no-op on the
+   idle path. onboardingPollMs/onboardingWaitMaxMs/sleep are also injectable so tests never wait
+   out real timers.
+ */
 
-// S1.14a (onboarding-auto-index, design §4.1): the post-confirm indexing phase extends the
-// mirror-race guard's busy window (§2.6) — the defensive breakout ceiling must be widened by the
-// indexing budget or the breakout could fire mid-index, the exact torn-index race §2.6 exists to
-// prevent. Pins the SUMMED derivation so the indexing budget can never be silently dropped.
+/* The post-confirm indexing phase extends the mirror-race guard's busy window — the defensive
+   breakout ceiling must be widened by the indexing budget or the breakout could fire mid-index.
+   Pins the SUMMED derivation so the indexing budget can never be silently dropped.
+ */
 test("ONBOARDING_WAIT_MAX_MS is the sum of the named per-phase ceilings, including the NEW indexing budget (40 min total)", () => {
   assert.equal(ONBOARDING_MIRROR_CEILING_MS, 5 * 60 * 1000);
   assert.equal(ONBOARDING_JOB_CEILING_MS, 20 * 60 * 1000);
@@ -1567,9 +1567,9 @@ test("breakout path: isOnboardingActive stuck true past onboardingWaitMaxMs — 
       {
         loadApp: cfg,
         engineFactory: () => port,
-        isOnboardingActive: () => true, // stuck forever
+        isOnboardingActive: () => true,
         onboardingPollMs: 1,
-        onboardingWaitMaxMs: 5, // tiny test bound — real Date.now() trips it within a couple polls
+        onboardingWaitMaxMs: 5, /* tiny test bound — real Date.now() trips it within a couple polls */
         sleep: async () => { await new Promise((r) => setTimeout(r, 2)); },
       },
     );
@@ -1595,13 +1595,14 @@ test("abort-during-wait: cancelling mid-poll resolves promptly (signal-aware sle
     {
       loadApp: cfg,
       engineFactory: () => port,
-      isOnboardingActive: () => true, // stuck — only the abort ends the wait
+      isOnboardingActive: () => true, /* stuck — only the abort ends the wait */
       onboardingPollMs: 100,
       onboardingWaitMaxMs: 10_000,
       sleep: async (_ms: number, opts?: { signal?: AbortSignal }) => {
         sawSignal = opts?.signal;
-        // Simulate a signal-aware sleep: resolve immediately once the signal aborts, otherwise
-        // hang so the ONLY way this test completes is via the abort short-circuiting it.
+        /* Simulate a signal-aware sleep: resolve immediately once the signal aborts, otherwise
+           hang so the ONLY way this test completes is via the abort short-circuiting it.
+         */
         await new Promise<void>((resolve) => {
           if (opts?.signal?.aborted) return resolve();
           opts?.signal?.addEventListener("abort", () => resolve(), { once: true });
@@ -1609,7 +1610,7 @@ test("abort-during-wait: cancelling mid-poll resolves promptly (signal-aware sle
       },
     },
   );
-  await new Promise((r) => setImmediate(r)); // let the job claim the queue controller and enter the poll loop
+  await new Promise((r) => setImmediate(r)); /* let the job claim the queue controller and enter the poll loop */
   assert.equal(cancelTrackedRun(queue, id), true, "a run waiting in the poll loop must still be cancellable");
   await queue.drain();
   assert.ok(sawSignal, "the poll loop's sleep must receive the queue's own AbortSignal");
@@ -1629,7 +1630,7 @@ test("idle path (isOnboardingActive omitted): behavior is byte-identical to befo
     {
       loadApp: cfg,
       engineFactory: () => port,
-      // isOnboardingActive intentionally OMITTED — must default to () => false.
+      /* isOnboardingActive intentionally OMITTED — must default to () => false. */
       sleep: async () => { sleepCalls += 1; },
     },
   );

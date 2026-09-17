@@ -1,5 +1,4 @@
-// FixLoop ↔ coordination seam (Fase 8). FixLoop keeps retries/adjudication; coordination only
-// selects who regenerates. No second retry loop.
+/* FixLoop keeps retries and adjudication; coordination only selects who regenerates. No second retry loop. */
 import type { AgentCapability } from "./agent-capability.ts";
 import type { OrchestrationDecision } from "./orchestration-router.ts";
 

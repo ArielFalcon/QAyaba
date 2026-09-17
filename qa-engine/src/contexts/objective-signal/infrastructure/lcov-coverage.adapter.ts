@@ -1,16 +1,9 @@
-// src/contexts/objective-signal/infrastructure/lcov-coverage.adapter.ts
-// CoverageCollectorPort over lcov. The missing DI seam: the file read is injected (no hard-coded
-// readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty
-// report, never a throw). The lcov→CoveredLines parse is injected too (defaults to the verified
-// src/qa/change-coverage.ts parseLcov via the Plan-6 composition) — this adapter does not rewrite
-// the parser; it adapts Map<string,Set<number>> to the port's CoveredLines[] shape.
+/* src/contexts/objective-signal/infrastructure/lcov-coverage.adapter.ts CoverageCollectorPort over lcov. The missing DI seam: the file read is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty report, never a throw). */
 import { isAbsolute, relative } from "node:path";
 import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
 
 export interface CoverageFile { path: string; text: string; }
 type ReadLcovFiles = (specDir: string, namespace: string) => Promise<CoverageFile[]>;
-// repoDir is passed from the constructor; the injected default handles it as optional so this type
-// also accepts parseLcov from src/qa/change-coverage.ts (which declares repoDir?: string).
 type ParseLcov = (text: string, repoDir?: string) => Map<string, Set<number>>;
 
 export class LcovCoverageAdapter implements CoverageCollectorPort {
@@ -34,17 +27,6 @@ export class LcovCoverageAdapter implements CoverageCollectorPort {
   }
 }
 
-// Verbatim-carried lcov parser (SF/DA/end_of_record, hits>0). Copied VERBATIM from
-// change-coverage.ts parseLcov — including the `end_of_record` reset (file = null) AND the
-// normalizeRepoPath call on the SF: path. Kept local so the adapter has a self-contained default;
-// the parity test pins it to the legacy original.
-// CRITICAL: end_of_record MUST reset `file` to null so a second SF block in the same text does
-// not inherit the previous file's Set (the real parseLcov does this; omitting it causes DA lines
-// from block 2 to be attributed to the last file of block 1).
-// CRITICAL: the SF: path MUST pass through normalizeRepoPath(raw, repoDir) — the real parseLcov
-// does this to strip the absolute repoDir prefix so coverage paths and diff paths intersect on
-// the same repo-relative POSIX keys. Omitting it causes every absolute SF path to miss the diff
-// intersection (visible in the parity fixture — see the test below).
 function normalizeRepoPath(p: string, repoDir?: string): string {
   let out = p.replace(/\\/g, "/").trim();
   if (repoDir) {

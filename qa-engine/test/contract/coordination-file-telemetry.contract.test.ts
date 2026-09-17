@@ -1,6 +1,6 @@
-// Fase 11/12 durable coordination telemetry contract: optional persistPath appends JSONL events
-// and RELOADS them on a fresh instance so shadow-divergence evidence and adaptive thresholds
-// survive process restarts. Memory-only remains the default (absent path = old behavior).
+/* and RELOADS them on a fresh instance so shadow-divergence evidence and adaptive thresholds
+   survive process restarts. Memory-only remains the default (absent path = old behavior).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,7 +24,7 @@ test("with persistPath, events append to the JSONL file AND reload on a fresh in
   const path = join(dir, "coordination-events.jsonl");
   const first = new InMemoryCoordinationTelemetry(path);
   first.record(event({}));
-  first.record(event({})); // 2 delegations = adaptive sample reaches minSamples(2)
+  first.record(event({})); /* 2 delegations = adaptive sample reaches minSamples(2) */
 
   const lines = readFileSync(path, "utf8").trim().split("\n");
   assert.equal(lines.length, 2);

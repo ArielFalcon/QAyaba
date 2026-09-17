@@ -1,12 +1,12 @@
-// test/contexts/service-topology/infrastructure/event-pattern-catalog.test.ts
-// TDD (strict): write failing tests first, then implement.
-// The event-pattern SHAPE catalog: each entry knows how to find listener/publisher class-based
-// domain-event occurrences in a Java-ish source file. Config supplies the concrete base-type
-// and method names (via EventPatternRef); the shape itself (extends/implements a base type,
-// call a named method with a `.class` argument) lives here, in the core, exactly once — this is
-// the ONLY place a class-based-domain-events shape is defined. Every fixture in this file uses
-// generic names ("Foo", "Bar") to prove the extractor reads shape names from the ref argument,
-// never a literal.
+/* test/contexts/service-topology/infrastructure/event-pattern-catalog.test.ts
+   The event-pattern SHAPE catalog: each entry knows how to find listener/publisher class-based
+   domain-event occurrences in a Java-ish source file. Config supplies the concrete base-type
+   and method names (via EventPatternRef); the shape itself (extends/implements a base type,
+   call a named method with a `.class` argument) lives here, in the core, exactly once — this is
+   the ONLY place a class-based-domain-events shape is defined. Every fixture in this file uses
+   generic names ("Foo", "Bar") to prove the extractor reads shape names from the ref argument,
+   never a literal.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -16,7 +16,7 @@ import {
 } from "@contexts/service-topology/infrastructure/event-pattern-catalog.ts";
 import type { EventPatternRef } from "@contexts/service-topology/domain/index.ts";
 
-/** Look up a catalog entry, asserting it is registered (noUncheckedIndexedAccess narrowing). */
+/* Look up a catalog entry, asserting it is registered (noUncheckedIndexedAccess narrowing). */
 function getExtractor(kind: string): EventPatternExtractor {
   const extractor = EventPatternCatalog[kind];
   assert.ok(extractor, `expected '${kind}' to be registered in the catalog`);
@@ -34,8 +34,6 @@ const REF: EventPatternRef = {
 test("KNOWN_EVENT_PATTERN_KINDS registers class-based-domain-events", () => {
   assert.ok(KNOWN_EVENT_PATTERN_KINDS.has("class-based-domain-events"));
 });
-
-// ---- Listener extraction: extends / implements ----
 
 test("class-based-domain-events: extracts a listener declared via `extends ListenerMessageDelegate`", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -71,11 +69,12 @@ test("class-based-domain-events: extracts a listener declared via `implements Li
   assert.equal(listeners[0]?.eventName, "FooCreatedEvent");
 });
 
-// ---- REGRESSION: fully-qualified base type (package-qualified `extends`/`implements`) ----
-// The class-header regex required the base type as a SIMPLE name immediately after
-// extends/implements. Real Java code sometimes references the base type fully-qualified (no
-// import, or to disambiguate a name clash) — `extends com.example.pkg.ListenerMessageDelegate`
-// — which the simple-name-only regex missed entirely, silently dropping the listener.
+/* ---- REGRESSION: fully-qualified base type (package-qualified `extends`/`implements`) ----
+   The class-header regex required the base type as a SIMPLE name immediately after
+   extends/implements. Real Java code sometimes references the base type fully-qualified (no
+   import, or to disambiguate a name clash) — `extends com.example.pkg.ListenerMessageDelegate`
+   — which the simple-name-only regex missed entirely, silently dropping the listener.
+ */
 
 test("REGRESSION: a listener declared via a FULLY-QUALIFIED base type (`extends com.example.pkg.ListenerMessageDelegate`) is still detected", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -93,8 +92,6 @@ test("REGRESSION: a listener declared via a FULLY-QUALIFIED base type (`extends 
   assert.equal(listeners[0]?.className, "X");
   assert.equal(listeners[0]?.eventName, "QuxEvent");
 });
-
-// ---- Publisher variant A: two-file (broker interface + impl) ----
 
 test("class-based-domain-events: extracts a variant-A publisher (broker interface + impl, two files)", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -145,8 +142,6 @@ test("REGRESSION: a broker interface declared via a FULLY-QUALIFIED subscriber b
   assert.equal(brokers[0]?.modelName, "QuxModel");
 });
 
-// ---- Publisher variant B: single-file publish call ----
-
 test("class-based-domain-events: extracts a variant-B publisher (single-file publishCall with .class arg)", () => {
   const extractor = getExtractor("class-based-domain-events");
   const text = `
@@ -163,13 +158,14 @@ test("class-based-domain-events: extracts a variant-B publisher (single-file pub
   assert.equal(publishers[0]?.eventName, "BazEvent");
 });
 
-// ---- REGRESSION (found against the real nname repos, acceptance run): variant-B publisher
-// with a nested method call in the subject-string argument, e.g.
-// `publishGenericMessage("topic." + event.getId(), event, FooEvent.class)`. A prior version of
-// extractVariantBPublishers used `[^)]*?` to skip the subject argument, which cannot cross ANY
-// `)` character — including a nested, BALANCED one from a method call like `.getId()` inside the
-// subject expression — so the whole call silently failed to match. This is nname's real,
-// idiomatic shape (subject built by string-concatenating a dynamic id via a getter call).
+/* ---- REGRESSION (found against the real nname repos, acceptance run): variant-B publisher
+   with a nested method call in the subject-string argument, e.g.
+   `publishGenericMessage("topic." + event.getId(), event, FooEvent.class)`. A prior version of
+   extractVariantBPublishers used `[^)]*?` to skip the subject argument, which cannot cross ANY
+   `)` character — including a nested, BALANCED one from a method call like `.getId()` inside the
+   subject expression — so the whole call silently failed to match. This is nname's real,
+   idiomatic shape (subject built by string-concatenating a dynamic id via a getter call).
+ */
 
 test("REGRESSION: variant-B publisher matches when the subject argument contains a nested method call with its own parens", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -211,13 +207,14 @@ test("REGRESSION: a nested-parens publish call does not bleed into a SECOND, lat
   assert.deepEqual(eventNames, ["FirstEvent", "SecondEvent"]);
 });
 
-// ---- REGRESSION: string-literal-aware paren walk (findMatchingCloseParen) ----
-// findMatchingCloseParen counts raw `(`/`)` characters with no string/char-literal awareness. A
-// `)` inside a STRING LITERAL argument (e.g. a subject built from a literal containing a closing
-// paren) closes the walk's depth count early, truncating the argument-list substring before the
-// real `Name.class` argument — silently dropping the event. The fix must skip over the contents
-// of double-quoted string literals and single-quoted char literals while walking, honoring
-// backslash escapes, so parens INSIDE literals never affect paren depth.
+/* ---- REGRESSION: string-literal-aware paren walk (findMatchingCloseParen) ----
+   findMatchingCloseParen counts raw `(`/`)` characters with no string/char-literal awareness. A
+   `)` inside a STRING LITERAL argument (e.g. a subject built from a literal containing a closing
+   paren) closes the walk's depth count early, truncating the argument-list substring before the
+   real `Name.class` argument — silently dropping the event. The fix must skip over the contents
+   of double-quoted string literals and single-quoted char literals while walking, honoring
+   backslash escapes, so parens INSIDE literals never affect paren depth.
+ */
 
 test("REGRESSION: a `)` inside a string-literal argument does not truncate the paren walk (event must still be extracted)", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -241,8 +238,9 @@ test("REGRESSION: a `)` inside a string-literal argument does not truncate the p
 
 test("REGRESSION: an escaped quote followed by a `)` inside a string literal is still honored as literal content", () => {
   const extractor = getExtractor("class-based-domain-events");
-  // The subject literal is: a\") b  — i.e. `\"` is an ESCAPED quote (does not close the string),
-  // so the following `)` is still INSIDE the literal and must not affect paren depth.
+  /* The subject literal is: a\") b — i.e. `\"` is an ESCAPED quote (does not close the string),
+     so the following `)` is still INSIDE the literal and must not affect paren depth.
+   */
   const text = `
     public class EscapedQuoteThenParenPublisher {
       public void publish(BarEvent barEvent) {
@@ -277,7 +275,7 @@ test("REGRESSION: existing nested-call case (unescaped, no literal parens) keeps
   assert.equal(publishers[0]?.eventName, "BazEvent");
 });
 
-// ---- REGRESSION: enclosing class, not first class in file (the deleted spike's exact bug) ----
+/* ---- REGRESSION: enclosing class, not first class in file (the deleted spike's exact bug) ---- */
 
 test("REGRESSION: variant-B publisher symbol is the class ENCLOSING the publish call, not the first class in the file", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -303,7 +301,7 @@ test("REGRESSION: variant-B publisher symbol is the class ENCLOSING the publish 
   assert.equal(publishers[0]?.eventName, "QuxEvent");
 });
 
-// ---- Comment-stripping: a commented-out class must not be extracted ----
+/* ---- Comment-stripping: a commented-out class must not be extracted ---- */
 
 test("comment-stripping: a `// class Foo extends ListenerMessageDelegate` line comment is NOT extracted as a real listener", () => {
   const extractor = getExtractor("class-based-domain-events");
@@ -339,7 +337,7 @@ test("comment-stripping: a `/* ... class Bar ... */` block comment mentioning 'c
   assert.deepEqual(listeners, [], "a Javadoc/block-comment mention of 'class' must not be extracted");
 });
 
-// ---- Fail-open: unknown kind ----
+/* ---- Fail-open: unknown kind ---- */
 
 test("EventPatternCatalog: an unknown kind is not registered (lookup returns undefined)", () => {
   assert.equal(EventPatternCatalog["mystery-shape"], undefined);

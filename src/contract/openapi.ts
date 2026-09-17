@@ -1,9 +1,4 @@
-// Emits the versioned OpenAPI 3.0 artifact (contract/openapi.json) from the zod
-// schemas — the single source of truth. The Go client vendors this file and runs
-// oapi-codegen over it (Phase E) to generate its structs + typed client, so the
-// orchestrator and the client cannot drift. Uses zod 4's NATIVE JSON Schema
-// export (no extra dependency); each registered schema becomes a
-// #/components/schemas/<id> with $refs between them. See docs/tui-vnext.md §3.
+/* Emits the versioned OpenAPI 3.0 artifact from the zod schemas — control-plane contract. */
 
 import { z } from "zod";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -32,8 +27,6 @@ import {
 
 export const API_VERSION = "1.0.0";
 
-// Each entry becomes a top-level component the Go client codegens into a struct.
-// Nested registered schemas are emitted as $refs; unregistered shapes inline.
 const NAMED_SCHEMAS = {
   RunEvent: RunEventSchema,
   RunEventBody: RunEventBodySchema,
@@ -99,8 +92,6 @@ function componentSchemas(): Record<string, unknown> {
     target: "openapi-3.0",
     uri: (id) => `#/components/schemas/${id}`,
   });
-  // Strip the ref-path `$id` zod stamps on each root — OpenAPI components are
-  // addressed by their map key, not a self `$id`.
   const out: Record<string, unknown> = {};
   for (const [id, schema] of Object.entries(schemas)) {
     const { $id: _drop, ...rest } = schema as Record<string, unknown>;
@@ -371,8 +362,6 @@ export function buildOpenApiDocument(): Record<string, unknown> {
 
 export const ARTIFACT_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "contract", "openapi.json");
 
-// Writes the artifact deterministically (stable key order via the builders above)
-// so the committed file only changes when the schemas do.
 export function writeOpenApiArtifact(path: string = ARTIFACT_PATH): string {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(buildOpenApiDocument(), null, 2) + "\n", "utf8");

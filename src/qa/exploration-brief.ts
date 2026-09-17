@@ -1,59 +1,49 @@
-// The distilled output of the read-heavy exploration step (tema #4). An isolated, read-only
-// explorer maps a change's blast radius ONCE and returns this compact brief; the test-writer
-// (generator/worker) consumes the distillate instead of re-exploring, keeping its context window
-// clean for the actual job of writing the spec. This module is the PURE CORE (Fase 0): the schema,
-// its deterministic VALIDATION (form gate, mirroring context.ts/metadata.ts), a tolerant PARSER of
-// the agent's JSON output (mirroring parsePlan), and the RENDERER that turns a brief into the prompt
-// section the writer sees. The orchestration that runs the explorer and injects the brief lives
-// elsewhere (Fase 2/3); this module is generic, app-agnostic and side-effect-free.
-//
-// CRITICAL invariant (decision D — solo-código in v1): the brief distills CODE authoritatively
-// (symbols, FE↔BE joins, contracts) but DOM `domLandmarks` are HINTS only. The writer must still
-// verify selectors against the live DOM — never trust a distilled selector. The renderer states
-// this explicitly so the distillation can never silently override the browser as ground truth.
+
 
 import { lastJsonMatching } from "../integrations/verdict-parse";
 import { sanitizeText } from "../orchestrator/sanitizer";
 
 export interface BlastNode {
-  symbol: string; // e.g. "CheckoutService.pay"
-  file: string; // repo-relative file the symbol lives in
-  role: string; // ONE line: what this symbol does for the flow (the distillate, not the body)
+  symbol: string; 
+  file: string;  /* repo-relative file the symbol lives in */
+  role: string;  /* ONE line: what this symbol does for the flow (the distillate, not the body) */
 }
 
 export interface FeBeFact {
-  route: string; // a frontend entry route the flow uses
-  operationId: string; // the backend operation it exercises
-  via?: string; // the client/method symbol that makes the call
+  route: string;  /* a frontend entry route the flow uses */
+  operationId: string;  /* the backend operation it exercises */
+  via?: string;  /* the client/method symbol that makes the call */
 }
 
 export interface ContractFact {
-  operationId: string; // join key with FeBeFact
-  method: string; // GET | POST | ...
-  path: string; // "/orders/{id}"
-  fields?: string[]; // required fields / enums worth asserting
-  errors?: string[]; // error responses worth a negative case
+  operationId: string;  /* join key with FeBeFact */
+  method: string;  /* GET | POST | ... */
+  path: string;  /* "/orders/{id}" */
+  fields?: string[];  /* required fields / enums worth asserting */
+  errors?: string[];  /* error responses worth a negative case */
 }
 
 export interface RouteRecon {
-  path: string; // entry route, e.g. "/checkout"
-  component?: string; // the component/page it renders
-  domLandmarks?: string[]; // HINTS only — NOT verified selectors (see module header)
-  // DEPRECATED (vestigial after F3): nothing PRODUCES `true` anymore — the explorer never navigates and
-  // the planner's Lever-3 route-verification step was removed — and grounding no longer reads it
-  // (captureDomByRoute renders all candidate routes, soft-404-guarded). Retained only so the schema /
-  // parser / older briefs stay backward-compatible; do not add new logic that branches on it.
+  path: string;  /* entry route, e.g. "/checkout" */
+  component?: string;  /* the component/page it renders */
+  domLandmarks?: string[];  /* HINTS only — NOT verified selectors (see module header) */
+  /*
+   * DEPRECATED (vestigial after F3): nothing PRODUCES `true` anymore — the explorer never navigates and
+   * the planner's Lever-3 route-verification step was removed — and grounding no longer reads it
+   * (captureDomByRoute renders all candidate routes, soft-404-guarded). Retained only so the schema /
+   * parser / older briefs stay backward-compatible; do not add new logic that branches on it.
+   */
   verified: boolean;
 }
 
 export interface ExplorationBrief {
-  builtForSha: string; // provenance + staleness signal (the SHA the brief was derived from)
-  objective: string; // the flow/objective this brief serves
-  blastRadius: BlastNode[]; // the code touched, distilled to symbol + file + 1-line role
-  feBe?: FeBeFact[]; // resolved FE→BE joins relevant to the objective
-  contracts?: ContractFact[]; // contract facts relevant to assertions
-  routes?: RouteRecon[]; // candidate entry routes + DOM landmark hints
-  risks?: string[]; // fragilities / what to assert to catch the regression
+  builtForSha: string;  /* provenance + staleness signal (the SHA the brief was derived from) */
+  objective: string;  /* the flow/objective this brief serves */
+  blastRadius: BlastNode[];  /* the code touched, distilled to symbol + file + 1-line role */
+  feBe?: FeBeFact[];  /* resolved FE→BE joins relevant to the objective */
+  contracts?: ContractFact[];  /* contract facts relevant to assertions */
+  routes?: RouteRecon[];  /* candidate entry routes + DOM landmark hints */
+  risks?: string[];  /* fragilities / what to assert to catch the regression */
   notes?: string;
 }
 
@@ -62,10 +52,12 @@ export interface BriefValidation {
   errors: string[];
 }
 
-// Validates the FORM of a brief (internal consistency), exactly as context.ts gates the
-// architecture map. It does NOT cross-check the brief against the code — that is the explorer's
-// job and the writer's re-verification; a form gate only keeps the artifact well-shaped. Empty
-// sections are valid (a pure-logic objective may have no routes/feBe/contracts).
+/*
+ * Validates the FORM of a brief (internal consistency), exactly as context.ts gates the
+ * architecture map. It does NOT cross-check the brief against the code — that is the explorer's
+ * job and the writer's re-verification; a form gate only keeps the artifact well-shaped. Empty
+ * sections are valid (a pure-logic objective may have no routes/feBe/contracts).
+ */
 export function validateExplorationBrief(raw: unknown): BriefValidation {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, errors: ["exploration brief must be an object"] };
@@ -125,17 +117,21 @@ export function validateExplorationBrief(raw: unknown): BriefValidation {
   return { ok: errors.length === 0, errors };
 }
 
-// Tolerant parser of the explorer's REPLY TEXT, mirroring parsePlan: pick the LAST balanced JSON
-// object carrying a `blastRadius` array (the brief's signature, distinct from a plan's `objectives`)
-// and coerce it. Returns null when no brief-shaped JSON is present.
+/*
+ * Tolerant parser of the explorer's REPLY TEXT, mirroring parsePlan: pick the LAST balanced JSON
+ * object carrying a `blastRadius` array (the brief's signature, distinct from a plan's `objectives`)
+ * and coerce it. Returns null when no brief-shaped JSON is present.
+ */
 export function parseExplorationBrief(text: string): ExplorationBrief | null {
   return coerceExplorationBrief(lastJsonMatching(text, (x) => Array.isArray((x as Record<string, unknown>).blastRadius)) ?? null);
 }
 
-// Coerces an ALREADY-PARSED value into a brief: used when the brief arrives as a nested object — e.g.
-// each planner objective carries one (see parsePlan) — not as text. DROPS malformed array entries
-// rather than failing, and returns null unless the value is an object with a `blastRadius` array (the
-// brief's signature). Validation of form is a SEPARATE gate (validateExplorationBrief).
+/*
+ * Coerces an ALREADY-PARSED value into a brief: used when the brief arrives as a nested object — e.g.
+ * each planner objective carries one (see parsePlan) — not as text. DROPS malformed array entries
+ * rather than failing, and returns null unless the value is an object with a `blastRadius` array (the
+ * brief's signature). Validation of form is a SEPARATE gate (validateExplorationBrief).
+ */
 export function coerceExplorationBrief(raw: unknown): ExplorationBrief | null {
   const r = asObj(raw);
   if (!r || !Array.isArray(r.blastRadius)) return null;
@@ -175,7 +171,7 @@ export function coerceExplorationBrief(raw: unknown): ExplorationBrief | null {
         path: str(e.path),
         ...(nonEmpty(e.component) ? { component: str(e.component) } : {}),
         ...(Array.isArray(e.domLandmarks) ? { domLandmarks: strList(e.domLandmarks) } : {}),
-        verified: typeof e.verified === "boolean" ? e.verified : false, // default false until the explorer navigated
+        verified: typeof e.verified === "boolean" ? e.verified : false,  /* default false until the explorer navigated */
       }));
   }
   if (Array.isArray(r.risks)) brief.risks = strList(r.risks);
@@ -184,14 +180,15 @@ export function coerceExplorationBrief(raw: unknown): ExplorationBrief | null {
   return brief;
 }
 
-// Renders a brief as the prompt section the test-writer receives. Sanitizes every field (the brief
-// is agent-produced from attacker-influenceable repo content — prompt-injection / secret-exfil
-// defense) and is BOUNDED so a huge brief cannot blow the token budget, exactly like
-// renderArchitectureContext. Leads with the selector-fidelity guard (decision D).
-//
-// D3 fix: when `suppressFeBe` is true the FE↔BE links section is omitted because a Context Pack
-// is already present in the prompt — the pack already carries FE↔BE, so rendering it a second time
-// from the brief wastes budget and forces earlier shedding of other signal.
+/*
+ * Renders a brief as the prompt section the test-writer receives. Sanitizes every field (the brief
+ * is agent-produced from attacker-influenceable repo content — prompt-injection / secret-exfil
+ * defense) and is BOUNDED so a huge brief cannot blow the token budget, exactly like
+ * renderArchitectureContext. Leads with the selector-fidelity guard (decision D).
+ * D3 fix: when `suppressFeBe` is true the FE↔BE links section is omitted because a Context Pack
+ * is already present in the prompt — the pack already carries FE↔BE, so rendering it a second time
+ * from the brief wastes budget and forces earlier shedding of other signal.
+ */
 export function renderExplorationBrief(brief: ExplorationBrief, opts: { suppressFeBe?: boolean } = {}): string {
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_ITEMS = 200;

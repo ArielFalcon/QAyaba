@@ -1,15 +1,16 @@
-// Manual trigger. Routes through a sequential funnel (enqueueTrackedRun → JobQueue), so a
-// manual run is queued, recorded in history and addressable. It then drains the queue and
-// exits with the run's verdict.
-//   npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
-//                 [--target e2e|code] [--guidance "..."] [--allow-concurrent]
-//   npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
-//
-// IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
-// running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
-// concurrently with a service run — breaking the "one run at a time against DEV" invariant.
-// We therefore refuse to start when the local service answers its health probe, unless the
-// operator explicitly accepts the risk with --allow-concurrent.
+/*
+ * Manual trigger. Routes through a sequential funnel (enqueueTrackedRun → JobQueue), so a
+ * manual run is queued, recorded in history and addressable. It then drains the queue and
+ * exits with the run's verdict.
+ * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
+ * [--target e2e|code] [--guidance "..."] [--allow-concurrent]
+ * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
+ * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
+ * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
+ * concurrently with a service run — breaking the "one run at a time against DEV" invariant.
+ * We therefore refuse to start when the local service answers its health probe, unless the
+ * operator explicitly accepts the risk with --allow-concurrent.
+ */
 
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
@@ -30,11 +31,7 @@ import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
 
-// Plan 7.6 (Part 2) — the rewritten-engine seam for the standalone CLI path (only reached when
-// `--allow-concurrent` bypasses the running-service delegation below). Matches src/index.ts's own
-// agentRuntime wiring exactly (same strategies, same :4097 supervisor target) so the CLI's
-// engineFactory — like every other real collaborator it wires — talks to the real agent runtime,
-// not the dead OPENCODE_SERVE_URL ?? :4096 fallback defaultAgentDeps() would otherwise use.
+
 const cliAgentRuntime = createAgentRuntimeManager({
   env: process.env,
   fs: defaultEnvStoreFs(),
@@ -46,20 +43,24 @@ const cliAgentRuntime = createAgentRuntimeManager({
 });
 const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliAgentRuntime.facade().deps() });
 
-// Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived
-// orchestrator owns the queue on this host and a second queue here would race it against DEV.
+/*
+ * Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived
+ * orchestrator owns the queue on this host and a second queue here would race it against DEV.
+ */
 async function localServiceIsRunning(): Promise<boolean> {
   const port = Number(process.env.PORT ?? 8080);
   try {
     const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
     return res.ok;
   } catch {
-    return false; // nothing listening / not reachable → safe to run locally
+    return false;  /* nothing listening / not reachable → safe to run locally */
   }
 }
 
-// The control-plane token, discovered the same way the server resolves it (env wins, then the
-// persisted config/.api_token file) so delegation authenticates without the operator typing it.
+/*
+ * The control-plane token, discovered the same way the server resolves it (env wins, then the
+ * persisted config/.api_token file) so delegation authenticates without the operator typing it.
+ */
 function discoverApiToken(): string | undefined {
   if (process.env.QA_API_TOKEN) return process.env.QA_API_TOKEN;
   try {
@@ -71,17 +72,21 @@ function discoverApiToken(): string | undefined {
   }
 }
 
-// Delegate the run to the already-running service and wait for its verdict, mirroring the
-// standalone CLI's contract (wait, report, exit with the verdict's code). The run executes IN the
-// server process, so the TUI streams it live and the single-queue invariant holds.
+/*
+ * Delegate the run to the already-running service and wait for its verdict, mirroring the
+ * standalone CLI's contract (wait, report, exit with the verdict's code). The run executes IN the
+ * server process, so the TUI streams it live and the single-queue invariant holds.
+ */
 async function runViaService(args: { app: string; sha: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
   const port = Number(process.env.PORT ?? 8080);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");
   console.log("[qa] the service is running — delegating this run to it (one queue against DEV; watch it live in the TUI).");
-  // Explicitly typed: the catch terminates via process.exit, so result is always assigned past the
-  // try/catch — the annotation enforces that invariant instead of relying on process.exit narrowing.
+  /*
+   * Explicitly typed: the catch terminates via process.exit, so result is always assigned past the
+   * try/catch — the annotation enforces that invariant instead of relying on process.exit narrowing.
+   */
   let result: DelegateRunResult;
   try {
     result = await delegateRun(
@@ -103,8 +108,10 @@ async function runViaService(args: { app: string; sha: string; mode: RunMode; ta
   }
   console.log(`\n[qa] run ${result.id} finished: verdict=${result.verdict ?? "?"} (${result.passed} passed, ${result.failed} failed)`);
   if (result.note) console.log(`[qa] ${result.note}`);
-  // A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
-  // (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
+  /*
+   * A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
+   * (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
+   */
   process.exit(runSucceeded(result.verdict) ? 0 : 1);
 }
 
@@ -117,22 +124,28 @@ async function main(): Promise<void> {
   }
 
   if (!args.allowConcurrent && (await localServiceIsRunning())) {
-    // The service owns the only queue against DEV. Rather than refuse (or race it with a second
-    // queue), hand the run to it: it then executes IN the server process, so a TUI attached to
-    // that server streams it live, and the sequential-queue invariant is preserved.
-    // --allow-concurrent forces the standalone path below.
+    /*
+     * The service owns the only queue against DEV. Rather than refuse (or race it with a second
+     * queue), hand the run to it: it then executes IN the server process, so a TUI attached to
+     * that server streams it live, and the sequential-queue invariant is preserved.
+     * --allow-concurrent forces the standalone path below.
+     */
     await runViaService(args);
-    return; // runViaService always exits the process with the verdict's code
+    return;  /* runViaService always exits the process with the verdict's code */
   }
 
   const queue = new JobQueue();
-  // Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
-  // its own process, so the server's in-process event bus never sees it — persisting here is what
-  // lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
-  // on an empty stream.
+  /*
+   * Persist run events to the SAME durable store the server uses. A standalone CLI run lives in
+   * its own process, so the server's in-process event bus never sees it — persisting here is what
+   * lets the TUI (attached to the server) replay and tail this run's progress instead of freezing
+   * on an empty stream.
+   */
   const runEvents = createDurableRunEventStore();
-  // When --target is not given, derive it from the app config: a `code: true` app must run
-  // code mode (running e2e against it would hit the no-dev defensive infra-error).
+  /*
+   * When --target is not given, derive it from the app config: a `code: true` app must run
+   * code mode (running e2e against it would hit the no-dev defensive infra-error).
+   */
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");
   const id = enqueueTrackedRun(queue, {
@@ -146,17 +159,22 @@ async function main(): Promise<void> {
   }, { runEvents, engineFactory: cliEngineFactory });
   await queue.drain();
   const record = getRecord(id);
-  // The end-of-run value report: a manual run used to print NOTHING (just an exit code), so in
-  // shadow mode — where there is no PR/Issue artifact to inspect — the operator could not tell what
-  // the run was WORTH. Print the deterministic value signals the run already persisted.
+  /*
+   * Print the deterministic value signals the run already persisted. In shadow mode there is no
+   * PR/Issue artifact to inspect.
+   */
   if (record) printRunReport(record, appCfg);
-  // A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
-  // (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
+  /*
+   * A run SUCCEEDED when the engine produced a trustworthy result — including a real bug found
+   * (verdict `fail` → Issue). Only an engine error (infra-error/invalid, or no verdict) exits non-zero.
+   */
   process.exit(runSucceeded(record?.verdict) ? 0 : 1);
 }
 
-// Compose the value report from the persisted run record + its RunOutcome (the structured gate
-// signals). Kept in the CLI (not the pure renderer) because it stitches two persistence reads.
+/*
+ * Compose the value report from the persisted run record + its RunOutcome (the structured gate
+ * signals). Kept in the CLI (not the pure renderer) because it stitches two persistence reads.
+ */
 function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: ReturnType<typeof loadAppConfig>): void {
   const outcome = getRunOutcome(record.id);
   const gs = outcome?.gateSignals;
@@ -173,13 +191,17 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
     specNames: record.specs?.map((s) => s.name),
     note: record.note,
     signals: {
-      // A persisted non-null ratio means coverage was actually measured (the pipeline persists
-      // null for an unmeasured run, never a misleading 0). So presence === measured.
+      /*
+       * A persisted non-null ratio means coverage was actually measured (the pipeline persists
+       * null for an unmeasured run, never a misleading 0). So presence === measured.
+       */
       coverageRatio: gs?.coverageRatio ?? null,
       coverageMeasured: gs?.coverageRatio !== null && gs?.coverageRatio !== undefined,
       coveragePolicy: appCfg.qa.changeCoverage?.mode ?? "signal",
-      // Resolve the oracle policy exactly as the pipeline does, so the report distinguishes a
-      // genuinely-off oracle from one that was enabled but had no passing specs to score.
+      /*
+       * Resolve the oracle policy exactly as the pipeline does, so the report distinguishes a
+       * genuinely-off oracle from one that was enabled but had no passing specs to score.
+       */
       oraclePolicy: resolveValueOraclePolicy(appCfg.qa),
       valueScore: gs?.valueScore ?? null,
       reviewerApproved: gs?.reviewerApproved ?? null,
@@ -201,7 +223,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     if (key === "learning") { learning = true; continue; }
     if (key === "allow-concurrent") { allowConcurrent = true; continue; }
     if (key) out[key] = argv[i + 1] ?? "";
-    if (key) i++; // skip value
+    if (key) i++;  /* skip value */
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
@@ -215,7 +237,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
     process.exit(2);
   }
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
-  // Undefined when not passed → the caller derives it from the app config (code vs e2e).
+  /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
   const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
   return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning, allowConcurrent };
 }
@@ -259,10 +281,12 @@ function showLearning(app: string): void {
     const proven = curriculum.archetypes.filter((a) => a.caughtRealBug);
     console.log(`  ${proven.length}/${curriculum.archetypes.length} archetypes proven by real bugs:`);
     for (const a of curriculum.archetypes) {
-      // "covered" is the credited/evaluated rate: of the runs that offered this archetype AND
-      // produced a determinable coverage signal, how many actually covered the change. evaluated 0
-      // means never offered or never determinable — it is stated as absent evidence, never as the
-      // rate 0/0, which would read as a measured failure the system never observed.
+      /*
+       * "covered" is the credited/evaluated rate: of the runs that offered this archetype AND
+       * produced a determinable coverage signal, how many actually covered the change. evaluated 0
+       * means never offered or never determinable — it is stated as absent evidence, never as the
+       * rate 0/0, which would read as a measured failure the system never observed.
+       */
       const rate = a.evaluated > 0 ? `${a.credited}/${a.evaluated} covered` : "no evidence yet";
       const mark = a.caughtRealBug ? `PROVEN (${a.promotionCount} ${a.promotionCount === 1 ? "bug" : "bugs"})` : "unproven";
       const since = a.firstCaughtAt ? `  first ${a.firstCaughtAt.slice(0, 10)}` : "";

@@ -29,9 +29,10 @@ const cfg = (name: string): AppConfig => ({
   report: { onFailure: "github-issue" },
 });
 
-// A minimal AgentDeps stub — construction of the factory (and the CompositionConfig it builds)
-// must never itself call .open(); it is only invoked lazily when a real run actually reaches
-// generation/review. Throwing here proves no eager agent call happens during composition.
+/* A minimal AgentDeps stub — construction of the factory (and the CompositionConfig it builds)
+   must never itself call .open(); it is only invoked lazily when a real run actually reaches
+   generation/review. Throwing here proves no eager agent call happens during composition.
+ */
 function stubAgentDeps(): AgentDeps {
   return {
     open: async () => {
@@ -40,7 +41,7 @@ function stubAgentDeps(): AgentDeps {
   };
 }
 
-// ── buildRewrittenCompositionConfig — the AppConfig -> CompositionConfig mapping ──────────────────
+/* ── buildRewrittenCompositionConfig — the AppConfig -> CompositionConfig mapping ────────────────── */
 
 test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete CompositionConfig", () => {
   const app = cfg("factory-e2e");
@@ -51,7 +52,7 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.equal(config.isCode, false);
   assert.equal(config.mode, "diff");
   assert.equal(config.needsReview, true);
-  assert.equal(config.shadow, true); // app.qa.shadow=true is honored, not forced
+  assert.equal(config.shadow, true); /* app.qa.shadow=true is honored, not forced */
   assert.equal(config.onFailure, "github-issue");
   assert.equal(config.diff, "", "static diff is always empty — the rewritten adapters resolve the REAL per-run diff dynamically");
   assert.ok(config.vcs, "vcs collaborator must be wired");
@@ -75,29 +76,28 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.ok(config.processAudit, "sdd/migration-remediation Slice 5: ProcessAuditPort collaborator must be wired");
 });
 
-// ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────
-// Wired UNCONDITIONALLY (no config flag): the port is measure-and-rank only — it never gates a
-// verdict, a publish decision or a coverage decision, so there is no risk surface a flag would
-// protect. Without this wiring loadCurriculum returns null forever, which is exactly the dead-module
-// state this integration exists to end.
+/* ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────
+   Wired UNCONDITIONALLY (no config flag): the port is measure-and-rank only — it never gates a
+   verdict, a publish decision or a coverage decision, so there is no risk surface a flag would
+   protect. Without this wiring loadCurriculum returns null forever, which is exactly the dead-module
+   state this integration exists to end.
+ */
 test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the history store", () => {
   const config = buildRewrittenCompositionConfig(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
 });
 
-// ── follow-up #27: bounded contract-repair (RepairPort) wired into the rewritten production path ──
-// Before this fix, GenerateTestsUseCase.GenerationPorts.repair was constructed nowhere in this
-// factory — the generator/reviewer contract-repair branches (generate-tests.use-case.ts's own
-// `if (repair)` guards) were dormant in production: a malformed verdict got NO bounded re-prompt and
-// the fail-closed gate fired immediately. This test asserts the composed use-case's `repair` port is
-// non-undefined (structural — proves the factory wires it), and a companion integration test below
-// drives a malformed generator verdict through the REAL wrapped checkGeneratorVerdict/repairInstruction
-// to prove the branch actually activates.
+/* GenerateTestsUseCase.GenerationPorts.repair must be wired so a malformed verdict gets one
+   bounded re-prompt instead of the fail-closed gate firing immediately. This test asserts the
+   composed use-case's `repair` port is non-undefined; a companion integration test below drives a
+   malformed generator verdict through the REAL wrapped checkGeneratorVerdict/repairInstruction.
+ */
 test("buildRewrittenCompositionConfig wires a non-undefined RepairPort into GenerateTestsUseCase (the bounded contract-repair was dormant on the production path before this fix)", () => {
   const app = cfg("factory-repair");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  // GenerationPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
-  // structurally (same class, no public accessor exists) to confirm the factory actually supplied it.
+  /* GenerationPorts.repair is a private constructor field on GenerateTestsUseCase — reach into it
+     structurally (same class, no public accessor exists) to confirm the factory actually supplied it.
+   */
   const ports = (config.generationUseCase as unknown as { ports: { repair?: unknown } }).ports;
   assert.ok(ports.repair, "GenerationPorts.repair must be wired (was dormant/undefined before this fix)");
 });
@@ -107,21 +107,24 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
 
   let promptCount = 0;
   const capturedRepairPrompts: string[] = [];
-  // Stub AgentDeps.open so the composed real runtime adapter drives the use-case without a live
-  // OpenCode/Codex process — mirrors this factory's own construction contract (AgentRuntimeAdapter's
-  // `open` closure calls deps.getAgentDeps().open(...) lazily, only when generate() actually runs).
+  /* Stub AgentDeps.open so the composed real runtime adapter drives the use-case without a live
+     OpenCode/Codex process — mirrors this factory's own construction contract (AgentRuntimeAdapter's
+     `open` closure calls deps.getAgentDeps().open(...) lazily, only when generate() actually runs).
+   */
   const fakeAgentDeps: AgentDeps = {
     open: async () => ({
       id: "fake-session",
       prompt: async (text: string) => {
         promptCount++;
         if (promptCount === 1) {
-          // Malformed generator output: no closing verdict JSON with a `specs` array at all —
-          // checkGeneratorVerdict (src/integrations/verdict-validate.ts) must reject this.
+          /* Malformed generator output: no closing verdict JSON with a `specs` array at all —
+             checkGeneratorVerdict (src/integrations/verdict-validate.ts) must reject this.
+           */
           return "I wrote the tests but forgot to emit the closing JSON verdict.";
         }
-        // The bounded repair turn: capture what the repair instruction actually said, then emit a
-        // valid verdict so the use-case can complete.
+        /* The bounded repair turn: capture what the repair instruction actually said, then emit a
+           valid verdict so the use-case can complete.
+         */
         capturedRepairPrompts.push(text);
         return '{"specs":["flows/repaired.spec.ts"]}';
       },
@@ -163,7 +166,8 @@ test("the composed RepairPort drives GenerateTestsUseCase's generator-contract-c
   assert.deepEqual(result.specs, ["flows/repaired.spec.ts"], "repaired specs reached the final result");
 });
 
-// ── Gap fixes (engram #961) — baseUrl, testIdAttribute, mode/guidance, publish flags ──────────────
+/* baseUrl, testIdAttribute, mode/guidance, and publish flags must thread through the factory.
+ */
 
 test("buildRewrittenCompositionConfig sets baseUrl from app.dev.baseUrl (the live E2eExecutionStrategy crash fix)", () => {
   const app = cfg("factory-baseurl");
@@ -177,10 +181,10 @@ test("buildRewrittenCompositionConfig leaves baseUrl absent for a code-mode app 
   assert.equal(config.baseUrl, undefined);
 });
 
-// ── WS6.1 (full-flow remediation, timeouts & operational observability) ──────────────────────────
-// The factory must supply the purpose-built REVIEWER_TIMEOUT_MS (6min) as CompositionConfig.
-// reviewTimeoutMs, so ReviewPortAdapter.review() stops silently inheriting the dispatcher's
-// ~25.5min worst-case ceiling for a hung reviewer session.
+/* The factory must supply the purpose-built REVIEWER_TIMEOUT_MS (6min) as CompositionConfig.
+   reviewTimeoutMs, so ReviewPortAdapter.review() stops silently inheriting the dispatcher's
+   ~25.5min worst-case ceiling for a hung reviewer session.
+ */
 
 test("buildRewrittenCompositionConfig sets reviewTimeoutMs to the exported REVIEWER_TIMEOUT_MS constant", () => {
   const app = cfg("factory-review-timeout");
@@ -194,15 +198,15 @@ test("P0-5: factory threads agentTimeout(mode) into CompositionConfig.agentTimeo
   assert.equal(config.agentTimeoutMs, agentTimeout("diff"));
 });
 
-// ── W4 follow-up (Task #37 audit CRITICAL, a9e7dfb) — grounding collaborators ──────────────────────
-// a9e7dfb wired PreGenerationGroundingPort/ReviewDomGroundingPort into composition-root.ts's
-// wireBridges() but the production factory never supplied groundingCollaborators/
-// reviewDomGroundingCollaborators. wireBridges() itself already falls back to `cfg.groundingCollaborators
-// ?? {}` (and the bridge adapters resolve an empty `{}` to the REAL buildContextPack/captureDom fns
-// internally), so these were already functionally real — these tests pin that the factory now states
-// that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
-// relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
-// absent (no static per-run source exists at composition-build time).
+/* a9e7dfb wired PreGenerationGroundingPort/ReviewDomGroundingPort into composition-root.ts's
+   wireBridges() but the production factory never supplied groundingCollaborators/
+   reviewDomGroundingCollaborators. wireBridges() itself already falls back to `cfg.groundingCollaborators
+   ?? {}` (and the bridge adapters resolve an empty `{}` to the REAL buildContextPack/captureDom fns
+   internally), so these were already functionally real — these tests pin that the factory now states
+   that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
+   relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
+   absent (no static per-run source exists at composition-build time).
+ */
 
 test("buildRewrittenCompositionConfig wires empty (real-default-resolving) groundingCollaborators for an e2e app", () => {
   const app = cfg("factory-grounding-e2e");
@@ -283,21 +287,21 @@ test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)"
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-code"), code: true, dev: undefined };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  // The factory's own mapping is target-agnostic here — wireBridges()'s `!cfg.isCode` guard is what
-  // actually skips constructing both grounding ports for a code target (composition-root.ts), so
-  // asserting the factory's OWN output stays the same shape whether or not isCode is true is the
-  // faithful way to pin "the factory does not need its own target check — it already exists downstream".
+  /* The factory's own mapping is target-agnostic here — wireBridges()'s `!cfg.isCode` guard is what
+     actually skips constructing both grounding ports for a code target (composition-root.ts), so
+     asserting the factory's OWN output stays the same shape whether or not isCode is true is the
+     faithful way to pin "the factory does not need its own target check — it already exists downstream".
+   */
   assert.deepEqual(config.groundingCollaborators, {});
   assert.deepEqual(config.reviewDomGroundingCollaborators, {});
   assert.equal(config.isCode, true, "isCode is what composition-root.ts's wireBridges() reads to skip both grounding ports on this target");
 });
 
-// sdd/migration-wiring-phase-2 Slice 3 (D-C contextMap read-back, RIDER 4): this pin's assertions
-// are UNCHANGED by that slice — `config.contextMap` stays absent at composition-BUILD time, exactly
-// as before. What changed is WHERE the per-run read now happens: PreGenerationGroundingPortAdapter.
-// ground(specDir, ...) reads `${specDir}/.qa/context.json` fresh on every run (the real per-run
-// mirrorDir, only known post-checkout), NOT via this composition config's static contextMap field.
-// This honors the pin's own rationale below verbatim — "never fabricate at composition [build] time".
+/* `config.contextMap` stays absent at composition-BUILD time. The per-run read happens in
+   PreGenerationGroundingPortAdapter: ground(specDir, ...) reads `${specDir}/.qa/context.json`
+   fresh on every run (the real per-run mirrorDir, only known post-checkout), NOT via this
+   composition config's static contextMap field. Never fabricate at composition-build time.
+ */
 test("buildRewrittenCompositionConfig leaves contextMap and prChangedFiles absent (no real per-run source at composition-build time)", () => {
   const app = cfg("factory-grounding-contextmap-absent");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
@@ -308,11 +312,12 @@ test("buildRewrittenCompositionConfig leaves contextMap and prChangedFiles absen
 test("baseUrl and testIdAttribute reach the grounding phase via CompositionConfig's own top-level fields (not duplicated inside groundingCollaborators)", () => {
   const app: AppConfig = { ...cfg("factory-grounding-static-context"), e2e: { testIdAttribute: "data-cy" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  // composition-root.ts's wireBridges() builds PreGenerationGroundingStaticContext/
-  // ReviewDomGroundingStaticContext from cfg.baseUrl/cfg.testIdAttribute/cfg.mirrorDir/cfg.e2eRelDir
-  // directly — this factory only needs to keep supplying those top-level fields (already covered by
-  // the baseUrl/testIdAttribute tests above); this test pins that grounding relies on the SAME
-  // fields rather than a second, parallel static-context input this factory would need to duplicate.
+  /* composition-root.ts's wireBridges() builds PreGenerationGroundingStaticContext/
+     ReviewDomGroundingStaticContext from cfg.baseUrl/cfg.testIdAttribute/cfg.mirrorDir/cfg.e2eRelDir
+     directly — this factory only needs to keep supplying those top-level fields (already covered by
+     the baseUrl/testIdAttribute tests above); this test pins that grounding relies on the SAME
+     fields rather than a second, parallel static-context input this factory would need to duplicate.
+   */
   assert.equal(config.baseUrl, "https://dev");
   assert.equal(config.testIdAttribute, "data-cy");
 });
@@ -393,10 +398,11 @@ test("buildRewrittenCompositionConfig leaves guidance absent when the run param 
   assert.equal(config.guidance, undefined);
 });
 
-// ── Bug fix: rewritten-engine runs left their RunRecord/RunEvents frozen because nothing wired
-// RunQaUseCaseDeps.observer through this factory. buildRewrittenCompositionConfig's 5th (observer)
-// argument and createRewrittenEngineFactory's own 4th (observer) argument close that gap — these
-// tests pin the threading, not the observer's own behavior (covered in runner.test.ts). ───────────
+/* ── Bug fix: rewritten-engine runs left their RunRecord/RunEvents frozen because nothing wired
+   RunQaUseCaseDeps.observer through this factory. buildRewrittenCompositionConfig's 5th (observer)
+   argument and createRewrittenEngineFactory's own 4th (observer) argument close that gap — these
+   tests pin the threading, not the observer's own behavior (covered in runner.test.ts). ───────────
+ */
 
 test("buildRewrittenCompositionConfig threads the passed observer into CompositionConfig.observer", () => {
   const app = cfg("factory-observer-present");
@@ -411,8 +417,8 @@ test("buildRewrittenCompositionConfig leaves observer absent when the caller omi
   assert.equal(config.observer, undefined);
 });
 
-// ── Stitcher→Generation seam (design §3.6, S2.8): serviceTopology ACTIVE-gated on
-// app.services?.length && app.boundaries?.length (ADR-6). ─────────────────────────────────────────
+/* serviceTopology is ACTIVE-gated on app.services?.length && app.boundaries?.length.
+ */
 
 test("buildRewrittenCompositionConfig supplies serviceTopology when the app declares BOTH services[] and boundaries[]", () => {
   const app: AppConfig = {
@@ -469,9 +475,10 @@ test("buildRewrittenCompositionConfig omits serviceTopology when neither service
   assert.equal(config.serviceTopology, undefined);
 });
 
-// ── qa.structuralSignals calibration gate (Slice B, design §2/ADR-B2) — mode "off" must omit
-// BOTH advisory collaborators (codebaseMemory + serviceTopology), never just one (the named
-// half-gate hazard). Default (absent/"signal") stays byte-identical to today's behavior. ─────────
+/* qa.structuralSignals calibration gate: mode "off" must omit BOTH advisory collaborators
+   (codebaseMemory + serviceTopology), never just one (the named half-gate hazard). Default
+   (absent/"signal") stays byte-identical to today's behavior.
+ */
 
 test("qa.structuralSignals mode 'off' omits BOTH codebaseMemory and serviceTopology (the half-gate hazard — asserting both, not just one)", () => {
   const app: AppConfig = {
@@ -561,24 +568,27 @@ test("qa.structuralSignals mode 'signal' still supplies serviceTopology when ser
 
 test("createRewrittenEngineFactory forwards its 4th (observer) argument to buildRewrittenCompositionConfig on every call", () => {
   const app = cfg("factory-observer-e2e");
-  // createRewrittenEngineFactory reads PIPELINE_ENGINE via buildProduction internally (env
-  // defaults to process.env) — mirrors this file's own established pattern (e.g. the
-  // "createRewrittenEngineFactory's port throws..." test below) of passing env explicitly so the
-  // ambient process.env never leaks into the assertion.
+  /* createRewrittenEngineFactory reads PIPELINE_ENGINE via buildProduction internally (env
+     defaults to process.env) — mirrors this file's own established pattern (e.g. the
+     "createRewrittenEngineFactory's port throws..." test below) of passing env explicitly so the
+     ambient process.env never leaks into the assertion.
+   */
   const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps, env: { PIPELINE_ENGINE: "rewritten" } });
   const observer = { onStep: () => {}, onEvent: () => {} };
-  // buildProduction(env, cfg) constructs a RewrittenOrchestratorAdapter wrapping RunQaUseCase —
-  // the adapter has no public read-back of its own deps, so this test asserts the OBSERVABLE
-  // consequence: the factory call itself never throws when an observer is supplied (proving the
-  // 4th argument's type threads correctly end-to-end), matching this suite's own "construction
-  // must not throw" style used by the other factory tests in this file.
+  /* buildProduction(env, cfg) constructs a RewrittenOrchestratorAdapter wrapping RunQaUseCase —
+     the adapter has no public read-back of its own deps, so this test asserts the OBSERVABLE
+     consequence: the factory call itself never throws when an observer is supplied (proving the
+     4th argument's type threads correctly end-to-end), matching this suite's own "construction
+     must not throw" style used by the other factory tests in this file.
+   */
   assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }, observer));
 });
 
-// Per-run --target (CLI / TUI `t`) is the product switch; YAML `code: true` is only the
-// default when the run omits target. An e2e-configured app MUST still compose the code
-// pipeline when the run says target:"code" — otherwise the operator launches "code" and
-// Playwright still runs against DEV.
+/* Per-run --target (CLI / TUI `t`) is the product switch; YAML `code: true` is only the
+   default when the run omits target. An e2e-configured app MUST still compose the code
+   pipeline when the run says target:"code" — otherwise the operator launches "code" and
+   Playwright still runs against DEV.
+ */
 test("buildRewrittenCompositionConfig honors per-run target code on an e2e-configured app", () => {
   const app: AppConfig = {
     ...cfg("factory-run-target-code"),
@@ -619,9 +629,10 @@ test("buildRewrittenCompositionConfig selects the code target + Stryker oracle f
   assert.equal(config.versionPoll, undefined);
 });
 
-// P0-2: AppConfig.qa.valueOracle was schema-only — the factory always constructed
-// FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
-// valueOracle:"off" still fault-injected on every green run.
+/* P0-2: AppConfig.qa.valueOracle was schema-only — the factory always constructed
+   FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
+   valueOracle:"off" still fault-injected on every green run.
+ */
 test("P0-2: e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
@@ -660,13 +671,13 @@ test("buildRewrittenCompositionConfig honors coveragePolicy from app.qa.changeCo
   assert.equal(config.coveragePolicy.minRatio, 0.85);
 });
 
-// ── P2b (post-cutover-remediation) Constraint 3: single-source derivation ─────────────────────
-// Before this fix, coveragePolicyMode and coveragePolicy.mode were TWO INDEPENDENT reads of
-// `app.qa.changeCoverage?.mode ?? "signal"` at different points in the same object literal — a
-// duplicate-source bug that (if either read site drifted) could silently desynchronize the two
-// fields. This test pins config.coveragePolicyMode === config.coveragePolicy.mode ACROSS EVERY
-// mode value (not just "enforce", which the test above already covers) — coveragePolicyMode must
-// be DERIVED from coveragePolicy.mode, not independently computed.
+/* coveragePolicyMode and coveragePolicy.mode must not be two independent reads of
+   `app.qa.changeCoverage?.mode ?? "signal"` at different points in the same object literal — a
+   duplicate-source bug that (if either read site drifted) could silently desynchronize the two
+   fields. This test pins config.coveragePolicyMode === config.coveragePolicy.mode ACROSS EVERY
+   mode value (not just "enforce") — coveragePolicyMode must be DERIVED from coveragePolicy.mode,
+   not independently computed.
+ */
 for (const mode of ["off", "signal", "enforce"] as const) {
   test(`buildRewrittenCompositionConfig derives coveragePolicyMode FROM coveragePolicy.mode (single source) — mode:${mode}`, () => {
     const app: AppConfig = { ...cfg(`factory-single-source-${mode}`), qa: { ...cfg(`factory-single-source-${mode}`).qa, changeCoverage: { mode, minRatio: 0.7 } } };
@@ -684,13 +695,7 @@ test("buildRewrittenCompositionConfig: coveragePolicyMode defaults to \"signal\"
   assert.equal(config.coveragePolicyMode, config.coveragePolicy.mode);
 });
 
-// ── CRITICAL fix (judgment-day) — branch/namespace MUST be per-run, not a static literal ─────────
-// Legacy computes a per-run namespace via testDataNamespace(prefix, sha, runId) (src/qa/test-data.ts,
-// called at src/pipeline.ts:1222) and that namespace flows into BOTH GenerationPort and
-// ExecutionPort's `namespace` field via cfg.branch (composition-root.ts wireBridges()). A STATIC
-// branch literal means every run of every app collides on the SAME DEV test-data namespace —
-// these tests pin that buildRewrittenCompositionConfig's `branch` field now MIRRORS the exact
-// namespace it is given, per call, with no hardcoded fallback.
+/* Branch/namespace must be per-run, not a static literal — otherwise every run collides on DEV test data. */
 
 test("buildRewrittenCompositionConfig sets branch to the PASSED namespace, not a static literal", () => {
   const app = cfg("factory-namespace");
@@ -707,13 +712,14 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
   assert.equal(configRun2.branch, "qa-bot-abc1234-runB");
 });
 
-// ── F5 (HIGH) — GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
-// (github-pr.adapter.ts); this factory previously never passed app.baseBranch at all, so every
-// app with a non-"main" default branch silently targeted the wrong PR base branch. Verified via
-// structural introspection of the constructed GitHubPrAdapter's own private `base` field — the
-// collaborator cannot be invoked directly in this test file (its injected fetch/authHeaders build
-// the REAL HTTP call, which requires GITHUB_TOKEN + real network), so pinning the
-// constructor-injected value is the faithful, side-effect-free way to assert this wiring.
+/* ── F5 (HIGH) — GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
+   (github-pr.adapter.ts); this factory previously never passed app.baseBranch at all, so every
+   app with a non-"main" default branch silently targeted the wrong PR base branch. Verified via
+   structural introspection of the constructed GitHubPrAdapter's own private `base` field — the
+   collaborator cannot be invoked directly in this test file (its injected fetch/authHeaders build
+   the REAL HTTP call, which requires GITHUB_TOKEN + real network), so pinning the
+   constructor-injected value is the faithful, side-effect-free way to assert this wiring.
+ */
 
 test("F5: buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
   const app: AppConfig = { ...cfg("factory-basebranch"), baseBranch: "develop" };
@@ -723,19 +729,20 @@ test("F5: buildRewrittenCompositionConfig wires githubPr with app.baseBranch as 
 });
 
 test("F5: buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
-  const app = cfg("factory-basebranch-default"); // no baseBranch field
+  const app = cfg("factory-basebranch-default");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
   assert.equal(base, "main", "an app with no configured baseBranch must fall back to 'main', mirroring legacy's app.baseBranch ?? \"main\"");
 });
 
-// ── PROD-BLOCKER fix (buildVcsPublish) — the rewritten publish path never staged/committed/pushed
-// the agent's generated tests before calling GitHub's PR API (VcsWriteAdapter, the only VcsWritePort
-// implementation, was never instantiated anywhere in composition-root.ts — grep-confirmed zero
-// references outside its own test). buildVcsPublish is the REAL git-write collaborator wired into
-// CompositionConfig.vcsWrite (see the test above). Verified with an injected fake `git` fn (same
-// convention as src/integrations/publish.test.ts's own deps() helper for this exact class of git-
-// mechanics test) — no real subprocess/filesystem needed to pin the sequence/dispatch.
+/* ── PROD-BLOCKER fix (buildVcsPublish) — the rewritten publish path never staged/committed/pushed
+   the agent's generated tests before calling GitHub's PR API (VcsWriteAdapter, the only VcsWritePort
+   implementation, was never instantiated anywhere in composition-root.ts — grep-confirmed zero
+   references outside its own test). buildVcsPublish is the REAL git-write collaborator wired into
+   CompositionConfig.vcsWrite (see the test above). Verified with an injected fake `git` fn (same
+   convention as src/integrations/publish.test.ts's own deps() helper for this exact class of git-
+   mechanics test) — no real subprocess/filesystem needed to pin the sequence/dispatch.
+ */
 
 function fakeGit(status: string): { git: (args: string[], cwd?: string) => Promise<string>; calls: string[][] } {
   const calls: string[][] = [];
@@ -747,19 +754,21 @@ function fakeGit(status: string): { git: (args: string[], cwd?: string) => Promi
   return { git, calls };
 }
 
-// The bare git subcommand of an argv, skipping any leading `-c <key=value>` config pairs — the
-// auth-on-push / commit-identity decorations (adversarial-review CRITICALs, below) prepend -c pairs
-// to some calls, so ordering assertions key on the subcommand, not args[0].
+/* The bare git subcommand of an argv, skipping any leading `-c <key=value>` config pairs — the
+   auth-on-push / commit-identity decorations prepend -c pairs to some calls, so ordering
+   assertions key on the subcommand, not args[0].
+ */
 function subcommandOf(args: string[]): string | undefined {
   let i = 0;
   while (args[i] === "-c") i += 2;
   return args[i];
 }
 
-// Save/restore an env var around a test body — the auth/identity decorations read process.env at
-// CALL time (legacy parity: publishChanges read GIT_AUTHOR_* per call, authHeaderArgs() reads
-// GITHUB_TOKEN per call), so these tests control the env explicitly instead of inheriting whatever
-// the developer's shell happens to export.
+/* Save/restore an env var around a test body — the auth/identity decorations read process.env at
+   CALL time (publishChanges reads GIT_AUTHOR_* per call, authHeaderArgs() reads GITHUB_TOKEN per
+   call), so these tests control the env explicitly instead of inheriting whatever the developer's
+   shell happens to export.
+ */
 async function withEnv(vars: Record<string, string | undefined>, body: () => Promise<void>): Promise<void> {
   const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
   for (const [k, v] of Object.entries(vars)) {
@@ -792,27 +801,20 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
 
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
-  // sdd/security-hardening judgment-day round 2 (FIX 3): publish() now also surfaces
-  // revertedDenylisted (always an array, never absent, once a commit actually ran) so the caller
-  // can thread a reverted tamper into gateSignals.confinement — see VcsPublishCollaborator's own doc.
-  // judgment-day round 3 (FIX E): revertedDangerous (the isDangerousPath subset) is surfaced the
-  // SAME way, always an array once a commit actually ran.
+  /* publish() surfaces revertedDenylisted (always an array once a commit ran) for gateSignals. */
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
-  // sdd/security-hardening judgment-day round 2 (FIX 2): the tracked-file denylist guard is now
-  // wired for EVERY target (not just isCode — see buildVcsPublish's own denyModifiedTracked doc), so
-  // commit() always issues its own `git diff --cached --name-status -M` before committing, even on
-  // the e2e target — one extra "diff" step in the write sequence.
+  /* commit() always diffs tracked denylist paths before committing, including on e2e. */
   assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow the legacy contract's exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
   assert.deepEqual(calls[1], ["checkout", "-B", "qa-bot/abc1234"], "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
   assert.deepEqual(calls[2], ["add", "--", "e2e"], "e2e target stages ONLY the e2e/ pathspec, never the whole repo");
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
 });
 
-// judgment-day round 3 (ALSO, Judge B): denyModifiedTracked is wired UNCONDITIONALLY in buildVcsPublish
-// (see its own header: "wired for EVERY target, not just isCode") — but every existing test above only
-// ever exercises mode: "diff". Structurally guaranteed (the wiring has no branch on `mode`), but that
-// guarantee was previously asserted only by inference, never pinned by a test that actually passes
-// mode: "context". This closes that gap the same way the e2e-target test above pins it for "diff".
+/* (see its own header: "wired for EVERY target, not just isCode") — but every existing test above only
+   ever exercises mode: "diff". Structurally guaranteed (the wiring has no branch on `mode`), but that
+   guarantee was previously asserted only by inference, never pinned by a test that actually passes
+   mode: "context". This closes that gap the same way the e2e-target test above pins it for "diff".
+ */
 test("buildVcsPublish (context mode): the tracked-file denylist guard is ALSO wired for mode='context', not just diff/e2e/code", async () => {
   const { git, calls } = fakeGit(" M e2e/.qa/context.json");
   const vcsWrite = buildVcsPublish(false, "context", git, () => {});
@@ -828,19 +830,15 @@ test("buildVcsPublish (context mode): the tracked-file denylist guard is ALSO wi
   assert.deepEqual(calls[2], ["add", "--", "e2e/.qa/context.json"], "context mode stages ONLY the context artifact's exact pathspec");
 });
 
-// ── Adversarial-review CRITICALs (auth-on-push + commit identity) — the reason these slipped is
-// that the first round's fakes only recorded argv without pinning the auth/identity prefixes.
-// realGit (src/integrations/repo-mirror.ts:203-208) is a BARE execFile wrapper: it applies
-// hardenGitArgs (hooks/safe.directory) + GIT_TERMINAL_PROMPT=0 but NEVER prepends authHeaderArgs()
-// — auth in this codebase is per CALL SITE (repo-mirror's ensureMirror/ensureMirrorAtBranch
-// wrappers, resolveRef :221, legacy publish :124 `[...authHeaderArgs(), "push", ...]`). Likewise
-// fresh mirrors have NO git identity (nothing
-// in Dockerfile/compose/repo-mirror configures one), which is why legacy committed with
-// `-c user.name=<GIT_AUTHOR_NAME ?? "qayaba"> -c user.email=<GIT_AUTHOR_EMAIL ?? "qayaba@users.
-// noreply.github.com">` (publish.ts:107-108,120-123). buildVcsPublish now decorates the injected
-// git fn (factory-side — the qa-engine adapter stays token-agnostic per its own header contract)
-// so push carries auth and commit carries identity, byte-parity with legacy. These tests pin the
-// EXACT argv the fake receives.
+/* Auth-on-push + commit identity: realGit (src/integrations/repo-mirror.ts) is a BARE execFile
+   wrapper: it applies hardenGitArgs (hooks/safe.directory) + GIT_TERMINAL_PROMPT=0 but NEVER
+   prepends authHeaderArgs() — auth is per CALL SITE (ensureMirror/ensureMirrorAtBranch, resolveRef,
+   publish's `[...authHeaderArgs(), "push", ...]`). Fresh mirrors have NO git identity, so commit
+   uses `-c user.name=<GIT_AUTHOR_NAME ?? "qayaba"> -c user.email=<GIT_AUTHOR_EMAIL ??
+   "qayaba@users.noreply.github.com">`. buildVcsPublish decorates the injected git fn (factory-side
+   — the qa-engine adapter stays token-agnostic) so push carries auth and commit carries identity.
+   These tests pin the EXACT argv the fake receives.
+ */
 
 test("CRITICAL auth-on-push: buildVcsPublish's push carries authHeaderArgs() (-c url.insteadOf token rewrite) when GITHUB_TOKEN is set — legacy parity with publish.ts:124", async () => {
   await withEnv({ GITHUB_TOKEN: "testtoken123" }, async () => {
@@ -947,13 +945,7 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
   assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
 });
 
-// ── FIX 4 (judgment-day W3, judge A) — config.sanitize wiring was never asserted to be the REAL
-// sanitizeText (only baseBranch/testIdAttribute/etc. had dedicated tests). CLAUDE.md "Sanitize data
-// leaving the system" + this file's own F4 comment (line ~389) claim PublicationPortAdapter's
-// renderBody/renderTitle receive the real src/orchestrator/sanitizer.ts sanitizeText via
-// config.sanitize — this test proves the wiring is genuine, not merely present, by asserting a
-// secret-shaped input is actually redacted. Fixture mirrors sanitizer.test.ts's own canonical
-// "redacts secrets (api key, token)" shape.
+/* config.sanitize must be the real sanitizeText, not an identity fallback. */
 
 test("F4: buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
   const app = cfg("factory-sanitize");
@@ -964,13 +956,10 @@ test("F4: buildRewrittenCompositionConfig wires config.sanitize to the REAL sani
   assert.ok(!redacted.includes("ghs_supersecretvalue"), "a real token-shaped secret must be redacted, not passed through verbatim");
 });
 
-// ── createRewrittenEngineFactory — the RunnerDeps.engineFactory seam ──────────────────────────────
-// buildProduction(env, cfg) internally re-checks selectEngine(env) itself (composition-root.ts) —
-// on its "legacy" branch it THROWS unless a legacyRunner is supplied (which this factory never
-// supplies, matching runner.ts's own dispatch guard: `engine === "rewritten" && deps.engineFactory`
-// already ensures the factory is only ever invoked once the flag already resolved to "rewritten").
-// These tests set PIPELINE_ENGINE=rewritten around the factory(...) call to exercise its REAL,
-// documented calling contract instead of the (also-real, also-tested below) fail-safe throw.
+/* createRewrittenEngineFactory is the RunnerDeps.engineFactory seam. selectEngine always
+   resolves to "rewritten"; PIPELINE_ENGINE="legacy" is accepted-but-ignored. These tests set
+   PIPELINE_ENGINE=rewritten around the factory(...) call to exercise the documented calling contract.
+ */
 
 test("createRewrittenEngineFactory returns a factory whose output satisfies RunPipelinePort (has a run() fn)", () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1004,12 +993,12 @@ test("createRewrittenEngineFactory never calls getAgentDeps during construction 
   }
 });
 
-// ── WS6.2 (full-flow remediation, timeouts & operational observability) ──────────────────────────
-// withUsageSink/withStallWatchdog/withSessionRegistration existed and were fully unit-tested, but
-// nothing on the production path ever composed them onto the AgentDeps this factory hands to
-// wireBridges() — a session opened through the rewritten engine never registered for SSE, never
-// tripped the stall watchdog, and never fed a usage sink. These tests prove the composition itself
-// (the wrapper unit tests already pin each wrapper's own behavior in isolation).
+/* withUsageSink/withStallWatchdog/withSessionRegistration existed and were fully unit-tested, but
+   nothing on the production path ever composed them onto the AgentDeps this factory hands to
+   wireBridges() — a session opened through the rewritten engine never registered for SSE, never
+   tripped the stall watchdog, and never fed a usage sink. These tests prove the composition itself
+   (the wrapper unit tests already pin each wrapper's own behavior in isolation).
+ */
 
 test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened with descriptor.runId registers for SSE (activityRouter.sessionMap())", async () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1038,8 +1027,9 @@ test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened
       { mode: "diff" },
     );
 
-    // Exercise the SAME seam a real review call uses: runtimeAdapter.openSession -> deps.open with a
-    // descriptor carrying runId (mirrors ReviewPortAdapter's own openSession call shape).
+    /* Exercise the SAME seam a real review call uses: runtimeAdapter.openSession -> deps.open with a
+       descriptor carrying runId (mirrors ReviewPortAdapter's own openSession call shape).
+     */
     const session = await config.reviewRuntime.runtime.openSession("reviewer", "/mirrors/org/app", {
       descriptor: { runId: "run-sse-1", role: "qa-reviewer" },
     });
@@ -1068,8 +1058,9 @@ test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompo
     });
     const port = factory(cfg("factory-wrap-chain"), "qa-bot-abc1234-runWrap", { mode: "diff" });
     assert.equal(typeof port.run, "function");
-    // Construction must stay lazy (mirrors the pre-existing "never calls getAgentDeps during
-    // construction" test above) — the wrap itself must not defeat that laziness.
+    /* Construction must stay lazy (mirrors the pre-existing "never calls getAgentDeps during
+       construction" test above) — the wrap itself must not defeat that laziness.
+     */
     assert.equal(getAgentDepsCalls, 0, "wrapping getAgentDeps must not eagerly invoke the underlying factory");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
@@ -1088,11 +1079,12 @@ test("createRewrittenEngineFactory's returned closure threads the namespace argu
   try {
     const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
     const app = cfg("factory-closure-namespace");
-    // Both calls build a REAL RunPipelinePort via buildProduction — we cannot read `.branch` off
-    // the port itself, but buildRewrittenCompositionConfig (already pinned above) proves the config
-    // it builds carries branch=namespace; this test proves the FACTORY CLOSURE's own arity accepts
-    // and threads a second, distinct namespace argument without throwing (the composition succeeds
-    // for both), which is the observable contract at the createRewrittenEngineFactory seam.
+    /* Both calls build a REAL RunPipelinePort via buildProduction — we cannot read `.branch` off
+       the port itself, but buildRewrittenCompositionConfig (already pinned above) proves the config
+       it builds carries branch=namespace; this test proves the FACTORY CLOSURE's own arity accepts
+       and threads a second, distinct namespace argument without throwing (the composition succeeds
+       for both), which is the observable contract at the createRewrittenEngineFactory seam.
+     */
     const portRun1 = factory(app, "qa-bot-abc1234-runA", { mode: "diff" });
     const portRun2 = factory(app, "qa-bot-abc1234-runB", { mode: "diff" });
     assert.equal(typeof portRun1.run, "function");
@@ -1103,10 +1095,10 @@ test("createRewrittenEngineFactory's returned closure threads the namespace argu
   }
 });
 
-// ── PIPELINE_ENGINE dispatch integration — with a REAL engineFactory (not a fake port) ────────────
-// Plan 7.6: the legacy engine is deleted — a supplied engineFactory is ALWAYS invoked, regardless
-// of PIPELINE_ENGINE, using the REAL production factory (not just a fake port, as runner.test.ts
-// already pins for the dispatch seam itself).
+/* ── PIPELINE_ENGINE dispatch integration — with a REAL engineFactory (not a fake port) ────────────
+   of PIPELINE_ENGINE, using the REAL production factory (not just a fake port, as runner.test.ts
+   already pins for the dispatch seam itself).
+ */
 
 test("engineFactory (real production factory) is invoked and drives the run to completion", async () => {
   const queue = new JobQueue();
@@ -1129,20 +1121,22 @@ test("engineFactory (real production factory) is invoked and drives the run to c
   assert.equal(factoryInvoked, true, "the real rewritten engineFactory must be invoked — it is the only engine");
 });
 
-// ── THE VALUE KEYSTONE — assembleChangeCoverage wiring + code-mode coverage trigger ──────────────
-// CLAUDE.md "The value/trust risk": change-coverage measurement was always "unknown" because no
-// assembler turned the collector's raw CoverageReport + the run's diff into the ChangeCoverage
-// read-model. This factory is the production seam that supplies the REAL assembler + (for code mode)
-// triggers the repo's own instrumented test run so a report exists to read in the first place.
+/* ── THE VALUE KEYSTONE — assembleChangeCoverage wiring + code-mode coverage trigger ──────────────
+   CLAUDE.md "The value/trust risk": change-coverage measurement was always "unknown" because no
+   assembler turned the collector's raw CoverageReport + the run's diff into the ChangeCoverage
+   read-model. This factory is the production seam that supplies the REAL assembler + (for code mode)
+   triggers the repo's own instrumented test run so a report exists to read in the first place.
+ */
 
 test("buildRewrittenCompositionConfig supplies a REAL assembleChangeCoverage (the value keystone, previously always absent)", () => {
   const app = cfg("factory-assembler");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.assembleChangeCoverage, "function", "assembleChangeCoverage must be wired — its absence is exactly what kept measure() at status:'unknown' forever");
 
-  // Prove it is the REAL pure port (parseDiffHunks + computeChangeCoverage), not a stub that always
-  // returns a fixed shape: a diff with 2 added lines, 1 covered by the report, must intersect to a
-  // real, non-trivial ChangeCoverage.
+  /* Prove it is the REAL pure port (parseDiffHunks + computeChangeCoverage), not a stub that always
+     returns a fixed shape: a diff with 2 added lines, 1 covered by the report, must intersect to a
+     real, non-trivial ChangeCoverage.
+   */
   const diff = ["diff --git a/src/x.ts b/src/x.ts", "+++ b/src/x.ts", "@@ -1,0 +1,2 @@", "+a", "+b"].join("\n");
   const cc = config.assembleChangeCoverage!(diff, { covered: [{ file: "src/x.ts", lines: [1] }] });
   assert.equal(cc.measured, true);
@@ -1154,8 +1148,9 @@ test("buildRewrittenCompositionConfig supplies a REAL assembleChangeCoverage (th
 test("buildRewrittenCompositionConfig's coverage collector for an e2e app does NOT trigger runCodeCoverage (code-only trigger)", async () => {
   const app = cfg("factory-e2e-no-codecov");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  // Must resolve without throwing — an e2e app's collector is the plain V8-dump collector, untouched
-  // by the code-mode wrapper; a nonexistent namespace dir degrades to an empty report (fail-open).
+  /* Must resolve without throwing — an e2e app's collector is the plain V8-dump collector, untouched
+     by the code-mode wrapper; a nonexistent namespace dir degrades to an empty report (fail-open).
+   */
   const report = await config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-abc1234-run1");
   assert.deepEqual(report, { covered: [] });
 });
@@ -1163,9 +1158,9 @@ test("buildRewrittenCompositionConfig's coverage collector for an e2e app does N
 test("buildRewrittenCompositionConfig's coverage collector for a code:true app runs best-effort (never throws even with no c8/no test command)", async () => {
   const app: AppConfig = { ...cfg("factory-code-coverage-trigger"), code: true, dev: undefined };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
-  // Legacy parity (src/pipeline.ts:487): `if (input.target === "code") await runCodeCoverage(input.repoDir).catch(() => {})`
-  // — best-effort, BEFORE the lcov/Istanbul readers run. A bogus mirrorDir (no repo, no c8, no test
-  // command) must degrade the whole collect() call to an empty report, never throw.
+  /* — best-effort, BEFORE the lcov/Istanbul readers run. A bogus mirrorDir (no repo, no c8, no test
+     command) must degrade the whole collect() call to an empty report, never throw.
+   */
   await assert.doesNotReject(() => config.objectiveSignal.collector.collect("/tmp/does-not-exist/e2e", "qa-bot-def5678-run2"));
 });
 
@@ -1189,9 +1184,10 @@ test("PIPELINE_ENGINE=legacy (stale operator setting) — the real factory is st
     );
     await queue.drain();
     const r = getRecord(id)!;
-    // stubAgentDeps.open() always throws, so a REAL run through the real factory genuinely fails —
-    // the assertion of interest is that the factory was reached at all (never bypassed), not the
-    // verdict shape of a deliberately-broken agent stub.
+    /* stubAgentDeps.open() always throws, so a REAL run through the real factory genuinely fails —
+       the assertion of interest is that the factory was reached at all (never bypassed), not the
+       verdict shape of a deliberately-broken agent stub.
+     */
     assert.equal(r.status, "done");
     assert.equal(factoryInvoked, true, "PIPELINE_ENGINE=legacy no longer selects a different code path");
   } finally {
@@ -1200,10 +1196,10 @@ test("PIPELINE_ENGINE=legacy (stale operator setting) — the real factory is st
   }
 });
 
-// ── W3 F1/F2 (audit-verified cutover blockers): the factory wires REAL durable persistence and
-// REAL learning by default — production never sets historyFilePath, so before this fix
-// composition-root.ts's wireBridges() always fell back to InMemoryRunHistoryAdapter, and
-// learningRepo always fell back to StubLearningRepository (a provable no-op). ──────────────────
+/* The factory wires REAL durable persistence and REAL learning by default — production never
+   sets historyFilePath, so wireBridges() must not fall back to InMemoryRunHistoryAdapter, and
+   learningRepo must not fall back to StubLearningRepository (a provable no-op).
+ */
 
 test("buildRewrittenCompositionConfig wires a REAL SqliteRunHistoryAdapter by default (no historyFilePath override)", () => {
   const app = cfg("factory-history-default");
@@ -1233,10 +1229,10 @@ test("buildRewrittenCompositionConfig wires a REAL SqliteLearningRepository by d
   assert.ok(config.learningRepo instanceof SqliteLearningRepository, "learningRepo must default to the REAL SqliteLearningRepository, not composition-root's StubLearningRepository fallback");
 });
 
-// W3 fix (F3b, dual-judge round): historyLearningStore(appName).upsert() previously wrote
-// `app: rule.archetype ?? ""` — a cross-app data-corruption landmine (archetype is a diff-shape
-// tag, not an app identifier). Real-DB integration test (same convention as src/qa/learning/
-// retrieval.test.ts): a unique app name per run avoids collisions with other tests' rows.
+/* historyLearningStore(appName).upsert() must persist the REAL app name, never
+   `app: rule.archetype ?? ""` — archetype is a diff-shape tag, not an app identifier. Real-DB
+   integration test: a unique app name per run avoids collisions with other tests' rows.
+ */
 test("historyLearningStore(appName).upsert() persists the REAL app name, not the rule's archetype", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
@@ -1248,7 +1244,7 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
     trigger: "selector absent",
     action: "use role+name",
     errorClass: "E-EXEC-FAIL",
-    archetype: "form", // deliberately DIFFERENT from `app` — pins the fix distinguishes the two
+    archetype: "form", /* deliberately DIFFERENT from `app` — pins the fix distinguishes the two */
     status: "candidate",
     confidence: "low",
     usageCount: 0,
@@ -1263,15 +1259,17 @@ test("historyLearningStore(appName).upsert() persists the REAL app name, not the
   const rows = listLearningRules(app, 10);
   assert.equal(rows.length, 1, "the rule must be retrievable under the REAL app name");
   assert.equal(rows[0]?.trigger, "selector absent");
-  // If the bug regressed (app: rule.archetype ?? ""), this row would be filed under "form",
-  // not `app` — listLearningRules(app, ...) would find nothing.
+  /* If the bug regressed (app: rule.archetype ?? ""), this row would be filed under "form",
+     not `app` — listLearningRules(app, ...) would find nothing.
+   */
   const underArchetype = listLearningRules("form", 10);
   assert.ok(!underArchetype.some((r) => r.trigger === "selector absent"), "the rule must NOT be filed under the archetype as if it were the app name");
 });
 
-// W3 fix (F3a, dual-judge round): historyLearningStore(appName).incrementUsage() bridges onto
-// legacy's incrementRuleUsage (src/server/history.ts) — the SAME usage_count column
-// LearningPortAdapter.retrieve() now increments through this store.
+/* historyLearningStore(appName).incrementUsage() bridges onto incrementRuleUsage
+   (src/server/history.ts) — the SAME usage_count column LearningPortAdapter.retrieve() increments
+   through this store.
+ */
 test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's incrementRuleUsage", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
@@ -1291,11 +1289,11 @@ test("historyLearningStore(appName).incrementUsage() bridges onto history.ts's i
   assert.equal(rows[0]?.usageCount, 1, "usageCount must advance from 0 to 1 after incrementUsage");
 });
 
-// P4a (post-cutover-remediation, unit 6): historyLearningStore(appName).recordOutcome() was a
-// `void outcome;` no-op — folding a RunOutcome into individual rules' running statistics via the
-// SAME learning_rules SQLite table upsert()/incrementUsage() already bridge onto. Real-DB
-// integration tests, same convention as the upsert()/incrementUsage() tests above: a unique app
-// name per run avoids collisions with other tests' rows.
+/* historyLearningStore(appName).recordOutcome() folds a RunOutcome into individual rules'
+   running statistics via the SAME learning_rules SQLite table upsert()/incrementUsage() already
+   bridge onto. Real-DB integration tests: a unique app name per run avoids collisions with other
+   tests' rows.
+ */
 test("historyLearningStore(appName).recordOutcome() — oracle path folds valueScore into every retrieved rule", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
@@ -1331,17 +1329,16 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
   assert.equal(r2?.oracleOutcomeCount, 1);
 });
 
-// WS1.1 (full-flow remediation, most critical finding): THE INTEGRATION-HONEST TEST. Every test
-// above this one hand-builds `rulesRetrieved: [ruleId1, ruleId2]` directly with the real ids already
-// known — none of them walk the REAL production seam that broke: LearningPortAdapter.retrieve()
-// (qa-engine's port bridge) projecting RetrievedRule[] from the SAME SqliteLearningRepository /
-// historyLearningStore this file already wires, then the caller deriving the persisted
-// rulesRetrieved from THAT result exactly the way run-qa.use-case.ts does (`r.id`, post-fix — was
-// `r.trigger`, the bug). Before the WS1.1 fix, this exact chain (upsert -> retrieve -> derive
-// rulesRetrieved -> fold) silently produced trigger TEXT instead of ids, so recordOutcome's by-id
-// lookup (`byId.get(id)` / recordRuleOutcome(id, ...)) missed every row and outcome_count stayed
-// frozen at 0 forever — no promotion/demotion ever engaged, with zero errors anywhere. This test
-// pins the full chain green.
+/* above this one hand-builds `rulesRetrieved: [ruleId1, ruleId2]` directly with the real ids already
+   known — none of them walk the REAL production seam that broke: LearningPortAdapter.retrieve()
+   (qa-engine's port bridge) projecting RetrievedRule[] from the SAME SqliteLearningRepository /
+   historyLearningStore this file already wires, then the caller deriving the persisted
+   rulesRetrieved from THAT result exactly the way run-qa.use-case.ts does (`r.id`, post-fix — was
+   rulesRetrieved -> fold) silently produced trigger TEXT instead of ids, so recordOutcome's by-id
+   lookup (`byId.get(id)` / recordRuleOutcome(id, ...)) missed every row and outcome_count stayed
+   frozen at 0 forever — no promotion/demotion ever engaged, with zero errors anywhere. This test
+   pins the full chain green.
+ */
 test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
@@ -1352,9 +1349,10 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
     "@contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter"
   );
   const app = `factory-learning-ws1-1-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  // Deliberately DIFFERENT from the rule's trigger text — if the chain regresses to persisting
-  // trigger text instead of ids, the fold's byId lookup would miss this row exactly as it did
-  // before the fix, and outcome_count would stay 0 (the assertion below would fail loudly).
+  /* Deliberately DIFFERENT from the rule's trigger text — if the chain regresses to persisting
+     trigger text instead of ids, the fold's byId lookup would miss this row exactly as it did
+     before the fix, and outcome_count would stay 0 (the assertion below would fail loudly).
+   */
   const ruleId = `rule-ws1-1-${app}`;
   const ruleTrigger = "selector absent — WS1.1 trigger text, NEVER the fold key";
 
@@ -1365,9 +1363,10 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
     oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: new Date().toISOString(),
   });
 
-  // Real retrieval path: the SAME SqliteLearningRepository + LearningPortAdapter production wires
-  // (buildRewrittenCompositionConfig composes `new SqliteLearningRepository(historyLearningStore(app.name))`
-  // at line ~524 of this module, and composition-root.ts wraps it in LearningPortAdapter).
+  /* Real retrieval path: the SAME SqliteLearningRepository + LearningPortAdapter production wires
+     (buildRewrittenCompositionConfig composes `new SqliteLearningRepository(historyLearningStore(app.name))`
+     at line ~524 of this module, and composition-root.ts wraps it in LearningPortAdapter).
+   */
   const repo = new SqliteLearningRepository(store);
   const adapter = new LearningPortAdapter(repo, app);
   const retrievedRules = await adapter.retrieve(Sha.of("abc1234567"));
@@ -1376,8 +1375,9 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
   assert.equal(retrievedRules[0]?.id, ruleId, "retrieve() must surface the real row id (the WS1.1 fix)");
   assert.equal(retrievedRules[0]?.trigger, ruleTrigger, "retrieve() must ALSO still surface the prompt-facing trigger text (untouched by this fix)");
 
-  // Derive rulesRetrieved the SAME way run-qa.use-case.ts does post-fix: `retrievedRules.map(r => r.id)`
-  // — NOT `r.trigger` (that mapping was the bug this work-unit fixes).
+  /* Derive rulesRetrieved the SAME way run-qa.use-case.ts does post-fix: `retrievedRules.map(r => r.id)`
+     — NOT `r.trigger` (that mapping was the bug this work-unit fixes).
+   */
   const rulesRetrieved = retrievedRules.map((r) => r.id);
   assert.deepEqual(rulesRetrieved, [ruleId], "the derived rulesRetrieved must carry ids, not trigger text");
 
@@ -1389,9 +1389,10 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
     at: new Date().toISOString(),
   } as never;
 
-  // Fold via the REAL LearningPort.fold() -> LearningRepositoryPort.applyOutcome() ->
-  // historyLearningStore(app).recordOutcome() -> history.ts's recordRuleOutcome(id, ...) chain —
-  // the exact production path, not a hand-rolled call to recordOutcome/recordRuleOutcome directly.
+  /* Fold via the REAL LearningPort.fold() -> LearningRepositoryPort.applyOutcome() ->
+     historyLearningStore(app).recordOutcome() -> history.ts's recordRuleOutcome(id, ...) chain —
+     the exact production path, not a hand-rolled call to recordOutcome/recordRuleOutcome directly.
+   */
   await adapter.fold(outcome);
 
   const rows = listLearningRules(app, 10);
@@ -1473,9 +1474,10 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
     oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: new Date().toISOString(),
   });
 
-  // A clean run (errorClass: null): heldRuleId's own class ("E-FRAGILE-SELECTOR") did NOT recur ->
-  // preventionOutcome(rule.errorClass, null) = PREVENTION_HELD_SCORE (weak positive, held).
-  // failedRuleId's own class ("E-EXEC-FAIL") also did not recur on this clean run -> also held.
+  /* A clean run (errorClass: null): heldRuleId's own class ("E-FRAGILE-SELECTOR") did NOT recur ->
+     preventionOutcome(rule.errorClass, null) = PREVENTION_HELD_SCORE (weak positive, held).
+     failedRuleId's own class ("E-EXEC-FAIL") also did not recur on this clean run -> also held.
+   */
   store.recordOutcome({
     runId: "run-3", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
@@ -1496,16 +1498,16 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
   assert.equal(noisy?.outcomeCount, 0, "a rule NOT in rulesRetrieved must never fold");
 });
 
-// Task 2 (full-flow remediation, WS1.3 closure): THE INTEGRATION-HONEST TEST for selectAllRules.
-// Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
-// so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
-// set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule
-// set, incl. deprecated/superseded) was fully implemented but structurally inert in production: it
-// could never actually see a prior rule to dedup against. This test walks the REAL production
-// wiring end to end: upsert a DEPRECATED rule directly into the SAME learning_rules table
-// historyLearningStore(app) reads/writes, then run the distill DECISION the reflector's save path
-// uses (decideDistill against SqliteLearningRepository.listAll(app, ...)'s real output) and assert
-// the duplicate is skipped — proving listAll surfaces real rows, not [].
+/* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
+   so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
+   set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule
+   set, incl. deprecated/superseded) was fully implemented but structurally inert in production: it
+   could never actually see a prior rule to dedup against. This test walks the REAL production
+   wiring end to end: upsert a DEPRECATED rule directly into the SAME learning_rules table
+   historyLearningStore(app) reads/writes, then run the distill DECISION the reflector's save path
+   uses (decideDistill against SqliteLearningRepository.listAll(app, ...)'s real output) and assert
+   the duplicate is skipped — proving listAll surfaces real rows, not [].
+ */
 test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate (WS1.3 dedup goes live)", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { SqliteLearningRepository } = await import(
@@ -1516,16 +1518,17 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
   const deprecatedRuleId = `rule-deprecated-${app}`;
 
   const store = historyLearningStore(app);
-  // A rule that was tried and demoted — the anti-respawn guard's whole reason to exist: a
-  // recurring failure pattern must not spawn a FRESH candidate for a pattern already tried and
-  // found wanting.
+  /* A rule that was tried and demoted — the anti-respawn guard's whole reason to exist: a
+     recurring failure pattern must not spawn a FRESH candidate for a pattern already tried and
+     found wanting.
+   */
   store.upsert({
     id: deprecatedRuleId,
     trigger: "Applies when a form submit button lacks a stable selector",
     action: "use getbyrole('button', { name: ... })",
     errorClass: "E-FRAGILE-SELECTOR",
     archetype: null,
-    status: "candidate", // upsertLearningRule always inserts as candidate (see history.ts's own doc)
+    status: "candidate", /* upsertLearningRule always inserts as candidate (see history.ts's own doc) */
     confidence: "low",
     usageCount: 0,
     outcomeCount: 0,
@@ -1535,23 +1538,25 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
     source: "test",
     at: new Date().toISOString(),
   });
-  // Force it to deprecated the SAME way a real demotion would (via the human-override path in
-  // history.ts) — proving the dedup guard sees it EVEN THOUGH it is excluded from normal retrieval.
+  /* Force it to deprecated the SAME way a real demotion would (via the human-override path in
+     history.ts) — proving the dedup guard sees it EVEN THOUGH it is excluded from normal retrieval.
+   */
   const { setRuleStatusByHuman } = await import("./history");
   setRuleStatusByHuman(deprecatedRuleId, "deprecated");
 
-  // Real production wiring: the SAME SqliteLearningRepository this factory composes
-  // (`new SqliteLearningRepository(historyLearningStore(app.name))`, ~line 524).
+  /* Real production wiring: the SAME SqliteLearningRepository this factory composes
+     (`new SqliteLearningRepository(historyLearningStore(app.name))`, ~line 524).
+   */
   const repo = new SqliteLearningRepository(store);
 
-  // Before Task 2's fix, this always returned [] regardless of what upsert() had just written.
   const existing = await repo.listAll(app, 200);
   assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the exact seam Task 2 wires live");
   assert.equal(existing.find((r) => r.id === deprecatedRuleId)?.status, "deprecated", "the row's real status must survive the round-trip");
 
-  // Run the SAME distill decision the reflector's save path runs (reflector-port.adapter.ts's
-  // `decideDistill(capped, existing)`), with a candidate whose trigger/action normalize onto the
-  // SAME ruleKey as the deprecated row above (differs only in casing/whitespace/punctuation).
+  /* Run the SAME distill decision the reflector's save path runs (reflector-port.adapter.ts's
+     `decideDistill(capped, existing)`), with a candidate whose trigger/action normalize onto the
+     SAME ruleKey as the deprecated row above (differs only in casing/whitespace/punctuation).
+   */
   const capped = capRuleFields({
     trigger: "applies when a Form Submit button lacks a stable selector",
     action: "Use getByRole('button', { name: ... }).",
@@ -1567,9 +1572,10 @@ test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME
   process.env.PIPELINE_ENGINE = "rewritten";
   try {
     const factory = createRewrittenEngineFactory({ getAgentDeps: stubAgentDeps });
-    // buildRewrittenCompositionConfig is exercised directly above (createRewrittenEngineFactory just
-    // closes over it + buildProduction) — this test proves the PUBLIC factory seam (the one index.ts
-    // and cli.ts actually call) produces a real RunPipelinePort without throwing during construction.
+    /* buildRewrittenCompositionConfig is exercised directly above (createRewrittenEngineFactory just
+       closes over it + buildProduction) — this test proves the PUBLIC factory seam (the one index.ts
+       and cli.ts actually call) produces a real RunPipelinePort without throwing during construction.
+     */
     const app = cfg("factory-dispatch-real-history");
     assert.doesNotThrow(() => factory(app, "qa-bot-abc1234-run1", { mode: "diff" }), "constructing the port must not eagerly touch the DB or throw");
   } finally {
@@ -1578,19 +1584,19 @@ test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME
   }
 });
 
-// ── Cross-repo composition threading (bug fix) ────────────────────────────────────────────────────
-// CLAUDE.md: "diff/classify/gate come from the service mirror at the event SHA; the suite runs from
-// the primary mirror at baseBranch HEAD." Prior to this fix, run.triggerRepo never reached the
-// factory at all — vcs/checkout/gate were hardwired to the PRIMARY repo unconditionally, so a real
-// cross-repo run tried `git checkout -f <serviceSha>` inside the PRIMARY mirror and crashed.
-//
-// Testability seam: RewrittenEngineFactoryDeps.mirror lets tests inject spies for
-// ensureMirror/ensureMirrorAtBranch instead of touching real git/disk — mirrors the existing
-// deps.mirrorRoot precedent (an explicit test/override seam, defaulting to the real functions).
+/* ── Cross-repo composition threading (bug fix) ────────────────────────────────────────────────────
+   CLAUDE.md: "diff/classify/gate come from the service mirror at the event SHA; the suite runs from
+   the primary mirror at baseBranch HEAD." Prior to this fix, run.triggerRepo never reached the
+   factory at all — vcs/checkout/gate were hardwired to the PRIMARY repo unconditionally, so a real
+   cross-repo run tried `git checkout -f <serviceSha>` inside the PRIMARY mirror and crashed.
+   Testability seam: RewrittenEngineFactoryDeps.mirror lets tests inject spies for
+   ensureMirror/ensureMirrorAtBranch instead of touching real git/disk — mirrors the existing
+   deps.mirrorRoot precedent (an explicit test/override seam, defaulting to the real functions).
+ */
 function spyMirrorDeps() {
-  // WARNING fix (judgment-day): capture the 3rd `deps: MirrorDeps` argument too — previously
-  // discarded, so no test here could catch production dropping/corrupting `defaultMirrorDeps` on
-  // either call. Callers assert `deps` is the module's own `defaultMirrorDeps` export (identity).
+  /* discarded, so no test here could catch production dropping/corrupting `defaultMirrorDeps` on
+     either call. Callers assert `deps` is the module's own `defaultMirrorDeps` export (identity).
+   */
   const ensureMirrorCalls: Array<{ repo: string; sha: string; deps: MirrorDeps }> = [];
   const ensureMirrorAtBranchCalls: Array<{ repo: string; branch: string; deps: MirrorDeps }> = [];
   const mirror = {
@@ -1606,11 +1612,12 @@ function spyMirrorDeps() {
   return { mirror, ensureMirrorCalls, ensureMirrorAtBranchCalls };
 }
 
-// Testability seam: RewrittenEngineFactoryDeps.stageServiceContext lets tests inject a no-op for
-// the service-context staging side effect, instead of touching real disk/git — mirrors
-// spyMirrorDeps' own precedent immediately above. Checkout-focused tests that don't care about
-// staging content use this so `checkout()` never performs real fs writes against a spy mirror's
-// fabricated (non-existent) directories.
+/* Testability seam: RewrittenEngineFactoryDeps.stageServiceContext lets tests inject a no-op for
+   the service-context staging side effect, instead of touching real disk/git — mirrors
+   spyMirrorDeps' own precedent immediately above. Checkout-focused tests that don't care about
+   staging content use this so `checkout()` never performs real fs writes against a spy mirror's
+   fabricated (non-existent) directories.
+ */
 function spyStageServiceContext() {
   const calls: Array<{ workingCopyDir: string; repo: string; sha?: string }> = [];
   const stageServiceContext = async (input: { workingCopyDir: string; service: { repo: string }; sha?: string }) => {
@@ -1620,9 +1627,10 @@ function spyStageServiceContext() {
   return { stageServiceContext, calls };
 }
 
-// 1. GUARD — pin same-repo behavior BEFORE touching anything: no triggerRepo must never take the
-// cross-repo branch, checkout(sha) must ensure only the PRIMARY repo at the event sha (never call
-// ensureMirrorAtBranch), and the deploy gate must read app.dev?.versionUrl exactly as before.
+/* 1. GUARD — pin same-repo behavior BEFORE touching anything: no triggerRepo must never take the
+   cross-repo branch, checkout(sha) must ensure only the PRIMARY repo at the event sha (never call
+   ensureMirrorAtBranch), and the deploy gate must read app.dev?.versionUrl exactly as before.
+ */
 
 test("GUARD: no triggerRepo — checkout(sha) ensures the PRIMARY repo at sha only, never ensureMirrorAtBranch", async () => {
   const app = cfg("factory-guard-same-repo");
@@ -1670,9 +1678,10 @@ test("GUARD: no triggerRepo — vcs reads the PRIMARY mirror dir", () => {
   assert.equal((config.vcs as unknown as { repoDir: string }).repoDir, "/tmp/mirrors/org__demo");
 });
 
-// 2. RED — triggerRepo = declared service: checkout(sha) must ensure the SERVICE repo at the event
-// sha FIRST (diff/classify source), then return the PRIMARY repo's dir at baseBranch HEAD (suite
-// workspace) — order matters because classify() runs after workspace.prepare() in RunQaUseCase.
+/* 2. RED — triggerRepo = declared service: checkout(sha) must ensure the SERVICE repo at the event
+   sha FIRST (diff/classify source), then return the PRIMARY repo's dir at baseBranch HEAD (suite
+   workspace) — order matters because classify() runs after workspace.prepare() in RunQaUseCase.
+ */
 
 test("cross-repo: checkout(sha) ensures the SERVICE repo at the event sha, then returns the PRIMARY dir at baseBranch HEAD", async () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-checkout"), services: [{ repo: "org/orders-svc" }] };
@@ -1721,8 +1730,9 @@ test("cross-repo: checkout(sha) stages the SERVICE's context INTO the primary wo
   assert.deepEqual(calls, [{ workingCopyDir: dir, repo: "org/orders-svc", sha: "def5678901" }], "staging must target the PRIMARY working copy (the agent session root), carrying the event sha");
 });
 
-// 3. RED — cfg.vcs must be bound to the SERVICE mirror dir (the classify/diff source), not the
-// primary. Asserted via GitMirrorReadAdapter's public repoDir (rename-safe, honest read-back).
+/* 3. RED — cfg.vcs must be bound to the SERVICE mirror dir (the classify/diff source), not the
+   primary. Asserted via GitMirrorReadAdapter's public repoDir (rename-safe, honest read-back).
+ */
 
 test("cross-repo: cfg.vcs is bound to the SERVICE mirror dir (classify source), not the primary", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-vcs"), services: [{ repo: "org/orders-svc" }] };
@@ -1734,12 +1744,6 @@ test("cross-repo: cfg.vcs is bound to the SERVICE mirror dir (classify source), 
   );
   assert.equal((config.vcs as unknown as { repoDir: string }).repoDir, "/tmp/mirrors/org__orders-svc", "vcs must read the SERVICE mirror dir, not the primary's");
 });
-
-// 3b. RED — generation-prompt parity (legacy pipeline.ts:1909): triggerService must reach
-// CompositionConfig.triggerService as {repo, mirrorDir, openapi?} — the SERVICE's own mirror dir
-// (the SAME vcsDir formula the vcs test above already pins), never the primary's mirrorDir. This is
-// the ONE new field this gap closes: composition-root.ts's wireBridges() threads it into
-// GenerationPortAdapter's ctx.service -> OpencodeRunInput.service, advisory prompt-context ONLY.
 
 test("cross-repo: composes CompositionConfig.triggerService = {repo, mirrorDir} for the SERVICE mirror (not the primary), when the service declares no openapi hint", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-triggerservice"), services: [{ repo: "org/orders-svc" }] };
@@ -1790,10 +1794,11 @@ test("GUARD: no triggerRepo (same-repo run) leaves CompositionConfig.triggerServ
   assert.equal("triggerService" in config, false, "same-repo runs (the common case) must OMIT triggerService entirely, matching versionUrl's own absent-by-default precedent for this class of field");
 });
 
-// 4. RED — gate: a service WITH versionUrl gates on the SERVICE's own versionUrl/intervals (service
-// defaults 10_000/600_000, distinct from the primary's 2000/60000); a service WITHOUT versionUrl
-// must leave cfg.versionUrl undefined even when app.dev.versionUrl IS set (never gate the primary's
-// /version endpoint for a service sha that never appears there).
+/* 4. RED — gate: a service WITH versionUrl gates on the SERVICE's own versionUrl/intervals (service
+   defaults 10_000/600_000, distinct from the primary's 2000/60000); a service WITHOUT versionUrl
+   must leave cfg.versionUrl undefined even when app.dev.versionUrl IS set (never gate the primary's
+   /version endpoint for a service sha that never appears there).
+ */
 
 test("cross-repo: gate uses the SERVICE's own versionUrl + service-level interval/timeout defaults (10_000/600_000)", () => {
   const app: AppConfig = {
@@ -1831,7 +1836,7 @@ test("cross-repo: a service WITHOUT versionUrl leaves cfg.versionUrl undefined e
   const app: AppConfig = {
     ...cfg("factory-crossrepo-gate-skip"),
     dev: { baseUrl: "https://dev", versionUrl: "https://dev/version" },
-    services: [{ repo: "org/orders-svc" }], // no versionUrl declared
+    services: [{ repo: "org/orders-svc" }],
   };
   const config = buildRewrittenCompositionConfig(
     app,
@@ -1843,10 +1848,10 @@ test("cross-repo: a service WITHOUT versionUrl leaves cfg.versionUrl undefined e
   assert.equal(config.versionPoll, undefined);
 });
 
-// 5. RED — declared-service defense in depth + triggerRepo === app.repo takes the same-repo path.
+/* 5. RED — declared-service defense in depth + triggerRepo === app.repo takes the same-repo path. */
 
 test("cross-repo: an UNDECLARED triggerRepo throws (defense in depth, matches runner.ts's own assertTriggerRepoDeclared)", () => {
-  const app = cfg("factory-crossrepo-undeclared"); // no services[] declared at all
+  const app = cfg("factory-crossrepo-undeclared"); /* no services[] declared at all */
   assert.throws(
     () =>
       buildRewrittenCompositionConfig(
@@ -1904,7 +1909,7 @@ test("cross-repo: triggerRepo === app.repo takes the same-repo path (no service-
   assert.strictEqual(ensureMirrorCalls[0]?.deps, defaultMirrorDeps);
 });
 
-// 6. createRewrittenEngineFactory forwards triggerRepo through to buildRewrittenCompositionConfig.
+/* 6. createRewrittenEngineFactory forwards triggerRepo through to buildRewrittenCompositionConfig. */
 
 test("createRewrittenEngineFactory's returned closure accepts and threads a run.triggerRepo argument without throwing", () => {
   const prev = process.env.PIPELINE_ENGINE;
@@ -1935,14 +1940,14 @@ test("createRewrittenEngineFactory's returned closure propagates the undeclared-
   }
 });
 
-// ── Context-mode multi-service parity (legacy pipeline.ts:1330-1355 buildContextMap, restored by
-// this fix): a context-mode run mirrors EVERY declared app.services[] entry (read-only, each at its
-// OWN svc.baseBranch ?? "main") and threads them onto CompositionConfig.services so
-// GenerationPortAdapter's ctx.services -> OpencodeRunInput.services carries the full set for the FE<->BE
-// architecture-map builder (buildContextTask's "## Microservice repos" section, prompts.ts:1181).
-// Mirrors triggerService's OWN conditional-spread precedent above hop-for-hop — the ONE difference is
-// cardinality (every declared service, not just the triggering one) and applicability (context mode
-// ONLY; triggerService and services are mutually exclusive by the sibling guard at line 342/954).
+/* this fix): a context-mode run mirrors EVERY declared app.services[] entry (read-only, each at its
+   OWN svc.baseBranch ?? "main") and threads them onto CompositionConfig.services so
+   GenerationPortAdapter's ctx.services -> OpencodeRunInput.services carries the full set for the FE<->BE
+   architecture-map builder (buildContextTask's "## Microservice repos" section, prompts.ts:1181).
+   Mirrors triggerService's OWN conditional-spread precedent above hop-for-hop — the ONE difference is
+   cardinality (every declared service, not just the triggering one) and applicability (context mode
+   ONLY; triggerService and services are mutually exclusive by the sibling guard at line 342/954).
+ */
 
 test("context mode: composes CompositionConfig.services = every declared service at its OWN join-formula mirrorDir, string openapi preserved", () => {
   const app: AppConfig = {

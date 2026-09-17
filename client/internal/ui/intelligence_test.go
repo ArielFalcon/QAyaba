@@ -10,14 +10,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// visibleText strips ANSI and collapses whitespace so wrap-aware renders can be
-// asserted as the operator-visible sentence, not as a particular line break.
+/* visibleText strips ANSI and collapses whitespace so wrap-aware renders can be
+   asserted as the operator-visible sentence, not as a particular line break. */
 func visibleText(s string) string {
 	return strings.Join(strings.Fields(ansi.Strip(s)), " ")
 }
 
-// A rule's action is the learned advice. Truncating the trigger onto one line and dropping
-// the action made the Intelligence screen a status strip, not a ledger the operator can read.
+/* A rule's action is the learned advice. Truncating the trigger onto one line and dropping
+   the action made the Intelligence screen a status strip, not a ledger the operator can read. */
 func TestIntelligenceBodyRendersRuleTriggerActionAndOutcomes(t *testing.T) {
 	sr := float32(0.6)
 	m := newIntelligenceModel(api.New("http://x", ""), "jhipster-store")
@@ -67,7 +67,7 @@ func TestIntelligenceBodyRendersRulesAndProvenance(t *testing.T) {
 		Rules: []contract.LearningRuleView{
 			{Trigger: "fragile selector", Action: "scope to a test id", ErrorClass: "E-SELECTOR-FRAGILE", Confidence: "high", UsageCount: 22, OutcomeCount: 3, SuccessRate: &sr, Status: "active"},
 		},
-		Scorecard: nil, // an e2e app with no oracle signal → must read "not measured"
+		Scorecard: nil, /* an e2e app with no oracle signal → must read "not measured" */
 		Curriculum: &contract.CurriculumView{
 			Archetypes: []struct {
 				Archetype      string `json:"archetype"`
@@ -89,9 +89,9 @@ func TestIntelligenceBodyRendersRulesAndProvenance(t *testing.T) {
 	}
 }
 
-// An evaluated archetype shows its real hit rate; a never-evaluated one must read as absent
-// evidence, never as the fabricated zero rate "0/0" — the difference between an operator learning
-// "this archetype is useless" and "this archetype has never been tried".
+/* An evaluated archetype shows its real hit rate; a never-evaluated one must read as absent
+   evidence, never as the fabricated zero rate "0/0" — the difference between an operator learning
+   "this archetype is useless" and "this archetype has never been tried". */
 func TestIntelligenceCurriculumDistinguishesNoEvidenceFromZeroRate(t *testing.T) {
 	m := newIntelligenceModel(api.New("http://x", ""), "portfolio")
 	m.loading = false
@@ -113,9 +113,9 @@ func TestIntelligenceCurriculumDistinguishesNoEvidenceFromZeroRate(t *testing.T)
 		},
 	}
 	out := m.body()
-	// The proven/unproven glyph is asserted together with the rate: a chip that carried the right
-	// rate under the wrong glyph would tell the operator the opposite of the truth about whether the
-	// archetype ever caught a real defect.
+	/* The proven/unproven glyph is asserted together with the rate: a chip that carried the right
+	   rate under the wrong glyph would tell the operator the opposite of the truth about whether the
+	   archetype ever caught a real defect. */
 	for _, want := range []string{"✓ happy-path 3/4", "· boundary-value 0/5", "· network-error —"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("curriculum chip missing %q:\n%s", want, out)

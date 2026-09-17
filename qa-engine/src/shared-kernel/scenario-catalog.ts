@@ -1,11 +1,4 @@
-// qa-engine/src/shared-kernel/scenario-catalog.ts
-// The static authoring-template catalog: StructuralPattern (shape of code change) -> SkillExemplar
-// (a template to write) -> ScenarioArchetype (the kind of scenario it produces). Relocated here from
-// generation/infrastructure/prompt-builders/skill-exemplar.ts because it now has THREE consumers
-// across contexts — generation renders it, cross-run-learning scores it, qa-run-orchestration
-// threads it — and it is pure, dependency-free vocabulary. Same kernel rationale as
-// manifest-entry.ts. This is NOT a learned store: selection is pattern-shape based; the LEARNED
-// ordering over these entries lives in cross-run-learning/domain/curriculum.ts.
+/* Static authoring-template catalog: StructuralPattern → SkillExemplar → ScenarioArchetype. Selection is pattern-shape based; this is not a learned store. Learned ordering lives in cross-run-learning/domain/curriculum.ts. */
 import type { ScenarioArchetype } from "./scenario-archetype.ts";
 export type { ScenarioArchetype };
 
@@ -17,10 +10,7 @@ export type StructuralPattern =
   | { kind: "data-list"; hasFilter: boolean; hasPagination: boolean; hasEmptyState: boolean }
   | { kind: "generic" };
 
-// A static catalog of authoring templates keyed by structural pattern. This is NOT a learned
-// store: it was previously dressed with status/valueScore/usageCount lifecycle fields that were
-// never persisted, mutated, or read (selection is purely pattern-shape based), which falsely
-// implied an evolving "skill" that promotes/deprecates exemplars. Honest shape: pattern → template.
+/** Authoring template keyed by structural pattern. Not a learned store. */
 export interface SkillExemplar {
   id: string;
   name: string;
@@ -107,20 +97,7 @@ export function matchExemplars(pattern: StructuralPattern): SkillExemplar[] {
   });
 }
 
-// opts.proven maps a ScenarioArchetype to its promotionCount (the number of times the adjudicator
-// classified a run offering it as app_defect). A marked heading attaches the evidence directly to
-// the template it justifies — 17 characters, versus a whole extra prompt section restating archetype
-// names these headings already carry. Absent/zero -> no marker, never a fabricated claim.
-// The parameter is NARROWED to the four fields this function actually reads. A full SkillExemplar
-// satisfies it structurally, so every existing call site is unchanged — but a curriculum-ranked
-// SelectedExemplar (which has no `description` or `pattern`) can now be passed directly, instead of
-// forcing its caller to fabricate those two fields just to satisfy the type.
-// `archetype` is WIDENED to string rather than Pick'd: this function only interpolates it into a
-// heading and uses it as an opts.proven key (itself Record<string, number>), so the narrow union
-// buys nothing here — while SelectedExemplar.archetype is deliberately wide (see its own doc in
-// qa-run-orchestration's ports barrel). A Pick would keep ScenarioArchetype and reject exactly the
-// curriculum-ranked caller this type exists to admit. Narrow -> wide, so every SkillExemplar call
-// site still satisfies it unchanged.
+/* opts.proven maps an archetype to promotionCount (app_defect hits). Absent/zero → no marker, never a fabricated claim. `archetype` is string so a curriculum-ranked SelectedExemplar can pass without fabricating unused SkillExemplar fields. */
 export type RenderableExemplar = Pick<SkillExemplar, "id" | "name" | "template"> & { archetype: string };
 
 export function renderExemplarsForPrompt(

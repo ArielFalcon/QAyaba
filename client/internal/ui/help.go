@@ -13,13 +13,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// helpSelectedMsg: the user picked "Help" from the home menu.
+/* helpSelectedMsg: the user picked "Help" from the home menu. */
 type helpSelectedMsg struct{}
 
-// helpModel is the conversational help assistant (backed by /api/help): a static
-// quick-reference, then free-form Q&A with Markdown answers. The conversation scrolls in
-// a viewport (a long Glamour answer no longer overflows the screen); the header and the
-// input stay pinned. ↑↓/pgup/pgdn scroll; everything else types into the input.
+/* helpModel is the conversational help assistant (backed by /api/help): a static
+   quick-reference, then free-form Q&A with Markdown answers. The conversation scrolls in
+   a viewport (a long Glamour answer no longer overflows the screen); the header and the
+   input stay pinned. ↑↓/pgup/pgdn scroll; everything else types into the input. */
 type helpModel struct {
 	client  *api.Client
 	input   textinput.Model
@@ -34,7 +34,7 @@ type helpModel struct {
 func newHelpModel(client *api.Client) helpModel {
 	ti := textinput.New()
 	ti.Placeholder = "ask about qayaba…"
-	ti.Prompt = "" // the screen draws its own ember caret
+	ti.Prompt = "" /* the screen draws its own ember caret */
 	ti.CharLimit = 300
 	ti.Width = 50
 	ti.Focus()
@@ -46,7 +46,7 @@ func (m helpModel) Init() tea.Cmd { return textinput.Blink }
 func (m *helpModel) resize(w, h int) {
 	m.width, m.height = w, h
 	cw := contentWidth(w)
-	// header (rule + blank) + input block (blank + input + blank + hint) + screen padding.
+	/* header (rule + blank) + input block (blank + input + blank + hint) + screen padding. */
 	vpH := h - 2 - 4 - 2
 	if vpH < 3 {
 		vpH = 3
@@ -60,7 +60,7 @@ func (m *helpModel) resize(w, h int) {
 	m.refresh()
 }
 
-// refresh rebuilds the scrollable conversation and pins the view to the latest answer.
+/* refresh rebuilds the scrollable conversation and pins the view to the latest answer. */
 func (m *helpModel) refresh() {
 	if m.ready {
 		m.vp.SetContent(m.conversation(contentWidth(m.width)))
@@ -110,8 +110,8 @@ func (m helpModel) Update(msg tea.Msg) (helpModel, tea.Cmd) {
 	return m, cmd
 }
 
-// conversation is the scrollable body: the quick-reference until the first question, then
-// every exchange (no cap — the viewport scrolls, so nothing is dropped).
+/* conversation is the scrollable body: the quick-reference until the first question, then
+   every exchange (no cap — the viewport scrolls, so nothing is dropped). */
 func (m helpModel) conversation(w int) string {
 	var b strings.Builder
 	if len(m.entries) == 0 {

@@ -27,9 +27,9 @@ test("RunEventStore evicts the oldest run's buffer past the retention cap (no le
   const store = createRunEventStore({ maxRuns: 2, now: () => 10 });
   store.publish("r1", { type: "step.changed", step: "setup" });
   store.publish("r2", { type: "step.changed", step: "setup" });
-  store.publish("r3", { type: "step.changed", step: "setup" }); // evicts r1
+  store.publish("r3", { type: "step.changed", step: "setup" });
 
-  assert.deepEqual(store.replay("r1"), []); // dropped
+  assert.deepEqual(store.replay("r1"), []);
   assert.equal(store.replay("r2").length, 1);
   assert.equal(store.replay("r3").length, 1);
 });
@@ -45,9 +45,8 @@ test("RunEventStore replay backfills from the durable store after eviction/resta
   });
   store.publish("r1", { type: "step.changed", step: "setup" });
   store.publish("r1", { type: "step.changed", step: "execute" });
-  store.publish("r2", { type: "step.changed", step: "setup" }); // evicts r1's in-memory buffer (maxRuns:1)
+  store.publish("r2", { type: "step.changed", step: "setup" }); /* evicts r1's in-memory buffer (maxRuns:1) */
 
-  // In-memory has nothing for r1, but the durable copy backfills both events.
   const replayed = store.replay("r1");
   assert.equal(replayed.length, 2);
   assert.deepEqual(replayed.map((e) => e.seq), [0, 1]);

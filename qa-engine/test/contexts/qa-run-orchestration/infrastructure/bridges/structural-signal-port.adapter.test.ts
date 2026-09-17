@@ -1,11 +1,8 @@
-// qa-engine/test/contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.test.ts
-//
-// RED for Slice 4b.3 (design §5.3, tasks 4b.3.1): StructuralSignalPortAdapter composes a
-// CodeGraphPort (fake here, the real one is CodebaseMemoryCodeGraphAdapter from 4a) +
-// blast-radius-signal.ts's pure renderer into ONE StructuralSignalPort.render() call. Owns
-// depth=3/minConfidence=0.55 at this call boundary (design §5.3) — never throws (every method's
-// err(CodeGraphUnavailable) degrades to an empty array for that field, matching the "" fail-open
-// contract R10 requires).
+/* CodeGraphPort (fake here, the real one is CodebaseMemoryCodeGraphAdapter) +
+   blast-radius-signal.ts's pure renderer into ONE StructuralSignalPort.render() call. Owns
+   depth=3/minConfidence=0.55 at this call boundary — never throws (every method's
+   err(CodeGraphUnavailable) degrades to an empty array for that field).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StructuralSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/structural-signal-port.adapter.ts";
@@ -178,7 +175,6 @@ test("the constructor's static repoDir (mirrorDir) wins over whatever repoDir th
   });
 
   const adapter = new StructuralSignalPortAdapter(codeGraph, "/mirrors/org/app");
-  // The caller (RunQaUseCase) actually passes workspace.specDir here — a DIFFERENT path.
   await adapter.render("/mirrors/org/app/e2e", changed);
 
   assert.ok(seenRepoDirs.length > 0, "the underlying CodeGraphPort must have been queried");

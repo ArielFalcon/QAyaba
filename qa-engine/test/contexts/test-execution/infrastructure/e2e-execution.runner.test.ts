@@ -1,17 +1,11 @@
-// qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.test.ts
-// Behavioral tests for the e2e-mode runner/parser/harvest body, moved from src/qa/execute.test.ts
-// (migration-tier-4d Slice 1b — e2e-execution migration, the src->qa-engine migration program's
-// FINALE). Byte-identical assertions to the legacy file, with three deliberate changes mirroring
-// the runner's own header:
-//   1. `ExecuteDeps` -> `E2eExecuteDeps` (the rename this file's own new home applies).
-//   2. The real-spawn "killTree SIGKILLs a detached child" integration test is DROPPED — killTree
-//      is retired in favor of the shared ProcessKillAdapter, whose own unit-level test suite
-//      (qa-engine/test/shared-infrastructure/process-sandbox/process-kill.test.ts) already covers
-//      this collaborator; mirrors migration-tier-4b's own code-execution.runner.ts migration, which
-//      dropped the identical test for the same reason (no such test survives there either).
-//   3. `e2eTimeoutMs` is now a pure function taking `env` as an explicit parameter (mirrors
-//      sandbox.ts's resolveSandbox(env, ...) precedent) instead of mutating process.env — the test
-//      is simplified accordingly (no global env mutation / try-finally needed).
+/* Behavioral tests for the e2e-mode runner/parser/harvest body.
+   1. `ExecuteDeps` is `E2eExecuteDeps` in this home.
+   2. The real-spawn "killTree SIGKILLs a detached child" integration test lives with
+   ProcessKillAdapter (qa-engine/test/shared-infrastructure/process-sandbox/process-kill.test.ts).
+   3. `e2eTimeoutMs` is a pure function taking `env` as an explicit parameter (same as
+   sandbox.ts's resolveSandbox(env, ...)) instead of mutating process.env — no global env
+   mutation / try-finally needed.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -34,17 +28,15 @@ import {
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-// src/qa/selector-check.ts was deleted (migration-wiring-phase-2, Slice 8b-4) — selectorPresent now
-// comes from the already-ported qa-engine module (same function, verified parity in
-// selector-check-parity.test.ts).
+/* selectorPresent — same function, verified in selector-check-parity.test.ts.
+ */
 import { selectorPresent } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 
-// Plan 7.6 (cutover finale): src/pipeline.ts is deleted. This is a verbatim, test-local copy of its
-// buildFailureDomLines — splits a case's captured failure-point a11y tree into non-empty lines. Pure,
-// dependency-free. The production copy now lives in qa-engine's
-// contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts (ported there in Plan 6/7); this test
-// only needs the same shape to assert the runner's DOM-harvest output is consumable by it.
+/* buildFailureDomLines — splits a case's captured failure-point a11y tree into non-empty lines. Pure,
+   dependency-free. The production copy now lives in qa-engine's
+   only needs the same shape to assert the runner's DOM-harvest output is consumable by it.
+ */
 function buildFailureDomLines(failureDom: string | undefined): string[] {
   if (!failureDom) return [];
   return failureDom.split("\n").filter((l) => l.trim());
@@ -57,21 +49,22 @@ test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault
   ];
   assert.equal(allFailuresAreRunnerInfra(launchFail), true);
 
-  // A GENUINE test failure (assertion/timeout) is NOT infra — it stays `fail`.
+  /* A GENUINE test failure (assertion/timeout) is NOT infra — it stays `fail`. */
   const realFail: QaCase[] = [
     { name: "owner › appears in list", status: "fail", detail: "Error: expect(locator).toBeVisible() failed: timed out" },
   ];
   assert.equal(allFailuresAreRunnerInfra(realFail), false);
 
-  // A MIX (one infra, one genuine) is conservatively NOT reclassified — stays `fail`.
+  /* A MIX (one infra, one genuine) is conservatively NOT reclassified — stays `fail`. */
   const mixed: QaCase[] = [launchFail[0]!, realFail[0]!];
   assert.equal(allFailuresAreRunnerInfra(mixed), false);
 
-  // No failures at all → not infra.
+  /* No failures at all → not infra. */
   assert.equal(allFailuresAreRunnerInfra([{ name: "x", status: "pass" }]), false);
 
-  // A "Target page/context/browser closed" failure is NOT runner infra: the app crashing the tab
-  // is a real defect the test SHOULD surface. It must stay `fail`, never be hidden as infra-error.
+  /* A "Target page/context/browser closed" failure is NOT runner infra: the app crashing the tab
+     is a real defect the test SHOULD surface. It must stay `fail`, never be hidden as infra-error.
+   */
   const tabCrash: QaCase[] = [
     { name: "checkout › completes", status: "fail", detail: "Error: Target page has been closed" },
   ];
@@ -96,7 +89,7 @@ test("runs, maps cases and SANITIZES the logs", async () => {
           },
         ],
       },
-      // a log with a secret that must NOT reach the LLM/Issue
+      /* a log with a secret that must NOT reach the LLM/Issue */
       logs: "running... token: ghs_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa end",
       ran: true,
     }),
@@ -107,7 +100,7 @@ test("runs, maps cases and SANITIZES the logs", async () => {
   assert.equal(run.verdict, "fail");
   assert.equal(run.passed, false);
   assert.equal(run.cases.length, 2);
-  assert.doesNotMatch(run.logs, /ghs_aaaa/); // secret redacted
+  assert.doesNotMatch(run.logs, /ghs_aaaa/); /* secret redacted */
   assert.match(run.logs, /\[REDACTED\]/);
 });
 
@@ -134,8 +127,9 @@ test("all green => verdict pass", async () => {
 });
 
 test("a crashed runner (no parseable report) is infra-error, NEVER pass", async () => {
-  // The default runner sets ran:false when stdout is not JSON (Playwright failed
-  // to launch / config error). This must not be swallowed into a green run.
+  /* The default runner sets ran:false when stdout is not JSON (Playwright failed
+     to launch / config error). This must not be swallowed into a green run.
+   */
   const deps: E2eExecuteDeps = {
     runSuite: async () => ({ report: {}, logs: "Error: browserType.launch failed", ran: false }),
   };
@@ -182,7 +176,7 @@ test("runE2E streams testbegin → onRunning and testend → onCase incrementall
       onEvent?.({ phase: "testend", title: "home › hero", status: "passed" });
       onEvent?.({ phase: "testbegin", title: "cart › total" });
       onEvent?.({ phase: "testend", title: "cart › total", status: "failed" });
-      onEvent?.({ phase: "testend", title: "skip › me", status: "skipped" }); // not a case
+      onEvent?.({ phase: "testend", title: "skip › me", status: "skipped" }); /* not a case */
       return { report: { stats: { expected: 1, unexpected: 1 } }, logs: "ok", ran: true };
     },
   };
@@ -198,8 +192,9 @@ test("runE2E streams testbegin → onRunning and testend → onCase incrementall
 });
 
 test("a ran report that executed zero tests is infra-error, not a false pass", async () => {
-  // A shaped report (suites present) but with no executed test — e.g. testMatch
-  // matched nothing, or every spec was filtered/skipped. Ran, but proved nothing.
+  /* A shaped report (suites present) but with no executed test — e.g. testMatch
+     matched nothing, or every spec was filtered/skipped. Ran, but proved nothing.
+   */
   const deps: E2eExecuteDeps = {
     runSuite: async () => ({ report: { suites: [], stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 0 } }, logs: "Error: No tests found", ran: true }),
   };
@@ -207,8 +202,6 @@ test("a ran report that executed zero tests is infra-error, not a false pass", a
   assert.equal(run.verdict, "infra-error");
   assert.equal(run.passed, false);
 });
-
-// ── Integration tests: Playwright boundary failure modes ─────────────────────
 
 test("runE2E propagates error when deps.runSuite throws (runner crash / spawn error)", async () => {
   const deps: E2eExecuteDeps = {
@@ -220,17 +213,16 @@ test("runE2E propagates error when deps.runSuite throws (runner crash / spawn er
   );
 });
 
-// CROSS-BOUNDARY (W6): the temp failureCaptureDir must be removed even when deps.runSuite REJECTS.
-// Previously the dir was minted and the runSuite awaited OUTSIDE the cleanup try, so a spawn-error
-// reject escaped before the finally's rmSync → the dir leaked. We capture the dir runE2E handed the
-// runner, then reject; after the rejection the dir must NOT exist on disk.
+/* The temp failureCaptureDir must be removed even when deps.runSuite REJECTS. Capture the dir
+   runE2E handed the runner, then reject; after the rejection the dir must NOT exist on disk.
+ */
 test("runE2E removes the temp failureCaptureDir on the runSuite REJECT path (no leak)", async () => {
   const { existsSync } = await import("node:fs");
   let handedDir: string | undefined;
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
       handedDir = args.failureCaptureDir;
-      // The dir must exist while the runner holds it (the fixture writes into it).
+      /* The dir must exist while the runner holds it (the fixture writes into it). */
       assert.ok(handedDir && existsSync(handedDir), "failureCaptureDir should exist while the runner runs");
       throw new Error("Playwright runner crashed: spawn ENOENT");
     },
@@ -261,11 +253,12 @@ test("runE2E handles a null report by returning infra-error", async () => {
   assert.equal(run.passed, false);
 });
 
-// CROSS-BOUNDARY (C1): the errorContext fallback (PW 1.60 expect() failures, no fixture dump) is RAW
-// ariaSnapshot YAML (`- role "name"`). It MUST be flattened through parseAriaSnapshot to "role: name"
-// — the EXACT shape every consumer expects — or Lever-2, the absent/unique checks and the real-bug
-// branch are all inert for expect() failures. This walks the full seam: report errorContext (raw
-// YAML) → runE2E harvest → QaCase.failureDom → buildFailureDomLines → selectorPresent finds the role.
+/* The errorContext fallback (PW 1.60 expect() failures, no fixture dump) is RAW ariaSnapshot YAML
+   (`- role "name"`). It MUST be flattened through parseAriaSnapshot to "role: name" — the EXACT
+   shape every consumer expects — or Lever-2, the absent/unique checks and the real-bug branch are
+   all inert for expect() failures. This walks the full seam: report errorContext (raw YAML) →
+   runE2E harvest → QaCase.failureDom → buildFailureDomLines → selectorPresent finds the role.
+ */
 test("runE2E flattens a RAW errorContext aria YAML so the Lever-2 seam can read role:name", async () => {
   const rawAriaYaml = [
     "- banner:",
@@ -308,12 +301,12 @@ test("runE2E flattens a RAW errorContext aria YAML so the Lever-2 seam can read 
   const failed = run.cases.find((c) => c.name.endsWith("lists owners"));
   assert.ok(failed, "the failing case should be present");
 
-  // The stored failureDom must be the FLATTENED "role: name" form, never the raw "- role \"name\"" YAML.
+  /* The stored failureDom must be the FLATTENED "role: name" form, never the raw "- role \"name\"" YAML. */
   assert.ok(failed!.failureDom, "errorContext must have been harvested into failureDom");
   assert.doesNotMatch(failed!.failureDom!, /- button "Add Owner"/, "must NOT store the raw YAML form");
   assert.deepEqual(failed!.failureDom!.split("\n"), parseAriaSnapshot(rawAriaYaml), "failureDom must equal parseAriaSnapshot of the errorContext");
 
-  // The downstream consumers must now find a known role:name (they were inert on raw YAML).
+  /* The downstream consumers must now find a known role:name (they were inert on raw YAML). */
   const lines = buildFailureDomLines(failed!.failureDom);
   assert.ok(lines.includes("button: Add Owner"), `expected flattened 'button: Add Owner' in ${JSON.stringify(lines)}`);
   const present = selectorPresent({ kind: "role", role: "button", name: "Add Owner" }, lines);
@@ -321,17 +314,16 @@ test("runE2E flattens a RAW errorContext aria YAML so the Lever-2 seam can read 
   assert.equal(present.verifiable, true);
 });
 
-// CROSS-BOUNDARY (W2): the per-case harvest — the errorContext fallback AND the loud "no grounding"
-// WARNING — must run even when failureCaptureDir is UNDEFINED (mkdtempSync failed, e.g. no /tmp space).
-// Previously the whole harvest was gated behind failureCaptureDir, so a failed mkdtemp silently
-// dropped grounding (violating the never-swallow invariant). We force mkdtempSync to throw by pointing
-// TMPDIR at a non-existent path, then assert: (1) the errorContext case still gets failureDom, and
-// (2) the no-dump/no-errorContext case still emits the WARNING.
+/* The per-case harvest — the errorContext fallback AND the loud "no grounding" WARNING — must run
+   even when failureCaptureDir is UNDEFINED (mkdtempSync failed, e.g. no /tmp space). Force
+   mkdtempSync to throw by pointing TMPDIR at a non-existent path, then assert: (1) the errorContext
+   case still gets failureDom, and (2) the no-dump/no-errorContext case still emits the WARNING.
+ */
 test("W2: errorContext fallback + the no-grounding WARNING still fire when the capture dir can't be minted", async () => {
   const rawAriaYaml = "- main:\n  - button \"Add Owner\"";
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
-      // The dir could not be minted, so the runner is handed no capture dir at all.
+      /* The dir could not be minted, so the runner is handed no capture dir at all. */
       assert.equal(args.failureCaptureDir, undefined, "failureCaptureDir must be undefined when mkdtempSync throws");
       return {
         report: {
@@ -374,18 +366,16 @@ test("W2: errorContext fallback + the no-grounding WARNING still fire when the c
   }
 
   assert.equal(run.verdict, "fail");
-  // (1) The errorContext fallback still populated failureDom for the first case (needs no temp dir).
+  /* (1) The errorContext fallback still populated failureDom for the first case (needs no temp dir). */
   const ec = run.cases.find((c) => c.name.endsWith("has errorContext"));
   assert.ok(ec?.failureDom, "errorContext must still be harvested into failureDom with no capture dir");
   assert.ok(buildFailureDomLines(ec!.failureDom).includes("button: Add Owner"));
-  // (2) The case with neither dump nor errorContext still triggers the loud WARNING (never swallowed).
+  /* (2) The case with neither dump nor errorContext still triggers the loud WARNING (never swallowed). */
   assert.ok(
     warnings.some((w) => /no failure-point DOM captured/i.test(w) && /has nothing/.test(w)),
     `expected a 'no failure-point DOM captured' WARNING for the empty case; warnings: ${JSON.stringify(warnings)}`,
   );
 });
-
-// ── Process safeguards: timeout, abort, --project ─────────────────────────────
 
 test("a hung runner is timed out and classified infra-error, never a test failure", async () => {
   const deps: E2eExecuteDeps = {
@@ -401,7 +391,7 @@ test("a hung runner is timed out and classified infra-error, never a test failur
 test("an abort signal kills a hung runner and classifies infra-error", async () => {
   const controller = new AbortController();
   const deps: E2eExecuteDeps = {
-    runSuite: () => new Promise(() => { /* hangs until aborted */ }),
+    runSuite: () => new Promise(() => {  }),
   };
   setTimeout(() => controller.abort(), 10);
   const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-abort", signal: controller.signal }, deps);
@@ -437,10 +427,11 @@ test("runE2E passes project, signal and timeoutMs through to the runner deps", a
   assert.equal(seen.timeoutMs, 5_000);
 });
 
-// A3: testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
-// (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
-// validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
-// was never set and getByTestId silently resolved the default data-testid on non-default apps.
+/* A3: testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
+   (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
+   validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
+   was never set and getByTestId silently resolved the default data-testid on non-default apps.
+ */
 test("runE2E passes testIdAttribute through to the runner deps", async () => {
   let seen: { testIdAttribute?: string } = {};
   const deps: E2eExecuteDeps = {
@@ -486,29 +477,28 @@ test("e2eTimeoutMs honors env.QA_E2E_TIMEOUT_MS and falls back to the default on
   assert.equal(e2eTimeoutMs({}), DEFAULT_E2E_TIMEOUT_MS);
 });
 
-// ── matchFailureDumps (Unit 2 — Task 2.8) ────────────────────────────────────
-
 test("matchFailureDumps: a fan-out spec under flows/ matches its basename-keyed dump", () => {
-  // The whole parallel fan-out writes specs to flows/<flow>.spec.ts (specFileForFlow), and
-  // Playwright names the file suite with the path RELATIVE to rootDir → the case name carries
-  // `flows/checkout.spec.ts`, while the fixture records only the basename `checkout.spec.ts`.
-  // The match must accept the basename as the trailing `/<basename>` of a segment.
+  /* The whole parallel fan-out writes specs to flows/<flow>.spec.ts (specFileForFlow), and
+     Playwright names the file suite with the path RELATIVE to rootDir → the case name carries
+     `flows/checkout.spec.ts`, while the fixture records only the basename `checkout.spec.ts`.
+     The match must accept the basename as the trailing `/<basename>` of a segment.
+   */
   const dump: FailureDump = { project: "desktop", file: "checkout.spec.ts", title: "Checkout › applies a discount", retry: 0, yaml: "- button: Pay" };
   const caseName = "desktop › flows/checkout.spec.ts › Checkout › applies a discount";
   assert.equal(matchFailureDumps(caseName, [dump])?.yaml, "- button: Pay");
-  // A different file with a confusable basename must NOT match (no loose suffix).
+  /* A different file with a confusable basename must NOT match (no loose suffix). */
   const wrong = "desktop › flows/add-checkout.spec.ts › Checkout › applies a discount";
   assert.equal(matchFailureDumps(wrong, [dump]), null);
 });
 
-// CROSS-BOUNDARY (C3): the fixture keys a dump off `testInfo.titlePath.slice(1).join(" › ")`
-// = the describe › test chain (NO file prefix), while the JSON report's case name is
-// `file.spec.ts › describe › test` (file IS the top suite). The harvest matches the two
-// SEGMENT-WISE: the dump's segments must be a contiguous tail of the case's segments. This
-// realistic pairing must match — it is the exact seam that silently produced [] before.
+/* The fixture keys a dump off `testInfo.titlePath.slice(1).join(" › ")` = the describe › test
+   chain (NO file prefix), while the JSON report's case name is `file.spec.ts › describe › test`
+   (file IS the top suite). The harvest matches the two SEGMENT-WISE: the dump's segments must be
+   a contiguous tail of the case's segments. This pairing must match.
+ */
 test("matchFailureDumps: report-name (with file prefix) matches the fixture's describe›test title", () => {
-  const dumpTitle = "owner registration › create owner"; // what the fixture wrote (titlePath sans project+file)
-  const reportName = "owners.spec.ts › owner registration › create owner"; // what the JSON report calls the case
+  const dumpTitle = "owner registration › create owner"; /* what the fixture wrote (titlePath sans project+file) */
+  const reportName = "owners.spec.ts › owner registration › create owner"; /* what the JSON report calls the case */
   const dumps: FailureDump[] = [
     { project: "desktop", title: dumpTitle, retry: 0, yaml: "- button \"Submit\"" },
     { project: "desktop", title: "unrelated › other", retry: 0, yaml: "- link \"Home\"" },
@@ -531,39 +521,41 @@ test("matchFailureDumps: prefers the HIGHEST retry within a project (the final a
   assert.equal(match!.yaml, "y2");
 });
 
-// W1(a): two PROJECT dumps for ONE spec (desktop + mobile run every spec) must NOT clobber — both
-// survive into the parsed list and the match is DETERMINISTIC (project name asc), never readdir order.
+/* Two PROJECT dumps for ONE spec (desktop + mobile run every spec) must NOT clobber — both
+   survive into the parsed list and the match is DETERMINISTIC (project name asc), never readdir order.
+ */
 test("matchFailureDumps: two project dumps for one spec do not clobber and resolve deterministically", () => {
   const title = "owner registration › create owner";
   const caseName = "owners.spec.ts › owner registration › create owner";
   const desktop: FailureDump = { project: "desktop", title, retry: 0, yaml: "- button \"Submit\" [desktop]" };
   const mobile: FailureDump = { project: "mobile", title, retry: 0, yaml: "- button \"Submit\" [mobile]" };
-  // Both orderings (readdir is unordered) must yield the SAME pick: project name ascending → desktop.
+  /* Both orderings (readdir is unordered) must yield the SAME pick: project name ascending → desktop. */
   assert.equal(matchFailureDumps(caseName, [desktop, mobile])!.project, "desktop");
   assert.equal(matchFailureDumps(caseName, [mobile, desktop])!.project, "desktop");
 });
 
-// W1(b): a case "add owner" must NOT match a dump "owner" — the old `slug(case).endsWith(slug(dump))`
-// char-suffix cross-matched them; segment-wise EXACT-per-segment matching rejects it.
+/* A case "add owner" must NOT match a dump "owner" — suffix matching on slugs would
+   cross-match them; segment-wise EXACT-per-segment matching rejects it.
+ */
 test("matchFailureDumps: case 'add owner' does NOT match a dump 'owner' (no char-suffix cross-match)", () => {
   const dumps: FailureDump[] = [{ project: "desktop", title: "owner", retry: 0, yaml: "y" }];
   assert.equal(matchFailureDumps("owners.spec.ts › add owner", dumps), null);
-  // The exact-segment dump, however, still matches.
   const exact: FailureDump[] = [{ project: "desktop", title: "add owner", retry: 0, yaml: "y" }];
   assert.equal(matchFailureDumps("owners.spec.ts › add owner", exact)!.yaml, "y");
 });
 
-// W1(c): two titles whose first 80 chars are identical (the old truncation collision) but whose full
-// titles differ must NOT cross-match — segment matching uses the FULL title, never a truncated slug.
+/* Two titles whose first 80 chars are identical but whose full titles differ must NOT
+   cross-match — segment matching uses the FULL title, never a truncated slug.
+ */
 test("matchFailureDumps: a long title past 80 chars does not collide with another sharing its prefix", () => {
-  const prefix = "suite › " + "x".repeat(90); // > 80 chars before the distinguishing tail
+  const prefix = "suite › " + "x".repeat(90); /* > 80 chars before the distinguishing tail */
   const titleA = prefix + " ALPHA";
   const titleB = prefix + " BETA";
   const dumps: FailureDump[] = [
     { project: "desktop", title: titleA, retry: 0, yaml: "yA" },
     { project: "desktop", title: titleB, retry: 0, yaml: "yB" },
   ];
-  // The case for B must select B's dump, never A's (the 80-char prefix is identical).
+  /* The case for B must select B's dump, never A's (the 80-char prefix is identical). */
   assert.equal(matchFailureDumps("specs.spec.ts › " + titleB, dumps)!.yaml, "yB");
   assert.equal(matchFailureDumps("specs.spec.ts › " + titleA, dumps)!.yaml, "yA");
 });
@@ -583,38 +575,33 @@ test("matchFailureDumps: a dump with no title never matches (defensive)", () => 
 });
 
 test("matchFailureDumps: identical title and case name match (no file prefix present)", () => {
-  // Some reporters emit a flat name with no file suffix; the single segment is a reflexive tail.
+  /* Some reporters emit a flat name with no file suffix; the single segment is a reflexive tail. */
   const dumps: FailureDump[] = [{ project: "desktop", title: "flat test name", retry: 0, yaml: "y" }];
   assert.equal(matchFailureDumps("flat test name", dumps)!.yaml, "y");
 });
 
-// segmentsAreTail / titleSegments unit coverage (the new matching core).
 test("segmentsAreTail: exact contiguous tail with per-segment equality", () => {
   assert.equal(segmentsAreTail(["a.spec.ts", "suite", "test"], ["suite", "test"]), true);
   assert.equal(segmentsAreTail(["a.spec.ts", "suite", "test"], ["test"]), true);
   assert.equal(segmentsAreTail(["a.spec.ts", "suite", "test"], ["a.spec.ts", "suite", "test"]), true);
-  // A NON-tail (middle) match is rejected.
   assert.equal(segmentsAreTail(["a.spec.ts", "suite", "test"], ["suite"]), false);
-  // A longer "tail" than the full path is rejected.
   assert.equal(segmentsAreTail(["suite", "test"], ["x", "suite", "test"]), false);
-  // Empty tail is rejected.
   assert.equal(segmentsAreTail(["a", "b"], []), false);
-  // Partial-character segment ("add owner" vs "owner") is rejected — exact per-segment only.
+  /* Partial-character segment ("add owner" vs "owner") is rejected — exact per-segment only. */
   assert.equal(segmentsAreTail(["spec", "add owner"], ["owner"]), false);
 });
 
-
-// CROSS-BOUNDARY (W1 FS seam): the fixture's NEW filename `${project}__${hash}__${retry}.json` (hash =
-// sha1 of `${file}/${title}`) and body `{ project, file, title, retry, yaml }` must round-trip through
-// readFailureDumps, and two projects running the SAME spec must produce TWO distinct files (no clobber).
-// This mirrors what the fixture writes at runtime, byte-for-byte in shape.
+/* The fixture filename `${project}__${hash}__${retry}.json` (hash = sha1 of `${file}/${title}`)
+   and body `{ project, file, title, retry, yaml }` must round-trip through readFailureDumps, and
+   two projects running the SAME spec must produce TWO distinct files (no clobber).
+ */
 test("readFailureDumps: two project dumps for one spec are both read (new filename, no clobber)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-fail-test-"));
   try {
     const title = "owner registration › create owner";
     const file = "owners.spec.ts";
     const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
-    // Exactly what the fixture writes: project-prefixed filename + project/file in the body.
+    /* Exactly what the fixture writes: project-prefixed filename + project/file in the body. */
     writeFileSync(join(dir, `desktop__${hash}__0.json`), JSON.stringify({ project: "desktop", file, title, retry: 0, yaml: "- button \"Submit\"" }));
     writeFileSync(join(dir, `mobile__${hash}__0.json`), JSON.stringify({ project: "mobile", file, title, retry: 0, yaml: "- button \"Submit\"" }));
 
@@ -623,7 +610,6 @@ test("readFailureDumps: two project dumps for one spec are both read (new filena
     assert.deepEqual([...new Set(dumps.map((d) => d.project))].sort(), ["desktop", "mobile"]);
     assert.ok(dumps.every((d) => d.file === file && d.title === title && d.yaml === "- button \"Submit\""));
 
-    // And the match is deterministic regardless of readdir order.
     const m = matchFailureDumps("owners.spec.ts › owner registration › create owner", dumps);
     assert.equal(m!.project, "desktop");
   } finally {
@@ -631,11 +617,11 @@ test("readFailureDumps: two project dumps for one spec are both read (new filena
   }
 });
 
-// CROSS-BOUNDARY (W1 cross-FILE collision): two tests with the SAME `describe › test` chain in
-// DIFFERENT spec files share a `title` — only the recorded `file` tells them apart. Without folding
-// the file into the dump identity + the match, the harvest attached the WRONG file's DOM. Here two
-// distinct files (owners.spec.ts, vets.spec.ts) carry the identical title but different YAML; each
-// report case (whose leading suite IS the file) must select ITS OWN file's dump, never the other's.
+/* Two tests with the SAME `describe › test` chain in DIFFERENT spec files share a `title` —
+   only the recorded `file` tells them apart. Fold the file into the dump identity + the match so
+   the harvest attaches the right file's DOM. Distinct files (owners.spec.ts, vets.spec.ts) carry
+   the identical title but different YAML; each report case must select ITS OWN file's dump.
+ */
 test("matchFailureDumps: same title in two different files does NOT collide — the right file's DOM attaches", () => {
   const title = "registration › create entity";
   const ownersDump: FailureDump = { project: "desktop", file: "owners.spec.ts", title, retry: 0, yaml: "- button \"Add Owner\"" };
@@ -651,8 +637,9 @@ test("matchFailureDumps: same title in two different files does NOT collide — 
   assert.equal(vetsMatch!.yaml, "- button \"Add Vet\"", "vets.spec.ts must attach the VETS dump, not owners");
 });
 
-// W1 round-trip on disk: the two same-titled, different-file dumps must produce two distinct files
-// (the file is folded into the hash) and read back with the right file → right DOM per case.
+/* Two same-titled, different-file dumps must produce two distinct files (the file is folded
+   into the hash) and read back with the right file → right DOM per case.
+ */
 test("readFailureDumps + match: same title, different files round-trip to distinct files and the right DOM", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-fail-xfile-"));
   try {
@@ -672,50 +659,49 @@ test("readFailureDumps + match: same title, different files round-trip to distin
   }
 });
 
-// W1 backward-compat: a dump with NO recorded file (pre-change dump) still matches title-only — the
-// file check is skipped when either side lacks a file, so old dumps keep working.
+/* A dump with NO recorded file still matches title-only — the file check is skipped when either
+   side lacks a file, so older dumps keep working.
+ */
 test("matchFailureDumps: a dump with no file still matches a file-prefixed case (title-only fallback)", () => {
   const dumps: FailureDump[] = [{ project: "desktop", title: "suite › test", retry: 0, yaml: "y" }];
   assert.equal(matchFailureDumps("legacy.spec.ts › suite › test", dumps)!.yaml, "y");
 });
 
-// CROSS-BOUNDARY (C1): the seed playwright.config defines TWO projects (desktop, mobile) and the
-// pipeline runs the suite with NO --project, so Playwright nests every spec under the PROJECT
-// top-suite → the report case name is `desktop › owners.spec.ts › Owners › add owner` (PROJECT leads,
-// FILE is the SECOND segment). The Round-3 file discriminator assumed file = caseSegs[0] (= "desktop")
-// and rejected the dump whose file = "owners.spec.ts" → it dropped EVERY dump under the default config.
-// The fix matches the dump's file against ANY case segment. The dump's title may be the bare
-// describe›test (fixture form) OR include the file — both are a contiguous tail, both must match.
+/* The seed playwright.config defines TWO projects (desktop, mobile) and the suite runs with NO
+   --project, so Playwright nests every spec under the PROJECT top-suite → the report case name is
+   `desktop › owners.spec.ts › Owners › add owner` (PROJECT leads, FILE is the SECOND segment).
+   Matching dump.file only against caseSegs[0] would treat "desktop" as the file and drop every dump.
+   Match the dump's file against ANY case segment. The dump's title may be the bare describe›test
+   (fixture form) OR include the file — both are a contiguous tail, both must match.
+ */
 test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) matches the file dump (C1)", () => {
-  const projectFirst = "desktop › owners.spec.ts › Owners › add owner"; // project is caseSegs[0], file is caseSegs[1]
-  // Fixture-form title (describe › test, no file prefix).
+  const projectFirst = "desktop › owners.spec.ts › Owners › add owner"; /* project is caseSegs[0], file is caseSegs[1] */
   const bareTitle: FailureDump[] = [{ project: "desktop", file: "owners.spec.ts", title: "Owners › add owner", retry: 0, yaml: "- button \"Submit\"" }];
   const m1 = matchFailureDumps(projectFirst, bareTitle);
   assert.ok(m1, "the dump must MATCH a project-first case name (file is not the leading segment)");
   assert.equal(m1!.yaml, "- button \"Submit\"");
-  // File-prefixed title form must also match (still a contiguous tail of the case segments).
+  /* File-prefixed title form must also match (still a contiguous tail of the case segments). */
   const fileTitle: FailureDump[] = [{ project: "desktop", file: "owners.spec.ts", title: "owners.spec.ts › Owners › add owner", retry: 0, yaml: "- button \"Add\"" }];
   assert.equal(matchFailureDumps(projectFirst, fileTitle)!.yaml, "- button \"Add\"");
-  // A WRONG file must still be rejected even though the project segment is present (no cross-file attach).
+  /* A WRONG file must still be rejected even though the project segment is present (no cross-file attach). */
   const wrongFile: FailureDump[] = [{ project: "desktop", file: "vets.spec.ts", title: "Owners › add owner", retry: 0, yaml: "y" }];
   assert.equal(matchFailureDumps(projectFirst, wrongFile), null, "a dump for a different file must not match");
 });
 
-// C1 single-project: the SAME helper must keep working when the suite IS run with --project (file leads,
-// no project segment) — the case name is `owners.spec.ts › Owners › add owner`. file === caseSegs[0] here.
+/* C1 single-project: the SAME helper must keep working when the suite IS run with --project (file leads,
+   no project segment) — the case name is `owners.spec.ts › Owners › add owner`. file === caseSegs[0] here.
+ */
 test("matchFailureDumps: single-project case name (file leads) still matches the file dump", () => {
   const fileFirst = "owners.spec.ts › Owners › add owner";
   const dumps: FailureDump[] = [{ project: "desktop", file: "owners.spec.ts", title: "Owners › add owner", retry: 0, yaml: "- button \"Submit\"" }];
   assert.equal(matchFailureDumps(fileFirst, dumps)!.yaml, "- button \"Submit\"");
 });
 
-// ── playwrightArgs: specFiles support ──────────────────────────────────────────
-
 test("playwrightArgs: appends valid spec file basenames as positional args", () => {
   const args = playwrightArgs("reporter.cjs", undefined, ["login.spec.ts", "checkout.spec.ts"]);
   assert.ok(args.includes("login.spec.ts"), `expected login.spec.ts in args: ${args.join(" ")}`);
   assert.ok(args.includes("checkout.spec.ts"), `expected checkout.spec.ts in args: ${args.join(" ")}`);
-  // The core args must still be present
+  /* The core args must still be present */
   assert.ok(args.includes("playwright"), "must include 'playwright'");
   assert.ok(args.includes("test"), "must include 'test'");
   assert.ok(args.some((a) => a.startsWith("--reporter=")), "must include --reporter arg");
@@ -756,22 +742,23 @@ test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.sp
   assert.ok(args.includes("flows/login.spec.ts"), `subdirectory spec should be allowed: ${args.join(" ")}`);
 });
 
-// ── T5: Harvest fold — finalUrl + httpStatus onto QaCase (D1) ─────────────────
-// RED test (T5): the harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
-// object that today receives failureDom. Asserts the carry-through, the absent-warned path being
-// unchanged (failureDom's WARNING is still the only loud one), and best-effort absence.
+/* ── T5: Harvest fold — finalUrl + httpStatus onto QaCase (D1) ─────────────────
+   RED test (T5): the harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
+   object that today receives failureDom. Asserts the carry-through, the absent-warned path being
+   unchanged (failureDom's WARNING is still the only loud one), and best-effort absence.
+ */
 
 test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", async () => {
-  // Write a real capture dump (with finalUrl + httpStatus) into the captureDir that runE2E
-  // mints and passes to runSuite. The runSuite intercepts the dir, writes the dump into it,
-  // and returns a report with the matching case. Assert the QaCase carries both fields.
+  /* Write a real capture dump (with finalUrl + httpStatus) into the captureDir that runE2E
+     mints and passes to runSuite. The runSuite intercepts the dir, writes the dump into it,
+     and returns a report with the matching case. Assert the QaCase carries both fields.
+   */
   const title = "owner registration › create owner";
   const file = "owners.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
 
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
-      // Write the dump into the captureDir that runE2E minted.
       if (args.failureCaptureDir) {
         writeFileSync(
           join(args.failureCaptureDir, `desktop__${hash}__0.json`),
@@ -797,14 +784,15 @@ test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase
   const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
   const failed = run.cases.find((c) => c.status === "fail");
   assert.ok(failed, "the failing case must be present");
-  // T5 assertion: the harvest must carry finalUrl and httpStatus on the SAME object.
+  /* T5 assertion: the harvest must carry finalUrl and httpStatus on the SAME object. */
   assert.equal((failed as QaCase).httpStatus, 500, "harvest must fold dump.httpStatus onto the QaCase");
   assert.equal((failed as QaCase).finalUrl, "http://localhost:3000/owners/new", "harvest must fold dump.finalUrl onto the QaCase");
 });
 
 test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absent-warned path unchanged)", async () => {
-  // A dump with only yaml (no finalUrl, no httpStatus) — QaCase must not have them, and the
-  // only loud WARNING is still the existing failureDom one (no new WARNING introduced).
+  /* A dump with only yaml (no finalUrl, no httpStatus) — QaCase must not have them, and the
+     only loud WARNING is still the existing failureDom one (no new WARNING introduced).
+   */
   const title = "form › submit";
   const file = "form.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
@@ -814,7 +802,7 @@ test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absen
       if (args.failureCaptureDir) {
         writeFileSync(
           join(args.failureCaptureDir, `desktop__${hash}__0.json`),
-          JSON.stringify({ project: "desktop", file, title, retry: 0, yaml: "- button \"Submit\"" }), // no finalUrl/httpStatus
+          JSON.stringify({ project: "desktop", file, title, retry: 0, yaml: "- button \"Submit\"" }),
         );
       }
       return {
@@ -837,14 +825,15 @@ test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absen
   assert.ok(failed);
   assert.equal((failed as QaCase).httpStatus, undefined, "httpStatus must be absent when dump has none");
   assert.equal((failed as QaCase).finalUrl, undefined, "finalUrl must be absent when dump has none");
-  // No new WARNING for absent httpStatus/finalUrl (only failureDom has the loud warning path).
+  /* No new WARNING for absent httpStatus/finalUrl (only failureDom has the loud warning path). */
   const newWarnings = warnings.filter((w) => /httpStatus|finalUrl/i.test(w));
   assert.equal(newWarnings.length, 0, `must NOT emit new warnings for absent httpStatus/finalUrl: ${JSON.stringify(newWarnings)}`);
 });
 
-// ── Feature B: Harvest fold — runtimeErrors onto QaCase ───────────────────────
-// RED test: the harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
-// receives failureDom/httpStatus/finalUrl (D1/D2 precedent). Mirrors T5 exactly.
+/* ── Feature B: Harvest fold — runtimeErrors onto QaCase ───────────────────────
+   RED test: the harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
+   receives failureDom/httpStatus/finalUrl (D1/D2 precedent). Mirrors T5 exactly.
+ */
 
 test("Feature B: harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
   const title = "owner registration › create owner";
@@ -902,7 +891,7 @@ test("Feature B: harvest leaves runtimeErrors absent when dump has none (best-ef
       if (args.failureCaptureDir) {
         writeFileSync(
           join(args.failureCaptureDir, `desktop__${hash}__0.json`),
-          JSON.stringify({ project: "desktop", file, title, retry: 0, yaml: "- button \"Submit\"" }), // no runtimeErrors
+          JSON.stringify({ project: "desktop", file, title, retry: 0, yaml: "- button \"Submit\"" }),
         );
       }
       return {

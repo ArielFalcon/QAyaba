@@ -1,15 +1,9 @@
-// A tiny in-process fixed-window rate limiter. Used to throttle the public POST /api/auth/login
-// endpoint per client IP: that route is unauthenticated by necessity (it is how a client without
-// a token obtains one), and each attempt makes outbound GitHub API calls — so an unbounded flood
-// would amplify into GitHub traffic from the server's IP. This caps attempts per IP per window.
-//
-// Deliberately memory-only and per-process: it is a guard rail, not a distributed quota. The map
-// is pruned lazily so a churn of distinct IPs cannot grow it without bound.
+/*
+ * In-process fixed-window limiter for unauthenticated POST /api/auth/login.
+ * That route makes outbound GitHub calls; unbounded flood would amplify from the server IP.
+ */
 
 export interface RateLimiter {
-  // allow records an attempt for `key` and returns true if it is within the window's limit,
-  // false if the key has exhausted its allowance for the current window. `now` is injectable
-  // (epoch ms) for deterministic tests.
   allow(key: string, now?: number): boolean;
 }
 
@@ -18,7 +12,7 @@ interface Window {
   count: number;
 }
 
-const MAX_KEYS = 10_000; // prune trigger — bounds memory under a flood of distinct IPs
+const MAX_KEYS = 10_000;
 
 export function createFixedWindowLimiter(opts: { limit: number; windowMs: number }): RateLimiter {
   const { limit, windowMs } = opts;

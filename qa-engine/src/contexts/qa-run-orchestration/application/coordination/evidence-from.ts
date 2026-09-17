@@ -1,5 +1,4 @@
-// Small adapters from existing pipeline outputs to EvidenceRef. They never copy OpencodeRunInput;
-// they point at the canonical artifact (source + optional dataRef) with a short summary.
+/* Map live port outputs to EvidenceRef. Never copy OpencodeRunInput; point at the canonical artifact (source + optional dataRef) with a short summary. */
 import type { EvidenceRef } from "./evidence-ref.ts";
 
 export function evidenceFromChangeAnalysis(input: {

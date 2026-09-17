@@ -1,6 +1,7 @@
-// Fixture for L1.3: two different front files calling the same undeclared endpoint.
-// Both call POST name-orders-api/orders (not in the backend contract).
-// The drift dedup key should include from.file, so both produce separate drift entries.
+/* Fixture for L1.3: two different front files calling the same undeclared endpoint.
+   Both call POST name-orders-api/orders (not in the backend contract).
+   The drift dedup key should include from.file, so both produce separate drift entries.
+ */
 const BASE = 'name-orders-api';
 
 const alphaApi = {

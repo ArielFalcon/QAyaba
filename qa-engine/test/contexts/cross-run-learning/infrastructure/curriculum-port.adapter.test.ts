@@ -4,7 +4,7 @@ import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructu
 import { initCurriculum, foldCurriculum, type Curriculum } from "@contexts/cross-run-learning/domain/curriculum.ts";
 import { MAX_SELECTED_EXEMPLARS } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
-// A diff that matches four exemplars across form, api-call and data-list, exceeding the cap of three.
+/* A diff that matches four exemplars across form, api-call and data-list, exceeding the cap of three. */
 const RICH_DIFF = `
 +<form onsubmit="save()"><input required minlength="3" /></form>
 +const res = await fetch(url, { method: 'POST', body: payload });

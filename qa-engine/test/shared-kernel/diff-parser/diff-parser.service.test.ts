@@ -23,7 +23,7 @@ test("changedLines: pure deletion contributes no new lines (file absent)", () =>
 test("changedLines: a '+++ '/'--- ' INSIDE hunk content is not mistaken for a header", () => {
   const d = diff("docs/x.md", ["@@ -1,1 +1,3 @@", " intro", "+--- a/fake", "+++ b/fake"]);
   const map = svc.changedLines(d);
-  // both added lines belong to docs/x.md, not a phantom "fake" file
+  /* both added lines belong to docs/x.md, not a phantom "fake" file */
   assert.deepEqual([...(map.get("docs/x.md") ?? new Set())].sort((x, y) => x - y), [2, 3]);
   assert.equal(map.has("fake"), false);
 });
@@ -59,7 +59,7 @@ test("modifiedFiles: only files present on BOTH sides (a pure add is excluded)",
     "-old",
     "+new",
   ].join("\n");
-  // added.ts has --- /dev/null (not --- a/...), so it is NOT a modification
+  /* added.ts has --- /dev/null (not --- a/...), so it is NOT a modification */
   assert.deepEqual(svc.modifiedFiles(d), ["src/mod.ts"]);
 });
 
@@ -116,5 +116,6 @@ test("changedElementsFromGuidance: empty string → []", () => {
   assert.deepEqual(svc.changedElementsFromGuidance(""), []);
 });
 
-// Parity tests (cross-boundary src/ imports) live in diff-parser-parity.test.ts, which is
-// excluded from qa-engine typecheck (same pattern as test/characterization/scenarios.ts).
+/* Parity tests that import from src/ live in diff-parser-parity.test.ts, which is
+   excluded from qa-engine typecheck (same pattern as test/characterization/scenarios.ts).
+ */

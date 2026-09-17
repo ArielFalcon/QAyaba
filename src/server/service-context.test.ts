@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stageServiceContext, serviceContextDir, type StageDeps, type ServiceContextManifest } from "./service-context";
 
-// ── in-memory fake StageDeps ────────────────────────────────────────────────
-// No real disk/git touched: `files` seeds the SOURCE mirror content, `written`/`removed`
-// record what the pure logic did, so every test is deterministic and fast.
+/* ── in-memory fake StageDeps ────────────────────────────────────────────────
+   No real disk/git touched: `files` seeds the SOURCE mirror content, `written`/`removed`
+   record what the pure logic did, so every test is deterministic and fast.
+ */
 function fakeDeps(
   files: Record<string, string | Buffer>,
   overrides: Partial<StageDeps> = {},
@@ -54,7 +55,7 @@ function readManifest(deps: { written: Record<string, Buffer> }, dir: string): S
   return JSON.parse(raw!.toString("utf8"));
 }
 
-// ── serviceContextDir: the pure formula shared with rewritten-engine-factory.ts ────────────
+/* ── serviceContextDir: the pure formula shared with rewritten-engine-factory.ts ──────────── */
 
 test("serviceContextDir: deterministic path under <workingCopyDir>/e2e/.qa/service-context/<repo-slug>", () => {
   assert.equal(
@@ -69,8 +70,6 @@ test("serviceContextDir: sanitizes repo names with slashes into '__' (mirrors re
     "/mirrors/org__front/e2e/.qa/service-context/org__name-with-slash",
   );
 });
-
-// ── hint-glob staging ────────────────────────────────────────────────────────
 
 test("stages ONLY files matching the declared openapi hint, under contracts/", async () => {
   const deps = fakeDeps({
@@ -107,15 +106,13 @@ test("hint-glob staging: supports an array of openapi hints", async () => {
   assert.deepEqual(manifest.contracts.sort(), ["openapi/orders.yaml", "openapi/payments.yaml"]);
 });
 
-// ── default sweep (no openapi hint declared) ────────────────────────────────
-
 test("default sweep: matches openapi/swagger/api-definition basenames case-insensitively, ignores everything else", async () => {
   const deps = fakeDeps({
     "/mirrors/svc/api/openapi.yaml": "a",
     "/mirrors/svc/docs/Swagger.JSON": "b",
     "/mirrors/svc/api-definition-v2.yml": "c",
-    "/mirrors/svc/random.yaml": "d", // must NOT match
-    "/mirrors/svc/src/index.ts": "e", // must NOT match
+    "/mirrors/svc/random.yaml": "d", /* must NOT match */
+    "/mirrors/svc/src/index.ts": "e", /* must NOT match */
   });
   const result = await stageServiceContext(
     { workingCopyDir: "/work", service: { repo: "org/svc", mirrorDir: "/mirrors/svc" } },
@@ -127,8 +124,6 @@ test("default sweep: matches openapi/swagger/api-definition basenames case-insen
     ["api-definition-v2.yml", "api/openapi.yaml", "docs/Swagger.JSON"].sort(),
   );
 });
-
-// ── diff + changed-files staging ────────────────────────────────────────────
 
 test("stages the commit diff as CHANGE.patch and each changed file's post-change content under changed/", async () => {
   const files = {
@@ -153,7 +148,7 @@ test("stages the commit diff as CHANGE.patch and each changed file's post-change
   const manifest = readManifest(deps, result.dir);
   assert.deepEqual(manifest.changed, ["src/orders.ts"]);
   assert.equal(manifest.sha, "abc1234");
-  // A file named in the commit but no longer present post-change (deleted) is omitted, not thrown.
+  /* A file named in the commit but no longer present post-change (deleted) is omitted, not thrown. */
   assert.ok(manifest.omitted.some((o) => o.path === "src/deleted-file.ts"));
 });
 
@@ -169,8 +164,6 @@ test("no sha: diff/changed staging is skipped entirely (context-mode services ca
   assert.equal(manifest.sha, undefined);
   assert.deepEqual(manifest.changed, []);
 });
-
-// ── caps + omissions (determinism + boundedness) ────────────────────────────
 
 test("caps: a single file over 512KB is omitted with reason, never staged", async () => {
   const big = Buffer.alloc(600 * 1024, "a");
@@ -200,8 +193,9 @@ test("caps: binary files (NUL byte in the first 8KB) are omitted, never staged",
 });
 
 test("caps: total staged bytes over 2MB stops further staging, omitting the rest", async () => {
-  // Each file is 450KB (under the 512KB per-file cap) so this exercises the TOTAL cap alone:
-  // 4 files = 1800KB (fits under 2048KB), the 5th pushes past it and must be omitted.
+  /* Each file is 450KB (under the 512KB per-file cap) so this exercises the TOTAL cap alone:
+     4 files = 1800KB (fits under 2048KB), the 5th pushes past it and must be omitted.
+   */
   const files: Record<string, Buffer> = {};
   for (let i = 0; i < 5; i++) files[`/mirrors/svc/openapi-part-${i}.yaml`] = Buffer.alloc(450 * 1024, "a");
   const deps = fakeDeps(files);
@@ -231,8 +225,6 @@ test("caps: at most 200 files are staged; the rest are listed as omitted, never 
   assert.ok(manifest.omitted.every((o) => /max.?files/i.test(o.reason)));
 });
 
-// ── idempotent re-stage (wipe) ───────────────────────────────────────────────
-
 test("idempotent re-stage: a second call wipes the previous staged content before writing fresh content", async () => {
   const files: Record<string, string | Buffer> = { "/mirrors/svc/openapi-v1.yaml": "v1" };
   const deps = fakeDeps(files);
@@ -242,8 +234,9 @@ test("idempotent re-stage: a second call wipes the previous staged content befor
   );
   assert.equal(deps.written[`${first.dir}/contracts/openapi-v1.yaml`]?.toString("utf8"), "v1");
 
-  // Simulate the mirror moving on: v1.yaml is gone, v2.yaml appears. Same deps instance reused
-  // across runs, matching production (a single defaultStageDeps handles every run).
+  /* Simulate the mirror moving on: v1.yaml is gone, v2.yaml appears. Same deps instance reused
+     across runs, matching production (a single defaultStageDeps handles every run).
+   */
   delete files["/mirrors/svc/openapi-v1.yaml"];
   files["/mirrors/svc/openapi-v2.yaml"] = "v2";
   const second = await stageServiceContext(
@@ -255,7 +248,7 @@ test("idempotent re-stage: a second call wipes the previous staged content befor
   assert.equal(deps.written[`${second.dir}/contracts/openapi-v2.yaml`]?.toString("utf8"), "v2");
 });
 
-// ── repo-name sanitization ──────────────────────────────────────────────────
+/* ── repo-name sanitization ────────────────────────────────────────────────── */
 
 test("repo-name sanitization: '/' in the repo name becomes '__' in the staged directory", async () => {
   const deps = fakeDeps({});
@@ -265,8 +258,6 @@ test("repo-name sanitization: '/' in the repo name becomes '__' in the staged di
   );
   assert.equal(result.dir, "/work/e2e/.qa/service-context/org__name-with-slash");
 });
-
-// ── manifest shape ───────────────────────────────────────────────────────────
 
 test("manifest.json carries stagedAt from the injected clock, not a direct Date.now() read", async () => {
   const deps = fakeDeps({}, { now: () => 42 });

@@ -2,11 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunDecision } from "@contexts/qa-run-orchestration/domain/run-decision.ts";
 
-// The RunDecision VO (Task D.3): the outcome of RunDecisionService.decide() — a verdict paired
-// with the side effect it triggers. Immutable, carries both fields together so a caller can never
-// observe a verdict without its matching side effect (the two are decided as one unit, exactly
-// like the legacy scattered branches always paired a verdict assignment with a report()/publish
-// call at the same site).
+/* RunDecision pairs a verdict with the side effect it triggers. Immutable: a caller can never
+   observe a verdict without its matching side effect (the two are decided as one unit).
+ */
 
 test("RunDecision: carries both verdict and sideEffect", () => {
   const decision = RunDecision.of("pass", "pr");

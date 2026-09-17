@@ -8,10 +8,9 @@ test("InfraError is recognized as infrastructure", () => {
 
 test("AgentUnavailableError (provider out of credits / auth) is infrastructure, never a code verdict", () => {
   const e = new AgentUnavailableError("OpenCode provider rejected the request (out of credits)");
-  assert.equal(isInfraError(e), true); // → infra-error, not invalid/fail
-  assert.ok(e instanceof InfraError); // it IS an InfraError subtype
+  assert.equal(isInfraError(e), true); /* → infra-error, not invalid/fail */
+  assert.ok(e instanceof InfraError); /* it IS an InfraError subtype */
   assert.equal(e.name, "AgentUnavailableError");
-  // name fallback path (cross-realm instanceof miss)
   const shaped = new Error("provider error");
   shaped.name = "AgentUnavailableError";
   assert.equal(isInfraError(shaped), true);
@@ -38,10 +37,10 @@ test("non-Error throwables are not infrastructure", () => {
   assert.equal(isInfraError(undefined), false);
 });
 
-// Moved from src/integrations/stall-watchdog-wrapper.test.ts (migration-tier-4c Slice 2): the
-// StalledAgentError-throwing withStallWatchdog wrapper itself migrated to qa-engine's
-// agent-transport-policy.ts (using the qa-engine @kernel/domain-error.ts twin of this class), but
-// src/errors.ts's OWN StalledAgentError stays here and still needs its classification pinned.
+/* StalledAgentError-throwing withStallWatchdog wrapper itself migrated to qa-engine's
+   agent-transport-policy.ts (using the qa-engine @kernel/domain-error.ts twin of this class), but
+   src/errors.ts's OWN StalledAgentError stays here and still needs its classification pinned.
+ */
 
 test("StalledAgentError is an InfraError subtype (stall is an engine-resilience event, not a code fault)", () => {
   const e = new StalledAgentError("agent stalled after 120000ms");
@@ -61,6 +60,5 @@ test("StalledAgentError is distinct from AgentUnavailableError (different operat
   assert.notEqual(stall.name, "AgentUnavailableError");
   assert.notEqual(stall.name, "InfraError");
   assert.equal(stall.name, "StalledAgentError");
-  // But it still satisfies the InfraError base through the inheritance chain
   assert.equal(isInfraError(stall), true);
 });

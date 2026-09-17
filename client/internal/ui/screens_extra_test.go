@@ -8,8 +8,8 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/events"
 )
 
-// The live body must carry the one-line "what's happening now" status (the horizontal
-// rail in the header is the only pipeline view — no second, vertical copy).
+/* The live body must carry the one-line "what's happening now" status (the horizontal
+   rail in the header is the only pipeline view — no second, vertical copy). */
 func TestLivePhaseStatusNoDuplicateSpine(t *testing.T) {
 	m := newLiveModel("r", "portfolio", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "step.changed", Body: events.StepChanged{Step: "generate"}}))
@@ -18,31 +18,31 @@ func TestLivePhaseStatusNoDuplicateSpine(t *testing.T) {
 	if !strings.Contains(body, "the agent is generating tests") {
 		t.Fatalf("live body missing the active-phase status line:\n%s", body)
 	}
-	// The vertical pipeline checklist (its own "pipeline" rule) must be gone — the rail
-	// in the header is the single source of pipeline truth.
+	/* The vertical pipeline checklist (its own "pipeline" rule) must be gone — the rail
+	   in the header is the single source of pipeline truth. */
 	if strings.Contains(body, "PIPELINE") {
 		t.Fatalf("live body must not duplicate the pipeline as a vertical spine:\n%s", body)
 	}
 
-	// Once the run is done the recap takes over — no live status line.
+	/* Once the run is done the recap takes over — no live status line. */
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "run.verdict", Body: events.RunVerdict{Verdict: "pass"}}))
 	if m.renderPhaseStatus() != "" {
 		t.Fatal("phase status must be empty once the run is done")
 	}
 }
 
-// Stopping the active run from the NOW panel disarms if any other key intervenes between the
-// two x presses (the stop is folded into NOW now that the separate sessions screen is gone).
+/* Stopping the active run from the NOW panel disarms if any other key intervenes between the
+   two x presses (the stop is folded into NOW now that the separate sessions screen is gone). */
 func TestNowStopDisarmsOnOtherKey(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	setRunning(&m, "portfolio", "run_1")
 	m.focus = focusNow
 
-	m, _ = m.Update(keyRune("x")) // arm
+	m, _ = m.Update(keyRune("x"))
 	if !m.stopArmed {
 		t.Fatal("first x must arm the stop confirmation")
 	}
-	m, _ = m.Update(keyRune("r")) // any other key disarms
+	m, _ = m.Update(keyRune("r")) /* any other key disarms */
 	if m.stopArmed {
 		t.Fatal("a non-x key must disarm the stop confirmation")
 	}

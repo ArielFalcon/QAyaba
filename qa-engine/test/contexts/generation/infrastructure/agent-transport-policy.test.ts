@@ -1,8 +1,8 @@
-// qa-engine/test/contexts/generation/infrastructure/agent-transport-policy.test.ts
-// Moved from src/integrations/{stall-watchdog-wrapper,session-registration-wrapper,opencode-client}
-// .test.ts (migration-tier-4c Slice 2, D-4c-1) — these characterization tests exercise the transport
-// POLICY (circuit-breaker gating, fallback retry, stall-watchdog decoration, session registration,
-// turn/usage telemetry) that now lives in agent-transport-policy.ts, decoupled from the SDK.
+/* qa-engine/test/contexts/generation/infrastructure/agent-transport-policy.test.ts
+   Moved from src/integrations/{stall-watchdog-wrapper,session-registration-wrapper,opencode-client}
+   POLICY (circuit-breaker gating, fallback retry, stall-watchdog decoration, session registration,
+   turn/usage telemetry) that now lives in agent-transport-policy.ts, decoupled from the SDK.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
@@ -21,9 +21,7 @@ import {
 import { createStallWatchdog } from "@contexts/generation/infrastructure/resilience/stall-watchdog.ts";
 import { recordCircuitFailure, resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
 
-// ─── withStallWatchdog ───────────────────────────────────────────────────────────────────────────
-
-// Build a minimal fake AgentDeps whose prompt() resolves after a delay we control.
+/* Build a minimal fake AgentDeps whose prompt() resolves after a delay we control. */
 function makeDelayDeps(opts: {
   rejectWith?: unknown;
   sessionId?: string;
@@ -71,12 +69,12 @@ test("withStallWatchdog: stall triggers StalledAgentError rejection via injected
   const fakeWatchdogFactory = (onStall: () => void) => {
     stallCb = onStall;
     return createStallWatchdog({
-      stallMs: 99999, // won't fire naturally
+      stallMs: 99999,
       onStall,
     });
   };
 
-  // A base deps whose prompt() never resolves (simulates a hung agent)
+  /* A base deps whose prompt() never resolves (simulates a hung agent) */
   let resolvePrompt!: (v: string) => void;
   const base: AgentDeps = {
     open: async () => ({
@@ -118,7 +116,7 @@ test("withStallWatchdog: stall path unregisters the session notifier (no registr
   const base: AgentDeps = {
     open: async () => ({
       id: "leak-test-session",
-      prompt: () => new Promise<string>(() => {}), // never resolves (hung agent)
+      prompt: () => new Promise<string>(() => {}), /* never resolves (hung agent) */
       dispose: async () => {},
     }),
   };
@@ -129,19 +127,18 @@ test("withStallWatchdog: stall path unregisters the session notifier (no registr
   });
 
   const session = await wrapped.open("qa-generator", "/tmp");
-  const promptPromise = session.prompt("hello").catch(() => {}); // swallow the stall rejection
+  const promptPromise = session.prompt("hello").catch(() => {}); /* swallow the stall rejection */
 
-  // An SSE event for this session reaches the registered notifier.
   notifySessionActivity("leak-test-session");
   const beforeStall = notifyCount;
   assert.ok(beforeStall >= 1, "the session notifier must be registered and invoked on activity");
 
-  // Stall fires → the stall path must unregister the notifier.
+  /* Stall fires → the stall path must unregister the notifier. */
   assert.ok(stallCb !== undefined, "stall callback must be registered during open()");
   (stallCb as () => void)();
   await promptPromise;
 
-  // A further event must NOT reach the now-removed notifier.
+  /* A further event must NOT reach the now-removed notifier. */
   notifySessionActivity("leak-test-session");
   assert.equal(notifyCount, beforeStall, "after a stall the session notifier must be unregistered (no registry leak)");
 
@@ -209,10 +206,11 @@ test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped (CP-
   assert.equal(watchdogCreated, true, "a normal session must still be wrapped by the watchdog");
 });
 
-// ─── withSessionRegistration ─────────────────────────────────────────────────────────────────────
-// `collaborators` is REQUIRED (unlike the legacy shell version, which defaulted to the real
-// registerRunSession/unregisterRunSession): qa-engine cannot reach those shell functions on its own,
-// so the composition root (src/server/rewritten-engine-factory.ts) must inject them explicitly.
+/* ─── withSessionRegistration ─────────────────────────────────────────────────────────────────────
+   `collaborators` is REQUIRED: qa-engine cannot reach the shell registerRunSession/unregisterRunSession
+   functions on its own, so the composition root (src/server/rewritten-engine-factory.ts) must inject
+   them explicitly.
+ */
 
 function fakeBaseDeps(sessionId = "sess-1"): { deps: AgentDeps; disposed: boolean[] } {
   const disposed: boolean[] = [];
@@ -310,14 +308,13 @@ test("withSessionRegistration forwards prompt()/session identity unchanged (thin
   assert.equal(out, "output");
 });
 
-// ─── parseModelRef / withTimeout / agentErrorToInfra ────────────────────────────────────────────
-
 test("parseModelRef splits provider/model and rejects malformed refs", () => {
-  // The fallback model override must reach the SDK as {providerID, modelID}, not a raw string. A
-  // model id can itself contain slashes — only the FIRST splits.
+  /* The fallback model override must reach the SDK as {providerID, modelID}, not a raw string. A
+     model id can itself contain slashes — only the FIRST splits.
+   */
   assert.deepEqual(parseModelRef("opencode-go/deepseek-v4-pro"), { providerID: "opencode-go", modelID: "deepseek-v4-pro" });
   assert.deepEqual(parseModelRef("a/b/c"), { providerID: "a", modelID: "b/c" });
-  // Unparseable → undefined so the override is skipped, never sent malformed.
+  /* Unparseable → undefined so the override is skipped, never sent malformed. */
   assert.equal(parseModelRef("noslash"), undefined);
   assert.equal(parseModelRef("/leading"), undefined);
   assert.equal(parseModelRef("trailing/"), undefined);
@@ -334,8 +331,9 @@ test("withTimeout rejects when the deadline elapses", async () => {
 });
 
 test("agentErrorToInfra classifies an embedded provider fault as infrastructure with an actionable message", () => {
-  // ROOT-CAUSE: a provider fault is embedded in res.data.info.error (NOT res.error). It must throw a
-  // typed InfraError so the run is `infra-error`, never a code verdict that blames the tests.
+  /* ROOT-CAUSE: a provider fault is embedded in res.data.info.error (NOT res.error). It must throw a
+     typed InfraError so the run is `infra-error`, never a code verdict that blames the tests.
+   */
   const auth = agentErrorToInfra({ name: "ProviderAuthError", data: { providerID: "opencode-go", message: "insufficient credits" } });
   assert.equal(isInfraError(auth), true);
   assert.match(auth.message, /out of credits|OPENCODE_API_KEY/i);
@@ -346,20 +344,18 @@ test("agentErrorToInfra classifies an embedded provider fault as infrastructure 
   assert.equal(isInfraError(rate), true);
   assert.match(rate.message, /429|rate-limited/i);
 
-  // An unknown/future variant still classifies as infra, never a code verdict.
+  /* An unknown/future variant still classifies as infra, never a code verdict. */
   const unknown = agentErrorToInfra({ name: "UnknownError", data: { message: "boom" } });
   assert.equal(isInfraError(unknown), true);
   assert.match(unknown.message, /not a test failure/i);
 });
 
-// ─── createAgentDeps (migration-tier-4d Slice 4, residual ii) ───────────────────────────────────
-// Approval/characterization tests: createAgentDeps was already the production transport POLICY
-// (the agent's critical path — every generate/review/repair round funnels through it) but had NO
-// direct unit test of its own before this slice; every existing test above exercises the DECORATOR
-// wrappers (withStallWatchdog/withSessionRegistration) against a hand-built fake AgentDeps, never
-// createAgentDeps(raw, collab) itself against a fake RawAgentTransport. These tests characterize the
-// 5 behaviors the design named: fallback-model retry on a transient fault, skip-on-abort/infra-error,
-// circuit-breaker gating, telemetry assembly, and sanitize-before-emit.
+/* createAgentDeps is the production transport policy — every generate/review/repair round funnels
+   through it. Tests above exercise the decorator wrappers (withStallWatchdog/withSessionRegistration)
+   against a hand-built fake AgentDeps; these characterize createAgentDeps(raw, collab) itself against
+   a fake RawAgentTransport: fallback-model retry on a transient fault, skip-on-abort/infra-error,
+   circuit-breaker gating, telemetry assembly, and sanitize-before-emit.
+ */
 
 function makeRawTransport(overrides: Partial<RawAgentTransport> = {}): RawAgentTransport {
   return {
@@ -421,7 +417,7 @@ test("createAgentDeps: an aborted signal skips the fallback retry even when one 
     createSession: async () => ({ id: "sess-3" }),
     promptSession: async () => {
       attempts++;
-      controller.abort(); // the operator cancels while the request is in flight
+      controller.abort(); /* the operator cancels while the request is in flight */
       throw new Error("operator cancel while in flight");
     },
   });
@@ -472,17 +468,18 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  // Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures).
+  /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures). */
   for (let i = 0; i < 5; i++) recordCircuitFailure();
 
   const openSession = await deps.open("qa-generator", "/tmp");
-  // NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
-  // every other failure path in createAgentDeps (which fails through an async raw.promptSession call
-  // and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
-  // synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
-  // only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
-  // session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
-  // a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
+  /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
+     every other failure path in createAgentDeps (which fails through an async raw.promptSession call
+     and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
+     synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
+     only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
+     session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
+     a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
+   */
   let openCircuitError: unknown;
   try {
     await openSession.prompt("do the thing");

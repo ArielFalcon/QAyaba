@@ -1,8 +1,10 @@
-// REST control API for the interactive layer (bin/qa) and any future operator
-// surface. It NEVER does git writes directly: it only enqueues runs on the same
-// sequential queue the webhook uses, and reads the in-memory run history. Every
-// dependency (config, ref resolution, history, queue) is injected via ApiDeps, so
-// the routing + validation logic is unit-tested with stubs — no fs or network.
+/*
+ * REST control API for the interactive layer (bin/qa) and any future operator
+ * surface. It NEVER does git writes directly: it only enqueues runs on the same
+ * sequential queue the webhook uses, and reads the in-memory run history. Every
+ * dependency (config, ref resolution, history, queue) is injected via ApiDeps, so
+ * the routing + validation logic is unit-tested with stubs — no fs or network.
+ */
 
 import { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
@@ -58,19 +60,20 @@ import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-// sdd/migration-wiring-phase-2 Slice 7b-1: the canonical redaction adapter (env+pattern, see
-// sanitizer.ts's own header) for this file's error-message responses, replacing src/util/redact.ts's
-// redactError. Module-scope singleton (stateless besides the injected env, default process.env),
-// matching this file's existing module-scope `sanitizeText` usage above.
+
 const redactionPort = new RedactionPortAdapter();
 
-// SSE durable-poll cadence: how often an open run-event stream re-reads the durable store
-// for events produced out-of-process and re-checks the record for a terminal state. Small
-// enough to feel live, large enough not to hammer SQLite per open connection.
+/*
+ * SSE durable-poll cadence: how often an open run-event stream re-reads the durable store
+ * for events produced out-of-process and re-checks the record for a terminal state. Small
+ * enough to feel live, large enough not to hammer SQLite per open connection.
+ */
 const DEFAULT_SSE_POLL_MS = 1000;
 
-// Outcome of exchanging a GitHub user token for a server session: a minted session on
-// success, or a tagged failure the route maps to 401 (bad token) vs 403 (not a collaborator).
+/*
+ * Outcome of exchanging a GitHub user token for a server session: a minted session on
+ * success, or a tagged failure the route maps to 401 (bad token) vs 403 (not a collaborator).
+ */
 export type LoginOutcome =
   | { ok: true; token: string; username: string; expiresAt: string }
   | { ok: false; reason: "identity" | "forbidden" };
@@ -78,63 +81,78 @@ export type LoginOutcome =
 export interface ApiDeps {
   queue: { readonly size: number };
   enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number): string;
-  loadApp(name: string): AppConfig; // throws if the app is not configured
+  loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
   getRecord(id: string): RunRecord | undefined;
   listRecords(app: string, limit: number): RunRecord[];
   currentRun(): RunRecord | undefined;
-  // Read-only intelligence projection (learning ledger + oracle scorecard + curriculum)
-  // for an app. Absent ⇒ the /intelligence route returns 501.
+  /*
+   * Read-only intelligence projection (learning ledger + oracle scorecard + curriculum)
+   * for an app. Absent ⇒ the /intelligence route returns 501.
+   */
   intelligence?: (app: string) => z.infer<typeof IntelligenceViewSchema>;
-  // Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
-  // Absent ⇒ the /signals route returns 501.
+  /*
+   * Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
+   * Absent ⇒ the /signals route returns 501.
+   */
   signals?: () => z.infer<typeof SignalsViewSchema>;
-  // Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501.
+  /* Read-only multi-agent coordination audit tail. Absent ⇒ the route returns 501. */
   coordinationEvents?: (filter?: { runId?: string; limit?: number }) => z.infer<typeof CoordinationEventsViewSchema>;
-  // Read-only period-over-period trends + the ad-hoc interestingness-ranked report for an app.
-  // Absent ⇒ the /trends and /report routes return 501.
+  /*
+   * Read-only period-over-period trends + the ad-hoc interestingness-ranked report for an app.
+   * Absent ⇒ the /trends and /report routes return 501.
+   */
   trends?: (app: string, window?: number) => z.infer<typeof TrendsViewSchema>;
   report?: (app: string, window?: number) => z.infer<typeof ReportViewSchema>;
-  // The run-scoped report: the current-execution analysis plus the evolution-as-of-the-run, for the
-  // post-run summary view. Outer null ⇒ 404 (no such run); `evolution` null ⇒ not enough history yet.
+  /*
+   * The run-scoped report: the current-execution analysis plus the evolution-as-of-the-run, for the
+   * post-run summary view. Outer null ⇒ 404 (no such run); `evolution` null ⇒ not enough history yet.
+   */
   reportForRun?: (runId: string, window?: number) => z.infer<typeof RunReportViewSchema> | null;
   ask?: (input: { context: string; question: string; instruction?: string }) => Promise<string>;
   cancelRun?: (id: string) => boolean;
-  // Continuation (human-in-the-loop): re-run fixing the parent run's failed cases.
-  // `cases` optionally narrows to specific failed case names; omitted → all failed.
+  /*
+   * Continuation (human-in-the-loop): re-run fixing the parent run's failed cases.
+   * `cases` optionally narrows to specific failed case names; omitted → all failed.
+   */
   continueRun?: (parentId: string, cases: string[] | undefined, guidance?: string) => string;
-  // App onboarding/deletion (F5). Absent ⇒ the corresponding routes return 501.
+  /* App onboarding/deletion (F5). Absent ⇒ the corresponding routes return 501. */
   createApp?: (input: AdminCreateAppInput) => Promise<CreateAppResult>;
   updateApp?: (input: AdminUpdateAppInput) => Promise<CreateAppResult>;
   deleteApp?: (name: string, purge: boolean) => { removed: string[] };
   listRepos?: (owner: string, page: number) => Promise<{ repos: Array<{ fullName: string; private: boolean; description: string | null }>; hasMore: boolean }>;
   runEvents?: RunEventStore;
-  // Slice 5a: server-side boundary-profile onboarding job (TUI-integrated, design delta §C).
-  // One in-memory job per server instance; absent ⇒ the three /boundaries routes return 501.
+  
   boundaries?: {
     propose(app: string, input: z.infer<typeof ProposeBoundariesInputSchema>): { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
     status(app: string): z.infer<typeof OnboardingJobStatusSchema>;
     confirm(app: string): { ok: true } | { ok: false; error: string };
   };
-  // Phase 0b: returns persisted agent_turns rows for a run (all roles, chronological).
-  // Absent ⇒ the /api/runs/:id/turns route returns 501.
+  
   getAgentTurns?: (runId: string) => AgentTurnRecord[];
-  // Phase 8: cross-run telemetry analysis for the holistic evaluation surface.
-  // Absent ⇒ the /api/apps/:app/telemetry route returns 501.
+  
   telemetryAnalysis?: (app: string, windowDays?: number) => TelemetryAnalysis;
-  // Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
-  // the poll fast; production uses DEFAULT_SSE_POLL_MS.
+  /*
+   * Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
+   * the poll fast; production uses DEFAULT_SSE_POLL_MS.
+   */
   ssePollMs?: number;
-  // Exchange a GitHub user token for a server session (POST /api/auth/login). Absent ⇒ the
-  // route returns 501 (GitHub login not configured); the static QA_API_TOKEN still works.
+  /*
+   * Exchange a GitHub user token for a server session (POST /api/auth/login). Absent ⇒ the
+   * route returns 501 (GitHub login not configured); the static QA_API_TOKEN still works.
+   */
   login?: (githubToken: string) => Promise<LoginOutcome>;
-  // Same-origin web-console bootstrap (GET /api/auth/local). Returns a minted session, or
-  // null when this request is not trusted (not loopback / QA_WEB_AUTO_LOGIN off). Absent
-  // or null ⇒ 404 — the capability is not advertised, and QA_API_TOKEN is never returned.
+  /*
+   * Same-origin web-console bootstrap (GET /api/auth/local). Returns a minted session, or
+   * null when this request is not trusted (not loopback / QA_WEB_AUTO_LOGIN off). Absent
+   * or null ⇒ 404 — the capability is not advertised, and QA_API_TOKEN is never returned.
+   */
   localLogin?: (remoteAddress: string) => { token: string; username: string; expiresAt: string } | null;
-  // The OAuth App client id (public) advertised in the version handshake, so the console can run
-  // the device flow without baking it in. Absent ⇒ not advertised (client falls back to its own).
+  /*
+   * The OAuth App client id (public) advertised in the version handshake, so the console can run
+   * the device flow without baking it in. Absent ⇒ not advertised (client falls back to its own).
+   */
   githubClientId?: string;
   agentRuntime?: {
     getConfig(): PublicAgentConfig | Promise<PublicAgentConfig>;
@@ -148,8 +166,10 @@ export interface ApiDeps {
 function contractJson(res: ServerResponse, status: number, schema: z.ZodTypeAny, body: unknown): void {
   const result = schema.safeParse(body);
   if (!result.success) {
-    // Surface the drift loudly (CLAUDE.md invariant) — a silent 500 hides a real
-    // schema mismatch between the handler and the contract.
+    /*
+     * Surface the drift loudly (CLAUDE.md invariant) — a silent 500 hides a real
+     * schema mismatch between the handler and the contract.
+     */
     console.error("[contract] response validation failed:", result.error.issues);
     json(res, 500, { error: "contract response validation failed" });
     return;
@@ -158,8 +178,10 @@ function contractJson(res: ServerResponse, status: number, schema: z.ZodTypeAny,
 }
 
 function sseWrite(res: ServerResponse, event: unknown): void {
-  // Guard the write-after-close race: the bus is synchronous, so an event emitted
-  // as the socket closes can reach here after the stream already ended.
+  /*
+   * Guard the write-after-close race: the bus is synchronous, so an event emitted
+   * as the socket closes can reach here after the stream already ended.
+   */
   if (res.writableEnded) return;
   const result = RunEventSchema.safeParse(event);
   if (!result.success) {
@@ -180,7 +202,7 @@ function parseLastEventId(req: IncomingMessage): number {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
 }
 
-// Returns true when the request matched an /api route (so the caller stops here).
+/* Returns true when the request matched an /api route (so the caller stops here). */
 export async function handleApi(
   req: IncomingMessage,
   res: ServerResponse,
@@ -198,7 +220,7 @@ export async function handleApi(
     return handleRunEvents(req, res, deps, eventMatch[1]!);
   }
 
-  // Phase 0b: per-run agent_turns (all roles, chronological).
+  
   const turnsMatch = path.match(/^\/api\/runs\/([^/]+)\/turns$/);
   if (req.method === "GET" && turnsMatch) {
     return handleRunTurns(res, deps, turnsMatch[1]!);
@@ -253,7 +275,7 @@ export async function handleApi(
     return handleAppTrends(res, deps, trendsMatch[1]!, parseWindow(url.searchParams.get("window")), url.searchParams.get("format"));
   }
 
-  // Phase 8: holistic telemetry analysis surface (agent_turns + run_outcomes aggregates).
+  
   const telemetryMatch = path.match(/^\/api\/apps\/([^/]+)\/telemetry$/);
   if (req.method === "GET" && telemetryMatch) {
     return handleAppTelemetry(res, deps, telemetryMatch[1]!, parseWindow(url.searchParams.get("window")));
@@ -365,7 +387,7 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     typeof body.target === "string" && (TARGETS as string[]).includes(body.target)
       ? (body.target as TestTarget)
       : appConfig.code
-        ? "code" // default to code mode for code-mode apps
+        ? "code"  /* default to code mode for code-mode apps */
         : "e2e";
   const mode: RunMode =
     typeof body.mode === "string" && (RUN_MODES as readonly string[]).includes(body.mode) ? (body.mode as RunMode) : "diff";
@@ -383,10 +405,12 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     json(res, 400, { error: "'sha' must be 7–40 hex characters" });
     return true;
   } else {
-    // Neither a sha nor an explicit ref: default to the app's base branch HEAD. This
-    // is the TUI "launch" path (pick target/mode/shadow, no commit) — run the latest
-    // of the configured branch. resolveRef uses `git ls-remote`, so no mirror is
-    // required yet (works on the very first run).
+    /*
+     * Neither a sha nor an explicit ref: default to the app's base branch HEAD. This
+     * is the TUI "launch" path (pick target/mode/shadow, no commit) — run the latest
+     * of the configured branch. resolveRef uses `git ls-remote`, so no mirror is
+     * required yet (works on the very first run).
+     */
     const ref = typeof body.ref === "string" && body.ref.length > 0 ? body.ref : (appConfig.baseBranch ?? "main");
     try {
       sha = await deps.resolveRef(appConfig.repo, ref);
@@ -411,22 +435,28 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
   return true;
 }
 
-// Sanitize a RunRecord before it leaves the system: logs, case details and the note can
-// carry DEV data or a secret the agent echoed. Same egress invariant the chat/Issue paths
-// already honor (CLAUDE.md "Sanitize data leaving the system").
+/*
+ * Sanitize a RunRecord before it leaves the system: logs, case details and the note can
+ * carry DEV data or a secret the agent echoed. Same egress invariant the chat/Issue paths
+ * already honor (CLAUDE.md "Sanitize data leaving the system").
+ */
 function sanitizeRecord(record: RunRecord): RunRecord {
   return {
     ...record,
-    // Derive the run status on egress (never stored): present once a verdict exists, absent while the
-    // run is still in-flight (a running run is not an "error"). Lets REST consumers read success vs
-    // error directly instead of re-deriving from the verdict.
+    /*
+     * Derive the run status on egress (never stored): present once a verdict exists, absent while the
+     * run is still in-flight (a running run is not an "error"). Lets REST consumers read success vs
+     * error directly instead of re-deriving from the verdict.
+     */
     ...(record.verdict ? { engineStatus: engineStatus(record.verdict) } : {}),
     note: record.note ? sanitizeText(record.note).text : record.note,
     logs: record.logs.map((l) => sanitizeText(l).text),
     cases: record.cases.map((c) => {
-      // Omit `detail` entirely when absent. A DB-backed record yields detail:null (history stores
-      // `c.detail ?? null`), but the contract is z.string().optional() (string|undefined, NOT null),
-      // so passing null through here 500s the run-status API. Strip it (and sanitize when present).
+      /*
+       * Omit `detail` entirely when absent. A DB-backed record yields detail:null (history stores
+       * `c.detail ?? null`), but the contract is z.string().optional() (string|undefined, NOT null),
+       * so passing null through here 500s the run-status API. Strip it (and sanitize when present).
+       */
       const { detail, ...rest } = c;
       return detail ? { ...rest, detail: sanitizeText(detail).text } : rest;
     }),
@@ -460,10 +490,12 @@ function handleRunEvents(req: IncomingMessage, res: ServerResponse, deps: ApiDep
   res.setHeader("Connection", "keep-alive");
   res.writeHead(200);
 
-  const runEvents = deps.runEvents; // narrowed past the 501 guard; stable for the closures below
+  const runEvents = deps.runEvents;  /* narrowed past the 501 guard; stable for the closures below */
 
-  // Track the high-water seq streamed so the durable poll never re-sends an event the live
-  // bus already delivered (and vice-versa).
+  /*
+   * Track the high-water seq streamed so the durable poll never re-sends an event the live
+   * bus already delivered (and vice-versa).
+   */
   let lastSentSeq = parseLastEventId(req);
   const send = (event: RunEvent): void => {
     sseWrite(res, event);
@@ -472,8 +504,10 @@ function handleRunEvents(req: IncomingMessage, res: ServerResponse, deps: ApiDep
 
   for (const event of runEvents.replay(id, lastSentSeq)) send(event);
 
-  // A terminated run emits nothing more: replay, then close so the client stops
-  // waiting on a stream that will never produce another event.
+  /*
+   * A terminated run emits nothing more: replay, then close so the client stops
+   * waiting on a stream that will never produce another event.
+   */
   if (record.status === "done") {
     res.end();
     return true;
@@ -490,38 +524,45 @@ function handleRunEvents(req: IncomingMessage, res: ServerResponse, deps: ApiDep
     if (!res.writableEnded) res.end();
   };
 
-  // Live tail for a run executing IN THIS process: the in-process bus delivers each publish.
+  /* Live tail for a run executing IN THIS process: the in-process bus delivers each publish. */
   unsubscribe = runEvents.subscribe(id, (event) => {
     send(event);
-    // run.verdict is terminal — close the stream once the run finishes so the
-    // connection (and its bus listener) is not held open indefinitely.
+    /*
+     * run.verdict is terminal — close the stream once the run finishes so the
+     * connection (and its bus listener) is not held open indefinitely.
+     */
     if (event.body.type === "run.verdict") finish();
   });
 
-  // Durable poll — the robustness net. The bus above only sees SAME-PROCESS publishes, so a
-  // run produced by another process (e.g. the CLI's own queue) would otherwise stream nothing
-  // and never close. Each tick (a) flushes events persisted since lastSentSeq — surfacing an
-  // out-of-process run's progress through the shared store — then (b) ends the stream once the
-  // record is terminal, so a missed/absent run.verdict can never leave the connection hanging.
+  /*
+   * Durable poll — the robustness net. The bus above only sees SAME-PROCESS publishes, so a
+   * run produced by another process (e.g. the CLI's own queue) would otherwise stream nothing
+   * and never close. Each tick (a) flushes events persisted since lastSentSeq — surfacing an
+   * out-of-process run's progress through the shared store — then (b) ends the stream once the
+   * record is terminal, so a missed/absent run.verdict can never leave the connection hanging.
+   */
   const pollMs = deps.ssePollMs ?? DEFAULT_SSE_POLL_MS;
   timer = setInterval(() => {
     if (closed) return;
     for (const event of runEvents.replay(id, lastSentSeq)) send(event);
-    // Close only on an EXPLICIT terminal record. getRecord is durable (SQLite), so a missing
-    // record mid-stream is anomalous — treating it as terminal could drop a healthy stream, so
-    // we don't; the run record reaching "done" is the single close trigger here.
+    /*
+     * Close only on an EXPLICIT terminal record. getRecord is durable (SQLite), so a missing
+     * record mid-stream is anomalous — treating it as terminal could drop a healthy stream, so
+     * we don't; the run record reaching "done" is the single close trigger here.
+     */
     if (deps.getRecord(id)?.status === "done") finish();
   }, pollMs);
   timer.unref?.();
 
-  // Client disconnect → tear everything down. The write-after-close race is also guarded
-  // centrally in sseWrite (writableEnded), so a late event is a no-op.
+  /*
+   * Client disconnect → tear everything down. The write-after-close race is also guarded
+   * centrally in sseWrite (writableEnded), so a late event is a no-op.
+   */
   req.on("close", () => finish());
   return true;
 }
 
-// Phase 0b: returns the persisted agent_turns rows for a run as a JSON array (all roles,
-// chronological). Mirrors the existing run-scoped endpoints' shape and error handling.
+
 function handleRunTurns(res: ServerResponse, deps: ApiDeps, id: string): boolean {
   if (!deps.getAgentTurns) {
     json(res, 501, { error: "agent turns are not available" });
@@ -532,9 +573,11 @@ function handleRunTurns(res: ServerResponse, deps: ApiDeps, id: string): boolean
     json(res, 404, { error: `run not found: ${id}` });
     return true;
   }
-  // Defensive egress sanitization, matching sanitizeRecord on the sibling run-read endpoints.
-  // prompt_text embeds the live-DEV domSnapshot and is persisted RAW (output_text is sanitized at
-  // capture, but re-sanitizing is idempotent and keeps the egress pass uniform across both fields).
+  /*
+   * Defensive egress sanitization, matching sanitizeRecord on the sibling run-read endpoints.
+   * prompt_text embeds the live-DEV domSnapshot and is persisted RAW (output_text is sanitized at
+   * capture, but re-sanitizing is idempotent and keeps the egress pass uniform across both fields).
+   */
   const turns = deps.getAgentTurns(id).map((t) => ({
     ...t,
     promptText: sanitizeText(t.promptText).text,
@@ -565,13 +608,17 @@ function handleCancelRun(res: ServerResponse, deps: ApiDeps, id: string): boolea
   if (cancelled) {
     json(res, 200, { id, status: "cancelled" });
   } else if (deps.getRecord(id)?.status === "done") {
-    // cancelRun returned false but finalized the record: it was either still enqueued (pulled
-    // from the queue before it could start) or a stale "running" record the live queue no longer
-    // held (finalized so the operator's stop clears it). Either way it is no longer active.
+    /*
+     * cancelRun returned false but finalized the record: it was either still enqueued (pulled
+     * from the queue before it could start) or a stale "running" record the live queue no longer
+     * held (finalized so the operator's stop clears it). Either way it is no longer active.
+     */
     json(res, 200, { id, status: "cancelled", message: "run was not actively executing — finalized and removed from the queue" });
   } else {
-    // Running per the (stale) record, but it is no longer the run holding the queue —
-    // it already finished or a successor is now executing. Do NOT report it cancelled.
+    /*
+     * Running per the (stale) record, but it is no longer the run holding the queue —
+     * it already finished or a successor is now executing. Do NOT report it cancelled.
+     */
     json(res, 409, { id, status: "running", message: "run is no longer the active run (it finished or a successor is now running)" });
   }
   return true;
@@ -587,7 +634,7 @@ function handleListRuns(res: ServerResponse, deps: ApiDeps, app: string | null |
 }
 
 function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }> } {
-  // Code-mode apps have no dev environment (and no baseUrl).
+  /* Code-mode apps have no dev environment (and no baseUrl). */
   return {
     name: app.name,
     repo: app.repo,
@@ -620,7 +667,7 @@ function handleAppIntelligence(res: ServerResponse, deps: ApiDeps, name: string)
     return true;
   }
   try {
-    deps.loadApp(name); // 404 when the app isn't configured
+    deps.loadApp(name);  /* 404 when the app isn't configured */
   } catch {
     json(res, 404, { error: `app not found: '${name}'` });
     return true;
@@ -647,16 +694,20 @@ function handleCoordinationEvents(res: ServerResponse, deps: ApiDeps, runId: str
   return true;
 }
 
-// Parses "?limit=" defensively: absent/invalid falls back to the view's default (200), values
-// beyond the schema cap (1000) are clamped by the reader itself.
+/*
+ * Parses "?limit=" defensively: absent/invalid falls back to the view's default (200), values
+ * beyond the schema cap (1000) are clamped by the reader itself.
+ */
 function parseLimit(raw: string | null): number | undefined {
   if (raw === null) return undefined;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
-// A client-supplied trends window (?window=N), clamped to [1,50] — listRunOutcomes caps the read at
-// 100 rows, so the current + previous windows (window*2) must stay within it. Invalid/absent →
-// undefined (the view falls back to its default of 20).
+/*
+ * A client-supplied trends window (?window=N), clamped to [1,50] — listRunOutcomes caps the read at
+ * 100 rows, so the current + previous windows (window*2) must stay within it. Invalid/absent →
+ * undefined (the view falls back to its default of 20).
+ */
 function parseWindow(raw: string | null): number | undefined {
   if (!raw) return undefined;
   const n = Number(raw);
@@ -676,7 +727,7 @@ function handleAppTrends(
     return true;
   }
   try {
-    deps.loadApp(name); // 404 when the app isn't configured
+    deps.loadApp(name);  /* 404 when the app isn't configured */
   } catch {
     json(res, 404, { error: `app not found: '${name}'` });
     return true;
@@ -709,8 +760,10 @@ function handleAppReport(
     return true;
   }
   const report = deps.report(name, window);
-  // ?format=csv → a spreadsheet-friendly flat table (one row per insight); default stays the
-  // contract-validated JSON ReportView.
+  /*
+   * ?format=csv → a spreadsheet-friendly flat table (one row per insight); default stays the
+   * contract-validated JSON ReportView.
+   */
   if (format === "csv") {
     res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8" });
     res.end(reportToCsv(report));
@@ -736,8 +789,10 @@ function handleRunReport(
     json(res, 404, { error: `run not found: '${runId}'` });
     return true;
   }
-  // CSV exports the run's OWN facts (the current-execution report); the evolution half belongs to a
-  // chart, not a flat table, and the app-level /report?format=csv already exports the trend table.
+  /*
+   * CSV exports the run's OWN facts (the current-execution report); the evolution half belongs to a
+   * chart, not a flat table, and the app-level /report?format=csv already exports the trend table.
+   */
   if (format === "csv") {
     res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8" });
     res.end(reportToCsv(report.current));
@@ -747,17 +802,14 @@ function handleRunReport(
   return true;
 }
 
-// Phase 8: holistic telemetry analysis surface. Returns the computed aggregates as plain JSON
-// (no contract schema — the shape is defined by TelemetryAnalysis in history.ts and is stable
-// enough for operator queries; a Zod schema would couple the analysis shape to the API contract
-// before Phase-8 data is available to validate it against). 501 when the dep is not wired.
+
 function handleAppTelemetry(res: ServerResponse, deps: ApiDeps, name: string, window?: number): boolean {
   if (!deps.telemetryAnalysis) {
     json(res, 501, { error: "telemetry analysis is not available" });
     return true;
   }
   try {
-    deps.loadApp(name); // 404 when the app is not configured
+    deps.loadApp(name);  /* 404 when the app is not configured */
   } catch {
     json(res, 404, { error: `app not found: '${name}'` });
     return true;
@@ -777,7 +829,7 @@ function handleListApps(res: ServerResponse, deps: ApiDeps): boolean {
     try {
       apps.push(appView(app));
     } catch {
-      // A single malformed config should not hide every other app.
+      /* A single malformed config should not hide every other app. */
     }
   }
   contractJson(res, 200, z.array(AppViewSchema), apps);
@@ -924,7 +976,7 @@ async function handleAsk(req: IncomingMessage, res: ServerResponse, deps: ApiDep
     json(res, 400, { error: "'question' is required" });
     return true;
   }
-  // Truncate to prevent context window exhaustion
+  /* Truncate to prevent context window exhaustion */
   const MAX_QUESTION_LEN = 4000;
   if (question.length > MAX_QUESTION_LEN) {
     question = question.substring(0, MAX_QUESTION_LEN) + " [truncated]";
@@ -940,21 +992,21 @@ async function handleAsk(req: IncomingMessage, res: ServerResponse, deps: ApiDep
   }
 
   try {
-    // Load app config so the assistant knows what repo is being tested and where.
+    /* Load app config so the assistant knows what repo is being tested and where. */
     let appInfo: { repo: string; baseUrl?: string } | undefined;
     try {
       const cfg = deps.loadApp(record.app);
       appInfo = { repo: cfg.repo, baseUrl: cfg.dev?.baseUrl };
     } catch { /* app not configured — proceed without */ }
 
-    // Context is bounded (cases + logs capped) and sanitized on ingress (secrets redacted).
+    /* Context is bounded (cases + logs capped) and sanitized on ingress (secrets redacted). */
     const activityCtx = activityRouter.contextForRun(record.id);
     const learningCtx = buildLearningContext(record.app);
     const runCtx = buildRunContext(record, undefined, appInfo, activityCtx || undefined, learningCtx || undefined);
     const productCtx = buildRunChatContext();
     const historyCtx = historyLines.length > 0 ? `\n\nRecent conversation:\n${historyLines.slice(-6).join("\n")}` : "";
     const answer = await deps.ask({ context: `${productCtx}\n\n---\n\n${runCtx}${historyCtx}`, question });
-    // Sanitize on egress (logs→chat is a new egress path).
+    /* Sanitize on egress (logs→chat is a new egress path). */
     contractJson(res, 200, AskResponseSchema, { answer: sanitizeText(answer).text });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1022,10 +1074,12 @@ async function handleHelp(req: IncomingMessage, res: ServerResponse, deps: ApiDe
   return true;
 }
 
-// Exchange a GitHub user token (obtained by the client via the OAuth device flow) for a
-// short-lived server session. The deps.login closure does the GitHub verification + repo
-// authorization + session minting; this handler is pure validation + status mapping:
-// 400 malformed, 401 bad/unknown GitHub token, 403 authenticated-but-not-a-collaborator.
+/*
+ * Exchange a GitHub user token (obtained by the client via the OAuth device flow) for a
+ * short-lived server session. The deps.login closure does the GitHub verification + repo
+ * authorization + session minting; this handler is pure validation + status mapping:
+ * 400 malformed, 401 bad/unknown GitHub token, 403 authenticated-but-not-a-collaborator.
+ */
 async function handleLogin(req: IncomingMessage, res: ServerResponse, deps: ApiDeps): Promise<boolean> {
   if (!deps.login) {
     json(res, 501, { error: "GitHub login is not configured on this server" });
@@ -1060,8 +1114,10 @@ async function handleLogin(req: IncomingMessage, res: ServerResponse, deps: ApiD
       json(res, 401, { error: "the GitHub token was rejected" });
     }
   } catch (err) {
-    // A GitHub API outage is infra, not a credential problem — surface it loudly, don't
-    // masquerade it as a 401 (which would send the operator chasing a non-existent token bug).
+    /*
+     * A GitHub API outage is infra, not a credential problem — surface it loudly, don't
+     * masquerade it as a 401 (which would send the operator chasing a non-existent token bug).
+     */
     const msg = err instanceof Error ? err.message : String(err);
     json(res, 502, { error: `GitHub login failed: ${msg}` });
   }
@@ -1083,9 +1139,11 @@ function handleLocalLogin(req: IncomingMessage, res: ServerResponse, deps: ApiDe
   return true;
 }
 
-// Continuation: re-run the parent's FAILED cases with optional human guidance. The
-// data model (parentRunId/fixCases) and pipeline support this; this is the HTTP entry
-// the TUI's `continue` command calls.
+/*
+ * Continuation: re-run the parent's FAILED cases with optional human guidance. The
+ * data model (parentRunId/fixCases) and pipeline support this; this is the HTTP entry
+ * the TUI's `continue` command calls.
+ */
 async function handleContinue(req: IncomingMessage, res: ServerResponse, deps: ApiDeps, parentId: string): Promise<boolean> {
   const parent = deps.getRecord(parentId);
   if (!parent) {
@@ -1106,7 +1164,7 @@ async function handleContinue(req: IncomingMessage, res: ServerResponse, deps: A
     return true;
   }
 
-  // Optional body: { cases?: string[], guidance?: string }.
+  /* Optional body: { cases?: string[], guidance?: string }. */
   let cases: string[] | undefined;
   let guidance: string | undefined;
   try {
@@ -1121,8 +1179,10 @@ async function handleContinue(req: IncomingMessage, res: ServerResponse, deps: A
     return true;
   }
 
-  // If specific cases were requested, they must name actual failed cases of the parent
-  // (otherwise the continuation would have nothing to fix).
+  /*
+   * If specific cases were requested, they must name actual failed cases of the parent
+   * (otherwise the continuation would have nothing to fix).
+   */
   if (cases && cases.length > 0) {
     const unknown = cases.filter((c) => !failedNames.has(c));
     if (unknown.length > 0) {
@@ -1167,7 +1227,7 @@ async function handleCreateApp(req: IncomingMessage, res: ServerResponse, deps: 
       json(res, 422, { errors: result.errors ?? ["invalid app config"] });
       return true;
     }
-    // env VALUES never travel back; CreateAppResult only carries the key names.
+    /* env VALUES never travel back; CreateAppResult only carries the key names. */
     contractJson(res, parsed.data.dryRun || parsed.data.validateOnly ? 200 : 201, CreateAppResultSchema, result);
   } catch (err) {
     json(res, 500, { error: redactionPort.redactError(err) });
@@ -1219,9 +1279,7 @@ function handleDeleteApp(res: ServerResponse, deps: ApiDeps, name: string, purge
   return true;
 }
 
-// Slice 5a: server-side boundary-profile onboarding job (design delta §C). propose() is
-// fire-and-forget — the handler does NOT await the job's returned promise (202 without blocking,
-// spec E1); status() is a plain poll; confirm() is the ONLY write step (spec E3).
+
 async function handleProposeBoundaries(req: IncomingMessage, res: ServerResponse, deps: ApiDeps, name: string): Promise<boolean> {
   if (!deps.boundaries) {
     json(res, 501, { error: "boundary-profile onboarding is not available" });
@@ -1240,10 +1298,12 @@ async function handleProposeBoundaries(req: IncomingMessage, res: ServerResponse
     json(res, 400, { error: "invalid propose-boundaries input", issues: parsed.error.issues });
     return true;
   }
-  // propose() rejects the mutex SYNCHRONOUSLY (a plain {ok:false} object, not a promise) — see
-  // onboarding-job.ts's own contract. Only that synchronous shape can be inspected here; an
-  // ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget,
-  // spec E1) — any error surfacing later only shows up on the next status() poll.
+  /*
+   * propose() rejects the mutex SYNCHRONOUSLY (a plain {ok:false} object, not a promise) — see
+   * onboarding-job.ts's own contract. Only that synchronous shape can be inspected here; an
+   * ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget,
+   * spec E1) — any error surfacing later only shows up on the next status() poll.
+   */
   const result = deps.boundaries.propose(name, parsed.data);
   if (!(result instanceof Promise) && !result.ok) {
     json(res, 409, { error: result.error });

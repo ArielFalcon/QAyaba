@@ -44,11 +44,7 @@ export const ROLE_TO_OPENCODE_AGENT: Record<AgentRole, string> = {
   proposer: "qa-proposer",
 };
 
-// Used ONLY when opencode.json is missing/unreadable (otherwise the live agent catalog wins). Kept
-// aligned with the models actually assigned in agents/opencode.json (WS9.4(b): re-synced to the
-// LIVE roster) so a fallback never rejects a valid default: generator/proposer/workers=glm-5.3-flash,
-// reviewer=muse-spark-1.3-contributor, maintainer=kimi-k2.7-code. Re-verify against `opencode models`
-// (or agents/opencode.json directly) whenever the live roster changes.
+/* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
   { id: "opencode-go/glm-5.3-flash", label: "GLM 5.3 Flash" },
   { id: "opencode-go/muse-spark-1.3-contributor", label: "Muse Spark 1.3 Contributor" },
@@ -86,8 +82,6 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   async openSession(
     role: AgentRole,
     cwd: string,
-    // onUsage/descriptor/onTurn are forwarded verbatim to deps.open: the typed usage + turn-telemetry
-    // paths. defaultAgentDeps.open builds the AgentTurnEvent funnel from the descriptor (see AgentRuntimeStrategy).
     opts?: {
       signal?: AbortSignal;
       timeoutMs?: number;

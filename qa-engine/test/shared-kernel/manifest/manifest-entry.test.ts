@@ -1,9 +1,9 @@
-// qa-engine/test/shared-kernel/manifest/manifest-entry.test.ts
-// Direct unit tests for the canonical manifest-entry schema (migration-tier-4b Slice 2 — THE
-// manifest reconciliation). manifest-fs.test.ts and src/qa/metadata.test.ts (via schemas.ts's
-// re-export) already exercise this schema through its two real consumption paths (write/read); this
-// file pins the schema's OWN contract directly — the union shape, the round-trip of every Shape-A
-// field, and the requiredness/enum rules — independent of either call site.
+/* qa-engine/test/shared-kernel/manifest/manifest-entry.test.ts
+   manifest reconciliation). manifest-fs.test.ts and src/qa/metadata.test.ts (via schemas.ts's
+   re-export) already exercise this schema through its two real consumption paths (write/read); this
+   file pins the schema's OWN contract directly — the union shape, the round-trip of every Shape-A
+   field, and the requiredness/enum rules — independent of either call site.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ManifestEntrySchema, ManifestSchema, validateManifest, manifestEntryViolation } from "@kernel/manifest/manifest-entry.ts";
@@ -82,8 +82,9 @@ test("ManifestSchema: an array of well-formed entries parses", () => {
   assert.equal(ManifestSchema.safeParse([complete]).success, true);
 });
 
-// manifestEntryViolation: the canonical single-entry check manifest-fs.ts's write-path safetyFilter
-// uses (replacing the old hand-rolled twin).
+/* manifestEntryViolation: the canonical single-entry check manifest-fs.ts's write-path safetyFilter
+   uses (replacing the old hand-rolled twin).
+ */
 test("manifestEntryViolation: undefined for a well-formed entry", () => {
   assert.equal(manifestEntryViolation(complete), undefined);
 });

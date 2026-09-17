@@ -45,11 +45,10 @@ test("equivalence: reviewerRationale text is ignored (not behavioral)", () => {
   assert.equal(runOutcomeEquivalent(a, b).equal, true);
 });
 
-// G2 (Plan 6 addendum): catalogGate* fields are set on every persistOutcome call in pipeline.ts
-// (pipeline.ts:1018-1020) but were comparator-blind — a rewrite could silently drop Pillar-2
-// catalog-gate telemetry undetected. Wired into behavioralProjection with the same 0-not-undefined
-// normalization the design already uses elsewhere (missing/undefined defaults to 0, the semantic
-// "gate did not fire" value both sides agree on when neither ran the catalog gate).
+/* catalog-gate telemetry undetected. Wired into behavioralProjection with the same 0-not-undefined
+   normalization the design already uses elsewhere (missing/undefined defaults to 0, the semantic
+   "gate did not fire" value both sides agree on when neither ran the catalog gate).
+ */
 test("equivalence: a different catalogGateInWindow is NOT equivalent", () => {
   const a = { ...base, gateSignals: { ...base.gateSignals, catalogGateInWindow: 2 } };
   const b = { ...base, runId: "r2", gateSignals: { ...base.gateSignals, catalogGateInWindow: 5 } };
@@ -69,7 +68,7 @@ test("equivalence: a different catalogGateFailClosed is NOT equivalent", () => {
 });
 
 test("equivalence: catalogGate* absent on one side and 0 on the other IS equivalent (0-not-undefined normalization)", () => {
-  const a = base; // no catalogGate* fields at all (stale golden shape)
+  const a = base; /* no catalogGate* fields at all (stale golden shape) */
   const b = { ...base, runId: "r2", gateSignals: { ...base.gateSignals, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 } };
   assert.equal(runOutcomeEquivalent(a, b).equal, true);
 });

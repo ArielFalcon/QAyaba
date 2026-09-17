@@ -1,8 +1,4 @@
-// PARITY: the ported fold math must match legacy src/qa/learning/learning-rule.ts byte-for-byte
-// behavior (running-mean successRate, hysteresis-gated status transitions, coverage-anchor gate,
-// prevention scoring) until the legacy module is deleted. Imports from src/ (outside qa-engine
-// rootDir) — excluded from qa-engine typecheck (see qa-engine/tsconfig.json), runs via tsx at
-// runtime, typechecked only under qa-engine/tsconfig.parity.json.
+/* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -73,9 +69,10 @@ test("PARITY: preventionOutcome matches legacy across errorClass combinations", 
     ["E-FRAGILE-SELECTOR", "E-FRAGILE-SELECTOR"],
     ["E-FRAGILE-SELECTOR", null],
     ["E-FRAGILE-SELECTOR", "E-EXEC-FAIL"],
-    // WS1.4(a): empty/blank ruleErrorClass is unfalsifiable (a real run's errorClass is never "" —
-    // only a genuine ErrorClass or null) — both twins must return null (no signal) instead of the
-    // free PREVENTION_HELD_SCORE ride, across every runErrorClass shape, so the twins cannot drift.
+    /* empty/blank ruleErrorClass is unfalsifiable (a real run's errorClass is never "" —
+       only a genuine ErrorClass or null) — both twins must return null (no signal) instead of the
+       free PREVENTION_HELD_SCORE ride, across every runErrorClass shape, so the twins cannot drift.
+     */
     ["", null],
     ["", "E-EXEC-FAIL"],
     ["", "E-INFRA"],
@@ -103,9 +100,10 @@ test("PARITY: applyOutcome running-mean + hysteresis matches legacy across a tra
     { rule: { status: "active", outcomeCount: 5, successRate: 0.5 }, score: 0.1, coverageCreditConfirmed: null, isOracleScore: true },
     { rule: { status: "deprecated", outcomeCount: 5, successRate: 0.5 }, score: 0.9, coverageCreditConfirmed: null, isOracleScore: true },
     { rule: { status: "pending", outcomeCount: 0, successRate: null }, score: 0.5, coverageCreditConfirmed: null, isOracleScore: true },
-    // WS1.4(b): the prevention-path dimension (isOracleScore=false / omitted) — both twins must
-    // hold a candidate at "candidate" here even though outcomeCount reaches MIN_OUTCOMES and
-    // successRate clears PROMOTE_RATE, because zero outcomes were oracle-scored.
+    /* the prevention-path dimension (isOracleScore=false / omitted) — both twins must
+       hold a candidate at "candidate" here even though outcomeCount reaches MIN_OUTCOMES and
+       successRate clears PROMOTE_RATE, because zero outcomes were oracle-scored.
+     */
     { rule: { status: "candidate", outcomeCount: 2, successRate: 0.6, oracleOutcomeCount: 0 }, score: 0.6, coverageCreditConfirmed: null, isOracleScore: false },
   ];
   for (const s of scenarios) {

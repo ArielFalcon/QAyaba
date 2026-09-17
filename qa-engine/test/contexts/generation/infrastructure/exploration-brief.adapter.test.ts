@@ -1,4 +1,3 @@
-// test/contexts/generation/infrastructure/exploration-brief.adapter.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExplorationBriefAdapter } from "@contexts/generation/infrastructure/exploration-brief.adapter.ts";

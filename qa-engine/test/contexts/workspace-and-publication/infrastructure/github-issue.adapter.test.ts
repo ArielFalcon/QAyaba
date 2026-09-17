@@ -1,7 +1,7 @@
-// test/contexts/workspace-and-publication/infrastructure/github-issue.adapter.test.ts
-// migration-tier-4a: GitHubIssueAdapter now owns the POST /issues call itself — github.ts's
-// openIssue closure is retired. The fake plays the HTTP boundary, pinning endpoint/headers/clamped
-// body directly instead of only the delegated-call sequence.
+/* test/contexts/workspace-and-publication/infrastructure/github-issue.adapter.test.ts
+   openIssue closure is retired. The fake plays the HTTP boundary, pinning endpoint/headers/clamped
+   body directly instead of only the delegated-call sequence.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter.ts";

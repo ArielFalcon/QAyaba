@@ -1,6 +1,4 @@
-// NEW kernel concept: the set of files a commit changed, keyed by its Sha — the unit the analyze and
-// coverage phases reason over. Promoted from the bare diff/changed-files strings that flowed
-// untyped through the legacy pipeline. Immutable, deterministic identity (deduped + sorted).
+/* Files a commit changed, keyed by Sha. Immutable; identity is deduped and sorted. */
 
 import { Sha } from "./sha.ts";
 

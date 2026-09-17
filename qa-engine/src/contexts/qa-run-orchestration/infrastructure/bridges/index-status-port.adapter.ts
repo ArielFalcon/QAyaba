@@ -1,6 +1,4 @@
-// Durable JSON sidecar for IndexStatusPort. Store lives at join(dataDir, "index-status.json");
-// dataDir is supplied by the shell/factory (never process.env here). Missing file, corrupt JSON,
-// or a non-object root all read as "no cursor" (undefined) — getLastIndexedSha never throws.
+/* Durable JSON sidecar for IndexStatusPort. Store lives at join(dataDir, "index-status.json"); dataDir is supplied by the shell/factory (never process.env here). Missing file, corrupt JSON, or a non-object root all read as "no cursor" (undefined) — getLastIndexedSha never throws. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";

@@ -1,7 +1,6 @@
-// test/contexts/qa-run-orchestration/composition/pipeline-engine-flag.test.ts
-// Plan 7.6 (cutover finale): the legacy engine is deleted — selectEngine ALWAYS resolves to
-// "rewritten" now, regardless of PIPELINE_ENGINE. Only the explicit "legacy" value gets a
-// (once-only) deprecation warning, since it can no longer be honored.
+/* selectEngine always resolves to "rewritten", regardless of PIPELINE_ENGINE. Only the explicit
+   "legacy" value gets a (once-only) deprecation warning, since it can no longer be honored.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { selectEngine, PIPELINE_ENGINE } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag.ts";

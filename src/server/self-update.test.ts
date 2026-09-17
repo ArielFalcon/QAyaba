@@ -22,7 +22,7 @@ test("pending-promote survives the swap marker being cleared, and is cleared on 
     assert.equal(readPendingPromote(dir), null);
     const p = { promote: { repo: "o/r", prNumber: 7, nodeId: "PR_node" }, prUrl: "https://x/pull/7", at: "t" };
     writePendingPromote(dir, p);
-    assert.deepEqual(readPendingPromote(dir), p); // durable across the marker clear / a restart
+    assert.deepEqual(readPendingPromote(dir), p); /* durable across the marker clear / a restart */
     clearPendingPromote(dir);
     assert.equal(readPendingPromote(dir), null);
   } finally {
@@ -30,7 +30,6 @@ test("pending-promote survives the swap marker being cleared, and is cleared on 
   }
 });
 
-// An in-memory fake fs that records copy/remove operations and holds a marker.
 function fakeFs(present: Set<string> = new Set()): SwapFs & { ops: string[]; marker: SwapMarker | null } {
   let marker: SwapMarker | null = null;
   const ops: string[] = [];
@@ -61,7 +60,6 @@ function fakeFs(present: Set<string> = new Set()): SwapFs & { ops: string[]; mar
 test("performSwap backs up the live tree before overwriting it, then arms the marker", () => {
   const fs = fakeFs(new Set(["/app/src", "/app/package.json", "/app/package-lock.json", "/work/src", "/work/package.json", "/work/package-lock.json"]));
   performSwap("/app", "/work", "/data", { at: "t1", prUrl: "u" }, fs);
-  // backup happened BEFORE the live src was removed/overwritten
   const backupIdx = fs.ops.findIndex((o) => o === "cp /app/src -> /app/src.bak");
   const removeIdx = fs.ops.findIndex((o) => o === "rm /app/src");
   assert.ok(backupIdx >= 0 && removeIdx >= 0 && backupIdx < removeIdx, "backup must precede removing live src");

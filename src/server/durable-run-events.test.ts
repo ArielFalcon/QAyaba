@@ -24,9 +24,10 @@ test("a fresh store replays events from the SHARED durable backing (the cross-pr
   writer.publish("r1", { type: "run.started", app: "a", sha: "s", mode: "diff", target: "e2e" });
   writer.publish("r1", { type: "step.changed", step: "execute" });
 
-  // A SECOND store instance — modelling the orchestrator process reading a run produced by the
-  // CLI's own process: its in-memory buffer is empty, so replay must backfill from the durable
-  // store. This is exactly what makes an out-of-process run observable.
+  /* A SECOND store instance — modelling the orchestrator process reading a run produced by the
+     CLI's own process: its in-memory buffer is empty, so replay must backfill from the durable
+     store. This is exactly what makes an out-of-process run observable.
+   */
   const reader = createDurableRunEventStore({
     saveRunEvent: () => {},
     loadRunEvents: (runId, afterSeq) => durable.filter((r) => r.runId === runId && r.seq > afterSeq),

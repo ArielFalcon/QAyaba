@@ -24,9 +24,7 @@ func winnerProfile() contract.OnboardingJobStatus_ResolvedProfile {
 	return p
 }
 
-// winnerResolution builds a realistic Resolution: two edges the frontend actually calls, plus
-// some unresolved and drifted calls — a winner should always carry one of these now (the
-// human-meaningful result the propose screen renders), never just the raw profile shape.
+/* Realistic Resolution: two edges the frontend actually calls, plus unresolved and drifted calls. A winner should always carry one of these (the human-meaningful result the propose screen renders), never just the raw profile shape. */
 func winnerResolution() *struct {
 	Drift float32 `json:"drift"`
 	Edges []struct {
@@ -120,7 +118,7 @@ func inProgressStatus(state contract.OnboardingJobStatusState, round float32) co
 	}
 }
 
-// Every state renders a distinguishable View — the badge/round line the design calls for.
+/* Every state renders a distinguishable View — the badge and round line. */
 func TestBoundaryProposeFoldsEveryStateIntoDistinctView(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -151,8 +149,8 @@ func TestBoundaryProposeFoldsEveryStateIntoDistinctView(t *testing.T) {
 	}
 }
 
-// enter on a winner outcome dispatches confirmBoundariesCmd — and ONLY on a winner outcome
-// (defense in depth alongside the server's own 409/422 on a non-winner confirm).
+/* enter on a winner outcome dispatches confirmBoundariesCmd — and ONLY on a winner outcome
+   (defense in depth alongside the server's own 409/422 on a non-winner confirm). */
 func TestBoundaryProposeConfirmFiresOnlyOnWinner(t *testing.T) {
 	winner := newBoundaryProposeModel(nil, "shop")
 	winner.width, winner.height = 100, 30
@@ -163,8 +161,8 @@ func TestBoundaryProposeConfirmFiresOnlyOnWinner(t *testing.T) {
 	}
 	switch cmd().(type) {
 	case confirmedBoundariesMsg, errMsg:
-		// confirmBoundariesCmd resolves to one of these — proves the confirm command fired
-		// (client is nil here, so it errors, but the dispatch itself is what's under test).
+		/* confirmBoundariesCmd resolves to one of these — proves the confirm command fired
+		   (client is nil here, so it errors, but the dispatch itself is what's under test). */
 	default:
 		t.Fatalf("enter on a winner should dispatch confirmBoundariesCmd; got %#v", cmd())
 	}
@@ -189,8 +187,8 @@ func TestBoundaryProposeConfirmFiresOnlyOnWinner(t *testing.T) {
 	}
 }
 
-// esc on the winner confirm card discards — no confirm dispatched, and the caller (model.go)
-// is the one that actually navigates back; this model only needs to emit backMsg.
+/* esc on the winner confirm card discards — no confirm dispatched, and the caller (model.go)
+   is the one that actually navigates back; this model only needs to emit backMsg. */
 func TestBoundaryProposeEscDiscardsNoWrite(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -204,13 +202,7 @@ func TestBoundaryProposeEscDiscardsNoWrite(t *testing.T) {
 	}
 }
 
-// The winner card's job is to show the human-meaningful RESULT: how the repos actually connect
-// (Resolution.Edges) and what still needs attention (unresolved/drift/external call counts) —
-// never the raw internal profile shape (transport/frontFiles/serviceRepoTemplate/openApiPath),
-// which the human never needs to review directly (ADAPTED from the old
-// TestBoundaryProposeRendersEventWinnerProfile — the winner card no longer renders that raw
-// template at all, so the old assertions on servicePrefixTemplate/openApiPath/eventPattern words
-// are gone by design, not by omission).
+/* Winner card shows how the repos actually connect (Resolution.Edges) and what still needs attention (unresolved/drift/external call counts) — never the raw internal profile shape (transport/frontFiles/serviceRepoTemplate/openApiPath). */
 func TestBoundaryProposeWinnerCardShowsConnectionsAndNeedsAttention(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -228,12 +220,7 @@ func TestBoundaryProposeWinnerCardShowsConnectionsAndNeedsAttention(t *testing.T
 	}
 }
 
-// A winner whose ResolvedProfile is set but Resolution is nil (eventWinnerStatus predates the
-// Resolution field) must fall back to the minimal "ready" line — never panic on a nil Resolution,
-// and never render a connections/needs-attention block it has no data for. ADAPTED from the old
-// TestBoundaryProposeRendersEventWinnerProfile: that test exercised the event-transport branch of
-// the now-deleted renderResolvedProfile; this fixture (ResolvedProfile set, Resolution nil) is now
-// the natural case for the defensive nil-Resolution fallback instead.
+/* ResolvedProfile set but Resolution nil must fall back to the minimal "ready" line — never panic on a nil Resolution, and never render a connections/needs-attention block it has no data for. */
 func TestBoundaryProposeWinnerWithNilResolutionFallsBackToMinimalLine(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -252,9 +239,7 @@ func TestBoundaryProposeWinnerWithNilResolutionFallsBackToMinimalLine(t *testing
 	}
 }
 
-// A no-profile outcome renders no confirm card and esc still just goes back. ADAPTED: the
-// no-profile screen now renders a meaningful configured-but-no-connections message instead of the
-// old bare hint line, so the assertion checks the new copy ("no boundary profile found" is gone).
+/* A no-profile outcome renders no confirm card; esc still goes back. The screen renders a configured-but-no-connections message. */
 func TestBoundaryProposeNoProfileRendersDistinctlyFromWinner(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -270,9 +255,9 @@ func TestBoundaryProposeNoProfileRendersDistinctlyFromWinner(t *testing.T) {
 	}
 }
 
-// Once a job reaches a terminal state (done or failed), the model must stop rescheduling its
-// own tick — otherwise the poll loop never terminates (mirrors the ongoing pollTick idiom's
-// termination contract, system.go, but a per-screen tick instead of the ambient one).
+/* Once a job reaches a terminal state (done or failed), the model must stop rescheduling its
+   own tick — otherwise the poll loop never terminates (mirrors the ongoing pollTick idiom's
+   termination contract, system.go, but a per-screen tick instead of the ambient one). */
 func TestBoundaryProposeStopsTickingOnTerminalState(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -291,8 +276,8 @@ func TestBoundaryProposeStopsTickingOnTerminalState(t *testing.T) {
 			}
 		})
 	}
-	// A non-terminal status DOES reschedule (batched: reschedule tick + nothing else, since the
-	// poll itself is fired by the tick, not by folding the status).
+	/* A non-terminal status DOES reschedule (batched: reschedule tick + nothing else, since the
+	   poll itself is fired by the tick, not by folding the status). */
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
 	_, cmd := m.Update(boundaryStatusMsg{status: inProgressStatus(contract.OnboardingJobStatusStateProposing, 1)})
@@ -301,13 +286,10 @@ func TestBoundaryProposeStopsTickingOnTerminalState(t *testing.T) {
 	}
 }
 
-// judgment-day C1 (defense in depth, client side): a status payload whose App differs from the
-// model's own app must never render the confirm affordance or the winner card, even if the
-// server's own scoping guard were somehow bypassed. The client must render a clear mismatch
-// notice instead of silently treating another app's winner as its own.
+/* A status payload whose App differs from the model's own app must never render the confirm affordance or the winner card, even if the server's own scoping guard were bypassed. Render a mismatch notice instead of treating another app's winner as its own. */
 func TestBoundaryProposeSuppressesConfirmOnAppMismatch(t *testing.T) {
 	mismatched := winnerStatus()
-	mismatched.App = strPtr("other-app") // model is for "shop"; status belongs to a different app
+	mismatched.App = strPtr("other-app") /* model is for "shop"; status belongs to a different app */
 
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -331,7 +313,7 @@ func TestBoundaryProposeSuppressesConfirmOnAppMismatch(t *testing.T) {
 	}
 }
 
-// The matching-app case (App == model.app) is unaffected — same-app winners still confirm.
+/* The matching-app case (App == model.app) is unaffected — same-app winners still confirm. */
 func TestBoundaryProposeAllowsConfirmWhenAppMatches(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -344,7 +326,7 @@ func TestBoundaryProposeAllowsConfirmWhenAppMatches(t *testing.T) {
 	}
 }
 
-// ── Indexing phase (onboarding-auto-index, Slice 1, design §2.8) ───────────────
+/* ── Indexing phase ── */
 
 func indexingStatus() contract.OnboardingJobStatus {
 	outcome := contract.Winner
@@ -368,8 +350,8 @@ func indexingStatus() contract.OnboardingJobStatus {
 	}
 }
 
-// badgeLabelAndStyle must render a distinguishable "indexing" badge — the ticker relies on the
-// indexing state NOT rendering as one of the existing (terminal-adjacent) badges.
+/* badgeLabelAndStyle must render a distinguishable "indexing" badge — the ticker relies on the
+   indexing state NOT rendering as one of the existing (terminal-adjacent) badges. */
 func TestBoundaryProposeRendersIndexingBadgeAndPerRepoProgress(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -382,16 +364,14 @@ func TestBoundaryProposeRendersIndexingBadgeAndPerRepoProgress(t *testing.T) {
 	}
 }
 
-// The indexing state is non-terminal (design §2.8) — isTerminalOnboardState needs NO change (it is
-// already false-by-omission), but this pins that fact so a future edit cannot silently make
-// "indexing" terminal and stall the poll loop.
+/* Indexing is non-terminal — isTerminalOnboardState is false by omission. Pin that so a future edit cannot silently make "indexing" terminal and stall the poll loop. */
 func TestIndexingStateIsNotTerminal(t *testing.T) {
 	if isTerminalOnboardState(contract.OnboardingJobStatusStateIndexing) {
 		t.Fatal("indexing must be non-terminal — the ticker must keep polling through it")
 	}
 }
 
-// Folding an indexing status must reschedule the tick, exactly like any other non-terminal state.
+/* Folding an indexing status must reschedule the tick, exactly like any other non-terminal state. */
 func TestBoundaryProposeKeepsTickingThroughIndexing(t *testing.T) {
 	m := newBoundaryProposeModel(nil, "shop")
 	m.width, m.height = 100, 30
@@ -401,10 +381,7 @@ func TestBoundaryProposeKeepsTickingThroughIndexing(t *testing.T) {
 	}
 }
 
-// confirmBoundariesCmd's on-success message must NOT force navigation back to the board while the
-// server is still indexing — the propose screen has to stay alive and resume polling until the job
-// reaches a terminal state, or the human never sees indexing progress (design §2.8, the screen-
-// lifecycle root cause: confirmBoundariesCmd used to navigate back unconditionally on success).
+/* Confirm success must NOT force navigation back to the board while the server is still indexing — the propose screen stays alive and resumes polling until the job reaches a terminal state. */
 func TestConfirmedBoundariesMsgCarriesStatusStateSoTheScreenCanDecideWhetherToStay(t *testing.T) {
 	msg := confirmedBoundariesMsg{status: "boundaries confirmed for shop", jobState: contract.OnboardingJobStatusStateIndexing}
 	if msg.jobState != contract.OnboardingJobStatusStateIndexing {

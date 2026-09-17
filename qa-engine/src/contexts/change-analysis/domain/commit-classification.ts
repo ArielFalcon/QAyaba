@@ -1,22 +1,7 @@
-// Commit classifier (Conventional Commits). Provides the change INTENT used to
-// define the test objective and to filter commits that carry no tests. It is
-// ADVISORY: the type→action table is the default, but it is cross-checked against
-// the diff — if the message claims "no behavior change" (refactor/style/chore...)
-// yet the diff ADDS logic, it escalates to generate (the message contradicts the
-// code). The scope is NOT read from parentheses: it is derived from the changed
-// files (the message gives intent, the files give the "where").
-//
-// Ported verbatim in behavior from src/qa/commit-classify.ts. The ONLY change from
-// the original: the inlined parseChangedFiles(diff) is now a module-scope pure function
-// that delegates to the shared DiffParserService logic (no class instantiation at module
-// load — the domain stays DI-clean). The genuinelyAddedLogic/genuinelyAddedConfig walkers
-// stay private: they parse +++/---/+/- with content-relocation subtraction — that is
-// classify-specific logic, NOT generic diff parsing, so it does NOT move to DiffParserService.
+/* Advisory Conventional Commits classifier, cross-checked against the diff. The type→action table is the default; if the message under-promises (refactor/style/chore…) yet the diff adds logic, it escalates to generate. Scope comes from changed files, not header parentheses. Constant-value diffs (e.g. timeout: 5000 → 10000) are NOT auto-escalated — a value-diff heuristic on arbitrary source is high-noise. */
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 
-// Pure module-scope helper — creates a DiffParserService per-call (stateless, zero cost).
-// Restores the legacy self-contained shape: no module-level class instance couples domain
-// load to the kernel at import time.
+/* Per-call DiffParserService (stateless) so domain import does not construct a kernel instance at module load. The genuinely* walkers stay private: relocation subtraction is classify-specific, not generic diff parsing. */
 function changedFilesFromDiff(diff: string): string[] {
   return new DiffParserService().changedFiles(diff);
 }
@@ -30,20 +15,24 @@ export type CommitAction = "generate" | "regression" | "skip";
 export interface CommitIntent {
   type: CommitType;
   breaking: boolean;
-  message: string; // first line (what the agent uses as intent)
-  body?: string; // the commit message body (lines after the subject) — the richest statement of intent
-  changedFiles: string[]; // the agent derives the scope/area from these
+  /** First line — what the agent uses as intent. */
+  message: string;
+  /** Lines after the subject — the richest statement of intent. */
+  body?: string;
+  /** The agent derives the scope/area from these, not from header parentheses. */
+  changedFiles: string[];
 }
 
 export interface CommitClassification extends CommitIntent {
-  hasLogicChange: boolean; // diff signal: does it add net logic?
-  contradiction: boolean; // the message claims "no tests" but the diff adds logic
+  /** Diff signal: does it add net logic? */
+  hasLogicChange: boolean;
+  /** The message claims "no tests" but the diff adds logic. */
+  contradiction: boolean;
   action: CommitAction;
   reason: string;
 }
 
-// Default action per type. feat/fix → tests; perf/refactor → regression only
-// (behavior unchanged); the rest carry no tests.
+/* feat/fix → tests; perf/refactor → regression (behavior unchanged); the rest carry no tests. */
 const DEFAULT_ACTION: Record<CommitType, CommitAction> = {
   feat: "generate",
   fix: "generate",
@@ -56,19 +45,16 @@ const DEFAULT_ACTION: Record<CommitType, CommitAction> = {
   build: "skip",
   test: "skip",
   revert: "skip",
-  unknown: "generate", // no recognizable convention: when in doubt, test
+  unknown: "generate", /* no recognizable convention: when in doubt, test */
 };
 
 export function classifyCommit(message: string, diff: string): CommitClassification {
   const { type, breaking } = parseHeader(message);
   const firstLine = (message.split("\n")[0] ?? "").trim();
-  // The body (paragraphs after the subject) is the richest human statement of intent — what changed
-  // and WHY. The subject alone is often too terse to derive a concrete test objective from.
+  /* The body is the richest human statement of intent; the subject alone is often too terse for a test objective. */
   const body = message.split("\n").slice(1).join("\n").trim();
-  const changedFiles = changedFilesFromDiff(diff); // was the inlined parseChangedFiles
-  // Behavior can change in code (logic keywords) OR in config-as-code that the source-extension
-  // logic check is blind to — a Spring application.yml/.properties setting under a chore/build
-  // message changes runtime behavior yet would otherwise be classified skip and go untested.
+  const changedFiles = changedFilesFromDiff(diff);
+  /* Behavior can change in code OR in config-as-code the source-extension logic check is blind to (e.g. Spring application.yml under a chore message). */
   const hasLogicChange = genuinelyAddedLogic(diff) > 0;
   const hasBehaviorConfigChange = genuinelyAddedConfig(diff) > 0;
 
@@ -79,20 +65,13 @@ export function classifyCommit(message: string, diff: string): CommitClassificat
   if (breaking) {
     reason = "breaking change → generate";
   } else if ((action === "skip" || action === "regression") && (hasLogicChange || hasBehaviorConfigChange)) {
-    // The message promises no new behavior, but the diff adds it (code logic or behavior config).
+    /* The message promises no new behavior, but the diff adds it (code logic or behavior config). */
     contradiction = true;
     action = "generate";
     const what = hasLogicChange ? "logic" : "behavior config";
     reason = `message '${type}' expected no tests, but the diff adds ${what} → escalated to generate`;
   } else if (action === "skip") {
-    // WS7.3(b)/(c) (full-flow remediation, conservative expansion): two DISTINCT blind spots that
-    // both under-classify a skip-typed commit as untestable, closed the SAME way — escalate to
-    // REGRESSION (run the existing suite; stale specs surface), never GENERATE. This is
-    // deliberately weaker than the added-logic/added-config escalation above: a removal or a
-    // migration invalidates EXISTING expectations more than it creates a brand-new surface to
-    // cover, so the cheap, targeted response is re-running what already exists, not writing new
-    // tests speculatively. A red result then flows through the normal fix/Issue machinery exactly
-    // like any other regression run.
+    /* Removals and DB migrations invalidate existing expectations more than they create a new surface — escalate to regression (re-run the suite), never generate. */
     const removedLogic = genuinelyRemovedLogic(diff);
     const migrationChange = genuinelyAddedMigration(diff);
     if (removedLogic > 0) {
@@ -105,37 +84,17 @@ export function classifyCommit(message: string, diff: string): CommitClassificat
       reason = `message '${type}' expected no tests, but the diff adds a DB migration → escalated to regression`;
     }
   }
-  // WS7.3(d) (full-flow remediation, DECISION — documented known limit): constant-value changes
-  // (e.g. `timeout: 5000` → `timeout: 10000`) are NOT auto-escalated. A value-diff heuristic on
-  // arbitrary source is high-noise (nearly every line touches SOME literal) and the false-generate
-  // cost at fleet scale is real. Accepted blind spot — revisit with telemetry if skip-then-fail
-  // incidents against this exact shape show up in practice; do not add a heuristic here on a hunch.
+  /* Constant-value diffs are NOT auto-escalated. A value-diff heuristic on arbitrary source is high-noise (nearly every line touches some literal); the false-generate cost at fleet scale is real. */
 
   return { type, breaking, message: firstLine, body: body || undefined, changedFiles, hasLogicChange, contradiction, action, reason };
 }
 
-// WS7.1 (full-flow remediation, multi-commit range restoration): severity order for reducing
-// several per-commit classifications down to ONE action. "skip < regression < generate" — the
-// action must reflect the WORST (most test-worthy) change anywhere in the range: a single `feat`
-// buried under a stack of `chore` commits must still generate, and any commit that needs the
-// existing suite re-run (regression) must not be silently outvoted by a majority of skips.
+/* skip < regression < generate — the action reflects the worst (most test-worthy) change anywhere in the range. */
 const ACTION_SEVERITY: Record<CommitAction, number> = { skip: 0, regression: 1, generate: 2 };
 
-// Classifies a PUSH/PR range of commits as ONE decision. `headMessage` is the tip commit's own
-// message (ALWAYS passed explicitly — never inferred from array position, since a caller's commit
-// list could be ordered either way depending on how it was fetched); `otherMessages` are the rest
-// of the range (order-independent — only the MAX-severity action is derived from them). Mirrors
-// the single-commit classifyCommit() exactly when otherMessages is empty (the common, no-baseSha
-// case) — same DEFAULT_ACTION table, same escalation cross-check — so a caller with no range gets
-// byte-identical behavior to before this function existed.
-//
-// Design (per the remediation plan): classify EACH commit message (head + others) against the
-// SAME union diff (the diff DEV will actually run against) — this reuses classifyCommit's own
-// escalation cross-check verbatim for every message, rather than inventing a second escalation
-// rule. Take the MAX-severity action across the whole range ("skip < regression < generate").
-// `intent` (type/breaking/message/body/changedFiles) is ALWAYS the head commit's own — the agent's
-// test objective is grounded in what the developer actually wrote for the tip commit, never an
-// arbitrary or averaged message from the range.
+/**
+ * Classifies a push/PR range as one decision. `headMessage` is the tip commit (always explicit — never inferred from array position). `otherMessages` are the rest (order-independent; only MAX-severity action is taken). Empty `otherMessages` matches classifyCommit. Each message is classified against the same union diff; `intent` is always the head's.
+ */
 export function classifyRange(headMessage: string, otherMessages: readonly string[], diff: string): CommitClassification {
   const headClassification = classifyCommit(headMessage, diff);
   const otherClassifications = otherMessages.map((m) => classifyCommit(m, diff));
@@ -167,12 +126,7 @@ function parseHeader(message: string): { type: CommitType; breaking: boolean } {
   return { type, breaking };
 }
 
-// WS7.3(a) (full-flow remediation, conservative expansion — premise-corrected): .vue/.svelte were
-// ALREADY present (verified against the live tree before this fix; the plan's original premise
-// that they were missing was wrong). Only .html/.astro were the genuinely-missing framework
-// template extensions — for an E2E engine, a template change IS a behavior change (it's what the
-// browser renders), so it belongs in the same source-file set every other markup/component
-// extension here already gets.
+/* For an E2E engine a template change is a behavior change (it is what the browser renders). */
 const SOURCE_EXT = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "java", "kt", "py", "go", "rb", "cs",
   "php", "rs", "swift", "scala", "c", "cc", "cpp", "h", "hpp", "vue", "svelte",
@@ -184,12 +138,7 @@ function isSourceFile(path: string): boolean {
   return SOURCE_EXT.has(ext);
 }
 
-// GENUINELY-added logic = added logic lines MINUS those that have an identical removed
-// counterpart (a relocation, not new behavior). Counted across source files only.
-// Using added-minus-relocations instead of a single repo-wide NET is what stops a NEW
-// branch in one file from being silently cancelled by an UNRELATED removal in another
-// (which would let a behavior change go untested), while still not escalating a pure
-// move (the relocated line is matched and subtracted).
+/* Genuinely-added logic = added logic lines minus identical removed counterparts (a relocation, not new behavior). Added-minus-relocations (not repo-wide net) so a new branch in one file is not cancelled by an unrelated removal in another. */
 function genuinelyAddedLogic(diff: string): number {
   let currentSource = false;
   const added: string[] = [];
@@ -210,8 +159,7 @@ function genuinelyAddedLogic(diff: string): number {
       if (looksLikeLogic(line.slice(1))) removed.push(line.slice(1).trim());
     }
   }
-  // Subtract relocations by content: an added logic line with a matching removed line is
-  // a move, not new logic. Each removal can cancel at most one addition.
+  /* Each removal can cancel at most one addition. */
   const removedCounts = new Map<string, number>();
   for (const r of removed) removedCounts.set(r, (removedCounts.get(r) ?? 0) + 1);
   let net = 0;
@@ -223,16 +171,7 @@ function genuinelyAddedLogic(diff: string): number {
   return net;
 }
 
-// WS7.3(b) (full-flow remediation, conservative expansion): GENUINELY-removed logic — the
-// symmetric twin of genuinelyAddedLogic above, same relocation subtraction, but counting the
-// OPPOSITE direction (removed lines minus those that have an identical added counterpart — a
-// relocation, not a deletion of behavior). A removal-only diff (deleting a guard, a branch, an
-// entire function) never registered in genuinelyAddedLogic (which only ever counts the `+` side),
-// so a skip-typed commit that REMOVES real logic previously escalated to nothing at all — the
-// existing suite's coverage of that removed behavior goes stale and silently unverified. Kept as
-// its OWN standalone walk (not a refactor of genuinelyAddedLogic) so the existing, tested function
-// is never put at risk by this addition — the two are twins by construction, pinned by their own
-// parity/behavior tests, not by sharing a code path.
+/* Symmetric twin of genuinelyAddedLogic: removed lines minus identical added counterparts. A removal-only diff never registers in genuinelyAddedLogic, so a skip-typed deletion would otherwise leave stale suite coverage unverified. Standalone walk so the two stay independently testable. */
 function genuinelyRemovedLogic(diff: string): number {
   let currentSource = false;
   const added: string[] = [];
@@ -253,9 +192,7 @@ function genuinelyRemovedLogic(diff: string): number {
       if (looksLikeLogic(line.slice(1))) removed.push(line.slice(1).trim());
     }
   }
-  // Subtract relocations by content: a removed logic line with a matching added line is a move,
-  // not deleted behavior. Each addition can cancel at most one removal (mirrors genuinelyAddedLogic's
-  // own cancellation direction, reversed).
+  /* Each addition can cancel at most one removal. */
   const addedCounts = new Map<string, number>();
   for (const a of added) addedCounts.set(a, (addedCounts.get(a) ?? 0) + 1);
   let net = 0;
@@ -267,14 +204,7 @@ function genuinelyRemovedLogic(diff: string): number {
   return net;
 }
 
-// WS7.3(c) (full-flow remediation, conservative expansion): SQL migration files — deliberately
-// NARROW, matching the same "behavior-config, not everything" discipline BEHAVIOR_CONFIG below
-// already applies: a bare `.sql` file changed under a conventional migration DIRECTORY (Flyway/
-// Liquibase's own `db/migration`, `migrations`, or `db/changelog` layouts), or a `.sql` file whose
-// NAME carries a migration-tool version/sequence prefix (Flyway `V1__`/`R__`, a bare numeric
-// sequence like `001_add_column.sql`) — a schema migration invalidates existing expectations (a
-// dropped column, a renamed table) more than it creates new coverage surface, so it escalates
-// exactly like a removal (regression: run the suite, stale specs surface), never generate.
+/* SQL migrations — narrow, same "behavior-config, not everything" discipline: a `.sql` file under a conventional migration directory (Flyway/Liquibase `db/migration`, `migrations`, `db/changelog`) or whose name carries a version/sequence prefix. A schema change invalidates existing expectations, so it escalates to regression, never generate. */
 const MIGRATION_PATH = /(^|\/)(db[\\/]migration|migrations|db[\\/]changelog)[\\/][^/]+\.sql$/i;
 const MIGRATION_FILENAME = /(^|\/)(v\d+(\.\d+)*__|r__|\d{3,}[_-]).*\.sql$/i;
 
@@ -282,10 +212,7 @@ function isMigrationFile(path: string): boolean {
   return MIGRATION_PATH.test(path) || MIGRATION_FILENAME.test(path);
 }
 
-// Net-added lines (any content, not just "looks like logic" — SQL DDL/DML has none of the
-// LOGIC-regex keywords) in a migration file. Any added line is schema-affecting by definition of
-// the file being a migration at all; relocations are subtracted by content, matching every other
-// genuinely* walker's own discipline.
+/* Net-added lines in a migration file (SQL has none of the LOGIC-regex keywords). Any added line is schema-affecting; relocations are subtracted by content. */
 function genuinelyAddedMigration(diff: string): number {
   let inMigration = false;
   const added: string[] = [];
@@ -319,18 +246,14 @@ function genuinelyAddedMigration(diff: string): number {
   return net;
 }
 
-// Behavior-config files whose changes alter runtime behavior (Spring app/profile config, Spring
-// Cloud bootstrap). Deliberately NARROW: dependency manifests (pom.xml, package.json, lockfiles)
-// and CI yaml are excluded so routine bumps do not force-escalate.
+/* Behavior-config files whose changes alter runtime behavior (Spring app/profile config, Spring Cloud bootstrap). Narrow: dependency manifests and CI yaml are excluded so routine bumps do not force-escalate. */
 const BEHAVIOR_CONFIG = /(^|\/)(application|bootstrap)(-[\w]+)?\.(ya?ml|properties)$/i;
 
 function isBehaviorConfigFile(path: string): boolean {
   return BEHAVIOR_CONFIG.test(path);
 }
 
-// Net-added meaningful (non-blank, non-comment) lines in behavior-config files. Config carries
-// no code keywords, so any added setting is a potential behavior change; relocations are
-// subtracted by content exactly like genuinelyAddedLogic.
+/* Net-added meaningful (non-blank, non-comment) lines in behavior-config files. Config carries no code keywords, so any added setting is a potential behavior change; relocations are subtracted by content. */
 function genuinelyAddedConfig(diff: string): number {
   let inConfig = false;
   const added: string[] = [];
@@ -369,14 +292,12 @@ const LOGIC = /\b(if|else|for|while|switch|case|return|function|class|interface|
 function looksLikeLogic(content: string): boolean {
   const t = content.trim();
   if (!t) return false;
-  if (/^(\/\/|\*|\/\*|\*\/|#|<!--|-->)/.test(t)) return false; // comment line
-  // Strip string/template-literal CONTENTS first, so code-like words or parens inside a
-  // string (prose, CSS, a phone number) are not mistaken for logic — a copy change in a
-  // `style`/`refactor` commit must not be force-escalated to generate.
+  if (/^(\/\/|\*|\/\*|\*\/|#|<!--|-->)/.test(t)) return false; /* comment line */
+  /* Strip string/template-literal contents first, so code-like words inside a string are not mistaken for logic. */
   return LOGIC.test(stripStrings(t));
 }
 
-// Replaces the contents of "..." / '...' / `...` with empty strings (handles escapes).
 function stripStrings(s: string): string {
+  /* Replaces "..." / '...' / `...` contents (handles escapes). */
   return s.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""');
 }

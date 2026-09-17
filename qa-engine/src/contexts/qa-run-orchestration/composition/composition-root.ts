@@ -1,30 +1,6 @@
-// src/contexts/qa-run-orchestration/composition/composition-root.ts
-// The composition root (Task E.2). The ONLY module in qa-engine allowed to import concrete
-// adapters from sibling contexts — it sits outside generation/* and agent-runtime/*, so the
-// arch-lint VCS-write gate (no-vcs-write-in-agent-contexts) stays green. Wires ALL 11
-// qa-run-orchestration ports to the REAL bridge adapters built in Task E.0 so the rewritten engine
-// is COMPLETE (not stubbed) and can drive a full QA run.
-//
-// Plan 7.6 (cutover finale): the legacy engine is DELETED. buildProduction(env, cfg) now
-// UNCONDITIONALLY wires a COMPLETE RewrittenOrchestratorAdapter over all 11 real bridges — the
-// PIPELINE_ENGINE flag (selectEngine) is still consulted only so an operator's stale
-// PIPELINE_ENGINE=legacy gets a deprecation warning (see pipeline-engine-flag.ts), never a
-// different code path.
-//
-// buildShadow(cfg): ALWAYS the rewritten engine (bypasses the flag entirely — shadow runs exist to
-// observe the rewritten engine, never the legacy one), with the publication bridge's shadow-log
-// collaborators (ShadowLogAdapter-shaped, no PR/Issue side effect ever fires) and an
-// InMemoryRunHistoryAdapter (a read-only-in-spirit, process-lifetime snapshot — never a durable
-// write to the real history store) so a shadow run has zero observable side effects on the
-// watched repo or the production history.
-//
-// Scope note (mirrors the bridges' own documented boundary): this file wires PORTS to bridges and
-// bridges to ALREADY-CONSTRUCTED sibling collaborators (a constructed GenerateTestsUseCase, a
-// constructed StaticGateAdapter, etc.) — assembling each sibling context's OWN leaf IO primitives
-// (the SandboxedBinaryRunner, the Stryker/c8/lcov file readers, the real HTTP GitHub client, …) is
-// that sibling context's own concern, supplied here via CompositionConfig. This keeps the
-// composition root's job exactly what the plan names it: "wires ALL 11 ports to the REAL bridge
-// adapters" — not "constructs every leaf IO integration from scratch".
+/* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real bridge adapters. PIPELINE_ENGINE is consulted only so a stale operator value gets a deprecation warning, never a different code path.
+buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
+
 import { join } from "node:path";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -75,24 +51,13 @@ import { DecideCoverageService, type CoveragePolicy, type ChangeCoverage } from 
 import type { CoverageCollectorPort, ValueOraclePort } from "@contexts/objective-signal/application/ports/index.ts";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service.ts";
 import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts";
-// sdd/migration-remediation Slice 4 (D-P1a): this composition root is the ONE declared exception to
-// the no-vcs-write-in-agent-contexts arch-lint gate (this file's own header, "the composition root
-// ... its one declared exception") — it may import workspace-and-publication directly, which is how
-// the REAL renderIssue/renderPrBody reach PublicationPortAdapter without that bridge ever importing
-// workspace-and-publication itself (see publication-port.adapter.ts's own PublicationRenderCollaborator
-// doc for the full boundary rationale).
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import type { VcsReadPort } from "@contexts/change-analysis/application/ports/index.ts";
 import type { LearningRepositoryPort, ReflectorPort, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 
-// The static per-run + collaborator surface every bridge needs. Real construction of each
-// IO-bound sibling collaborator (GenerateTestsUseCase, StaticGateAdapter, the execution
-// strategies, the coverage collector/value oracle, VcsReadPort, LearningRepositoryPort) is the
-// CALLER's concern (Task E.3's AppConfig-mapping layer, or a test's fakes) — this config only
-// says WHICH already-constructed instances to wire into which port.
 export interface CompositionConfig {
-  // Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort).
+  /* Static per-run context (shared across GenerationPort/ReviewPort/ExecutionPort/PublicationPort). */
   repo: string;
   appName: string;
   mirrorDir: string;
@@ -106,124 +71,57 @@ export interface CompositionConfig {
   maxRetries: number;
   isCode: boolean;
   coveragePolicyMode: "off" | "signal" | "enforce";
-  // P0-5: per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional so
-  // composition fakes that omit it keep the use-case default (0 = derived but not enforced).
+  /* Per-mode agent session budget (ms). Factory maps agentTimeout(mode). Optional: omitted fakes keep the use-case default (0 = derived but not enforced). */
   agentTimeoutMs?: number;
   wallClockBudgetMs?: number;
   iterationBudget?: number;
   guidance?: string;
   diff?: string;
   baseUrl?: string;
-  // W5 fix (seam-parity FIXME): the app's declared OpenAPI glob hint (AppConfig.openapi), threaded
-  // through to GenerationPortAdapter's static ctx below — mirrors baseUrl's own app-static,
-  // composition-time shape (see GenerationPortStaticContext.openapi's own doc).
   openapi?: string | string[];
-  // injected as PW_TEST_ID_ATTRIBUTE so playwright.config.ts resolves getByTestId against the app's
-  // convention — NO defaulting logic here; undefined flows through and the seed playwright.config.ts
-  // already defaults to data-testid (mirrors legacy resolveTestIdAttribute semantics at the config edge).
   testIdAttribute?: string;
 
-  // ChangeAnalysisPort collaborator.
+  /* ChangeAnalysisPort collaborator. */
   vcs: VcsReadPort;
 
-  // GenerationPort collaborator — an ALREADY-CONSTRUCTED use-case (its own leaf IO ports are the
-  // generation context's own concern) plus the optional specSources file-read collaborator.
+  /* GenerationPort collaborator — an ALREADY-CONSTRUCTED use-case (its own leaf IO ports are the generation context's own concern) plus the optional specSources file-read collaborator. */
   generationUseCase: {
     generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult>;
   };
   readSpecSource?: GenerationPortCollaborators["readSpecSource"];
 
-  // ReviewPort collaborator — the SAME 3 generation-owned primitives the bridge composes standalone.
+  /* ReviewPort collaborator — the SAME 3 generation-owned primitives the bridge composes standalone. */
   reviewRuntime: {
     runtime: Pick<AgentRuntimePort, "openSession">;
     rendering: Pick<PromptRenderingPort, "renderReviewer">;
     verdicts: Pick<VerdictParserPort, "parseReview">;
   };
-  // WS6.1 (full-flow remediation, timeouts & operational observability): the reviewer's OWN prompt
-  // deadline, threaded verbatim into ReviewPortStaticContext.timeoutMs. Composition-root stays
-  // agnostic to the constant's numeric value — the production factory (rewritten-engine-factory.ts)
-  // supplies REVIEWER_TIMEOUT_MS (src/integrations/opencode-client.ts); a unit test can supply any
-  // value or omit it entirely (unchanged pre-existing behavior — no forced timeout).
   reviewTimeoutMs?: number;
 
-  // ValidationPort collaborator — target-selected dispatch (WS2.2, full-flow remediation), mirroring
-  // executionStrategies' own shape immediately below. e2e: the FULL static gate (tsc/eslint-
-  // playwright/playwright --list/manifest/zero-assertion guard). code: the compile-feedback gate
-  // ported from src/qa/code-validate.ts (Filter B for the code target — previously unwired, so the
-  // code target reached execution with zero pre-execution feedback).
   validationStrategies: {
     e2e: Pick<StaticGateAdapter, "validateAll">;
     code: Pick<CodeValidationStrategy, "validate">;
   };
 
-  // ExecutionPort collaborator — target-selected strategy dispatch.
+  /* ExecutionPort collaborator — target-selected strategy dispatch. */
   executionStrategies: {
     e2e: Pick<E2eExecutionStrategy, "run">;
     code: Pick<CodeExecutionStrategy, "run">;
   };
 
-  // SetupPort collaborator (CLAUDE.md run-flow step 3) — target-selected dispatch, mirroring
-  // executionStrategies' own shape. OPTIONAL: absent -> the use-case's setup phase is a no-op
-  // (RunQaUseCaseDeps.setup itself stays optional), matching every composition built before this
-  // field existed.
+  /* SetupPort collaborator — target-selected dispatch. Optional: absent → the use-case setup phase is a no-op. */
   setupCollaborators?: SetupPortCollaborators;
 
-  // CleanupPort collaborator (audit CRITICAL, task #33) — orphan test-data cleanup, e2e-only
-  // (mirrors legacy's `!isCode` conjunct; wireBridges() below skips wiring this port entirely on
-  // the code target, mirroring groundingCollaborators' own `!cfg.isCode` gating precedent).
-  // OPTIONAL: absent -> the use-case's cleanup phase is a no-op (RunQaUseCaseDeps.cleanup itself
-  // stays optional), the SAME posture as setupCollaborators above.
-  //
-  // NOTE: the PRIOR run's namespace itself (RunQaInput.previousNamespace's own doc,
-  // run-qa.use-case.ts) is deliberately NOT a CompositionConfig field — unlike branch/mode/
-  // guidance (which the port adapters need as STATIC per-run context), previousNamespace is
-  // consumed directly off RunInput/RunQaInput by RunQaUseCase itself (the use-case reads
-  // `input.previousNamespace`, not a composition-time value) — unnecessary to duplicate onto this
-  // config too. The caller (src/server/runner.ts's runViaRewrittenEngine) sets it on RunInput at
-  // the port.run(input) call site, the SAME seam triggerRepo/guidance already use.
   cleanupCollaborators?: CleanupPortCollaborators;
 
-  // PreGenerationGroundingPort / ReviewDomGroundingPort collaborators (Plan 7-R W4, audit CRITICAL):
-  // OPTIONAL, mirroring setupCollaborators' own "[SWAP] absent -> the phase is a no-op" precedent.
-  // isCode target has no DOM/routes to ground (mirrors legacy's `!isCode` guards at both call
-  // sites, pipeline.ts:1466/1643/2078) — wireBridges() below skips wiring both ports when
-  // cfg.isCode is true, regardless of whether these collaborators are supplied.
   groundingCollaborators?: PreGenerationGroundingCollaborators;
   reviewDomGroundingCollaborators?: ReviewDomGroundingCollaborators;
-  // PreExecGroundingPort collaborator (Plan 7-R B5.3): the W1/W2 pre-execution corrective/
-  // deterministic-block gate. OPTIONAL, mirroring groundingCollaborators' own "[SWAP] absent -> the
-  // phase is a no-op" precedent EXACTLY. isCode has no DOM/routes to ground (the SAME `!isCode`
-  // gating groundingCollaborators/reviewDomGroundingCollaborators already use below) — wireBridges()
-  // skips wiring this port entirely on the code target, regardless of whether this collaborator is
-  // supplied.
   preExecGroundingCollaborators?: PreExecGroundingCollaborators;
-  // StructuralSignalPort collaborator (CodeGraph Phase 4, design §5.3/§6, ADR-2/ADR-4/ADR-7).
-  // OPTIONAL: absent -> RunQaUseCaseDeps.structuralSignal stays undefined, the SAME [SWAP]
-  // posture setup/groundingCollaborators/cleanupCollaborators already established — never a stub
-  // ok([])-shaped fake. When present, wireBridges constructs a StructuralSignalPortAdapter over a
-  // LazyProjectCodeGraphAdapter (which resolves the codebase-memory-mcp project name from repoDir
-  // via ProjectNameResolver, since the name is only knowable per-repoDir at call time — this
-  // composition root itself stays synchronous). An unindexed repoDir degrades every query to
-  // ok([]) inside that adapter, never surfacing here — this collaborator is deliberately just the
-  // raw CLI client, not a pre-resolved project name (a caller does not know the name up front).
   codebaseMemory?: ProjectNameCliClient & CodebaseMemoryCliClient;
-  // Per-run lastIndexedSha sidecar. OPTIONAL: absent-omit — never default-constructed here
-  // (tests/fakes stay byte-identical when omitted). The shell factory supplies IndexStatusAdapter.
-  // Indexing itself also needs codeGraph (built from codebaseMemory below); either absent is a no-op.
+  /* Per-run lastIndexedSha sidecar. OPTIONAL: absent-omit — never default-constructed here (tests/fakes stay byte-identical when omitted). The shell factory supplies IndexStatusAdapter. Indexing itself also needs codeGraph (built from codebaseMemory below); either absent is a no-op. */
   indexStatus?: IndexStatusPort;
-  // Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter.
-  // Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir.
+  /* Classify-source repo root for CodeGraphPort.syncTo and StructuralSignalPortAdapter. Factory sets this to the SERVICE mirror on a webhook, PRIMARY otherwise. Absent → cfg.mirrorDir. */
   codeGraphRepoDir?: string;
-  // Stitcher→Generation seam (design §3.6): the OPTIONAL serviceTopology collaborator. Mirrors
-  // codebaseMemory's own [SWAP] posture — absent -> RunQaUseCaseDeps.serviceLinks stays undefined,
-  // NEVER a stub ok([])-shaped fake. When present, wireBridges constructs a ServiceLinksPortAdapter
-  // over a REAL MirrorRegistryAdapter(mirrorRoot) (DI, not a static call) and the supplied
-  // BoundaryProfileProviderPort (production: a YamlBoundaryProfileAdapter, constructed by the
-  // caller — src/server/rewritten-engine-factory.ts is the ONE module with the fs access to build
-  // one). Unlike codebaseMemory (ACTIVE unconditionally — an unindexed graph self-degrades cheaply),
-  // this collaborator is gated by the CALLER on `services[] && boundaries[]` both being non-empty
-  // (ADR-6) — this composition root does not re-derive that gate itself, it just wires whatever the
-  // caller decided to supply.
   serviceTopology?: {
     appName: string;
     primaryRepo: string;
@@ -231,205 +129,87 @@ export interface CompositionConfig {
     services: readonly { repo: string }[];
     boundaryProfiles: BoundaryProfileProviderPort;
   };
-  // Slice C (structural-signals-expansion, design §3.8): the OPTIONAL crossRepoImpact
-  // collaborator. Mirrors serviceTopology's own [SWAP] posture — absent -> RunQaUseCaseDeps.
-  // crossRepoImpact stays undefined, NEVER a stub null-shaped fake. When present, wireBridges
-  // constructs a CrossRepoImpactPortAdapter over a REAL MirrorRegistryAdapter(mirrorRoot), a
-  // per-service GitMirrorReadAdapter factory, a LazyProjectCodeGraphAdapter (reusing the SAME
-  // codebaseMemory client the structural-signal collaborator uses), and the SAME shared
-  // SandboxedBinaryRunner instance (reused for the C.4 step-1.5 mirror-freshness fetch — no new
-  // process-spawning surface is introduced). Gated by the CALLER on the SAME
-  // structuralSignalsOn && services[] && boundaries[] condition serviceTopology uses (design C.8).
   crossRepoImpact?: {
     mirrorRoot: string;
     codebaseMemory: ProjectNameCliClient & CodebaseMemoryCliClient;
     runner: SandboxedBinaryRunner;
   };
-  // Cross-repo generation-prompt parity (legacy pipeline.ts:1909, restored by this fix): identifies
-  // the TRIGGERING microservice for a cross-repo run — its repo, its OWN read-only mirror dir, and
-  // its OWN openapi hint. Advisory, prompt-context ONLY: reaches GenerationPortAdapter's
-  // ctx.service -> OpencodeRunInput.service (buildPromptAssembled already renders a "Cross-repo
-  // trigger" section for it) and NOTHING else — no verdict/gate/coverage/publish path reads it, the
-  // SAME posture crossRepoImpact/serviceLinks above already document. OPTIONAL: absent (the common
-  // same-repo case) -> undefined, NEVER a stub — the caller (src/server/rewritten-engine-factory.ts,
-  // the ONE module with the per-run triggerRepo/service resolution) supplies it only for a genuine
-  // cross-repo run.
+  /* Triggering microservice for a cross-repo run — its repo, its own read-only mirror dir, and its own openapi hint. Prompt-context only (GenerationPortAdapter → OpencodeRunInput.service). No verdict/gate/coverage/publish path reads it. Absent in the same-repo case — never a stub. */
   triggerService?: { repo: string; mirrorDir: string; openapi?: string | string[] };
-  // Context-mode multi-service parity (legacy pipeline.ts:1330-1355 buildContextMap, restored by this
-  // fix): EVERY declared service repo for a context-mode run — each mirrored read-only at its OWN
-  // svc.baseBranch ?? "main" — so the agent can extract each service's OpenAPI operations into the
-  // unified FE<->BE context map. Advisory, prompt-context ONLY: reaches GenerationPortAdapter's
-  // ctx.services -> OpencodeRunInput.services (buildContextTask already renders a "## Microservice
-  // repos" section for it) and NOTHING else — no verdict/gate/coverage/publish path reads it, the SAME
-  // posture triggerService above documents. Mutually exclusive with triggerService by construction
-  // (context mode can never be service-triggered — see the factory's own sibling guard). OPTIONAL:
-  // absent (every non-context run, or a context run with no declared services) -> undefined, NEVER an
-  // empty array — the caller (src/server/rewritten-engine-factory.ts) supplies it only for a genuine
-  // context-mode run with app.services declared.
+  /* Every declared service repo for a context-mode run (read-only working copies). Prompt-context only (GenerationPortAdapter → OpencodeRunInput.services). Mutually exclusive with triggerService (context mode is never service-triggered). Absent — never an empty array — when the run is not context-mode or the app has no services. */
   services?: Array<{ repo: string; mirrorDir: string; openapi?: string | string[] }>;
-  // The FE<->BE architecture map (context.json), if loaded — feeds the context pack's contract
-  // filtering. Absent -> the pack degrades to blast-radius + DOM only (mirrors buildContextPack's
-  // own graceful degradation when contextMap is absent).
+  /* FE↔BE architecture map (context.json). Absent → the pack degrades to blast-radius + DOM only. */
   contextMap?: ArchitectureContext;
-  // Union of changed files across the PR's full commit range — further filters contracts to
-  // operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone.
+  /* Union of changed files across the PR's full commit range — further filters contracts to operations the PR actually touched. Absent -> contracts are filtered by contextMap/brief alone. */
   prChangedFiles?: string[];
 
-  // ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or
-  // no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks,
-  // the keystone's own architecturally-safe default).
+  /* ObjectiveSignalPort collaborators — the keystone. assembleChangeCoverage is OPTIONAL (absent, or no per-run diff at measure() call time -> decide() receives null -> "unknown" -> NEVER blocks, the keystone's own architecturally-safe default). */
   objectiveSignal: {
     collector: Pick<CoverageCollectorPort, "collect">;
     oracle: Pick<ValueOraclePort, "measure">;
   };
   coveragePolicy: CoveragePolicy;
-  // (diff, report) -> ChangeCoverage — matches assemble-change-coverage.ts's exported
-  // `assembleChangeCoverage` shape (a pure port of legacy parseDiffHunks + computeChangeCoverage).
-  // Widened from the earlier `(report, br)` shape: br carries no diff (BlastRadius.changedFiles is
-  // frequently empty at the RunQaUseCase call site), while the run's REAL diff — sourced from
-  // ChangeAnalysisPort.classify() in diff mode, the ONLY mode that measures change-coverage — is
-  // exactly what parseDiffHunks needs.
   assembleChangeCoverage?: (diff: string, report: Awaited<ReturnType<CoverageCollectorPort["collect"]>>) => ChangeCoverage;
   baselineCases?: string[];
 
-  // PublicationPort collaborators (production path only — buildShadow always overrides these with
-  // the shadow-log path, per the security-boundary note in publication-port.adapter.ts).
+  /* PublicationPort collaborators (production path only — buildShadow always overrides these with the shadow-log path, per the security-boundary note in publication-port.adapter.ts). */
   githubPr: GitHubPrCollaborator;
   githubIssue: GitHubIssueCollaborator;
-  // PROD-BLOCKER fix: OPTIONAL here for the SAME reason it is optional on PublicationPortCollaborators
-  // (publication-port.adapter.ts's own doc) — only the "pr" route needs it, so a shadow-only or
-  // issue-only composition/test is not forced to wire a collaborator it never invokes. The REAL
-  // production composition (src/server/rewritten-engine-factory.ts) always supplies it; an absent
-  // vcsWrite reaching an ACTUAL "pr" route is a composition defect that throws loudly at publish()
-  // time (PublicationPortAdapter's own fail-closed guard), never a silent PR against an unpushed branch.
+  /* Git write for the "pr" route only. Optional at the type so issue/shadow compositions need not wire it; an actual "pr" route without it throws (fail-closed) rather than opening a PR against an unpushed branch. */
   vcsWrite?: VcsPublishCollaborator;
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
-  // F4 (CRITICAL security invariant): CLAUDE.md "Sanitize data leaving the system — execution logs
-  // -> Issue... pass through src/orchestrator/sanitizer.ts". OPTIONAL — absent defaults to identity
-  // inside PublicationPortAdapter (backward-compat for every pre-existing composition/test). The
-  // composition root that owns a src/ import (src/server/rewritten-engine-factory.ts) wires the REAL
-  // sanitizeText here; qa-engine/src stays src/-free — the sanitizer is injected, never imported.
+  /* Issue/PR-body sanitizer. Injected, never imported (qa-engine stays src/-free). Required: wireBridges throws if absent — no identity default. Shell composition supplies sanitizeText from src/orchestrator/sanitizer.ts. */
   sanitize?: (text: string) => string;
-  // sdd/migration-wiring-phase-2 Slice 6b (logs→Issue egress boundary): the post-redaction fail-loud
-  // guard PublicationPortCollaborators.containsSecret consumes on the "issue" route (that file's own
-  // doc has the full contract). OPTIONAL here — mirrors sanitize's own precedent immediately above —
-  // but the REAL composition (rewritten-engine-factory.ts) always wires the SAME RedactionPort
-  // instance's containsSecret alongside sanitize's redact, so production is never silently unguarded.
+  /* Post-redaction fail-loud check on the "issue" route. Optional at the type; production composition always supplies RedactionPort.containsSecret alongside sanitize. */
   containsSecret?: (text: string) => boolean;
 
-  // LearningPort collaborator. v1 default: StubLearningRepository (a provable no-op) when absent.
+  /* LearningPort collaborator. v1 default: StubLearningRepository (a provable no-op) when absent. */
   learningRepo?: LearningRepositoryPort;
 
-  // reflector-rewire (design ADR-1/ADR-5): [SWAP]-optional, mirrors learningRepo's own "absent -> a
-  // provable no-op" precedent immediately above — absent means RunQaUseCase never invokes reflect()
-  // at either fold site (dormant, pre-cutover-equivalent). Unlike learningRepo, there is no stub
-  // default constructed here: the production factory (src/server/rewritten-engine-factory.ts, the
-  // ONE module permitted to import both qa-engine's aliases AND root src/) is the ONLY place that
-  // constructs a real ReflectorPortAdapter (it needs the agent runtime + the host-side
-  // updateRunOutcomeReflection backfill, both src/-only collaborators this composition root must
-  // never import). Threaded straight through to RunQaUseCaseDeps.reflector — no default, no wrapping.
   reflectorPort?: ReflectorPort;
 
-  // ConfinementPort collaborator (sdd/migration-remediation Slice 3, P0 write-confinement wiring,
-  // D-P0b) — [SWAP]-optional, mirrors reflectorPort's own "absent -> no-op" precedent immediately
-  // above. Unlike learningRepo, there is no stub default constructed here: the production factory
-  // (src/server/rewritten-engine-factory.ts, the ONE module permitted to import both qa-engine's
-  // aliases AND root src/) is the ONLY place that can construct a real WriteConfinementAdapter (it
-  // needs realGit — local ops, NO auth decoration — + node:fs realpathSync/lstatSync, both src-only
-  // collaborators this composition root must never import; dependency-cruiser's own
-  // no-vcs-write-in-agent-contexts gate also confines the concrete adapter class itself to living
-  // inside workspace-and-publication/infrastructure). Threaded straight through to
-  // RunQaUseCaseDeps.confinement below — no default, no wrapping (same posture as reflectorPort).
+  /* Write confinement. Optional, no stub: absent omits RunQaUseCaseDeps.confinement. The shell factory constructs WriteConfinementAdapter (needs src-only git/fs); this root must not import that adapter. */
   confinement?: ConfinementPort;
 
-  // MirrorGcPort collaborator (sdd/migration-wiring-phase-2 Slice 2, D-B mirror-gc) —
-  // [SWAP]-optional, mirrors confinement's own "absent -> no-op" precedent immediately above.
-  // Unlike learningRepo, there is no stub default constructed here: the production factory
-  // (src/server/rewritten-engine-factory.ts, the ONE module permitted to import both qa-engine's
-  // aliases AND root src/) is the ONLY place that can construct a real MirrorGcAdapter (it needs
-  // realGit — local `git gc --auto --quiet`, no auth decoration — a src-only collaborator this
-  // composition root must never import). Threaded straight through to RunQaUseCaseDeps.mirrorGc
-  // below — no default, no wrapping (same posture as confinement).
+  /* Mirror GC. Optional, no stub: absent omits RunQaUseCaseDeps.mirrorGc. The shell factory constructs MirrorGcAdapter (needs src-only git). */
   mirrorGc?: MirrorGcPort;
 
-  // ProcessAuditPort collaborator (sdd/migration-remediation Slice 5, P1 process-audit reconnect,
-  // D-P1b) — [SWAP]-optional, mirrors reflectorPort's own "absent -> no-op" precedent immediately
-  // above. Unlike learningRepo, there is no stub default constructed here: the production factory
-  // (src/server/rewritten-engine-factory.ts, the ONE module permitted to import both qa-engine's
-  // aliases AND root src/) is the ONLY place that can construct a real ProcessAuditPortAdapter (it
-  // needs the recent-outcomes/rules reads + the 3 sinks — recordIncident/setRuleStatusByHuman/
-  // markContextStale — all src-only collaborators this composition root must never import).
-  // Threaded straight through to RunQaUseCaseDeps.processAudit below — no default, no wrapping (same
-  // posture as reflectorPort/confinement).
+  /* Process audit. Optional, no stub: absent omits RunQaUseCaseDeps.processAudit. The shell factory constructs ProcessAuditPortAdapter (src-only sinks). */
   processAudit?: ProcessAuditPort;
 
-  // CurriculumPort collaborator (curriculum-wiring, D6) — [SWAP]-optional, mirrors processAudit's
-  // own "absent -> no-op" precedent immediately above. Unlike learningRepo, there is no stub default
-  // constructed here: the production factory (src/server/rewritten-engine-factory.ts, the ONE module
-  // permitted to import both qa-engine's aliases AND root src/) is the ONLY place that can construct
-  // a real CurriculumPortAdapter (its store is history.ts's loadCurriculum/saveCurriculum, a
-  // src-only collaborator this composition root must never import). Threaded straight through to
-  // RunQaUseCaseDeps.curriculum below — no default, no wrapping (same posture as processAudit).
   curriculumPort?: CurriculumPort;
 
-  // WorkspacePort collaborator — resolves a Sha to its working-copy mirrorDir. Cross-repo routing
-  // stays OPAQUE inside this fn (the bridge's own documented scope for Plan 6).
+  /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
 
-  // DeployGatePort collaborators — versionUrl absent selects NullDeployGateAdapter (static sites /
-  // code target); present selects the real poll-loop gate.
+  /* DeployGatePort collaborators — versionUrl absent selects NullDeployGateAdapter (static sites / code target); present selects the real poll-loop gate. */
   versionUrl?: string;
   versionPoll?: VersionPollFn;
   deployGateIntervalMs?: number;
   deployGateTimeoutMs?: number;
 
-  // RunHistoryPort collaborator — buildProduction prefers a durable FileRunHistoryAdapter when a
-  // path is given (falls back to in-memory otherwise); buildShadow ALWAYS forces in-memory
-  // regardless of this field (no side effect on the real history store during a shadow run).
+  /* RunHistoryPort collaborator — buildProduction prefers a durable FileRunHistoryAdapter when a path is given (falls back to in-memory otherwise); buildShadow ALWAYS forces in-memory regardless of this field (no side effect on the real history store during a shadow run). */
   historyFilePath?: string;
 
-  // W3 F1 (CRITICAL, audit-verified cutover blocker): an explicit RunHistoryPort override — takes
-  // PRECEDENCE over historyFilePath when supplied. This is the seam the production factory
-  // (src/server/rewritten-engine-factory.ts, the ONLY module permitted to import both qa-engine's
-  // @contexts/@kernel aliases AND root src/) uses to wire the REAL durable store
-  // (src/server/run-history-sqlite-adapter.ts's SqliteRunHistoryAdapter, bridging into
-  // src/server/history.ts's saveRunOutcome — the SAME SQLite run_outcomes table the TUI trends
-  // view, /ask learning context, and the audit process all read). Mirrors learningRepo's own
-  // "[SWAP] optional override, absent -> a provable no-op default" precedent below. buildShadow
-  // ALWAYS forces InMemoryRunHistoryAdapter regardless of THIS field too (not just
-  // historyFilePath) — a shadow run must have zero observable side effects on the real history
-  // store, and an explicit runHistory override is exactly the kind of real-store wiring shadow
-  // mode exists to bypass.
   runHistory?: RunHistoryPort;
 
-  // ObserverPort collaborator (bug fix: rewritten-engine runs left their RunRecord/RunEvents
-  // frozen — record.step never advanced and /api/runs/:id/events stayed empty, because nothing
-  // ever wired RunQaUseCaseDeps.observer). OPTIONAL: absent -> RunQaUseCase's onStep() calls are
-  // all no-ops (backward compatible with every composition built before this field existed,
-  // including every existing test that constructs a CompositionConfig without an observer). The
-  // PER-RUN observer (which needs the live RunRecord id + RunEventStore) is built by the caller
-  // (src/server/runner.ts's runViaRewrittenEngine) and threaded in here — this composition root
-  // has no RunRecord/RunEventStore concept of its own (that is root src/'s concern, per CLAUDE.md
-  // "App-specificity lives only in config/; nothing app-specific in src/... [qa-engine]").
+  /* Per-run observer (RunRecord + event store live in the shell). Optional: absent → onStep() is a no-op. */
   observer?: ObserverPort;
 
-  // Multi-agent coordination is ALWAYS wired (single operating mode; see wireBridges below).
-  // Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this.
+  /* Multi-agent coordination is ALWAYS wired (single operating mode; see wireBridges below). Infra-only model id for sidekick-escalated sessions (env/YAML). Domain never reads this. */
   sidekickEscalatedModel?: string;
-  // Durable JSONL sink for coordination telemetry: events appended here survive process
-  // restarts so routing/cost signals can be analyzed offline. Absent -> memory-only.
+  /* Durable JSONL sink for coordination telemetry: events appended here survive process restarts so routing/cost signals can be analyzed offline. Absent -> memory-only. */
   coordinationTelemetryPath?: string;
-  // Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000.
+  /* Per-delegation wall-clock cap in ms (compose/environment tunable). Absent -> 420_000. */
   sidekickTimeoutMs?: number;
 }
 
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
 
-// Builds the 11 REAL bridge adapters from a CompositionConfig, shared by both buildProduction's
-// "rewritten" branch and buildShadow (which only swaps the publication + runHistory ports below).
+/* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
 function sidekickTimeoutFromEnv(): number {
   const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw > 0) return raw;
@@ -450,55 +230,15 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       mirrorDir: cfg.mirrorDir,
       e2eRelDir: cfg.e2eRelDir,
       namespace: cfg.branch,
-      // W2 fix (F4, audit-verified cutover blocker — "kill the double reviewer"): DELIBERATELY
-      // false here, NOT cfg.needsReview. GenerateTestsUseCase.generate() (generation/application/
-      // generate-tests.use-case.ts:124-191) fires its OWN internal reviewer session whenever
-      // input.needsReview is true — a SEPARATE, independently-blind reviewer session from
-      // RunQaUseCase's own ReviewPort.review() call (review-port.adapter.ts), which is threaded on
-      // the SAME cfg.needsReview a few lines below via RunQaConfig.needsReview. On the orchestrated
-      // path (this composition root), RunQaUseCase.run()'s "Phase: review (ReviewPort)" is the
-      // AUTHORITATIVE publish gate (matches the legacy: EXACTLY ONE reviewer call per generation
-      // round, src/pipeline.ts's reviewGenerated(), never two independent reviewer sessions per
-      // round) — so the generation-internal reviewer must never fire on this path, or every run
-      // pays for two blind LLM reviewer sessions and the SECOND, undocumented one (this one) — not
-      // RunQaUseCase's own ReviewPort — silently drives the agent's own self-reported `approved`
-      // flag that the no-op-skip check reads (`generated.approved && generated.specs.length === 0`,
-      // run-qa.use-case.ts).
-      //
-      // Semantics preserved: with needsReview:false, GenerateTestsUseCase.generate() returns
-      // EARLY (generate-tests.use-case.ts:124-131) with `approved: true` UNCONDITIONALLY — the
-      // generator's own self-reported completion signal, not a review verdict. This is EXACTLY the
-      // legacy's own no-op contract for this shape (src/pipeline.ts's reviewGenerated():
-      // `if (!(app.qa.needsReview && deps.review)) return r;` — a passthrough of the generator's OWN
-      // `r.approved`, never a rubber-stamped true) — RunQaUseCase's own FIX 1 comment (D.7 batch 2)
-      // independently documents this SAME legacy behavior. So `generated.approved` here still
-      // means "the generator's own contract check passed", and the CLAUDE.md no-op-skip invariant
-      // (approved + zero specs -> skipped, never invalid) holds unchanged: a zero-spec approved
-      // generation is still a valid skip, exactly as before this fix. GenerateTestsUseCase's own
-      // needsReview:true branch stays intact and untouched for any standalone caller that invokes
-      // it directly (outside this composition root).
       needsReview: false,
       target: cfg.target,
       mode: cfg.mode,
       diff: cfg.diff ?? "",
       ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
-      // Live-run root cause fix: without this, GenerationPortAdapter never received the app's live
-      // DEV URL, so the agent correctly refused to write selectors without DOM grounding (see
-      // generation-port.adapter.ts's own header for the full incident trace) — zero specs, every
-      // run. ExecutionPortAdapter/ReviewPortAdapter already consumed cfg.baseUrl below; generation
-      // was the missing link.
+      /* Live DEV URL for the generator (Playwright MCP). Absent → the agent has no URL to ground selectors against. */
       ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
-      // W5 fix (seam-parity FIXME): threads the app's declared OpenAPI glob hint through — mirrors
-      // baseUrl's own conditional-spread precedent immediately above.
       ...(cfg.openapi ? { openapi: cfg.openapi } : {}),
-      // Cross-repo generation-prompt parity (legacy pipeline.ts:1909): threads the triggering
-      // service's identity through — mirrors openapi's own conditional-spread precedent immediately
-      // above. Absent (same-repo run) -> omitted entirely.
       ...(cfg.triggerService ? { service: cfg.triggerService } : {}),
-      // Context-mode multi-service parity (legacy pipeline.ts:1330-1355 buildContextMap): threads
-      // every declared service ref through — mirrors triggerService's own conditional-spread
-      // precedent immediately above. Absent/empty (non-context runs, or no declared services) ->
-      // omitted entirely.
       ...(cfg.services?.length ? { services: cfg.services } : {}),
     },
     { ...(cfg.readSpecSource ? { readSpecSource: cfg.readSpecSource } : {}) },
@@ -510,14 +250,9 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     e2eRelDir: cfg.e2eRelDir,
     appName: cfg.appName,
     mode: cfg.mode,
-    // WS2.4 (full-flow remediation, code-mode restoration): threads cfg.target so a code-target
-    // review renders the correct "tests" framing instead of "E2E tests" (see
-    // ReviewPortStaticContext.target's own header).
     target: cfg.target,
     ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
     ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
-    // WS6.1 (full-flow remediation, timeouts & operational observability): threads the reviewer's
-    // OWN prompt deadline (see ReviewPortStaticContext.timeoutMs's own header).
     ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
   });
 
@@ -539,26 +274,13 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     },
   );
 
-  // OPTIONAL: absent -> `setup` stays undefined, and RunQaUseCaseDeps.setup (also optional) makes
-  // the use-case's setup phase a no-op — every composition built before this field existed keeps
-  // running exactly as before.
+  /* Optional: absent → setup stays undefined and the use-case setup phase is a no-op. */
   const setup = cfg.setupCollaborators ? new SetupPortAdapter(cfg.setupCollaborators, { target: cfg.target }) : undefined;
 
-  // CleanupPort (audit CRITICAL, task #33) — e2e-only (mirrors legacy's `!isCode` conjunct and
-  // groundingCollaborators' own `!cfg.isCode` gating precedent immediately below): wire NEITHER on
-  // the code target regardless of what collaborators cfg supplies (isCode has no web test data to
-  // clean). OPTIONAL otherwise: absent -> `cleanup` stays undefined, and RunQaUseCaseDeps.cleanup
-  // (also optional) makes the use-case's cleanup phase a no-op.
   const cleanup = !cfg.isCode && cfg.cleanupCollaborators
     ? new CleanupPortAdapter(cfg.cleanupCollaborators, { baseUrl: cfg.baseUrl, testIdAttribute: cfg.testIdAttribute })
     : undefined;
 
-  // Plan 7-R W4 (audit CRITICAL): the pre-generation grounding phase — isCode has no DOM/routes to
-  // ground (mirrors legacy's own `!isCode` guards, pipeline.ts:1466/1643/2078), so wire NEITHER port
-  // on the code target regardless of what collaborators cfg supplies. OPTIONAL otherwise: absent ->
-  // both stay undefined and RunQaUseCaseDeps.preGenerationGrounding/reviewDomGrounding (also
-  // optional) make both phases a no-op — every composition built before these fields existed keeps
-  // running exactly as before.
   const preGenerationGrounding = !cfg.isCode
     ? new PreGenerationGroundingPortAdapter(
         {
@@ -582,13 +304,6 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       )
     : undefined;
 
-  // Plan 7-R B5.3 (audit CRITICAL): the pre-execution grounding gate (W1 corrective regen + W2
-  // deterministic block) — isCode has no DOM/routes to ground (the SAME `!isCode` guard
-  // preGenerationGrounding/reviewDomGrounding above already apply), so wire NEITHER this port on the
-  // code target regardless of what collaborators cfg supplies. OPTIONAL otherwise: absent ->
-  // preExecGrounding stays undefined and RunQaUseCaseDeps.preExecGrounding (also optional) makes the
-  // whole W1/W2 phase a no-op — every composition built before this field existed keeps running
-  // exactly as before.
   const preExecGrounding = !cfg.isCode
     ? new PreExecGroundingPortAdapter(
         {
@@ -600,30 +315,22 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       )
     : undefined;
 
-  // StructuralSignalPort (CodeGraph Phase 4, design §5.3/§6): OPTIONAL, absent -> undefined (never
-  // a stub), the SAME [SWAP] posture setup/preGenerationGrounding/cleanup already established.
-  // ONE LazyProjectCodeGraphAdapter is constructed when codebaseMemory is present and shared with
-  // RunQaUseCaseDeps.codeGraph (per-run syncTo) — do not double-construct for structuralSignal.
-  // An unindexed repo degrades queries to no section inside that adapter chain; syncTo maps the
-  // same unresolved project to IndexFailed (fail-open at the use-case: no setLastIndexedSha).
+  /* StructuralSignalPort: optional, never a stub. One LazyProjectCodeGraphAdapter is shared with RunQaUseCaseDeps.codeGraph — do not double-construct. Unindexed repo → empty advisory + IndexFailed (fail-open: no setLastIndexedSha). */
   const codeGraphPort = cfg.codebaseMemory
     ? new LazyProjectCodeGraphAdapter(cfg.codebaseMemory, new ProjectNameResolver(cfg.codebaseMemory))
     : undefined;
   const structuralSignal = codeGraphPort
     ? new StructuralSignalPortAdapter(
         codeGraphPort,
-        // Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e
-        // subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter).
+        /* Classify-source repo root (SERVICE on a webhook, PRIMARY otherwise) — not the e2e subfolder and not always the primary suite mirror (see StructuralSignalPortAdapter). */
         cfg.codeGraphRepoDir ?? cfg.mirrorDir,
       )
     : undefined;
 
-  // Stitcher→Generation seam (design §3.6): OPTIONAL, absent -> undefined (never a stub), the SAME
-  // [SWAP] posture structuralSignal above already established.
   const serviceLinks = cfg.serviceTopology
     ? new ServiceLinksPortAdapter(
         cfg.serviceTopology.boundaryProfiles,
-        new MirrorRegistryAdapter(cfg.serviceTopology.mirrorRoot), // DI: real port impl, not a static call
+        new MirrorRegistryAdapter(cfg.serviceTopology.mirrorRoot), /* DI: real port impl, not a static call */
         {
           appName: cfg.serviceTopology.appName,
           primaryRepo: cfg.serviceTopology.primaryRepo,
@@ -632,17 +339,12 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       )
     : undefined;
 
-  // Slice C (structural-signals-expansion, design §3.8): OPTIONAL, absent -> undefined (never a
-  // stub), the SAME [SWAP] posture serviceLinks above already established. Each per-triggerRepo
-  // resolve() call builds a FRESH GitMirrorReadAdapter over whatever repoDir the adapter resolves
-  // internally (the triggering service, a DIFFERENT repo per run) — unlike serviceLinks'
-  // static-per-run posture, there is no single repoDir to pin at construction time here.
   const crossRepoImpact = cfg.crossRepoImpact
     ? new CrossRepoImpactPortAdapter({
         mirrors: new MirrorRegistryAdapter(cfg.crossRepoImpact.mirrorRoot),
         makeVcs: (repoDir) => new GitMirrorReadAdapter(repoDir, cfg.crossRepoImpact!.runner),
         codeGraph: new LazyProjectCodeGraphAdapter(cfg.crossRepoImpact.codebaseMemory, new ProjectNameResolver(cfg.crossRepoImpact.codebaseMemory)),
-        runner: cfg.crossRepoImpact.runner, // reused for the C.4 step-1.5 fetch — no new spawn surface
+        runner: cfg.crossRepoImpact.runner, /* same runner — no extra spawn surface */
       })
     : undefined;
 
@@ -655,9 +357,7 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     {
       policy: cfg.coveragePolicy,
       repoDir: cfg.mirrorDir,
-      // NAMESPACE FIX: the SAME per-run namespace ExecutionPortAdapter uses below (`cfg.branch`) —
-      // see objective-signal-port.adapter.ts's own measure() comment for why `br.sha.toString()`
-      // (the pre-existing fallback) mismatches the directory execution actually wrote dumps to.
+      /* Same per-run namespace ExecutionPortAdapter uses (`cfg.branch`) so coverage dumps are read from the directory execution wrote. */
       namespace: cfg.branch,
       ...(cfg.assembleChangeCoverage ? { assembleChangeCoverage: cfg.assembleChangeCoverage } : {}),
       ...(cfg.baselineCases ? { baselineCases: cfg.baselineCases } : {}),
@@ -666,13 +366,6 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
 
   const learning = new LearningPortAdapter(cfg.learningRepo ?? new StubLearningRepository(), cfg.appName);
 
-  // WS2.1 (full-flow remediation): the workspace's specRelDir is TARGET-AWARE, not the same value
-  // as cfg.e2eRelDir (which stays the PROMPT-side "e2e folder name" constant — GenerationPortAdapter/
-  // ReviewPortAdapter/preGenerationGrounding etc. below still read cfg.e2eRelDir unchanged, and
-  // buildCodeTask never references it — grep-confirmed, see rewritten-engine-factory.ts's own note
-  // at its e2eRelDir declaration). An empty specRelDir on the code target composes prepare()'s
-  // specDir to the bare mirrorDir (WorkspacePortAdapter's own header) — legacy parity for
-  // setupCode/executeCode(mirrorDir, ...). e2e keeps cfg.e2eRelDir unchanged.
   const workspace = new WorkspacePortAdapter(cfg.checkout, { specRelDir: cfg.isCode ? "" : cfg.e2eRelDir });
 
   const deployGate = cfg.versionUrl
@@ -686,23 +379,10 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       )
     : new NullDeployGateAdapter();
 
-  // Production publication: real PublishDecisionService + real GitHub PR/Issue collaborators. A
-  // ShadowLogAdapter is ALSO wired here (not just in buildShadow) because PublishDecisionService's
-  // own decide() can independently route to "shadow" when cfg.shadow is true — the production path
-  // must honor a shadow-mode APP's config too, not only buildShadow()'s own forced override.
-  // WS5.4b (full-flow remediation, fail-closed publication default): PublicationPortAdapter's
-  // sanitize collaborator is now REQUIRED (its constructor throws if absent — see that file's own
-  // WS5.4b doc). cfg.sanitize stays OPTIONAL on CompositionConfig (documented in the seam-parity
-  // contract test's OPTIONAL_ALLOWLIST, which also asserts the REAL composition — buildRewritten
-  // CompositionConfig in rewritten-engine-factory.ts — always supplies it): a composition built
-  // WITHOUT cfg.sanitize is exactly the fail-open gap 5.4b closes, so it must throw HERE, loudly and
-  // by name, rather than fall back to identity — the same invariant the adapter's own constructor
-  // enforces, surfaced one call earlier with a composition-specific message. Every test composition
-  // built through THIS file's own fakeConfig() helper now wires an identity sanitizer explicitly
-  // (see that helper's own WS5.4b comment), so this throw is unreachable in any real test run.
+  /* Production publication: real decide + GitHub collaborators. ShadowLogAdapter is wired here too because decide() routes to "shadow" when cfg.shadow is true. cfg.sanitize is required — throw rather than default to identity (same fail-closed guard as PublicationPortAdapter). */
   if (!cfg.sanitize) {
     throw new Error(
-      "composition-root.ts: cfg.sanitize is required to wire PublicationPortAdapter (fail-closed publication default, WS5.4b) — " +
+      "composition-root.ts: cfg.sanitize is required to wire PublicationPortAdapter — " +
         "the composition (rewritten-engine-factory.ts's buildRewrittenCompositionConfig, or the test fixture) must supply the real sanitizeText.",
     );
   }
@@ -713,20 +393,10 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       issue: cfg.githubIssue,
       shadowLog: new ShadowLogAdapter(),
       sanitize: cfg.sanitize,
-      // sdd/migration-remediation Slice 4 (D-P1a): the REAL pure render functions — universal, not
-      // app/environment-specific, so (unlike sanitize/vcsWrite) there is no CompositionConfig field
-      // for this: every composition (production AND shadow, which reuses this SAME wireBridges()
-      // call) gets the identical real renderer, unconditionally.
+      /* Pure Issue/PR renderers — not app-specific, so every composition (including shadow) gets them unconditionally. */
       render: { issue: renderIssue, prBody: renderPrBody },
-      // PROD-BLOCKER fix: threads the composition's real git-write collaborator (constructed in
-      // rewritten-engine-factory.ts from VcsWriteAdapter + the CODE_ADD/E2E_ADD pathspec dispatch) —
-      // conditionally spread so a composition that never wires one (buildShadow's own override below
-      // ALSO never needs it — shadow mode's "pr"-shaped decisions log through shadowLog, never reach
-      // this adapter's "pr" case at all) does not carry an explicit `vcsWrite: undefined` key.
+      /* Git-write collaborator, spread only when present so shadow/issue compositions omit the key. */
       ...(cfg.vcsWrite ? { vcsWrite: cfg.vcsWrite } : {}),
-      // sdd/migration-wiring-phase-2 Slice 6b (logs→Issue egress boundary): conditionally spread,
-      // the SAME "not every test needs to wire it" precedent as vcsWrite immediately above — the
-      // REAL production composition always supplies it (rewritten-engine-factory.ts).
       ...(cfg.containsSecret ? { containsSecret: cfg.containsSecret } : {}),
     },
     {
@@ -739,9 +409,7 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     },
   );
 
-  // W3 F1: an explicit runHistory override wins over historyFilePath (real durable SQLite store,
-  // wired by the production factory) — historyFilePath's FileRunHistoryAdapter/InMemoryRunHistoryAdapter
-  // stay the fallback for callers (tests, the F.2 operator template) that never supply one.
+  /* Explicit runHistory wins over historyFilePath; file/in-memory adapters are the fallback when neither is a durable store supplied by the factory. */
   const runHistory = cfg.runHistory ?? (cfg.historyFilePath ? new FileRunHistoryAdapter(cfg.historyFilePath) : new InMemoryRunHistoryAdapter());
 
   return {
@@ -768,32 +436,18 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(serviceLinks ? { serviceLinks } : {}),
     ...(crossRepoImpact ? { crossRepoImpact } : {}),
     ...(cfg.observer ? { observer: cfg.observer } : {}),
-    // reflector-rewire (design ADR-1/ADR-5): mirrors observer's own conditional-spread precedent
-    // immediately above — absent cfg.reflectorPort means RunQaUseCaseDeps.reflector is omitted
-    // entirely (never a fabricated no-op stub), matching the [SWAP]-optional contract this port
-    // documents at its own declaration site above.
     ...(cfg.reflectorPort ? { reflector: cfg.reflectorPort } : {}),
-    // sdd/migration-remediation Slice 3 (P0 write-confinement wiring, D-P0b): mirrors reflectorPort's
-    // own conditional-spread precedent immediately above — absent cfg.confinement means
-    // RunQaUseCaseDeps.confinement is omitted entirely (never a fabricated no-op stub).
+    /* Absent confinement is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.confinement ? { confinement: cfg.confinement } : {}),
-    // sdd/migration-wiring-phase-2 Slice 2 (D-B mirror-gc): mirrors confinement's own
-    // conditional-spread precedent immediately above — absent cfg.mirrorGc means
-    // RunQaUseCaseDeps.mirrorGc is omitted entirely (never a fabricated no-op stub).
+    /* Absent mirrorGc is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.mirrorGc ? { mirrorGc: cfg.mirrorGc } : {}),
-    // sdd/migration-remediation Slice 5 (P1 process-audit reconnect, D-P1b): mirrors reflectorPort's/
-    // confinement's own conditional-spread precedent immediately above — absent cfg.processAudit
-    // means RunQaUseCaseDeps.processAudit is omitted entirely (never a fabricated no-op stub).
+    /* Absent processAudit is omitted entirely — never a fabricated no-op stub. */
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
-    // curriculum-wiring (D6): mirrors processAudit's own conditional-spread precedent immediately
-    // above — absent cfg.curriculumPort means RunQaUseCaseDeps.curriculum is omitted entirely (never
-    // a fabricated no-op stub), so select() returns nothing and the fold never fires.
+    /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
-    // Coordination is ALWAYS wired (single operating mode — probe evidence 2026-09-16 removed the
-    // off/shadow/active selector). Its governing points are the two live ones; the sidekick shares
-    // the reviewer's runtime (same AgentRuntimePort seam, its own session lifecycle).
+    /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
     ...(() => {
-      // Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition).
+      /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */
       const coordinationTelemetry = cfg.coordinationTelemetryPath
         ? getSharedCoordinationTelemetry(cfg.coordinationTelemetryPath)
         : getSharedCoordinationTelemetry();
@@ -803,14 +457,12 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
         }),
         coordinationTelemetry,
         ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
-        // Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of
-        // eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright
-        // MCP bootstrap + navigation.
+        /* Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright MCP bootstrap + navigation. */
         sidekickTimeoutMs: cfg.sidekickTimeoutMs ?? sidekickTimeoutFromEnv(),
         ...(cfg.sidekickEscalatedModel
           ? { sidekickEscalatedModel: cfg.sidekickEscalatedModel }
           : {}),
-        // Points listed independently — enabling one does not imply the other.
+        /* Points listed independently — enabling one does not imply the other. */
         coordinationEnabledPoints: ["pre-generate", "fix-loop-regen"] as const,
         sidekick: new SidekickExecutor({ runtime: cfg.reviewRuntime.runtime }),
       };
@@ -829,14 +481,8 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
   };
 }
 
-// Retained as an empty options bag for call-site source compatibility (callers that still pass
-// `{}` or omit the argument keep working). No legacy-only options remain post-cutover.
 export interface BuildProductionOptions {}
 
-// buildProduction(env, cfg): UNCONDITIONALLY wires the COMPLETE RewrittenOrchestratorAdapter over
-// all 11 real bridges from cfg. selectEngine(env) is still called so a stale PIPELINE_ENGINE=legacy
-// setting surfaces its deprecation warning (see pipeline-engine-flag.ts) — its return value no
-// longer branches this factory (there is only one engine left to build).
 export function buildProduction(
   env: Record<string, string | undefined>,
   cfg: CompositionConfig,
@@ -846,16 +492,8 @@ export function buildProduction(
   return new RewrittenOrchestratorAdapter(wireBridges(cfg));
 }
 
-// buildShadow(cfg): ALWAYS the rewritten engine (bypasses PIPELINE_ENGINE entirely — a shadow run
-// exists to observe the rewritten engine's behavior, never the legacy one). Forces the shadow
-// publication path (shadow:true routes PublishDecisionService's own decide() to "shadow" — the
-// SAME ShadowLogAdapter wireBridges() already wires for a shadow-mode app, reused here rather than
-// duplicated) and an InMemoryRunHistoryAdapter (never the durable FileRunHistoryAdapter,
-// REGARDLESS of cfg.historyFilePath) so a shadow run has zero observable side effects on the
-// watched repo or the production history store.
 export function buildShadow(cfg: CompositionConfig): RunPipelinePort {
-  // W3 F1: strip BOTH historyFilePath and an explicit runHistory override — a shadow run must never
-  // reach the real durable store either way.
+  /* Strip historyFilePath and any runHistory override — a shadow run must never reach the durable store. */
   const shadowCfg: CompositionConfig = { ...cfg, shadow: true, historyFilePath: undefined, runHistory: undefined };
   return new RewrittenOrchestratorAdapter(wireBridges(shadowCfg));
 }

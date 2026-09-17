@@ -1,7 +1,4 @@
-// qa-engine/src/contexts/generation/infrastructure/manifest-repository.adapter.ts
-// WRAP of the manifest plumbing in src/integrations/opencode-client.ts (ManifestEntrySchema-validated
-// read + reconcile-against-disk). The reconcile invariant (ids unique, every entry maps to an on-disk
-// spec) is the LEGACY behavior — inherited via delegation, not reimplemented. Fns injected — no disk in test.
+/* Manifest I/O via injected fns (no disk in test). Reconcile: ids unique, every entry maps to an on-disk spec. */
 import type { ManifestRepositoryPort, ManifestEntry } from "../application/ports/index.ts";
 
 export interface ManifestFns {

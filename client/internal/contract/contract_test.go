@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// Decoding the orchestrator's real GET /api/v1/runs/:id payload (see
-// src/server/api.ts → RunRecordSchema) into the codegen'd struct proves the
-// published contract artifact (contract/openapi.json) and the Go types agree —
-// the no-drift guarantee, enforced on the Go side.
+/* Decoding the orchestrator's real GET /api/v1/runs/:id payload (see
+   src/server/api.ts → RunRecordSchema) into the codegen'd struct proves the
+   published contract artifact (contract/openapi.json) and the Go types agree —
+   the no-drift guarantee, enforced on the Go side. */
 func TestRunRecordDecodesFromServerJSON(t *testing.T) {
 	const payload = `{
 		"id":"run_1","app":"portfolio","sha":"abc1234","target":"e2e","mode":"diff",
@@ -44,11 +44,11 @@ func TestCreateRunResultCarriesTarget(t *testing.T) {
 	}
 }
 
-// Decoding the orchestrator's real GET /api/v1/apps/:name/boundaries/propose/status
-// payload (see src/server/onboarding/onboarding-job.ts → OnboardingJobStatusSchema)
-// into the codegen'd struct — the same no-drift guarantee as RunRecord above, now for
-// the boundary-onboarding job's poll DTO. Two shapes: a winner (outcome + resolvedProfile
-// set) and a no-profile completion (outcome set, resolvedProfile absent).
+/* Decoding the orchestrator's real GET /api/v1/apps/:name/boundaries/propose/status
+   payload (see src/server/onboarding/onboarding-job.ts → OnboardingJobStatusSchema)
+   into the codegen'd struct — the same no-drift guarantee as RunRecord above, now for
+   the boundary-onboarding job's poll DTO. Two shapes: a winner (outcome + resolvedProfile
+   set) and a no-profile completion (outcome set, resolvedProfile absent). */
 func TestOnboardingJobStatusDecodesWinnerFromServerJSON(t *testing.T) {
 	const payload = `{
 		"state":"done","app":"shop","round":2,"ceiling":3,"candidatesScored":5,
@@ -87,9 +87,9 @@ func TestOnboardingJobStatusDecodesWinnerFromServerJSON(t *testing.T) {
 	}
 }
 
-// Decoding the event-variant resolvedProfile — the transport:"event" shape a service-to-service
-// (class-based-domain-events) winner carries, as opposed to the http shape covered above. This
-// exercises AsOnboardingJobStatusResolvedProfile1(), which the winner-http test above never touches.
+/* Decoding the event-variant resolvedProfile — the transport:"event" shape a service-to-service
+   (class-based-domain-events) winner carries, as opposed to the http shape covered above. This
+   exercises AsOnboardingJobStatusResolvedProfile1(), which the winner-http test above never touches. */
 func TestOnboardingJobStatusDecodesEventWinnerFromServerJSON(t *testing.T) {
 	const payload = `{
 		"state":"done","app":"shop","round":1,"ceiling":3,"candidatesScored":4,
@@ -154,9 +154,7 @@ func TestOnboardingJobStatusDecodesNoProfileFromServerJSON(t *testing.T) {
 	}
 }
 
-// Decoding a payload in the NEW "indexing" state (onboarding-auto-index, Slice 1, design §2.1-§2.2)
-// WITH a per-repo indexProgress array — the same no-drift guarantee as the winner/no-profile tests
-// above, now for the post-confirm advisory-index phase. Mirrors the L52-148 pattern.
+/* Decoding a payload in the "indexing" state with a per-repo indexProgress array — the same no-drift guarantee as the winner/no-profile tests, for the post-confirm advisory-index phase. */
 func TestOnboardingJobStatusDecodesIndexingStateFromServerJSON(t *testing.T) {
 	const payload = `{
 		"state":"indexing","app":"shop","round":3,"ceiling":3,"candidatesScored":6,
@@ -226,11 +224,7 @@ func TestOnboardingJobStatusDecodesMappingStateFromServerJSON(t *testing.T) {
 	}
 }
 
-// Decoding a payload whose "resolution" carries the full per-edge summary (Add-Project Wizard,
-// Slice A hardening: `drift` added to ResolutionSummarySchema alongside edges/unresolved/external)
-// — the same no-drift guarantee as the tests above, now proving the whole resolution block,
-// including the new `drift` count, round-trips through the generated Go type. Two edges over
-// different transports (http, event) exercise the Transport enum on both members.
+/* Decoding a payload whose "resolution" carries the full per-edge summary including `drift`, round-tripped through the generated Go type. Two edges over different transports (http, event) exercise the Transport enum on both members. */
 func TestOnboardingJobStatusDecodesResolutionSummaryFromServerJSON(t *testing.T) {
 	const payload = `{
 		"state":"done","app":"shop","round":2,"ceiling":3,"candidatesScored":5,

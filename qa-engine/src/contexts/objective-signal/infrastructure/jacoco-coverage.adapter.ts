@@ -1,10 +1,4 @@
-// src/contexts/objective-signal/infrastructure/jacoco-coverage.adapter.ts
-// CoverageCollectorPort over JaCoCo XML (JVM: Maven/Gradle). The missing DI seam: the file read
-// is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open
-// by contract (no files → empty report, never a throw). The JaCoCo→CoveredLines parse is injected
-// (defaults to the verbatim-carried parseJacocoXml below, parity-pinned to the legacy original).
-// changedFiles is needed by the parser to resolve package+file names to repo-relative paths via
-// longest suffix match — pass it through the constructor (it is per-run, from BlastRadius).
+/* src/contexts/objective-signal/infrastructure/jacoco-coverage.adapter.ts CoverageCollectorPort over JaCoCo XML (JVM: Maven/Gradle). The missing DI seam: the file read is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty report, never a throw). */
 import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
 
 export interface JacocoFile { path: string; text: string; }
@@ -18,8 +12,6 @@ export class JacocoCoverageAdapter implements CoverageCollectorPort {
     private readonly parse: ParseJacoco = defaultParseJacocoXml,
   ) {}
 
-  // changedFiles (per-call, optional): same "dynamic diff" precedent as V8BrowserCoverageAdapter —
-  // prefers the run's real changed files over the composition-time constructor value when supplied.
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
     const files = await this.readFiles(specDir, namespace);
     const changed = changedFiles ?? this.changedFiles;
@@ -35,9 +27,6 @@ export class JacocoCoverageAdapter implements CoverageCollectorPort {
   }
 }
 
-// Resolve a JaCoCo package+file path to a repo-relative path via longest suffix match.
-// Verbatim from change-coverage.ts resolveUrlToRepoFile (the same algorithm — JaCoCo uses
-// POSIX-style package names like "com/example/Foo.java", not URLs, but the suffix logic is identical).
 function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
   const path = url.replace(/\\/g, "/").replace(/^\/+/, "");
   let best: string | null = null;
@@ -55,9 +44,6 @@ function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | nul
   return best;
 }
 
-// Verbatim-carried JaCoCo XML parser from change-coverage.ts parseJacocoXml. Regex-based (no XML
-// lib — the orchestrator ships none); reads package/sourcefile/line nr+ci. A line with ci>0 is
-// covered. The parity test pins this copy to the legacy original.
 export function defaultParseJacocoXml(xml: string, changedFiles: string[]): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   const pkgRe = /<package\s+name="([^"]*)"\s*>([\s\S]*?)<\/package>/g;

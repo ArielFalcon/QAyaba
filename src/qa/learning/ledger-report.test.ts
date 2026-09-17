@@ -33,11 +33,11 @@ describe("renderLedgerReport — human-readable audit view", () => {
     const out = renderLedgerReport([
       rule({ status: "active", confidence: "high", successRate: 0.87, outcomeCount: 12, errorClass: "E-FRAGILE-SELECTOR" }),
     ]);
-    assert.match(out, /Applies when the diff adds a form/); // the trigger reads as prose
-    assert.match(out, /submit invalid data and assert/); // the action
-    assert.match(out, /proven by the oracle/); // high confidence → ground-truth, in words
-    assert.match(out, /87% success over 12 outcomes/); // evidence
-    assert.match(out, /fragile selector/); // human label, not the E-… code
+    assert.match(out, /Applies when the diff adds a form/); /* the trigger reads as prose */
+    assert.match(out, /submit invalid data and assert/);
+    assert.match(out, /proven by the oracle/); /* high confidence → ground-truth, in words */
+    assert.match(out, /87% success over 12 outcomes/);
+    assert.match(out, /fragile selector/); /* human label, not the E-… code */
   });
 
   it("describes a medium rule as a prevention-signal hold and an unproven candidate plainly", () => {
@@ -65,7 +65,7 @@ describe("renderLedgerReport — human-readable audit view", () => {
   });
 
   it("a demoted rule with stale high confidence does NOT claim present-tense oracle proof", () => {
-    // Reachable via a human veto: deprecating an active+high rule leaves confidence stale.
+    /* Reachable via a human veto: deprecating an active+high rule leaves confidence stale. */
     const out = renderLedgerReport([rule({ status: "deprecated", confidence: "high", successRate: 0.9, outcomeCount: 10 })]);
     assert.doesNotMatch(out, /proven by the oracle/, "no present-tense trust claim under DEPRECATED");
     assert.match(out, /no longer trusted/);

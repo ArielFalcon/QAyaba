@@ -1,7 +1,4 @@
-// Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief.
-// Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass
-// OpenSessionOpts.model for escalated capacity from external config.
-// Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes.
+/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -30,10 +27,7 @@ function scrubStrings(values: readonly string[]): string[] {
 
 export function resolveCapabilityRole(capability: AgentCapability): AgentRole {
   if (capability === "lead") return "primary";
-  // Dedicated sidekick role: its agents/agent/qa-sidekick.md prompt matches the DelegationResult
-  // JSON contract and multi-file scope — reusing "worker" would ship qa-worker.md's
-  // "write exactly ONE spec, do NOT edit other files" instructions against a brief that may
-  // need to repair several failing specs (contradictory instructions, doc §34).
+  /* Dedicated sidekick role: qa-sidekick.md matches the DelegationResult JSON contract and multi-file scope. Reusing "worker" would ship qa-worker.md's "write exactly ONE spec" instructions against a brief that may repair several failing specs. */
   return "sidekick";
 }
 
@@ -55,11 +49,7 @@ export interface SidekickExecuteOpts {
   feedback?: string;
 }
 
-// brace-balanced first-object scan (string/escape aware). The naive lastIndexOf("{") strategy
-// false-failed on valid DelegationResults with nested arrays/objects followed by a trailing
-// fence — extracting from the LAST "{" to the last "}" starts mid-structure and JSON.parse
-// throws, so a COMPLIANT sidekick was scored failed. Fence-wrapped output works here as a side
-// effect: the first "{" of a fenced block is the object's own opening brace.
+/* Brace-balanced first-object scan (string/escape aware). lastIndexOf("{") false-fails on valid DelegationResults with nested objects followed by a trailing fence. */
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const start = trimmed.indexOf("{");

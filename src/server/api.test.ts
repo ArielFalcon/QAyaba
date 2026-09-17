@@ -204,7 +204,7 @@ test("GET /report?format=csv returns CSV and ?window= is threaded to the dep", a
   );
   assert.equal(r.status, 200);
   assert.match(r.body, /^id,title,intent,chart,value,unit,delta,multiplier,direction,goodWhen,score/);
-  assert.equal(seenWindow, 5); // ?window= reached the dep through the report path
+  assert.equal(seenWindow, 5); /* ?window= reached the dep through the report path */
 });
 
 test("GET /runs/:id/report returns {current, evolution}; CSV exports current; 404 when unknown", async () => {
@@ -215,10 +215,9 @@ test("GET /runs/:id/report returns {current, evolution}; CSV exports current; 40
   await handleApi(mkReq("GET", "/api/v1/runs/r1/report"), ok, deps({ reportForRun: () => runReport }));
   assert.equal(ok.status, 200);
   const body = JSON.parse(ok.body);
-  assert.equal(body.current.app, "demo"); // the current-execution analysis
-  assert.equal(body.evolution, null); // no history yet ⇒ evolution withheld
+  assert.equal(body.current.app, "demo"); /* the current-execution analysis */
+  assert.equal(body.evolution, null); /* no history yet ⇒ evolution withheld */
 
-  // CSV exports the run's OWN facts (the current report's insight table).
   const csv = mkRes();
   await handleApi(mkReq("GET", "/api/v1/runs/r1/report?format=csv"), csv, deps({ reportForRun: () => runReport }));
   assert.equal(csv.status, 200);
@@ -252,8 +251,9 @@ test("GET /api/runs/:id sanitizes logs/cases/note before egress", async () => {
 });
 
 test("GET /api/runs/:id: a null/absent case detail does not 500 the contract (egress omits it)", async () => {
-  // history stores a detail-less case as detail:null; the contract is z.string().optional() (no null),
-  // so the egress must OMIT it — else the run-status API 500s and the CLI/TUI loses sight of the run.
+  /* history stores a detail-less case as detail:null; the contract is z.string().optional() (no null),
+     so the egress must OMIT it — else the run-status API 500s and the CLI/TUI loses sight of the run.
+   */
   const record = {
     id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "exhaustive", status: "running", verdict: "pass",
     cases: [{ name: "owners › list", status: "pass", detail: null }, { name: "vets › table", status: "fail", detail: "boom" }],
@@ -335,7 +335,7 @@ test("POST /api/runs without sha or ref defaults to the app base branch (TUI lau
       },
     }),
   );
-  assert.equal(seen, "main"); // appConfig has no baseBranch → defaults to "main"
+  assert.equal(seen, "main"); /* appConfig has no baseBranch → defaults to "main" */
   assert.equal(res.status, 202);
 });
 
@@ -694,7 +694,7 @@ test("POST /api/runs/:id/continue enqueues a continuation of the failed cases �
 test("POST /api/runs/:id/continue with a non-failed case → 409", async () => {
   const res = mkRes();
   await handleApi(
-    mkReq("POST", "/api/runs/p1/continue", JSON.stringify({ cases: ["login"] })), // login passed
+    mkReq("POST", "/api/runs/p1/continue", JSON.stringify({ cases: ["login"] })),
     res,
     deps({ getRecord: () => parentRec, continueRun: () => "x" }),
   );
@@ -885,7 +885,6 @@ test("PUT /api/apps/:name without the dep returns 501", async () => {
   assert.equal(res.status, 501);
 });
 
-// ── POST /api/auth/login (GitHub session exchange) ────────────────────────────
 test("POST /api/auth/login exchanges a GitHub token for a session", async () => {
   const res = mkRes();
   const ok = await handleApi(
@@ -970,8 +969,9 @@ test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
   assert.equal(res.status, 404);
 });
 
-// ── SSE stream robustness (OBS): the stream must never hang, and must surface events
-// produced by ANOTHER process whose publishes never reach this server's in-process bus. ──
+/* ── SSE stream robustness (OBS): the stream must never hang, and must surface events
+   produced by ANOTHER process whose publishes never reach this server's in-process bus. ──
+ */
 
 async function waitUntil(cond: () => boolean, timeoutMs: number): Promise<void> {
   const start = Date.now();
@@ -981,8 +981,9 @@ async function waitUntil(cond: () => boolean, timeoutMs: number): Promise<void> 
   }
 }
 
-// A store whose live subscription NEVER fires — models a run executing in a different
-// process (the event bus is in-process, so this server's subscribe() can't see it).
+/* A store whose live subscription NEVER fires — models a run executing in a different
+   process (the event bus is in-process, so this server's subscribe() can't see it).
+ */
 function outOfProcessStore(persisted: RunEvent[]): RunEventStore {
   return {
     publish: () => { throw new Error("publish is not used in this test"); },
@@ -1001,9 +1002,9 @@ test("the SSE stream ends when the run goes terminal even without a run.verdict 
   res.end = (b?: string) => { ended = true; res.writableEnded = true; origEnd(b); };
 
   await handleApi(req, res, deps({ getRecord: () => record(), runEvents: outOfProcessStore([]), ssePollMs: 5 }));
-  assert.equal(ended, false); // still running → the stream stays open
+  assert.equal(ended, false); /* still running → the stream stays open */
 
-  status = "done"; // the run is finalized by the other process in the shared record store
+  status = "done"; /* the run is finalized by the other process in the shared record store */
   await waitUntil(() => ended, 400);
   assert.equal(ended, true);
 });
@@ -1016,15 +1017,12 @@ test("the SSE poll flushes events persisted by another process (the in-process b
 
   await handleApi(req, res, deps({ getRecord: () => record, runEvents: outOfProcessStore(persisted), ssePollMs: 5 }));
 
-  // Another process persists an event AFTER we connected; only the durable poll can surface it.
+  /* Another process persists an event AFTER we connected; only the durable poll can surface it. */
   persisted.push({ seq: 0, runId: "r1", ts: 1, body: { type: "step.changed", step: "execute" } } as RunEvent);
   await waitUntil(() => res.writes.join("").includes("step.changed"), 400);
   assert.match(res.writes.join(""), /event: step.changed/);
-  req.emit("close"); // stop the poll
+  req.emit("close");
 });
-
-// Phase 0b: GET /api/runs/:id/turns — per-run agent_turns endpoint.
-// Spec scenario: "Per-role cache trends retrievable".
 
 test("phase-0b: GET /api/runs/:id/turns returns 501 when getAgentTurns is not wired", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
@@ -1075,13 +1073,14 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
   assert.equal(body.length, 2, "both turns must be returned");
   assert.equal(body[0].role, "qa-generator");
   assert.equal(body[1].role, "qa-reviewer");
-  // Phase 0b keystone: the reviewer turn must carry a non-null run_id
+  /* Phase 0b keystone: the reviewer turn must carry a non-null run_id */
   assert.equal(body[1].runId, "r1", "reviewer turn must have the parent run's runId");
 });
 
-// #4 regression: the /turns egress must run prompt_text + output_text through sanitizeText, matching
-// the defensive egress pass the sibling run-read endpoints apply (prompt_text embeds the live-DEV
-// domSnapshot, persisted raw). A secret in either field must be redacted before it leaves the system.
+/* #4 regression: the /turns egress must run prompt_text + output_text through sanitizeText, matching
+   the defensive egress pass the sibling run-read endpoints apply (prompt_text embeds the live-DEV
+   domSnapshot, persisted raw). A secret in either field must be redacted before it leaves the system.
+ */
 test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text before egress", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const secret = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -1089,7 +1088,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
     {
       runId: "r1", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false,
       ts: "2026-06-16T00:00:00.000Z", objective: "feat: add login",
-      // prompt_text carries the (raw-persisted) domSnapshot; output_text carries the agent reply.
+      /* prompt_text carries the (raw-persisted) domSnapshot; output_text carries the agent reply. */
       promptText: `## Live DEV DOM\ntoken=${secret}\nbutton: Submit`,
       outputText: `done — leaked ${secret}`,
       promptBytes: 50, tokensInput: 100, tokensOutput: 50,
@@ -1103,13 +1102,13 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
     deps({ getRecord: () => record, getAgentTurns: () => stubTurns as any }),
   );
   assert.equal(res.status, 200);
-  // The raw secret must not appear anywhere in the response body.
+  /* The raw secret must not appear anywhere in the response body. */
   assert.doesNotMatch(res.body, /ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ/, "secret must be redacted in the /turns egress");
   const body = JSON.parse(res.body);
   assert.doesNotMatch(body[0].promptText, /ghp_/, "prompt_text must be sanitized");
   assert.doesNotMatch(body[0].outputText, /ghp_/, "output_text must be sanitized");
   assert.match(body[0].promptText, /REDACTED/);
-  // Non-secret content survives (the button label is still readable).
+  /* Non-secret content survives (the button label is still readable). */
   assert.match(body[0].promptText, /button: Submit/);
 });
 
@@ -1126,11 +1125,11 @@ test("phase-0b: GET /api/runs/:id/turns returns an empty array when no turns exi
   assert.deepEqual(body, []);
 });
 
-// judgment-day C1: the per-app boundary-onboarding routes are a facade over ONE process-wide job.
-// These tests prove the HANDLER LAYER (api.ts) forwards the route's :name param into
-// deps.boundaries.status()/confirm() — the seam the composition wiring in src/index.ts was
-// truncating to a zero-arg lambda, silently discarding app identity across a status poll or a
-// confirm write. A capturing fake on deps.boundaries records exactly what name each call received.
+/* These tests prove the HANDLER LAYER (api.ts) forwards the route's :name param into
+   deps.boundaries.status()/confirm() — the seam the composition wiring in src/index.ts was
+   truncating to a zero-arg lambda, silently discarding app identity across a status poll or a
+   confirm write. A capturing fake on deps.boundaries records exactly what name each call received.
+ */
 function captureBoundariesFake() {
   const calls: { propose: string[]; status: string[]; confirm: string[] } = { propose: [], status: [], confirm: [] };
   const boundaries = {
@@ -1156,8 +1155,9 @@ test("POST /api/apps/:name/boundaries/propose forwards :name into deps.boundarie
   await handleApi(mkReq("POST", "/api/apps/shop/boundaries/propose", "{}"), res, deps({ boundaries }));
   assert.equal(res.status, 202);
   assert.deepEqual(calls.propose, ["shop"]);
-  // The 202 response body comes from a status() call the handler makes right after propose() —
-  // this must be scoped to the SAME app the caller just posted to, not any other app.
+  /* The 202 response body comes from a status() call the handler makes right after propose() —
+     this must be scoped to the SAME app the caller just posted to, not any other app.
+   */
   assert.deepEqual(calls.status, ["shop"]);
 });
 

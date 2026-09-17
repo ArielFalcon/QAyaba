@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// historyModel lists recent runs for one app. Opened from home with 'h'. Enter
-// opens a run in the live screen; esc goes back; r refreshes.
+/* historyModel lists recent runs for one app. Opened from home with 'h'. Enter
+   opens a run in the live screen; esc goes back; r refreshes. */
 type historyModel struct {
 	client  *api.Client
 	app     string
@@ -88,15 +88,15 @@ func (m historyModel) View() string {
 	case len(m.runs) == 0:
 		b.WriteString(hintStyle.Render("no runs yet — launch one from home") + "\n")
 	default:
-		// A trend header: recent pass rate + a fixed-scale quality sparkline, so the
-		// shape of this app's history reads at a glance above the per-run list.
+		/* A trend header: recent pass rate + a fixed-scale quality sparkline, so the
+		   shape of this app's history reads at a glance above the per-run list. */
 		st := computeFleetStats(m.runs, 24)
 		trend := passRateStyle(st.passRate, st.total).Render(fmt.Sprintf("%.0f%% pass", st.passRate*100)) +
 			"  " + lipgloss.NewStyle().Foreground(colDim).Render(st.spark)
 		b.WriteString(labelRule(w, "trend", trend) + "\n")
 		for i, r := range m.runs {
-			// Run lines carry their own verdict color, so selection is the ember bar (a
-			// wash would fight the per-segment colors), not a re-styling of the line.
+			/* Run lines carry their own verdict color, so selection is the ember bar (a
+			   wash would fight the per-segment colors), not a re-styling of the line. */
 			marker := normalRow(0, "", "", "")
 			if i == m.cursor {
 				marker = renderSegs("", sg("▌▸ ", colEmber))
@@ -198,22 +198,21 @@ func relativeTime(iso string) string {
 	}
 }
 
-// ── Messages ─────────────────────────────────────────────────────────────────
+/* ── Messages ───────────────────────────────────────────────────────────────── */
 
-// historySelectedMsg: the user pressed 'h' on home → open the history screen.
+/* historySelectedMsg: the user pressed 'h' on home → open the history screen. */
 type historySelectedMsg struct{ app string }
 
-// watchRunMsg: the user picked a run from history → re-open it in the live screen.
+/* watchRunMsg: the user picked a run from history → re-open it in the live screen. */
 type watchRunMsg struct {
 	id  string
 	app string
 }
 
-// runsLoadedMsg carries the result of ListRuns to the history screen.
 type runsLoadedMsg struct{ runs []contract.RunRecord }
 
-// listHistoryCmd fetches recent runs for an app (up to 30) and reports the
-// result back as runsLoadedMsg or errMsg.
+/* listHistoryCmd fetches recent runs for an app (up to 30) and reports the
+   result back as runsLoadedMsg or errMsg. */
 func listHistoryCmd(c *api.Client, app string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

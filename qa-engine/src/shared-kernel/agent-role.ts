@@ -1,9 +1,4 @@
-// qa-engine/src/shared-kernel/agent-role.ts
-// WHO the agent is (role) and WHICH provider+model serves it. Kernel-resident because
-// AgentRuntimePort.openSession() takes `role: AgentRole` and `RoleAssignment` appears in the port
-// surface — placing them here keeps the kernel from forward-depending on agent-runtime/ (§5.1 P3).
-// The 8 roles are the runtime union (src/agent-runtime/types.ts); the contract AgentRoleSchema is a
-// narrower 6-member WIRE subset, not the domain vocabulary.
+/* Who the agent is (role) and which provider+model serves it. Kernel-resident so AgentRuntimePort does not forward-depend on the agent-runtime context. The contract AgentRoleSchema is a narrower wire subset, not this runtime union. */
 
 export type AgentRole =
   | "primary" | "reviewer" | "chat" | "worker"
@@ -16,8 +11,7 @@ export interface RoleAssignment {
   model: string;
 }
 
-// What a role is structurally allowed to do — the provider-agnostic capability policy. The judge, the
-// read-only chat, the one-shot reflector, and the explorer never mutate the workspace.
+/* Reviewer, chat, reflector, explorer, and proposer never mutate the workspace. */
 export interface RoleCapabilities {
   canWrite: boolean;
 }

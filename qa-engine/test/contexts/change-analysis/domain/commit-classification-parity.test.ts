@@ -1,19 +1,4 @@
-// Parity tests: pin the kernel classifyCommit/classifyRange against FROZEN snapshot literals
-// captured from the legacy src/qa/commit-classify.ts BEFORE that file was deleted
-// (migration-tier-1-2, Slice 4). This file no longer imports src/ and is no longer excluded from
-// qa-engine's typecheck.
-//
-// WARNING (judgment-day round-1, frozen-snapshot discipline — precedent:
-// error-class-parity.test.ts's LEGACY_RESOLVE_ERROR_CLASS_SNAPSHOT): the literals asserted below
-// are a FROZEN oracle, captured by running the legacy classifyCommit/classifyRange against these
-// exact inputs immediately before src/qa/commit-classify.ts was deleted. The legacy source no
-// longer exists, so there is no live re-derivation possible. If a change to
-// qa-engine/src/contexts/change-analysis/domain/commit-classification.ts makes one of these
-// assertions fail, that failure is signaling a REAL behavioral divergence from the legacy oracle,
-// not a stale fixture. Editing a snapshot VALUE here to make a failing test pass silently
-// rebaselines away that regression instead of fixing it — never do that without a written
-// justification (in the commit message or a comment here) for why the NEW value is the correct
-// behavior.
+/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyCommit, classifyRange, type CommitClassification } from "@contexts/change-analysis/domain/commit-classification.ts";
@@ -57,9 +42,10 @@ test("FROZEN PARITY: matches the legacy classifyCommit decision table (pinned pr
 });
 
 test("FROZEN PARITY relocation-subtraction: a logic line that moved (both + and - sides) is NOT escalated to generate", () => {
-  // The genuinelyAddedLogic walker subtracts lines that appear on BOTH the +- and -- sides
-  // (content relocation: same text removed elsewhere and added here). A moved line is NOT net-new
-  // logic, so classifyCommit must return "regression" (or "skip") — NOT "generate".
+  /* The genuinelyAddedLogic walker subtracts lines that appear on BOTH the +- and -- sides
+     (content relocation: same text removed elsewhere and added here). A moved line is NOT net-new
+     logic, so classifyCommit must return "regression" (or "skip") — NOT "generate".
+   */
   const relocatedDiff = [
     "diff --git a/src/svc.ts b/src/svc.ts",
     "--- a/src/svc.ts",
@@ -79,8 +65,9 @@ test("FROZEN PARITY relocation-subtraction: a logic line that moved (both + and 
   assert.equal(got.action, "regression", "a moved logic line should NOT escalate refactor to generate");
 });
 
-// ── WS7.3(a)/(b)/(c) FROZEN PARITY: the qa-engine domain copy must keep agreeing with the pinned
-// legacy escalation paths (template extensions, removed-logic, migrations) captured pre-deletion.
+/* FROZEN PARITY: the qa-engine domain copy must keep agreeing with the pinned escalation paths
+   (template extensions, removed-logic, migrations).
+ */
 
 test("FROZEN PARITY WS7.3(a): .html template with added logic", () => {
   const d = ["diff --git a/src/index.html b/src/index.html", "--- a/src/index.html", "+++ b/src/index.html", "@@ -1,1 +1,2 @@", " <html>", "+<script>if (loggedIn) redirect();</script>"].join("\n");
@@ -135,8 +122,9 @@ test("FROZEN PARITY WS7.3(c): unrelated .sql outside a migration path does not e
   assert.deepEqual(classifyCommit("chore: report tweak", d), expected);
 });
 
-// ── WS7.1 FROZEN PARITY: classifyRange must keep agreeing with the pinned legacy head-intent and
-// MAX-severity reduction semantics.
+/* FROZEN PARITY: classifyRange must keep agreeing with the pinned head-intent and MAX-severity
+   reduction semantics.
+ */
 
 test("FROZEN PARITY WS7.1: classifyRange with no range matches classifyCommit on both sides", () => {
   const d = srcDiff(["if (a) return;"]);

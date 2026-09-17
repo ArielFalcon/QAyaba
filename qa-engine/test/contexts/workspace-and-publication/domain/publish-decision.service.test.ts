@@ -1,4 +1,3 @@
-// test/contexts/workspace-and-publication/domain/publish-decision.service.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PublishDecisionService } from "@contexts/workspace-and-publication/domain/publish-decision.service.ts";
@@ -32,12 +31,12 @@ test("shadow mode overrides every side-effecting outcome to shadow", () => {
   assert.equal(svc.decide({ ...base, verdict: "pass", shadow: true }).outcome, "shadow");
   assert.equal(svc.decide({ ...base, verdict: "fail", shadow: true }).outcome, "shadow");
 });
-// FIX 13a: skipped must be a noop (the agent approved with zero specs — a clean exit,
-// not an error; opening an issue for a skipped run would be a false positive).
+/* skipped must be a noop (the agent approved with zero specs — a clean exit,
+   not an error; opening an issue for a skipped run would be a false positive).
+ */
 test("skipped → noop (agent approved zero specs — clean exit, not an error)", () => {
   assert.equal(svc.decide({ ...base, verdict: "skipped" }).outcome, "noop");
 });
-// FIX 13a note: `infra-error` handling is deliberately kept minimal here (→ noop).
-// The full infra-error notification flow (alert channel, retry logic) is audited at
-// Plan-6 wiring where the full pipeline context is available. Do NOT add infra-error
-// side effects to PublishDecisionService before that audit.
+/* PublishDecisionService does not own infra-error notification (alert channel, retry logic).
+   An infra-error verdict maps to noop here.
+ */

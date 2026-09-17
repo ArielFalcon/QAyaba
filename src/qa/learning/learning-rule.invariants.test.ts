@@ -8,10 +8,11 @@ import {
   type LearningRule,
 } from "./learning-rule";
 
-// Invariant net for the learning ledger's governance. These pin the guarantees the whole
-// value/trust story rests on, so a future tweak to a threshold (PROMOTE_RATE, DEMOTE_RATE,
-// PREVENTION_HELD_SCORE, the deriveConfidence bands) that quietly breaks them fails loudly here
-// instead of silently letting unproven rules earn trust they didn't earn.
+/* Invariant net for the learning ledger's governance. These pin the guarantees the whole
+   value/trust story rests on, so a future tweak to a threshold (PROMOTE_RATE, DEMOTE_RATE,
+   PREVENTION_HELD_SCORE, the deriveConfidence bands) that quietly breaks them fails loudly here
+   instead of silently letting unproven rules earn trust they didn't earn.
+ */
 
 function seedRule(overrides: Partial<LearningRule> = {}): LearningRule {
   return {
@@ -32,19 +33,20 @@ function seedRule(overrides: Partial<LearningRule> = {}): LearningRule {
   };
 }
 
-// WS1.4(b): `isOracleScore` defaults to true here — this invariant net's `fold` calls are almost
-// all exercising the OBJECTIVE-EVIDENCE side of governance (oracle-range scores like 1/0.9), so the
-// default keeps every pre-existing call site's intent unchanged. The one exception (the
-// prevention-only PREVENTION_HELD_SCORE plateau test, below) explicitly passes `false` — see that
-// test's own updated comment for why WS1.4(b) changes its expected status.
+/* `isOracleScore` defaults to true here — this invariant net's `fold` calls are almost
+   all exercising the OBJECTIVE-EVIDENCE side of governance (oracle-range scores like 1/0.9), so the
+   default keeps every pre-existing call site's intent unchanged. The one exception (the
+   prevention-only PREVENTION_HELD_SCORE plateau test, below) explicitly passes `false`.
+ */
 function fold(rule: LearningRule, scores: number[], isOracleScore = true): LearningRule {
   return scores.reduce((r, s) => applyOutcome(r, s, null, isOracleScore), rule);
 }
 
 describe("ledger invariant: high confidence ⟹ oracle ground-truth", () => {
   it("a rule fed ONLY prevention outcomes (0 | PREVENTION_HELD_SCORE) can never reach 'high'", () => {
-    // The strongest prevention signal is PREVENTION_HELD_SCORE; the running mean of any sequence
-    // drawn from {0, 0.6} stays ≤ 0.6, below the 0.7 'high' band. Exhaustive over sequence length.
+    /* The strongest prevention signal is PREVENTION_HELD_SCORE; the running mean of any sequence
+       drawn from {0, 0.6} stays ≤ 0.6, below the 0.7 'high' band. Exhaustive over sequence length.
+     */
     for (let n = 1; n <= 30; n++) {
       const allHeld = fold(seedRule(), Array(n).fill(PREVENTION_HELD_SCORE));
       assert.notEqual(allHeld.confidence, "high", `all-held n=${n} must never be 'high'`);
@@ -54,20 +56,19 @@ describe("ledger invariant: high confidence ⟹ oracle ground-truth", () => {
     assert.notEqual(mixed.confidence, "high");
   });
 
-  // WS1.4(b) SUPERSEDES this test's original expectation (status: "active"). Promotion is
-  // objective-signal-only — prevention credit is DERIVED (absence of a failure class), not an
-  // objective observation, so it must never by itself satisfy the candidate -> active gate, no
-  // matter how many clean runs accrue. successRate/confidence are UNCHANGED (still plateau at
-  // medium); only status now stays at "candidate" absent any oracle-scored outcome.
+  /* objective-signal-only — prevention credit is DERIVED (absence of a failure class), not an
+     objective observation, so it must never by itself satisfy the candidate -> active gate, no
+     matter how many clean runs accrue. successRate/confidence are UNCHANGED (still plateau at
+     medium); only status now stays at "candidate" absent any oracle-scored outcome.
+   */
   it("PREVENTION_HELD_SCORE plateaus successRate/confidence at 'medium' but NEVER promotes on its own (WS1.4(b) oracle-evidence gate)", () => {
-    const held = fold(seedRule(), Array(5).fill(PREVENTION_HELD_SCORE), false); // prevention path — isOracleScore=false
+    const held = fold(seedRule(), Array(5).fill(PREVENTION_HELD_SCORE), false); /* prevention path — isOracleScore=false */
     assert.equal(held.status, "candidate", "WS1.4(b): prevention-only credit must NOT promote — zero objective evidence was folded in");
     assert.equal(held.confidence, "medium", "but never lifts past medium without the oracle");
     assert.equal(held.oracleOutcomeCount, 0, "no outcome in this sequence was oracle-scored");
   });
 
-  // WS1.4(b) companion: the SAME prevention-held rule, plus one oracle-scored outcome at or above
-  // PROMOTE_RATE, DOES cross into active — the objective-evidence anchor is satisfied.
+  /* PROMOTE_RATE, DOES cross into active — the objective-evidence anchor is satisfied. */
   it("PREVENTION_HELD_SCORE plateau + one oracle-scored outcome unlocks promotion to active", () => {
     const held = fold(seedRule(), Array(5).fill(PREVENTION_HELD_SCORE), false);
     assert.equal(held.status, "candidate");
@@ -79,7 +80,6 @@ describe("ledger invariant: high confidence ⟹ oracle ground-truth", () => {
   it("an oracle-range signal (≥0.7) is what unlocks 'high'", () => {
     const oracleProven = fold(seedRule(), [1, 1, 1, 0.9]);
     assert.equal(oracleProven.confidence, "high");
-    // The band boundary itself: 0.6 (prevention ceiling) is medium, 0.7 is high.
     assert.equal(deriveConfidence(5, 0.69), "medium");
     assert.equal(deriveConfidence(5, 0.7), "high");
   });
@@ -87,7 +87,7 @@ describe("ledger invariant: high confidence ⟹ oracle ground-truth", () => {
 
 describe("ledger invariant: asymmetric hysteresis (slow to demote) + nothing is deleted", () => {
   it("no status change or confidence above 'low' before MIN_OUTCOMES", () => {
-    const r = fold(seedRule(), [1, 1]); // 2 outcomes
+    const r = fold(seedRule(), [1, 1]);
     assert.equal(r.confidence, "low", "insufficient evidence stays low");
     assert.equal(r.status, "candidate", "insufficient evidence does not promote");
   });
@@ -113,8 +113,9 @@ describe("ledger invariant: asymmetric hysteresis (slow to demote) + nothing is 
   });
 
   it("promotion requires a clearly positive mean — a mean of 0.5 does NOT promote", () => {
-    // Brackets the promotion bar from below: with the "prevention 0.6 → active" test above bounding
-    // it from above (≤ 0.6), this pins PROMOTE_RATE in (0.5, 0.6] so a silent loosening is caught.
+    /* Brackets the promotion bar from below: with the "prevention 0.6 → active" test above bounding
+       it from above (≤ 0.6), this pins PROMOTE_RATE in (0.5, 0.6] so a silent loosening is caught.
+     */
     const lukewarm = fold(seedRule(), [0.5, 0.5, 0.5]);
     assert.equal(lukewarm.status, "candidate", "a 0.5 mean is not enough evidence to promote");
   });
@@ -140,6 +141,6 @@ describe("applyOutcome accumulates an arithmetic running mean (self-contained pi
   it("successRate is the mean of all folded scores, not a windowed/last value", () => {
     assert.ok(Math.abs((fold(seedRule(), [1, 0]).successRate ?? -1) - 0.5) < 1e-9, "[1,0] → 0.5");
     assert.ok(Math.abs((fold(seedRule(), [1, 0, 0]).successRate ?? -1) - 1 / 3) < 1e-9, "[1,0,0] → 1/3");
-    // A wrong denominator (e.g. windowing or overwriting) would drift these off the true mean.
+    /* A wrong denominator (e.g. windowing or overwriting) would drift these off the true mean. */
   });
 });

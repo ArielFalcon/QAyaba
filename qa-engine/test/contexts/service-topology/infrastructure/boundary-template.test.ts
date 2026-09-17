@@ -1,12 +1,12 @@
-// test/contexts/service-topology/infrastructure/boundary-template.test.ts
-// TDD (strict): the template compiler turns a config-supplied "{service}" template into a
-// matcher — this is what lets servicePrefixTemplate / serviceRepoTemplate be app config
-// instead of a hardcoded regex in the core.
+/* test/contexts/service-topology/infrastructure/boundary-template.test.ts
+   matcher — this is what lets servicePrefixTemplate / serviceRepoTemplate be app config
+   instead of a hardcoded regex in the core.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { compilePrefixTemplate, compileRepoTemplate } from "@contexts/service-topology/infrastructure/boundary-template.ts";
 
-// ---- compilePrefixTemplate: "name-{service}-api" style (path prefix + trailing resource) ----
+/* ---- compilePrefixTemplate: "name-{service}-api" style (path prefix + trailing resource) ---- */
 
 test("compilePrefixTemplate: matches the nname convention 'name-{service}-api' and extracts service + resource", () => {
   const matcher = compilePrefixTemplate("name-{service}-api");
@@ -45,8 +45,9 @@ test("compilePrefixTemplate: returns null for a path that does not match the tem
 });
 
 test("compilePrefixTemplate: a DIFFERENT template shape ('{service}-service') works with the SAME compiler", () => {
-  // Proves the compiler is not tied to the nname prefix/suffix shape — a suffix-only template
-  // from a different app's config compiles and matches correctly.
+  /* Proves the compiler is not tied to the nname prefix/suffix shape — a suffix-only template
+     from a different app's config compiles and matches correctly.
+   */
   const matcher = compilePrefixTemplate("{service}-service");
   const m = matcher("orders-service/orders");
   assert.ok(m);
@@ -54,7 +55,7 @@ test("compilePrefixTemplate: a DIFFERENT template shape ('{service}-service') wo
   assert.equal(m?.resource, "orders");
 });
 
-// ---- compileRepoTemplate: "ms-name-{service}" style (repo slug → service name) ----
+/* ---- compileRepoTemplate: "ms-name-{service}" style (repo slug → service name) ---- */
 
 test("compileRepoTemplate: matches the nname convention 'ms-name-{service}' and extracts service", () => {
   const matcher = compileRepoTemplate("ms-name-{service}");
@@ -71,11 +72,12 @@ test("compileRepoTemplate: a DIFFERENT template shape works with the SAME compil
   assert.equal(matcher("svc-orders-repo"), "orders");
 });
 
-// ---- Fix #3: templates need EXACTLY one "{service}" token — 0 or 2+ must warn + fail-CLOSED ----
-// indexOf finds only the FIRST "{service}"; with 2+ placeholders the rest is matched as a
-// literal string (near-never matches — silently useless); with 0 placeholders the "empty
-// suffix" degenerates into a phantom capture group that can swallow real characters as a
-// fabricated service name (see the compilePrefixTemplate phantom-capture test below).
+/* ---- Fix #3: templates need EXACTLY one "{service}" token — 0 or 2+ must warn + fail-CLOSED ----
+   indexOf finds only the FIRST "{service}"; with 2+ placeholders the rest is matched as a
+   literal string (near-never matches — silently useless); with 0 placeholders the "empty
+   suffix" degenerates into a phantom capture group that can swallow real characters as a
+   fabricated service name (see the compilePrefixTemplate phantom-capture test below).
+ */
 
 test("compilePrefixTemplate: a template with TWO '{service}' tokens warns and always returns null (fail-closed)", () => {
   const originalWarn = console.warn;
@@ -142,10 +144,11 @@ test("compileRepoTemplate: a template with NO '{service}' token warns and always
   }
 });
 
-// ---- Fix #4: the prefix template's trailing suffix must end on a segment boundary ----
-// Before this fix, the suffix matched as a substring, so "name-{service}-api" would match
-// "name-orders-apifoo" (bogus: {service: orders, resource: foo}) because the SERVICE_CHARSET
-// includes "-" and nothing enforced a "/" or end-of-string right after the literal suffix.
+/* ---- Fix #4: the prefix template's trailing suffix must end on a segment boundary ----
+   Before this fix, the suffix matched as a substring, so "name-{service}-api" would match
+   "name-orders-apifoo" (bogus: {service: orders, resource: foo}) because the SERVICE_CHARSET
+   includes "-" and nothing enforced a "/" or end-of-string right after the literal suffix.
+ */
 
 test("compilePrefixTemplate: the suffix must be followed by a '/' or end-of-string, not swallow trailing chars", () => {
   const matcher = compilePrefixTemplate("name-{service}-api");

@@ -12,15 +12,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// boundaryPollInterval is the dedicated poll cadence for a running onboarding job — finer
-// than the ambient 3s heartbeat (system.go's pollInterval) so round/candidate/score
-// transitions feel live rather than laggy for a bounded ≤3-round job.
+/* boundaryPollInterval is the dedicated poll cadence for a running onboarding job — finer
+   than the ambient 3s heartbeat (system.go's pollInterval) so round/candidate/score
+   transitions feel live rather than laggy for a bounded ≤3-round job. */
 const boundaryPollInterval = 1500 * time.Millisecond
 
-// boundaryProposeModel is the FIRST poll-driven live-progress view in this TUI (design §B/§D
-// — it deliberately does not reuse live.go's QA-shaped step/verdict rendering; onboarding
-// phases don't map onto a QA run's step rail). It renders the current OnboardingJobStatus and,
-// on a winner outcome, a confirm card the human must explicitly accept before anything writes.
+/* Poll-driven live-progress view for onboarding. Does not reuse live.go's QA-shaped step/verdict rendering — onboarding phases do not map onto a QA run's step rail. Renders the current OnboardingJobStatus and, on a winner, a confirm card the human must explicitly accept before anything writes. */
 type boundaryProposeModel struct {
 	client *api.Client
 	app    string
@@ -38,22 +35,17 @@ func (m boundaryProposeModel) Init() tea.Cmd {
 	return tea.Batch(proposeBoundariesCmd(m.client, m.app), boundaryTickCmd())
 }
 
-// ── Messages ─────────────────────────────────────────────────────────────────
+/* ── Messages ───────────────────────────────────────────────────────────────── */
 
-// boundaryStatusMsg carries one status snapshot back to the model, whether it came from the
-// initial propose call or a subsequent poll — both resolve to the same contract type.
+/* boundaryStatusMsg carries one status snapshot back to the model, whether it came from the
+   initial propose call or a subsequent poll — both resolve to the same contract type. */
 type boundaryStatusMsg struct{ status contract.OnboardingJobStatus }
 
-// boundaryTickMsg fires on the dedicated onboarding-screen heartbeat; the model answers by
-// polling the job's status again.
+/* boundaryTickMsg fires on the dedicated onboarding-screen heartbeat; the model answers by
+   polling the job's status again. */
 type boundaryTickMsg struct{}
 
-// confirmedBoundariesMsg acknowledges a successful confirm — the boundary block was spliced
-// into config/apps/<name>.yaml. jobState carries the server's OWN state at confirm time (design
-// §2.8): when it is a non-terminal state (e.g. "indexing"), the caller (model.go) must NOT
-// navigate back to the board yet — the propose screen stays alive and resumes polling until the
-// job reaches a terminal state, so the human can see per-repo indexing progress instead of the
-// screen vanishing the instant confirm succeeds.
+/* Successful confirm: the boundary block was spliced into config/apps/<name>.yaml. jobState is the server's own state at confirm time: when it is non-terminal (e.g. "indexing"), the caller (model.go) must NOT navigate back to the board yet — the propose screen stays alive and resumes polling until the job reaches a terminal state so the human can see per-repo indexing progress. */
 type confirmedBoundariesMsg struct {
 	apps     []contract.AppView
 	status   string
@@ -113,26 +105,22 @@ func confirmBoundariesCmd(c *api.Client, app string, status contract.OnboardingJ
 			return errMsg{fmt.Errorf("%s", msg)}
 		}
 		note := "boundaries confirmed for " + app
-		// The confirm endpoint's own response has no job-state field (it only acks the splice) —
-		// re-poll status right after a successful confirm to learn whether the server kicked off
-		// the post-confirm indexing phase (design §2.8). A best-effort re-poll: if it fails, fall
-		// back to treating the confirm as terminal (today's behavior) rather than blocking the
-		// confirmation note on a second network call's success.
+		/* Confirm's response has no job-state field (it only acks the splice). Re-poll status to learn whether indexing started. If the re-poll fails, treat the confirm as terminal rather than blocking the confirmation note on a second network call. */
 		jobState := contract.OnboardingJobStatusStateDone
 		if polled, statusErr := c.GetBoundaryStatus(ctx, app); statusErr == nil {
 			jobState = polled.State
 		}
 		apps, err := c.ListApps(ctx)
 		if err != nil {
-			// The write succeeded even though the follow-up refresh failed — surface the note
-			// without a stale app list rather than dropping the confirmation.
+			/* The write succeeded even though the follow-up refresh failed — surface the note
+			   without a stale app list rather than dropping the confirmation. */
 			return confirmedBoundariesMsg{status: note, jobState: jobState}
 		}
 		return confirmedBoundariesMsg{apps: apps, status: note, jobState: jobState}
 	}
 }
 
-// ── Update / View ────────────────────────────────────────────────────────────
+/* ── Update / View ──────────────────────────────────────────────────────────── */
 
 func (m boundaryProposeModel) Update(msg tea.Msg) (boundaryProposeModel, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -165,19 +153,14 @@ func (m boundaryProposeModel) Update(msg tea.Msg) (boundaryProposeModel, tea.Cmd
 	return m, nil
 }
 
-// isTerminalOnboardState reports whether the job has reached a state that will never change
-// again, so the model must stop rescheduling its own tick (otherwise the poll loop never
-// terminates — mirrors system.go's pollTick termination contract, but per-screen).
+/* isTerminalOnboardState reports whether the job has reached a state that will never change
+   again, so the model must stop rescheduling its own tick (otherwise the poll loop never
+   terminates — mirrors system.go's pollTick termination contract, but per-screen). */
 func isTerminalOnboardState(state contract.OnboardingJobStatusState) bool {
 	return state == contract.OnboardingJobStatusStateDone || state == contract.OnboardingJobStatusStateFailed
 }
 
-// isConfirmableWinner reports whether the current status is a completed job with a winning,
-// resolved profile FOR THIS SCREEN'S OWN APP — the ONLY state in which enter should dispatch a
-// confirm. This mirrors the server's own per-app scoping guard (judgment-day C1: the per-app REST
-// surface is a facade over one process-wide job) as defense in depth on the client side too — even
-// though the server now returns a scoped idle response on an app mismatch, the client must still
-// never treat a status payload for a DIFFERENT app as its own confirmable winner.
+/* Completed job with a winning, resolved profile FOR THIS SCREEN'S OWN APP — the only state in which enter should dispatch a confirm. Never treat a status payload for a different app as a confirmable winner. */
 func (m boundaryProposeModel) isConfirmableWinner() bool {
 	return !m.isAppMismatch() &&
 		m.status.State == contract.OnboardingJobStatusStateDone &&
@@ -185,9 +168,9 @@ func (m boundaryProposeModel) isConfirmableWinner() bool {
 		m.status.ResolvedProfile != nil
 }
 
-// isAppMismatch reports whether the most recently received status belongs to a different app
-// than this screen's own app. `status.App` is nil only before the very first status arrives, in
-// which case there is nothing to mismatch against.
+/* isAppMismatch reports whether the most recently received status belongs to a different app
+   than this screen's own app. `status.App` is nil only before the very first status arrives, in
+   which case there is nothing to mismatch against. */
 func (m boundaryProposeModel) isAppMismatch() bool {
 	return m.status.App != nil && *m.status.App != m.app
 }
@@ -249,8 +232,6 @@ func (m boundaryProposeModel) badgeLabelAndStyle() (string, lipgloss.Style) {
 	}
 }
 
-// roundLine reports the per-round progress fields fed by the server's onRound observer
-// (design §B) — round, candidates scored, and the best resolved score seen so far.
 func (m boundaryProposeModel) roundLine() string {
 	line := labelStyle.Render(fmt.Sprintf("round %d/%d · candidates scored %d",
 		int(m.status.Round), int(m.status.Ceiling), int(m.status.CandidatesScored)))
@@ -268,9 +249,9 @@ func (m boundaryProposeModel) renderFailed() string {
 	return errorStyle.Render(msg) + "\n"
 }
 
-// renderNoProfile explains a completed job that found no boundary profile as a MEANINGFUL
-// outcome, not a dead end: the app is registered and stays fully testable, it simply has no
-// detected cross-service surface (or its backend services aren't declared yet).
+/* renderNoProfile explains a completed job that found no boundary profile as a MEANINGFUL
+   outcome, not a dead end: the app is registered and stays fully testable, it simply has no
+   detected cross-service surface (or its backend services aren't declared yet). */
 func (m boundaryProposeModel) renderNoProfile() string {
 	var b strings.Builder
 	b.WriteString(errorStyle.Render(fmt.Sprintf("⚠ no repo connections detected — %s is configured but has no boundary profile.", m.app)) + "\n\n")
@@ -280,9 +261,7 @@ func (m boundaryProposeModel) renderNoProfile() string {
 	return b.String()
 }
 
-// renderIndexing lists each RepoIndexOutcome the server has reported so far (design §2.8) — the
-// per-repo advisory-index phase that runs after a successful confirm. Front + every service repo
-// appear in the order the server indexed them; a repo not yet in the list simply has not started.
+/* Per-repo advisory-index phase after a successful confirm. Front + every service repo appear in the order the server indexed them; a repo not yet in the list has not started. */
 func (m boundaryProposeModel) renderIndexing() string {
 	if m.status.IndexProgress == nil || len(*m.status.IndexProgress) == 0 {
 		return hintStyle.Render("indexing repositories for structural analysis…") + "\n"
@@ -307,9 +286,9 @@ func (m boundaryProposeModel) renderIndexing() string {
 	return b.String()
 }
 
-// renderMapping shows the post-confirm (and no-profile) architecture-map phase — a mode:context
-// QA run that writes e2e/.qa/context.json. Progress is the run id plus the latest step/verdict
-// the job copied off the run record.
+/* renderMapping shows the post-confirm (and no-profile) architecture-map phase — a mode:context
+   QA run that writes e2e/.qa/context.json. Progress is the run id plus the latest step/verdict
+   the job copied off the run record. */
 func (m boundaryProposeModel) renderMapping() string {
 	var b strings.Builder
 	b.WriteString(hintStyle.Render("building FE↔BE architecture map…") + "\n")
@@ -330,9 +309,9 @@ func (m boundaryProposeModel) renderMapping() string {
 	return b.String()
 }
 
-// renderAppMismatch reports that the polled status belongs to a different app than this screen —
-// only possible if another onboarding run started for a different app concurrently. There is
-// nothing actionable here except going back; no confirm affordance is ever offered.
+/* renderAppMismatch reports that the polled status belongs to a different app than this screen —
+   only possible if another onboarding run started for a different app concurrently. There is
+   nothing actionable here except going back; no confirm affordance is ever offered. */
 func (m boundaryProposeModel) renderAppMismatch() string {
 	other := ""
 	if m.status.App != nil {
@@ -341,18 +320,11 @@ func (m boundaryProposeModel) renderAppMismatch() string {
 	return errorStyle.Render(fmt.Sprintf("another app's onboarding job is active: %s", other)) + "\n"
 }
 
-// renderWinnerCard shows the human-meaningful RESULT of a resolved boundary profile — how the
-// repos actually connect (Resolution.Edges) and what still needs attention (unresolved/drift/
-// external call counts) — never the raw internal profile shape (transport/frontFiles/
-// serviceRepoTemplate/openApiPath/eventPattern…). The human is confirming a RESULT, not reviewing
-// a schema dump; the authoritative serialization into config/apps/<name>.yaml still happens
-// server-side (spliceBoundariesBlock, design §A/§C) regardless of what this card displays. The
-// confirm gate itself (isConfirmableWinner / View dispatch / footer hint) is unchanged.
+/* Human-meaningful result of a resolved boundary profile: how the repos actually connect (Resolution.Edges) and what still needs attention (unresolved/drift/external call counts) — never the raw internal profile shape (transport/frontFiles/serviceRepoTemplate/openApiPath/eventPattern). The human confirms a result, not a schema dump; serialization into config/apps/<name>.yaml happens server-side regardless of what this card displays. */
 func (m boundaryProposeModel) renderWinnerCard() string {
 	var b strings.Builder
 	b.WriteString(okStyle.Bold(true).Render(fmt.Sprintf("boundary profile resolved — %s is ready.", m.app)) + "\n")
-	// A winner should always carry a Resolution now, but stay defensive: fall back to just the
-	// line above instead of panicking (or rendering an empty/misleading block) on a nil field.
+	/* A winner should carry a Resolution, but stay defensive: fall back to the ready line instead of panicking (or rendering an empty/misleading block) on a nil field. */
 	if m.status.Resolution != nil {
 		b.WriteString("\n" + m.renderConnections())
 		if attention := m.renderNeedsAttention(); attention != "" {
@@ -368,9 +340,9 @@ func (m boundaryProposeModel) renderWinnerCard() string {
 	return box + "\n"
 }
 
-// renderConnections renders "how the repos connect" — one line per Resolution.Edges entry,
-// naming which repo calls which, how often, and over what transport. The caller checks
-// m.status.Resolution for nil first.
+/* renderConnections renders "how the repos connect" — one line per Resolution.Edges entry,
+   naming which repo calls which, how often, and over what transport. The caller checks
+   m.status.Resolution for nil first. */
 func (m boundaryProposeModel) renderConnections() string {
 	var b strings.Builder
 	b.WriteString(labelStyle.Render("How the repos connect:") + "\n")
@@ -380,10 +352,10 @@ func (m boundaryProposeModel) renderConnections() string {
 	return b.String()
 }
 
-// renderNeedsAttention flags whatever the resolution didn't fully explain: frontend calls that
-// resolved to no backend, calls hitting an endpoint the backend doesn't declare (contract drift),
-// and calls to third-party/undeclared hosts. A clean resolution (all three zero) renders nothing
-// — there is nothing to flag. The caller checks m.status.Resolution for nil first.
+/* renderNeedsAttention flags whatever the resolution didn't fully explain: frontend calls that
+   resolved to no backend, calls hitting an endpoint the backend doesn't declare (contract drift),
+   and calls to third-party/undeclared hosts. A clean resolution (all three zero) renders nothing
+   — there is nothing to flag. The caller checks m.status.Resolution for nil first. */
 func (m boundaryProposeModel) renderNeedsAttention() string {
 	res := m.status.Resolution
 	if res.Unresolved <= 0 && res.Drift <= 0 && res.External <= 0 {

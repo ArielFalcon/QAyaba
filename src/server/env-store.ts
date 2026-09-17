@@ -1,8 +1,6 @@
-// Applies operator-provided env vars to the LIVE process env (config expansion reads
-// process.env at load time — no restart needed) and persists them to .env so they
-// survive a restart. Each var goes on its OWN line with no inline comment: docker
-// compose env_file does NOT strip inline comments (a known gotcha — see CLAUDE.md).
-// Doppler users must ALSO add the var in Doppler; .env only covers local boots.
+/* Applies operator-provided env vars to process.env and persists them to .env. */
+/* docker compose env_file does not strip inline # */
+/* Doppler users must also add the var in Doppler; .env only covers local boots. */
 
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,7 +27,7 @@ export function applyEnvVars(
   opts: { fs: EnvStoreFs; env: Record<string, string | undefined> },
 ): string[] {
   const entries = Object.entries(vars);
-  // Validate EVERYTHING first: a failure must leave no half-applied state.
+  /* Validate everything first: a failure must leave no half-applied state. */
   for (const [key, value] of entries) {
     if (!KEY_RE.test(key)) throw new Error(`invalid env key (expected [A-Z][A-Z0-9_]*): ${JSON.stringify(key)}`);
     if (/[\r\n]/.test(value)) throw new Error(`env value for ${key} must be a single line`);

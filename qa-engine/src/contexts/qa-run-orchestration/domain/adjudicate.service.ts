@@ -1,42 +1,10 @@
-// qa-engine/src/contexts/qa-run-orchestration/domain/adjudicate.service.ts
-// PORT (VERBATIM, not a rewrite) of src/qa/failure-adjudicator.ts's pure adjudicate() function —
-// the SAME one the fix-loop calls at pipeline.ts:2682, NOT qa-engine's
-// test-execution/domain/adjudicate.service.ts (that file's AdjudicateService.adjudicate(verdict,
-// cases) is a DIFFERENT, unrelated helper: a narrow runner-infra reclassification lifted from
-// execute.ts, already parity-pinned by its own adjudicate-parity.test.ts under test-execution — a
-// naming collision, not the same function). This copy is the Task D.4 dependency: the FixLoop
-// aggregate's single decision point (sub-decision 3).
-//
-// Re-homed here rather than imported cross-context — adjudicate is a PURE function, not an IO
-// capability, so adding an AdjudicatePort to the ports barrel would add ceremony without inversion
-// value (same reasoning as C.2's deriveCycleBackstop re-home). The qa-run-orchestration domain MUST
-// NOT import directly from test-execution's domain (a cross-context domain dependency would violate
-// the hexagonal boundary) or from src/qa/failure-adjudicator.ts (the legacy original stays until the
-// Plan 7 cutover). adjudicate-parity.test.ts pins this copy against the legacy original across a
-// sample evidence table; that parity test imports src/qa/failure-adjudicator.ts directly, so it is
-// added to the qa-engine typecheck "exclude" list (same parity-import pattern as
-// derive-cycle-backstop-parity.test.ts / legacy-pipeline.adapter.test.ts).
-//
-// Decision precedence (first match wins) — copied verbatim from the original's own header comment:
-//   1. runner_infra — all failure details match the Playwright launcher infra pattern
-//   2. dev_infra    — DEV health check failed (pre-computed boolean, no I/O here)
-//   2.5 app_defect (5xx) — objective server error: one or more failing cases carry an attributed
-//       5xx status (D2-attributed, same-origin, foreground-scoped). Sits BELOW runner_infra + dev_infra
-//       so a 5xx during DEV downtime stays dev_infra; sits ABOVE isLikelyRealBug (Rule 3) so a
-//       backend 500 is recognized as an app fault even when the failure detail is not a value-matcher.
-//   3. app_defect   — isLikelyRealBug fires (exact parity, calls the same predicate)
-//   4. generated_test_defect/continue — absent selector or all-locator class + spend allowed
-//   5. break-needs-human — gate closed and no deterministic class above fired (ambiguous)
-//   6. objective_gap (inert) — zero file-overlap in diff mode (label only, action=continue)
-//   7. default — generated_test_defect/low/continue (existing fall-through behaviour)
-//
-// All functions are pure: no I/O, no async, never throw. Pattern mirrors progress-gate.ts.
+/* Pure failure adjudicator for FixLoop — distinct from test-execution's AdjudicateService (runner-infra reclassification). First match wins: runner_infra → dev_infra → attributed 5xx app_defect → isLikelyRealBug app_defect → generated_test_defect/continue → break-needs-human → objective_gap (label only) → default continue. Pure: no I/O, never throw. */
 
 import type { RunMode } from "@kernel/run-mode.ts";
 import { isLikelyRealBug, classifyFailure } from "./helpers/progress-gate.ts";
 import { PLAYWRIGHT_INFRA_RE } from "./helpers/playwright-infra.ts";
 
-// ── Const-object enums → derived union types (TS skill: const-object pattern) ──
+/* Closed adjudicator enums. */
 
 export const ADJ_CLASS = {
   APP_DEFECT: "app_defect",
@@ -61,13 +29,12 @@ export const ADJ_ACTION = {
 } as const;
 export type AdjudicatorAction = (typeof ADJ_ACTION)[keyof typeof ADJ_ACTION];
 
-// classifyFailure's return type re-exported as an alias so callers can type the
-// precomputed failureClasses array without importing a literal union directly.
+/* classifyFailure's return type re-exported as an alias so callers can type the precomputed failureClasses array without importing a literal union directly. */
 export type AdjFailureClass = ReturnType<typeof classifyFailure>;
 
-// ── Evidence and verdict types ─────────────────────────────────────────────────
+/* ── Evidence and verdict types ───────────────────────────────────────────────── */
 
-// All fields are pre-computed by the caller. The function performs no I/O.
+/* All fields are pre-computed by the caller. The function performs no I/O. */
 export interface AdjudicatorEvidence {
   /** True for code-mode runs (no web env): skips app_defect and objective_gap rules. */
   isCode: boolean;
@@ -91,14 +58,9 @@ export interface AdjudicatorEvidence {
   objectiveSource: string[];
   /** Failing case file basenames: `failed.map(c => c.file)` (may contain undefined). */
   failingFiles: (string | undefined)[];
-  /** Per-failed-case attributed HTTP status (D1/D2 capture): `failed.map(c => c.httpStatus)`.
-   *  Entries are undefined when capture missed for that case. Mirrors the failingFiles pattern. */
+  /** Per-failed-case HTTP status (`failed.map(c => c.httpStatus)`). Undefined when capture missed. */
   httpStatuses: (number | undefined)[];
-  /** Feature B — per-failed-case captured browser console/pageerror entries:
-   *  `failed.map(c => c.runtimeErrors ?? [])`. Mirrors the httpStatuses pattern (one entry per
-   *  failed case, in order); an empty inner array means no runtime errors were captured for that
-   *  case (capture disabled, missed, or the app genuinely emitted none) — never undefined at the
-   *  outer level, so callers can iterate without an extra guard. */
+  /** Per-failed-case console/pageerror entries (`failed.map(c => c.runtimeErrors ?? [])`). Empty inner array means none captured — never undefined at the outer level. */
   runtimeErrorsByCase: { type: string; text: string }[][];
 }
 
@@ -110,7 +72,7 @@ export interface AdjudicatorVerdict {
   reason: string;
 }
 
-// ── Feature B: classifyRuntimeErrors — pure, project-agnostic runtime-error classifier ──────────
+/* classifyRuntimeErrors: pure runtime-error classifier. */
 
 export interface RuntimeErrorVerdict {
   /** True only on a STRONG framework/uncaught signal — conservative by design (see module doc). */
@@ -119,47 +81,21 @@ export interface RuntimeErrorVerdict {
   reasons: string[];
 }
 
-// Framework/uncaught-exception signatures. PROJECT-AGNOSTIC (no jhipster/angular/react-app literal
-// branches — see CLAUDE.md invariant): these are generic patterns any Angular or React app can emit,
-// not per-app strings. Kept narrow and conservative — the safe direction (per the design) is a false
-// NEGATIVE (missing an app defect), never a false POSITIVE that could mask a real generated-test defect.
-//   - `NG\d+` — Angular's numbered runtime error codes (NG0100, NG0303, …).
-//   - `ERROR Error:` — the Angular zone/`ErrorHandler` console.error prefix for an uncaught exception.
-//   - `Uncaught` — the browser's own prefix for an uncaught exception/rejection (any framework).
-//   - `Unhandled Promise rejection` — an unhandled async rejection (any framework).
-// A bare `Error:` console string is DELIBERATELY excluded: apps routinely `console.error("Error: …")`
-// for HANDLED failures, so matching it would false-POSITIVE and mask a real generated-test defect
-// (Rule 2.6 routes any appDefect case straight to app_defect→Issue). A GENUINELY uncaught error —
-// React error boundaries included — surfaces as a `pageerror`, which classifyRuntimeErrors already
-// treats as a strong signal; so dropping the bare pattern costs only merely-LOGGED errors — the
-// acceptable false-NEGATIVE side of the cardinal safe direction.
 const FRAMEWORK_ERROR_RE = /\bNG\d+\b|ERROR Error:|Uncaught|Unhandled Promise rejection/;
 
-// Benign noise that must NEVER set appDefect, even though it can share surface words with the
-// patterns above (e.g. a "Failed to load resource" line has no "Error:" but is excluded defensively
-// here too, in case the format changes). Resource load failures (4xx and generic network errors,
-// including favicon) are expected background chatter, not app breakage.
+/* Benign noise that must NEVER set appDefect, even though it can share surface words with the patterns above (e.g. a "Failed to load resource" line has no "Error:" but is excluded defensively here too, in case the format changes). Resource load failures (4xx and generic network errors, including favicon) are expected background chatter, not app breakage. */
 const BENIGN_NOISE_RE = /Failed to load resource|favicon|net::ERR_/i;
 
-/**
- * Classifies a run's captured browser console/pageerror entries (Feature B) into an appDefect
- * signal. Pure, sync, never throws. Conservative: only a `pageerror` (any uncaught JS exception)
- * or a console entry matching a generic framework-error signature sets `appDefect=true`; benign
- * resource-load noise, warnings, and anything else leave it `false`. A single genuine entry among
- * benign noise is enough (mirrors the adjudicator's own "one genuine signal is enough" precedent —
- * see Rule 2.5's 5xx `.some`-style handling below).
- */
+/* Classifies captured console/pageerror entries into appDefect. Conservative: only a pageerror or a framework-error signature sets true; a single genuine entry among noise is enough. */
 export function classifyRuntimeErrors(errors: { type: string; text: string }[]): RuntimeErrorVerdict {
   const reasons: string[] = [];
   for (const e of errors) {
-    // Any pageerror is, by definition, an uncaught JS exception — always a strong signal regardless
-    // of its text (a Playwright `pageerror` event only fires for genuinely uncaught exceptions).
+    /* Any pageerror is, by definition, an uncaught JS exception — always a strong signal regardless of its text (a Playwright `pageerror` event only fires for genuinely uncaught exceptions). */
     if (e.type === "pageerror") {
       reasons.push(`uncaught page error: ${e.text}`);
       continue;
     }
-    // Console entries: exclude benign noise FIRST (defense in depth), then match the generic
-    // framework-error signature set.
+    /* Console entries: exclude benign noise FIRST (defense in depth), then match the generic framework-error signature set. */
     if (BENIGN_NOISE_RE.test(e.text)) continue;
     if (FRAMEWORK_ERROR_RE.test(e.text)) {
       reasons.push(`framework runtime error: ${e.text}`);
@@ -168,7 +104,7 @@ export function classifyRuntimeErrors(errors: { type: string; text: string }[]):
   return { appDefect: reasons.length > 0, reasons };
 }
 
-// ── Pure decision function ─────────────────────────────────────────────────────
+/* ── Pure decision function ───────────────────────────────────────────────────── */
 
 /**
  * Adjudicates a failing run iteration. Pure, sync, never throws.
@@ -191,44 +127,30 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     runtimeErrorsByCase,
   } = evidence;
 
-  // Rule 1: runner_infra — every failure matches the Playwright launcher infra pattern.
-  // Mirrors allFailuresAreRunnerInfra exactly (same regex, applied per-detail string).
-  // Highest priority: never burn retries on a phantom bug caused by a launcher crash.
+  /* Rule 1: runner_infra — every failure matches the Playwright launcher infra pattern (same regex as allFailuresAreRunnerInfra). Highest priority: never burn retries on a launcher crash. */
   if (failureDetails.length > 0 && failureDetails.every((d) => PLAYWRIGHT_INFRA_RE.test(d))) {
     return {
       class: ADJ_CLASS.RUNNER_INFRA,
       confidence: ADJ_CONFIDENCE.HIGH,
-      action: ADJ_ACTION.BREAK_ISSUE, // caller routes to infra-error, no repo Issue
+      action: ADJ_ACTION.BREAK_ISSUE, /* caller routes to infra-error, no repo Issue */
       reason: "Playwright runner infrastructure failure — browser could not launch",
     };
   }
 
-  // Rule 2: dev_infra — DEV health check failed (pre-computed; no I/O here).
-  // Sits above app_defect so a runner crash during DEV downtime doesn't blame the app.
+  /* Rule 2: dev_infra — DEV health check failed (pre-computed; no I/O here). Sits above app_defect so a runner crash during DEV downtime doesn't blame the app. */
   if (devHealthy === false) {
     return {
       class: ADJ_CLASS.DEV_INFRA,
       confidence: ADJ_CONFIDENCE.HIGH,
-      action: ADJ_ACTION.BREAK_ISSUE, // caller routes to infra-error, no repo Issue
+      action: ADJ_ACTION.BREAK_ISSUE, /* caller routes to infra-error, no repo Issue */
       reason: "DEV environment unhealthy — failures are infra-related, not code defects",
     };
   }
 
-  // Rule 2.5 (NEW): server-error app_defect — an objective 5xx is the app's fault, not the test's.
-  // Sits BELOW runner_infra (Rule 1) + dev_infra (Rule 2): a 5xx during DEV downtime is infra, caught above.
-  // Sits ABOVE isLikelyRealBug (Rule 3) so an objective server error is recognized even when the failure
-  // detail is NOT a value-matcher string (the #681 hole). 5xx ONLY — 4xx is ambiguous (deferred).
-  //
-  // MIXED-RUN CHOICE (deliberate, contrasts with Rule 1's .every): uses a .some-style filter —
-  // ONE genuine attributed 5xx routes the run to app_defect→Issue even alongside a co-failing locator
-  // defect. A real, D2-attributed 5xx is a high-confidence app fault warranting human triage; the
-  // co-failing defect is surfaced in the Issue body's failed-case list, so it is NOT lost.
-  // Rule 1 (runner_infra) uses .every because a launcher crash is not per-case attributable; an
-  // attributed 5xx IS tied to a specific case via D2, so the asymmetry is justified.
-  // Not applicable in code mode (no web environment, no HTTP responses).
+  /* Rule 2.5: an attributed 5xx is the app's fault (4xx is ambiguous). Below runner_infra/dev_infra; above isLikelyRealBug. One 5xx is enough (.some, unlike Rule 1's .every) — co-failing cases still appear in the Issue. Not applicable in code mode. */
   const fiveXx = httpStatuses.filter((s): s is number => s !== undefined && s >= 500 && s <= 599);
   if (!isCode && fiveXx.length > 0) {
-    const reported = fiveXx[fiveXx.length - 1]!; // the last (most-recent) attributed 5xx
+    const reported = fiveXx[fiveXx.length - 1]!; /* the last (most-recent) attributed 5xx */
     return {
       class: ADJ_CLASS.APP_DEFECT,
       confidence: ADJ_CONFIDENCE.HIGH,
@@ -237,23 +159,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  // Rule 2.6 (Feature B — app-defect detection via browser console/page-error capture): a captured
-  // framework/uncaught runtime error on a failing case is high-confidence app evidence even when the
-  // failure detail itself is NOT a value-mismatch (the whole point — jhipster's unregistered
-  // FontAwesome icon threw during Angular change-detection, breaking client-side interactivity
-  // app-wide; the E2E failures were plain selector-count timeouts, not value mismatches, so neither
-  // Rule 2.5 nor Rule 3 could see it). Sits BELOW runner_infra/dev_infra/the 5xx rule (a runtime
-  // error during DEV downtime or a launcher crash is still infra, caught above) and ABOVE
-  // isLikelyRealBug (a runtime error is stronger, more specific evidence than a bare value-mismatch
-  // heuristic). Same MIXED-RUN choice as Rule 2.5 (.some, not .every): ONE case with a genuine
-  // classified runtime error is enough to route the whole run to app_defect — the co-failing case
-  // (if any) still appears in the failed-case list, so it is never lost.
-  // SAFE DIRECTION (cardinal, per the design): this rule only ADDS a diagnostic — it must never
-  // hard-block, auto-pass, or mask a real generated-test defect. `classifyRuntimeErrors` is
-  // deliberately conservative (benign resource-load noise never sets appDefect), so an empty or
-  // all-benign runtimeErrorsByCase is a strict no-op here and control falls through to Rule 3/4/5
-  // exactly as before this feature existed.
-  // Not applicable in code mode (no browser, no console/pageerror events to capture).
+  /* Rule 2.6: a captured framework/uncaught runtime error is app evidence even when the failure detail is not a value-mismatch. Below infra/5xx; above isLikelyRealBug. One genuine case is enough. Adds a diagnostic only — never auto-pass or mask a generated-test defect. Empty/benign capture is a no-op. Not applicable in code mode. */
   if (!isCode) {
     for (const errs of runtimeErrorsByCase) {
       const verdict = classifyRuntimeErrors(errs);
@@ -268,9 +174,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     }
   }
 
-  // Rule 3: app_defect — exact parity with isLikelyRealBug (calls the proven predicate,
-  // no re-implementation). allUnique=true + every detail a value-mismatch → real bug.
-  // Not applicable in code mode (no selector-presence concept there).
+  /* Rule 3: app_defect — same predicate as isLikelyRealBug. allUnique=true + every detail a value-mismatch → real bug. Not applicable in code mode. */
   if (!isCode && isLikelyRealBug(allUnique, failureDetails)) {
     return {
       class: ADJ_CLASS.APP_DEFECT,
@@ -280,9 +184,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  // Rule 4: generated_test_defect/continue — clear test-side fault AND progress still
-  // possible (gateSpend=true). Only fires when not code mode (locators only apply to E2E).
-  // Does NOT fire when gateSpend=false → falls through to rule 5 (the asymmetric stop).
+  /* Rule 4: generated_test_defect/continue — clear test-side fault AND progress still possible (gateSpend=true). Only fires when not code mode (locators only apply to E2E). Does NOT fire when gateSpend=false → falls through to rule 5 (the asymmetric stop). */
   if (
     !isCode &&
     (absentKeysCount > 0 || failureClasses.every((c) => c === "locator")) &&
@@ -296,13 +198,10 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  // Rule 5: break-needs-human — gate is closed and no deterministic class above fired.
-  // The asymmetric safety rule: falsely regenerating away a possibly-real failing test is
-  // worse than surfacing a labeled Issue for a human to triage.
-  // Preserves today's `!gate.spend → break` behaviour but with a labeled Issue.
+  /* Rule 5: break-needs-human — gate is closed and no deterministic class above fired. The asymmetric safety rule: falsely regenerating away a possibly-real failing test is worse than surfacing a labeled Issue for a human to triage. Preserves today's `!gate.spend → break` behaviour but with a labeled Issue. */
   if (gateSpend === false) {
-    // Use the most informative available class for the label.
-    const ambiguousClass = ADJ_CLASS.GENERATED_TEST_DEFECT; // best label for mixed/other
+    /* Use the most informative available class for the label. */
+    const ambiguousClass = ADJ_CLASS.GENERATED_TEST_DEFECT; /* best label for mixed/other */
     return {
       class: ambiguousClass,
       confidence: ADJ_CONFIDENCE.LOW,
@@ -311,9 +210,7 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     };
   }
 
-  // Rule 6: objective_gap (inert) — diff mode, zero file-basename overlap between the
-  // failing test files and the changed files. Label only; action is always continue.
-  // Sits last so it can only attach a label to a verdict that would continue anyway.
+  /* Rule 6: objective_gap (inert) — diff mode, zero file-basename overlap between the failing test files and the changed files. Label only; action is always continue. Sits last so it can only attach a label to a verdict that would continue anyway. */
   if (
     !isCode &&
     mode === "diff" &&
@@ -325,13 +222,12 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
     return {
       class: ADJ_CLASS.OBJECTIVE_GAP,
       confidence: ADJ_CONFIDENCE.LOW,
-      action: ADJ_ACTION.CONTINUE, // NEVER gates — purely observability
+      action: ADJ_ACTION.CONTINUE, /* NEVER gates — purely observability */
       reason: "Zero basename overlap between failing test files and changed diff files — possible objective mismatch",
     };
   }
 
-  // Default: generated_test_defect/low/continue — equivalent to today's fall-through-and-
-  // regenerate behaviour (neither branch fired, keep looping).
+  /* Default: generated_test_defect/low/continue — equivalent to today's fall-through-and- regenerate behaviour (neither branch fired, keep looping). */
   return {
     class: ADJ_CLASS.GENERATED_TEST_DEFECT,
     confidence: ADJ_CONFIDENCE.LOW,
@@ -340,12 +236,8 @@ export function adjudicate(evidence: AdjudicatorEvidence): AdjudicatorVerdict {
   };
 }
 
-// ── Private helpers ────────────────────────────────────────────────────────────
 
-/**
- * Returns true when no basename in `files` overlaps any basename in `sources`.
- * Uses the same normalization pattern the pipeline uses at the regen basename check.
- */
+/* True when no basename in `files` overlaps any basename in `sources`. */
 function noBasenameOverlap(files: string[], sources: string[]): boolean {
   const bn = (s: string): string => s.replace(/.*\//, "").replace(/.*\\/, "");
   const sourceBasenames = new Set(sources.map(bn));

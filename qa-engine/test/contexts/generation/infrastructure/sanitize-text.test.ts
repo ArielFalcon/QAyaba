@@ -1,7 +1,7 @@
-// Behavioral test for sanitize-text.ts — ported subset of src/orchestrator/sanitizer.test.ts
-// scoped to sanitizeText ONLY (capDiff/capText already have a real, ported home in prompt-cap.ts;
-// containsSecrets/SECRET_AUDIT/recordAudit are diagnostic-only and not consumed by context-pack.ts,
-// so they are out of scope for this narrow port — see sanitize-text.ts header for the full rationale).
+/* Behavioral tests for sanitize-text.ts, scoped to sanitizeText ONLY (capDiff/capText live in
+   prompt-cap.ts; containsSecrets/SECRET_AUDIT/recordAudit are diagnostic-only and not consumed
+   by context-pack.ts).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -12,9 +12,9 @@ test("redacts secrets (api key, token)", () => {
   assert.doesNotMatch(out, /sk-abc123XYZ/);
 });
 
-// WS5.4a — two-tier sanitizer policy twin (see src/orchestrator/sanitizer.test.ts's own header for
-// the full rationale): "issue" (default) keeps the aggressive pattern; "model" narrows the
-// api-key-assignment catch-all to quoted literals / high-entropy bare tokens only.
+/* Two-tier sanitizer policy: "issue" (default) keeps the aggressive pattern; "model" narrows the
+   api-key-assignment catch-all to quoted literals / high-entropy bare tokens only.
+ */
 test("model mode: does NOT redact a type annotation shaped like a credential field", () => {
   const { text: out } = sanitizeText("password: string;", "model");
   assert.doesNotMatch(out, /REDACTED/, "a type annotation carries no secret value");
@@ -43,13 +43,12 @@ test("issue mode (default, unchanged): a type annotation is STILL redacted — a
   assert.match(out, /REDACTED/, "the default (Issue-bound) mode keeps the aggressive pattern");
 });
 
-// judgment-day round 3 (FIX F.1, Judge B): the api-key-assignment/generic-credential/env-credential/
-// bearer-token patterns all end their value capture in a bare `\S+` — a run of NON-WHITESPACE chars,
-// with no boundary at a quote. When the matched value is immediately followed by a closing quote
-// that belongs to the SURROUNDING prose (not the secret's own value), `\S+` greedily swallows that
-// quote too, and the whole match (quote included) is replaced with "[REDACTED]" — corrupting the
-// line by leaving an unbalanced opening quote. Reproduces Judge B's exact probe: a reviewer's
-// selectorContradiction line quoting a UI element's accessible name.
+/* the api-key-assignment/generic-credential/env-credential/
+   bearer-token patterns all end their value capture in a bare `\S+` — a run of NON-WHITESPACE chars,
+   with no boundary at a quote. When the matched value is immediately followed by a closing quote
+   that belongs to the SURROUNDING prose (not the secret's own value), `\S+` greedily swallows that
+   selectorContradiction line quoting a UI element's accessible name.
+ */
 test("BUGFIX: a secret-shaped match immediately followed by a closing quote does not swallow that quote (Judge B's exact probe)", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   const { text: out } = sanitizeText(input, "issue");
@@ -82,10 +81,9 @@ test("BUGFIX: bearer-token does not swallow a trailing closing quote either", ()
   assert.match(out, /"\[REDACTED\]" logged/, `got: ${JSON.stringify(out)}`);
 });
 
-// judgment-day round 4 (FIX I, Judge A): round 3's quote-aware value capture
-// (`(?:"[^"]*"|'[^']*'|[^\s"']+)`) fixed the round-2 quote-swallow bug but introduced a REAL leak —
-// the bare branch now STOPS at the first quote INSIDE the value, leaving the tail unredacted. These
-// three cases are Judge A's exact adversarial probes, replayed through the real pipeline.
+/* A quoted-value capture that stops at the first quote INSIDE the value leaves the tail
+   unredacted. A secret value with an embedded quote must not leak that tail.
+ */
 test("BUGFIX (round 4): a secret value with an embedded quote does not leak its tail", () => {
   const input = 'token=abc"def';
   const { text: out } = sanitizeText(input, "issue");
@@ -109,10 +107,10 @@ test("BUGFIX (round 4): a prose keyword false-match does not let a quoted secret
   assert.match(out, / end$/, `the trailing prose after the secret must survive — got: ${JSON.stringify(out)}`);
 });
 
-// judgment-day round 4 (Judge B): the internal SPACE is what forces the quoted-literal branch — the
-// greedy bare `\S+` alternative stops at whitespace, so only the escape-aware `"(?:\\.|[^"\\])*"`
-// branch can consume the full value past the escaped inner quotes. Reverting that branch to the
-// naive `"[^"]*"` leaks `quoted\" value" end`; no other test reaches this code path.
+/* greedy bare `\S+` alternative stops at whitespace, so only the escape-aware `"(?:\\.|[^"\\])*"`
+   branch can consume the full value past the escaped inner quotes. Reverting that branch to the
+   naive `"[^"]*"` leaks `quoted\" value" end`; no other test reaches this code path.
+ */
 test("BUGFIX (round 4): escape-aware quoted branch — a quoted value with internal spaces and escaped quotes is fully redacted", () => {
   const input = 'password="my \\"quoted\\" value" end';
   const { text: out } = sanitizeText(input, "issue");
@@ -121,11 +119,12 @@ test("BUGFIX (round 4): escape-aware quoted branch — a quoted value with inter
   assert.match(out, / end$/, `the trailing prose after the secret must survive — got: ${JSON.stringify(out)}`);
 });
 
-// judgment-day round 3 (FIX F.2, both judges): DOCUMENTED KNOWN LIMITATION, not a bug — `password:
-// hunter2` and `Token: refresh` are the SAME "word: value" shape; no regex can distinguish a real
-// secret from a secret-shaped UI label (Judge A independently confirmed the over-redact tradeoff is
-// correctly reasoned; the safe direction is intentionally kept). This test documents the false
-// positive explicitly instead of implying the mechanism can tell them apart.
+/* DOCUMENTED KNOWN LIMITATION, not a bug — `password:
+   hunter2` and `Token: refresh` are the SAME "word: value" shape; no regex can distinguish a real
+   secret from a secret-shaped UI label (Judge A independently confirmed the over-redact tradeoff is
+   correctly reasoned; the safe direction is intentionally kept). This test documents the false
+   positive explicitly instead of implying the mechanism can tell them apart.
+ */
 test("KNOWN LIMITATION: a secret-shaped UI label (\"Token: refresh\") is redacted exactly like a real secret — this mechanism cannot distinguish the two, by design (over-redaction is the safe direction, not a claim of accuracy)", () => {
   const { text: out } = sanitizeText('button label reads "Token: refresh"', "issue");
   assert.match(out, /\[REDACTED\]/, "a secret-shaped label is redacted even though it is not a real secret");
@@ -149,7 +148,7 @@ test("redacts the password in a DB connection string but keeps the host", () => 
   const { text: out } = sanitizeText("DATABASE_URL=postgres://admin:s3cr3tP4ss@db.internal:5432/app");
   assert.doesNotMatch(out, /s3cr3tP4ss/);
   assert.match(out, /\[REDACTED\]/);
-  assert.match(out, /db\.internal/); // host left readable
+  assert.match(out, /db\.internal/);
 });
 
 test("does not mangle a credential-free URL (no user:pass@)", () => {
@@ -215,9 +214,8 @@ test("does NOT redact long Java identifiers or paths with >30-char segments (bot
   assert.doesNotMatch(out, /\[REDACTED\]/);
 });
 
-// JD FIX 2 (twin of src/orchestrator/sanitizer.test.ts — keep in lockstep): isPathLikeRun's
-// no-slash escape was ANY pure-letter run — too loose. Tighten to a real identifier shape
-// (camelCase/PascalCase with a case transition) capped at 64 chars.
+/* Twin of src/orchestrator/sanitizer.test.ts — keep in lockstep. isPathLikeRun's no-slash
+   escape is a real identifier (camelCase/PascalCase with a case transition), capped at 64 chars. */
 test("JD-FIX2: a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
   const identifier = "populateCoursesDescriptionMultilingualUseCase";
   assert.equal(identifier.length, 45);
@@ -235,7 +233,7 @@ test("JD-FIX2: a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacte
 });
 
 test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length cap wins over shape", () => {
-  const blob = "aB".repeat(35); // 70 chars, alternating case, no digits
+  const blob = "aB".repeat(35); /* 70 chars, alternating case, no digits */
   assert.equal(blob.length, 70);
   const { text: out } = sanitizeText(`value=${blob}`);
   assert.doesNotMatch(out, new RegExp(blob));
@@ -243,11 +241,10 @@ test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length
 });
 
 test("JD-R2: a PERFECT 2-char case-alternation blob (the deterministic adversarial shape) IS redacted — the identifier escape requires at least one word-segment >= 3 chars", () => {
-  const alternating = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOp"; // 42 chars, every segment exactly 2
+  const alternating = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOp"; /* 42 chars, every segment exactly 2 */
   const { text: out } = sanitizeText(alternating);
   assert.doesNotMatch(out, /AbCdEfGhIjKl/);
   assert.match(out, /\[REDACTED\]/);
-  // and the real identifier (segments populate/Courses/... >= 3) still survives:
   const identifier = "populateCoursesDescriptionMultilingualUseCase";
   assert.equal(sanitizeText(identifier).text, identifier);
 });

@@ -2,8 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL } from "./proposer-verdict.schema";
 
-// ── behavior tests — spec Requirement B (B1-B3) ────────────────────────────────
-
 test("ProposerVerdictSchema: parses a valid http candidate into a well-formed profile", () => {
   const input = {
     candidates: [
@@ -100,7 +98,6 @@ test("ProposerVerdictSchema: a malformed middle entry is dropped (sentinel), val
         openApiPath: "openapi.json",
       },
       {
-        // malformed: missing required eventPattern.publishCall
         transport: "event",
         files: "**/*.java",
         eventPattern: {
@@ -108,7 +105,6 @@ test("ProposerVerdictSchema: a malformed middle entry is dropped (sentinel), val
           listenerBaseType: "ListenerMessageDelegate",
           listenerEventCall: "convertMsgToSpecificType",
           subscriberBaseType: "DomainEventSubscriber",
-          // publishCall intentionally omitted
         },
       },
       {
@@ -127,7 +123,7 @@ test("ProposerVerdictSchema: a malformed middle entry is dropped (sentinel), val
   const result = ProposerVerdictSchema.parse(input);
   assert.equal(result.candidates.length, 3);
   assert.equal(result.candidates[0]?.transport, "http");
-  // entry #2 degrades to the recognizable sentinel, not dropped from the array (per-entry .catch)
+  /* entry #2 degrades to the recognizable sentinel, not dropped from the array (per-entry .catch) */
   assert.deepEqual(result.candidates[1], UNPARSEABLE_SENTINEL);
   assert.equal(result.candidates[2]?.transport, "event");
   if (result.candidates[2]?.transport === "event") {

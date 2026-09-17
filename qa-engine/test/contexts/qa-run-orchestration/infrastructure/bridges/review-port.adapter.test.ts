@@ -1,13 +1,13 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.test.ts
-// RED-first (Task E.0): ReviewPortAdapter runs an INDEPENDENT reviewer session via the SAME
-// generation-owned primitives GenerateTestsUseCase.generate() itself composes for its embedded
-// review branch (renderReviewer / openSession(reviewerRole) / parseReview) — there is NO standalone
-// "reviewer flow" export under generation/ (grep-confirmed: renderReviewer is called from exactly
-// ONE place, inside generate()'s conditional review branch). This bridge is THIN: it does not
-// reimplement the fail-closed formula, it reads the SAME ReviewJudgment fields the port interface
-// (ports/index.ts's own comment) already documents verbatim — parsed:false is a parse MISS
-// (not a rejection), distinct from a genuine approved:false. blockingCount gates blocking-vs-advisory.
-// The #1 fail-closed invariant is asserted here directly.
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.test.ts
+   generation-owned primitives GenerateTestsUseCase.generate() itself composes for its embedded
+   review branch (renderReviewer / openSession(reviewerRole) / parseReview) — there is NO standalone
+   "reviewer flow" export under generation/ (grep-confirmed: renderReviewer is called from exactly
+   ONE place, inside generate()'s conditional review branch). This bridge is THIN: it does not
+   reimplement the fail-closed formula, it reads the SAME ReviewJudgment fields the port interface
+   (ports/index.ts's own comment) already documents verbatim — parsed:false is a parse MISS
+   (not a rejection), distinct from a genuine approved:false. blockingCount gates blocking-vs-advisory.
+   The #1 fail-closed invariant is asserted here directly.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.ts";
@@ -64,7 +64,7 @@ test("review() fail-closed invariant: a parse miss (parsed:false) is NEVER treat
   const runtime = fakeRuntime("garbage, not json");
   const rendering = fakeRendering();
   const verdicts = fakeVerdicts({
-    approved: true, // even if the parser's own approved defaulted true, parsed:false must win
+    approved: true, /* even if the parser's own approved defaulted true, parsed:false must win */
     corrections: [], parsed: false, valid: false, issues: ["no verdict JSON found"],
   });
   const adapter = new ReviewPortAdapter({ runtime, rendering, verdicts }, {
@@ -111,10 +111,9 @@ test("review() prefers the run's DYNAMIC diff over the static ctx.diff (Plan 7.6
   assert.equal(seenDiff, "STATIC-ctx-diff", "absent dynamic diff falls back to ctx.diff (operator / unit-test path)");
 });
 
-// ── W2 fix (F3, reviewer-corrections regeneration loop): review()'s new optional 4th `enrichment`
-// argument maps priorCorrections verbatim and derives objective from intent.message ONLY when no
-// manual ctx.guidance is already set (mirrors legacy's `opts.guidance ?? intent?.message`,
-// src/pipeline.ts:1682 — guidance wins, intent is the fallback).
+/* review()'s optional 4th `enrichment` argument maps priorCorrections verbatim and derives
+   objective from intent.message ONLY when no explicit objective is supplied.
+ */
 
 test("review() maps enrichment.priorCorrections onto ReviewInput.priorCorrections verbatim", async () => {
   let seenInput: { priorCorrections?: string[] } | undefined;
@@ -132,9 +131,8 @@ test("review() maps enrichment.priorCorrections onto ReviewInput.priorCorrection
   assert.deepEqual(seenInput?.priorCorrections, ["fix the assertion on line 12"]);
 });
 
-// ── Plan 7-R W4 (audit CRITICAL): enrichment.domSnapshot (ReviewDomGroundingPort, run-qa.use-
-// case.ts) must map onto ReviewInput.domSnapshot — mirrors legacy's reviewGenerated() domSnapshot
-// threading (src/pipeline.ts:1680), grounding the reviewer's UI-fact claims in the live DEV DOM.
+/* enrichment.domSnapshot must map onto ReviewInput.domSnapshot.
+ */
 
 test("review() maps enrichment.domSnapshot onto ReviewInput.domSnapshot verbatim", async () => {
   let seenInput: { domSnapshot?: string } | undefined;
@@ -221,10 +219,9 @@ test("review() with no enrichment argument omits priorCorrections/objective (unc
   assert.equal(seenInput?.objective, undefined);
 });
 
-// ── W3 F2 (dual-judge round): enrichment.learnedRules is rendered via the reviewer-specific
-// faithful port (renderLearnedRulesForReviewer) — active-only, matching legacy's
-// renderRulesForReviewer (src/qa/learning/learning-rule.ts:299-313), NOT the generator's
-// proven/experimental renderer. ─────────────────────────────────────────────────────────────────
+/* enrichment.learnedRules is rendered via the reviewer-specific renderer
+   (renderLearnedRulesForReviewer) — active-only, NOT the generator's proven/experimental renderer.
+ */
 
 test("review() renders enrichment.learnedRules via the reviewer-specific (active-only) faithful renderer", async () => {
   let seenInput: { learnedRules?: string } | undefined;
@@ -250,11 +247,11 @@ test("review() renders enrichment.learnedRules via the reviewer-specific (active
   assert.ok(seenInput?.learnedRules?.includes("Treat them as an extension of the anti-pattern catalog: if a spec violates one, REJECT."));
 });
 
-// ── WS2.4 (full-flow remediation, code-mode restoration): ReviewInput.target?: TestTarget already
-// exists on the type and buildReviewerPromptAssembled ALREADY reads it (`input.target === "code" ?
-// "tests" : "E2E tests"`, prompts.ts) — grep-confirmed the render side was ready; only this adapter
-// never populated the field, so every code-mode review rendered "E2E tests" framing regardless of
-// target. ReviewPortStaticContext now carries `target`, threaded verbatim onto ReviewInput.target. ──
+/* exists on the type and buildReviewerPromptAssembled ALREADY reads it (`input.target === "code" ?
+   "tests" : "E2E tests"`, prompts.ts) — grep-confirmed the render side was ready; only this adapter
+   never populated the field, so every code-mode review rendered "E2E tests" framing regardless of
+   target. ReviewPortStaticContext now carries `target`, threaded verbatim onto ReviewInput.target. ──
+ */
 
 test("review() threads ctx.target onto ReviewInput.target for a code-mode review (closes the 'E2E tests' framing bug)", async () => {
   let seenTarget: string | undefined;
@@ -288,12 +285,12 @@ test("review() threads ctx.target:'e2e' unchanged (backward compatible default f
   assert.equal(seenTarget, "e2e");
 });
 
-// ── WS6.1 (full-flow remediation, timeouts & operational observability): ReviewPortAdapter.review()
-// previously passed NO timeoutMs into openSession(), so the reviewer silently inherited the
-// dispatcher's ~25.5min ceiling instead of the purpose-built REVIEWER_TIMEOUT_MS (6min) — a hung
-// reviewer could hold the sequential queue 25-50min. ReviewPortStaticContext.timeoutMs (optional,
-// composition-supplied — the adapter stays agnostic to the constant's numeric value, same pattern
-// as baseUrl/guidance) now threads straight into openSession's own opts.timeoutMs. ──────────────────
+/* previously passed NO timeoutMs into openSession(), so the reviewer silently inherited the
+   dispatcher's ~25.5min ceiling instead of the purpose-built REVIEWER_TIMEOUT_MS (6min) — a hung
+   reviewer could hold the sequential queue 25-50min. ReviewPortStaticContext.timeoutMs (optional,
+   composition-supplied — the adapter stays agnostic to the constant's numeric value, same pattern
+   as baseUrl/guidance) now threads straight into openSession's own opts.timeoutMs. ──────────────────
+ */
 
 test("review() threads ctx.timeoutMs into openSession's opts.timeoutMs (reviewer gets its OWN budget, not the dispatcher's)", async () => {
   let seenTimeoutMs: number | undefined;

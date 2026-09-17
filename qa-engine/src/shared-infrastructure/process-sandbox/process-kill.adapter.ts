@@ -1,9 +1,4 @@
-// qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts
-// The ONE killTree — consolidates the 4 identical src/ definitions (execute.ts:64, code-runner.ts:64,
-// static-signal/exec.ts:6, learning/mutation-code.ts:10). Spawns are detached so the child leads its
-// own process group; process.kill(-pid) signals the whole group (npm/mvn/gradle/playwright fork
-// grandchildren a plain child.kill() would orphan). Falls back to a direct kill if the group send
-// fails (e.g. the child already exited). process.kill is injected so the group path is unit-testable.
+/* The ONE killTree — consolidates the 4 identical src/ definitions (execute.ts:64, code-runner.ts:64, static-signal/exec.ts:6, learning/mutation-code.ts:10). Spawns are detached so the child leads its own process group; process.kill(-pid) signals the whole group (npm/mvn/gradle/playwright fork grandchildren a plain child.kill() would orphan). Falls back to a direct kill if the group send fails (e.g. the child already exited). process.kill is injected so the group path is unit-testable. */
 
 import type { ChildProcess } from "node:child_process";
 import type { ProcessKillPort } from "../../shared-kernel/process-sandbox/process-kill.port.ts";

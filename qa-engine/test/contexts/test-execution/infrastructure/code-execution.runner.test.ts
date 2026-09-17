@@ -1,11 +1,8 @@
-// qa-engine/test/contexts/test-execution/infrastructure/code-execution.runner.test.ts
-// Behavioral tests for the code-mode detection/scoping/execution body, moved from
-// src/qa/code-runner.test.ts (migration-tier-4b, Slice 1 — code-execution migration). Byte-identical
-// assertions to the legacy file (only the import path changes, plus the return-type rename
-// QaRunResult → CodeRunResult, which is structurally identical). setupCodeProject tests live in this
-// directory's own code-setup.test.ts sibling; resolveSandbox/sandboxSpawnOptions tests live in
-// shared-infrastructure/process-sandbox/sandbox.test.ts; scrubEnv tests live in that directory's own
-// scrub-env.test.ts (all pre-existing / already split, per code-runner.ts's own new home split).
+/* Behavioral tests for the code-mode detection/scoping/execution body. setupCodeProject tests
+   live in this directory's own code-setup.test.ts sibling; resolveSandbox/sandboxSpawnOptions
+   tests live in shared-infrastructure/process-sandbox/sandbox.test.ts; scrubEnv tests live in
+   that directory's own scrub-env.test.ts.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
@@ -24,7 +21,6 @@ import {
   type CodeExecuteDeps,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
-// ── Module scoping (diff-driven) ──────────────────────────────────────────────
 function existsFrom(paths: string[]): (p: string) => boolean {
   const set = new Set(paths);
   return (p) => set.has(p);
@@ -99,7 +95,7 @@ test("scopeTestCommand: node scopes the DIRECT runners (jest/vitest/node --test)
   const nodeTest: CodeProject = { ecosystem: "node", install: null, test: { cmd: "node", args: ["--test"] } };
   assert.deepEqual(scopeTestCommand(nodeTest, ["pkg"]), { cmd: "node", args: ["--test", "pkg"] });
   const script: CodeProject = { ecosystem: "node", install: null, test: { cmd: "npm", args: ["test"] } };
-  assert.equal(scopeTestCommand(script, ["pkg"]), null); // opaque `npm test` script — cannot scope safely
+  assert.equal(scopeTestCommand(script, ["pkg"]), null); /* opaque `npm test` script — cannot scope safely */
 });
 
 test("scopeForChangedFiles: node with a jest runner scopes to the changed package", () => {
@@ -137,8 +133,9 @@ test("scopeForChangedFiles: a diff-mode change that does not resolve → fallbac
 });
 
 test("scopeForChangedFiles: node is NOT mislabeled as scoped — per-module RUN scoping is unsupported → whole repo", () => {
-  // node CAN resolve a package.json dir, but scopeTestCommand has no node case (workspace layouts
-  // vary), so the run must HONESTLY fall back to whole-repo, not claim a scope it does not apply.
+  /* node CAN resolve a package.json dir, but scopeTestCommand has no node case (workspace layouts
+     vary), so the run must HONESTLY fall back to whole-repo, not claim a scope it does not apply.
+   */
   const exists = existsFrom(["/repo/packages/billing/package.json", "/repo/package.json"]);
   const project: CodeProject = { ecosystem: "node", install: null, test: { cmd: "npm", args: ["test"] } };
   const r = scopeForChangedFiles(project, "/repo", ["packages/billing/src/x.ts"], { exists });
@@ -147,7 +144,7 @@ test("scopeForChangedFiles: node is NOT mislabeled as scoped — per-module RUN 
   assert.match(r.note, /not yet supported|whole repo/i);
 });
 
-// ── G1: scope by the agent's git writes when there is no input diff (manual/complete) ─────────────
+/* ── G1: scope by the agent's git writes when there is no input diff (manual/complete) ───────────── */
 test("parsePorcelain: extracts modified, added and untracked paths (rename → new path)", () => {
   const out = [
     " M src/foo.ts",
@@ -167,14 +164,13 @@ test("effectiveChangedFiles: prefers the input diff; falls back to the agent's w
 test("manual scoping: with NO input diff, scope by the agent's git writes (the highest-impact gap)", () => {
   const exists = existsFrom(["/repo/customers-service/pom.xml", "/repo/pom.xml"]);
   const project: CodeProject = { ecosystem: "maven", install: null, test: { cmd: "mvn", args: ["-B", "test"] } };
-  // No input changedFiles (manual run) — derive the scope from what the agent wrote.
+  /* No input changedFiles (manual run) — derive the scope from what the agent wrote. */
   const changed = effectiveChangedFiles([], "/repo", () => ["customers-service/src/test/java/OwnerTest.java"]);
   const r = scopeForChangedFiles(project, "/repo", changed, { exists });
   assert.equal(r.scoped, true);
   assert.match(r.test.args.join(" "), /-pl customers-service/);
 });
 
-// ── failureDetail: diagnosable code-mode failure output ───────────────────────
 test("failureDetail: short output is returned whole", () => {
   assert.equal(failureDetail("boom", 1500), "boom");
 });
@@ -214,7 +210,7 @@ test("coverageCommand returns null for ecosystems not yet instrumented", () => {
   assert.equal(coverageCommand(go, "/repo", "/c8.js"), null);
 });
 
-// A DetectDeps stub from a set of "present" files (+ optional package.json content).
+/* A DetectDeps stub from a set of "present" files (+ optional package.json content). */
 function fs(present: string[], pkg?: Record<string, unknown>): DetectDeps {
   return {
     exists: (p) => present.some((f) => p.endsWith(f)),
@@ -225,7 +221,7 @@ function fs(present: string[], pkg?: Record<string, unknown>): DetectDeps {
 test("detects a Node project with a real test script (npm)", () => {
   const p = detectCodeProject("/r", fs(["package.json", "package-lock.json"], { scripts: { test: "vitest run" } }));
   assert.equal(p.ecosystem, "node");
-  // --ignore-scripts: untrusted-repo install must not run arbitrary lifecycle scripts (SEC-01).
+  /* --ignore-scripts: untrusted-repo install must not run arbitrary lifecycle scripts (SEC-01). */
   assert.deepEqual(p.install, { cmd: "npm", args: ["ci", "--ignore-scripts"] });
   assert.deepEqual(p.test, { cmd: "npm", args: ["test"] });
 });
@@ -259,7 +255,7 @@ test("Node with no test script and no known runner uses node --test", () => {
 test("detects Python (pytest) using python3 (the binary the image actually provides)", () => {
   const p = detectCodeProject("/r", fs(["pyproject.toml"]));
   assert.equal(p.ecosystem, "python");
-  // The orchestrator image installs `python3`/`python3-pip`, NOT `python`/`pip` symlinks.
+  /* The orchestrator image installs `python3`/`python3-pip`, NOT `python`/`pip` symlinks. */
   assert.deepEqual(p.install, { cmd: "python3", args: ["-m", "pip", "install", "-e", "."] });
   assert.deepEqual(p.test, { cmd: "python3", args: ["-m", "pytest", "-q"] });
 });
@@ -314,9 +310,10 @@ test("a missing runtime (spawnError) is infra-error, NEVER fail or pass", async 
   assert.match(run.logs, /runtime unavailable/);
 });
 
-// Code-mode false-green guard: exit-code 0 is NOT enough — a runner that collected
-// ZERO tests (no tests matched, empty suite) exits 0 and would otherwise pass. And
-// pytest's exit 5 ("no tests collected") must not be a false FAIL on the watched repo.
+/* Code-mode false-green guard: exit-code 0 is NOT enough — a runner that collected
+   ZERO tests (no tests matched, empty suite) exits 0 and would otherwise pass. And
+   pytest's exit 5 ("no tests collected") must not be a false FAIL on the watched repo.
+ */
 test("node --test that executed zero tests is infra-error, not a false pass", async () => {
   const project: CodeProject = { ecosystem: "node", install: null, test: { cmd: "node", args: ["--test"] } };
   const deps: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs: "ℹ tests 0\nℹ pass 0\nℹ fail 0" }) };
@@ -326,12 +323,13 @@ test("node --test that executed zero tests is infra-error, not a false pass", as
 });
 
 test("npm test wrapping node:test that executed ZERO tests is infra-error (the real self-test case)", async () => {
-  // qayaba's own test command is `npm test`, which wraps `node --test`. The node:test
-  // summary still reports the count, so a zero-test run MUST be caught even though cmd is `npm`.
+  /* qayaba's own test command is `npm test`, which wraps `node --test`. The node:test
+     summary still reports the count, so a zero-test run MUST be caught even though cmd is `npm`.
+   */
   const project: CodeProject = { ecosystem: "node", install: null, test: { cmd: "npm", args: ["test"] } };
   const deps: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs: "ℹ tests 0\nℹ pass 0\nℹ fail 0" }) };
   const run = await runCodeTests("/r", { namespace: "qa-bot-npm0" }, deps);
-  assert.equal(run.verdict, "infra-error"); // not a false pass over zero executed tests
+  assert.equal(run.verdict, "infra-error"); /* not a false pass over zero executed tests */
   assert.equal(run.passed, false);
 });
 
@@ -428,13 +426,14 @@ test("logs are sanitized before returning", async () => {
   assert.doesNotMatch(run.logs, /ghp_aaaa/);
 });
 
-// A hanging test suite (infinite loop, hung network call, OOM) blocks the sequential
-// queue forever. Timeout must kill the process tree and resolve as infra-error.
+/* A hanging test suite (infinite loop, hung network call, OOM) blocks the sequential
+   queue forever. Timeout must kill the process tree and resolve as infra-error.
+ */
 test("code-mode spawn that never completes is killed by timeout → infra-error", async () => {
   const project: CodeProject = { ecosystem: "node", install: null, test: { cmd: "node", args: ["--test"] } };
   const deps: CodeExecuteDeps = {
     detect: () => project,
-    // Return a promise that never resolves — the orchestrator's timeout must win.
+    /* Return a promise that never resolves — the orchestrator's timeout must win. */
     runTests: () => new Promise(() => {}),
   };
   const run = await runCodeTests("/r", { namespace: "qa-bot-t", timeoutMs: 100 }, deps);
@@ -442,14 +441,15 @@ test("code-mode spawn that never completes is killed by timeout → infra-error"
   assert.match(run.logs, /timeout/i);
 });
 
-// An operator cancel mid-execute must stop the run and NOT publish. The AbortSignal
-// must kill the spawned process and resolve as infra-error.
+/* An operator cancel mid-execute must stop the run and NOT publish. The AbortSignal
+   must kill the spawned process and resolve as infra-error.
+ */
 test("code-mode spawn aborted via AbortSignal → infra-error", async () => {
   const controller = new AbortController();
   const project: CodeProject = { ecosystem: "node", install: null, test: { cmd: "node", args: ["--test"] } };
   const deps: CodeExecuteDeps = {
     detect: () => project,
-    // Return a promise that never resolves — the abort signal must win.
+    /* Return a promise that never resolves — the abort signal must win. */
     runTests: () => new Promise(() => {}),
   };
   controller.abort();
@@ -458,10 +458,10 @@ test("code-mode spawn aborted via AbortSignal → infra-error", async () => {
   assert.match(run.logs, /aborted/i);
 });
 
-// migration-tier-4b Slice 1: recordAudit is now an OPTIONAL injected hook (CodeExecuteDeps.
-// recordAudit), not a hardcoded import (qa-engine stays src/-free). Pins that it fires exactly
-// when a secret was redacted, with the run's namespace and the detection result, and that a run
-// with no redaction never calls it.
+/* recordAudit), not a hardcoded import (qa-engine stays src/-free). Pins that it fires exactly
+   when a secret was redacted, with the run's namespace and the detection result, and that a run
+   with no redaction never calls it.
+ */
 test("recordAudit hook fires with the run namespace + detection when a secret was redacted", async () => {
   const calls: Array<[string, boolean]> = [];
   const deps: CodeExecuteDeps = {

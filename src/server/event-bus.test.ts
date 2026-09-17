@@ -4,10 +4,11 @@ import { TypedEventBus } from "./event-bus";
 
 const tick = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-// A representative event map: distinct keys carry distinct payload shapes, so the
-// type parameter is what catches a wrong-payload emit at compile time. A `type`
-// alias (not `interface`) is required to satisfy the `Record<string, unknown>`
-// constraint — interfaces lack an implicit index signature.
+/* A representative event map: distinct keys carry distinct payload shapes, so the
+   type parameter is what catches a wrong-payload emit at compile time. A `type`
+   alias (not `interface`) is required to satisfy the `Record<string, unknown>`
+   constraint — interfaces lack an implicit index signature.
+ */
 type Events = {
   step: { step: string };
   test: { name: string; passed: boolean };
@@ -21,7 +22,7 @@ test("on/emit delivers the typed payload and unsubscribe stops delivery", () => 
   bus.emit("step", { step: "generate" });
   bus.emit("step", { step: "validate" });
   off();
-  bus.emit("step", { step: "execute" }); // ignored after unsubscribe
+  bus.emit("step", { step: "execute" }); /* ignored after unsubscribe */
 
   assert.deepEqual(seen, ["generate", "validate"]);
 });
@@ -68,12 +69,12 @@ test("stream() yields events in order and ends cleanly on abort", async () => {
     for await (const p of bus.stream("step", ac.signal)) got.push(p.step);
   })();
 
-  await tick(5); // let the iterator attach its listener
+  await tick(5); /* let the iterator attach its listener */
   bus.emit("step", { step: "gate" });
   bus.emit("step", { step: "generate" });
   await tick(5);
   ac.abort();
 
-  await consumed; // resolves (does not reject) because abort ends the generator
+  await consumed; /* resolves (does not reject) because abort ends the generator */
   assert.deepEqual(got, ["gate", "generate"]);
 });

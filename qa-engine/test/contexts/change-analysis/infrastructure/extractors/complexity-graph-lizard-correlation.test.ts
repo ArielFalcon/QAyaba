@@ -1,43 +1,38 @@
-// This is a graph-vs-lizard STATISTICAL correlation gate (rank agreement between two different
-// cyclomatic engines) — semantically OPPOSITE to complexity-parity.test.ts, which is a
-// byte-for-byte migration exact-match. Do not conflate (design ADR-4).
-//
-// D1: parity semantics = correlated-ranking, not exact-match. Two different cyclomatic engines
-// (the graph's AST heuristic vs lizard's own parser) legitimately disagree on edge-case magnitude,
-// so assert.deepEqual would be meaningless. Both are computed on `ccn` (the metric shared by both
-// tools), over a committed REAL fixture pair, joined on the composite key (file, function). They are
-// the PROMOTION gate for making the graph adapter primary — promotion requires BOTH:
-//   - Spearman rank correlation rho >= 0.7  → currently MET (0.75): the tools AGREE on ranking.
-//   - hotspot-set Jaccard >= 0.6            → currently NOT met (0.45): the tools DISAGREE on the set.
-// Only Spearman is met, because the graph's ccn is DEFECTIVE (under-counts &&/||/?: branching,
-// 0-baseline; root cause engram #1003). So the graph stays ADDITIVE-ONLY (value-add = `cognitive`,
-// not ccn) and lizard remains the primary complexity extractor. The Jaccard test below is a
-// characterization + regression gate — it flips to failing if an upstream ccn fix ever lifts Jaccard
-// to >= 0.6, which is the signal to re-evaluate promotion. This harness is available-but-unused in
-// production (default-extractors.ts is unchanged); it exists to characterize the graph, not to gate CI.
-//
-// `cognitive` (ADR-5) is net-new — lizard produces no cognitive metric, so it cannot be
-// parity/correlation-checked against lizard. It is characterized on its own (present + numeric +
-// plausibly-ranked), never joined against a lizard counterpart that does not exist.
-//
-// FIXTURE PROVENANCE (both REAL, same code, not fabricated):
-//   - codebase-memory-complexity.json: captured `codebase-memory-mcp cli query_graph` v0.8.1
-//     output (Slice 2a), Cypher `WHERE m.complexity > 1`, against the ms-name-restaurants
-//     Java/Spring repo (es.name.restaurants package).
-//   - lizard-restaurants-complexity.csv: REAL `python3 -m lizard --csv src` (lizard 1.23.0,
-//     the pinned version) output for the SAME 10 files referenced by the graph fixture, run
-//     against the same ms-name-restaurants checkout. Captured 2026-07-02 during Slice 2b apply.
-//
-// The graph fixture's selection threshold is `complexity > 1` (ccn >= 2) — that is the ONLY
-// candidate pool available from the frozen 2a capture (it cannot be re-queried at a different
-// threshold here). To keep the "hotspot set" comparison FAIR, this harness applies the SAME
-// ccn >= 2 threshold to BOTH sides before computing Jaccard — it does NOT reuse production
-// `parseLizardCsv`, which bakes in lizard's own opinionated CCN_THRESHOLD=5 default, and it does
-// NOT compare the graph's pre-filtered 15 rows against lizard's full unfiltered universe (which
-// would include ccn=1 trivial functions the graph query explicitly excluded — an asymmetric,
-// unfair comparison that silently penalizes the graph for a filter lizard was never subject to).
-// Symmetric ccn>=2 is the ONLY methodologically defensible choice available from this fixture
-// pair; it is applied here explicitly rather than left as an implicit asymmetry.
+/* This is a graph-vs-lizard STATISTICAL correlation gate (rank agreement between two different
+   cyclomatic engines) — semantically OPPOSITE to complexity-parity.test.ts, which is a
+   byte-for-byte exact-match. Do not conflate (design ADR-4).
+   Parity semantics = correlated-ranking, not exact-match. Two different cyclomatic engines
+   (the graph's AST heuristic vs lizard's own parser) legitimately disagree on edge-case magnitude,
+   so assert.deepEqual would be meaningless. Both are computed on `ccn` (the metric shared by both
+   tools), over a committed REAL fixture pair, joined on the composite key (file, function). They are
+   the PROMOTION gate for making the graph adapter primary — promotion requires BOTH:
+   - Spearman rank correlation rho >= 0.7 → currently MET (0.75): the tools AGREE on ranking.
+   - hotspot-set Jaccard >= 0.6 → currently NOT met (0.45): the tools DISAGREE on the set.
+   Only Spearman is met, because the graph's ccn is DEFECTIVE (under-counts &&/||/?: branching,
+   0-baseline). So the graph stays ADDITIVE-ONLY (value-add = `cognitive`,
+   not ccn) and lizard remains the primary complexity extractor. The Jaccard test below is a
+   characterization + regression gate — it flips to failing if an upstream ccn fix ever lifts Jaccard
+   to >= 0.6, which is the signal to re-evaluate promotion. This harness is available-but-unused in
+   production (default-extractors.ts is unchanged); it exists to characterize the graph, not to gate CI.
+   `cognitive` (ADR-5) is net-new — lizard produces no cognitive metric, so it cannot be
+   parity/correlation-checked against lizard. It is characterized on its own (present + numeric +
+   plausibly-ranked), never joined against a lizard counterpart that does not exist.
+   FIXTURE PROVENANCE (both REAL, same code, not fabricated):
+   - codebase-memory-complexity.json: captured `codebase-memory-mcp cli query_graph` v0.8.1
+   Java/Spring repo (es.name.restaurants package).
+   - lizard-restaurants-complexity.csv: REAL `python3 -m lizard --csv src` (lizard 1.23.0,
+   the pinned version) output for the SAME 10 files referenced by the graph fixture, run
+   The graph fixture's selection threshold is `complexity > 1` (ccn >= 2) — that is the ONLY
+   candidate pool available from the frozen 2a capture (it cannot be re-queried at a different
+   threshold here). To keep the "hotspot set" comparison FAIR, this harness applies the SAME
+   ccn >= 2 threshold to BOTH sides before computing Jaccard — it does NOT reuse production
+   `parseLizardCsv`, which bakes in lizard's own opinionated CCN_THRESHOLD=5 default, and it does
+   NOT compare the graph's pre-filtered 15 rows against lizard's full unfiltered universe (which
+   would include ccn=1 trivial functions the graph query explicitly excluded — an asymmetric,
+   unfair comparison that silently penalizes the graph for a filter lizard was never subject to).
+   Symmetric ccn>=2 is the ONLY methodologically defensible choice available from this fixture
+   pair; it is applied here explicitly rather than left as an implicit asymmetry.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -48,9 +43,10 @@ const lizardFixturePath = fileURLToPath(new URL("./__fixtures__/lizard-restauran
 
 interface JoinedRow { file: string; function: string; graphCcn: number; lizardCcn: number; graphCognitive?: number }
 
-// Raw lizard CSV row parser — deliberately NOT reusing production `parseLizardCsv` (see header
-// note): this harness needs the unfiltered rows so both sides share one explicit threshold,
-// applied at the join, not lizard's own CCN_THRESHOLD=5 default baked into the production parser.
+/* Raw lizard CSV row parser — deliberately NOT reusing production `parseLizardCsv` (see header
+   note): this harness needs the unfiltered rows so both sides share one explicit threshold,
+   applied at the join, not lizard's own CCN_THRESHOLD=5 default baked into the production parser.
+ */
 function stripQuotes(s: string): string {
   return s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
 }
@@ -83,8 +79,9 @@ function parseRawLizardCsv(csv: string): Array<{ file: string; function: string;
     const ccn = Number(stripQuotes(fields[1]!));
     const file = stripQuotes(fields[6]!);
     const rawFnName = stripQuotes(fields[7]!);
-    // lizard emits "Class::method" for Java; the graph's m.name is the bare method name — strip
-    // the class-qualifier so the join key aligns across both tools.
+    /* lizard emits "Class::method" for Java; the graph's m.name is the bare method name — strip
+       the class-qualifier so the join key aligns across both tools.
+     */
     const fnName = rawFnName.includes("::") ? rawFnName.split("::").slice(1).join("::") : rawFnName;
     if (!Number.isFinite(ccn)) continue;
     rows.push({ file, function: fnName, ccn });
@@ -115,22 +112,23 @@ function joinByFileFunction(): JoinedRow[] {
   for (const g of graphRows) {
     const key = `${g.file}::${g.function}`;
     const l = lizardByKey.get(key);
-    if (!l) continue; // no lizard counterpart at this composite key — excluded from the joined set
+    if (!l) continue; /* no lizard counterpart at this composite key — excluded from the joined set */
     joined.push({ file: g.file, function: g.function, graphCcn: g.ccn, lizardCcn: l.ccn, graphCognitive: g.cognitive });
   }
   return joined;
 }
 
-// Hotspot-set Jaccard: intersection over union of (file, function) identities each tool flags,
-// where "flagged" is evaluated at the SAME shared ccn threshold applied to both sides by the
-// caller (see the symmetric-threshold filtering in the Jaccard test below).
+/* Hotspot-set Jaccard: intersection over union of (file, function) identities each tool flags,
+   where "flagged" is evaluated at the SAME shared ccn threshold applied to both sides by the
+   caller (see the symmetric-threshold filtering in the Jaccard test below).
+ */
 function jaccard(graphKeys: Set<string>, lizardKeys: Set<string>): number {
   const intersectionSize = [...graphKeys].filter((k) => lizardKeys.has(k)).length;
   const unionSize = new Set([...graphKeys, ...lizardKeys]).size;
   return unionSize === 0 ? 0 : intersectionSize / unionSize;
 }
 
-// Spearman rank correlation with average-rank tie handling, over the joined ccn pairs.
+/* Spearman rank correlation with average-rank tie handling, over the joined ccn pairs. */
 function spearman(a: number[], b: number[]): number {
   const rank = (values: number[]): number[] => {
     const order = values.map((_, i) => i).sort((x, y) => values[x]! - values[y]!);
@@ -163,27 +161,27 @@ test("the fixture pair's joined intersection has n >= 3 — Spearman is undefine
 });
 
 test("promotion-readiness characterization: graph-vs-lizard ccn hotspot-set Jaccard is BELOW the 0.6 promotion gate — the graph's ccn is defective, so it stays additive-only (NOT a viable ccn-parity replacement)", () => {
-  const HOTSPOT_THRESHOLD = 2; // matches the graph fixture's own Cypher WHERE m.complexity > 1
+  const HOTSPOT_THRESHOLD = 2; /* matches the graph fixture's own Cypher WHERE m.complexity > 1 */
   const graphRows = parseGraphFixture().filter((r) => r.ccn >= HOTSPOT_THRESHOLD);
   const lizardRows = parseRawLizardCsv(readFileSync(lizardFixturePath, "utf8")).filter((r) => r.ccn >= HOTSPOT_THRESHOLD);
   const graphKeys = new Set(graphRows.map((r) => `${r.file}::${r.function}`));
   const lizardKeys = new Set(lizardRows.map((r) => `${r.file}::${r.function}`));
   const value = jaccard(graphKeys, lizardKeys);
-  // CHARACTERIZATION + PROMOTION REGRESSION GATE (root-caused 2026-07-02, engram #1003; NOT tuned).
-  // The real symmetric-threshold Jaccard on this REAL fixture pair is 0.4545 (15/33), BELOW the 0.6
-  // promotion gate. This is NOT a methodology artifact — scope, join-key, and threshold were all
-  // ruled out by re-querying the live graph (the number does not move). Root cause: the
-  // codebase-memory graph's cyclomatic complexity is DEFECTIVE — it does not count boolean operators
-  // (&&/||) or ternaries (?:) and uses a 0-baseline, rating 454/506 methods as ccn=0 (max ccn
-  // repo-wide = 5 vs lizard's 6-7). So 19 of lizard's 34 ccn>=2 hotspots fall below the graph's line
-  // and vanish from its set (while the intersection's RANK order still agrees — see the Spearman
-  // test). The graph is therefore NOT a viable ccn-parity replacement and MUST stay ADDITIVE-ONLY
-  // (its value-add is `cognitive`, not ccn); lizard remains the primary complexity extractor.
-  //
-  // This asserts the CURRENT non-viability and doubles as a regression gate: if a future upstream fix
-  // to the codebase-memory indexer's complexity algorithm lifts this to >= 0.6, THIS TEST WILL FAIL —
-  // and that failure is the SIGNAL to re-evaluate promoting CodebaseMemoryGraphAdapter to primary for
-  // ccn (re-run against a fresh fixture pair and, per R7, add an absolute-ccn spot-check first).
+  /* CHARACTERIZATION + PROMOTION REGRESSION GATE (NOT tuned).
+     The real symmetric-threshold Jaccard on this REAL fixture pair is 0.4545 (15/33), BELOW the 0.6
+     promotion gate. This is NOT a methodology artifact — scope, join-key, and threshold were all
+     ruled out by re-querying the live graph (the number does not move). Root cause: the
+     codebase-memory graph's cyclomatic complexity is DEFECTIVE — it does not count boolean operators
+     (&&/||) or ternaries (?:) and uses a 0-baseline, rating 454/506 methods as ccn=0 (max ccn
+     repo-wide = 5 vs lizard's 6-7). So 19 of lizard's 34 ccn>=2 hotspots fall below the graph's line
+     and vanish from its set (while the intersection's RANK order still agrees — see the Spearman
+     test). The graph is therefore NOT a viable ccn-parity replacement and MUST stay ADDITIVE-ONLY
+     (its value-add is `cognitive`, not ccn); lizard remains the primary complexity extractor.
+     This asserts the CURRENT non-viability and doubles as a regression gate: if a future upstream fix
+     to the codebase-memory indexer's complexity algorithm lifts this to >= 0.6, THIS TEST WILL FAIL —
+     and that failure is the SIGNAL to re-evaluate promoting CodebaseMemoryGraphAdapter to primary for
+     ccn (re-run against a fresh fixture pair and, per R7, add an absolute-ccn spot-check first).
+   */
   assert.ok(
     value < 0.6,
     `graph-vs-lizard ccn Jaccard rose to ${value} (>= 0.6): the graph's ccn may now be viable — ` +
@@ -211,8 +209,9 @@ test("cognitive sanity check: plausibly-ranked — monotonic-ish with ccn is not
   const graphRows = parseGraphFixture();
   const ccns = graphRows.map((r) => r.ccn);
   const cognitives = graphRows.map((r) => r.cognitive!);
-  // Self-consistency: cognitive must not be a degenerate constant series (which would make any
-  // "plausibly ranked" claim vacuous) — it must carry real variance across the fixture's rows.
+  /* Self-consistency: cognitive must not be a degenerate constant series (which would make any
+     "plausibly ranked" claim vacuous) — it must carry real variance across the fixture's rows.
+   */
   const distinctCognitiveValues = new Set(cognitives).size;
   assert.ok(distinctCognitiveValues > 1, "cognitive must carry real variance across the fixture, not a degenerate constant");
   const rho = spearman(ccns, cognitives);

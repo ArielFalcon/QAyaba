@@ -14,55 +14,54 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// fleetWindow is how many recent runs per app feed the dashboard's pass-rate and trend.
 const fleetWindow = 10
 
-// dashFocus is which interactive panel currently takes navigation/action keys. Tab cycles
-// it. Only the panels that DO something are focusable — NOW, SIGNALS and RECENT are
-// ambient read-outs, not action surfaces.
+/* dashFocus is which interactive panel currently takes navigation/action keys. Tab cycles
+   it. Only the panels that DO something are focusable — NOW, SIGNALS and RECENT are
+   ambient read-outs, not action surfaces. */
 type dashFocus int
 
 const (
-	focusNow    dashFocus = iota // the active run · ↵ watch · x stop (only when one is running)
-	focusFleet                   // pick a project · ← → mode · t target · ↵ launch
-	focusModels                  // pick a role · ↵ open the model switcher
-	focusRecent                  // pick a recent run · ↵ open it (only when the feed is non-empty)
+	focusNow    dashFocus = iota /* the active run · ↵ watch · x stop (only when one is running) */
+	focusFleet                   /* pick a project · ← → mode · t target · ↵ launch */
+	focusModels                  /* pick a role · ↵ open the model switcher */
+	focusRecent                  /* pick a recent run · ↵ open it (only when the feed is non-empty) */
 	dashFocusCount
 )
 
-// launchModes is the FLEET quick-launch cycle (← →). It mirrors the launcher wizard's
-// modes; "manual" still routes through the wizard because it needs a guidance string.
+/* launchModes is the FLEET quick-launch cycle (← →). It mirrors the launcher wizard's
+   modes; "manual" still routes through the wizard because it needs a guidance string. */
 var launchModes = []string{"diff", "complete", "exhaustive", "manual", "context"}
 
-// dashboardModel is the console's command center and landing screen: an ambient,
-// always-current view of the fleet (per-app recent verdicts + trend), the active run,
-// the model roster, recent outcomes, and an honest read of which quality signals are
-// real vs. proxy. Volatile state — queue, running run, model health, clock — comes from
-// the shell's polled systemState (kept in sync by the root), so the board is live even
-// when idle; slower-changing per-app run history is fetched on entry and on refresh.
+/* dashboardModel is the console's command center and landing screen: an ambient,
+   always-current view of the fleet (per-app recent verdicts + trend), the active run,
+   the model roster, recent outcomes, and an honest read of which quality signals are
+   real vs. proxy. Volatile state — queue, running run, model health, clock — comes from
+   the shell's polled systemState (kept in sync by the root), so the board is live even
+   when idle; slower-changing per-app run history is fetched on entry and on refresh. */
 type dashboardModel struct {
 	client  *api.Client
-	sys     systemState                     // synced from the root on every poll
-	fleet   map[string][]contract.RunRecord // app → recent runs (newest-first)
-	signals *contract.SignalsView           // fleet integrity readout (◆ ground truth vs ◇ proxy)
-	cursor  int                             // selected app in the fleet
+	sys     systemState                     /* synced from the root on every poll */
+	fleet   map[string][]contract.RunRecord /* app → recent runs (newest-first) */
+	signals *contract.SignalsView           /* fleet integrity readout (◆ ground truth vs ◇ proxy) */
+	cursor  int                             /* selected app in the fleet */
 	width   int
 	loading bool
 	err     string
-	status  string // transient success line (e.g. after onboarding)
+	status  string /* transient success line (e.g. after onboarding) */
 
-	// Interaction state: which panel is focused, and the FLEET quick-launch config the
-	// focused project row edits in place (← → mode · t target · ↵ launch).
+	/* Interaction state: which panel is focused, and the FLEET quick-launch config the
+	   focused project row edits in place (← → mode · t target · ↵ launch). */
 	focus        dashFocus
-	launchMode   string // one of launchModes
-	launchTarget string // "" → the app's natural target; t toggles to an explicit e2e/code
-	launchArmed  bool   // a heavy mode needs a second Enter to confirm (whole-suite/repo runs)
-	stopArmed    bool   // 'x' on the active run pressed once; a second 'x' confirms the stop
-	modelCursor  int    // MODELS: selected role row
-	recentCursor int    // RECENT: selected run row
+	launchMode   string /* one of launchModes */
+	launchTarget string /* "" → the app's natural target; t toggles to an explicit e2e/code */
+	launchArmed  bool   /* a heavy mode needs a second Enter to confirm (whole-suite/repo runs) */
+	stopArmed    bool   /* 'x' on the active run pressed once; a second 'x' confirms the stop */
+	modelCursor  int    /* MODELS: selected role row */
+	recentCursor int    /* RECENT: selected run row */
 
-	// Command palette (':'): a fuzzy launcher over the board, scoped to the dashboard
-	// so it never eats keystrokes meant for a text field on another screen.
+	/* Command palette (':'): a fuzzy launcher over the board, scoped to the dashboard
+	   so it never eats keystrokes meant for a text field on another screen. */
 	paletteActive bool
 	paletteInput  textinput.Model
 	paletteCursor int
@@ -71,7 +70,7 @@ type dashboardModel struct {
 func newDashboardModel(client *api.Client) dashboardModel {
 	ti := textinput.New()
 	ti.Placeholder = "run · watch · onboard · agents · history…"
-	ti.Prompt = "" // the palette draws its own ember caret
+	ti.Prompt = "" /* the palette draws its own ember caret */
 	ti.CharLimit = 80
 	return dashboardModel{client: client, fleet: map[string][]contract.RunRecord{}, loading: true, paletteInput: ti, launchMode: "diff", focus: focusFleet}
 }
@@ -88,18 +87,18 @@ func appNames(apps []contract.AppView) []string {
 	return out
 }
 
-// fleetLoadedMsg carries the per-app run history that backs the board's trends plus the
-// fleet-wide integrity signals (both slow-changing → fetched on entry/refresh, not on the
-// 3s heartbeat).
+/* fleetLoadedMsg carries the per-app run history that backs the board's trends plus the
+   fleet-wide integrity signals (both slow-changing → fetched on entry/refresh, not on the
+   3s heartbeat). */
 type fleetLoadedMsg struct {
 	fleet   map[string][]contract.RunRecord
 	signals *contract.SignalsView
 }
 
-// loadFleetCmd fetches recent runs for every app and the fleet integrity signals under one
-// short deadline. The fleet is small (a handful of apps), so a sequential fetch keeps the
-// code simple and the orchestrator unsurprised; a single failing app (or an absent signals
-// endpoint) is skipped rather than blanking the board.
+/* loadFleetCmd fetches recent runs for every app and the fleet integrity signals under one
+   short deadline. The fleet is small (a handful of apps), so a sequential fetch keeps the
+   code simple and the orchestrator unsurprised; a single failing app (or an absent signals
+   endpoint) is skipped rather than blanking the board. */
 func loadFleetCmd(c *api.Client, apps []string) tea.Cmd {
 	return func() tea.Msg {
 		fleet := make(map[string][]contract.RunRecord, len(apps))
@@ -111,7 +110,7 @@ func loadFleetCmd(c *api.Client, apps []string) tea.Cmd {
 		for _, app := range apps {
 			runs, err := c.ListRuns(ctx, app, fleetWindow)
 			if err != nil {
-				continue // a per-app blip must not blank the rest of the board
+				continue /* a per-app blip must not blank the rest of the board */
 			}
 			fleet[app] = runs
 		}
@@ -135,16 +134,16 @@ func (m dashboardModel) Update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 		}
 		return m, nil
 	case cancelErrMsg:
-		// A stop the server rejected (or that timed out). Show it on the error line — a swallowed
-		// cancel error is exactly what made "press x to STOP" look like it did nothing — and
-		// disarm so the next 'x' re-arms a fresh attempt.
+		/* A stop the server rejected (or that timed out). Show it on the error line — a swallowed
+		   cancel error is exactly what made "press x to STOP" look like it did nothing — and
+		   disarm so the next 'x' re-arms a fresh attempt. */
 		m.err = msg.err.Error()
 		m.status = ""
 		m.stopArmed = false
 		return m, nil
 	case errMsg:
-		// Any other failed dashboard command must SURFACE too, never be swallowed (the same
-		// "never silently swallow" rule the other screens follow). Show it and clear stale status.
+		/* Any other failed dashboard command must SURFACE too, never be swallowed (the same
+		   "never silently swallow" rule the other screens follow). Show it and clear stale status. */
 		m.err = msg.err.Error()
 		m.status = ""
 		m.stopArmed = false
@@ -162,21 +161,21 @@ func (m dashboardModel) Update(msg tea.Msg) (dashboardModel, tea.Cmd) {
 }
 
 func (m dashboardModel) handleKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
-	// A run that ended invalidates a NOW focus; fall back to FLEET so keys act on something.
+	/* A run that ended invalidates a NOW focus; fall back to FLEET so keys act on something. */
 	if m.focus == focusNow && !m.hasNow() {
 		m.focus = focusFleet
 	}
 	if m.focus == focusRecent && !m.hasRecent() {
 		m.focus = focusFleet
 	}
-	// A key other than a second Enter / second x cancels a pending confirmation.
+	/* A key other than a second Enter / second x cancels a pending confirmation. */
 	if k.String() != "enter" {
 		m.launchArmed = false
 	}
 	if k.String() != "x" {
 		m.stopArmed = false
 	}
-	// Global keys work regardless of which panel is focused.
+	/* Global keys work regardless of which panel is focused. */
 	switch k.String() {
 	case ":":
 		m.paletteActive = true
@@ -209,7 +208,7 @@ func (m dashboardModel) handleKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	case "?":
 		return m, func() tea.Msg { return helpSelectedMsg{} }
 	}
-	// Panel-scoped keys.
+	/* Panel-scoped keys. */
 	switch m.focus {
 	case focusNow:
 		return m.handleNowKey(k)
@@ -221,18 +220,16 @@ func (m dashboardModel) handleKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	return m.handleFleetKey(k)
 }
 
-// hasNow reports whether the NOW panel is an actionable focus — i.e. a run is in flight.
 func (m dashboardModel) hasNow() bool { return m.sys.queue.Running != nil }
 
-// hasRecent reports whether the RECENT feed has any runs to act on (so it can be focused).
 func (m dashboardModel) hasRecent() bool { return len(m.recentRuns()) > 0 }
 
-// onboardRow is the cursor index of the "+ onboard" row, which sits just past the last
-// project so it is reachable with ↓ (not only the global 'o').
+/* onboardRow is the cursor index of the "+ onboard" row, which sits just past the last
+   project so it is reachable with ↓ (not only the global 'o'). */
 func (m dashboardModel) onboardRow() int { return len(m.sys.apps) }
 
-// navDown / navUp move the selection down / up, crossing panel boundaries at the edges so ↑↓
-// flow through NOW → projects → onboard → model roles as one continuous list (no Tab needed).
+/* navDown / navUp move the selection down / up, crossing panel boundaries at the edges so ↑↓
+   flow through NOW → projects → onboard → model roles as one continuous list (no Tab needed). */
 func (m *dashboardModel) navDown() {
 	switch m.focus {
 	case focusNow:
@@ -246,7 +243,7 @@ func (m *dashboardModel) navDown() {
 			m.modelCursor = 0
 		}
 	case focusModels:
-		if m.modelCursor < len(m.modelRoleList()) { // len roles + 1 for the "all settings" row
+		if m.modelCursor < len(m.modelRoleList()) { /* len roles + 1 for the "all settings" row */
 			m.modelCursor++
 		} else if m.hasRecent() {
 			m.focus = focusRecent
@@ -262,7 +259,7 @@ func (m *dashboardModel) navDown() {
 func (m *dashboardModel) navUp() {
 	switch m.focus {
 	case focusNow:
-		// already at the top of the board
+		/* already at the top of the board */
 	case focusFleet:
 		if m.cursor > 0 {
 			m.cursor--
@@ -274,19 +271,19 @@ func (m *dashboardModel) navUp() {
 			m.modelCursor--
 		} else {
 			m.focus = focusFleet
-			m.cursor = m.onboardRow() // re-enter FLEET at its bottom (the onboard row)
+			m.cursor = m.onboardRow() /* re-enter FLEET at its bottom (the onboard row) */
 		}
 	case focusRecent:
 		if m.recentCursor > 0 {
 			m.recentCursor--
 		} else {
 			m.focus = focusModels
-			m.modelCursor = len(m.modelRoleList()) // re-enter MODELS at its bottom (the all-settings row)
+			m.modelCursor = len(m.modelRoleList()) /* re-enter MODELS at its bottom (the all-settings row) */
 		}
 	}
 }
 
-// focusOrder is the Tab cycle of actionable panels — NOW only while a run is active.
+/* focusOrder is the Tab cycle of actionable panels — NOW only while a run is active. */
 func (m dashboardModel) focusOrder() []dashFocus {
 	order := make([]dashFocus, 0, 4)
 	if m.hasNow() {
@@ -299,7 +296,7 @@ func (m dashboardModel) focusOrder() []dashFocus {
 	return order
 }
 
-// cycleFocus advances Tab focus through focusOrder, clamping a stale FLEET cursor back in range.
+/* cycleFocus advances Tab focus through focusOrder, clamping a stale FLEET cursor back in range. */
 func (m *dashboardModel) cycleFocus(dir int) {
 	order := m.focusOrder()
 	idx, found := 0, false
@@ -310,8 +307,8 @@ func (m *dashboardModel) cycleFocus(dir int) {
 		}
 	}
 	if !found {
-		// The current focus is not actionable right now (e.g. NOW after the run ended); land
-		// on the first (Tab) or last (Shift+Tab) actionable panel, by direction.
+		/* The current focus is not actionable right now (e.g. NOW after the run ended); land
+		   on the first (Tab) or last (Shift+Tab) actionable panel, by direction. */
 		if dir < 0 {
 			m.focus = order[len(order)-1]
 		} else {
@@ -325,8 +322,8 @@ func (m *dashboardModel) cycleFocus(dir int) {
 	}
 }
 
-// handleNowKey drives the focused NOW panel: resume (re-attach) the active run, or stop it
-// with a two-press confirm. NOW is focusable only while a run is in flight.
+/* handleNowKey drives the focused NOW panel: resume (re-attach) the active run, or stop it
+   with a two-press confirm. NOW is focusable only while a run is in flight. */
 func (m dashboardModel) handleNowKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	r := m.sys.queue.Running
 	if r == nil {
@@ -347,9 +344,9 @@ func (m dashboardModel) handleNowKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	return m, nil
 }
 
-// handleFleetKey drives the FLEET panel: pick a project (↑↓), edit its quick-launch
-// config in place (← → mode · t target), and launch or watch it (↵). The per-app actions
-// (history/intelligence/edit/delete) act on the selected project.
+/* handleFleetKey drives the FLEET panel: pick a project (↑↓), edit its quick-launch
+   config in place (← → mode · t target), and launch or watch it (↵). The per-app actions
+   (history/intelligence/edit/delete) act on the selected project. */
 func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	switch k.String() {
 	case "left":
@@ -365,8 +362,8 @@ func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 			}
 		}
 	case "x":
-		// Stop the active run when its project is the selection (the running row surfaces
-		// "x stop"); two-press confirm, shared with the NOW panel.
+		/* Stop the active run when its project is the selection (the running row surfaces
+		   "x stop"); two-press confirm, shared with the NOW panel. */
 		if r := m.sys.queue.Running; r != nil {
 			if a, ok := m.selectedApp(); ok && a.Name == r.App {
 				if m.stopArmed {
@@ -406,14 +403,14 @@ func (m dashboardModel) handleFleetKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	return m, nil
 }
 
-// handleModelsKey drives the MODELS panel: pick a role (↑↓), then ↵ opens the full agent
-// switcher (provider, model, dual mode, restart) — the existing screen, not a duplicate.
+/* handleModelsKey drives the MODELS panel: pick a role (↑↓), then ↵ opens the full agent
+   switcher (provider, model, dual mode, restart) — the existing screen, not a duplicate. */
 func (m dashboardModel) handleModelsKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	if k.String() != "enter" {
 		return m, nil
 	}
-	// ↵ on a role opens the agent screen focused on THAT model; ↵ on the row beneath the roster
-	// opens the full screen with no role pre-selected.
+	/* ↵ on a role opens the agent screen focused on THAT model; ↵ on the row beneath the roster
+	   opens the full screen with no role pre-selected. */
 	roles := []string{"primary", "reviewer", "chat"}
 	if m.modelCursor >= 0 && m.modelCursor < len(roles) {
 		role := roles[m.modelCursor]
@@ -422,8 +419,8 @@ func (m dashboardModel) handleModelsKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) 
 	return m, func() tea.Msg { return agentSelectedMsg{} }
 }
 
-// handleRecentKey drives the focused RECENT feed: ↵ opens the selected run in the live screen
-// (which shows the recap for a finished run, seeded from its record).
+/* handleRecentKey drives the focused RECENT feed: ↵ opens the selected run in the live screen
+   (which shows the recap for a finished run, seeded from its record). */
 func (m dashboardModel) handleRecentKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	if k.String() != "enter" {
 		return m, nil
@@ -437,7 +434,7 @@ func (m dashboardModel) handleRecentKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) 
 	return m, func() tea.Msg { return watchRunMsg{id: id, app: app} }
 }
 
-// cycleMode steps the FLEET quick-launch mode forward/back through launchModes.
+/* cycleMode steps the FLEET quick-launch mode forward/back through launchModes. */
 func cycleMode(cur string, delta int) string {
 	idx := indexOf(launchModes, cur)
 	if idx < 0 {
@@ -447,8 +444,8 @@ func cycleMode(cur string, delta int) string {
 	return launchModes[(idx+delta+n)%n]
 }
 
-// effectiveTarget is the target a FLEET launch would use: the explicit override the user
-// toggled with t, or the app's natural target (code apps run code; everything else e2e).
+/* effectiveTarget is the target a FLEET launch would use: the explicit override the user
+   toggled with t, or the app's natural target (code apps run code; everything else e2e). */
 func (m dashboardModel) effectiveTarget(a contract.AppView) string {
 	if m.launchTarget != "" {
 		return m.launchTarget
@@ -459,9 +456,9 @@ func (m dashboardModel) effectiveTarget(a contract.AppView) string {
 	return "e2e"
 }
 
-// launchSelected acts on the FLEET selection: watch it if it is the running run, route to
-// the wizard when the mode needs a guidance string (manual), else fire a direct run with
-// the in-place [mode · target] config. Shadow is left unset so the app's own config governs.
+/* launchSelected acts on the FLEET selection: watch it if it is the running run, route to
+   the wizard when the mode needs a guidance string (manual), else fire a direct run with
+   the in-place [mode · target] config. Shadow is left unset so the app's own config governs. */
 func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	a, ok := m.selectedApp()
 	if !ok {
@@ -473,8 +470,8 @@ func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	if m.launchMode == "manual" {
 		return m, func() tea.Msg { return appSelectedMsg{app: a.Name} }
 	}
-	// Heavy modes (whole-suite / whole-repo) cost real time and tokens — require a second
-	// Enter so a stray keypress on stage can't kick one off.
+	/* Heavy modes (whole-suite / whole-repo) cost real time and tokens — require a second
+	   Enter so a stray keypress on stage can't kick one off. */
 	if isHeavyMode(m.launchMode) && !m.launchArmed {
 		m.launchArmed = true
 		return m, nil
@@ -488,8 +485,8 @@ func (m dashboardModel) launchSelected() (dashboardModel, tea.Cmd) {
 	return m, func() tea.Msg { return launchMsg{input: in} }
 }
 
-// isHeavyMode flags the modes that regenerate/analyze the whole suite or repo — expensive
-// enough to deserve a confirmation before launching from the board.
+/* isHeavyMode flags the modes that regenerate/analyze the whole suite or repo — expensive
+   enough to deserve a confirmation before launching from the board. */
 func isHeavyMode(mode string) bool {
 	switch mode {
 	case "complete", "exhaustive", "context":
@@ -498,13 +495,11 @@ func isHeavyMode(mode string) bool {
 	return false
 }
 
-// modelRole pairs a role's display label with its current assignment.
 type modelRole struct {
 	label string
 	as    contract.RoleAssignment
 }
 
-// modelRoleList is the MODELS roster in display order.
 func (m dashboardModel) modelRoleList() []modelRole {
 	a := m.sys.agent.Assignments
 	return []modelRole{
@@ -521,15 +516,15 @@ func (m dashboardModel) selectedApp() (contract.AppView, bool) {
 	return m.sys.apps[m.cursor], true
 }
 
-// ── Command palette (':') ──────────────────────────────────────────────────
+/* ── Command palette (':') ────────────────────────────────────────────────── */
 
 type paletteAction struct {
 	label string
 	msg   func() tea.Msg
 }
 
-// paletteActions is the full command set — app-scoped entries (run/watch/history) first,
-// then the global destinations.
+/* paletteActions is the full command set — app-scoped entries (run/watch/history) first,
+   then the global destinations. */
 func (m dashboardModel) paletteActions() []paletteAction {
 	var as []paletteAction
 	if r := m.sys.queue.Running; r != nil {
@@ -548,9 +543,9 @@ func (m dashboardModel) paletteActions() []paletteAction {
 		name := a.Name
 		as = append(as, paletteAction{"intelligence " + name, func() tea.Msg { return intelligenceSelectedMsg{app: name} }})
 	}
-	// The dashboard IS the home surface: queue/health live in the status bar, projects in
-	// FLEET, the model roster in MODELS. The classic "menu" and "status" screens are
-	// redundant subsets, so they are not offered here (see the redundant-screens note).
+	/* The dashboard IS the home surface: queue/health live in the status bar, projects in
+	   FLEET, the model roster in MODELS. The classic "menu" and "status" screens are
+	   redundant subsets, so they are not offered here (see the redundant-screens note). */
 	return append(as,
 		paletteAction{"onboard project", func() tea.Msg { return onboardSelectedMsg{} }},
 		paletteAction{"agents — runtime & models", func() tea.Msg { return agentSelectedMsg{} }},
@@ -558,7 +553,7 @@ func (m dashboardModel) paletteActions() []paletteAction {
 	)
 }
 
-// filteredActions narrows the command set by the typed query (case-insensitive substring).
+/* filteredActions narrows the command set by the typed query (case-insensitive substring). */
 func (m dashboardModel) filteredActions() []paletteAction {
 	q := strings.ToLower(strings.TrimSpace(m.paletteInput.Value()))
 	all := m.paletteActions()
@@ -603,7 +598,7 @@ func (m dashboardModel) paletteKey(k tea.KeyMsg) (dashboardModel, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.paletteInput, cmd = m.paletteInput.Update(k)
-		m.paletteCursor = 0 // the filter changed; reset the selection to the top
+		m.paletteCursor = 0 /* the filter changed; reset the selection to the top */
 		return m, cmd
 	}
 }
@@ -625,10 +620,10 @@ func activityGlyph(kind contract.AgentActivityKind) string {
 	}
 }
 
-// ── Fleet aggregation ────────────────────────────────────────────────────────
+/* ── Fleet aggregation ──────────────────────────────────────────────────────── */
 
-// verdictScore maps a run verdict to a quality score in [0,1] for the trend sparkline:
-// a clean pass is 1, a soft outcome (flaky/skipped) is mid, a hard failure is 0.
+/* verdictScore maps a run verdict to a quality score in [0,1] for the trend sparkline:
+   a clean pass is 1, a soft outcome (flaky/skipped) is mid, a hard failure is 0. */
 func verdictScore(v *contract.RunRecordVerdict) float64 {
 	if v == nil {
 		return 0.5
@@ -638,7 +633,7 @@ func verdictScore(v *contract.RunRecordVerdict) float64 {
 		return 1
 	case contract.RunRecordVerdictFlaky, contract.RunRecordVerdictSkipped:
 		return 0.5
-	default: // fail, invalid, infra-error
+	default: /* fail, invalid, infra-error */
 		return 0
 	}
 }
@@ -647,13 +642,13 @@ type fleetStats struct {
 	total    int
 	passes   int
 	passRate float64
-	spark    string                       // oldest→newest quality trend
-	last     []*contract.RunRecordVerdict // oldest→newest, within the window
+	spark    string                       /* oldest→newest quality trend */
+	last     []*contract.RunRecordVerdict /* oldest→newest, within the window */
 }
 
-// computeFleetStats summarizes an app's runs (as returned newest-first by ListRuns):
-// it takes the most recent window, reverses to oldest→newest, and derives the trend +
-// pass rate from the verdicts.
+/* computeFleetStats summarizes an app's runs (as returned newest-first by ListRuns):
+   it takes the most recent window, reverses to oldest→newest, and derives the trend +
+   pass rate from the verdicts. */
 func computeFleetStats(runs []contract.RunRecord, window int) fleetStats {
 	if window <= 0 || window > len(runs) {
 		window = len(runs)
@@ -662,7 +657,7 @@ func computeFleetStats(runs []contract.RunRecord, window int) fleetStats {
 	var st fleetStats
 	st.total = len(recent)
 	scores := make([]float64, 0, len(recent))
-	for i := len(recent) - 1; i >= 0; i-- { // newest-first → oldest-first
+	for i := len(recent) - 1; i >= 0; i-- { /* newest-first → oldest-first */
 		v := recent[i].Verdict
 		scores = append(scores, verdictScore(v))
 		st.last = append(st.last, v)
@@ -670,7 +665,7 @@ func computeFleetStats(runs []contract.RunRecord, window int) fleetStats {
 			st.passes++
 		}
 	}
-	st.spark = sparklineRange(scores, 0, 1) // quality is a fixed 0..1 scale, not relative
+	st.spark = sparklineRange(scores, 0, 1) /* quality is a fixed 0..1 scale, not relative */
 	if st.total > 0 {
 		st.passRate = float64(st.passes) / float64(st.total)
 	}
@@ -685,10 +680,10 @@ func pipelineFraction(step string) float64 {
 	return float64(idx) / float64(len(pipelinePhases)-1)
 }
 
-// runningPhase reports whether app is the active run and, if its polled record has landed,
-// its live phase and pipeline fraction — so a FLEET row can show progress instead of a
-// stale pass-rate. ok is true the moment the queue says the app is running, even before the
-// step record arrives (phase=="" → the row shows a bare "● running").
+/* runningPhase reports whether app is the active run and, if its polled record has landed,
+   its live phase and pipeline fraction — so a FLEET row can show progress instead of a
+   stale pass-rate. ok is true the moment the queue says the app is running, even before the
+   step record arrives (phase=="" → the row shows a bare "● running"). */
 func (m dashboardModel) runningPhase(app string) (phase string, frac float64, ok bool) {
 	r := m.sys.queue.Running
 	if r == nil || r.App != app {
@@ -700,7 +695,7 @@ func (m dashboardModel) runningPhase(app string) (phase string, frac float64, ok
 	return "", 0, true
 }
 
-// ── View ───────────────────────────────────────────────────────────────────
+/* ── View ─────────────────────────────────────────────────────────────────── */
 
 func (m dashboardModel) View() string {
 	w := contentWidth(m.width)
@@ -711,8 +706,8 @@ func (m dashboardModel) View() string {
 	b.WriteString(m.renderNow(w, m.focus == focusNow) + "\n\n")
 	b.WriteString(m.renderFleet(w) + "\n\n")
 
-	// Two columns when there's room; stack them on narrow terminals so neither the
-	// roster nor the signals panel is crushed to an unreadable width.
+	/* Two columns when there's room; stack them on narrow terminals so neither the
+	   roster nor the signals panel is crushed to an unreadable width. */
 	if w < 72 {
 		b.WriteString(m.renderModels(w) + "\n\n" + m.renderSignals(w) + "\n\n")
 	} else {
@@ -739,12 +734,12 @@ func (m dashboardModel) View() string {
 	return screenStyle.Render(b.String())
 }
 
-// footerHints adapts the key legend to the focused panel, so the actions a panel offers
-// are always visible rather than memorised. Tab moves focus; the palette (':') and help
-// ('?') are the always-available escape hatches.
-// footerHints lists only the focused panel's PRIMARY keys plus the always-present trio (more · help ·
-// quit). The less-common board-wide keys (o onboard · : palette · a agents) live behind "? more" so
-// the bar stays scannable instead of stacking nine actions on one line.
+/* footerHints adapts the key legend to the focused panel, so the actions a panel offers
+   are always visible rather than memorised. Tab moves focus; the palette (':') and help
+   ('?') are the always-available escape hatches.
+   footerHints lists only the focused panel's PRIMARY keys plus the always-present trio (more · help ·
+   quit). The less-common board-wide keys (o onboard · : palette · a agents) live behind "? more" so
+   the bar stays scannable instead of stacking nine actions on one line. */
 func (m dashboardModel) footerHints() string {
 	const tail = " · ? help · q quit"
 	switch m.focus {
@@ -759,8 +754,8 @@ func (m dashboardModel) footerHints() string {
 	}
 }
 
-// renderPalette is the ':' command launcher: an input, then the filtered command list
-// with the ember selection bar — the keyboard-first accelerator over the board's keys.
+/* renderPalette is the ':' command launcher: an input, then the filtered command list
+   with the ember selection bar — the keyboard-first accelerator over the board's keys. */
 func (m dashboardModel) renderPalette(w int) string {
 	var b strings.Builder
 	b.WriteString(accentRule(w, "command", hintStyle.Render("↑↓ move · ↵ run · esc close")) + "\n\n")
@@ -783,8 +778,8 @@ func (m dashboardModel) renderPalette(w int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// renderNow is the active-run banner — the board's pulse. It reads the live queue and,
-// when a run is in flight, the running record's step and pipeline position.
+/* renderNow is the active-run banner — the board's pulse. It reads the live queue and,
+   when a run is in flight, the running record's step and pipeline position. */
 func (m dashboardModel) renderNow(w int, focused bool) string {
 	q := m.sys.queue
 	if q.Running == nil {
@@ -823,9 +818,9 @@ func (m dashboardModel) renderNow(w int, focused bool) string {
 	if q.Pending > 0 {
 		out += "\n  " + hintStyle.Render(pluralize(q.Pending, "run queued behind it", "runs queued behind it"))
 	}
-	// Action line: NOW is the run-control surface now that the sessions screen is gone —
-	// focused it offers the live controls (with the stop-arm warning); otherwise it nudges
-	// the operator to focus it.
+	/* Action line: NOW is the run-control surface now that the sessions screen is gone —
+	   focused it offers the live controls (with the stop-arm warning); otherwise it nudges
+	   the operator to focus it. */
 	switch {
 	case focused && m.stopArmed:
 		out += "\n  " + errorStyle.Render("press x again to STOP the run") + hintStyle.Render("  ·  any other key keeps it running")
@@ -837,9 +832,9 @@ func (m dashboardModel) renderNow(w int, focused bool) string {
 	return out
 }
 
-// runActivityTail surfaces the active run's last few activity lines — a live-ish event
-// feed sourced from the polled run record (it refreshes on the heartbeat, so it needs no
-// extra stream subscription).
+/* runActivityTail surfaces the active run's last few activity lines — a live-ish event
+   feed sourced from the polled run record (it refreshes on the heartbeat, so it needs no
+   extra stream subscription). */
 func (m dashboardModel) runActivityTail(w int) string {
 	r := m.sys.running
 	if r == nil || r.Activity == nil {
@@ -860,8 +855,8 @@ func (m dashboardModel) runActivityTail(w int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// panelRule draws a section header that turns ember (accentRule) when its panel is the
-// focused, interactive one, and stays quiet (labelRule) otherwise.
+/* panelRule draws a section header that turns ember (accentRule) when its panel is the
+   focused, interactive one, and stays quiet (labelRule) otherwise. */
 func panelRule(w int, focused bool, title, right string) string {
 	if focused {
 		return accentRule(w, title, right)
@@ -869,9 +864,9 @@ func panelRule(w int, focused bool, title, right string) string {
 	return labelRule(w, title, right)
 }
 
-// renderFleet is the per-app health board AND the quick launcher: target, the last few
-// verdicts, a pass rate, and a quality trend sparkline. When FLEET is focused, the
-// selected row also shows the in-place launch config (← → mode · t target · ↵ launch).
+/* renderFleet is the per-app health board AND the quick launcher: target, the last few
+   verdicts, a pass rate, and a quality trend sparkline. When FLEET is focused, the
+   selected row also shows the in-place launch config (← → mode · t target · ↵ launch). */
 func (m dashboardModel) renderFleet(w int) string {
 	focused := m.focus == focusFleet
 	var b strings.Builder
@@ -895,9 +890,9 @@ func (m dashboardModel) renderFleet(w int) string {
 			bar = renderSegs("", sg("▌▸ ", colEmber))
 			name = renderSegs("", sgb(padRight(a.Name, 14), colFg))
 		}
-		// A running project shows its LIVE pipeline progress (the same metric NOW shows, so
-		// the two never disagree); an idle one shows its run history — last verdicts, the
-		// pass-rate (labelled "pass", so it never reads as progress) and the quality trend.
+		/* A running project shows its LIVE pipeline progress (the same metric NOW shows, so
+		   the two never disagree); an idle one shows its run history — last verdicts, the
+		   pass-rate (labelled "pass", so it never reads as progress) and the quality trend. */
 		var status string
 		if phase, frac, running := m.runningPhase(a.Name); running {
 			label := "running"
@@ -905,8 +900,8 @@ func (m dashboardModel) renderFleet(w int) string {
 				label = phase
 			}
 			status = renderSegs("", sg("● ", colInfra), sg(label, colInfra))
-			// Append the progress % only once the pipeline has actually advanced; the first
-			// phase ("gate", frac 0) shows a bare "● gate" rather than a bare 0%.
+			/* Append the progress % only once the pipeline has actually advanced; the first
+			   phase ("gate", frac 0) shows a bare "● gate" rather than a bare 0%. */
 			if phase != "" && frac > 0 {
 				status += lipgloss.NewStyle().Foreground(colInfra).Render(fmt.Sprintf("  %d%%", int(frac*100+0.5)))
 			}
@@ -923,8 +918,8 @@ func (m dashboardModel) renderFleet(w int) string {
 		if a.Shadow {
 			row += "  " + shadowStyle.Render("shadow")
 		}
-		// On the focused selection: a running project offers watch/stop (you resume or stop
-		// it, never launch a second run on top); an idle one edits its launch config in place.
+		/* On the focused selection: a running project offers watch/stop (you resume or stop
+		   it, never launch a second run on top); an idle one edits its launch config in place. */
 		if selected && focused {
 			if _, _, running := m.runningPhase(a.Name); running {
 				if m.stopArmed {
@@ -937,8 +932,8 @@ func (m dashboardModel) renderFleet(w int) string {
 			}
 		}
 		b.WriteString(row + "\n")
-		// Progressive disclosure: the focused selection reveals its secondary actions inline,
-		// so they are discoverable on the row rather than memorised from the footer.
+		/* Progressive disclosure: the focused selection reveals its secondary actions inline,
+		   so they are discoverable on the row rather than memorised from the footer. */
 		if selected && focused {
 			actions := "h history · i intel"
 			if _, _, running := m.runningPhase(a.Name); !running {
@@ -947,9 +942,9 @@ func (m dashboardModel) renderFleet(w int) string {
 			b.WriteString("     " + hintStyle.Render(actions) + "\n")
 		}
 	}
-	// The onboard row is a real cursor stop (reachable with ↓), so it carries the selection
-	// caret when it is the focused selection. ‹ › is reserved for editable values (the launch
-	// config), so the shortcut is shown footer-style, not as a ‹o› here.
+	/* The onboard row is a real cursor stop (reachable with ↓), so it carries the selection
+	   caret when it is the focused selection. ‹ › is reserved for editable values (the launch
+	   config), so the shortcut is shown footer-style, not as a ‹o› here. */
 	obar, olabel, otail := "   ", sg("onboard project", colDim), ""
 	if focused && m.cursor == m.onboardRow() {
 		obar, olabel = renderSegs("", sg("▌▸ ", colEmber)), sgb("onboard project", colFg)
@@ -959,7 +954,6 @@ func (m dashboardModel) renderFleet(w int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// lastVerdictGlyphs renders the last n verdicts (oldest→newest) as colored glyphs.
 func lastVerdictGlyphs(verdicts []*contract.RunRecordVerdict, n int) string {
 	if len(verdicts) > n {
 		verdicts = verdicts[len(verdicts)-n:]
@@ -971,8 +965,8 @@ func lastVerdictGlyphs(verdicts []*contract.RunRecordVerdict, n int) string {
 	return b.String()
 }
 
-// padGlyphs right-pads a glyph cluster (display width = glyph count) to n cells so the
-// pass-rate column stays aligned across apps with different history depth.
+/* padGlyphs right-pads a glyph cluster (display width = glyph count) to n cells so the
+   pass-rate column stays aligned across apps with different history depth. */
 func padGlyphs(glyphs string, n int) string {
 	if w := lipgloss.Width(glyphs); w < n {
 		return glyphs + strings.Repeat(" ", n-w)
@@ -994,9 +988,9 @@ func passRateStyle(rate float64, total int) lipgloss.Style {
 	}
 }
 
-// renderModels is the roster AND the entry to the switcher: each role's provider, model,
-// and a provider health dot. When focused, ↑↓ picks a role and ↵ opens the full agent
-// screen (provider/model/dual/restart). The header states the runtime mode (single·dual).
+/* renderModels is the roster AND the entry to the switcher: each role's provider, model,
+   and a provider health dot. When focused, ↑↓ picks a role and ↵ opens the full agent
+   screen (provider/model/dual/restart). The header states the runtime mode (single·dual). */
 func (m dashboardModel) renderModels(w int) string {
 	focused := m.focus == focusModels
 	right := ""
@@ -1021,8 +1015,8 @@ func (m dashboardModel) renderModels(w int) string {
 		}
 		b.WriteString(marker + " " + m.providerDot(prov) + " " + label + " " + hintStyle.Render(padRight(prov, 9)+" "+model) + "\n")
 	}
-	// A row beneath the roster opens the FULL agent screen (every role, provider, keys, restart) —
-	// distinct from ↵ on a role, which edits THAT model directly.
+	/* A row beneath the roster opens the FULL agent screen (every role, provider, keys, restart) —
+	   distinct from ↵ on a role, which edits THAT model directly. */
 	allMarker, allLabel := "  ", labelStyle.Render("all models · runtime settings")
 	if focused && m.modelCursor == len(m.modelRoleList()) {
 		allMarker = renderSegs("", sg("▌", colEmber))
@@ -1052,17 +1046,17 @@ func (m dashboardModel) providerDot(provider string) string {
 	return healthDot(h.Status)
 }
 
-// renderSignals is the integrity panel — the anti-Goodhart readout. It juxtaposes the
-// ground-truth value-oracle (◆, real: do the tests catch injected bugs?) against the proxy
-// the rest of the board shows everywhere (◇ pass rate), and states precisely where
-// change-coverage stands: measured per run, but not yet a fleet-level merge gate (⚠) —
-// the keystone. Every number is real or honestly absent; nothing inert is dressed up.
+/* renderSignals is the integrity panel — the anti-Goodhart readout. It juxtaposes the
+   ground-truth value-oracle (◆, real: do the tests catch injected bugs?) against the proxy
+   the rest of the board shows everywhere (◇ pass rate), and states precisely where
+   change-coverage stands: measured per run, but not yet a fleet-level merge gate (⚠) —
+   the keystone. Every number is real or honestly absent; nothing inert is dressed up. */
 func (m dashboardModel) renderSignals(w int) string {
 	var b strings.Builder
 	b.WriteString(labelRule(w, "integrity", renderSegs("", sg("◆ truth ", colPass), sg("◇ proxy", colFlaky))) + "\n")
 	b.WriteString("  " + hintStyle.Render("does the suite catch real bugs, or only pass review?") + "\n")
 
-	// ◆ value oracle — ground truth.
+	/* ◆ value oracle — ground truth. */
 	oracle := shadowStyle.Render("not measured yet ⚠")
 	if m.signals != nil && m.signals.ValueOracle.Measured && m.signals.ValueOracle.AvgScore != nil {
 		oracle = renderSegs("", sg("◆ ", colPass)) + okStyle.Render(fmt.Sprintf("%.2f", *m.signals.ValueOracle.AvgScore)) +
@@ -1070,23 +1064,23 @@ func (m dashboardModel) renderSignals(w int) string {
 	}
 	b.WriteString("  " + labelStyle.Render(padRight("value oracle", 13)) + " " + oracle + "\n")
 
-	// ◇ reviewer — the proxy gate (pass rate over quality-verdict runs).
+	/* ◇ reviewer — the proxy gate (pass rate over quality-verdict runs). */
 	proxy := hintStyle.Render("reviewer · LLM ") + renderSegs("", sg("◇", colFlaky))
 	if m.signals != nil && m.signals.Reviewer.PassRate != nil {
 		proxy = renderSegs("", sg("◇ ", colFlaky)) + hintStyle.Render(fmt.Sprintf("%.0f%% pass  %s", *m.signals.Reviewer.PassRate*100, pluralize(m.signals.Reviewer.Runs, "run", "runs")))
 	}
 	b.WriteString("  " + labelStyle.Render(padRight("reviewer", 13)) + " " + proxy + "\n")
 
-	// change-coverage IS measured per run (the live run shows covered/changed lines); what
-	// is not built yet is using it as a fleet-level MERGE GATE — the keystone. Say exactly
-	// that, so this never contradicts the live run that displays a coverage %.
+	/* change-coverage IS measured per run (the live run shows covered/changed lines); what
+	   is not built yet is using it as a fleet-level MERGE GATE — the keystone. Say exactly
+	   that, so this never contradicts the live run that displays a coverage %. */
 	b.WriteString("  " + labelStyle.Render(padRight("coverage", 13)) + " " + hintStyle.Render("per run") + shadowStyle.Render(" · gate not built ⚠"))
 	return b.String()
 }
 
-// renderRecent is the cross-fleet outcome feed: the most recent runs, newest first.
-// recentRuns is the cross-fleet outcome feed: every app's runs, newest first, capped. It
-// backs both the RECENT render and its ↑↓/↵ interaction, so they index the same list.
+/* renderRecent is the cross-fleet outcome feed: the most recent runs, newest first.
+   recentRuns is the cross-fleet outcome feed: every app's runs, newest first, capped. It
+   backs both the RECENT render and its ↑↓/↵ interaction, so they index the same list. */
 func (m dashboardModel) recentRuns() []contract.RunRecord {
 	var all []contract.RunRecord
 	for _, runs := range m.fleet {

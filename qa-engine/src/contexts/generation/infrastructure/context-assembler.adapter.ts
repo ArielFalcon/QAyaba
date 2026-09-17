@@ -1,10 +1,4 @@
-// qa-engine/src/contexts/generation/infrastructure/context-assembler.adapter.ts
-// WRAP of src/integrations/context-assembler.ts assemble/section (pure band/priority shedding). Thin
-// delegators — the fns are pure so no side-effect injection is needed beyond the fns themselves. The
-// parity test pins the wrapper to the legacy pure fn. Does NOT reimplement the shedding algorithm.
-// Both fns are injected (constructor seam) so the adapter test needs no real assembler.
 
-// Structural shapes mirroring src/integrations/context-assembler.ts — no src/ import at runtime.
 export type SectionRole = "stable-prefix" | "semi-stable" | "volatile" | "task" | "critical-recap";
 
 export interface Section {

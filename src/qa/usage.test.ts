@@ -63,7 +63,6 @@ test("cost field is present and equals sum of snapshot.cost values when >= 1 sna
   acc.add(snap({ cost: 0.003 }));
   const r = acc.result(true);
   assert.ok(r !== undefined);
-  // Floating-point: use approximate comparison
   assert.ok(Math.abs((r.cost ?? 0) - 0.004) < 1e-9, `expected cost ~0.004, got ${r.cost}`);
 });
 

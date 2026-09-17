@@ -1,7 +1,7 @@
-// Server-side app onboarding/deletion. EVERYTHING that needs secrets or writes
-// config runs here (the orchestrator has the tokens; the TUI does not — that was
-// the root cause of the broken wizard). All side effects are injected (AppAdminDeps)
-// so the logic is unit-tested with stubs.
+/*
+ * Server-side app onboarding/deletion. Secrets and config writes live here
+ * (the orchestrator has the tokens; the TUI does not).
+ */
 
 import { parse } from "yaml";
 import { AppConfigSchema } from "../orchestrator/schemas";
@@ -92,8 +92,6 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
   };
   const yaml = buildYaml(onboard);
 
-  // Validate what loadAppConfig will see: env-expanded YAML against the schema. For a
-  // dryRun, expansion uses the PROVIDED env over the live one without applying anything.
   const expansionEnv = { ...deps.env, ...(input.env ?? {}) };
   try {
     AppConfigSchema.parse(parse(expandEnv(yaml, expansionEnv)));
@@ -151,12 +149,7 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
   };
 
   let yaml = buildYaml(onboard);
-  // Preserve an existing boundaries: block across the rebuild — buildYaml/OnboardInput
-  // carry no boundaries, so a naive rebuild would silently drop the agent-discovered block.
-  // Re-emit via the same onboarding writer (single source of truth). Splice runs BEFORE the
-  // validation gate below, so the preserved block is what gets validated, dry-run-returned,
-  // and written. existing.boundaries is already schema-valid (loadApp parsed it) and
-  // structurally a BoundaryProfile[] (BoundarySchema z.infer == BoundaryProfile), so no mapper.
+  /* Preserve an existing boundaries: block — buildYaml carries none, so a naive rebuild would drop it. */
   if (existing.boundaries?.length) {
     const entryLines = existing.boundaries.flatMap((profile) => serializeBoundary(profile));
     yaml = spliceBoundariesBlock(yaml, entryLines);
@@ -184,13 +177,12 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
 
 export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { removed: string[] } {
   if (!NAME_RE.test(name)) throw new Error(`invalid app name: ${JSON.stringify(name)}`);
-  const app = deps.loadApp(name); // throws if not onboarded
+  const app = deps.loadApp(name);  /* throws if not onboarded */
   const removed: string[] = [];
   deps.deleteConfig(name);
   removed.push(`config:${name}`);
   if (purge) {
-    // ONLY the primary mirror: a service repo's mirror may be shared with another app,
-    // and mirrors are regenerable caches anyway.
+    /* Only the primary mirror: a service repo's mirror may be shared with another app. */
     deps.deleteMirror(app.repo);
     removed.push(`mirror:${app.repo}`);
     deps.deleteHistory(name);

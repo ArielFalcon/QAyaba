@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// ROOT-LEVEL boot guard. It runs BEFORE the app (see package.json "start") and is
-// deliberately NOT part of src/, so a maintainer hot-swap never replaces it — it always
-// runs intact and can roll back a bad swap. Mirrors the marker contract in
-// src/server/self-update.ts (keep both in sync).
-//
-// Marker (data/pending-swap.json): { at, attempt, prUrl }. After a swap, attempt starts
-// at 0. Each boot increments it; if the swapped code comes up healthy, index.ts clears
-// the marker. If it fails to boot healthy MAX_BOOT_ATTEMPTS times, this guard restores
-// the backed-up src/ (+ package files) so the service returns to the last known-good code.
+/* ROOT-LEVEL boot guard. It runs BEFORE the app (see package.json "start") and is
+   deliberately NOT part of src/, so a maintainer hot-swap never replaces it — it always
+   runs intact and can roll back a bad swap. Mirrors the marker contract in
+   src/server/self-update.ts (keep both in sync).
+
+   Marker (data/pending-swap.json): { at, attempt, prUrl }. After a swap, attempt starts
+   at 0. Each boot increments it; if the swapped code comes up healthy, index.ts clears
+   the marker. If it fails to boot healthy MAX_BOOT_ATTEMPTS times, this guard restores
+   the backed-up src/ (+ package files) so the service returns to the last known-good code. */
 
 import { existsSync, rmSync, cpSync, readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -26,10 +26,10 @@ function readMarker() {
 }
 
 const marker = readMarker();
-if (!marker) process.exit(0); // normal boot, no pending swap
+if (!marker) process.exit(0); /* no pending swap */
 
 if ((marker.attempt ?? 0) >= MAX_BOOT_ATTEMPTS) {
-  // The swapped code failed to come up healthy repeatedly → roll back to the backup.
+  /* The swapped code failed to come up healthy repeatedly → roll back to the backup. */
   const srcBak = join(ROOT, "src.bak");
   if (existsSync(srcBak)) {
     rmSync(join(ROOT, "src"), { recursive: true, force: true });
@@ -45,8 +45,8 @@ if ((marker.attempt ?? 0) >= MAX_BOOT_ATTEMPTS) {
     for (const b of ["src.bak", "package.json.bak", "package-lock.json.bak"]) {
       rmSync(join(ROOT, b), { recursive: true, force: true });
     }
-    // The swap already installed the NEW package set into node_modules; the restored code on
-    // mutated deps could crash-loop with no recovery left. Reinstall the restored lockfile.
+    /* The swap already installed the NEW package set into node_modules; the restored code on
+       mutated deps could crash-loop with no recovery left. Reinstall the restored lockfile. */
     if (packagesRestored) {
       try {
         execSync("npm install --no-audit --no-fund", { cwd: ROOT, stdio: "inherit", timeout: 10 * 60 * 1000 });
@@ -55,9 +55,9 @@ if ((marker.attempt ?? 0) >= MAX_BOOT_ATTEMPTS) {
       }
     }
     console.error(`[boot-guard] swapped code failed ${marker.attempt} boot(s) — ROLLED BACK to the previous src/.`);
-    // Bridge: the boot-guard can't use the app's modules, so it leaves the marker for the (now
-    // restored, good) app to fold into the maintainer's failure memory on its next boot — so the
-    // agent learns the fix crash-looped and won't try the same thing again.
+    /* Bridge: the boot-guard can't use the app's modules, so it leaves the marker for the
+       restored app to fold into the maintainer's failure memory on its next boot — so the
+       agent learns the fix crash-looped and won't try the same thing again. */
     try {
       writeFileSync(join(ROOT, "data", "last-rollback.json"), JSON.stringify({ ...marker, reason: "boot-crash-loop" }));
     } catch {
@@ -68,7 +68,7 @@ if ((marker.attempt ?? 0) >= MAX_BOOT_ATTEMPTS) {
   process.exit(0);
 }
 
-// Count this boot as an attempt. If the app comes up healthy, index.ts clears the marker.
+/* Count this boot as an attempt. If the app comes up healthy, index.ts clears the marker. */
 try {
   writeFileSync(MARKER, JSON.stringify({ ...marker, attempt: (marker.attempt ?? 0) + 1 }));
 } catch {

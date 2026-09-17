@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shouldDistillLearning } from "@contexts/qa-run-orchestration/domain/helpers/should-distill-learning.ts";
 
-// The gating predicate across its input space (isCode × every RunVerdict). Suppress distillation
-// ONLY for isCode + fail (the agent's generated test correctly caught a real bug — distilling a
-// "fix this test" rule would teach the engine to weaken a test that did its job).
+/* The gating predicate across its input space (isCode × every RunVerdict). Suppress distillation
+   ONLY for isCode + fail (the agent's generated test correctly caught a real bug — distilling a
+   "fix this test" rule would teach the engine to weaken a test that did its job).
+ */
 
 test("shouldDistillLearning: isCode=true, verdict=fail — suppressed (the ONE exception)", () => {
   assert.equal(shouldDistillLearning(true, "fail"), false);
@@ -38,13 +39,14 @@ test("shouldDistillLearning: isCode=false (e2e), verdict=pass — feeds learning
   assert.equal(shouldDistillLearning(false, "pass"), true);
 });
 
-// post-cutover-remediation P3 (unit 4): a THIRD, optional arg — the FixLoop's own adjudicator
-// verdict class. Suppress distillation when the adjudicator attributed the failure to the APP
-// (app_defect) — distilling a "fix this test" rule for a test that correctly caught a real app bug
-// would teach the engine to weaken a test that did its job (the same Goodhart concern the existing
-// isCode+fail rule guards against, now extended to the adjudicator's OWN classification). This is an
-// INDEPENDENT guard clause, layered ON TOP of (not replacing) the existing isCode+fail rule — the
-// two conditions AND together (`!(isCode && fail) && adjudicationClass !== "app_defect"`).
+/* A THIRD, optional arg — the FixLoop's own adjudicator verdict class. Suppress distillation
+   when the adjudicator attributed the failure to the APP (app_defect) — distilling a "fix this
+   test" rule for a test that correctly caught a real app bug would teach the engine to weaken a
+   test that did its job (the same Goodhart concern the existing isCode+fail rule guards against,
+   now extended to the adjudicator's OWN classification). This is an INDEPENDENT guard clause,
+   layered ON TOP of (not replacing) the existing isCode+fail rule — the two conditions AND
+   together (`!(isCode && fail) && adjudicationClass !== "app_defect"`).
+ */
 
 test("shouldDistillLearning: adjudicationClass=app_defect — suppressed regardless of isCode/verdict", () => {
   assert.equal(shouldDistillLearning(false, "fail", "app_defect"), false);

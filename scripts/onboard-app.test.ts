@@ -1,9 +1,6 @@
-// scripts/onboard-app.test.ts
-// TDD (strict): write failing tests first, then implement.
-// runOnboarding(deps) is the DI-testable core (argv parsing + composition wiring stay in the
-// thin argv shell in onboard-app.ts's `if (process.argv[1] === ...)` guard, per src/cli.ts's
-// established pattern) — every test here drives a FAKE OnboardingService / MirrorRegistryPort /
-// filesystem, never opens a real LLM session (spec C, design §D exit-code contract).
+/*
+ * Onboarding CLI tests drive fakes only — never a real LLM session or filesystem.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { BoundaryProfile, RepoRef } from "../qa-engine/src/contexts/service-topology/domain/index.ts";
@@ -40,8 +37,6 @@ function fakeDeps(overrides: Partial<OnboardingCliDeps> = {}): OnboardingCliDeps
     ...overrides,
   };
 }
-
-// ── exit code 0: profile resolves and is written/printed ───────────────────────
 
 test("runOnboarding: exit 0 when a profile resolves and --config exists (splices + writes)", async () => {
   let written: { path: string; content: string } | undefined;
@@ -97,7 +92,7 @@ test("runOnboarding: exit 0 and prints the snippet when --config path does not e
       candidates: [{ profile: HTTP_PROFILE, score: { links: 1, drift: 0, external: 0, unresolved: 0, coverage: 1, resolutionRatio: 1, resolvedScore: 1 } }],
       rounds: 1,
     }),
-    // readConfig throws ENOENT for any path (default fakeDeps behavior with no seeded files)
+    /* Default fake readConfig throws ENOENT for any path. */
     writeConfig: () => {
       wroteAnything = true;
     },
@@ -110,8 +105,6 @@ test("runOnboarding: exit 0 and prints the snippet when --config path does not e
   assert.equal(wroteAnything, false);
   assert.ok(logged.some((l) => l.includes("boundaries:")));
 });
-
-// ── exit code 1: nothing resolved within budget ─────────────────────────────────
 
 test("runOnboarding: exit 1 when nothing resolves within budget (nothing written)", async () => {
   let wroteAnything = false;
@@ -129,8 +122,6 @@ test("runOnboarding: exit 1 when nothing resolves within budget (nothing written
   assert.equal(wroteAnything, false);
 });
 
-// ── exit code 2: usage / arg errors ─────────────────────────────────────────────
-
 test("runOnboarding: exit 2 when --app is missing", async () => {
   const errors: string[] = [];
   const deps = fakeDeps({ error: (msg: string) => errors.push(msg) });
@@ -146,8 +137,6 @@ test("runOnboarding: exit 2 when --repo is missing", async () => {
   const code = await runOnboarding(["--app", "nname"], deps);
   assert.equal(code, 2);
 });
-
-// ── exit code 3: hard I/O error writing config (distinct from exit 1) ──────────
 
 test("runOnboarding: exit 3 when scoring resolves but the config write fails (I/O error)", async () => {
   const deps = fakeDeps({
@@ -166,8 +155,6 @@ test("runOnboarding: exit 3 when scoring resolves but the config write fails (I/
 
   assert.equal(code, 3);
 });
-
-// ── no-mirror-on-disk fail-open message (spec C3) ───────────────────────────────
 
 test("runOnboarding: a missing mirror produces an actionable error naming the repo/path, not a stack trace", async () => {
   const errors: string[] = [];
@@ -209,8 +196,6 @@ test("runOnboarding: a missing SERVICE repo (not the primary) names the service 
   assert.ok(errors.some((m) => m.includes("org/ms-name-missing")), "error must name the missing SERVICE repo");
   assert.ok(errors.every((m) => !m.includes("org/nname-gateway")), "error must not blame the primary repo instead");
 });
-
-// ── composition wiring smoke: --service is repeatable ──────────────────────────
 
 test("runOnboarding: passes every --service repo into the onboarding loop's system[] argument", async () => {
   let capturedSystem: RepoRef[] = [];

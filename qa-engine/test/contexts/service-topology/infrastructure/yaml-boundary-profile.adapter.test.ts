@@ -1,9 +1,9 @@
-// test/contexts/service-topology/infrastructure/yaml-boundary-profile.adapter.test.ts
-// TDD (strict): write failing tests first, then implement.
-// Piece 1 of the stitcher config→resolver loader (step 2 + step 3): YamlBoundaryProfileAdapter
-// reads+validates config/apps/<app>.yaml `boundaries[]` into BoundaryProfile[] (a mix of
-// HttpBoundaryProfile and EventBoundaryProfile entries, dispatched by `transport`). The reader
-// is injected — no filesystem access in these tests.
+/* test/contexts/service-topology/infrastructure/yaml-boundary-profile.adapter.test.ts
+   Piece 1 of the stitcher config→resolver loader (step 2 + step 3): YamlBoundaryProfileAdapter
+   reads+validates config/apps/<app>.yaml `boundaries[]` into BoundaryProfile[] (a mix of
+   HttpBoundaryProfile and EventBoundaryProfile entries, dispatched by `transport`). The reader
+   is injected — no filesystem access in these tests.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -18,9 +18,10 @@ import type {
   HttpBackendBoundaryProfile,
 } from "@contexts/service-topology/domain/index.ts";
 
-// ==========================================
-// parseHttpBoundaryProfile — pure validator unit tests
-// ==========================================
+/* ==========================================
+   parseHttpBoundaryProfile — pure validator unit tests
+   ==========================================
+ */
 
 const VALID_RAW = {
   transport: "http",
@@ -134,9 +135,10 @@ test("parseHttpBoundaryProfile: frontCallSite with an unknown (non-catalogued) k
   assert.equal(result, null);
 });
 
-// ==========================================
-// YamlBoundaryProfileAdapter — reader-injected, no filesystem
-// ==========================================
+/* ==========================================
+   YamlBoundaryProfileAdapter — reader-injected, no filesystem
+   ==========================================
+ */
 
 const VALID_YAML = `
 boundaries:
@@ -258,9 +260,10 @@ test("YamlBoundaryProfileAdapter.forApp: boundaries as a non-array value returns
   assert.deepEqual(profiles, []);
 });
 
-// ==========================================
-// parseEventBoundaryProfile — pure validator unit tests (step 3)
-// ==========================================
+/* ==========================================
+   parseEventBoundaryProfile — pure validator unit tests (step 3)
+   ==========================================
+ */
 
 const VALID_EVENT_RAW = {
   transport: "event",
@@ -355,9 +358,10 @@ test("parseEventBoundaryProfile: entirely malformed input (null) returns null", 
   assert.equal(result, null);
 });
 
-// ==========================================
-// YamlBoundaryProfileAdapter.forApp — dispatch by transport (step 3)
-// ==========================================
+/* ==========================================
+   YamlBoundaryProfileAdapter.forApp — dispatch by transport (step 3)
+   ==========================================
+ */
 
 const VALID_EVENT_YAML = `
 boundaries:
@@ -392,7 +396,7 @@ boundaries:
       listenerEventCall: "convertMsgToSpecificType"
       subscriberBaseType: "DomainEventSubscriber"
       publishCall: "publishGenericMessage"
-`; // files field missing
+`;
   const adapter = new YamlBoundaryProfileAdapter(() => yaml);
   const profiles = await adapter.forApp("missing-files");
   assert.deepEqual(profiles, [], "an event entry missing the required files field must be skipped, not throw");
@@ -446,9 +450,10 @@ boundaries:
   assert.equal(eventProfile.eventPattern.kind, "class-based-domain-events");
 });
 
-// ==========================================
-// parseHttpBackendBoundaryProfile — BE→BE HTTP
-// ==========================================
+/* ==========================================
+   parseHttpBackendBoundaryProfile — BE→BE HTTP
+   ==========================================
+ */
 
 const VALID_HTTP_BACKEND_RAW = {
   transport: "http-backend",

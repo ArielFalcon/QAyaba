@@ -1,7 +1,8 @@
-// Sequential job queue. One run at a time so two close-together pushes do not
-// launch concurrent QA against DEV. A failing job does not stop the following ones.
-// cancel() aborts the currently-running job; pass a runId to abort only when it
-// matches (so a stale cancel cannot abort an unrelated successor).
+/*
+ * Sequential job queue — one run at a time; never concurrent QA against DEV.
+ * A failing job does not stop the following ones. cancel(runId) aborts only when
+ * the id matches, so a stale cancel cannot abort an unrelated successor.
+ */
 
 export class JobQueue {
   private tail: Promise<void> = Promise.resolve();

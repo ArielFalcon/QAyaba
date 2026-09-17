@@ -1,7 +1,7 @@
-// test/contexts/service-topology/infrastructure/http-backend-resolver.adapter.test.ts
-// TDD (strict): write failing tests first, then implement.
-// HttpBackendResolver: config-driven BE→BE HTTP boundary resolver. Scans backend repos
-// (system, plus front if not already in system) — FE HTTP stays OpenApiHttpResolver.
+/* test/contexts/service-topology/infrastructure/http-backend-resolver.adapter.test.ts
+   HttpBackendResolver: config-driven BE→BE HTTP boundary resolver. Scans backend repos
+   (system, plus front if not already in system) — FE HTTP stays OpenApiHttpResolver.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

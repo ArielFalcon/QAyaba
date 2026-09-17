@@ -23,20 +23,15 @@ export interface PublicAgentConfig {
 
 const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
   opencode: {
-    // MUST match opencode/opencode.json's qa-generator model (the primary that actually runs).
+    /* Must match agents/opencode.json qa-generator. */
     primary: "opencode-go/glm-5.3-flash",
-    // MUST match opencode/opencode.json's qa-reviewer model (the file that actually runs the
-    // reviewer on the e2e path) AND differ from `primary` — two different models guarantee
-    // independent judgment. A guard test (model-config.test.ts) asserts both, so this can
-    // never silently drift out of the catalog again (which made applyConfig throw).
+    /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment. */
     reviewer: "opencode-go/muse-spark-1.3-contributor",
     chat: "opencode-go/glm-5.3-flash",
   },
   codex: {
     primary: "gpt-5.4",
-    // MUST differ from primary — two different models guarantee independent judgment.
-    // A guard test (model-config.test.ts) asserts reviewer!=primary for BOTH providers
-    // so this can never silently collapse back to the same model.
+    /* Must differ from primary — two models guarantee independent judgment. */
     reviewer: "gpt-5.5",
     chat: "gpt-5.4-mini",
   },
@@ -59,8 +54,6 @@ export function singleProviderConfig(provider: AgentProvider, env: Record<string
   };
 }
 
-// The "other" provider, for dual-mode role separation. Binary today; the provider-registry refactor
-// (provider-agnosticism backlog) generalizes this to "first registered provider != p".
 function complementProvider(p: AgentProvider): AgentProvider {
   return p === "opencode" ? "codex" : "opencode";
 }
@@ -75,9 +68,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     singleProvider,
     assignments: {
       primary: assignment(primaryProvider, "primary", env),
-      // Dual mode exists for INDEPENDENT judgment, so the reviewer defaults to a DIFFERENT provider
-      // than the primary — not a hardcoded "codex" (which silently collapsed onto the primary when the
-      // primary was already codex, defeating dual mode). Falls back to the primary's complement.
+      /* Dual mode exists for independent judgment: reviewer defaults to the other provider. */
       reviewer: assignment(providerFromEnv(env.AGENT_REVIEWER_PROVIDER, complementProvider(primaryProvider)), "reviewer", env),
       chat: assignment(providerFromEnv(env.AGENT_CHAT_PROVIDER, singleProvider), "chat", env),
     },
@@ -88,14 +79,7 @@ export function keyPresence(env: Record<string, string | undefined> = process.en
   return { opencode: Boolean(env.OPENCODE_API_KEY), codex: Boolean(env.CODEX_API_KEY) };
 }
 
-// D-4c-6 follow-up (live-reconfiguration split-brain): the shared derivation from an
-// AgentRuntimeConfig to the plain role→model map the qa-engine model-window-catalog's
-// `setRuntimeRoleModels` seam expects (structurally the same shape as its `RuntimeRoleModels`
-// interface — no cross-import needed, this module stays qa-engine-agnostic). Extracted so BOTH the
-// boot-time wiring (`src/integrations/opencode-client.ts`'s module load, via `configFromEnv()`) and
-// the live-reconfiguration wiring (`src/server/agent-runtime.ts`'s `applyConfig`, after the live
-// `AgentRuntimeConfig.assignments` mutation succeeds) call the SAME mapping — one source of truth,
-// never duplicated.
+/* Boot and live-reconfiguration share this mapping so role→model cannot split. */
 export function runtimeRoleModelsFromConfig(config: AgentRuntimeConfig): { primary: string; reviewer: string; chat: string } {
   return {
     primary: config.assignments.primary.model,
@@ -104,12 +88,7 @@ export function runtimeRoleModelsFromConfig(config: AgentRuntimeConfig): { prima
   };
 }
 
-// Audit C4b (2): runtime-independence guard. reviewer.model must never equal primary.model —
-// two DIFFERENT models are what makes the reviewer's judgment independent of the generator (a
-// generator grading its own homework via an identical model defeats the whole review step). The
-// DEFAULT_MODELS constants are guarded at build-time (model-config.test.ts), but env overrides
-// (AGENT_PRIMARY_MODEL / AGENT_REVIEWER_MODEL) can still collapse both roles onto the same model
-// at runtime — this check makes that collision fail loudly instead of silently validating ok.
+/* reviewer.model must never equal primary.model — env overrides can still collapse both roles. */
 function reviewerPrimaryCollisionErrors(config: AgentRuntimeConfig): string[] {
   const primary = config.assignments.primary;
   const reviewer = config.assignments.reviewer;

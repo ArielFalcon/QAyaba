@@ -1,8 +1,10 @@
-// Coordination telemetry reader + aggregator. Pure functions (no I/O in the two
-// exported builders) — the orchestrator wires the REAL ledger file path at the call
-// site, unit-tested with fixture strings. The JSONL tail is the single source: the
-// InMemory store inside qa-engine holds the same records in-process, but only the
-// file survives process restarts, so the dashboard reads the file.
+/*
+ * Coordination telemetry reader + aggregator. Pure functions (no I/O in the two
+ * exported builders) — the orchestrator wires the REAL ledger file path at the call
+ * site, unit-tested with fixture strings. The JSONL tail is the single source: the
+ * InMemory store inside qa-engine holds the same records in-process, but only the
+ * file survives process restarts, so the dashboard reads the file.
+ */
 import { readFileSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./rewritten-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
@@ -31,9 +33,11 @@ interface RawCoordinationEvent {
   at?: unknown;
 }
 
-// parseCoordinationLedger reads a JSONL coordination ledger, filters by runId (newest
-// last → returned oldest-first within the tail), coerces the truncated flag, and
-// silently drops malformed lines (a partial append must never 500 an audit endpoint).
+/*
+ * parseCoordinationLedger reads a JSONL coordination ledger, filters by runId (newest
+ * last → returned oldest-first within the tail), coerces the truncated flag, and
+ * silently drops malformed lines (a partial append must never 500 an audit endpoint).
+ */
 export function parseCoordinationLedger(
   raw: string,
   filter: CoordinationEventsFilter = {},
@@ -49,7 +53,7 @@ export function parseCoordinationLedger(
     try {
       parsed = JSON.parse(trimmed);
     } catch {
-      continue; // corrupt/partial tail line — skip, never fail the read
+      continue;  /* corrupt/partial tail line — skip, never fail the read */
     }
     if (!isRecord(parsed) || typeof parsed.runId !== "string" || typeof parsed.kind !== "string"
       || typeof parsed.reason !== "string" || typeof parsed.at !== "number") continue;
@@ -99,10 +103,12 @@ function clampLimit(limit: number | undefined): number {
   return Math.min(Math.floor(limit), 1000);
 }
 
-// toCoordinationSignals aggregates the ledger into the SIGNALS panel block. Sample =
-// events belonging to runs the fleet executed (the caller decides the window). A
-// DelegationOutcome is the run-scoped boundary (one per run), so delegate share is the
-// share of outcome events whose action is "delegate".
+/*
+ * toCoordinationSignals aggregates the ledger into the SIGNALS panel block. Sample =
+ * events belonging to runs the fleet executed (the caller decides the window). A
+ * DelegationOutcome is the run-scoped boundary (one per run), so delegate share is the
+ * share of outcome events whose action is "delegate".
+ */
 export function toCoordinationSignals(events: readonly CoordinationEvent[]): CoordinationSignals {
   const delegationEvents = events.filter((e) => e.kind === "delegation");
   const outcomes = events.filter((e) => e.kind === "outcome");
@@ -139,9 +145,11 @@ function round4(n: number): number {
   return Math.round(n * 1e4) / 1e4;
 }
 
-// I/O wrapper the control plane wires in: reads the CURRENT durable ledger (the same path
-// composition writes to) and returns the filtered view. A missing file (fresh install, or
-// coordination did not record anything yet) is an empty ledger — never an error.
+/*
+ * I/O wrapper the control plane wires in: reads the CURRENT durable ledger (the same path
+ * composition writes to) and returns the filtered view. A missing file (fresh install, or
+ * coordination did not record anything yet) is an empty ledger — never an error.
+ */
 export function readCoordinationLedger(filter: CoordinationEventsFilter = {}, path: string = resolveCoordinationTelemetryPath()): CoordinationEventsView {
   let raw = "";
   try {
@@ -152,7 +160,7 @@ export function readCoordinationLedger(filter: CoordinationEventsFilter = {}, pa
   return parseCoordinationLedger(raw, filter);
 }
 
-// Convenience alias for the api-deps wiring: bounded tail (limit clamps inside the reader).
+/* Convenience alias for the api-deps wiring: bounded tail (limit clamps inside the reader). */
 export function readRecentCoordinationEvents(filter: CoordinationEventsFilter = {}): CoordinationEventsView {
   return readCoordinationLedger(filter);
 }

@@ -1,6 +1,3 @@
-// service-topology/infrastructure/openapi-ingress.ts
-// Shared OpenAPI ingress parse + structural JOIN helpers used by both FE→BE
-// (OpenApiHttpResolver) and BE→BE (HttpBackendResolver). One parser, no duplicates.
 import { parse as parseYaml } from "yaml";
 
 const VERBS = new Set(["get", "post", "put", "patch", "delete"]);
@@ -8,7 +5,7 @@ const VERBS = new Set(["get", "post", "put", "patch", "delete"]);
 export interface IngressOp {
   service: string;
   path: string;
-  verb: string;       // uppercase
+  verb: string;
   operationId: string;
   segs: string[];
 }
@@ -45,9 +42,7 @@ export function parseOpenApiYaml(service: string, content: string): IngressOp[] 
   return ops;
 }
 
-/** Find an ingress operation matching (service, verb, frontSegments) via structural segment match.
- *  Determinism rule: when the contract has both a literal segment (e.g. /orders/active) and a
- *  param segment (e.g. /orders/{id}) at the same slot, the all-literal match wins. */
+/** Find an ingress operation matching (service, verb, frontSegments) via structural segment match. Determinism rule: when the contract has both a literal segment (e.g. /orders/active) and a param segment (e.g. /orders/{id}) at the same slot, the all-literal match wins. */
 export function findOp(ingress: IngressOp[], service: string, verb: string, frontSegs: string[]): IngressOp | undefined {
   const candidates = ingress.filter((o) =>
     o.service === service &&
@@ -60,10 +55,7 @@ export function findOp(ingress: IngressOp[], service: string, verb: string, fron
   return exact ?? candidates[0];
 }
 
-/** Same structural match as findOp, but across every known service — used when a BE→BE call
- *  already carries a full OpenAPI path (e.g. `/api/orders`) with no service prefix to strip.
- *  All-literal still wins; when several services declare the same literal, the first ingress
- *  entry wins (ingress is built in caller-supplied repo order). */
+/** Same structural match as findOp, but across every known service — used when a BE→BE call already carries a full OpenAPI path (e.g. */
 export function findOpAnyService(ingress: IngressOp[], verb: string, frontSegs: string[]): IngressOp | undefined {
   const candidates = ingress.filter((o) =>
     o.verb === verb &&

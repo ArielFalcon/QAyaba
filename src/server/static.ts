@@ -1,7 +1,7 @@
-// Serves the web dashboard (a static SPA build) same-origin at /app, so the dashboard shares
-// the orchestrator's origin and the operator's credentials — no CORS. The API stays
-// Bearer-protected; only the static shell is public. Until web/dist exists this no-ops to a
-// placeholder, so wiring it into the server is safe before the dashboard ships.
+/*
+ * Serves the web dashboard same-origin at /app so it shares the orchestrator origin — no CORS.
+ * Confine reads to distDir (path traversal). API stays Bearer-protected; only the static shell is public.
+ */
 import { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, normalize, extname } from "node:path";
@@ -35,19 +35,14 @@ export interface ServeDashboardOptions {
   distDir: string;
 }
 
-// Prefer the vanilla console in web/public when present (the files under
-// web/public are the live source). web/dist is a vite build artifact and is
-// used only when public has no index.html, so a stale dist cannot shadow fixes.
+/* Prefer web/public when present; web/dist is a build artifact and must not shadow live source. */
 export function resolveDashboardDir(root: string): string {
   const pub = join(root, "web", "public");
   if (existsSync(join(pub, "index.html"))) return pub;
   return join(root, "web", "dist");
 }
 
-// Reads are cached by (path, mtime). A bind-mounted web/public (local docker) can
-// change on disk while the process lives; a byte cache keyed only by path would
-// keep serving the first hit until restart. Production dist still hits the cache
-// on every request because the build is immutable (mtime stays put).
+/* Cache by (path, mtime) so a bind-mounted web/public can change while the process lives. */
 interface CachedFile {
   mtimeMs: number;
   body: Buffer;
@@ -73,8 +68,6 @@ function readFresh(file: string, cached: CachedFile | null | undefined): CachedF
   return { mtimeMs, body: readFileSync(file) };
 }
 
-// Returns true when it has written the response (always, for a /app request). The caller only
-// routes GET /app and /app/* here.
 export async function serveDashboard(
   req: IncomingMessage,
   res: ServerResponse,
@@ -89,11 +82,10 @@ export async function serveDashboard(
     return true;
   }
 
-  // Strip the /app prefix → the path within the build.
   let rel = url.replace(/^\/app/, "");
   if (rel === "" || rel === "/") rel = "/index.html";
 
-  // Resolve and confine to distDir — never serve outside the build (path traversal).
+  /* Confine to distDir — never serve outside the build (path traversal). */
   const root = normalize(opts.distDir);
   const resolved = normalize(join(opts.distDir, rel));
   if (resolved !== root && !resolved.startsWith(root + "/") && !resolved.startsWith(root + "\\")) {
@@ -102,7 +94,6 @@ export async function serveDashboard(
     return true;
   }
 
-  // SPA fallback: a client-side route (no real file) → index.html.
   const cache = cacheFor(opts.distDir);
   const file = existsSync(resolved) && statSync(resolved).isFile() ? resolved : index;
 

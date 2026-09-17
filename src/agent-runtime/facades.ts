@@ -25,8 +25,7 @@ export class SingleAgentFacade implements AgentFacade {
         const role = roleForLegacyAgent(agent);
         const model = assignmentForRole(this.config, role).model;
         const session: AgentSession = await this.strategy.openSession(role, cwd, { ...opts, model });
-        // Codex is exec-per-prompt (self-timed, no SSE) → mark so the stall watchdog skips it.
-        // (Provider-keyed today; the provider-registry refactor moves this to a strategy capability.)
+        /* Codex is exec-per-prompt (self-timed, no SSE) so the stall watchdog skips it. */
         if (this.strategy.provider === "codex") session.selfTimed = true;
         return session;
       },
@@ -65,8 +64,7 @@ export class DualAgentFacade implements AgentFacade {
         const role = roleForLegacyAgent(agent);
         const assignment = assignmentForRole(this.config, role);
         const session: AgentSession = await this.strategies[assignment.provider].openSession(role, cwd, { ...opts, model: assignment.model });
-        // Codex is exec-per-prompt (self-timed, no SSE) → mark so the stall watchdog skips it.
-        // (Provider-keyed today; the provider-registry refactor moves this to a strategy capability.)
+        /* Codex is exec-per-prompt (self-timed, no SSE) so the stall watchdog skips it. */
         if (assignment.provider === "codex") session.selfTimed = true;
         return session;
       },

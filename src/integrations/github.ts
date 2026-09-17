@@ -1,21 +1,13 @@
-// GitHub integration for the maintainer/onboarding/admin trust domain: PR read/write for the
-// self-maintainer (createPullRequest/enableAutoMerge/mergePullRequest/getPrStatus/getPullRequest)
-// and repo discovery for onboarding (getRepo/listRepos). These stay byte-identical — consumed by
-// src/server/maintainer-runtime.ts and src/server/app-admin.ts.
-//
-// migration-tier-4a: the watched-repo publish path's Issue/PR opening
-// (createPullRequest+enableAutoMerge+mergePullRequest+openIssue, called from the rewritten engine's
-// publish flow) moved to qa-engine's GitHubPrAdapter/GitHubIssueAdapter, which now own their HTTP
-// directly (qa-engine/.../workspace-and-publication/infrastructure/github-http.ts). `openIssue` was
-// removed here — it had zero remaining production callers once the factory closure retired (only
-// this module's own now-deleted closure and github.test.ts referenced it).
+
 
 import { requireEnv } from "../util/env";
 
-// GitHub's documented hard limits for Issue/PR fields. Exceeding either is a 422
-// ("title/body is too long"). This module is the single boundary every PR this trust domain opens
-// passes through, so we clamp here UNCONDITIONALLY. Callers should still budget their content for
-// graceful truncation; this is the last-ditch net that closes the whole failure class.
+/*
+ * GitHub's documented hard limits for Issue/PR fields. Exceeding either is a 422
+ * ("title/body is too long"). This module is the single boundary every PR this trust domain opens
+ * passes through, so we clamp here UNCONDITIONALLY. Callers should still budget their content for
+ * graceful truncation; this is the last-ditch net that closes the whole failure class.
+ */
 export const GITHUB_MAX_TITLE = 256;
 export const GITHUB_MAX_BODY = 65536;
 
@@ -46,7 +38,7 @@ export interface PullRequest {
 
 export interface PrState {
   merged: boolean;
-  state: string; // "open" | "closed"
+  state: string;  /* "open" | "closed" */
 }
 
 export interface RepoInfo {
@@ -81,10 +73,12 @@ export const github = {
     return { url: data.html_url, nodeId: data.node_id, number: data.number };
   },
 
-  // Auto-merge via GraphQL: the PR merges once the repo's REQUIRED checks pass.
-  // Requires the repo to have "Allow auto-merge" enabled (and, in practice,
-  // branch protection with checks). Otherwise, the mutation fails and the caller
-  // treats it as best-effort, leaving the PR open.
+  /*
+   * Auto-merge via GraphQL: the PR merges once the repo's REQUIRED checks pass.
+   * Requires the repo to have "Allow auto-merge" enabled (and, in practice,
+   * branch protection with checks). Otherwise, the mutation fails and the caller
+   * treats it as best-effort, leaving the PR open.
+   */
   async enableAutoMerge(nodeId: string, mergeMethod = "SQUASH", deps: GitHubDeps = defaultGitHubDeps): Promise<void> {
     const res = await deps.fetch("https://api.github.com/graphql", {
       method: "POST",
@@ -104,11 +98,13 @@ export const github = {
     }
   },
 
-  // UNCONDITIONAL merge via the REST API — it waits for NO GitHub check or branch protection.
-  // The safety it relies on is UPSTREAM, not GitHub's: the maintainer self-update uses it only
-  // after the orchestrator's own typecheck+test gate, and the e2e/code publish path uses it as a
-  // fallback only after the harness already proved the test-only PR green. Do NOT use it where a
-  // server-side required check is the intended gate — prefer enableAutoMerge there.
+  /*
+   * UNCONDITIONAL merge via the REST API — it waits for NO GitHub check or branch protection.
+   * The safety it relies on is UPSTREAM, not GitHub's: the maintainer self-update uses it only
+   * after the orchestrator's own typecheck+test gate, and the e2e/code publish path uses it as a
+   * fallback only after the harness already proved the test-only PR green. Do NOT use it where a
+   * server-side required check is the intended gate — prefer enableAutoMerge there.
+   */
   async mergePullRequest(repo: string, number: number, mergeMethod = "squash", deps: GitHubDeps = defaultGitHubDeps): Promise<void> {
     const res = await deps.fetch(`https://api.github.com/repos/${repo}/pulls/${number}/merge`, {
       method: "PUT",
@@ -127,20 +123,24 @@ export const github = {
     return { merged: data.merged, state: data.state };
   },
 
-  // The OUTER GUARD's read side: the merge + aggregate-CI state of a PR, combining the PR object
-  // (merged/state) with the modern Checks API and the legacy commit-status API on the head commit.
-  // `checks` distinguishes "none" (NO checks exist yet/at all) from "success" (checks ran and are
-  // green) — critical so the promote loop does not merge during the window before CI registers.
+  /*
+   * The OUTER GUARD's read side: the merge + aggregate-CI state of a PR, combining the PR object
+   * (merged/state) with the Checks API and the commit-status API on the head commit.
+   * `checks` distinguishes "none" (NO checks exist yet/at all) from "success" (checks ran and are
+   * green) — critical so the promote loop does not merge during the window before CI registers.
+   */
   async getPrStatus(
     repo: string,
     number: number,
     deps: GitHubDeps = defaultGitHubDeps,
-    // When set, the `checks` verdict reflects ONLY the named required check (e.g. "ci") — not an
-    // aggregate of EVERY check on the head. The outer guard for the self-maintainer must gate on
-    // the SPECIFIC required check: an aggregate "success" could pass while the real `ci` check
-    // never ran (only unrelated checks did), and an unrelated flaky check could falsely block a
-    // good fix. If the named check is absent, `checks` is "none" → the promote loop never treats
-    // it as green and times out (fail-safe: a missing required check never promotes).
+    /*
+     * When set, the `checks` verdict reflects ONLY the named required check (e.g. "ci") — not an
+     * aggregate of EVERY check on the head. The outer guard for the self-maintainer must gate on
+     * the SPECIFIC required check: an aggregate "success" could pass while the real `ci` check
+     * never ran (only unrelated checks did), and an unrelated flaky check could falsely block a
+     * good fix. If the named check is absent, `checks` is "none" → the promote loop never treats
+     * it as green and times out (fail-safe: a missing required check never promotes).
+     */
     requiredContext?: string,
   ): Promise<{ merged: boolean; state: string; checks: "pending" | "success" | "failure" | "none" }> {
     const prRes = await deps.fetch(`https://api.github.com/repos/${repo}/pulls/${number}`, { headers: ghHeaders() });
@@ -157,8 +157,10 @@ export const github = {
     const cr = (await crRes.json()) as { check_runs?: Array<{ name?: string; status: string; conclusion: string | null }> };
     const st = (await stRes.json()) as { state: string; total_count: number; statuses?: Array<{ context?: string; state: string }> };
 
-    // Scope to the named required check when one is given (Actions reports it as a check_run named
-    // after the job id; legacy integrations report a commit status whose `context` matches).
+    /*
+     * Scope to the named required check when given (Actions: check_run named after the job;
+     * some CI reports a commit status whose `context` matches).
+     */
     const runs = (cr.check_runs ?? []).filter((r) => !requiredContext || r.name === requiredContext);
     const statuses = (st.statuses ?? []).filter((s) => !requiredContext || s.context === requiredContext);
     let pending = false;
@@ -169,14 +171,14 @@ export const github = {
     }
     let statusTotal: number;
     if (requiredContext) {
-      // Only the named commit-status contexts count toward the verdict.
+      /* Only the named commit-status contexts count toward the verdict. */
       for (const s of statuses) {
         if (s.state === "pending") pending = true;
         if (s.state === "failure" || s.state === "error") failure = true;
       }
       statusTotal = statuses.length;
     } else {
-      // Aggregate combined status (backward-compatible behavior).
+      /* Aggregate combined status (backward-compatible behavior). */
       if (st.total_count > 0) {
         if (st.state === "pending") pending = true;
         if (st.state === "failure" || st.state === "error") failure = true;

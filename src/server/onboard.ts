@@ -1,4 +1,4 @@
-// Pure onboarding logic: YAML generation and config file writing. Testable without Ink.
+/* Pure onboarding logic: YAML generation and config file writing. */
 import { writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { TestTarget } from "../types";

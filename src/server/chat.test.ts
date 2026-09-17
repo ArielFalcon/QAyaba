@@ -27,7 +27,7 @@ test("buildRunContext includes verdict + failing case detail, and is sanitized o
   assert.match(ctx, /Verdict: fail/);
   assert.match(ctx, /checkout/);
   assert.match(ctx, /timed out/);
-  assert.doesNotMatch(ctx, /hunter2/); // a secret in the logs is redacted
+  assert.doesNotMatch(ctx, /hunter2/); /* a secret in the logs is redacted */
 });
 
 test("buildRunContext caps the case list and reports the overflow", () => {

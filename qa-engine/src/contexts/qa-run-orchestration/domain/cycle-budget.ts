@@ -1,19 +1,5 @@
-// qa-engine/src/contexts/qa-run-orchestration/domain/cycle-budget.ts
-// Value object for the regeneration-loop ceiling (MAX_CYCLES) and the running cycleCount, ported
-// from the raw `let MAX_CYCLES` / `let cycleCount` locals in src/pipeline.ts (:1072-1078, :1573,
-// :2195-2199). Immutable: tick()/raiseTo() return a NEW instance rather than mutating in place,
-// so the aggregate holding this VO stays consistent with the Run aggregate's own immutability style.
-//
-// Derivation mirrors `app.qa.iterationBudget ?? deriveCycleBackstop(maxRetries, numObjectives)`
-// EXACTLY (src/pipeline.ts:1072-1073): an explicit iterationBudget config override wins
-// unconditionally over the derived backstop.
-//
-// raiseTo() ports the Phase-6b retroactive bump (src/pipeline.ts:2195-2199): when the planner
-// yields multiple objectives, the ceiling is refined to `deriveCycleBackstop(maxRetries,
-// numObjectives)` — but ONLY if (a) no iterationBudget override is set (the override always wins,
-// mirroring the legacy `if (!app.qa.iterationBudget && ...)` guard) and (b) the refined value is
-// STRICTLY GREATER than the current ceiling (raiseTo NEVER lowers — a true backstop never
-// truncates legitimate work already budgeted).
+/* Regeneration-loop ceiling (MAX_CYCLES) and running cycleCount. Immutable: tick()/raiseTo() return a new instance.
+iterationBudget config override wins over the derived backstop. raiseTo() refines the ceiling from planner objectives only when no override is set and the refined value is strictly greater — a backstop never truncates work already budgeted. */
 
 import { deriveCycleBackstop } from "./helpers/derive-cycle-backstop.ts";
 
@@ -44,9 +30,7 @@ export class CycleBudget {
     return this.cycleCount > this.ceiling;
   }
 
-  // Ports src/pipeline.ts:2195-2199's scope-dimensioned bump. A no-op (returns an equal-ceiling
-  // instance) when an iterationBudget override is set, or when the refined value would not exceed
-  // the current ceiling — raiseTo never shrinks the budget.
+  /* Scope-dimensioned bump. No-op when an iterationBudget override is set, or when the refined value would not exceed the current ceiling — raiseTo never shrinks the budget. */
   raiseTo(numObjectives: number): CycleBudget {
     if (this.iterationBudgetOverride !== undefined) return this;
     const refined = deriveCycleBackstop(this.maxRetries, numObjectives);

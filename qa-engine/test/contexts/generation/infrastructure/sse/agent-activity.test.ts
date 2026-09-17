@@ -1,12 +1,9 @@
-// qa-engine/test/contexts/generation/infrastructure/sse/agent-activity.test.ts
-// Moved from src/integrations/agent-activity.test.ts (migration-tier-4c Slice 3, D-4c-2).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { routeEvent, ActivityRouter } from "@contexts/generation/infrastructure/sse/agent-activity.ts";
 
 const sessions = () => new Map([["s1", "run-1"]]);
 
-// A message.part.updated event wrapping a part (sessionID lives INSIDE the part).
 const partEvent = (part: Record<string, unknown>) => ({ type: "message.part.updated", properties: { part: { sessionID: "s1", ...part } } });
 
 test("routeEvent surfaces a completed write tool as a clean file basename", () => {
@@ -66,8 +63,8 @@ test("ActivityRouter dedups repeated tool emissions (a part updates many times)"
   const router = new ActivityRouter();
   router.register("s1", "run-1");
   const ev = partEvent({ type: "tool", tool: "write", callID: "c1", state: { status: "completed", input: { filePath: "nav.spec.ts" } } });
-  assert.equal(router.route(ev).length, 1); // first completed update → emitted
-  assert.equal(router.route(ev).length, 0); // same again → deduped
+  assert.equal(router.route(ev).length, 1); /* first completed update → emitted */
+  assert.equal(router.route(ev).length, 0);
 });
 
 test("ActivityRouter demuxes interleaved sessions and counts unknown-session drops", () => {

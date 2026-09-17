@@ -1,8 +1,6 @@
-// test/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.test.ts
-// migration-tier-1-2, Slice 2: the orchestration previously in
-// src/qa/learning/fault-injection-e2e.ts's runFaultInjectionOracle is now absorbed into
-// measure() itself. Ctor is (runCorrupted, countInjected, baseUrl) — the adapter is
-// self-contained, no injected "runner closure" wraps a legacy function anymore.
+/* FaultInjectionOracleAdapter: measure() owns the orchestration. Ctor is
+   (runCorrupted, countInjected, baseUrl) — self-contained, no injected "runner closure".
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts";
@@ -21,7 +19,7 @@ test("returns valueScore null when baselineCases is missing (guard short-circuit
     () => 0,
     BASE_URL,
   );
-  const r = await adapter.measure(br, "/m/repo", "qa-bot-abc"); // no 4th arg
+  const r = await adapter.measure(br, "/m/repo", "qa-bot-abc");
   assert.equal(r.valueScore, null);
   assert.match(r.details, /needs e2eDir \+ baseUrl \+ baseline-passing specs/);
 });

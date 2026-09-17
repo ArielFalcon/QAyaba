@@ -1,9 +1,9 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.test.ts
-// RED-first (Task E.0): ExecutionPortAdapter dispatches between the REAL e2e/code strategies
-// (E2eExecutionStrategy / CodeExecutionStrategy), both implementing ExecutionStrategyPort.run(req).
-// THIN — no new policy: this bridge only maps ExecutionPort.execute(specDir) onto the richer
-// ExecutionRequest shape (baseUrl/namespace held as static per-run context) and selects the
-// strategy by target ("e2e" vs "code").
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.test.ts
+   (E2eExecutionStrategy / CodeExecutionStrategy), both implementing ExecutionStrategyPort.run(req).
+   THIN — no new policy: this bridge only maps ExecutionPort.execute(specDir) onto the richer
+   ExecutionRequest shape (baseUrl/namespace held as static per-run context) and selects the
+   strategy by target ("e2e" vs "code").
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts";
@@ -11,13 +11,11 @@ import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2
 import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/code-execution.strategy.ts";
 import type { E2eExecuteOptions } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 
-// ── E2eExecuteOptions exhaustiveness (migration-tier-4d Slice 1b) ───────────────────────────────
-// Re-homes qa-engine/test/contract/seam-parity.contract.test.ts's retired block (c) EXECUTION
-// exhaustiveness guard: E2eExecuteOptions (formerly the legacy ExecuteOptions, src/qa/execute.ts,
-// now deleted) no longer straddles the src/qa-engine boundary — both sides of this guard are
-// qa-engine-internal, so it is a NORMAL test here, not a parity pin. A field ADDED to
-// E2eExecuteOptions without a matching mapped/allowlisted entry below FAILS TYPECHECK (the
-// `satisfies` below); a field silently DROPPED by ExecutionPortAdapter FAILS THIS TEST.
+/* Exhaustiveness guard: E2eExecuteOptions no longer straddles the src/qa-engine boundary — both
+   sides of this guard are qa-engine-internal. A field ADDED to E2eExecuteOptions without a matching
+   mapped/allowlisted entry FAILS TYPECHECK (`satisfies`); a field silently DROPPED by
+   ExecutionPortAdapter FAILS THIS TEST.
+ */
 const E2E_EXECUTE_OPTIONS_ALL_FIELDS = {
   baseUrl: true, namespace: true, onCase: true, onRunning: true, onDiscovered: true,
   faultInject: true, signal: true, timeoutMs: true, project: true, testIdAttribute: true,
@@ -70,11 +68,10 @@ test("execute() dispatches to CodeExecutionStrategy for target 'code' (no baseUr
   assert.equal(result.cases.length, 1);
 });
 
-// ── Plan 7.2 — leaf-signal forwarding (closes engram #916): the ExecutionPort barrel already
-// declares execute(specDir, signal?) (Plan 7.1), and E2eExecutionStrategy/CodeExecutionStrategy
-// already forward ExecutionRequest.signal into runE2E/runCodeTests's own opts.signal — this
-// adapter is the ONLY missing link. It must declare + forward the signal, or the queue's
-// AbortSignal is silently dropped before it ever reaches Playwright/the code runner.
+/* already forward ExecutionRequest.signal into runE2E/runCodeTests's own opts.signal — this
+   adapter is the ONLY missing link. It must declare + forward the signal, or the queue's
+   AbortSignal is silently dropped before it ever reaches Playwright/the code runner.
+ */
 
 test("execute() forwards an AbortSignal into the e2e strategy's ExecutionRequest", async () => {
   const controller = new AbortController();
@@ -106,8 +103,9 @@ test("execute() forwards an AbortSignal into the code strategy's ExecutionReques
   assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to execute() must reach the code strategy's ExecutionRequest.signal, not be dropped at the bridge");
 });
 
-// A3: testIdAttribute must reach the e2e strategy so PW_TEST_ID_ATTRIBUTE is set for the verdictual
-// Playwright run — otherwise getByTestId silently resolves the default data-testid on non-default apps.
+/* A3: testIdAttribute must reach the e2e strategy so PW_TEST_ID_ATTRIBUTE is set for the verdictual
+   Playwright run — otherwise getByTestId silently resolves the default data-testid on non-default apps.
+ */
 test("execute() forwards testIdAttribute from static context into the e2e strategy's ExecutionRequest", async () => {
   let capturedOpts: unknown;
   const e2e = new E2eExecutionStrategy(async (_specDir, opts) => {
@@ -140,8 +138,9 @@ test("execute() with no signal at all behaves exactly as before (no second-arg r
   assert.equal((capturedOpts as { signal?: AbortSignal }).signal, undefined, "an absent signal must remain absent downstream — no fabricated AbortSignal");
 });
 
-// ── W4 fix (F1) — ExecutionPort widened with an ExecutionOpts bag (faultInject/specFiles/project/
-// timeoutMs/onCase/onRunning/onDiscovered), replacing the old signal-only 2nd positional arg. ────
+/* ExecutionPort.execute accepts an ExecutionOpts bag (faultInject/specFiles/project/
+   timeoutMs/onCase/onRunning/onDiscovered), not only a bare AbortSignal as the 2nd arg.
+ */
 
 test("execute() still accepts a bare AbortSignal as the 2nd arg (old 2-arg callers keep compiling and working)", async () => {
   const controller = new AbortController();
@@ -153,7 +152,6 @@ test("execute() still accepts a bare AbortSignal as the 2nd arg (old 2-arg calle
   const code = new CodeExecutionStrategy(async () => ({ verdict: "pass", cases: [], logs: "" }));
   const adapter = new ExecutionPortAdapter({ e2e, code }, { target: "e2e", baseUrl: "https://dev.example.com", namespace: "qa-bot-abc1234" });
 
-  // A caller written against the OLD `execute(specDir, signal?)` shape, unmodified:
   const result = await adapter.execute("/mirrors/org/app/e2e", controller.signal);
 
   assert.equal(result.verdict, "pass");
@@ -238,11 +236,11 @@ test("execute() does NOT forward specFiles to the code strategy (E2E-only concep
   assert.equal((capturedOpts as { specFiles?: string[] }).specFiles, undefined);
 });
 
-// ── P2 (post-cutover-remediation) Constraint 2: namespace override ────────────────────────────
-// The enforce-mode coverage regen re-executes under a DEDICATED namespace (`${runId}-coverage-regen`)
-// so its coverage dumps never collide with / get shadowed by the first run's dumps. Without an
-// override every call falls back to ctx.namespace (the static per-run value), which is what the
-// regen must escape from.
+/* The enforce-mode coverage regen re-executes under a DEDICATED namespace
+   (`${runId}-coverage-regen`) so its coverage dumps never collide with / get shadowed by the first
+   run's dumps. Without an override every call falls back to ctx.namespace (the static per-run
+   value), which is what the regen must escape from.
+ */
 
 test("execute() forwards opts.namespace to the e2e strategy, overriding ctx.namespace", async () => {
   let capturedOpts: unknown;

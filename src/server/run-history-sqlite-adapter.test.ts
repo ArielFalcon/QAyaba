@@ -27,8 +27,9 @@ function kernelOutcome(overrides: Partial<KernelRunOutcome> = {}): KernelRunOutc
   };
 }
 
-// F1 — the adapter's core contract: save() reaches the injected saveOutcome fn, not the real
-// module-singleton SQLite DB (dependency injection is the testing strategy, CLAUDE.md).
+/* The adapter's core contract: save() reaches the injected saveOutcome fn, not the real
+   module-singleton SQLite DB (dependency injection is the testing strategy, CLAUDE.md).
+ */
 test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome, mapping the kernel RunOutcome to legacy's shape", async () => {
   let captured: LegacyRunOutcome | undefined;
   const adapter = new SqliteRunHistoryAdapter({ saveOutcome: (o) => { captured = o; } });
@@ -49,12 +50,12 @@ test("SqliteRunHistoryAdapter.save() delegates to the injected saveOutcome, mapp
 });
 
 test("SqliteRunHistoryAdapter uses the real saveRunOutcome by default (no explicit deps)", () => {
-  // Construction alone must not touch the DB (saveRunOutcome is only called from save()).
+  /* Construction alone must not touch the DB (saveRunOutcome is only called from save()). */
   const adapter = new SqliteRunHistoryAdapter();
   assert.ok(adapter, "constructs without touching the DB (lazy init, per history.ts's own doc)");
 });
 
-// ── toLegacyRunOutcome — the field mapping itself ──────────────────────────────────────────────
+/* ── toLegacyRunOutcome — the field mapping itself ────────────────────────────────────────────── */
 
 test("toLegacyRunOutcome carries errorClass through as-is (a genuine taxonomy member, per the kernel's own producer contract)", () => {
   const out = toLegacyRunOutcome(kernelOutcome({ errorClass: "E-EXEC-FAIL" }));
@@ -106,11 +107,11 @@ test("toLegacyRunOutcome forwards every present optional gateSignals field faith
   assert.equal(out.gateSignals.catalogGateFailClosed, 0);
 });
 
-// ── Slice B (structural-signals-expansion, design §2/ADR-B): structuralSignalBytes/
-// serviceLinksCount/contractDriftCount round-trip through toLegacyRunOutcome's conditional-spread
-// pattern — undefined MUST stay undefined (never a fabricated 0), matching the catalogGate*
-// precedent's persistence-mapping half exactly (this design deliberately diverges only at the
-// CONSTRUCTION site, not here). ────────────────────────────────────────────────────────────────
+/* serviceLinksCount/contractDriftCount round-trip through toLegacyRunOutcome's conditional-spread
+   pattern — undefined MUST stay undefined (never a fabricated 0), matching the catalogGate*
+   precedent's persistence-mapping half exactly (this design deliberately diverges only at the
+   CONSTRUCTION site, not here). ────────────────────────────────────────────────────────────────
+ */
 
 test("toLegacyRunOutcome omits structuralSignalBytes/serviceLinksCount/contractDriftCount when absent on the kernel outcome (never fabricates a 0)", () => {
   const out = toLegacyRunOutcome(kernelOutcome());

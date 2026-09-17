@@ -1,6 +1,6 @@
-// test/contexts/service-topology/infrastructure/call-pattern-catalog.test.ts
-// TDD (strict): the catalog is the ONLY place a BE→BE HTTP call-pattern shape lives.
-// Config supplies the optional receiver (e.g. "restTemplate"); the core never hardcodes it.
+/* test/contexts/service-topology/infrastructure/call-pattern-catalog.test.ts
+   Config supplies the optional receiver (e.g. "restTemplate"); the core never hardcodes it.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@contexts/service-topology/infrastructure/call-pattern-catalog.ts";
 import type { CallPatternRef } from "@contexts/service-topology/domain/index.ts";
 
-/** Look up a catalog entry, asserting it is registered (noUncheckedIndexedAccess narrowing). */
+/* Look up a catalog entry, asserting it is registered (noUncheckedIndexedAccess narrowing). */
 function getExtractor(kind: string): CallPatternExtractor {
   const extractor = CallPatternCatalog[kind];
   assert.ok(extractor, `expected '${kind}' to be registered in the catalog`);
@@ -23,8 +23,6 @@ test("KNOWN_CALL_PATTERN_KINDS registers the three BE→BE HTTP dialects", () =>
   assert.ok(KNOWN_CALL_PATTERN_KINDS.has("web-client"));
   assert.equal(KNOWN_CALL_PATTERN_KINDS.has("mystery-shape"), false);
 });
-
-// ---- rest-template-exchange ----
 
 test("rest-template-exchange: extracts path + verb from RestTemplate.exchange(\"/path\", HttpMethod.GET, ...)", () => {
   const extractor = getExtractor("rest-template-exchange");
@@ -105,8 +103,6 @@ test("rest-template-exchange: escapes regex metacharacters in the receiver", () 
   assert.equal(sites[0]?.verb, "get");
 });
 
-// ---- feign-client ----
-
 test("feign-client: extracts @GetMapping / @PostMapping on a @FeignClient interface", () => {
   const extractor = getExtractor("feign-client");
   const ref: CallPatternRef = { kind: "feign-client" };
@@ -161,8 +157,6 @@ test("feign-client: does NOT extract @GetMapping on a @RestController (ingress, 
   const sites = extractor(text, ref);
   assert.equal(sites.length, 0);
 });
-
-// ---- web-client ----
 
 test("web-client: extracts WebClient .get().uri(\"/x\") / .post().uri(\"/x\")", () => {
   const extractor = getExtractor("web-client");

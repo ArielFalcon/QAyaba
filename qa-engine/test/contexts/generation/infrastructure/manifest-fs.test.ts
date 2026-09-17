@@ -1,8 +1,7 @@
-// qa-engine/test/contexts/generation/infrastructure/manifest-fs.test.ts
-// Behavioral tests for the real, src/-free readManifest/reconcileManifest fns (Sub-Plan 7.2 item 3).
-// Ported from src/integrations/opencode-client.ts's realManifestFs (fs.read/fs.write) + upsertManifest
-// (upsert-by-id, JSON array read/write) — proven here against REAL temp-dir fixtures, not stubs, so
-// the port is a behavioral proof, not a type-shape proof.
+/* qa-engine/test/contexts/generation/infrastructure/manifest-fs.test.ts
+   (upsert-by-id, JSON array read/write) — proven here against REAL temp-dir fixtures, not stubs, so
+   the port is a behavioral proof, not a type-shape proof.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
@@ -19,8 +18,9 @@ function manifestPath(specDir: string): string {
   return join(specDir, ".qa", "manifest.json");
 }
 
-// Writes a real (dummy-content) spec file under specDir so a ManifestEntry naming it survives the
-// on-disk phantom-drop safety filter reconcileManifest now runs before every merge.
+/* Writes a real (dummy-content) spec file under specDir so a ManifestEntry naming it survives the
+   on-disk phantom-drop safety filter reconcileManifest now runs before every merge.
+ */
 function writeSpecFile(specDir: string, relPath: string): void {
   const full = join(specDir, relPath);
   mkdirSync(dirname(full), { recursive: true });
@@ -109,9 +109,9 @@ test("reconcileManifest upserts by id — an existing id is overwritten, a new i
     ]);
 
     const byId = new Map(out.map((e) => [e.id, e]));
-    assert.equal(byId.get("login")?.objective, "NEW objective"); // overwritten
-    assert.equal(byId.get("logout")?.flow, "logout"); // preserved (unrelated entry survives)
-    assert.equal(byId.get("checkout")?.flow, "checkout"); // added
+    assert.equal(byId.get("login")?.objective, "NEW objective");
+    assert.equal(byId.get("logout")?.flow, "logout"); /* preserved (unrelated entry survives) */
+    assert.equal(byId.get("checkout")?.flow, "checkout");
     assert.equal(out.length, 3);
   } finally {
     rmSync(specDir, { recursive: true, force: true });
@@ -123,19 +123,21 @@ test("reconcileManifest returns [] and writes nothing when given an empty entrie
   try {
     const out = await reconcileManifest(specDir, []);
     assert.deepEqual(out, []);
-    // upsertManifest's real behavior: entries.length === 0 short-circuits before any fs.write —
-    // ported verbatim, so no manifest file is created for a no-op reconcile.
+    /* upsertManifest short-circuits before any fs.write when entries.length === 0 —
+       no manifest file is created for a no-op reconcile.
+     */
     assert.equal(existsSync(manifestPath(specDir)), false);
   } finally {
     rmSync(specDir, { recursive: true, force: true });
   }
 });
 
-// ── manifest-enrichment fix: reconcile preserves prior enriched fields on merge ────────────────
-// The use-case's upsert (generate-tests.use-case.ts) now stamps targets/changeRef per entry.
-// reconcileManifest's merge is `{ ...byId.get(e.id), ...e }` — a re-upserted id's NEW fields win,
-// but a re-upsert with a DIFFERENT id must never touch an unrelated id's previously-enriched
-// targets/changeRef. Pins that invariant explicitly for the widened (targets/changeRef) shape.
+/* ── manifest-enrichment fix: reconcile preserves prior enriched fields on merge ────────────────
+   The use-case's upsert (generate-tests.use-case.ts) now stamps targets/changeRef per entry.
+   reconcileManifest's merge is `{ ...byId.get(e.id), ...e }` — a re-upserted id's NEW fields win,
+   but a re-upsert with a DIFFERENT id must never touch an unrelated id's previously-enriched
+   targets/changeRef. Pins that invariant explicitly for the widened (targets/changeRef) shape.
+ */
 test("reconcileManifest preserves an unrelated entry's targets/changeRef when a different id is re-upserted", async () => {
   const specDir = makeSpecDir();
   try {
@@ -166,8 +168,9 @@ test("reconcileManifest preserves an unrelated entry's targets/changeRef when a 
   }
 });
 
-// A re-upsert of the SAME id with a NEW changeRef must win (matches the spread-merge order
-// `{ ...byId.get(e.id), ...e }` — the new entry's fields overwrite the old).
+/* A re-upsert of the SAME id with a NEW changeRef must win (matches the spread-merge order
+   `{ ...byId.get(e.id), ...e }` — the new entry's fields overwrite the old).
+ */
 test("reconcileManifest overwrites targets/changeRef when the SAME id is re-upserted with new values", async () => {
   const specDir = makeSpecDir();
   try {
@@ -211,8 +214,6 @@ test("reconcileManifest rebuilds from the given entries when the existing manife
     rmSync(specDir, { recursive: true, force: true });
   }
 });
-
-// ── phantom-drop + schema-validation safety nets (task #41, ported from opencode-client.ts:764-810) ──
 
 test("reconcileManifest drops a specMeta whose file is NOT on disk (phantom), and logs a warning", async () => {
   const specDir = makeSpecDir();
@@ -296,13 +297,11 @@ test("reconcileManifest drops a malformed entry (empty targets) with a warning",
   }
 });
 
-// ── migration-tier-4b Slice 2 (THE manifest reconciliation) ────────────────────────────────────
-
-// GIVEN a manifest entry missing `file` (a hypothetical pre-4b or hand-edited entry) — `file` is
-// now OPTIONAL on the canonical ManifestEntry. It must NOT be silently dropped as a phantom (the
-// pre-Slice-2 shape, where `file` was type-required, never had to distinguish "no file declared"
-// from "file declared but not on disk" — collapsing both into "no sha256 => drop" would now
-// falsely flag every file-less entry).
+/* GIVEN a manifest entry missing `file` (a hypothetical or hand-edited entry) — `file` is
+   now OPTIONAL on the canonical ManifestEntry. It must NOT be silently dropped as a phantom:
+   collapsing "no file declared" and "file declared but not on disk" into "no sha256 => drop"
+   would falsely flag every file-less entry.
+ */
 test("reconcileManifest does NOT drop an entry with no 'file' field as a false phantom", async () => {
   const specDir = makeSpecDir();
   const warnings: string[] = [];
@@ -324,10 +323,10 @@ test("reconcileManifest does NOT drop an entry with no 'file' field as a false p
   }
 });
 
-// GIVEN an entry with criticality:"urgent" (not in the enum) WHEN written via reconcile THEN it is
-// rejected AT WRITE TIME — the write path (manifestEntryViolation, now canonical-schema-backed)
-// validates enum fields for the first time (the pre-Slice-2 hand-rolled manifestEntryViolation only
-// checked the 5 required-field presences, never enum shapes).
+/* GIVEN an entry with criticality:"urgent" (not in the enum) WHEN written via reconcile THEN it is
+   rejected AT WRITE TIME — the write path (manifestEntryViolation, now canonical-schema-backed)
+   validates enum fields, not only required-field presence.
+ */
 test("reconcileManifest rejects criticality:\"urgent\" (not in the enum) at WRITE time, with a warning", async () => {
   const specDir = makeSpecDir();
   const warnings: string[] = [];
@@ -335,10 +334,11 @@ test("reconcileManifest rejects criticality:\"urgent\" (not in the enum) at WRIT
   console.warn = (msg: string) => { warnings.push(String(msg)); };
   try {
     writeSpecFile(specDir, "e2e/bad-enum.spec.ts");
-    // A runtime-only value (e.g. a hand-edited on-disk entry) can carry an out-of-enum
-    // criticality even though the TYPE forbids it — cast through `unknown` to exercise the
-    // runtime zod check, mirroring how a real malformed value would arrive (JSON.parse, not a
-    // typed literal).
+    /* A runtime-only value (e.g. a hand-edited on-disk entry) can carry an out-of-enum
+       criticality even though the TYPE forbids it — cast through `unknown` to exercise the
+       runtime zod check, mirroring how a real malformed value would arrive (JSON.parse, not a
+       typed literal).
+     */
     const badEntry = {
       id: "bad-enum", file: "e2e/bad-enum.spec.ts", flow: "checkout", objective: "o",
       targets: ["t"], changeRef: { sha: "s", type: "feat" }, criticality: "urgent",

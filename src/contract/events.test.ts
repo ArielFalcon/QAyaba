@@ -25,7 +25,7 @@ test("a valid envelope with a test.passed body parses", () => {
 
 test("the discriminated union narrows by `type`", () => {
   const body = RunEventBodySchema.parse({ type: "run.verdict", verdict: "pass", engineStatus: "success", passed: 4, failed: 0 });
-  // After parse, `type` narrows the union — the verdict field is only reachable here.
+  /* After parse, `type` narrows the union — the verdict field is only reachable here. */
   if (body.type === "run.verdict") {
     assert.equal(body.verdict, "pass");
     assert.equal(body.passed, 4);
@@ -37,12 +37,10 @@ test("the discriminated union narrows by `type`", () => {
 test("run.verdict carries the engineStatus (required) so consumers see success vs error directly", () => {
   const body = RunEventBodySchema.parse({ type: "run.verdict", verdict: "fail", engineStatus: "success", passed: 0, failed: 1 });
   if (body.type === "run.verdict") {
-    // A real bug found (fail) reports engineStatus=success — the engine did its job.
     assert.equal(body.engineStatus, "success");
   } else {
     assert.fail("expected run.verdict");
   }
-  // engineStatus is REQUIRED on the event (verdict is always present there).
   assert.throws(() => RunEventBodySchema.parse({ type: "run.verdict", verdict: "pass" }));
 });
 
@@ -55,7 +53,6 @@ test("an unknown event type is rejected", () => {
 });
 
 test("a body missing a required field is rejected", () => {
-  // test.passed requires durationMs.
   assert.throws(() => RunEventBodySchema.parse({ type: "test.passed", name: "x" }));
 });
 
@@ -77,10 +74,10 @@ test("enums stay in lockstep with src/types.ts (drift guard during migration)", 
 });
 
 test("RunStepSchema accepts 'coverage' — needed by the coverage phase stepper", () => {
-  // The pipeline emits onStep?.("coverage") but the step was missing from the
-  // schema allowlist, so step.changed events for coverage were silently dropped.
+  /* The pipeline emits onStep?.("coverage") but the step was missing from the
+     schema allowlist, so step.changed events for coverage were silently dropped.
+   */
   assert.doesNotThrow(() => RunStepSchema.parse("coverage"));
-  // Also verify all known steps from the pipeline are accepted.
   const steps = ["gate", "classify", "setup", "generate", "validate", "health", "execute", "retry", "coverage", "decide", "done"];
   for (const s of steps) {
     assert.doesNotThrow(() => RunStepSchema.parse(s), `RunStepSchema must accept "${s}"`);

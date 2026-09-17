@@ -1,9 +1,4 @@
-// Parity test: assert the ported qa-engine sanitizeText matches the legacy src/orchestrator/
-// sanitizer.ts sanitizeText byte-for-byte. This file imports from src/ (outside qa-engine rootDir)
-// and is excluded from qa-engine typecheck (see qa-engine/tsconfig.json exclude list) — identical
-// pattern to route-catalog-parity.test.ts / dom-snapshot-parity.test.ts (Plan 7.4a). Runs via tsx
-// at runtime; the strangler guard keeping the port honest until Plan 7 cutover deletes the legacy
-// original (Plan 7.4b).
+/* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -53,9 +48,9 @@ test("PARITY: git SHA (pure hex) is not mistaken for a base64 secret, identicall
   assert.deepEqual(ported(input), legacy(input));
 });
 
-// WS5.4a — extend byte-parity to the "model" mode (both twins must apply the SAME narrowed
-// api-key-assignment pattern; the two-tier policy exists as a mode flag on ONE shared pattern
-// set, not a divergence between the ported and legacy modules).
+/* Byte-parity for "model" mode: both twins must apply the SAME narrowed api-key-assignment
+   pattern; the two-tier policy exists as a mode flag on ONE shared pattern set.
+ */
 test("PARITY: model mode — type annotation NOT redacted, identically in both twins", () => {
   const input = "password: string;";
   assert.deepEqual(ported(input, "model"), legacy(input, "model"));
@@ -77,10 +72,6 @@ test("PARITY: issue mode (default) unchanged, identically in both twins", () => 
   assert.deepEqual(ported(input, "issue"), legacy(input, "issue"));
 });
 
-// migration-tier-4c Slice 5a: containsSecrets/assertNoSecretLeak now have a genuine qa-engine caller
-// (prompts.ts's cappedDiffText, relocated from src/integrations/prompts.ts) — ported here per this
-// file's own header policy ("if a future qa-engine slice needs them, port them then, at their own
-// call site"). Same parity discipline as sanitizeText above.
 test("PARITY: containsSecrets detects a real secret identically in both twins", () => {
   const input = "token: ghs_supersecretvalue123456789012345678";
   assert.equal(portedContainsSecrets(input), legacyContainsSecrets(input));
@@ -111,9 +102,10 @@ test("PARITY: assertNoSecretLeak does not throw on clean redacted text, identica
   assert.doesNotThrow(() => legacyAssertNoSecretLeak(clean, "issue", "diff→model"));
 });
 
-// judgment-day round 4 (FIX I, Judge A): round 3's quote-aware value capture leaked a secret's tail
-// when the value contained an embedded quote. Pin the fix's exact behavior identically in both twins
-// so a future drift between the two regexes is caught here, not by a blind judge.
+/* Quote-aware value capture must not leak a secret's tail when the value contains an embedded
+   quote. Pin the exact behavior identically in both twins so a future drift between the two
+   regexes is caught here.
+ */
 test("PARITY: round-4 leak fix — embedded quote in a bare value does not leak the tail, identically", () => {
   const input = 'token=abc"def';
   assert.deepEqual(ported(input), legacy(input));

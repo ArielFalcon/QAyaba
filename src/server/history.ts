@@ -1,11 +1,12 @@
-// Persistent run history (SQLite via better-sqlite3). Survives process restarts so
-// the TUI/continue/chat can address past runs. Persisted to disk at HISTORY_DB_PATH
-// (a docker-compose volume in production — see the `qa-data` volume).
-//
-// Initialization is LAZY: the database is opened (and the schema created) on first
-// use, not at import time. This keeps a bare `import` side-effect-free — importing a
-// module that re-exports from here (e.g. the CLI) does not touch the filesystem until
-// a record is actually read or written.
+/*
+ * Persistent run history (SQLite via better-sqlite3). Survives process restarts so
+ * the TUI/continue/chat can address past runs. Persisted to disk at HISTORY_DB_PATH
+ * (a docker-compose volume in production — see the `qa-data` volume).
+ * Initialization is LAZY: the database is opened (and the schema created) on first
+ * use, not at import time. This keeps a bare `import` side-effect-free — importing a
+ * module that re-exports from here (e.g. the CLI) does not touch the filesystem until
+ * a record is actually read or written.
+ */
 
 import Database from "better-sqlite3";
 import { join } from "node:path";
@@ -19,20 +20,18 @@ import type { ErrorClass } from "../qa/learning/taxonomy";
 import type { Curriculum } from "../qa/learning/curriculum";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
 
-// Per-turn record of one agent prompt/response cycle, persisted to `agent_turns`.
-// Foundation for Phase-0 telemetry (see docs/plan-diff-manual-quality.md § Phase 0).
-// Token fields are null for Codex runs (Codex returns no token info).
+
 export interface AgentTurnRecord {
-  runId: string | null;       // maps to RunRecord.id; null for turns with no parent run
-  sessionId: string;          // OpenCode session id
-  role: string;               // agent name (qa-generator, qa-reviewer, qa-explorer, …)
-  round: number;              // 0-based generation round within the session
-  isRepair: boolean;          // true for in-session contract-repair re-prompts
-  ts: string;                 // ISO-8601 timestamp when the turn completed
-  objective: string | null;   // human-readable objective scope (null when not supplied)
-  promptText: string;         // full prompt sent to the agent
-  outputText: string;         // agent reply, sanitized before persist
-  promptBytes: number;        // byte length of promptText
+  runId: string | null;        /* maps to RunRecord.id; null for turns with no parent run */
+  sessionId: string;           /* OpenCode session id */
+  role: string;                /* agent name (qa-generator, qa-reviewer, qa-explorer, …) */
+  round: number;               /* 0-based generation round within the session */
+  isRepair: boolean;           /* true for in-session contract-repair re-prompts */
+  ts: string;                  /* ISO-8601 timestamp when the turn completed */
+  objective: string | null;    /* human-readable objective scope (null when not supplied) */
+  promptText: string;          /* full prompt sent to the agent */
+  outputText: string;          /* agent reply, sanitized before persist */
+  promptBytes: number;         /* byte length of promptText */
   tokensInput: number | null;
   tokensOutput: number | null;
   tokensReasoning: number | null;
@@ -83,9 +82,11 @@ function ensureDb(): void {
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  // Wait up to 5s for a held lock instead of throwing SQLITE_BUSY immediately. WAL allows
-  // concurrent readers, but the 24h online backup and any external reader (CLI, inspection)
-  // can still briefly contend with a writer; without this a contended write throws.
+  /*
+   * Wait up to 5s for a held lock instead of throwing SQLITE_BUSY immediately. WAL allows
+   * concurrent readers, but the 24h online backup and any external reader (CLI, inspection)
+   * can still briefly contend with a writer; without this a contended write throws.
+   */
   db.pragma("busy_timeout = 5000");
 
   db.exec(`
@@ -239,8 +240,7 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_agent_turns_role ON agent_turns(role);
   `);
 
-  // Migration: add columns introduced after the initial schema to DBs that already
-  // exist on the persisted volume (CREATE TABLE IF NOT EXISTS won't add a column).
+  /* ALTER TABLE for existing DBs — CREATE TABLE IF NOT EXISTS does not add columns. */
   if (!columnExists("runs", "step_started_at")) {
     db.exec("ALTER TABLE runs ADD COLUMN step_started_at TEXT");
   }
@@ -250,10 +250,7 @@ function ensureDb(): void {
   if (!columnExists("learning_rules", "archetype")) {
     db.exec("ALTER TABLE learning_rules ADD COLUMN archetype TEXT");
   }
-  // WS1.4(b) (full-flow remediation): promotion requires oracle evidence. Existing ledger rows get
-  // oracle_outcome_count 0 via DEFAULT — this does NOT demote any already-`active` rule (nextStatus's
-  // `active` case never reads oracleOutcomeCount; the gate applies ONLY to the candidate -> active
-  // TRANSITION, never to a rule that already holds `active`).
+  /* Existing rows get oracle_outcome_count 0; that does not demote an already-active rule. */
   if (!columnExists("learning_rules", "oracle_outcome_count")) {
     db.exec("ALTER TABLE learning_rules ADD COLUMN oracle_outcome_count INTEGER NOT NULL DEFAULT 0");
   }
@@ -281,7 +278,7 @@ function ensureDb(): void {
     "DELETE FROM run_activity WHERE run_id = @id AND id NOT IN (SELECT id FROM run_activity WHERE run_id = @id ORDER BY id DESC LIMIT @keep)",
   );
 
-  // run_outcomes (learning layer — append-only, never purged)
+  /* run_outcomes (learning layer — append-only, never purged) */
   insertOutcome = db.prepare(`
     INSERT INTO run_outcomes (id, app, sha, mode, target, verdict, error_class, gate_signals, rules_retrieved, reflection, at)
     VALUES (@id, @app, @sha, @mode, @target, @verdict, @errorClass, @gateSignals, @rulesRetrieved, @reflection, @at)
@@ -289,7 +286,7 @@ function ensureDb(): void {
   listOutcomesStmt = db.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
   getOutcomeStmt = db.prepare("SELECT * FROM run_outcomes WHERE id = ?");
 
-  // learning_rules (Phase 2 — placeholder for Graphiti)
+  
   upsertRuleStmt = db.prepare(`
     INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, archetype, confidence, usage_count, outcome_count, oracle_outcome_count, success_rate, last_verified, source, status, at)
     VALUES (@id, @app, @trigger, @action, @errorClass, @archetype, @confidence, @usageCount, @outcomeCount, @oracleOutcomeCount, @successRate, @lastVerified, @source, @status, @at)
@@ -313,7 +310,7 @@ function ensureDb(): void {
   loadScorecardStmt = db.prepare("SELECT data FROM scorecard WHERE app = ?");
   saveScorecardStmt = db.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
 
-  // agent_turns: insert a turn record; retrieve all turns for a run ordered by id.
+  /* agent_turns: insert a turn record; retrieve all turns for a run ordered by id. */
   insertAgentTurnStmt = db.prepare(`
     INSERT INTO agent_turns
       (run_id, session_id, role, round, is_repair, ts, objective,
@@ -326,15 +323,17 @@ function ensureDb(): void {
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
-  // Prune old runs once on first use.
+  /* Prune old runs once on first use. */
   db.prepare(`DELETE FROM runs WHERE at < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
-  // Bound the durable event log: drop events older than the run retention window (ts is epoch ms).
+  /* Bound the durable event log: drop events older than the run retention window (ts is epoch ms). */
   db.prepare("DELETE FROM run_events WHERE ts < ?").run(Date.now() - DELETE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
-  // Prune agent_turns older than the retention window. agent_turns.ts is ISO-8601 (…T…Z) TEXT, but
-  // datetime('now', …) yields the space-separated 'YYYY-MM-DD HH:MM:SS' form — a raw string compare
-  // would mis-sort (the 'T' > ' ' at index 10 makes every ISO value sort GREATER, so nothing prunes).
-  // Wrap ts in datetime() so BOTH sides are SQLite's canonical datetime form: a correct boundary
-  // compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
+  /*
+   * Prune agent_turns older than the retention window. agent_turns.ts is ISO-8601 (…T…Z) TEXT, but
+   * datetime('now', …) yields the space-separated 'YYYY-MM-DD HH:MM:SS' form — a raw string compare
+   * would mis-sort (the 'T' > ' ' at index 10 makes every ISO value sort GREATER, so nothing prunes).
+   * Wrap ts in datetime() so BOTH sides are SQLite's canonical datetime form: a correct boundary
+   * compare, consistent with run_events (which prunes correctly via its own typed epoch-ms compare).
+   */
   db.prepare(`DELETE FROM agent_turns WHERE datetime(ts) < datetime('now', '-${DELETE_MAX_AGE_DAYS} days')`).run();
 
   initialized = true;
@@ -356,11 +355,13 @@ function recalcCounts(runId: string): { passed: number; failed: number } {
   return { passed, failed };
 }
 
-// SQLite returns an absent optional TEXT column as NULL, but the wire entities (QaCase / SpecRecord)
-// and their zod contracts type these fields as `field?: string` (undefined, NOT nullable). A NULL
-// objective/flow therefore fails contract validation on the API response (observed: a run whose spec
-// had no objective → "specs[].objective expected string, received null"). Normalize NULL → undefined at
-// the read boundary so an un-supplied field is simply omitted on the wire, matching the optional type.
+/*
+ * SQLite returns an absent optional TEXT column as NULL, but the wire entities (QaCase / SpecRecord)
+ * and their zod contracts type these fields as `field?: string` (undefined, NOT nullable). A NULL
+ * objective/flow therefore fails contract validation on the API response (observed: a run whose spec
+ * had no objective → "specs[].objective expected string, received null"). Normalize NULL → undefined at
+ * the read boundary so an un-supplied field is simply omitted on the wire, matching the optional type.
+ */
 function nullsToUndefined<T extends Record<string, unknown>>(row: T): T {
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(row)) out[k] = row[k] === null ? undefined : row[k];
@@ -482,8 +483,7 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.status !== undefined) add("status", patch.status);
   if (patch.step !== undefined) {
     add("step", patch.step);
-    // Stamp when the phase began (drives the TUI's per-phase elapsed clock), but
-    // ONLY on an actual transition — never reset it on a same-step update.
+    
     const cur = (db.prepare("SELECT step FROM runs WHERE id = ?").get(id) as { step?: string } | undefined)?.step;
     if (cur !== patch.step) add("step_started_at", new Date().toISOString());
   }
@@ -502,8 +502,10 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.specs) {
     db.prepare("DELETE FROM specs WHERE run_id = ?").run(id);
     const insertSpec = db.prepare("INSERT INTO specs (run_id, name, objective, flow) VALUES (?, ?, ?, ?)");
-    // De-dup by spec FILE name: a list built per-test (a 3-test file appearing 3×) must not report
-    // "5 specs" for 2 files — the run record + value report count spec FILES, not test cases.
+    /*
+     * De-dup by spec FILE name: a list built per-test (a 3-test file appearing 3×) must not report
+     * "5 specs" for 2 files — the run record + value report count spec FILES, not test cases.
+     */
     const seenSpec = new Set<string>();
     for (const s of patch.specs) {
       if (seenSpec.has(s.name)) continue;
@@ -534,9 +536,11 @@ export function appendLog(id: string, msg: string): void {
 
 const ACTIVITY_CAP = 200;
 
-// Appends one structured activity event to a run's live feed and caps the feed to
-// the last ACTIVITY_CAP rows (advisory-only; never gates a verdict). Stamps `ts`
-// here so the router stays pure/time-free and unit-testable.
+/*
+ * Appends one structured activity event to a run's live feed and caps the feed to
+ * the last ACTIVITY_CAP rows (advisory-only; never gates a verdict). Stamps `ts`
+ * here so the router stays pure/time-free and unit-testable.
+ */
 export function appendActivity(id: string, a: { kind: AgentActivity["kind"]; text: string; status?: AgentActivity["status"] }): void {
   ensureDb();
   insertActivityStmt.run({ runId: id, ts: new Date().toISOString(), kind: a.kind, status: a.status ?? null, text: a.text });
@@ -554,10 +558,12 @@ export function clearDatabase(): void {
   db.exec("DELETE FROM specs; DELETE FROM cases; DELETE FROM runs;");
 }
 
-// Deletes EVERYTHING history holds for an app: runs (cases/specs/activity cascade
-// via the schema's ON DELETE CASCADE), run outcomes, learning rules, curriculum and
-// scorecard. Used by DELETE /api/apps/:name?purge=1. Returns the number of run rows
-// removed (the other tables are not always populated).
+/*
+ * Deletes EVERYTHING history holds for an app: runs (cases/specs/activity cascade
+ * via the schema's ON DELETE CASCADE), run outcomes, learning rules, curriculum and
+ * scorecard. Used by DELETE /api/apps/:name?purge=1. Returns the number of run rows
+ * removed (the other tables are not always populated).
+ */
 export function deleteAppHistory(app: string): number {
   ensureDb();
   const info = db.prepare("DELETE FROM runs WHERE app = ?").run(app);
@@ -619,9 +625,11 @@ export function listRunOutcomes(app: string, limit = 50): RunOutcome[] {
   return rows.map(rowToOutcome);
 }
 
-// The persisted RunOutcome for a single run — the structured value signals (change-coverage,
-// oracle score, reviewer rationale, errorClass) the CLI prints in its end-of-run value report.
-// Returns undefined for a run that produced no outcome row (no runId, or saveOutcome disabled).
+/*
+ * The persisted RunOutcome for a single run — the structured value signals (change-coverage,
+ * oracle score, reviewer rationale, errorClass) the CLI prints in its end-of-run value report.
+ * Returns undefined for a run that produced no outcome row (no runId, or saveOutcome disabled).
+ */
 export function getRunOutcome(runId: string): RunOutcome | undefined {
   ensureDb();
   const row = getOutcomeStmt.get(runId) as Record<string, unknown> | undefined;
@@ -636,18 +644,7 @@ function safeJsonParse<T>(raw: string, fallback: T): T {
   }
 }
 
-// SHELL SURVIVOR (migration-tier-4d, D8): the learning CRUD below (upsertLearningRule through
-// recordRuleOutcome and their read-side siblings) is DECLARED the permanent shell half of a
-// deliberate two-store duality — `history.ts`'s `learning_rules` table coexists with qa-engine's own
-// `SqliteLearningRepository`, by documented decision (`sdd/migration-remediation` decisions doc D8),
-// not silent drift. It stays here because it is the SAME durable SQLite database `history.ts` already
-// owns for run_outcomes/trends (one store, one lifecycle), bridged into qa-engine's
-// LearningRepositoryPort via `rewritten-engine-factory.ts`'s `historyLearningStore`.
-//
-// Accepts an optional `initialStatus`; defaults to "candidate", which is what ALL current callers
-// get (oracle-born, reflection-born, AND correction-sourced rules all enter as candidates — see the
-// J de-poison in distiller.ts). The "pending" status is retired and no code path passes it anymore;
-// the parameter is kept only so a legacy/explicit status can still be threaded if ever needed.
+
 export function upsertLearningRule(rule: RuleUpsert & { app: string; id: string; initialStatus?: RuleStatus }): void {
   ensureDb();
   upsertRuleStmt.run({
@@ -694,9 +691,11 @@ export function listLearningRules(app: string, limit = 20): LearningRule[] {
   return rows.map(rowToRule);
 }
 
-// ALL rules regardless of status — used ONLY by the distiller for de-duplication, so a recurring
-// failure pattern cannot spawn a duplicate candidate for a rule that was demoted (`deprecated`) or
-// `superseded`. Retrieval must NOT use this (it injects only active/candidate).
+/*
+ * ALL rules regardless of status — used ONLY by the distiller for de-duplication, so a recurring
+ * failure pattern cannot spawn a duplicate candidate for a rule that was demoted (`deprecated`) or
+ * `superseded`. Retrieval must NOT use this (it injects only active/candidate).
+ */
 export function listAllLearningRules(app: string, limit = 200): LearningRule[] {
   ensureDb();
   const rows = listAllRulesStmt.all(app, limit) as Array<Record<string, unknown>>;
@@ -711,30 +710,16 @@ export function incrementRuleUsage(ruleIds: string[]): void {
   }
 }
 
-// Fold one objective outcome (a valueScore in [0,1]) into a rule's running statistics:
-// successRate (running mean — NOT an overwrite), outcomeCount, confidence, and status
-// (promotion/demotion with hysteresis). The pure governance lives in qa-engine
-// rule-fold.ts applyOutcome (the production fold); this is only the read-modify-write boundary.
-//
-// Phase 7 coverage anchor: `coverageCreditConfirmed` is forwarded to applyOutcome to gate the
-// candidate → active promotion step. Pass true when the run's change-coverage confirmed that
-// the test covered changed lines; false when coverage was measured but found zero credit; null
-// (default) when coverage is not applicable (cross-repo, unmeasured, policy=off). The gate only
-// applies to the candidate → active transition — it never blocks demotion or pending → candidate.
-//
-// WS1.4(b): `isOracleScore` tells applyOutcome whether THIS outcome is oracle-scored (the caller's
-// valueScore path, gateSignals.valueScore !== null) or prevention-scored (the caller's
-// preventionOutcome-derived path). Defaults to false — the two call sites in
-// rewritten-engine-factory.ts's recordOutcome closure thread `true` from the valueScore path and
-// `false` (or omit) from the prevention path. Promotion (candidate → active) additionally requires
-// oracleOutcomeCount >= 1 — see applyOutcome/nextStatus's own header for the full gate.
+
 export function recordRuleOutcome(ruleId: string, score: number, coverageCreditConfirmed: boolean | null = null, isOracleScore = false): void {
   ensureDb();
   const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return;
-  // Shell LearningRule still includes retired "pending"; the fold's RuleStatus does not.
-  // nextStatus already self-heals pending → candidate via a string check — this is a boundary
-  // cast, not a second fold.
+  /*
+   * Shell LearningRule still includes retired "pending"; the fold's RuleStatus does not.
+   * nextStatus already self-heals pending → candidate via a string check — this is a boundary
+   * cast, not a second fold.
+   */
   const updated = foldApplyOutcome(
     rowToRule(row) as FoldLearningRule,
     score,
@@ -746,13 +731,15 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
   ).run(updated.successRate, updated.outcomeCount, updated.oracleOutcomeCount, updated.confidence, updated.status, new Date().toISOString(), ruleId);
 }
 
-// Human-initiated governance override: veto a rule (force it to 'deprecated') or restore a
-// previously-vetoed one ('active'). This is the highest-authority signal in the ledger — stronger
-// than the oracle — and the ONLY write to learning_rules that originates outside the deterministic
-// distiller. It is reached by an operator via the ledger CLI, never by the agent (the read-only
-// boundary holds). A veto STICKS: 'deprecated' rules are excluded from retrieval, so a vetoed rule
-// is never injected, never accrues outcomes, and therefore never auto-resurrects through the
-// outcome loop. Returns false when the rule id is unknown (no silent success).
+/*
+ * Human-initiated governance override: veto a rule (force it to 'deprecated') or restore a
+ * previously-vetoed one ('active'). This is the highest-authority signal in the ledger — stronger
+ * than the oracle — and the ONLY write to learning_rules that originates outside the deterministic
+ * distiller. It is reached by an operator via the ledger CLI, never by the agent (the read-only
+ * boundary holds). A veto STICKS: 'deprecated' rules are excluded from retrieval, so a vetoed rule
+ * is never injected, never accrues outcomes, and therefore never auto-resurrects through the
+ * outcome loop. Returns false when the rule id is unknown (no silent success).
+ */
 export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "active"): boolean {
   ensureDb();
   const info = db
@@ -761,16 +748,20 @@ export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "act
   return info.changes > 0;
 }
 
-// Mark an app's architecture map as stale so the next generating run rebuilds it. Used by the
-// process-audit context-heal: a file-level invalidation of e2e/.qa/context.json does NOT survive
-// the next run's `git checkout -f`/`git clean -fd`, but this DB flag does. Idempotent (latest wins).
+/*
+ * Mark an app's architecture map as stale so the next generating run rebuilds it. Used by the
+ * process-audit context-heal: a file-level invalidation of e2e/.qa/context.json does NOT survive
+ * the next run's `git checkout -f`/`git clean -fd`, but this DB flag does. Idempotent (latest wins).
+ */
 export function markContextStale(app: string): void {
   ensureDb();
   db.prepare("INSERT OR REPLACE INTO context_stale (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
 }
 
-// Consume the staleness flag: returns true (and CLEARS the flag) when the app was marked stale,
-// false otherwise. One-shot by design — the next generating run reads it once to force a rebuild.
+/*
+ * Consume the staleness flag: returns true (and CLEARS the flag) when the app was marked stale,
+ * false otherwise. One-shot by design — the next generating run reads it once to force a rebuild.
+ */
 export function consumeContextStale(app: string): boolean {
   ensureDb();
   const row = db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) as { app: string } | undefined;
@@ -779,18 +770,22 @@ export function consumeContextStale(app: string): boolean {
   return true;
 }
 
-// Back-fill the structured reflection onto an already-saved run outcome. The outcome row is
-// written at verdict time, BEFORE the async best-effort reflection exists; without this the
-// `reflection` column is permanently null and the (expensive, LLM-produced) reflection is
-// computed once to distill a rule and then discarded — unqueryable forever.
+/*
+ * Back-fill the structured reflection onto an already-saved run outcome. The outcome row is
+ * written at verdict time, BEFORE the async best-effort reflection exists; without this the
+ * `reflection` column is permanently null and the (expensive, LLM-produced) reflection is
+ * computed once to distill a rule and then discarded — unqueryable forever.
+ */
 export function updateRunOutcomeReflection(runId: string, reflection: import("../types").StructuredReflection): void {
   ensureDb();
   db.prepare("UPDATE run_outcomes SET reflection = ? WHERE id = ?").run(JSON.stringify(reflection), runId);
 }
 
-// Completed-run counts grouped by verdict — the backing data for the Prometheus runs_total
-// counter (OBS-05). Lets an operator alert on a fail/invalid/infra-error rate shift, which the
-// two instantaneous gauges (queue depth, open sessions) cannot express.
+/*
+ * Completed-run counts grouped by verdict — the backing data for the Prometheus runs_total
+ * counter (OBS-05). Lets an operator alert on a fail/invalid/infra-error rate shift, which the
+ * two instantaneous gauges (queue depth, open sessions) cannot express.
+ */
 export function runVerdictCounts(): Record<string, number> {
   ensureDb();
   const rows = db
@@ -801,8 +796,10 @@ export function runVerdictCounts(): Record<string, number> {
   return out;
 }
 
-// Durable RunEvent persistence (OBS-01). INSERT OR IGNORE keeps it idempotent if the in-memory
-// store and a re-publish ever collide on (run_id, seq).
+/*
+ * Durable RunEvent persistence (OBS-01). INSERT OR IGNORE keeps it idempotent if the in-memory
+ * store and a re-publish ever collide on (run_id, seq).
+ */
 export function saveRunEvent(event: { runId: string; seq: number; ts: number; body: unknown }): void {
   ensureDb();
   db.prepare("INSERT OR IGNORE INTO run_events (run_id, seq, ts, body) VALUES (?, ?, ?, ?)").run(
@@ -821,8 +818,10 @@ export function loadRunEvents(runId: string, afterSeq = -1): Array<{ runId: stri
   return rows.map((r) => ({ runId: r.run_id, seq: r.seq, ts: r.ts, body: safeJsonParse(r.body, {}) }));
 }
 
-// Persist one agent turn. `output_text` MUST already be sanitized by the caller
-// (sanitizer.ts `sanitizeText`) — this function stores whatever it receives.
+/*
+ * Persist one agent turn. `output_text` MUST already be sanitized by the caller
+ * (sanitizer.ts `sanitizeText`) — this function stores whatever it receives.
+ */
 export function saveAgentTurn(turn: AgentTurnRecord): void {
   ensureDb();
   insertAgentTurnStmt.run({
@@ -845,7 +844,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
   });
 }
 
-// Retrieve all agent turn records for a run, ordered by insertion (chronological).
+/* Retrieve all agent turn records for a run, ordered by insertion (chronological). */
 export function getAgentTurns(runId: string): AgentTurnRecord[] {
   ensureDb();
   const rows = getAgentTurnsStmt.all(runId) as Array<Record<string, unknown>>;
@@ -896,8 +895,10 @@ export function loadScorecard(app: string): Scorecard | null {
   }
 }
 
-// Append one oracle outcome to the app's versioned scorecard (the proof-of-improvement record:
-// avg/last valueScore over runs). Aggregation is the pure updateScorecard; this is the DB sink.
+/*
+ * Append one oracle outcome to the app's versioned scorecard (the proof-of-improvement record:
+ * avg/last valueScore over runs). Aggregation is the pure updateScorecard; this is the DB sink.
+ */
 export function saveScorecardEntry(entry: ScorecardEntry): void {
   ensureDb();
   const sc = updateScorecard(loadScorecard(entry.app), entry);
@@ -908,44 +909,28 @@ process.on("exit", () => {
   if (initialized) db.close();
 });
 
-// ── Phase 8: Holistic telemetry analysis ──────────────────────────────────────
-// Aggregates `agent_turns` + `run_outcomes` across all runs for an app (or within
-// a recent window) into a self-describing analysis surface. The analysis itself is
-// manual post-deploy; this function exposes the queryable surface so the operator
-// can run it at any time via `GET /api/apps/:app/telemetry`.
-//
-// Exposed aggregates (per the Phase-8 spec):
-//   promptSizes       — median + p95 prompt_bytes by role, across all turns
-//   cacheHitRates     — median tokens_cache_read / tokens_input ratio by role (best-effort; null when no token data)
-//   reviewerConvergence — avg correction count per rejected run (rounds 0 vs 1 — shrinking = converging)
-//   groundingPresence — fraction of first-round generator turns that have a context pack (detected heuristically
-//                       as promptText containing "## Context Pack" — the VOLATILE section header)
-//   turnCounts        — median turns per run (all roles), plus repair turn fraction
-//   wallClock         — median and p95 wall-clock span (first turn ts → last turn ts per run), in seconds
-//   runCount          — number of runs contributing to this analysis
-//   windowDays        — the window used (default: all data, or the requested window)
 
 export interface TelemetryRoleStat {
   role: string;
   medianPromptBytes: number | null;
   p95PromptBytes: number | null;
-  medianCacheHitRate: number | null; // null when no token data available (Codex or no turns)
+  medianCacheHitRate: number | null;  /* null when no token data available (Codex or no turns) */
   turnCount: number;
 }
 
 export interface TelemetryAnalysis {
   app: string;
   generatedAt: string;
-  windowDays: number | null; // null = all data
+  windowDays: number | null;  /* null = all data */
   runCount: number;
   byRole: TelemetryRoleStat[];
   reviewerConvergence: {
-    avgCorrectionsRound0: number | null; // avg corrections on first-round rejections
-    avgCorrectionsRound1: number | null; // avg corrections on second-round rejections (shrinking = good)
-    approveRate: number | null;          // fraction of runs where reviewer approved (0–1)
+    avgCorrectionsRound0: number | null;  /* avg corrections on first-round rejections */
+    avgCorrectionsRound1: number | null;  /* avg corrections on second-round rejections (shrinking = good) */
+    approveRate: number | null;           /* fraction of runs where reviewer approved (0–1) */
   };
-  groundingPresence: number | null; // fraction of first-round generator turns carrying a Context Pack (0–1)
-  repairFraction: number | null;    // fraction of all turns that are in-session repairs (lower = better)
+  groundingPresence: number | null;  /* fraction of first-round generator turns carrying a Context Pack (0–1) */
+  repairFraction: number | null;     /* fraction of all turns that are in-session repairs (lower = better) */
   medianTurnsPerRun: number | null;
   medianWallClockSec: number | null;
   p95WallClockSec: number | null;
@@ -968,20 +953,22 @@ function percentile(values: number[], p: number): number | null {
 export function computeTelemetryAnalysis(app: string, windowDays?: number): TelemetryAnalysis {
   ensureDb();
 
-  // Build the date cutoff for the window.
+  /* Build the date cutoff for the window. */
   const cutoff = windowDays != null
     ? new Date(Date.now() - windowDays * 86400_000).toISOString()
     : null;
 
-  // Retrieve agent_turns for this app by joining with run_outcomes on run_id = outcome.id.
-  // When no windowDays, fetch all turns for the app.
+  /*
+   * Retrieve agent_turns for this app by joining with run_outcomes on run_id = outcome.id.
+   * When no windowDays, fetch all turns for the app.
+   */
   const turnsQuery = cutoff
     ? `SELECT t.* FROM agent_turns t INNER JOIN run_outcomes r ON t.run_id = r.id WHERE r.app = ? AND t.ts >= ? ORDER BY t.id ASC`
     : `SELECT t.* FROM agent_turns t INNER JOIN run_outcomes r ON t.run_id = r.id WHERE r.app = ? ORDER BY t.id ASC`;
   const turnsArgs = cutoff ? [app, cutoff] : [app];
   const turnRows = db.prepare(turnsQuery).all(...turnsArgs) as Array<Record<string, unknown>>;
 
-  // Retrieve run_outcomes for reviewer convergence + approve rate.
+  /* Retrieve run_outcomes for reviewer convergence + approve rate. */
   const outcomesQuery = cutoff
     ? `SELECT * FROM run_outcomes WHERE app = ? AND at >= ? ORDER BY at ASC`
     : `SELECT * FROM run_outcomes WHERE app = ? ORDER BY at ASC`;
@@ -989,7 +976,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
   const runCount = new Set(turnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
 
-  // Group turns by role for per-role stats.
+  /* Group turns by role for per-role stats. */
   const byRoleMap = new Map<string, { promptBytes: number[]; cacheRatios: number[]; turnCount: number }>();
   for (const row of turnRows) {
     const role = (row.role as string) ?? "unknown";
@@ -1012,11 +999,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     turnCount: s.turnCount,
   }));
 
-  // Grounding presence: first-round (round=0, not repair) generator turns containing "## Context Pack".
-  // FIX 6: exclude the PLANNER turn (role qa-generator, objective PLANNER_OBJECTIVE). The planner is a
-  // plan-only pass that never carries a Context Pack (it produces the objectives the pack is later
-  // built for), so counting it as a "generator first round" deflated groundingPresence — every run
-  // with a fan-out planner looked partly ungrounded even when the actual write turns were grounded.
+  
   const generatorFirstRounds = turnRows.filter(
     (r) =>
       (r.role as string).includes("generator") &&
@@ -1029,11 +1012,11 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   ).length;
   const groundingPresence = generatorFirstRounds.length > 0 ? groundedCount / generatorFirstRounds.length : null;
 
-  // Repair fraction: in-session repair turns / total turns.
+  /* Repair fraction: in-session repair turns / total turns. */
   const repairCount = turnRows.filter((r) => r.is_repair).length;
   const repairFraction = turnRows.length > 0 ? repairCount / turnRows.length : null;
 
-  // Turns per run: group by run_id, count turns.
+  /* Turns per run: group by run_id, count turns. */
   const turnsByRun = new Map<string, number>();
   for (const row of turnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
@@ -1041,7 +1024,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   }
   const medianTurnsPerRun = median([...turnsByRun.values()]);
 
-  // Wall-clock per run: first/last ts per run_id → span in seconds.
+  /* Wall-clock per run: first/last ts per run_id → span in seconds. */
   const wallClocksByRun = new Map<string, { first: number; last: number }>();
   for (const row of turnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
@@ -1056,10 +1039,12 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   const medianWallClockSec = median(wallClockSpans);
   const p95WallClockSec = percentile(wallClockSpans, 95);
 
-  // Reviewer convergence: from run_outcomes, inspect gateSignals.reviewerCorrections per run.
-  // avgCorrectionsRound0 uses the total corrections list (all rounds recorded in the outcome);
-  // we use the raw list length as a proxy for total blocking corrections across both rounds.
-  // A shrinking average round-over-round is the convergence signal (manual analysis).
+  /*
+   * Reviewer convergence: from run_outcomes, inspect gateSignals.reviewerCorrections per run.
+   * avgCorrectionsRound0 uses the total corrections list (all rounds recorded in the outcome);
+   * we use the raw list length as a proxy for total blocking corrections across both rounds.
+   * A shrinking average round-over-round is the convergence signal (manual analysis).
+   */
   let totalCorrectionsRound0 = 0; let countRound0 = 0;
   let totalApproved = 0;
   for (const row of outcomeRows) {
@@ -1079,7 +1064,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     byRole,
     reviewerConvergence: {
       avgCorrectionsRound0: countRound0 > 0 ? totalCorrectionsRound0 / countRound0 : null,
-      avgCorrectionsRound1: null, // requires per-round correction attribution (Phase-0 round field); deferred
+      avgCorrectionsRound1: null,  /* requires per-round correction attribution (Phase-0 round field); deferred */
       approveRate,
     },
     groundingPresence,
@@ -1090,11 +1075,13 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   };
 }
 
-// ── SQLite backup (cron-like) ───────────────────────────────────────────────
-// Writes a consistent snapshot of the DB to a backup directory with a timestamp,
-// using better-sqlite3's native online backup API — WAL-safe, unlike a raw file
-// copy which can miss the -wal tail and produce a torn backup. Keeps the last
-// N backups. Called from the health poller in index.ts every 24h.
+/*
+ * ── SQLite backup (cron-like) ───────────────────────────────────────────────
+ * Writes a consistent snapshot of the DB to a backup directory with a timestamp,
+ * using better-sqlite3's native online backup API — WAL-safe, unlike a raw file
+ * copy which can miss the -wal tail and produce a torn backup. Keeps the last
+ * N backups. Called from the health poller in index.ts every 24h.
+ */
 
 export async function backupDatabase(): Promise<{ backedUp: boolean; path?: string; error?: string }> {
   if (!initialized) return { backedUp: false, error: "db not initialized" };
@@ -1104,7 +1091,7 @@ export async function backupDatabase(): Promise<{ backedUp: boolean; path?: stri
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupPath = join(backupDir, `qayaba-${timestamp}.db`);
     await db.backup(backupPath);
-    // Prune old backups: keep only the last 7
+    /* Prune old backups: keep only the last 7 */
     const files = readdirSync(backupDir)
       .filter((f: string) => f.startsWith("qayaba-") && f.endsWith(".db"))
       .sort();

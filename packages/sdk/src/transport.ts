@@ -1,7 +1,8 @@
-// The hand-written half of the SDK: a thin fetch wrapper that every TS client shares.
-// It owns base URL, Bearer auth, JSON encode/decode and error normalization — the glue
-// that would otherwise be re-implemented (and drift) in each client. `fetchImpl` is
-// injectable so the transport is unit-testable without a network.
+/* The hand-written half of the SDK: a thin fetch wrapper that every TS client shares.
+   It owns base URL, Bearer auth, JSON encode/decode and error normalization — the glue
+   that would otherwise be re-implemented (and drift) in each client. `fetchImpl` is
+   injectable so the transport is unit-testable without a network.
+ */
 
 export class ApiError extends Error {
   readonly status?: number;
@@ -13,7 +14,7 @@ export class ApiError extends Error {
 }
 
 export interface TransportOptions {
-  // "" for a same-origin client (the dashboard served at /app); a full origin otherwise.
+  /* "" for a same-origin client (the dashboard served at /app); a full origin otherwise. */
   baseUrl: string;
   token?: string;
   fetchImpl?: typeof fetch;

@@ -1,13 +1,13 @@
-// Package auth runs the GitHub OAuth Device Flow (RFC 8628) so the operator logs in with
-// their own GitHub account instead of pasting a shared secret. The flow is entirely
-// client-side: the TUI gets a short user code, the human approves it at github.com/login/device,
-// and the client polls until GitHub returns a user access token. That token is then exchanged
-// at the orchestrator's /api/v1/auth/login for a server session — the token GitHub mints is
-// never stored long-term by the client (the session JWT is).
-//
-// The client_id is the orchestrator team's registered OAuth App, baked in at build time
-// (-ldflags) with a QAYABA_GITHUB_CLIENT_ID env override for development. No client secret
-// is needed or used — the device flow is designed for public clients that cannot keep one.
+/* Package auth runs the GitHub OAuth Device Flow (RFC 8628) so the operator logs in with
+   their own GitHub account instead of pasting a shared secret. The flow is entirely
+   client-side: the TUI gets a short user code, the human approves it at github.com/login/device,
+   and the client polls until GitHub returns a user access token. That token is then exchanged
+   at the orchestrator's /api/v1/auth/login for a server session — the token GitHub mints is
+   never stored long-term by the client (the session JWT is).
+
+   The client_id is the orchestrator team's registered OAuth App, baked in at build time
+   (-ldflags) with a QAYABA_GITHUB_CLIENT_ID env override for development. No client secret
+   is needed or used — the device flow is designed for public clients that cannot keep one. */
 package auth
 
 import (
@@ -21,21 +21,21 @@ import (
 	"strings"
 )
 
-// BakedClientID is set at build time: -ldflags "-X .../internal/auth.BakedClientID=Iv1.abc123".
-// Empty in a plain `go build`, which makes the TUI fall back to manual-token entry.
+/* BakedClientID is set at build time: -ldflags "-X .../internal/auth.BakedClientID=Iv1.abc123".
+   Empty in a plain `go build`, which makes the TUI fall back to manual-token entry. */
 var BakedClientID = ""
 
-// DefaultScope grants read of repository data so the server can verify the user's push
-// permission on a (possibly private) watched repo. The server uses the token read-only and
-// discards it after the login exchange.
+/* DefaultScope grants read of repository data so the server can verify the user's push
+   permission on a (possibly private) watched repo. The server uses the token read-only and
+   discards it after the login exchange. */
 const DefaultScope = "repo"
 
 const defaultBaseURL = "https://github.com"
 
-// ResolveClientID returns the OAuth App client id to use, in priority order: the env override
-// (dev), then what the server advertised in its handshake (the normal path — configure once on
-// the server), then the build-time baked value (offline/air-gapped fallback). "" means GitHub
-// login is not available from any source.
+/* ResolveClientID returns the OAuth App client id to use, in priority order: the env override
+   (dev), then what the server advertised in its handshake (the normal path — configure once on
+   the server), then the build-time baked value (offline/air-gapped fallback). "" means GitHub
+   login is not available from any source. */
 func ResolveClientID(advertised string) string {
 	if v := strings.TrimSpace(os.Getenv("QAYABA_GITHUB_CLIENT_ID")); v != "" {
 		return v
@@ -46,8 +46,8 @@ func ResolveClientID(advertised string) string {
 	return BakedClientID
 }
 
-// DeviceFlow holds the parameters for one device-flow login. BaseURL and HTTP default to
-// github.com / the default client; tests override both.
+/* DeviceFlow holds the parameters for one device-flow login. BaseURL and HTTP default to
+   github.com / the default client; tests override both. */
 type DeviceFlow struct {
 	ClientID string
 	Scope    string
@@ -69,34 +69,30 @@ func (f DeviceFlow) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-// DeviceCode is GitHub's response to the device-code request: what the human enters and where.
 type DeviceCode struct {
 	DeviceCode      string
 	UserCode        string
 	VerificationURI string
-	Interval        int // seconds the client must wait between polls
-	ExpiresIn       int // seconds until the code expires
+	Interval        int /* seconds the client must wait between polls */
+	ExpiresIn       int /* seconds until the code expires */
 }
 
-// PollStatus is the state of a single poll attempt.
 type PollStatus string
 
 const (
-	StatusPending  PollStatus = "pending"   // keep polling
-	StatusSlowDown PollStatus = "slow_down" // keep polling, but use PollResult.Interval
-	StatusDone     PollStatus = "done"      // PollResult.Token is set
-	StatusDenied   PollStatus = "denied"    // the user declined at github.com
-	StatusExpired  PollStatus = "expired"   // the device code timed out — restart the flow
+	StatusPending  PollStatus = "pending"   /* keep polling */
+	StatusSlowDown PollStatus = "slow_down" /* keep polling, but use PollResult.Interval */
+	StatusDone     PollStatus = "done"      /* PollResult.Token is set */
+	StatusDenied   PollStatus = "denied"    /* the user declined at github.com */
+	StatusExpired  PollStatus = "expired"   /* the device code timed out — restart the flow */
 )
 
-// PollResult is the outcome of one poll attempt.
 type PollResult struct {
 	Token    string
 	Status   PollStatus
-	Interval int // present for slow_down: the new minimum poll interval (seconds)
+	Interval int /* present for slow_down: the new minimum poll interval (seconds) */
 }
 
-// RequestCode begins the flow: it asks GitHub for a device + user code.
 func (f DeviceFlow) RequestCode(ctx context.Context) (DeviceCode, error) {
 	form := url.Values{"client_id": {f.ClientID}}
 	if scope := f.Scope; scope != "" {
@@ -129,10 +125,10 @@ func (f DeviceFlow) RequestCode(ctx context.Context) (DeviceCode, error) {
 	}, nil
 }
 
-// Poll performs ONE token-poll attempt. The caller loops (driven by Bubble Tea ticks),
-// waiting DeviceCode.Interval seconds between attempts and adopting PollResult.Interval when a
-// slow_down comes back. Returning a status (not an error) for the expected pending/slow_down/
-// denied/expired cases keeps the caller's control flow simple; transport/parse failures are errors.
+/* Poll performs ONE token-poll attempt. The caller loops (driven by Bubble Tea ticks),
+   waiting DeviceCode.Interval seconds between attempts and adopting PollResult.Interval when a
+   slow_down comes back. Returning a status (not an error) for the expected pending/slow_down/
+   denied/expired cases keeps the caller's control flow simple; transport/parse failures are errors. */
 func (f DeviceFlow) Poll(ctx context.Context, deviceCode string) (PollResult, error) {
 	form := url.Values{
 		"client_id":   {f.ClientID},

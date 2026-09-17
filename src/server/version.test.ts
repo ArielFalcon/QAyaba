@@ -5,7 +5,7 @@ import { handshake, versionGte, SERVER_VERSION, MIN_CLIENT_VERSION, WIRE_API_VER
 test("handshake reports the server version, wire API and capabilities", () => {
   const info = handshake("0.1.0");
   assert.equal(info.serverVersion, SERVER_VERSION);
-  assert.equal(info.serverVersion, "0.1.0"); // from package.json
+  assert.equal(info.serverVersion, "0.1.0");
   assert.equal(info.apiVersion, WIRE_API_VERSION);
   assert.equal(info.minClientVersion, MIN_CLIENT_VERSION);
   assert.deepEqual(info.capabilities, [...CAPABILITIES]);
@@ -30,7 +30,7 @@ test("handshake without a client version assumes compatible (cannot judge)", () 
 test("handshake advertises the GitHub OAuth client id when configured, omits it otherwise", () => {
   assert.equal(handshake("0.1.0", "Ov23xyz").githubClientId, "Ov23xyz");
   assert.equal(handshake("0.1.0").githubClientId, undefined);
-  assert.equal(handshake("0.1.0", "").githubClientId, undefined); // empty env var ⇒ not advertised
+  assert.equal(handshake("0.1.0", "").githubClientId, undefined); /* empty env var ⇒ not advertised */
 });
 
 test("versionGte compares major.minor.patch numerically and tolerates a v prefix / pre-release", () => {

@@ -36,8 +36,9 @@ test("toIntelligenceView projects rules, scorecard and curriculum", () => {
   assert.equal(view.curriculum?.archetypes[0]!.caughtRealBug, true);
 });
 
-// Built through the domain fold rather than a hand-written literal so the expectation cannot drift
-// from what a real run actually writes into the curriculum.
+/* Built through the domain fold rather than a hand-written literal so the expectation cannot drift
+   from what a real run actually writes into the curriculum.
+ */
 test("toIntelligenceView projects the curriculum's evidence counters", () => {
   const curriculum = foldCurriculum(initCurriculum("app"), ["invalid-input"], "covered", "2026-09-04T10:00:00.000Z");
   const view = toIntelligenceView("app", [], null, curriculum);
@@ -45,8 +46,9 @@ test("toIntelligenceView projects the curriculum's evidence counters", () => {
   const offered = view.curriculum!.archetypes.find((a) => a.archetype === "invalid-input")!;
   assert.deepEqual({ evaluated: offered.evaluated, credited: offered.credited }, { evaluated: 1, credited: 1 });
 
-  // An archetype the fold never offered carries the REAL zeros. The projection never invents a
-  // sentinel — turning evaluated === 0 into "no evidence yet" is the renderers' job.
+  /* An archetype the fold never offered carries the REAL zeros. The projection never invents a
+     sentinel — turning evaluated === 0 into "no evidence yet" is the renderers' job.
+   */
   const untouched = view.curriculum!.archetypes.find((a) => a.archetype === "happy-path")!;
   assert.deepEqual({ evaluated: untouched.evaluated, credited: untouched.credited }, { evaluated: 0, credited: 0 });
 });

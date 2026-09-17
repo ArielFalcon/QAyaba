@@ -19,10 +19,11 @@ import {
   type QaCase as ContractQaCase,
 } from "./commands";
 
-// ── Compile-time drift guard ──────────────────────────────────────────────────
-// The zod contract and src/types.ts must be MUTUALLY assignable. If a field is
-// added, removed, or retyped on either side, `true` stops being assignable to the
-// computed type and `npm run typecheck` fails. (Tuples avoid union distribution.)
+/* ── Compile-time drift guard ──────────────────────────────────────────────────
+   The zod contract and src/types.ts must be MUTUALLY assignable. If a field is
+   added, removed, or retyped on either side, `true` stops being assignable to the
+   computed type and `npm run typecheck` fails. (Tuples avoid union distribution.)
+ */
 type MutualAssign<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const _runRecordInSync: MutualAssign<TypesRunRecord, ContractRunRecord> = true;
 const _qaCaseInSync: MutualAssign<TypesQaCase, ContractQaCase> = true;
@@ -75,8 +76,6 @@ test("app onboarding command schemas parse create/update/delete/repo list payloa
     hasMore: false,
   }));
 });
-
-// ── Indexing phase (onboarding-auto-index, Slice 1, design §2.2, §2.7.1) ────────
 
 test("OnboardStateSchema accepts the new 'indexing' member alongside every existing state", () => {
   for (const state of ["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]) {
@@ -132,8 +131,6 @@ test("OnboardingJobStatusSchema accepts state:'mapping' with mappingProgress", (
     mappingProgress: { runId: "run_1", step: "generate", verdict: "pass" },
   }));
 });
-
-// ── Resolution summary (Add-Project Wizard, Slice A Task A3) ────────────────────
 
 test("OnboardingJobStatusSchema accepts a resolvedProfile with transport http-backend", () => {
   assert.doesNotThrow(() => OnboardingJobStatusSchema.parse({

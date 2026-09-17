@@ -5,16 +5,15 @@ import {
   type RouteTree,
 } from "@contexts/qa-run-orchestration/domain/pre-exec-grounding.service.ts";
 
-// pre-exec-grounding.service.ts (Plan 7-R B5.2) — composes the ambiguity check (B0/B5.1's
-// unscopedMultipleContradictions) + the Pillar-2 catalog gate (verbatim confidentWindowEnd/
-// extractTestIdSelectorsWithIndex composition, B1) with TWO fixes baked in as declared behavior:
-//   - leak 6b: PER-SPEC ROUTE PAIRING — a spec is checked only against trees of routes IT targets.
-//   - SAFE DIRECTION: catalog corrections feed ONLY the one-shot repair, NEVER a deterministic
-//     block; degraded/unsettled routes are advisory; only a PERSISTING ambiguity may escalate.
-//
-// Input shape: RouteTree[] (route + nodes[] + optional catalog fields) — a domain-local, minimal
-// mirror of generation/infrastructure's RouteSnapshot/RouteCatalog SHAPE (not imported — domain/
-// never imports another context; the use-case adapts the real capture into this shape).
+/* checkPreExecGrounding composes unscopedMultipleContradictions with the catalog gate
+   (confidentWindowEnd / extractTestIdSelectorsWithIndex):
+   - PER-SPEC ROUTE PAIRING — a spec is checked only against trees of routes IT targets.
+   - SAFE DIRECTION: catalog corrections feed ONLY the one-shot repair, NEVER a deterministic
+   block; degraded/unsettled routes are advisory; only a PERSISTING ambiguity may escalate.
+   Input shape: RouteTree[] (route + nodes[] + optional catalog fields) — a domain-local, minimal
+   mirror of generation/infrastructure's RouteSnapshot/RouteCatalog SHAPE (not imported — domain
+   never imports another context; the use-case adapts the real capture into this shape).
+ */
 
 test("checkPreExecGrounding: no routes captured -> zero corrections, zero counters", () => {
   const result = checkPreExecGrounding({ specSources: [`await page.goto("/owners");`], routes: [] });
@@ -37,13 +36,15 @@ test("checkPreExecGrounding: a page-rooted MULTIPLE ambiguity on the spec's OWN 
   assert.match(result.corrections[0]!, /MULTIPLE/);
 });
 
-// ── Leak 6b: per-spec route pairing ─────────────────────────────────────────────────────────
+/* Per-spec route pairing.
+ */
 test("leak 6b fix: spec A's ambiguity does NOT leak into spec B's route (per-spec pairing)", () => {
-  // Spec A targets /list (5 "Edit" buttons -> real ambiguity). Spec B targets /detail (1 "Edit"
-  // button -> no ambiguity). Cross-producting ALL specs x ALL trees (the pre-fix behavior) would
-  // wrongly check spec B's selector against /list's tree too, since /list's tree also happens to
-  // multiply-match "Edit" — but spec B never navigates there, so that tree is NOT its own ground
-  // truth. Per-spec pairing (leak 6b) must yield ZERO contradictions for spec B.
+  /* Spec A targets /list (5 "Edit" buttons -> real ambiguity). Spec B targets /detail (1 "Edit"
+     button -> no ambiguity). Cross-producting ALL specs x ALL trees (the pre-fix behavior) would
+     wrongly check spec B's selector against /list's tree too, since /list's tree also happens to
+     multiply-match "Edit" — but spec B never navigates there, so that tree is NOT its own ground
+     truth. Per-spec pairing must yield ZERO contradictions for spec B.
+   */
   const specA = `await page.goto("/list"); await page.getByRole("button", { name: "Edit" }).click();`;
   const specB = `await page.goto("/detail"); await page.getByRole("button", { name: "Edit" }).click();`;
   const routes: RouteTree[] = [
@@ -51,21 +52,22 @@ test("leak 6b fix: spec A's ambiguity does NOT leak into spec B's route (per-spe
     { route: "/detail", nodes: ["button: Edit"] },
   ];
   const result = checkPreExecGrounding({ specSources: [specA, specB], routes });
-  // Only spec A's ambiguity should surface; spec B's own route (/detail) has a unique "Edit".
+  /* Only spec A's ambiguity should surface; spec B's own route (/detail) has a unique "Edit". */
   assert.equal(result.preExecAmbiguityCatches, 1);
 });
 
 test("leak 6b fix: a spec with no first-goto route is checked against ALL captured routes (advisory fallback unaffected)", () => {
-  // A spec with no literal .goto(...) (e.g. it reuses fixtures/navigation helpers) cannot be paired
-  // to a specific route — the pairing degrades to the full route set rather than silently excluding
-  // it from grounding entirely (never a false negative that hides a real ambiguity).
+  /* A spec with no literal .goto(...) (e.g. it reuses fixtures/navigation helpers) cannot be paired
+     to a specific route — the pairing degrades to the full route set rather than silently excluding
+     it from grounding entirely (never a false negative that hides a real ambiguity).
+   */
   const specSources = [`await page.getByRole("heading", { name: "Owners" }).click();`];
   const routes: RouteTree[] = [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }];
   const result = checkPreExecGrounding({ specSources, routes });
   assert.equal(result.preExecAmbiguityCatches, 1);
 });
 
-// ── Catalog gate composition (Pillar 2, B1) ─────────────────────────────────────────────────
+/* ── Catalog gate composition (Pillar 2, B1) ───────────────────────────────────────────────── */
 test("catalog gate: a fabricated test-id inside the confident window on a captured&&settled route yields a correction", () => {
   const specSources = [`await page.goto("/owners"); await page.getByTestId("ghost-id").click();`];
   const routes: RouteTree[] = [
@@ -132,13 +134,14 @@ test("catalog gate corrections NEVER escalate preExecAmbiguityCatches — the tw
   ];
   const result = checkPreExecGrounding({ specSources, routes });
   assert.equal(result.catalogGateFailClosed, 1);
-  assert.equal(result.preExecAmbiguityCatches, 0); // catalog corrections are NOT ambiguity catches
+  assert.equal(result.preExecAmbiguityCatches, 0); /* catalog corrections are NOT ambiguity catches */
 });
 
 test("SAFE DIRECTION: corrections combine ambiguity + catalog for the one-shot repair channel", () => {
-  // Both selectors sit BEFORE the first click, inside the confident window — an ambiguous
-  // page-rooted role selector AND a fabricated test-id, on the SAME spec/route, must both surface
-  // as corrections (they are independent sub-gates, composed, never one suppressing the other).
+  /* Both selectors sit BEFORE the first click, inside the confident window — an ambiguous
+     page-rooted role selector AND a fabricated test-id, on the SAME spec/route, must both surface
+     as corrections (they are independent sub-gates, composed, never one suppressing the other).
+   */
   const specSources = [
     `await page.goto("/owners"); await page.getByRole("heading", { name: "Owners" }).click(); await page.getByTestId("ghost-id").fill("x"); await page.getByRole("button", { name: "Save" }).click();`,
   ];

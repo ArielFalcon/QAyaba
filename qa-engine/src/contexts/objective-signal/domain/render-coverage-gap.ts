@@ -1,19 +1,7 @@
-// qa-engine/src/contexts/objective-signal/domain/render-coverage-gap.ts
-// post-cutover-remediation P2c (unit 5): the enforce-mode regen's own coverage-gap renderer. Closes
-// assemble-change-coverage.ts's own documented deferral ("renderUncovered is deliberately NOT
-// ported... no enforce-mode regeneration hook that consumes a coverage-gap string" — see that
-// file's header) — this IS that hook. Symmetric to (but not a verbatim port of) the legacy
-// renderUncovered (deleted at cutover 1228ea7; git show 1228ea7^:src/qa/change-coverage.ts:184-191)
-// — the legacy took a full ChangeCoverage (with overall.ratio); this renderer takes the widened
-// ObjectiveSignalPort.measure() return's own `uncovered?: {file; lines: number[]}[]` shape directly
-// (unit 2), which carries no nested ratio, so the rendered text omits the legacy's ratio-percentage
-// prefix. Pure; no I/O; never throws. Characterized with HAND-WRITTEN expected outputs (no live
-// comparator — the legacy original no longer exists to parity-test against).
+/* Renders uncovered changed lines as the enforce-mode regeneration prompt. Pure; no I/O; never throws. */
 
 type Uncovered = { file: string; lines: number[] }[];
 
-// VERBATIM port of the legacy's own compactRanges (same file, :193-207) — collapses a sorted line
-// list into "N" / "N-M" range tokens, comma-joined.
 function compactRanges(sorted: number[]): string {
   const parts: string[] = [];
   let start = sorted[0]!;

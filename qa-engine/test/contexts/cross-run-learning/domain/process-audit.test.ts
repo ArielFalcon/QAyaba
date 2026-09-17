@@ -1,7 +1,4 @@
-// qa-engine/test/contexts/cross-run-learning/domain/process-audit.test.ts
-// sdd/migration-remediation Slice 5 (P1 process-audit reconnect): ported VERBATIM (behavior-for-
-// behavior) from the oracle's own test suite, src/qa/learning/process-audit.test.ts — same cases,
-// same assertions, re-targeted at the qa-engine port + the kernel RunOutcome shape.
+/* Process-audit domain tests — auditProcess/applyAudit routing and streak detection. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -46,7 +43,7 @@ test("recurring UI/grounding errorClass (E-FRAGILE-SELECTOR) → context-heal (r
   const f = auditProcess(input).find((x) => x.disposition === "context-heal");
   assert.ok(f, "a recurring UI-mismatch should rebuild the architecture map first, not open a PR");
   assert.equal(f!.kind, "recurring-ui-mismatch");
-  assert.ok(!auditProcess(input).some((x) => x.disposition === "engine-fix")); // never escalates to a PR on a map-fixable class
+  assert.ok(!auditProcess(input).some((x) => x.disposition === "engine-fix")); /* never escalates to a PR on a map-fixable class */
 });
 
 test("a one-off errorClass does NOT fire engine-fix (one occurrence is noise, not a defect)", () => {
@@ -57,27 +54,29 @@ test("a one-off errorClass does NOT fire engine-fix (one occurrence is noise, no
 
 test("a used-but-unproven candidate rule whose class is STILL RECURRING → ledger-heal (deprecate, no PR)", () => {
   const o = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
-  // The class recurs RECUR_WINDOW runs in a row: the rule was injected yet its class keeps recurring,
-  // so it is demonstrably failing at its job — the EVIDENCE that justifies deprecating it.
+  /* The class recurs RECUR_WINDOW runs in a row: the rule was injected yet its class keeps recurring,
+     so it is demonstrably failing at its job — the EVIDENCE that justifies deprecating it.
+   */
   const input: AuditInput = {
     outcome: o,
     recent: [o, outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "b" }), outcome({ errorClass: "E-FRAGILE-SELECTOR", sha: "c" })],
     rules: [
       rule({ id: "noise1", errorClass: "E-FRAGILE-SELECTOR", usageCount: 4, successRate: null, status: "candidate" }),
-      rule({ id: "proven", errorClass: "E-FRAGILE-SELECTOR", usageCount: 5, successRate: 0.8, status: "active" }), // not a candidate → kept
-      rule({ id: "fresh", errorClass: "E-FRAGILE-SELECTOR", usageCount: 1, successRate: null, status: "candidate" }), // too new → kept
-      rule({ id: "other", errorClass: "E-EXEC-FAIL", usageCount: 9, successRate: null, status: "candidate" }), // different class → kept
+      rule({ id: "proven", errorClass: "E-FRAGILE-SELECTOR", usageCount: 5, successRate: 0.8, status: "active" }), /* not a candidate → kept */
+      rule({ id: "fresh", errorClass: "E-FRAGILE-SELECTOR", usageCount: 1, successRate: null, status: "candidate" }),
+      rule({ id: "other", errorClass: "E-EXEC-FAIL", usageCount: 9, successRate: null, status: "candidate" }),
     ],
   };
   const f = auditProcess(input).find((x) => x.kind === "noise-rule");
   assert.ok(f, "expected a noise-rule finding");
   assert.equal(f!.disposition, "ledger-heal");
-  assert.deepEqual(f!.ruleIds, ["noise1"]); // ONLY the used candidate whose recurring class it targets
+  assert.deepEqual(f!.ruleIds, ["noise1"]); /* ONLY the used candidate whose recurring class it targets */
 });
 
 test("an UNMEASURED candidate is NOT deprecated when its class is NOT recurring (shadow/oracle-off safety)", () => {
-  // Only ONE run of this class → no recurring streak. In shadow/oracle-off mode successRate stays
-  // null for genuinely-useful rules too, so absence-of-success alone must NEVER deprecate them.
+  /* Only ONE run of this class → no recurring streak. In shadow/oracle-off mode successRate stays
+     null for genuinely-useful rules too, so absence-of-success alone must NEVER deprecate them.
+   */
   const o = outcome({ errorClass: "E-FRAGILE-SELECTOR" });
   const input: AuditInput = {
     outcome: o,
@@ -111,17 +110,18 @@ test("applyAudit ROUTES by disposition — DATA heals autonomously, only an engi
     invalidateContext: (reason) => { contextReason = reason; return true; },
   };
   const applied = applyAudit(findings, deps);
-  assert.deepEqual(deprecated, ["n1", "n2"]); // ledger noise self-healed (no PR)
-  assert.equal(incidents.length, 1); // ONLY the engine-code defect became an incident → human-gated PR
-  assert.equal(applied.contextInvalidated, 1); // stale map rebuilt autonomously (no PR)
+  assert.deepEqual(deprecated, ["n1", "n2"]); /* ledger noise self-healed (no PR) */
+  assert.equal(incidents.length, 1); /* ONLY the engine-code defect became an incident → human-gated PR */
+  assert.equal(applied.contextInvalidated, 1); /* stale map rebuilt autonomously (no PR) */
   assert.match(contextReason, /stale map/);
   assert.equal(applied.observed, 1);
 });
 
 test("Disposition closed set — memory-heal was removed (no detector ever produced it)", () => {
-  // Runtime guard documenting the invariant: auditProcess emits only these four dispositions, and
-  // "memory-heal" is not one of them. The compile-time proof is separate: process-audit.ts only
-  // typechecks because the Disposition union has 4 members and applyAudit's switch is exhaustive.
+  /* Runtime guard documenting the invariant: auditProcess emits only these four dispositions, and
+     "memory-heal" is not one of them. The compile-time proof is separate: process-audit.ts only
+     typechecks because the Disposition union has 4 members and applyAudit's switch is exhaustive.
+   */
   const validDispositions = ["engine-fix", "ledger-heal", "context-heal", "observe"];
   assert.equal(validDispositions.includes("memory-heal"), false);
 });

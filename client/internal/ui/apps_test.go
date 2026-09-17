@@ -23,14 +23,14 @@ func TestRepoStepTogglesSelectionAndCyclesRole(t *testing.T) {
 	m.step = appStepRepo
 	m.repos = []contract.RepoListItem{{FullName: "org/web"}, {FullName: "org/svc"}}
 
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace}) // toggle org/web on
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace})
 	if len(m.selected) != 1 || m.selected[0].fullName != "org/web" {
 		t.Fatalf("space should select the cursor repo; got %+v", m.selected)
 	}
-	if m.selected[0].role != "frontend" { // first selection defaults to frontend
+	if m.selected[0].role != "frontend" { /* first selection defaults to frontend */
 		t.Fatalf("first selected repo should default to frontend; got %q", m.selected[0].role)
 	}
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}) // cycle role
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	if m.selected[0].role != "service" {
 		t.Fatalf("r should cycle role to service; got %q", m.selected[0].role)
 	}
@@ -40,7 +40,7 @@ func TestRepoStepRequiresExactlyOneFrontend(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepRepo
 	m.repos = []contract.RepoListItem{{FullName: "org/web"}, {FullName: "org/svc"}}
-	m.selected = []repoRole{{"org/web", "service"}, {"org/svc", "service"}} // zero frontends
+	m.selected = []repoRole{{"org/web", "service"}, {"org/svc", "service"}} /* zero frontends */
 	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.step == appStepForm {
 		t.Fatal("enter must NOT advance with zero frontends")
@@ -63,8 +63,8 @@ func TestRepoStepViewShowsCheckboxesRolesAndHints(t *testing.T) {
 	}
 }
 
-// The manual "/" typed-slug entry must actually surface in the View while active — otherwise
-// the user has no visual feedback that their keystrokes are going into the input.
+/* The manual "/" typed-slug entry must actually surface in the View while active — otherwise
+   the user has no visual feedback that their keystrokes are going into the input. */
 func TestRepoStepViewShowsManualInputWhenActive(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step, m.width = appStepRepo, 100
@@ -77,9 +77,9 @@ func TestRepoStepViewShowsManualInputWhenActive(t *testing.T) {
 	}
 }
 
-// Each selected repo's OWN row must carry its own role — the wizard's core invariant
-// (exactly one frontend) has to be legible at a glance, per row, not just present somewhere
-// in the overall View (which TestRepoStepViewShowsCheckboxesRolesAndHints already allows).
+/* Each selected repo's OWN row must carry its own role — the wizard's core invariant
+   (exactly one frontend) has to be legible at a glance, per row, not just present somewhere
+   in the overall View (which TestRepoStepViewShowsCheckboxesRolesAndHints already allows). */
 func TestRepoStepViewMarksFrontendRepoDistinctly(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step, m.width = appStepRepo, 100
@@ -135,7 +135,7 @@ func TestCreateInputNoServicesWhenSingleFrontend(t *testing.T) {
 }
 
 func TestFormEscInCreateModeGoesBackToRepoStepPreservingState(t *testing.T) {
-	m := newOnboardModel(nil) // create mode
+	m := newOnboardModel(nil)
 	m.step = appStepForm
 	m.selected = []repoRole{{"org/web", "frontend"}, {"org/svc", "service"}}
 	m.nameInput.SetValue("shop")
@@ -150,7 +150,7 @@ func TestFormEscInCreateModeGoesBackToRepoStepPreservingState(t *testing.T) {
 		t.Fatalf("form values must survive back-nav; name=%q", m.nameInput.Value())
 	}
 	if cmd != nil {
-		// must NOT emit backMsg (which would exit the wizard)
+		/* must NOT emit backMsg (which would exit the wizard) */
 		if _, isBack := cmd().(backMsg); isBack {
 			t.Fatal("create-mode form esc must NOT emit backMsg (that exits the wizard)")
 		}
@@ -158,7 +158,7 @@ func TestFormEscInCreateModeGoesBackToRepoStepPreservingState(t *testing.T) {
 }
 
 func TestFormEscInEditModeExits(t *testing.T) {
-	// Edit mode opens directly on the form with no repo step, so esc must still exit.
+	/* Edit mode opens directly on the form with no repo step, so esc must still exit. */
 	m := newEditAppModel(nil, contract.AppView{Name: "shop", Repo: "org/web"})
 	m.step = appStepForm
 	_, cmd := m.updateForm(tea.KeyMsg{Type: tea.KeyEsc})
@@ -170,21 +170,21 @@ func TestFormEscInEditModeExits(t *testing.T) {
 	}
 }
 
-// The repo step's enter prefill must be idempotent: a form -> (esc) -> repo -> (enter) -> form
-// round-trip (B5) must NOT clobber a manually edited name or a typed base URL.
+/* The repo step's enter prefill must be idempotent: a form -> (esc) -> repo -> (enter) -> form
+   round-trip (B5) must NOT clobber a manually edited name or a typed base URL. */
 func TestFormValuesSurviveRepoRoundTrip(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepRepo
 	m.repos = []contract.RepoListItem{{FullName: "org/web"}}
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace}) // select org/web (frontend)
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyEnter}) // -> form
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace}) /* select org/web (frontend) */
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyEnter})
 	m.nameInput.SetValue("my-shop")
 	m.baseInput.SetValue("https://dev.shop.com")
-	m, _ = m.updateForm(tea.KeyMsg{Type: tea.KeyEsc}) // back to repo (B5)
+	m, _ = m.updateForm(tea.KeyMsg{Type: tea.KeyEsc}) /* back to repo (B5) */
 	if m.step != appStepRepo {
 		t.Fatalf("expected repo step; got %v", m.step)
 	}
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyEnter}) // forward to form again
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeyEnter}) /* forward to form again */
 	if m.nameInput.Value() != "my-shop" {
 		t.Fatalf("name wiped on round-trip: %q", m.nameInput.Value())
 	}
@@ -193,12 +193,12 @@ func TestFormValuesSurviveRepoRoundTrip(t *testing.T) {
 	}
 }
 
-// "/" must work even when the repo list came back empty — otherwise the manual-entry
-// input is focused but never rendered, so the user gets no feedback for their keystrokes.
+/* "/" must work even when the repo list came back empty — otherwise the manual-entry
+   input is focused but never rendered, so the user gets no feedback for their keystrokes. */
 func TestManualInputRendersWhenRepoListEmpty(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step, m.width = appStepRepo, 100
-	m.repos = nil // empty list
+	m.repos = nil
 	m.manualActive = true
 	m.manualInput.SetValue("org/typed")
 	out := strings.ToLower(m.View())
@@ -207,19 +207,19 @@ func TestManualInputRendersWhenRepoListEmpty(t *testing.T) {
 	}
 }
 
-// The manual "/" entry's affordance is "add repo" — it must never remove an already-selected
-// repo, unlike the space-key toggle.
+/* The manual "/" entry's affordance is "add repo" — it must never remove an already-selected
+   repo, unlike the space-key toggle. */
 func TestManualAddIsAddOnlyNeverRemoves(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepRepo
 	m.repos = []contract.RepoListItem{{FullName: "org/web"}}
-	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace}) // select org/web via space
+	m, _ = m.updateRepo(tea.KeyMsg{Type: tea.KeySpace}) /* select org/web via space */
 	if len(m.selected) != 1 {
 		t.Fatalf("expected 1 selected after space; got %d", len(m.selected))
 	}
 	m.manualActive = true
 	m.manualInput.SetValue("org/web")
-	m, _ = m.updateManualRepo(tea.KeyMsg{Type: tea.KeyEnter}) // manual-add the same slug again
+	m, _ = m.updateManualRepo(tea.KeyMsg{Type: tea.KeyEnter}) /* manual-add the same slug again */
 	if len(m.selected) != 1 {
 		t.Fatalf("manual add of an already-selected repo must be add-only, not a removal; got %+v", m.selected)
 	}
@@ -228,9 +228,9 @@ func TestManualAddIsAddOnlyNeverRemoves(t *testing.T) {
 	}
 }
 
-// reposLoadedMsg keeps m.selected across owner switches, but the checkbox list only marks
-// repos present in the CURRENT m.repos page — so a cross-owner or otherwise off-list pick
-// becomes invisible (and undoable only by memory) unless a summary surfaces it.
+/* reposLoadedMsg keeps m.selected across owner switches, but the checkbox list only marks
+   repos present in the CURRENT m.repos page — so a cross-owner or otherwise off-list pick
+   becomes invisible (and undoable only by memory) unless a summary surfaces it. */
 func TestSelectionSummaryShowsOffListRepos(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step, m.width = appStepRepo, 100
@@ -242,10 +242,10 @@ func TestSelectionSummaryShowsOffListRepos(t *testing.T) {
 	}
 }
 
-// buildCreateInput must agree with frontendRepo() (used for display + the repo-step
-// prefill) on which frontend wins when more than one is present: the FIRST. This is
-// defensive — the UI's one-frontend invariant makes this unreachable in practice — but it
-// locks the contract so the two never silently diverge.
+/* buildCreateInput must agree with frontendRepo() (used for display + the repo-step
+   prefill) on which frontend wins when more than one is present: the FIRST. This is
+   defensive — the UI's one-frontend invariant makes this unreachable in practice — but it
+   locks the contract so the two never silently diverge. */
 func TestCreateInputTakesFirstFrontendWhenMultiplePresent(t *testing.T) {
 	sel := []repoRole{{"org/first", "frontend"}, {"org/second", "frontend"}}
 	in := buildCreateInput(sel, "shop", "https://dev", "", "e2e", "qa", true, true, nil)
@@ -254,9 +254,7 @@ func TestCreateInputTakesFirstFrontendWhenMultiplePresent(t *testing.T) {
 	}
 }
 
-// Slice C: DEV-environment Basic Auth field. authMode defaults to "disabled" (no auth
-// header written) and the auth row on the form (space toggles it, like target/shadow/review)
-// cycles it to "basic", which reveals the user+password inputs.
+/* DEV-environment Basic Auth field. authMode defaults to "disabled" (no auth header written) and the auth row on the form (space toggles it, like target/shadow/review) cycles it to "basic", which reveals the user+password inputs. */
 func TestAuthDefaultsDisabledAndTogglesToBasic(t *testing.T) {
 	m := newOnboardModel(nil)
 	if m.authMode != "disabled" {
@@ -270,21 +268,21 @@ func TestAuthDefaultsDisabledAndTogglesToBasic(t *testing.T) {
 	}
 }
 
-// The env user/password rows only exist when basic auth is on, so tab/shift+tab must skip over
-// fAuthUser/fAuthPass while auth is disabled (landing on fSave/fAuth respectively without ever
-// stopping on the hidden rows), and must be able to stop on them once basic auth reveals them.
-// fAuth itself (the toggle) is never hidden, so two forward hops from fPrefix land on fSave.
+/* The env user/password rows only exist when basic auth is on, so tab/shift+tab must skip over
+   fAuthUser/fAuthPass while auth is disabled (landing on fSave/fAuth respectively without ever
+   stopping on the hidden rows), and must be able to stop on them once basic auth reveals them.
+   fAuth itself (the toggle) is never hidden, so two forward hops from fPrefix land on fSave. */
 func TestMoveFormFocusSkipsHiddenAuthFieldsWhenDisabled(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm
 	m.authMode = "disabled"
 
 	m.formCursor = fPrefix
-	m.moveFormFocus(1) // -> fAuth (always visible, never skipped)
+	m.moveFormFocus(1) /* -> fAuth (always visible, never skipped) */
 	if m.formCursor != fAuth {
 		t.Fatalf("expected fAuth after one tab from fPrefix; got %d", m.formCursor)
 	}
-	m.moveFormFocus(1) // -> must skip fAuthUser/fAuthPass straight to fSave
+	m.moveFormFocus(1) /* -> must skip fAuthUser/fAuthPass straight to fSave */
 	if m.formCursor == fAuthUser || m.formCursor == fAuthPass {
 		t.Fatalf("disabled auth must skip the hidden credential rows; got %d", m.formCursor)
 	}
@@ -292,14 +290,14 @@ func TestMoveFormFocusSkipsHiddenAuthFieldsWhenDisabled(t *testing.T) {
 		t.Fatalf("expected fSave after skipping the hidden auth rows; got %d", m.formCursor)
 	}
 
-	// Backward from fSave must skip back over the hidden rows to fAuth.
+	/* Backward from fSave must skip back over the hidden rows to fAuth. */
 	m.formCursor = fSave
 	m.moveFormFocus(-1)
 	if m.formCursor != fAuth {
 		t.Fatalf("expected fAuth when tabbing back from fSave with auth disabled; got %d", m.formCursor)
 	}
 
-	// With basic auth on, the same rows must become reachable.
+	/* With basic auth on, the same rows must become reachable. */
 	m.authMode = "basic"
 	m.formCursor = fAuth
 	m.moveFormFocus(1)
@@ -345,12 +343,7 @@ func TestEnvVarsFromBasicAuth(t *testing.T) {
 	}
 }
 
-// The edit form reuses the create form, so it shows the DEV Basic Auth fields — but
-// updateAppCmd used to build its UpdateAppInput with no Env at all, silently discarding any
-// creds typed on an edit. buildUpdateInput must thread env exactly like buildCreateInput does:
-// non-nil only when the caller passes a non-empty map (m.envVars()'s contract — basic auth on
-// with a non-empty user), so an edit with auth left disabled sends no Env and never wipes
-// creds already stored server-side.
+/* The edit form reuses the create form, so it shows the DEV Basic Auth fields. buildUpdateInput must thread env exactly like buildCreateInput: non-nil only when the caller passes a non-empty map (m.envVars()'s contract — basic auth on with a non-empty user), so an edit with auth left disabled sends no Env and never wipes creds already stored server-side. */
 func TestBuildUpdateInputCarriesEnvWhenBasicAuth(t *testing.T) {
 	in := buildUpdateInput("org/web", "https://dev", "", "e2e", "qa", true, true, map[string]string{"DEV_ENV_USER": "u", "DEV_ENV_PASS": "p"})
 	if in.Env == nil {
@@ -368,8 +361,8 @@ func TestBuildUpdateInputOmitsEnvWhenNone(t *testing.T) {
 	}
 }
 
-// Regression: on a text field, j/k must be typed, not treated as motion — otherwise words
-// containing them (e.g. "joomeco", "webapp") can't be entered. Navigation is tab/arrows only.
+/* Regression: on a text field, j/k must be typed, not treated as motion — otherwise words
+   containing them (e.g. "joomeco", "webapp") can't be entered. Navigation is tab/arrows only. */
 func TestFormTextFieldAcceptsJAndKAsInput(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm

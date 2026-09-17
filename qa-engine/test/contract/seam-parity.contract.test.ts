@@ -1,51 +1,7 @@
-// qa-engine/test/contract/seam-parity.contract.test.ts
-//
-// THE CLASS-KILLER (task #40). Every audit/live-run finding from 2026-06-25..2026-07-02 traced back
-// to ONE root pattern: "a value exists at layer N of the rewritten chain and dies at layer N+1"
-// (baseUrl reached execution but not the generation prompt; namespace, mode, guidance, publish
-// flags, manifest fields, enrichment fields — all the SAME class of bug, found by a live run or a
-// manual audit each time, never by a test). This file is the mechanized regression gate: it
-// enumerates each legacy input surface and asserts the rewritten chain carries every field.
-//
-// Lives under qa-engine/test/contract/ (not test/contexts/.../bridges/) because it deliberately
-// imports BOTH root src/ (the legacy shape it audits against) AND qa-engine's @contexts/@kernel
-// aliases — the SAME "src/-importing seam" characterization-test pattern this file itself
-// established. It is therefore excluded from qa-engine/tsconfig.json's
-// `include` and added to qa-engine/tsconfig.parity.json's `include` instead, mirroring that exact
-// precedent (see this repo's package.json `typecheck` script: tsc -b qa-engine/tsconfig.json, THEN
-// tsc --noEmit -p tsconfig.json, THEN tsc --noEmit -p qa-engine/tsconfig.parity.json — three
-// separate programs, each covering a disjoint file set).
-//
-// DESIGN — two describe-blocks, one per audited surface (migration-tier-4c Slice 6 retired the
-// former (a) GENERATION PROMPT and (b) REVIEW blocks: OpencodeRunInput/ReviewInput's legacy
-// declarations in src/integrations/opencode-client.ts were deleted once prompts.ts's builders and
-// their canonical ports types fully migrated to qa-engine — see
-// docs/superpowers/2026-07-14-migration-tier-4c-decisions.md. migration-tier-4d Slice 1b retired
-// the former (c) EXECUTION block: ExecuteOptions/src/qa/execute.ts no longer exist — the real
-// e2e-runner body moved into qa-engine's own e2e-execution.runner.ts, so there is no more
-// src/-vs-qa-engine seam left to pin for this surface. Its exhaustiveness-guard coverage re-forms
-// as a qa-engine-internal E2eExecuteOptions↔ExecutionRequest test with NO src/ import — see
-// qa-engine/test/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.test.ts,
-// which already covers the field-forwarding behavior this block used to pin, plus the new
-// exhaustiveness test added there in the same commit that retired this block):
-//   d) PERSISTENCE — kernel RunOutcome vs SqliteRunHistoryAdapter's toLegacyRunOutcome mapping
-//      (fully-populated kernel outcome, real (pure) mapping fn — no fake needed, it's already pure).
-//   e) COMPOSITION — CompositionConfig vs buildRewrittenCompositionConfig's returned object
-//      (a fully-populated AppConfig, asserting every non-optional field is present and every
-//      optional field is either present or in a documented allowlist).
-//
-// Blocks (d)/(e) are PERMANENT boundary-contract tests, not migration debt: rewritten-engine-factory.ts
-// (COMPOSITION) and run-history-sqlite-adapter.ts (PERSISTENCE) are DECLARED permanent shell
-// survivors (migration-tier-4d design D-4d-1/D-4d-2) — arch:check's one-way rule (qa-engine never
-// imports src/) makes their dissolution architecturally impossible, not merely undesirable. This
-// file's own qa-engine/tsconfig.parity.json entry stays for exactly that reason: "anything crossing
-// the boundary," not "anything pending retirement."
-//
-// Each block enumerates its target TYPE's field list via a `keyof`-driven `satisfies`/array
-// construction so that a field ADDED to the type without a matching allowlist/sentinel entry FAILS
-// TYPECHECK (npm run typecheck), and a field silently DROPPED by the adapter FAILS THIS TEST (npm
-// test) — the two gates this class of bug needs closed. Every allowlist entry carries a one-line
-// reason. Failure messages name the dropped field AND the dying layer.
+/* Permanent seam: kernel RunOutcome ↔ toLegacyRunOutcome, and AppConfig ↔ CompositionConfig.
+   qa-engine cannot import src/; this file is the drift gate (tsconfig.parity.json). A field added
+   to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
+   this test. */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -56,15 +12,17 @@ import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from
 import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
 
-// ── shared sentinel helpers ─────────────────────────────────────────────────────────────────────
-// A sentinel is a value that is IMPOSSIBLE to produce by accident (unlike "", 0, false, or []),
-// so `assert.equal(captured.field, SENTINEL)` fails loudly if the adapter silently substitutes a
-// default, drops the field, or forwards the wrong one.
+/* ── shared sentinel helpers ─────────────────────────────────────────────────────────────────────
+   A sentinel is a value that is IMPOSSIBLE to produce by accident (unlike "", 0, false, or []),
+   so `assert.equal(captured.field, SENTINEL)` fails loudly if the adapter silently substitutes a
+   default, drops the field, or forwards the wrong one.
+ */
 const S = (field: string): string => `__SENTINEL__${field}__`;
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// (d) PERSISTENCE surface — kernel RunOutcome vs SqliteRunHistoryAdapter's toLegacyRunOutcome
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   (d) PERSISTENCE surface — kernel RunOutcome vs SqliteRunHistoryAdapter's toLegacyRunOutcome
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", () => {
   const ALL_TOP_FIELDS = {
     runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
@@ -82,21 +40,11 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
   } satisfies Record<keyof KernelRunOutcome["gateSignals"], true>;
 
   const ALLOWLIST: Record<string, string> = {
-    // W5 fix (seam-parity re-classification, evidence-verified): RE-CLASSIFIED from FIXME to
-    // correct-by-design. The original entry claimed "LegacyRunOutcome's own `note?: string` field" —
-    // this is WRONG: legacy's actual `RunOutcome` interface (src/types.ts:224-274 — runId, app, sha,
-    // mode, target, verdict, errorClass, gateSignals, rulesRetrieved, reflection, at) has NO `note`
-    // field at all, grep/read-confirmed exhaustively against the full interface body. The TWO
-    // `note?: string` fields that DO exist in src/types.ts belong to DIFFERENT types entirely:
-    // QaRunResult (types.ts:153, "human-readable summary... reviewer rejection, skip reason") and
-    // RunRecord (types.ts:194, the SQLite-persisted live-run record) — neither is RunOutcome. And
-    // src/server/runner.ts:196-199 (runViaRewrittenEngine's own header) independently confirms this
-    // exact gap from the OTHER direction: "RunOutcome carries no such field at this port boundary...
-    // updateRecord's own note:run.note fallback already surfaces the publish outcome via
-    // RunQaResult.note -> RunOutcome.note" — i.e. `note` reaches the run record through a DIFFERENT
-    // seam (QaRunResult.note -> RunRecord.note), never through toLegacyRunOutcome/saveRunOutcome's
-    // run_outcomes row. So toLegacyRunOutcome dropping `note` is FAITHFUL to the legacy shape it
-    // targets (LegacyRunOutcome, this adapter's own type, which also has no note field) — not a bug.
+    /* toLegacyRunOutcome dropping `note` matches the shell RunOutcome shape in src/types.ts,
+       which has no note field. QaRunResult.note and RunRecord.note are different types; `note`
+       reaches the run record through QaRunResult.note -> RunRecord.note, never through this
+       mapping's run_outcomes row.
+     */
     note: "CORRECT BY DESIGN (not a drop): toLegacyRunOutcome never carries outcome.note through because LegacyRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own W3 F3 header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
     cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaRewrittenEngine threads it into history.addCase() calls directly, per this file's own W3 F3 header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
     logs: "DELIBERATELY not persisted via toLegacyRunOutcome — same reason as cases above: LegacyRunOutcome has no logs field (grep-confirmed), and the kernel RunOutcome's own header says this is 'the same one-shot... string legacy's own QaRunResult.logs carries', a different sink than the run_outcomes row.",
@@ -211,14 +159,16 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// (e) COMPOSITION surface — CompositionConfig vs buildRewrittenCompositionConfig
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   (e) COMPOSITION surface — CompositionConfig vs buildRewrittenCompositionConfig
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositionConfig)", () => {
-  // Fields buildRewrittenCompositionConfig deliberately does NOT populate, each with a reason.
-  // This is the SAME class of audit that caught the original 5 gaps (baseUrl/branch/mode/guidance/
-  // testIdAttribute), mechanized: every optional CompositionConfig field must appear here OR be
-  // asserted present by buildRewrittenCompositionConfigTest below.
+  /* Fields buildRewrittenCompositionConfig deliberately does NOT populate, each with a reason.
+     This is the SAME class of audit that caught the original 5 gaps (baseUrl/branch/mode/guidance/
+     testIdAttribute), mechanized: every optional CompositionConfig field must appear here OR be
+     asserted present by buildRewrittenCompositionConfigTest below.
+   */
   const OPTIONAL_ALLOWLIST: Record<string, string> = {
     guidance: "supplied by buildRewrittenCompositionConfig ONLY when run.guidance is present (asserted below as a present-when-given case) — legitimately absent for diff-mode runs with no manual guidance.",
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
@@ -247,33 +197,33 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     e2eChangedForPublish: "IS supplied (true) — asserted below as a present case.",
     reviewerApprovedForPublish: "IS supplied (true) — asserted below as a present case.",
     sanitize: "IS supplied (the real sanitizeText, F4 CRITICAL security invariant) — asserted below as a present case.",
-    // sdd/migration-wiring-phase-2 Slice 6b (logs→Issue egress boundary): IS supplied (the SAME
-    // RedactionPortAdapter instance's containsSecret, wired alongside sanitize's own redact
-    // immediately above) — wired UNCONDITIONALLY, the SAME "IS supplied" precedent sanitize
-    // establishes. Asserted below as a present case.
+    /* RedactionPortAdapter instance's containsSecret, wired alongside sanitize's own redact
+       immediately above) — wired UNCONDITIONALLY, the SAME "IS supplied" precedent sanitize
+       establishes. Asserted below as a present case.
+     */
     containsSecret: "IS supplied (RedactionPortAdapter.containsSecret, wired alongside sanitize) — asserted below as a present case.",
     learningRepo: "IS supplied (SqliteLearningRepository) — asserted below as a present case.",
-    // sdd/migration-remediation Slice 3 (P0 write-confinement wiring, D-P0b, task 3.6): IS supplied
-    // (a WriteConfinementAdapter wrapping realGit — local ops, NO auth decoration — + node:fs
-    // realpathSync/lstatSync) — asserted below as a present case, the SAME "IS supplied" precedent as
-    // sanitize/learningRepo/assembleChangeCoverage immediately above.
+    /* (a WriteConfinementAdapter wrapping realGit — local ops, NO auth decoration — + node:fs
+       realpathSync/lstatSync) — asserted below as a present case, the SAME "IS supplied" precedent as
+       sanitize/learningRepo/assembleChangeCoverage immediately above.
+     */
     confinement: "IS supplied (WriteConfinementAdapter wrapping realGit + realpathSync/lstatSync) — asserted below as a present case.",
-    // sdd/migration-remediation Slice 5 (P1 process-audit reconnect, D-P1b, task 5.7): IS supplied
-    // (a ProcessAuditPortAdapter wrapping history.ts's listRunOutcomes/listLearningRules reads + the
-    // 3 sinks recordIncident/setRuleStatusByHuman/markContextStale) — wired UNCONDITIONALLY (fail-open
-    // fault isolation, not app-config gated), the SAME "IS supplied" precedent confinement/
-    // reflectorPort establish immediately above. Asserted below as a present case.
+    /* (a ProcessAuditPortAdapter wrapping history.ts's listRunOutcomes/listLearningRules reads + the
+       3 sinks recordIncident/setRuleStatusByHuman/markContextStale) — wired UNCONDITIONALLY (fail-open
+       fault isolation, not app-config gated), the SAME "IS supplied" precedent confinement/
+       reflectorPort establish immediately above. Asserted below as a present case.
+     */
     processAudit: "IS supplied (ProcessAuditPortAdapter wrapping history.ts reads + recordIncident/setRuleStatusByHuman/markContextStale sinks) — asserted below as a present case.",
-    // sdd/migration-wiring-phase-2 Slice 2 (D-B mirror-gc, task 2.3): IS supplied (a MirrorGcAdapter
-    // wrapping realGit's own local `git gc --auto --quiet`, no auth decoration) — wired
-    // UNCONDITIONALLY (fail-open fault isolation, not app-config gated), the SAME "IS supplied"
-    // precedent confinement/processAudit establish immediately above. Asserted below as a present case.
+    /* wrapping realGit's own local `git gc --auto --quiet`, no auth decoration) — wired
+       UNCONDITIONALLY (fail-open fault isolation, not app-config gated), the SAME "IS supplied"
+       precedent confinement/processAudit establish immediately above. Asserted below as a present case.
+     */
     mirrorGc: "IS supplied (MirrorGcAdapter wrapping realGit's local `git gc --auto --quiet`) — asserted below as a present case.",
-    // curriculum-wiring Task 5: IS supplied (a CurriculumPortAdapter over history.ts's
-    // loadCurriculum/saveCurriculum) — wired UNCONDITIONALLY (measure-and-rank only: it never gates
-    // a verdict, a publish decision or a coverage decision, so there is no risk surface a config
-    // flag would protect), the SAME "IS supplied" precedent processAudit/mirrorGc establish
-    // immediately above. Asserted below as a present case.
+    /* loadCurriculum/saveCurriculum) — wired UNCONDITIONALLY (measure-and-rank only: it never gates
+       a verdict, a publish decision or a coverage decision, so there is no risk surface a config
+       flag would protect), the SAME "IS supplied" precedent processAudit/mirrorGc establish
+       immediately above. Asserted below as a present case.
+     */
     curriculumPort: "IS supplied (CurriculumPortAdapter over history.ts's loadCurriculum/saveCurriculum) — asserted below as a present case.",
     indexStatus: "IS supplied (IndexStatusAdapter over QAYABA_ROOT/data) — cheap JSON sidecar; the use-case phase is a no-op unless codebaseMemory also builds codeGraph. Asserted below as a present case.",
     codebaseMemory: "IS supplied when qa.structuralSignals.mode is not 'off' (factory default 'signal') — the raw CLI client LazyProjectCodeGraphAdapter wraps. Asserted below as a present-when-default case.",
@@ -307,7 +257,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
 
     const dyingLayer = "buildRewrittenCompositionConfig() -> CompositionConfig (src/server/rewritten-engine-factory.ts)";
 
-    // Non-optional fields — every one MUST be present (undefined fails these asserts loudly).
+    /* Non-optional fields — every one MUST be present (undefined fails these asserts loudly). */
     const nonOptional: Array<keyof typeof cfg> = [
       "repo", "appName", "mirrorDir", "e2eRelDir", "branch", "target", "mode", "needsReview",
       "shadow", "onFailure", "maxRetries", "isCode", "coveragePolicyMode", "vcs", "generationUseCase",
@@ -318,7 +268,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
       assert.notEqual(cfg[field], undefined, `${String(field)} (non-optional CompositionConfig field) dropped at ${dyingLayer}`);
     }
 
-    // Optional fields this factory IS expected to populate given a fully-populated AppConfig.
+    /* Optional fields this factory IS expected to populate given a fully-populated AppConfig. */
     assert.equal(cfg.guidance, S("run.guidance"), `guidance dropped at ${dyingLayer}`);
     assert.equal(cfg.baseUrl, S("app.dev.baseUrl"), `baseUrl dropped at ${dyingLayer} (the CRITICAL live-crash fix this fn's own header documents)`);
     assert.equal(cfg.testIdAttribute, S("app.e2e.testIdAttribute"), `testIdAttribute dropped at ${dyingLayer} (worst leak in audit-2026-07-flaky-selector-leaks)`);
@@ -337,37 +287,43 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.equal(cfg.e2eChangedForPublish, true, `e2eChangedForPublish dropped at ${dyingLayer}`);
     assert.equal(cfg.reviewerApprovedForPublish, true, `reviewerApprovedForPublish dropped at ${dyingLayer}`);
     assert.notEqual(cfg.sanitize, undefined, `sanitize (F4 CRITICAL security invariant) dropped at ${dyingLayer}`);
-    // sdd/migration-wiring-phase-2 Slice 6b: containsSecret must be wired unconditionally alongside
-    // sanitize — the SAME "IS supplied" assertion pattern immediately above.
+    /* containsSecret must be wired unconditionally alongside
+       sanitize — the SAME "IS supplied" assertion pattern immediately above.
+     */
     assert.notEqual(cfg.containsSecret, undefined, `containsSecret (logs→Issue egress boundary, Slice 6b) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.learningRepo, undefined, `learningRepo dropped at ${dyingLayer}`);
-    // sdd/migration-remediation Slice 3 (task 3.6): confinement must be wired unconditionally (fail-open
-    // fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as sanitize/
-    // learningRepo immediately above.
+    /* confinement must be wired unconditionally (fail-open
+       fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as sanitize/
+       learningRepo immediately above.
+     */
     assert.notEqual(cfg.confinement, undefined, `confinement (write-confinement wiring, D-P0b) dropped at ${dyingLayer}`);
-    // sdd/migration-remediation Slice 5 (task 5.7): processAudit must be wired unconditionally (fail-
-    // open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as
-    // confinement immediately above.
+    /* processAudit must be wired unconditionally (fail-
+       open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as
+       confinement immediately above.
+     */
     assert.notEqual(cfg.processAudit, undefined, `processAudit (process-audit reconnect, D-P1b) dropped at ${dyingLayer}`);
-    // sdd/migration-wiring-phase-2 Slice 2 (task 2.3): mirrorGc must be wired unconditionally
-    // (fail-open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern
-    // as confinement/processAudit immediately above.
+    /* mirrorGc must be wired unconditionally
+       (fail-open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern
+       as confinement/processAudit immediately above.
+     */
     assert.notEqual(cfg.mirrorGc, undefined, `mirrorGc (mirror-lifecycle wiring, D-B) dropped at ${dyingLayer}`);
-    // curriculum-wiring Task 5: curriculumPort must be wired unconditionally — the SAME "IS
-    // supplied" assertion pattern as processAudit/mirrorGc immediately above. A dropped port here
-    // is silent by construction (the curriculum simply stays empty forever), which is why this
-    // present-case assertion is the gate rather than a runtime failure.
+    /* curriculumPort must be wired unconditionally — the SAME "IS supplied" assertion pattern as
+       processAudit/mirrorGc immediately above. A dropped port here is silent by construction (the
+       curriculum simply stays empty forever), which is why this present-case assertion is the gate
+       rather than a runtime failure.
+     */
     assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring, D6) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.indexStatus, undefined, `indexStatus (lastIndexedSha sidecar) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codebaseMemory, undefined, `codebaseMemory (structural-signal CLI client, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraphRepoDir, undefined, `codeGraphRepoDir (classify-source mirror) dropped at ${dyingLayer}`);
-    // W5 fix (seam-parity FIXME, flipped): readSpecSource IS wired now — assert it's a real file-read
-    // collaborator, not just a truthy stub, by reading this very test file back through it.
+    /* readSpecSource IS wired — assert it's a real file-read collaborator, not just a truthy stub,
+       by reading this very test file back through it.
+     */
     assert.equal(typeof cfg.readSpecSource, "function", `readSpecSource dropped at ${dyingLayer} (Lever-2 selector-contradiction check starves without it)`);
     const readBack = await cfg.readSpecSource!(import.meta.url.replace("file://", ""));
     assert.ok(readBack.includes("seam-parity.contract.test.ts"), `readSpecSource at ${dyingLayer} did not return real file content`);
 
-    // Deliberately-absent-at-this-call optional fields (see OPTIONAL_ALLOWLIST for why).
+    /* Deliberately-absent-at-this-call optional fields (see OPTIONAL_ALLOWLIST for why). */
     assert.equal(cfg.diff, "", "diff is deliberately static '' at composition time — see OPTIONAL_ALLOWLIST.diff");
     assert.equal(cfg.contextMap, undefined, "contextMap is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.contextMap");
     assert.equal(cfg.prChangedFiles, undefined, "prChangedFiles is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.prChangedFiles");
@@ -383,9 +339,10 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
   });
 
   test("buildRewrittenCompositionConfig leaves guidance/baseUrl/testIdAttribute/versionUrl/observer absent when the AppConfig/caller omits them (never fabricated)", () => {
-    // CODE-target run: dev.baseUrl is conceptually absent for code mode (no live DEV URL), so this
-    // app config is legal and the factory must NOT throw the new composition-time baseUrl guard.
-    // Any e2e-target build must still declare dev.baseUrl — see the guard's own test.
+    /* CODE-target run: dev.baseUrl is conceptually absent for code mode (no live DEV URL), so this
+       app config is legal and the factory must NOT throw the new composition-time baseUrl guard.
+       Any e2e-target build must still declare dev.baseUrl — see the guard's own test.
+     */
     const cfg = buildRewrittenCompositionConfig(
       fakeAppConfig({ dev: undefined, e2e: undefined, code: true } as Partial<AppConfig>),
       fakeFactoryDeps(),
@@ -400,9 +357,10 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.equal(cfg.observer, undefined);
   });
 
-  // P2b demo guard: the composition-time baseUrl validation. An e2e-target run without dev.baseUrl
-  // is a config defect — the factory must throw at composition time (before any git clone/agent
-  // session/Playwright spawn is spent), not at E2eExecutionStrategy.run() deep inside the use-case.
+  /* An e2e-target run without dev.baseUrl is a config defect — the factory must throw at
+     composition time (before any git clone/agent session/Playwright spawn is spent), not at
+     E2eExecutionStrategy.run() deep inside the use-case.
+   */
   test("buildRewrittenCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
       () => buildRewrittenCompositionConfig(

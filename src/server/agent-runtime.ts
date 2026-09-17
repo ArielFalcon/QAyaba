@@ -41,8 +41,7 @@ export interface CreateAgentRuntimeManagerOptions {
 const PROVIDERS: AgentProvider[] = ["opencode", "codex"];
 const ROLES: Array<keyof AgentRuntimeConfig["assignments"]> = ["primary", "reviewer", "chat"];
 
-// sdd/migration-wiring-phase-2 Slice 7b-2: the canonical redaction adapter (env+pattern) for this
-// file's provider-health error reporting, replacing src/util/redact.ts's redactError.
+
 const redactionPort = new RedactionPortAdapter();
 
 export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions): AgentRuntimeManager {
@@ -110,30 +109,25 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       applyEnvVars({ ...apiKeyVars, ...runtimeVars }, { fs, env });
       config = next;
 
-      // D-4c-6 follow-up (live-reconfiguration split-brain): re-derive the runtime role→model map
-      // from the NEW live config and re-inject it into the qa-engine catalog seam — the SAME
-      // derivation the boot path (`opencode-client.ts`'s module load, via `configFromEnv()`) uses,
-      // via the shared `runtimeRoleModelsFromConfig` helper. Without this, `roleWindowBytes` keeps
-      // budgeting against the STALE snapshot injected at boot even after a live role→model
-      // reassignment through this guarded operator path (PUT /api/agent-config).
+      /*
+       * D-4c-6 follow-up (live-reconfiguration split-brain): re-derive the runtime role→model map
+       * from the NEW live config and re-inject it into the qa-engine catalog seam — the SAME
+       * derivation the boot path (`opencode-client.ts`'s module load, via `configFromEnv()`) uses,
+       * via the shared `runtimeRoleModelsFromConfig` helper. Without this, `roleWindowBytes` keeps
+       * budgeting against the STALE snapshot injected at boot even after a live role→model
+       * reassignment through this guarded operator path (PUT /api/agent-config).
+       */
       setRuntimeRoleModels(runtimeRoleModelsFromConfig(config));
 
-      // KNOWN GAP, DECLARED not fixed (migration-tier-4d Slice 4, residual iv): `config = next` above
-      // has ALREADY committed the new config before this Promise.all settles. If restarting one
-      // provider throws, Promise.all rejects immediately while any OTHER still-in-flight
-      // restartProvider() call keeps running detached (its result is never awaited or applied) — a
-      // partial-failure split-brain between the committed `config` and each provider's actually-running
-      // process state. A real fix touches applyConfig's rollback semantics (e.g. restart sequentially
-      // and roll `config` back to `previous` on the first failure, or reconcile per-provider outcomes
-      // before returning) — deliberately out of scope here; this comment is the follow-up record, not
-      // the fix. Flag as a dedicated bugfix if a live restart failure is ever observed to strand a
-      // provider on stale config.
+      
       const restarted = changedProviders(previous, next, apiKeyVars);
       await Promise.all(restarted.map((provider) => restartProvider(provider, apiKeyForProvider(input, provider), runtimeVars)));
 
-      // Release a provider that is no longer used by any role (e.g. single/opencode →
-      // single/codex): the supervisor stops its process, but the orchestrator-side
-      // strategy still caches a live client until we dispose it.
+      /*
+       * Release a provider that is no longer used by any role (e.g. single/opencode →
+       * single/codex): the supervisor stops its process, but the orchestrator-side
+       * strategy still caches a live client until we dispose it.
+       */
       await Promise.all(
         PROVIDERS
           .filter((provider) => usedProvider(previous, provider) && !usedProvider(next, provider))

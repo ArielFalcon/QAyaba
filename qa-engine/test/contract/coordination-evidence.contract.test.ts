@@ -1,4 +1,3 @@
-// Fase 2 — EvidenceRef adapters and confidence precedence. No OpencodeRunInput copying.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

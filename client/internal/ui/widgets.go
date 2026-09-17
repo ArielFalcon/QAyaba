@@ -1,9 +1,9 @@
 package ui
 
-// widgets.go holds the reusable building blocks introduced for the live/summary UX pass: an
-// indeterminate marquee meter (for transient phases with no known progress), a navigable
-// expand/collapse list (one item open at a time), and a test detail card. They reuse the brand
-// palette and the existing primitives so the new surfaces read as part of the same design.
+/* widgets.go holds the reusable building blocks introduced for the live/summary UX pass: an
+   indeterminate marquee meter (for transient phases with no known progress), a navigable
+   expand/collapse list (one item open at a time), and a test detail card. They reuse the brand
+   palette and the existing primitives so the new surfaces read as part of the same design. */
 
 import (
 	"strconv"
@@ -14,15 +14,15 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// indeterminateBar is a marquee meter for a transient phase with no known progress (e.g. the retry
-// pass): a short lit segment slides across the track, so the bar reads as "working" rather than a
-// frozen 0%. It is animated by wall-clock time; the live header already repaints on each spinner
-// tick, so the segment advances smoothly.
+/* indeterminateBar is a marquee meter for a transient phase with no known progress (e.g. the retry
+   pass): a short lit segment slides across the track, so the bar reads as "working" rather than a
+   frozen 0%. It is animated by wall-clock time; the live header already repaints on each spinner
+   tick, so the segment advances smoothly. */
 func indeterminateBar(width int, color lipgloss.Color) string {
 	barW := max(8, width-6)
 	seg := max(3, barW/6)
 	span := barW + seg
-	pos := int(time.Now().UnixMilli()/110) % span // slides one cell per ~110ms
+	pos := int(time.Now().UnixMilli()/110) % span /* slides one cell per ~110ms */
 	var b strings.Builder
 	lit := lipgloss.NewStyle().Foreground(color)
 	track := lipgloss.NewStyle().Foreground(colRule)
@@ -36,16 +36,16 @@ func indeterminateBar(width int, color lipgloss.Color) string {
 	return b.String() + lit.Render("  ···")
 }
 
-// ── reviewer corrections: parse one opaque "[class] spec: detail" line into readable parts ──────
+/* ── reviewer corrections: parse one opaque "[class] spec: detail" line into readable parts ────── */
 
-// reviewerNote is a parsed reviewer correction. The raw lines look like
-// "[fragile-selector] navigation.spec.ts: getByRole('heading', { name: 'Owner' })" — one opaque,
-// always-truncated string. Splitting it lets the recap show a coloured class badge + the spec name
-// as a one-line header, with the full detail revealed on expand instead of cut off with "…".
+/* reviewerNote is a parsed reviewer correction. The raw lines look like
+   "[fragile-selector] navigation.spec.ts: getByRole('heading', { name: 'Owner' })" — one opaque,
+   always-truncated string. Splitting it lets the recap show a coloured class badge + the spec name
+   as a one-line header, with the full detail revealed on expand instead of cut off with "…". */
 type reviewerNote struct {
-	class  string // e.g. "fragile-selector"
-	spec   string // e.g. "navigation.spec.ts"
-	detail string // the actionable remainder
+	class  string /* e.g. "fragile-selector" */
+	spec   string /* e.g. "navigation.spec.ts" */
+	detail string /* the actionable remainder */
 	raw    string
 }
 
@@ -58,7 +58,7 @@ func parseReviewerNote(s string) reviewerNote {
 			t = strings.TrimSpace(t[i+1:])
 		}
 	}
-	// "spec: detail" — only treat the head as a spec when it looks like a single file token.
+	/* "spec: detail" — only treat the head as a spec when it looks like a single file token. */
 	if i := strings.Index(t, ": "); i > 0 {
 		head := strings.TrimSpace(t[:i])
 		if !strings.ContainsAny(head, " \t") && strings.Contains(head, ".") {
@@ -71,9 +71,9 @@ func parseReviewerNote(s string) reviewerNote {
 	return n
 }
 
-// reviewerClassColor maps a correction class to the palette so the badge reads at a glance: a
-// fragile-selector is a stability concern (flaky-amber), coverage/value is a signal concern
-// (infra-steel), anything else is the generic accent.
+/* reviewerClassColor maps a correction class to the palette so the badge reads at a glance: a
+   fragile-selector is a stability concern (flaky-amber), coverage/value is a signal concern
+   (infra-steel), anything else is the generic accent. */
 func reviewerClassColor(class string) lipgloss.Color {
 	switch {
 	case class == "":
@@ -87,7 +87,6 @@ func reviewerClassColor(class string) lipgloss.Color {
 	}
 }
 
-// classBadge renders the correction class as a filled chip; empty class → an empty string.
 func classBadge(class string) string {
 	if class == "" {
 		return ""
@@ -95,7 +94,7 @@ func classBadge(class string) string {
 	return lipgloss.NewStyle().Foreground(colBg).Background(reviewerClassColor(class)).Bold(true).Padding(0, 1).Render(class)
 }
 
-// wrapText word-wraps s to width (ANSI-naive — for plain detail text), returning the lines.
+/* wrapText word-wraps s to width (ANSI-naive — for plain detail text), returning the lines. */
 func wrapText(s string, width int) []string {
 	if width < 8 {
 		width = 8
@@ -117,11 +116,10 @@ func wrapText(s string, width int) []string {
 	return append(lines, cur)
 }
 
-// codeStyle paints inline `code` spans, so a reviewer note reads like the chat's markdown.
 var codeStyle = lipgloss.NewStyle().Foreground(colEmberS)
 
-// shortRunID truncates a run id to a stable 8-char prefix — the single length used wherever a run
-// is labelled (history list, report header) so the same run reads identically across screens.
+/* shortRunID truncates a run id to a stable 8-char prefix — the single length used wherever a run
+   is labelled (history list, report header) so the same run reads identically across screens. */
 func shortRunID(id string) string {
 	if len(id) > 8 {
 		return id[:8]
@@ -129,10 +127,10 @@ func shortRunID(id string) string {
 	return id
 }
 
-// firstSentence synthesises a long reviewer detail down to its lead: the first sentence when that is
-// short enough, otherwise a hard cut — so the live view shows the gist, not a six-line paragraph.
+/* firstSentence synthesises a long reviewer detail down to its lead: the first sentence when that is
+   short enough, otherwise a hard cut — so the live view shows the gist, not a six-line paragraph. */
 func firstSentence(s string, maxLen int) string {
-	s = strings.TrimSpace(strings.Join(strings.Fields(s), " ")) // collapse whitespace/newlines
+	s = strings.TrimSpace(strings.Join(strings.Fields(s), " ")) /* collapse whitespace/newlines */
 	if i := strings.Index(s, ". "); i > 0 && i+1 <= maxLen {
 		return s[:i+1]
 	}
@@ -142,13 +140,13 @@ func firstSentence(s string, maxLen int) string {
 	return s
 }
 
-// renderInlineMd is a minimal inline-markdown pass: `code` spans get the code style, everything else
-// stays plain. Glamour is for whole documents; this is for one synthesised line on the live view.
+/* renderInlineMd is a minimal inline-markdown pass: `code` spans get the code style, everything else
+   stays plain. Glamour is for whole documents; this is for one synthesised line on the live view. */
 func renderInlineMd(s string) string {
 	parts := strings.Split(s, "`")
 	var b strings.Builder
 	for i, p := range parts {
-		if i%2 == 1 { // between a pair of backticks
+		if i%2 == 1 { /* between a pair of backticks */
 			b.WriteString(codeStyle.Render(p))
 		} else {
 			b.WriteString(hintStyle.Render(p))
@@ -157,18 +155,18 @@ func renderInlineMd(s string) string {
 	return b.String()
 }
 
-// ── navigable expand/collapse list — one item open at a time ─────────────────────────────────
+/* ── navigable expand/collapse list — one item open at a time ───────────────────────────────── */
 
-// expandRow is one navigable item: a collapsed one-line header and the lines revealed on expand.
+/* expandRow is one navigable item: a collapsed one-line header and the lines revealed on expand. */
 type expandRow struct {
-	key    string   // stable id, matched against the open key
-	header string   // already-styled, one line (the collapsed view)
-	body   []string // already-styled lines shown when expanded
+	key    string   /* stable id, matched against the open key */
+	header string   /* already-styled, one line (the collapsed view) */
+	body   []string /* already-styled lines shown when expanded */
 }
 
-// renderExpandList draws rows with the focused one bearing the ember bar and the open one revealing
-// its body. focusIdx is the index of the focused row WITHIN this list (or -1 when focus is elsewhere);
-// openKey is the globally-open row key. Indentation matches the test list so columns stay aligned.
+/* renderExpandList draws rows with the focused one bearing the ember bar and the open one revealing
+   its body. focusIdx is the index of the focused row WITHIN this list (or -1 when focus is elsewhere);
+   openKey is the globally-open row key. Indentation matches the test list so columns stay aligned. */
 func renderExpandList(w int, rows []expandRow, focusIdx int, openKey string) string {
 	var b strings.Builder
 	for i, r := range rows {
@@ -186,9 +184,9 @@ func renderExpandList(w int, rows []expandRow, focusIdx int, openKey string) str
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// reviewerRows turns the reviewer corrections into navigable expand rows, keyed "rev:<i>". The
-// header is "badge spec" (with a caret when there is detail to reveal); the body is the wrapped,
-// full detail — no more truncation with "…".
+/* reviewerRows turns the reviewer corrections into navigable expand rows, keyed "rev:<i>". The
+   header is "badge spec" (with a caret when there is detail to reveal); the body is the wrapped,
+   full detail — no more truncation with "…". */
 func reviewerRows(notes []reviewerNote, w, openIdx int) []expandRow {
 	rows := make([]expandRow, 0, len(notes))
 	for i, n := range notes {
@@ -206,8 +204,8 @@ func reviewerRows(notes []reviewerNote, w, openIdx int) []expandRow {
 			title = ansi.Truncate(n.detail, max(12, w-24), "…")
 		}
 		head += lipgloss.NewStyle().Foreground(colFg).Render(title)
-		// The expanded detail is rendered as markdown (same renderer as the chat) so `code`, lists
-		// and emphasis read the same way — the full text, not a synthesis.
+		/* The expanded detail is rendered as markdown (same renderer as the chat) so `code`, lists
+		   and emphasis read the same way — the full text, not a synthesis. */
 		var body []string
 		body = append(body, strings.Split(strings.TrimRight(renderMarkdown(n.detail, max(20, w-9)), "\n"), "\n")...)
 		rows = append(rows, expandRow{key: "rev:" + strconv.Itoa(i), header: head, body: body})
@@ -215,10 +213,10 @@ func reviewerRows(notes []reviewerNote, w, openIdx int) []expandRow {
 	return rows
 }
 
-// ── test detail card — readable facts, no file paths ────────────────────────────────────────
+/* ── test detail card — readable facts, no file paths ──────────────────────────────────────── */
 
-// parsedTest splits a Playwright case name "spec.spec.ts › Describe › it does X" into the parts a
-// human reads: the spec (sans path/extension), the flow (the describe), and the assertion title.
+/* parsedTest splits a Playwright case name "spec.spec.ts › Describe › it does X" into the parts a
+   human reads: the spec (sans path/extension), the flow (the describe), and the assertion title. */
 type parsedTest struct{ spec, flow, title string }
 
 func parseTestName(name string) parsedTest {
@@ -257,9 +255,9 @@ func statusWord(status string) string {
 	}
 }
 
-// renderTestCard draws one case as the screen's focus card: the spec in the title, the assertion as
-// the headline, then readable rows (flow · duration · retries · failure cause). It deliberately
-// never shows the absolute file path — a basename spec is enough to locate the test.
+/* renderTestCard draws one case as the screen's focus card: the spec in the title, the assertion as
+   the headline, then readable rows (flow · duration · retries · failure cause). It deliberately
+   never shows the absolute file path — a basename spec is enough to locate the test. */
 func renderTestCard(t testItem, w int) string {
 	pt := parseTestName(t.name)
 	_, col := testGlyph(t.status)
@@ -292,7 +290,7 @@ func renderTestCard(t testItem, w int) string {
 	return focusCard(w, col, title, right, headline, "", rows)
 }
 
-// indentBlock prefixes every line of s with pad — for nesting a multi-line card inside a list.
+/* indentBlock prefixes every line of s with pad — for nesting a multi-line card inside a list. */
 func indentBlock(s, pad string) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {

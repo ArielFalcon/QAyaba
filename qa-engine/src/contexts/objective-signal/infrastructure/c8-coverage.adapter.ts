@@ -1,9 +1,4 @@
-// src/contexts/objective-signal/infrastructure/c8-coverage.adapter.ts
-// CoverageCollectorPort over Istanbul/c8 coverage-final.json. The missing DI seam: the file read
-// is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open
-// by contract (no files → empty report, never a throw). The Istanbul→CoveredLines parse is injected
-// too (defaults to the verified src/qa/change-coverage.ts parseIstanbulJson via Plan-6 composition)
-// — this adapter does not rewrite the parser; it adapts Map<string,Set<number>> to CoveredLines[].
+/* src/contexts/objective-signal/infrastructure/c8-coverage.adapter.ts CoverageCollectorPort over Istanbul/c8 coverage-final.json. The missing DI seam: the file read is injected (no hard-coded readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty report, never a throw). */
 import { isAbsolute, relative } from "node:path";
 import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
 
@@ -32,9 +27,6 @@ export class C8CoverageAdapter implements CoverageCollectorPort {
   }
 }
 
-// Verbatim-carried Istanbul parser from change-coverage.ts parseIstanbulJson.
-// Copies the exact logic: statementMap[id] + counts s[id], expanding start→end line ranges.
-// The parity test pins this copy to the legacy original.
 function normalizeRepoPath(p: string, repoDir?: string): string {
   let out = p.replace(/\\/g, "/").trim();
   if (repoDir) {

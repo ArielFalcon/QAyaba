@@ -1,6 +1,4 @@
-// NEW kernel concept: one planned generation objective — a named user Flow + the acceptance criterion
-// + the symbols/routes it exercises. Promoted from the planner's scattered {flow, objective, targets}
-// fields so fan-out and manifest reconciliation share one typed unit instead of loose strings.
+/* One planned generation objective: named user flow, acceptance criterion, and the symbols/routes it exercises. */
 
 export class Flow {
   private constructor(readonly name: string) {}

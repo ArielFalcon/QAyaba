@@ -1,13 +1,9 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/service-links-port.adapter.test.ts
-//
-// RED for S1.3 (design §3.3): ServiceLinksPortAdapter composes an injected
-// BoundaryProfileProviderPort + MirrorRegistryPort + the REAL buildServiceBoundaryResolver
-// against on-disk-verified mirror dirs into ONE ServiceLinksPort.resolve() call. NEVER throws:
-// every failure mode (missing mirror, empty profiles, resolver throw, a rejecting
-// MirrorRegistryPort) degrades to { links: [], drift: [] }.
-//
-// The mirror-existence check is real (a temp directory with real files/subdirs), not a module
-// mock, so the test stays honest about what existsSync actually sees.
+/* ServiceLinksPortAdapter composes an injected BoundaryProfileProviderPort + MirrorRegistryPort +
+   the REAL buildServiceBoundaryResolver against on-disk-verified mirror dirs into ONE
+   ServiceLinksPort.resolve() call. NEVER throws: every failure mode (missing mirror, empty
+   profiles, resolver throw, a rejecting MirrorRegistryPort) degrades to { links: [], drift: [] }.
+   The mirror-existence check is real (a temp directory with real files/subdirs), not a module mock.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
@@ -32,8 +28,9 @@ function fakeProfiles(profiles: BoundaryProfile[]): BoundaryProfileProviderPort 
   return { forApp: async () => profiles };
 }
 
-// A REAL http profile against a REAL OpenAPI fixture, so the test exercises the ACTUAL
-// resolver (buildServiceBoundaryResolver + OpenApiHttpResolver), not a re-mocked one.
+/* A REAL http profile against a REAL OpenAPI fixture, so the test exercises the ACTUAL
+   resolver (buildServiceBoundaryResolver + OpenApiHttpResolver), not a re-mocked one.
+ */
 const httpProfile: BoundaryProfile = {
   transport: "http",
   frontFiles: "*.api.ts",

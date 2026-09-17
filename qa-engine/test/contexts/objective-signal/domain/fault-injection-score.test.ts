@@ -1,7 +1,7 @@
-// test/contexts/objective-signal/domain/fault-injection-score.test.ts
-// Unit tests moved/adapted from src/qa/learning/fault-injection-e2e.test.ts's scoring cases
-// (migration-tier-1-2, Slice 2) — the pure computeFaultInjectionScore/isFlowBreak half now lives
-// in objective-signal/domain/fault-injection-score.ts.
+/* test/contexts/objective-signal/domain/fault-injection-score.test.ts
+   Unit tests moved/adapted from src/qa/learning/fault-injection-e2e.test.ts's scoring cases
+   in objective-signal/domain/fault-injection-score.ts.
+ */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { computeFaultInjectionScore, isFlowBreak, FLOW_BREAK } from "@contexts/objective-signal/domain/fault-injection-score.ts";
@@ -11,8 +11,8 @@ describe("computeFaultInjectionScore", () => {
   it("counts baseline-passing specs that flipped to fail under corruption (caught it)", () => {
     const baseline = ["a", "b", "c", "d"];
     const corrupted: QaCase[] = [
-      { name: "a", status: "fail" }, // strong oracle: noticed the wrong data
-      { name: "b", status: "pass" }, // weak oracle: stayed green
+      { name: "a", status: "fail" }, /* strong oracle: noticed the wrong data */
+      { name: "b", status: "pass" }, /* weak oracle: stayed green */
       { name: "c", status: "fail" },
       { name: "d", status: "pass" },
     ];
@@ -40,11 +40,11 @@ describe("computeFaultInjectionScore", () => {
 
   it("a failure caused by the corruption BREAKING the flow (navigation/network) is NOT a kill", () => {
     const corrupted: QaCase[] = [
-      { name: "a", status: "fail", detail: "expect(locator).toHaveText: Expected '10' Received '-10'" }, // assertion caught it
-      { name: "b", status: "fail", detail: "page.goto: net::ERR_CONNECTION_REFUSED at /orders/-1" }, // flow broke
+      { name: "a", status: "fail", detail: "expect(locator).toHaveText: Expected '10' Received '-10'" },
+      { name: "b", status: "fail", detail: "page.goto: net::ERR_CONNECTION_REFUSED at /orders/-1" },
     ];
     const r = computeFaultInjectionScore(["a", "b"], corrupted);
-    assert.equal(r.killed, 1); // only the assertion-based catch counts
+    assert.equal(r.killed, 1); /* only the assertion-based catch counts */
     assert.equal(r.total, 2);
     assert.equal(r.valueScore, 0.5);
   });

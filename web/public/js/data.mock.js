@@ -1,7 +1,8 @@
-// Mock dataset for the Qayaba Console — used when config.mode === 'mock'
-// (standalone dev, no server). api.js reads window.QayabaMockData; the live
-// adapter ignores this file. The shape here is the dashboard's internal view
-// model — see API.md for how each field maps to the /api/v1/* server contract.
+/* Mock dataset for the Qayaba Console — used when config.mode === 'mock'
+   (standalone dev, no server). api.js reads window.QayabaMockData; the live
+   adapter ignores this file. The shape here is the dashboard's internal view
+   model — see API.md for how each field maps to the /api/v1/* server contract.
+ */
 window.QayabaMockData = (function () {
   const models = { generator: 'deepseek-v4-pro', reviewer: 'minimax-m3' };
 
@@ -45,7 +46,6 @@ window.QayabaMockData = (function () {
     },
   ];
 
-  // The run that is executing right now — the heartbeat of mission control.
   const running = {
     id: 'r-1842', app: 'web-app', sha: 'aa17c93', mode: 'diff', branch: 'DEV',
     message: 'feat(search): debounce query input', author: 'maria',
@@ -53,7 +53,6 @@ window.QayabaMockData = (function () {
     stageNote: 'executing 3 specs against dev.web-app.internal',
     stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'active'], ['decide', 'pending']],
     changed: ['src/app/search/search.component.ts', 'src/app/search/query.service.ts'],
-    // The agent's action plan for this run.
     plan: [
       { t: 'Classify commit · feat → targeted generation', s: 'done' },
       { t: 'Map blast radius · search.component.ts → /search', s: 'done' },
@@ -64,7 +63,6 @@ window.QayabaMockData = (function () {
       { t: 'Oracle · mutation / fault-injection', s: 'pending' },
       { t: 'Decide · PR with auto-merge, or Issue', s: 'pending' },
     ],
-    // The spec the agent is working on right now.
     currentTest: {
       file: 'e2e/search/debounce.spec.ts', phase: 'executing', specIndex: 3,
       code: [
@@ -86,7 +84,6 @@ window.QayabaMockData = (function () {
         { name: 'renders empty-state for zero results', s: 'pending' },
       ],
     },
-    // Log already emitted.
     liveLog: [
       ['$', 'qayaba qa --app web-app --sha aa17c93'],
       ['›', 'classify · feat → generate targeted'],
@@ -99,7 +96,6 @@ window.QayabaMockData = (function () {
       ['✓', 'execute · cancels in-flight request · 338ms'],
       ['›', 'execute · shows spinner while pending …'],
     ],
-    // Lines the live view streams in next (the future of this run).
     liveQueue: [
       ['✓', 'execute · shows spinner while pending · 274ms'],
       ['›', 'execute · renders empty-state for zero results …'],
@@ -217,11 +213,11 @@ window.QayabaMockData = (function () {
     },
   ];
 
-  // Headline counters.
   const stats = { runs7d: 128, passRate: 0.86, specsAdded: 41, openIssues: 3, watching: 3 };
 
-  // Multi-agent coordination (see /api/v1/coordination-events): per-run delegation samples for
-  // a representative subset (2 runs) + the fleet block the SIGNALS panel reads.
+  /* Multi-agent coordination (see /api/v1/coordination-events): per-run delegation samples for
+     a representative subset (2 runs) + the fleet block the SIGNALS panel reads.
+   */
   const coordinationEvents = [
     { runId: 'r-1841', kind: 'proposal', action: 'delegate', capability: 'sidekick-standard', reason: 'change analysis suggests sidekick (fileThreshold=8)', at: Date.now() - 240000 },
     { runId: 'r-1841', kind: 'delegation', action: 'delegate', capability: 'sidekick-standard', reason: 'sidekick status=completed-with-concerns', delegationId: 'r-1841-pre-generate', attempt: 1, durationMs: 69000, at: Date.now() - 180000 },
@@ -233,8 +229,6 @@ window.QayabaMockData = (function () {
     escalationRate: 0.2, contractFailureRate: 0.2, avgDelegationMs: 96000,
   };
 
-
-  // Live engine telemetry — the Prometheus gauges + health poller from the engine.
   const live = {
     status: 'operational',
     health: { ok: true, last: '38s ago', interval: '60s' },
@@ -244,7 +238,6 @@ window.QayabaMockData = (function () {
     webhook: 'github · verified',
   };
 
-  // Verdict distribution over the last 7 days. Order = severity narrative.
   const verdictMix = [
     { v: 'pass', n: 96 },
     { v: 'fail', n: 14 },
@@ -253,13 +246,11 @@ window.QayabaMockData = (function () {
     { v: 'skipped', n: 7 },
   ];
 
-  // 14-point daily trends.
   const trend = {
     passRate: [0.79, 0.81, 0.80, 0.84, 0.83, 0.85, 0.82, 0.86, 0.85, 0.88, 0.86, 0.87, 0.84, 0.86],
     specs: [2, 4, 3, 5, 6, 4, 7, 5, 8, 6, 9, 7, 4, 11],
   };
 
-  // Execution-mode breakdown (7d).
   const modes = [
     { m: 'diff', n: 92, note: 'webhook · per commit' },
     { m: 'complete', n: 21, note: 'coverage gaps' },
@@ -268,7 +259,6 @@ window.QayabaMockData = (function () {
     { m: 'code', n: 4, note: 'backend suite' },
   ];
 
-  // The learning flywheel — five ledger components.
   const flywheel = [
     { id: 'labeler', label: 'labeler', icon: 'tags', stat: '128', unit: 'runs classed', note: 'no LLM · error class' },
     { id: 'oracle', label: 'oracle', icon: 'shield-check', stat: '0.78', unit: 'mean valueScore', note: 'mutation · fault-inject' },
@@ -277,7 +267,6 @@ window.QayabaMockData = (function () {
     { id: 'curriculum', label: 'curriculum', icon: 'graduation-cap', stat: '9', unit: 'archetypes proven', note: 'injected into prompts' },
   ];
 
-  // Promoted rules in the ledger.
   const rules = [
     { id: 'R-204', app: 'web-app', conf: 'high', source: 'oracle', hits: 6, text: 'Map tiles lazy-load — assert pins after networkidle, not on load.' },
     { id: 'R-198', app: 'web-app', conf: 'high', source: 'oracle', hits: 9, text: 'Login posts to Keycloak; wait for redirect to /dashboard before asserting.' },
@@ -285,7 +274,7 @@ window.QayabaMockData = (function () {
     { id: 'R-176', app: 'portfolio', conf: 'med', source: 'prevention', hits: 3, text: 'Astro bundles assets — URL→source coverage unmeasurable, report unknown.' },
   ];
 
-  // The four-layer quality gate. Layers 1–2 block; 3 blocks only on enforce; 4 never blocks.
+  /* The four-layer quality gate. Layers 1–2 block; 3 blocks only on enforce; 4 never blocks. */
   const gates = [
     { n: 1, label: 'static analysis', icon: 'file-check-2', mode: 'blocks', pass: 128, of: 128, desc: 'compiles · lint · valid test list · manifest' },
     { n: 2, label: 'reviewer ai', icon: 'scan-eye', mode: 'blocks', pass: 119, of: 128, desc: 'real value · asserts · robust selectors' },
@@ -293,9 +282,10 @@ window.QayabaMockData = (function () {
     { n: 4, label: 'mutation / oracle', icon: 'bug', mode: 'signal', pass: 71, of: 96, desc: 'detects injected bugs → valueScore' },
   ];
 
-  // ── Per-app health history ─────────────────────────────────────────────
-  // Each checkpoint = one run. Fields:
-  //  id, time, verdict, health(0-100), passRate, specs, coverage%, oracle, flaky, issues, durSec
+  /* ── Per-app health history ─────────────────────────────────────────────
+     Each checkpoint = one run. Fields:
+     id, time, verdict, health(0-100), passRate, specs, coverage%, oracle, flaky, issues, durSec
+   */
   function ck(a) {
     return { id: a[0], sha: a[1], time: a[2], verdict: a[3], health: a[4], passRate: a[5],
       specs: a[6], coverage: a[7], oracle: a[8], flaky: a[9], issues: a[10], durSec: a[11] };
@@ -330,7 +320,6 @@ window.QayabaMockData = (function () {
     ].map(ck),
   };
 
-  // ── The committed suite (shared by Suite view + App detail) ────────────
   const suite = [
     { file: 'e2e/search/debounce.spec.ts', app: 'web-app', status: 'pass', n: 4, coverage: 'covered' },
     { file: 'e2e/map/cluster-pins.spec.ts', app: 'web-app', status: 'pass', n: 3, coverage: 'covered' },
@@ -343,7 +332,6 @@ window.QayabaMockData = (function () {
     { file: 'e2e/home/hero.spec.ts', app: 'portfolio', status: 'pass', n: 2, coverage: 'unknown' },
   ];
 
-  // ── Engram · episodic memory (shared) ──────────────────────────────────
   const engram = [
     { app: 'web-app', text: 'Login form posts to Keycloak; wait for redirect to /dashboard before asserting.' },
     { app: 'web-app', text: 'Map tiles lazy-load — assert pins after networkidle, not on load.' },
@@ -353,7 +341,6 @@ window.QayabaMockData = (function () {
     { app: 'portfolio', text: 'Astro bundles assets — URL→source coverage unmeasurable, report unknown.' },
   ];
 
-  // ── Fleet signals · period-over-period (ground-truth first) ────────────
   const signals = {
     window: 'last 64 runs', prevWindow: 'prev 64',
     valueOracle: { v: 0.78, prev: 0.71, baseline: 0.49, series: [0.68, 0.70, 0.69, 0.72, 0.74, 0.73, 0.76, 0.78] },
@@ -364,13 +351,11 @@ window.QayabaMockData = (function () {
     issuesOpen: { v: 3, prev: 5, series: [5, 4, 5, 4, 3, 4, 3, 3] },
   };
 
-  // Where the guardrails fire — fleet ErrorClass distribution.
   const fleetErrorClasses = [
     ['timing-flake', 9], ['assertion-trivial', 6], ['selector-fragile', 6],
     ['auth-flow', 4], ['env-drift', 3], ['coverage-miss', 3],
   ];
 
-  // ── Learning ledger · governed rules, archetypes, audit ────────────────
   const ledger = {
     rules: [
       { id: 'R-204', status: 'active', trigger: 'lazy-loaded content on /map', action: 'await networkidle before asserting pins', errorClass: 'timing-flake', confidence: 'high', usage: 6, outcomes: 6, success: 1.0 },
@@ -395,7 +380,6 @@ window.QayabaMockData = (function () {
     ],
   };
 
-  // ── Suite health / integrity (the trust page) ──────────────────────────
   const integrity = {
     flakyRate: { v: 0.055, prev: 0.070, series: [0.08, 0.07, 0.09, 0.06, 0.05, 0.06, 0.055] },
     infraErrorRate: { v: 0.031, prev: 0.020, series: [0.02, 0.03, 0.02, 0.04, 0.03, 0.03, 0.031] },
@@ -411,7 +395,6 @@ window.QayabaMockData = (function () {
     coordination: coordinationSignals,
   };
 
-  // ── Reports · ad-hoc generator (NL templates, interestingness-ranked) ──
   const reports = {
     templates: [
       { id: 'exec', name: 'Executive value summary', desc: 'Ground-truth value and trust, period-over-period, for the team under test.', blocks: 5, schedule: 'weekly · Slack', channel: 'slack' },

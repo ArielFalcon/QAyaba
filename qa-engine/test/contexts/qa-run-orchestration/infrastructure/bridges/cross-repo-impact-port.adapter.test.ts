@@ -1,17 +1,10 @@
-// qa-engine/test/contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.test.ts
-//
-// Slice C (structural-signals-expansion, design §3.3/§3.4): CrossRepoImpactPortAdapter — the
-// advisory cross-repo impact composition. Fake mirror registry + fake SandboxedBinaryRunner + fake
-// VCS/CodeGraph collaborators, proving the design §3.4 algorithm end to end: the cheap pre-filter
-// (step 0), the empty-links guard (step 0.5), the mirror-freshness fetch (step 1.5, MUST fire before
-// the diff is read), tier-1 contract-file matching (step 3), tier-2 graph-expanded symbol matching
-// with Result narrowing (step 4), and every fail-open branch (step 5 + thrown-exception guards).
-//
-// C-R1: fetch-before-diff-read ordering.
-// C-R2: tier-1 + tier-2 matching, proper-subset output, correct tier tags.
-// C-R3: every fail-open branch (absent mirror, unindexed mirror, empty diff, no matches, thrown
-//       exceptions at any collaborator boundary).
-// C-R4: the cheap pre-filter (FIX-6) — zero mirror/VCS/code-graph calls when no link matches.
+/* Advisory cross-repo impact composition. Fake mirror registry + fake SandboxedBinaryRunner + fake
+   VCS/CodeGraph collaborators, proving the algorithm end to end: the cheap pre-filter, the
+   empty-links guard, the mirror-freshness fetch (MUST fire before the diff is read), tier-1
+   contract-file matching, tier-2 graph-expanded symbol matching with Result narrowing, and every
+   fail-open branch (absent mirror, unindexed mirror, empty diff, no matches, thrown exceptions).
+   Zero mirror/VCS/code-graph calls when no link matches.
+ */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
@@ -27,10 +20,11 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 
-// ── shared fixtures ─────────────────────────────────────────────────────────────────────────────
-// A REAL on-disk temp directory, not a mock path — the mirror-existence check is real (existsSync),
-// matching service-links-port.adapter.test.ts's own "stay honest about what existsSync actually
-// sees" precedent.
+/* ── shared fixtures ─────────────────────────────────────────────────────────────────────────────
+   A REAL on-disk temp directory, not a mock path — the mirror-existence check is real (existsSync),
+   matching service-links-port.adapter.test.ts's own "stay honest about what existsSync actually
+   sees" precedent.
+ */
 const TRIGGER_REPO = "ArielFalcon/ms-name-restaurants";
 const TRIGGER_SHA = "abc1234abc1234abc1234abc1234abc1234abcd";
 let tmpRoot: string;
@@ -123,9 +117,10 @@ function makeAdapter(opts: {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// C-R1: mirror-freshness fetch fires BEFORE the diff/blastRadius read (design C.4 step 1.5).
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   C-R1: mirror-freshness fetch fires BEFORE the diff/blastRadius read (design C.4 step 1.5).
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () => {
   test("git fetch origin is invoked (via the shared runner + scrubEnv) BEFORE blastRadius reads the diff", async () => {
     const order: string[] = [];
@@ -154,9 +149,10 @@ describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () =
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// C-R2: tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   C-R2: tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
   test("a diff touching the OpenAPI contract file produces a tier-1 (contract-file) match", async () => {
     const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/resources/api-definition.yaml"]);
@@ -219,9 +215,10 @@ describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// C-R3: every fail-open branch.
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   C-R3: every fail-open branch.
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
   test("an absent mirror dir (existsSync false) degrades to null", async () => {
     const adapter = makeAdapter({
@@ -282,7 +279,7 @@ describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
   });
 
   test("blastRadius throwing (bad/unknown sha) is caught and degrades to null, never propagates", async () => {
-    const vcs = new FakeVcs(null); // null blast => FakeVcs.blastRadius throws "unknown revision"
+    const vcs = new FakeVcs(null); /* null blast => FakeVcs.blastRadius throws "unknown revision" */
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: MIRROR_DIR }),
       vcs,
@@ -333,9 +330,10 @@ describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════════════════════════
-// C-R4: the cheap pre-filter (FIX-6) — zero collaborator calls when no link matches the trigger repo.
-// ════════════════════════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   C-R4: the cheap pre-filter (FIX-6) — zero collaborator calls when no link matches the trigger repo.
+   ════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
   test("when no resolvedLinks entry has to.repo === triggerRepo, resolve() returns null WITHOUT calling mirrors/VCS/code-graph at all", async () => {
     let mirrorDirCalls = 0;
@@ -358,7 +356,7 @@ describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
       runner,
     });
 
-    // TRIGGER_REPO does not match either link's `to.repo` (both target OTHER services).
+    /* TRIGGER_REPO does not match either link's `to.repo` (both target OTHER services). */
     const result = await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [nonMatchingLink]);
 
     assert.equal(result, null, "no-match must degrade to null");

@@ -1,15 +1,17 @@
-// Mirror-cache pruning. The mirrors volume holds exactly ONE working copy per
-// repo (named by its slug, see repo-mirror.ts), each with a full node_modules —
-// so an offboarded app leaves an orphaned mirror behind forever, and a long-idle
-// mirror pins disk for nothing. This module deletes:
-//   (a) mirrors whose repo is no longer referenced by any configured app
-//       (neither as the primary `repo` nor in `services[].repo`), and
-//   (b) configured mirrors not modified for more than PRUNE_MAX_AGE_MS
-//       (the next run simply re-clones — an accepted cost).
-// It NEVER deletes a mirror belonging to the currently-running job, nor the
-// protected self-maintenance mirror. All side effects are injected
-// (MirrorPruneDeps) so every branch is unit-testable; defaultMirrorPruneDeps
-// wires the real fs, config loader and run history.
+/*
+ * Mirror-cache pruning. The mirrors volume holds exactly ONE working copy per
+ * repo (named by its slug, see repo-mirror.ts), each with a full node_modules —
+ * so an offboarded app leaves an orphaned mirror behind forever, and a long-idle
+ * mirror pins disk for nothing. This module deletes:
+ * (a) mirrors whose repo is no longer referenced by any configured app
+ * (neither as the primary `repo` nor in `services[].repo`), and
+ * (b) configured mirrors not modified for more than PRUNE_MAX_AGE_MS
+ * (the next run simply re-clones — an accepted cost).
+ * It NEVER deletes a mirror belonging to the currently-running job, nor the
+ * protected self-maintenance mirror. All side effects are injected
+ * (MirrorPruneDeps) so every branch is unit-testable; defaultMirrorPruneDeps
+ * wires the real fs, config loader and run history.
+ */
 
 import { join } from "node:path";
 import { readdirSync, statSync, rmSync } from "node:fs";
@@ -17,19 +19,19 @@ import { loadAppConfig, listAppConfigs } from "../orchestrator/config-loader";
 import { currentRun, getRecord } from "./history";
 import { logJson } from "../integrations/logger";
 
-export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-// Mirrors that are never pruned (the maintainer's own working copy).
+export const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;  /* 7 days */
+/* Mirrors that are never pruned (the maintainer's own working copy). */
 export const PROTECTED_MIRROR_NAMES = new Set(["qayaba-self"]);
 
-// Directory name of a repo's mirror under the mirrors root (see repo-mirror.ts).
+/* Directory name of a repo's mirror under the mirrors root (see repo-mirror.ts). */
 export function repoSlug(repo: string): string {
   return repo.replaceAll("/", "__");
 }
 
 export interface MirrorEntry {
-  name: string; // directory name (the repo slug)
-  path: string; // absolute path
-  mtimeMs: number; // last modification time
+  name: string;  /* directory name (the repo slug) */
+  path: string;  /* absolute path */
+  mtimeMs: number;  /* last modification time */
 }
 
 export interface MirrorPruneDeps {
@@ -47,7 +49,7 @@ export interface MirrorPruneDeps {
 }
 
 export interface MirrorPruneResult {
-  deleted: string[]; // mirror names removed
+  deleted: string[];  /* mirror names removed */
   freedBytes: number;
 }
 
@@ -68,7 +70,7 @@ export function pruneMirrors(deps: MirrorPruneDeps): MirrorPruneResult {
   let freedBytes = 0;
   for (const entry of entries) {
     if (PROTECTED_MIRROR_NAMES.has(entry.name)) continue;
-    if (active.has(entry.name)) continue; // never touch the running job's mirrors
+    if (active.has(entry.name)) continue;  /* never touch the running job's mirrors */
     const isOrphan = !configured.has(entry.name);
     const isStale = now - entry.mtimeMs > PRUNE_MAX_AGE_MS;
     if (!isOrphan && !isStale) continue;
@@ -96,10 +98,12 @@ export function pruneMirrors(deps: MirrorPruneDeps): MirrorPruneResult {
   return { deleted, freedBytes };
 }
 
-// ── Active-run guard ─────────────────────────────────────────────────────────
-// The repos a prune pass must never touch: those of the run history says is
-// running, plus — defensively, since DB and queue can be momentarily out of
-// sync — those of the run the queue says it is executing.
+/*
+ * ── Active-run guard ─────────────────────────────────────────────────────────
+ * The repos a prune pass must never touch: those of the run history says is
+ * running, plus — defensively, since DB and queue can be momentarily out of
+ * sync — those of the run the queue says it is executing.
+ */
 
 export interface ActiveRunLookups {
   /** The running/enqueued record from history (history.currentRun). */
@@ -128,7 +132,7 @@ export function computeActiveRepoSlugs(lookups: ActiveRunLookups): Set<string> {
   return slugs;
 }
 
-// ── Real wiring ──────────────────────────────────────────────────────────────
+/* ── Real wiring ────────────────────────────────────────────────────────────── */
 
 export function getDirectorySize(dir: string): number {
   let size = 0;
@@ -152,8 +156,10 @@ export function getDirectorySize(dir: string): number {
   return size;
 }
 
-// queueCurrentRunId is the only piece the module cannot reach itself (the
-// JobQueue instance lives in index.ts), so the caller injects it.
+/*
+ * queueCurrentRunId is the only piece the module cannot reach itself (the
+ * JobQueue instance lives in index.ts), so the caller injects it.
+ */
 export function defaultMirrorPruneDeps(queueCurrentRunId: () => string | null): MirrorPruneDeps {
   return {
     mirrorRoot: process.env.MIRROR_DIR ?? join(process.cwd(), ".mirrors"),

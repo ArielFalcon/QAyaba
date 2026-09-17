@@ -1,4 +1,3 @@
-// test/contexts/app-catalog/domain/app.aggregate.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { App } from "@contexts/app-catalog/domain/app.aggregate.ts";
@@ -15,7 +14,7 @@ test("a code app does NOT require dev and rejects services", () => {
 });
 
 test("service repo must not equal the primary (distinct error message)", () => {
-  // FIX 13c: two distinct invariants → two distinct messages so operators can diagnose the violation.
+  /* two distinct invariants → two distinct messages so operators can diagnose the violation. */
   assert.throws(() => App.fromConfig({ ...e2e, services: [{ repo: "org/portfolio" }] }), /circular dependency/);
 });
 test("service repos must be unique among themselves (distinct error message)", () => {

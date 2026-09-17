@@ -34,7 +34,6 @@ function outcome(p: {
 }
 
 test("toTrendsView splits current vs previous window and computes the coverage trend", () => {
-  // newest-first; window=2 → current = first 2, previous = next 2.
   const outcomes = [
     outcome({ verdict: "pass", coverageRatio: 0.8 }),
     outcome({ verdict: "pass", coverageRatio: 0.6 }),
@@ -45,10 +44,10 @@ test("toTrendsView splits current vs previous window and computes the coverage t
   assert.equal(v.window.current, 2);
   assert.equal(v.window.previous, 2);
   assert.equal(v.coverage.measured, true);
-  assert.equal(v.coverage.ratio, 0.7); // (0.8 + 0.6) / 2
-  assert.equal(v.coverage.previousRatio, 0.3); // (0.4 + 0.2) / 2
+  assert.equal(v.coverage.ratio, 0.7);
+  assert.equal(v.coverage.previousRatio, 0.3);
   assert.equal(v.coverage.minRatio, 0.7);
-  assert.deepEqual(v.coverage.series, [0.6, 0.8]); // oldest → newest
+  assert.deepEqual(v.coverage.series, [0.6, 0.8]);
 });
 
 test("toTrendsView aggregates verdict mix, flaky rate and error classes (current window)", () => {
@@ -62,7 +61,7 @@ test("toTrendsView aggregates verdict mix, flaky rate and error classes (current
   assert.equal(v.verdictMix["flaky"], 1);
   assert.equal(v.verdictMix["fail"], 1);
   assert.equal(v.flaky.rate, round(1 / 3));
-  assert.equal(v.reviewerPassRate, round(1 / 3)); // pass / (pass + flaky + fail)
+  assert.equal(v.reviewerPassRate, round(1 / 3)); /* pass / (pass + flaky + fail) */
   assert.equal(v.errorClasses.length, 1);
   assert.equal(v.errorClasses[0]?.errorClass, "E-EXEC-FAIL");
   assert.equal(v.errorClasses[0]?.count, 1);
@@ -80,18 +79,19 @@ test("toTrendsView computes suite duration and per-flow stability from records",
     rec([{ name: "a", status: "fail", flow: "login", durationMs: 50 }]),
   ];
   const v = toTrendsView({ app: "a", outcomes: [], records, now: "2026-06-14T00:00:00Z", window: 2 });
-  assert.equal(v.duration.avgMs, 175); // run1 = 100+200=300, run2 = 50 → mean 175
+  assert.equal(v.duration.avgMs, 175); /* run1 = 100+200=300, run2 = 50 → mean 175 */
   assert.equal(v.duration.runs, 2);
   const login = v.flows.find((f) => f.flow === "login");
   assert.equal(login?.flaky, 1);
   assert.equal(login?.fail, 1);
-  assert.ok(!v.flows.some((f) => f.flow === "checkout")); // a stable flow is not surfaced
+  assert.ok(!v.flows.some((f) => f.flow === "checkout")); /* a stable flow is not surfaced */
 });
 
 test("toTrendsView flaky.runs counts only quality verdicts and flaky.rate uses that denominator", () => {
-  // A mixed window: pass + flaky are quality; skipped + infra-error are excluded. flaky.runs must
-  // be the quality count (2), and flaky.rate must divide by it (1 flaky / 2 quality = 0.5), NOT by
-  // the full window of 4.
+  /* A mixed window: pass + flaky are quality; skipped + infra-error are excluded. flaky.runs must
+     be the quality count (2), and flaky.rate must divide by it (1 flaky / 2 quality = 0.5), NOT by
+     the full window of 4.
+   */
   const outcomes = [
     outcome({ verdict: "pass" }),
     outcome({ verdict: "flaky", flaky: true }),
@@ -99,8 +99,8 @@ test("toTrendsView flaky.runs counts only quality verdicts and flaky.rate uses t
     outcome({ verdict: "infra-error" }),
   ];
   const v = toTrendsView({ app: "a", outcomes, now: "2026-06-14T00:00:00Z", window: 4 });
-  assert.equal(v.flaky.runs, 2); // quality count: skipped + infra-error excluded
-  assert.equal(v.flaky.rate, 0.5); // 1 flaky / 2 quality, NOT 1 / 4
+  assert.equal(v.flaky.runs, 2); /* quality count: skipped + infra-error excluded */
+  assert.equal(v.flaky.rate, 0.5); /* 1 flaky / 2 quality, NOT 1 / 4 */
 });
 
 test("toTrendsView reports coverage as not measured when no run carried a ratio", () => {

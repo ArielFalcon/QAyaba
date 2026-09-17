@@ -1,45 +1,41 @@
-// Tripwire (post-ADR-001, Phase 3.2; re-grounded WS8.1): lock the agent's capability surface so
-// that WIDENING it requires a conscious update here. The ADR-001 evaluation rejected exposing the
-// orchestrator as an MCP server, but kept its best idea: "the agent only reads + proposes". The two
-// dangerous ways that erodes silently are (a) adding an MCP server that can execute the
-// authoritative test suite or reach the orchestrator's write path, and (b) flipping a read-only
-// judge/assistant/reflector to writable or MCP-capable. Both should force a pause.
-//
-// WS8.1 correction: the PREVIOUS version of this test asserted against a per-agent `mcp: string[]`
-// array and a `steps` field. Neither exists in the OpenCode 1.17.7 SDK's `AgentConfig` — verified
-// against `node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts`, which declares `tools?:
-// {[key:string]: boolean}`, `maxSteps?: number`, `permission?`, `mode?`, and NO `mcp` key. The old
-// test was certifying a security posture the runtime never enforced (the fictional fields were
-// silently ignored by OpenCode). This version:
-//   (a) pins the config against the SDK's real `AgentConfig` type at compile time (below);
-//   (b) asserts the fiction is gone (no per-agent `mcp` arrays, no `steps` keys);
-//   (c) asserts the REAL denial mechanism — `tools.<key>: false` — covers every MCP toolset for
-//       read-only/tool-less roles.
-//
-// Empirical grounding (done in-slice, not assumed): started a real `opencode serve` (v1.17.13,
-// closest available to the pinned 1.17.7) against an isolated probe config and used
-// `opencode debug agent <name>` to inspect the RESOLVED agent. Confirmed a controlled A/B: an agent
-// with `"engram*": false` in `tools` resolves to a `{ permission: "engram*", action: "deny",
-// pattern: "*" }` rule; an otherwise-identical agent without that key has no such rule. So the
-// `tools` map's keys are NOT restricted to the built-in tool names — arbitrary string keys
-// (including glob-shaped ones like `engram*`) compile into real permission-deny rules. Separately,
-// probing the real MCP servers directly (raw JSON-RPC `tools/list` against `engram mcp
-// --tools=agent`, and against `npx @playwright/mcp`) showed NEITHER server's tools are prefixed
-// with its own server name: engram exposes `mem_save`, `mem_search`, etc.; Playwright MCP exposes
-// `browser_navigate`, `browser_click`, etc. Serena's tool names are documented in this repo's own
-// prompts (`agents/AGENTS.md`, `agents/agent/*.md`) as `find_symbol`, `get_symbols_overview`,
-// `find_referencing_symbols`, `activate_project`, etc. — same unprefixed convention. Whether
-// OpenCode internally re-namespaces MCP tool IDs with the server name before matching against
-// `tools`/`permission` could not be settled fully offline (no MCP-tool listing surfaced through the
-// static `/experimental/tool` or `debug agent` resolution — only a live model turn would show it,
-// which this probe deliberately avoided). Per the plan's explicit fallback instruction, this config
-// uses BELT-AND-BRACES: both the wildcard key (`"engram*": false`, verified to compile) AND the
-// enumerated real per-tool names (`mem_save: false`, `browser_navigate: false`, `find_symbol:
-// false`, etc.) — harmless if one form turns out redundant, safe if only one form is honored.
-//
-// If you trip this test, you are changing the security posture — update the allowlist
-// deliberately, and confirm the new capability cannot write a watched repo or trigger the
-// authoritative Filter-C run (which is the orchestrator's job, never the agent's).
+/* that WIDENING it requires a conscious update here. The ADR-001 evaluation rejected exposing the
+   orchestrator as an MCP server, but kept its best idea: "the agent only reads + proposes". The two
+   dangerous ways that erodes silently are (a) adding an MCP server that can execute the
+   authoritative test suite or reach the orchestrator's write path, and (b) flipping a read-only
+   judge/assistant/reflector to writable or MCP-capable. Both should force a pause.
+   array and a `steps` field. Neither exists in the OpenCode 1.17.7 SDK's `AgentConfig` — verified
+   against `node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts`, which declares `tools?:
+   {[key:string]: boolean}`, `maxSteps?: number`, `permission?`, `mode?`, and NO `mcp` key. The old
+   test was certifying a security posture the runtime never enforced (the fictional fields were
+   silently ignored by OpenCode). This version:
+   (a) pins the config against the SDK's real `AgentConfig` type at compile time (below);
+   (b) asserts the fiction is gone (no per-agent `mcp` arrays, no `steps` keys);
+   (c) asserts the REAL denial mechanism — `tools.<key>: false` — covers every MCP toolset for
+   read-only/tool-less roles.
+   Empirical grounding (done in-slice, not assumed): started a real `opencode serve` (v1.17.13,
+   closest available to the pinned 1.17.7) against an isolated probe config and used
+   `opencode debug agent <name>` to inspect the RESOLVED agent. Confirmed a controlled A/B: an agent
+   with `"engram*": false` in `tools` resolves to a `{ permission: "engram*", action: "deny",
+   pattern: "*" }` rule; an otherwise-identical agent without that key has no such rule. So the
+   `tools` map's keys are NOT restricted to the built-in tool names — arbitrary string keys
+   (including glob-shaped ones like `engram*`) compile into real permission-deny rules. Separately,
+   probing the real MCP servers directly (raw JSON-RPC `tools/list` against `engram mcp
+   --tools=agent`, and against `npx @playwright/mcp`) showed NEITHER server's tools are prefixed
+   with its own server name: engram exposes `mem_save`, `mem_search`, etc.; Playwright MCP exposes
+   `browser_navigate`, `browser_click`, etc. Serena's tool names are documented in this repo's own
+   prompts (`agents/AGENTS.md`, `agents/agent/*.md`) as `find_symbol`, `get_symbols_overview`,
+   `find_referencing_symbols`, `activate_project`, etc. — same unprefixed convention. Whether
+   OpenCode internally re-namespaces MCP tool IDs with the server name before matching against
+   `tools`/`permission` could not be settled fully offline (no MCP-tool listing surfaced through the
+   static `/experimental/tool` or `debug agent` resolution — only a live model turn would show it,
+   which this probe deliberately avoided). Per the plan's explicit fallback instruction, this config
+   uses BELT-AND-BRACES: both the wildcard key (`"engram*": false`, verified to compile) AND the
+   enumerated real per-tool names (`mem_save: false`, `browser_navigate: false`, `find_symbol:
+   false`, etc.) — harmless if one form turns out redundant, safe if only one form is honored.
+   If you trip this test, you are changing the security posture — update the allowlist
+   deliberately, and confirm the new capability cannot write a watched repo or trigger the
+   authoritative Filter-C run (which is the orchestrator's job, never the agent's).
+ */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -50,16 +46,18 @@ import { ROLE_TO_OPENCODE_AGENT } from "../agent-runtime/opencode-strategy";
 import { capabilitiesForRole } from "../agent-runtime/types";
 import type { AgentRole } from "../agent-runtime/types";
 
-// The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
-// authoritative test execution or carries a git-write capability:
-//   serena     — read-only code navigation
-//   playwright — LIVE DEV *exploration* while authoring (NOT the authoritative suite run)
-//   engram     — persistent memory
+/* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
+   authoritative test execution or carries a git-write capability:
+   serena — read-only code navigation
+   playwright — LIVE DEV *exploration* while authoring (NOT the authoritative suite run)
+   engram — persistent memory
+ */
 const MCP_ALLOWLIST = new Set(["serena", "engram", "playwright"]);
 
-// Real, unprefixed MCP tool names per server (empirically confirmed for engram/playwright via raw
-// JSON-RPC `tools/list`; sourced from this repo's own Serena prompt references for serena — see the
-// header comment). These are the enumeration half of the belt-and-braces denial.
+/* Real, unprefixed MCP tool names per server (empirically confirmed for engram/playwright via raw
+   JSON-RPC `tools/list`; sourced from this repo's own Serena prompt references for serena — see the
+   header comment). These are the enumeration half of the belt-and-braces denial.
+ */
 const ENGRAM_TOOL_NAMES = [
   "mem_save",
   "mem_search",
@@ -107,14 +105,15 @@ const PLAYWRIGHT_TOOL_NAMES = [
   "browser_wait_for",
 ];
 
-// Grounding honesty for this list: Serena could NOT be probed offline (not installed on this host;
-// it lives only in the agents Docker image). Only the first four names — activate_project,
-// find_symbol, find_referencing_symbols, get_symbols_overview — are grounded in this repo's own
-// prompt files (agents/AGENTS.md, agents/agent/qa-explorer.md, qa-proposer.md, qa-generator.md).
-// The remaining names are best-effort from upstream Serena documentation and were NOT verified
-// against the pinned server. The wildcard "serena*" key (empirically verified to compile into a
-// permission-deny rule — see the header comment) is the actual load-bearing denial; this
-// enumeration is the harmless redundant half of the belt-and-braces.
+/* Grounding honesty for this list: Serena could NOT be probed offline (not installed on this host;
+   it lives only in the agents Docker image). Only the first four names — activate_project,
+   find_symbol, find_referencing_symbols, get_symbols_overview — are grounded in this repo's own
+   prompt files (agents/AGENTS.md, agents/agent/qa-explorer.md, qa-proposer.md, qa-generator.md).
+   The remaining names are best-effort from upstream Serena documentation and were NOT verified
+   against the pinned server. The wildcard "serena*" key (empirically verified to compile into a
+   permission-deny rule — see the header comment) is the actual load-bearing denial; this
+   enumeration is the harmless redundant half of the belt-and-braces.
+ */
 const SERENA_TOOL_NAMES = [
   "activate_project",
   "find_symbol",
@@ -181,17 +180,19 @@ function agentTools(agent: unknown): Record<string, unknown> {
   return tools && typeof tools === "object" ? (tools as Record<string, unknown>) : {};
 }
 
-// Type-level tripwire (WS8.1c): every declared agent must structurally satisfy the SDK's REAL
-// AgentConfig type. This forces a compile error the moment someone re-introduces a field the SDK
-// does not recognize as a KNOWN key with the wrong shape (e.g. `mode: "invalid-value"`), or a wrong
-// type for a known key (e.g. `maxSteps: "50"` as a string). Note `AgentConfig` carries a permissive
-// index signature (`[key: string]: unknown | ...`), so this does NOT catch unknown extra keys by
-// itself — that is what the runtime-shape assertions below are for.
+/* Type-level tripwire: every declared agent must structurally satisfy the SDK's REAL
+   AgentConfig type. This forces a compile error the moment someone re-introduces a field the SDK
+   does not recognize as a KNOWN key with the wrong shape (e.g. `mode: "invalid-value"`), or a wrong
+   type for a known key (e.g. `maxSteps: "50"` as a string). Note `AgentConfig` carries a permissive
+   index signature (`[key: string]: unknown | ...`), so this does NOT catch unknown extra keys by
+   itself — that is what the runtime-shape assertions below are for.
+ */
 function assertAgentConfigShape(agents: Record<string, unknown>): void {
   for (const [name, cfg] of Object.entries(agents)) {
     const typed: AgentConfig = cfg as AgentConfig;
-    // Touch a couple of known fields so this is a real assignment-compatibility check, not a
-    // no-op cast that the compiler could elide.
+    /* Touch a couple of known fields so this is a real assignment-compatibility check, not a
+       no-op cast that the compiler could elide.
+     */
     void typed.model;
     void typed.mode;
     void typed.maxSteps;
@@ -255,7 +256,7 @@ test("no agent's tools map denies with a bare global wildcard (would kill built-
 
 test("every declared MCP server is on the agent allowlist (catches a new tool surface)", () => {
   const { mcpServers } = loadAgentConfig();
-  // Meaningfulness guard: there is a real, non-empty MCP block to check.
+  /* Meaningfulness guard: there is a real, non-empty MCP block to check. */
   assert.ok(mcpServers.length > 0, "expected opencode.json to declare MCP servers");
   for (const server of mcpServers) {
     assert.ok(
@@ -266,10 +267,11 @@ test("every declared MCP server is on the agent allowlist (catches a new tool su
   }
 });
 
-// Belt-and-braces denial check (WS8.1): for a role that must NOT reach a given MCP server, both the
-// wildcard key (`"<server>*": false`) AND every enumerated real tool name for that server must be
-// explicitly denied (`false`) in the agent's `tools` map. This is deliberately redundant — whichever
-// mechanism OpenCode actually honors at runtime, the deny is present.
+/* Belt-and-braces denial check: for a role that must NOT reach a given MCP server, both the
+   wildcard key (`"<server>*": false`) AND every enumerated real tool name for that server must be
+   explicitly denied (`false`) in the agent's `tools` map. This is deliberately redundant — whichever
+   mechanism OpenCode actually honors at runtime, the deny is present.
+ */
 function assertMcpServerDenied(agentName: string, tools: Record<string, unknown>, server: string): void {
   const wildcardKey = `${server}*`;
   assert.equal(
@@ -311,16 +313,18 @@ test("the reviewer is a non-mutating judge with NO MCP access (independence + re
   const reviewer = agents["qa-reviewer"];
   assert.ok(reviewer, "expected a qa-reviewer agent");
   const tools = agentTools(reviewer);
-  // Meaningfulness guard: an absent `tools` block would make every read-only check below
-  // pass vacuously (and may inherit permissive defaults). Require it to be explicit.
+  /* Meaningfulness guard: an absent `tools` block would make every read-only check below
+     pass vacuously (and may inherit permissive defaults). Require it to be explicit.
+   */
   assert.ok(Object.keys(tools).length > 0, "qa-reviewer must declare an explicit tools block");
-  // The reviewer must never write/edit/bash: it judges the artifact and emits a verdict.
-  // A writable reviewer could "fix" what it is judging, destroying the independence that
-  // makes its verdict trustworthy.
+  /* The reviewer must never write/edit/bash: it judges the artifact and emits a verdict.
+     A writable reviewer could "fix" what it is judging, destroying the independence that
+     makes its verdict trustworthy.
+   */
   assert.notEqual(tools.write, true, "qa-reviewer must not have write");
   assert.notEqual(tools.edit, true, "qa-reviewer must not have edit");
   assert.notEqual(tools.bash, true, "qa-reviewer must not have bash");
-  // WS8.1: independence must be runtime-enforced, not prompt etiquette — deny every MCP toolset.
+  /* independence must be runtime-enforced, not prompt etiquette — deny every MCP toolset. */
   for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-reviewer", tools, server);
 });
 
@@ -329,19 +333,21 @@ test("the run-Q&A assistant is tool-less: no fs/shell tools and NO MCP at all", 
   const assistant = agents["qa-assistant"];
   assert.ok(assistant, "expected a qa-assistant agent");
   const tools = agentTools(assistant);
-  // Meaningfulness guard: an absent `tools` block would make the checks below vacuous.
+  /* Meaningfulness guard: an absent `tools` block would make the checks below vacuous. */
   assert.ok(Object.keys(tools).length > 0, "qa-assistant must declare an explicit tools block");
-  // The TUI chat assistant answers from provided run context only — it must not touch
-  // the filesystem, shell, or the watched repo in any way.
+  /* The TUI chat assistant answers from provided run context only — it must not touch
+     the filesystem, shell, or the watched repo in any way.
+   */
   for (const cap of ["write", "edit", "bash", "read"]) {
     assert.notEqual(tools[cap], true, `qa-assistant must not have ${cap}`);
   }
-  // The assistant holds NO MCP — not even engram. Its own prompt (agents/agent/qa-assistant.md:
-  // "You have no tools — do not read files, run commands, or call any MCP") and the orchestrator's
-  // chat context builder (src/server/chat.ts buildRunChatContext: "You have NO tools") both declare
-  // it tool-less; the run outcomes / learning rules / curriculum it answers about are injected
-  // deterministically as TEXT by chat.ts, so it never needs mem_search. An engram grant would
-  // contradict the prompt contract and widen the surface for no functional reason.
+  /* The assistant holds NO MCP — not even engram. Its own prompt (agents/agent/qa-assistant.md:
+     "You have no tools — do not read files, run commands, or call any MCP") and the orchestrator's
+     chat context builder (src/server/chat.ts buildRunChatContext: "You have NO tools") both declare
+     it tool-less; the run outcomes / learning rules / curriculum it answers about are injected
+     deterministically as TEXT by chat.ts, so it never needs mem_search. An engram grant would
+     contradict the prompt contract and widen the surface for no functional reason.
+   */
   for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-assistant", tools, server);
 });
 
@@ -354,17 +360,19 @@ test("the reflector is tool-less: no fs/shell tools and NO MCP at all (a pure fa
   for (const cap of ["write", "edit", "bash", "read"]) {
     assert.notEqual(tools[cap], true, `qa-reflector must not have ${cap}`);
   }
-  // Unlike the chat assistant, the reflector holds NO MCP at all — not even engram. Reflection is a
-  // pure transform of the provided failure context into a rule; any recall/memory access would make
-  // it non-deterministic and let it touch state beyond the prompt.
+  /* Unlike the chat assistant, the reflector holds NO MCP at all — not even engram. Reflection is a
+     pure transform of the provided failure context into a rule; any recall/memory access would make
+     it non-deterministic and let it touch state beyond the prompt.
+   */
   for (const server of MCP_ALLOWLIST) assertMcpServerDenied("qa-reflector", tools, server);
 });
 
 test("read-only roles in the capability policy map to non-writable OpenCode agents (no drift)", () => {
-  // Ties the provider-agnostic policy (capabilitiesForRole) to its OpenCode enforcement
-  // (opencode.json tools{}). Without this they could silently diverge: a role declared read-only in
-  // the policy could still map to a write-capable agent, re-opening exactly the gap this work closed.
-  // The mutating caps (write/edit/bash) are the security-relevant ones for a read-only judge/reflector.
+  /* Ties the provider-agnostic policy (capabilitiesForRole) to its OpenCode enforcement
+     (opencode.json tools{}). Without this they could silently diverge: a role declared read-only in
+     the policy could still map to a write-capable agent, re-opening exactly the gap this work closed.
+     The mutating caps (write/edit/bash) are the security-relevant ones for a read-only judge/reflector.
+   */
   const { agents } = loadAgentConfig();
   let checkedReadOnly = 0;
   for (const [role, agentName] of Object.entries(ROLE_TO_OPENCODE_AGENT)) {
@@ -381,15 +389,17 @@ test("read-only roles in the capability policy map to non-writable OpenCode agen
       );
     }
   }
-  // Meaningfulness guard: the loop actually exercised the read-only roles (reviewer, chat, reflector,
-  // explorer, proposer).
+  /* Meaningfulness guard: the loop actually exercised the read-only roles (reviewer, chat, reflector,
+     explorer, proposer).
+   */
   assert.ok(checkedReadOnly >= 5, `expected >=5 read-only roles checked against opencode.json, got ${checkedReadOnly}`);
 });
 
 test("qa-explorer and qa-proposer keep serena (and engram for explorer) but deny playwright", () => {
-  // These two are read-only (no write/edit/bash) but ARE designed to hold serena — and engram for
-  // the explorer — per the design intent; only playwright (browser driving) is out of scope for
-  // both, since neither navigates a live app.
+  /* These two are read-only (no write/edit/bash) but ARE designed to hold serena — and engram for
+     the explorer — per the design intent; only playwright (browser driving) is out of scope for
+     both, since neither navigates a live app.
+   */
   const { agents } = loadAgentConfig();
   const explorer = agents["qa-explorer"];
   const proposer = agents["qa-proposer"];
@@ -442,13 +452,13 @@ test("qa-worker and qa-worker-code keep serena only (engram and playwright denie
 });
 
 test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not subagent delegation)", () => {
-  // WS8.2: qa-reviewer is invoked directly by the orchestrator's ReviewPortAdapter (see the
-  // qa-engine review-port bridge) — no other opencode agent delegates to it, so the old
-  // "subagent" label mischaracterized the invocation path. The SDK's AgentConfig documents the
-  // mode union ("subagent" | "primary" | "all") without describing any semantic difference
-  // between "primary" and "all"; "all" was chosen as the least-restrictive option for a
-  // directly-prompted agent. If OpenCode ever documents a real distinction, revisit this choice —
-  // the load-bearing claim here is only "not subagent".
+  /* qa-engine review-port bridge) — no other opencode agent delegates to it, so the old
+     "subagent" label mischaracterized the invocation path. The SDK's AgentConfig documents the
+     mode union ("subagent" | "primary" | "all") without describing any semantic difference
+     between "primary" and "all"; "all" was chosen as the least-restrictive option for a
+     directly-prompted agent. If OpenCode ever documents a real distinction, revisit this choice —
+     the load-bearing claim here is only "not subagent".
+   */
   const { agents } = loadAgentConfig();
   const reviewer = agents["qa-reviewer"] as Record<string, unknown>;
   assert.ok(reviewer, "expected a qa-reviewer agent");
@@ -456,8 +466,9 @@ test("qa-reviewer's mode matches how it is actually invoked (direct prompt, not 
 });
 
 test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL_KEYS fixture)", () => {
-  // Guards against silently drifting the fixture out of sync with reality: every built-in boolean
-  // actually used across the agents in opencode.json must be one we know about.
+  /* Guards against silently drifting the fixture out of sync with reality: every built-in boolean
+     actually used across the agents in opencode.json must be one we know about.
+   */
   const { agents } = loadAgentConfig();
   const allMcpToolNames = new Set(Object.values(MCP_TOOL_NAMES_BY_SERVER).flat());
   for (const [name, agent] of Object.entries(agents)) {

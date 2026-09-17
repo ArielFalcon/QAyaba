@@ -1,6 +1,4 @@
-// Proposed assignment from the coordinator. RunQaUseCase honors it only at the
-// explicitly enabled live points (pre-generate / fix-loop-regen); the pipeline's own
-// gates, reviewer and FixLoop always keep final authority.
+/* Proposed assignment. RunQaUseCase honors it only at enabled live points (pre-generate / fix-loop-regen); gates, reviewer, and FixLoop keep final authority. */
 import type { CoordinationDecision } from "./coordination-decision.ts";
 
 export interface ProposedOrchestrationDecision {

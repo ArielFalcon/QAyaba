@@ -1,14 +1,13 @@
-// qa-engine/test/shared-infrastructure/code-graph/resolve-project-name.test.ts
-//
-// RED for Slice 4b (task 4b.6's project-resolution prerequisite, design §6, deferred 4a.10):
-// resolveProjectName(client, repoDir) resolves the codebase-memory-mcp project name indexed for a
-// given repoDir via `list_projects` — the CLI's own authoritative source (verified empirically:
-// `codebase-memory-mcp cli list_projects '{}' <dir>` returns `{projects:[{name, root_path, ...}]}`,
-// name derived as `root_path` with the leading '/' stripped and every remaining '/' replaced by
-// '-'). Matches by root_path (not by re-deriving the name string) so a future indexer change to the
-// derivation rule can never silently desync this resolver from the real CLI. Fail-open: no match,
-// a malformed response, or a CLI failure (code:null) all resolve to undefined — NEVER a thrown
-// error, matching CodeGraphUnavailable's own "no structural signal" contract at the caller.
+/* qa-engine/test/shared-infrastructure/code-graph/resolve-project-name.test.ts
+   resolveProjectName(client, repoDir) resolves the codebase-memory-mcp project name indexed for a
+   given repoDir via `list_projects` — the CLI's own authoritative source (verified empirically:
+   `codebase-memory-mcp cli list_projects '{}' <dir>` returns `{projects:[{name, root_path, ...}]}`,
+   name derived as `root_path` with the leading '/' stripped and every remaining '/' replaced by
+   '-'). Matches by root_path (not by re-deriving the name string) so a future indexer change to the
+   derivation rule can never silently desync this resolver from the real CLI. Fail-open: no match,
+   a malformed response, or a CLI failure (code:null) all resolve to undefined — NEVER a thrown
+   error, matching CodeGraphUnavailable's own "no structural signal" contract at the caller.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveProjectName, ProjectNameResolver } from "../../../src/shared-infrastructure/code-graph/resolve-project-name.ts";

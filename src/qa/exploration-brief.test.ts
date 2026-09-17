@@ -8,7 +8,6 @@ import {
   renderExplorationBrief,
 } from "./exploration-brief";
 
-// A minimal well-formed brief reused across tests.
 function validBrief(overrides: Partial<ExplorationBrief> = {}): ExplorationBrief {
   return {
     builtForSha: "abc1234def",
@@ -21,8 +20,6 @@ function validBrief(overrides: Partial<ExplorationBrief> = {}): ExplorationBrief
     ...overrides,
   };
 }
-
-// ── validateExplorationBrief ────────────────────────────────────────────────
 
 test("validateExplorationBrief accepts a well-formed brief", () => {
   assert.deepEqual(validateExplorationBrief(validBrief()), { ok: true, errors: [] });
@@ -93,8 +90,6 @@ test("validateExplorationBrief: a route recon needs a path and a boolean verifie
   assert.match(badVerified.errors.join("\n"), /verified/);
 });
 
-// ── parseExplorationBrief ───────────────────────────────────────────────────
-
 test("parseExplorationBrief extracts the brief from surrounding prose (last matching JSON)", () => {
   const text = `Here is what I found.\n\n{"builtForSha":"abc1234","objective":"pay flow","blastRadius":[{"symbol":"S.pay","file":"src/s.ts","role":"pays"}]}\n\nDone.`;
   const brief = parseExplorationBrief(text);
@@ -105,7 +100,7 @@ test("parseExplorationBrief extracts the brief from surrounding prose (last matc
 
 test("parseExplorationBrief returns null when no brief-shaped JSON is present", () => {
   assert.equal(parseExplorationBrief("no json here"), null);
-  assert.equal(parseExplorationBrief(`{"objectives":[]}`), null); // a plan, not a brief
+  assert.equal(parseExplorationBrief(`{"objectives":[]}`), null); /* a plan, not a brief */
 });
 
 test("parseExplorationBrief drops malformed blast nodes but keeps the well-formed ones", () => {
@@ -120,7 +115,7 @@ test("parseExplorationBrief defaults optional sections and route.verified", () =
   const text = `{"builtForSha":"a","objective":"o","blastRadius":[],"routes":[{"path":"/x"}]}`;
   const brief = parseExplorationBrief(text);
   assert.ok(brief);
-  assert.equal(brief!.routes![0]!.verified, false); // default false until the explorer actually navigated
+  assert.equal(brief!.routes![0]!.verified, false); /* default false until the explorer actually navigated */
 });
 
 test("parseExplorationBrief output round-trips through validation", () => {
@@ -129,8 +124,6 @@ test("parseExplorationBrief output round-trips through validation", () => {
   assert.ok(brief);
   assert.equal(validateExplorationBrief(brief!).ok, true);
 });
-
-// ── renderExplorationBrief ──────────────────────────────────────────────────
 
 test("renderExplorationBrief carries the selector-fidelity guard (landmarks are hints, code/DOM wins)", () => {
   const out = renderExplorationBrief(validBrief());
@@ -155,8 +148,9 @@ test("renderExplorationBrief is bounded so a huge brief cannot blow the token bu
   assert.ok(out.length <= 20_200, `expected bounded output, got ${out.length} chars`);
 });
 
-// ── coerceExplorationBrief (an ALREADY-parsed object, not text) ──────────────
-// Used by parsePlan, where each objective carries the brief as a nested object (not a JSON string).
+/* ── coerceExplorationBrief (an ALREADY-parsed object, not text) ──────────────
+   Used by parsePlan, where each objective carries the brief as a nested object (not a JSON string).
+ */
 
 test("coerceExplorationBrief coerces an already-parsed brief object", () => {
   const brief = coerceExplorationBrief({ builtForSha: "a", objective: "o", blastRadius: [{ symbol: "S.pay", file: "src/s.ts", role: "pays" }] });

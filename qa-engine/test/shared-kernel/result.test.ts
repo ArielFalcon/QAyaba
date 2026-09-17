@@ -1,4 +1,3 @@
-// qa-engine/test/shared-kernel/result.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ok, err, isOk, isErr, map, unwrapOr, type Result } from "@kernel/result.ts";

@@ -1,22 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-// PARITY (FIXTURE-SNAPSHOT, migration-wiring-phase-2 Slice 8b-4): src/qa/selector-check.ts was
-// deleted — its only importers were its own test file and execute.test.ts's single use of
-// selectorPresent (relocated to import directly from this canonical module instead). Every
-// expected value below was captured by running the legacy module directly against these exact
-// samples before deletion; they pin the same fixed expectations the live import used to assert
-// against. This file no longer imports src/, so it was removed from qa-engine/tsconfig.json's
-// "exclude" list and qa-engine/tsconfig.parity.json's "include" list in the same commit — it now
-// typechecks under the normal qa-engine project.
-//
-// WARNING (judgment-day round-1, frozen-snapshot discipline): every expected value below is a
-// FROZEN oracle — the legacy source it was captured from (selector-check.ts) no longer exists, so
-// there is no live re-derivation possible. A failing assertion here is signaling a REAL behavioral
-// divergence in the live selector-check.ts helpers this file imports, not a stale fixture. Editing a
-// sample's expected value to make a failing test pass silently rebaselines away that regression
-// instead of fixing it — never do that without a written justification (in the commit message or a
-// comment here) for why the NEW value is the correct behavior, checked against the surviving live
-// logic this snapshot was pinned against.
+/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
 import {
   checkSpecSelectors,
   unscopedMultipleContradictions,
@@ -195,12 +179,12 @@ test("PARITY: ProposedSelector shape round-trips through both copies identically
   assert.deepEqual(sel, { kind: "role", role: "button", name: "Submit", exact: true });
 });
 
-// ── B5.1 (Plan 7-R): catalog-gate extractors ported into the canonical module ──────────────────
-// B0's header explicitly deferred these as "addendum G2's SEPARATE, out-of-scope concern" — B5
-// closes that gap: pre-exec-grounding.service.ts (B5.2) needs extractCatalogSelectors/
-// confidentWindowEnd/extractTestIdSelectorsWithIndex/firstGotoRoute + unscopedMultipleContradictions
-// living in the SAME canonical module as checkSpecSelectors (composing route-catalog/catalog-gate
-// would otherwise force a second, parallel port of these four functions).
+/* B0's header explicitly deferred these as "addendum G2's SEPARATE, out-of-scope concern" — B5
+   closes that gap: pre-exec-grounding.service.ts (B5.2) needs extractCatalogSelectors/
+   confidentWindowEnd/extractTestIdSelectorsWithIndex/firstGotoRoute + unscopedMultipleContradictions
+   living in the SAME canonical module as checkSpecSelectors (composing route-catalog/catalog-gate
+   would otherwise force a second, parallel port of these four functions).
+ */
 
 test("PARITY: extractCatalogSelectors matches legacy — testIds/placeholders/altTexts/titles/idsNames", () => {
   const src = `await page.getByTestId("save-btn").click(); await page.getByPlaceholder("Search").fill("x"); await page.getByAltText("Logo").click(); await page.getByTitle("Close").click(); await page.locator("#main-nav").click(); await page.locator('[name="email"]').fill("x");`;
@@ -256,8 +240,8 @@ test("PARITY: firstGotoRoute matches legacy — un-navigable (interpolated / abs
   assert.equal(firstGotoRoute(absolute), undefined);
 });
 
-// ── B5.1: unscopedMultipleContradictions — base behavior parity (matches legacy's CURRENT,
-// pre-idiom-aware-fix semantics) ─────────────────────────────────────────────────────────────
+/* unscopedMultipleContradictions — base behavior (page-rooted MULTIPLE still surfaces).
+ */
 test("PARITY: unscopedMultipleContradictions matches legacy — page-rooted MULTIPLE survives suppression", () => {
   const specs = [`page.getByRole("button").click(); page.getByTestId("x").click();`];
   const trees = [["button: A", "button: B"]];
@@ -272,16 +256,15 @@ test("PARITY: unscopedMultipleContradictions matches legacy — no non-extractab
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
-// ── B5.1: idiom-aware MULTIPLE suppression (declared divergence — the canonical module now
-// SUPPRESSES two false-block idioms legacy's unscopedMultipleContradictions does NOT: a selector
-// followed by .first(/.nth(/.filter( (the AUTHOR already disambiguated it), and a selector preceded
-// by an extractable scope chain (e.g. .getByRole("table").getByRole("row", {...}) — already scoped
-// to a unique parent even though BOTH ends are extractable, a case the legacy page-rooted check
-// alone cannot see because isPageRootedAt only inspects the IMMEDIATE prefix token). Per B5's own
-// safe-direction invariant, this only NARROWS blocking — it can never fabricate a new contradiction.
-// The legacyResult snapshots below are FROZEN captures of what the deleted legacy module produced
-// for these exact inputs (all non-empty, confirming legacy still surfaces the MULTIPLE the
-// rewritten module now suppresses).
+/* Idiom-aware MULTIPLE suppression (declared divergence): the canonical module SUPPRESSES two
+   false-block idioms a page-rooted-only check does not: a selector followed by
+   .first(/.nth(/.filter( (the AUTHOR already disambiguated it), and a selector preceded by an
+   extractable scope chain (e.g. .getByRole("table").getByRole("row", {...}) — already scoped to a
+   unique parent even though BOTH ends are extractable; isPageRootedAt only inspects the IMMEDIATE
+   prefix token). This only NARROWS blocking — it can never fabricate a new contradiction.
+   The frozen snapshots below capture what an unscoped page-rooted check produced for these exact
+   inputs (all non-empty), confirming the canonical module now suppresses those MULTIPLEs.
+ */
 
 test("DECLARED divergence (Plan 7-R B5.1): .first() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").first().click();`];
@@ -317,10 +300,11 @@ test("DECLARED divergence (Plan 7-R B5.1): role-chained scoping (table.getByRole
 });
 
 test("B5.1: page-rooted suppression applies UNCONDITIONALLY (no anyNonExtractable gate) — a real ambiguity with NO non-extractable locator anywhere still surfaces", () => {
-  // Regression guard for the OTHER B5.1 fix ("page-rooted suppression applies unconditionally, not
-  // gated on anyNonExtractable"): a spec with ZERO non-extractable locators must still surface a
-  // genuine page-rooted MULTIPLE (this must NOT start returning [] just because the idiom-aware
-  // suppression logic now always runs the per-selector path instead of the anyNonExtractable fast path).
+  /* Regression guard for the OTHER B5.1 fix ("page-rooted suppression applies unconditionally, not
+     gated on anyNonExtractable"): a spec with ZERO non-extractable locators must still surface a
+     genuine page-rooted MULTIPLE (this must NOT start returning [] just because the idiom-aware
+     suppression logic now always runs the per-selector path instead of the anyNonExtractable fast path).
+   */
   const specs = [`await page.getByRole("button", { name: "Save" }).click();`];
   const trees = [["button: Save", "button: Save"]];
   const result = unscopedMultipleContradictions(specs, trees);

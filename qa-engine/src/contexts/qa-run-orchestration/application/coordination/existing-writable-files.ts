@@ -1,4 +1,4 @@
-// Filter sidekick-claimed files to those that actually exist under the mirror cwd.
+/* Filter sidekick-claimed files to those that actually exist under the mirror cwd. */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { isPathWithinWritableRoots } from "./path-scope.ts";

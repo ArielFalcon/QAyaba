@@ -1,6 +1,6 @@
-// Fixture for Fix 3: two calls that exercise the literal-vs-param disambiguation.
-// /orders/active → should hit getActiveOrders (literal wins over {id} param).
-// /orders/abc123 → should hit getOrderById (no literal match, param matches).
+/* /orders/active → should hit getActiveOrders (literal wins over {id} param).
+   /orders/abc123 → should hit getOrderById (no literal match, param matches).
+ */
 const BASE = 'name-orders-api';
 
 const ordersLiteralApi = {

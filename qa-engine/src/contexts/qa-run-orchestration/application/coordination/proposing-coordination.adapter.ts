@@ -1,12 +1,5 @@
-// Deterministic proposer. No LLM. Prefers direct for simple change-analysis; proposes
-// delegate to sidekick-standard when the change looks hard. Fase 14: optional
-// AdaptiveRoutingPolicy raises the file threshold when recent escalate rate is high —
-// never skips budgets, evidence gates, reviewer, FixLoop, or authority.
-//
-// Non-diff modes (manual/complete/exhaustive/context) intentionally stay direct: RunQaUseCase
-// only emits change-analysis evidence in mode==="diff", and without that evidence looksDelegable
-// returns false. That is a conscious policy (lead owns guided/whole-repo generation), not an
-// accidental missing files=N field — revisit with benchmark data before adding a non-diff signal.
+/* Deterministic proposer — no LLM. Prefers direct for simple change-analysis; proposes delegate to sidekick-standard when the change looks hard. AdaptiveRoutingPolicy may raise the file threshold; it never skips budgets, evidence gates, reviewer, FixLoop, or authority.
+Non-diff modes stay direct: RunQaUseCase emits change-analysis evidence only in diff mode, so looksDelegable is false. Lead owns guided and whole-repo generation. */
 import type { CoordinationPort } from "../ports/coordination.port.ts";
 import type { AdaptiveRoutingPolicy, AdaptiveRoutingSignals } from "./adaptive-routing.ts";
 import type { CoordinationContext } from "./coordination-context.ts";
@@ -22,7 +15,7 @@ function looksDelegable(
   context: CoordinationContext,
   fileThreshold: number,
 ): boolean {
-  // Absent change-analysis → direct (covers non-diff modes by design; see file header).
+  /* Absent change-analysis → direct (covers non-diff modes by design). */
   const change = context.evidence.find((e) => e.kind === "change-analysis");
   if (!change) return false;
   if (/\bcontradiction\b/i.test(change.summary)) return true;

@@ -1,9 +1,9 @@
 /* Null-safe numeric formatting for the live dashboard.
    SignalsView paints absence as null (never a hard 0). Calling .toFixed on that
    null — or on multiplier(0, 0) which returns null — used to blank the console.
-
    Also: git-style SHA abbrevs, XSS-safe markdown for Ask Qayaba, and the live-vs-mock
-   chat policy (live mode must never fall back to the demo canned line). */
+   chat policy (live mode must never fall back to the demo canned line).
+ */
 window.QayabaFormat = (function () {
   function isNum(n) {
     return typeof n === 'number' && Number.isFinite(n);
@@ -18,7 +18,8 @@ window.QayabaFormat = (function () {
   }
 
   /* Shortest unique prefix among a set, min 7 — the same rule git uses for
-     `log --oneline` / `rev-parse --short` once uniqueness is required. */
+     `log --oneline` / `rev-parse --short` once uniqueness is required.
+   */
   function uniqueAbbrevs(shas, minLen) {
     const min = minLen == null ? 7 : minLen;
     const list = (shas || []).map(function (s) { return String(s == null ? '' : s); });
@@ -99,7 +100,8 @@ window.QayabaFormat = (function () {
   /* Overlay a real in-flight run onto the live-view shape. Identity always
      comes from the real record so Ask hits POST /runs/:realId/ask, not the
      mock r-1842 demo id. Missing live theatre fields (plan/currentTest) stay
-     from the mock so viewLiveDetail does not crash. */
+     from the mock so viewLiveDetail does not crash.
+   */
   function mergeLiveRun(real, mock) {
     if (!real) return null;
     var out = {};

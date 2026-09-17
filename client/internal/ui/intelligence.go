@@ -13,16 +13,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// intelligenceSelectedMsg opens the intelligence screen for an app.
 type intelligenceSelectedMsg struct{ app string }
 
-// intelligenceLoadedMsg carries the fetched view to the screen.
 type intelligenceLoadedMsg struct{ view contract.IntelligenceView }
 
-// intelligenceModel renders what the system has actually learned about an app: the
-// rule ledger, the value-oracle scorecard, and the curriculum. Every signal carries its
-// provenance — ◆ ground-truth (a real oracle measurement), ◇ proxy (LLM-only), or
-// ⚠ not measured — so an inert layer reads as inert, never dressed up as success.
+/* intelligenceModel renders what the system has actually learned about an app: the
+   rule ledger, the value-oracle scorecard, and the curriculum. Every signal carries its
+   provenance — ◆ ground-truth (a real oracle measurement), ◇ proxy (LLM-only), or
+   ⚠ not measured — so an inert layer reads as inert, never dressed up as success. */
 type intelligenceModel struct {
 	client  *api.Client
 	app     string
@@ -92,7 +90,7 @@ func (m intelligenceModel) Update(msg tea.Msg) (intelligenceModel, tea.Cmd) {
 
 func (m *intelligenceModel) resize(w, h int) {
 	m.width, m.height = w, h
-	// header (rule + legend + blank) + footer (blank + line) + screen padding.
+	/* header (rule + legend + blank) + footer (blank + line) + screen padding. */
 	vpH := h - 7
 	if vpH < 3 {
 		vpH = 3
@@ -140,7 +138,7 @@ func (m intelligenceModel) body() string {
 	v := *m.view
 	var b strings.Builder
 
-	// ── RULES: the learning ledger ───────────────────────────────────────────
+	/* ── RULES: the learning ledger ─────────────────────────────────────────── */
 	b.WriteString(labelRule(w, "rules", hintStyle.Render(pluralize(len(v.Rules), "rule", "rules"))) + "\n")
 	if len(v.Rules) == 0 {
 		b.WriteString("  " + hintStyle.Render("no rules learned yet — the ledger fills as runs are reflected on") + "\n")
@@ -154,7 +152,7 @@ func (m intelligenceModel) body() string {
 	}
 	b.WriteString("\n")
 
-	// ── ORACLE / GROUND TRUTH: the value-oracle scorecard ─────────────────────
+	/* ── ORACLE / GROUND TRUTH: the value-oracle scorecard ───────────────────── */
 	b.WriteString(labelRule(w, "oracle / ground truth", "") + "\n")
 	if v.Scorecard == nil || v.Scorecard.MeasuredRuns == 0 {
 		b.WriteString("  " + shadowStyle.Render("⚠ not measured") + "  " +
@@ -176,7 +174,7 @@ func (m intelligenceModel) body() string {
 	}
 	b.WriteString("\n")
 
-	// ── CURRICULUM: which scenario archetypes have proven their worth ─────────
+	/* ── CURRICULUM: which scenario archetypes have proven their worth ───────── */
 	if v.Curriculum != nil && len(v.Curriculum.Archetypes) > 0 {
 		proven := 0
 		for _, a := range v.Curriculum.Archetypes {
@@ -187,10 +185,10 @@ func (m intelligenceModel) body() string {
 		b.WriteString(labelRule(w, "curriculum", hintStyle.Render(fmt.Sprintf("%d/%d proven", proven, len(v.Curriculum.Archetypes)))) + "\n")
 		var parts []string
 		for _, a := range v.Curriculum.Archetypes {
-			// Each chip carries the archetype's credited/evaluated hit rate — the tier below
-			// caughtRealBug that actually moves. Evaluated == 0 means it was never offered or never
-			// produced a determinable signal, so it takes the same "—" no-data mark fmtScore uses
-			// rather than the fabricated rate "0/0", which would read as a demonstrated failure.
+			/* Each chip carries the archetype's credited/evaluated hit rate — the tier below
+			   caughtRealBug that actually moves. Evaluated == 0 means it was never offered or never
+			   produced a determinable signal, so it takes the same "—" no-data mark fmtScore uses
+			   rather than the fabricated rate "0/0", which would read as a demonstrated failure. */
 			chip := a.Archetype + " " + fmtArchetypeRate(a.Credited, a.Evaluated)
 			if a.CaughtRealBug {
 				parts = append(parts, okStyle.Render("✓ "+chip))
@@ -203,9 +201,9 @@ func (m intelligenceModel) body() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// fmtArchetypeRate renders an archetype's change-coverage credit as credited/evaluated, and an
-// unevaluated archetype as "—" — never as a rate, because 0/0 states a measured failure that never
-// happened.
+/* fmtArchetypeRate renders an archetype's change-coverage credit as credited/evaluated, and an
+   unevaluated archetype as "—" — never as a rate, because 0/0 states a measured failure that never
+   happened. */
 func fmtArchetypeRate(credited, evaluated int) string {
 	if evaluated <= 0 {
 		return "—"
@@ -213,9 +211,9 @@ func fmtArchetypeRate(credited, evaluated int) string {
 	return fmt.Sprintf("%d/%d", credited, evaluated)
 }
 
-// renderLearningRule paints one ledger entry as a block the operator can read: status,
-// class, evidence, the full trigger (when it applies), and the action (what to do). Trigger
-// and action wrap; they are never ellipsis-truncated — a truncated trigger is not a trigger.
+/* renderLearningRule paints one ledger entry as a block the operator can read: status,
+   class, evidence, the full trigger (when it applies), and the action (what to do). Trigger
+   and action wrap; they are never ellipsis-truncated — a truncated trigger is not a trigger. */
 func renderLearningRule(r contract.LearningRuleView, width int) string {
 	glyph, gc := ruleStatusGlyph(string(r.Status))
 	rate := "—"
@@ -267,14 +265,13 @@ func fmtScore(s *float32) string {
 	return fmt.Sprintf("%.2f", *s)
 }
 
-// confidenceMeter is a three-block meter tinted by rule confidence.
 func confidenceMeter(conf string) string {
 	switch conf {
 	case "high":
 		return lipgloss.NewStyle().Foreground(colPass).Render("▰▰▰")
 	case "medium":
 		return lipgloss.NewStyle().Foreground(colFlaky).Render("▰▰▱")
-	default: // low
+	default: /* low */
 		return lipgloss.NewStyle().Foreground(colFaint).Render("▰▱▱")
 	}
 }
@@ -287,7 +284,7 @@ func ruleStatusGlyph(status string) (string, lipgloss.Color) {
 		return "○", colFlaky
 	case "deprecated":
 		return "✗", colFaint
-	default: // superseded
+	default: /* superseded */
 		return "·", colFaint
 	}
 }

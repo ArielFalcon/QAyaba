@@ -31,11 +31,11 @@ const (
 	appStepDelete
 )
 
-// repoRole is a repo chosen for the app plus its role. Exactly one "frontend" (the config
-// `repo`/primary) is required; the rest become `services[]`.
+/* repoRole is a repo chosen for the app plus its role. Exactly one "frontend" (the config
+   `repo`/primary) is required; the rest become `services[]`. */
 type repoRole struct {
 	fullName string
-	role     string // "frontend" | "service"
+	role     string /* "frontend" | "service" */
 }
 
 func nextRole(r string) string {
@@ -47,8 +47,8 @@ func nextRole(r string) string {
 	}
 }
 
-// Form field indices — fixed layout. version & prefix are optional (blank for code apps).
-// fAuthUser/fAuthPass only ever get focus when authMode == "basic" (see moveFormFocus).
+/* Form field indices — fixed layout. version & prefix are optional (blank for code apps).
+   fAuthUser/fAuthPass only ever get focus when authMode == "basic" (see moveFormFocus). */
 const (
 	fName = iota
 	fURL
@@ -72,15 +72,15 @@ type appAdminModel struct {
 	status       string
 	repos        []contract.RepoListItem
 	repoCursor   int
-	ownerCursor  int // 0 = @me, 1 = the owner/org text input
+	ownerCursor  int /* 0 = @me, 1 = the owner/org text input */
 	formCursor   int
 	ownerInput   textinput.Model
 	nameInput    textinput.Model
 	baseInput    textinput.Model
 	versionInput textinput.Model
 	prefixInput  textinput.Model
-	selected     []repoRole      // repos chosen for this project (multi-select), with roles
-	manualInput  textinput.Model // "/" opens this to type a repo slug by hand
+	selected     []repoRole      /* repos chosen for this project (multi-select), with roles */
+	manualInput  textinput.Model /* "/" opens this to type a repo slug by hand */
 	manualActive bool
 	repo         string
 	target       string
@@ -89,8 +89,8 @@ type appAdminModel struct {
 	purge        bool
 	app          *contract.AppView
 	width        int
-	// authMode is the DEV-environment HTTP Basic Auth gate ("disabled" | "basic") — Playwright
-	// httpCredentials, NOT app login. "basic" reveals userInput/passInput for DEV_ENV_USER/PASS.
+	/* authMode is the DEV-environment HTTP Basic Auth gate ("disabled" | "basic") — Playwright
+	   httpCredentials, NOT app login. "basic" reveals userInput/passInput for DEV_ENV_USER/PASS. */
 	authMode  string
 	userInput textinput.Model
 	passInput textinput.Model
@@ -211,7 +211,7 @@ func (m appAdminModel) updateOwner(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 	case "esc":
 		return m, func() tea.Msg { return backMsg{} }
 	}
-	// Keystrokes only edit the text input when it is the selected choice.
+	/* Keystrokes only edit the text input when it is the selected choice. */
 	if m.ownerCursor == 1 {
 		var cmd tea.Cmd
 		m.ownerInput, cmd = m.ownerInput.Update(msg)
@@ -284,8 +284,8 @@ func (m appAdminModel) updateRepo(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 	return m, nil
 }
 
-// toggleSelected adds the repo (defaulting the FIRST pick to "frontend", later picks to "service")
-// or removes it if already selected.
+/* toggleSelected adds the repo (defaulting the FIRST pick to "frontend", later picks to "service")
+   or removes it if already selected. */
 func (m *appAdminModel) toggleSelected(full string) {
 	for i, s := range m.selected {
 		if s.fullName == full {
@@ -300,12 +300,12 @@ func (m *appAdminModel) toggleSelected(full string) {
 	m.selected = append(m.selected, repoRole{fullName: full, role: role})
 }
 
-// addSelected adds the repo if not already selected (add-only, for the "/" manual entry). Role
-// defaults to frontend when none exists yet, else service. A slug already present is left as-is.
+/* addSelected adds the repo if not already selected (add-only, for the "/" manual entry). Role
+   defaults to frontend when none exists yet, else service. A slug already present is left as-is. */
 func (m *appAdminModel) addSelected(full string) {
 	for _, s := range m.selected {
 		if s.fullName == full {
-			return // already selected — "add" is a no-op, never a removal
+			return /* already selected — "add" is a no-op, never a removal */
 		}
 	}
 	role := "service"
@@ -349,8 +349,8 @@ func (m appAdminModel) validateSelection() string {
 	return ""
 }
 
-// updateManualRepo handles the "/" typed-slug entry: enter adds the slug (frontend if none yet,
-// else service), esc cancels. Any other key edits the input.
+/* updateManualRepo handles the "/" typed-slug entry: enter adds the slug (frontend if none yet,
+   else service), esc cancels. Any other key edits the input. */
 func (m appAdminModel) updateManualRepo(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -375,15 +375,15 @@ func (m appAdminModel) updateForm(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		if m.mode == appAdminCreate {
-			// Step back to the repo picker, preserving all wizard state (selection + form values).
+			/* Step back to the repo picker, preserving all wizard state (selection + form values). */
 			m.step = appStepRepo
 			return m, nil
 		}
-		// Edit mode opens directly on the form — esc exits.
+		/* Edit mode opens directly on the form — esc exits. */
 		return m, func() tea.Msg { return backMsg{} }
-	// Navigate with tab/arrows only — NOT j/k: the form has text inputs (name, url, env
-	// user/pass), and using printable letters as motion aliases would eat those letters while
-	// typing (e.g. "joomeco"). Toggle rows are still reachable via tab/arrows.
+	/* Navigate with tab/arrows only — NOT j/k: the form has text inputs (name, url, env
+	   user/pass), and using printable letters as motion aliases would eat those letters while
+	   typing (e.g. "joomeco"). Toggle rows are still reachable via tab/arrows. */
 	case "tab", "down":
 		m.moveFormFocus(1)
 		return m, textinput.Blink
@@ -423,7 +423,7 @@ func (m appAdminModel) updateForm(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 func (m *appAdminModel) moveFormFocus(delta int) {
 	minCursor := 0
 	if m.mode == appAdminEdit {
-		minCursor = 1 // the name is fixed once created
+		minCursor = 1 /* the name is fixed once created */
 	}
 	m.formCursor += delta
 	if m.formCursor < minCursor {
@@ -432,8 +432,8 @@ func (m *appAdminModel) moveFormFocus(delta int) {
 	if m.formCursor > fSave {
 		m.formCursor = minCursor
 	}
-	// The env user/password rows exist only when basic auth is selected; skip over them otherwise
-	// so tab/arrow navigation doesn't land on hidden fields.
+	/* The env user/password rows exist only when basic auth is selected; skip over them otherwise
+	   so tab/arrow navigation doesn't land on hidden fields. */
 	if m.authMode != "basic" {
 		for m.formCursor == fAuthUser || m.formCursor == fAuthPass {
 			m.formCursor += delta
@@ -515,9 +515,9 @@ func (m appAdminModel) save() (appAdminModel, tea.Cmd) {
 	return m, createAppCmd(m.client, in, name)
 }
 
-// envVars returns the DEV-environment Basic Auth creds to persist (DEV_ENV_USER/PASS) when basic
-// auth is enabled with a non-empty user; nil otherwise. These feed Playwright httpCredentials —
-// the environment gate, not app login.
+/* envVars returns the DEV-environment Basic Auth creds to persist (DEV_ENV_USER/PASS) when basic
+   auth is enabled with a non-empty user; nil otherwise. These feed Playwright httpCredentials —
+   the environment gate, not app login. */
 func (m appAdminModel) envVars() map[string]string {
 	if m.authMode != "basic" {
 		return nil
@@ -582,8 +582,8 @@ func (m appAdminModel) View() string {
 	return screenStyle.Render(b.String())
 }
 
-// wizardCrumb is the onboarding stepper (owner › repo › configure). Empty for
-// edit/delete, which start straight at the form / confirmation.
+/* wizardCrumb is the onboarding stepper (owner › repo › configure). Empty for
+   edit/delete, which start straight at the form / confirmation. */
 func (m appAdminModel) wizardCrumb() string {
 	if m.mode != appAdminCreate {
 		return ""
@@ -610,8 +610,8 @@ func (m appAdminModel) wizardCrumb() string {
 	return hintStyle.Render(strings.Join(parts, " › "))
 }
 
-// footerHint is the single, step-aware key legend for this screen — the only place
-// hints are rendered, so each binding (esc included) appears exactly once.
+/* footerHint is the single, step-aware key legend for this screen — the only place
+   hints are rendered, so each binding (esc included) appears exactly once. */
 func (m appAdminModel) footerHint() string {
 	switch m.step {
 	case appStepOwner:
@@ -627,22 +627,22 @@ func (m appAdminModel) footerHint() string {
 	}
 }
 
-// renderRepos is the multi-select repo+role picker: a checkbox and role per repo (checked
-// repos get "frontend" or "service"; the frontend one is starred so the wizard's one-frontend
-// invariant is legible at a glance, not just enforced by validateSelection), the cursor marker
-// on top, and — when the user pressed "/" — the manual typed-slug entry inline above the list.
+/* renderRepos is the multi-select repo+role picker: a checkbox and role per repo (checked
+   repos get "frontend" or "service"; the frontend one is starred so the wizard's one-frontend
+   invariant is legible at a glance, not just enforced by validateSelection), the cursor marker
+   on top, and — when the user pressed "/" — the manual typed-slug entry inline above the list. */
 func (m appAdminModel) renderRepos() string {
 	w := contentWidth(m.width)
 	var b strings.Builder
-	// Render regardless of whether m.repos is empty — "/" can be pressed on an empty list,
-	// and the input must still give visual feedback for what the user types.
+	/* Render regardless of whether m.repos is empty — "/" can be pressed on an empty list,
+	   and the input must still give visual feedback for what the user types. */
 	if m.manualActive {
 		marker := lipgloss.NewStyle().Foreground(colEmber).Render("▸ ")
 		b.WriteString(marker + labelStyle.Render("add repo ") + m.manualInput.View() + "\n")
 	}
-	// m.selected persists across owner switches and manual adds, so it can hold repos not
-	// present on the current page (a different owner, or typed by hand) — the checkbox list
-	// below can't mark those, so recap the full pick list here where it's always visible.
+	/* m.selected persists across owner switches and manual adds, so it can hold repos not
+	   present on the current page (a different owner, or typed by hand) — the checkbox list
+	   below can't mark those, so recap the full pick list here where it's always visible. */
 	if summary := m.renderSelectionSummary(w); summary != "" {
 		b.WriteString(summary + "\n")
 	}
@@ -659,7 +659,7 @@ func (m appAdminModel) renderRepos() string {
 			}
 		}
 		if role == "frontend" {
-			label = "★ " + label // the primary/frontend repo stays visually distinct
+			label = "★ " + label /* the primary/frontend repo stays visually distinct */
 		}
 		privacy := "public"
 		if repo.Private {
@@ -675,9 +675,9 @@ func (m appAdminModel) renderRepos() string {
 	return b.String()
 }
 
-// renderSelectionSummary is a one-line recap of every selected repo (★ marks the frontend),
-// so picks made on a different owner page or via manual entry stay visible and reviewable
-// even once they scroll off the current m.repos page. Empty selection renders nothing.
+/* renderSelectionSummary is a one-line recap of every selected repo (★ marks the frontend),
+   so picks made on a different owner page or via manual entry stay visible and reviewable
+   even once they scroll off the current m.repos page. Empty selection renders nothing. */
 func (m appAdminModel) renderSelectionSummary(width int) string {
 	if len(m.selected) == 0 {
 		return ""
@@ -694,8 +694,8 @@ func (m appAdminModel) renderSelectionSummary(width int) string {
 	return hintStyle.Render(truncateLine(line, width))
 }
 
-// truncateLine clips s to width display cells (ANSI-aware), appending an ellipsis when
-// clipped, so a one-line summary can never overflow the content grid.
+/* truncateLine clips s to width display cells (ANSI-aware), appending an ellipsis when
+   clipped, so a one-line summary can never overflow the content grid. */
 func truncateLine(s string, width int) string {
 	if width <= 0 || lipgloss.Width(s) <= width {
 		return s
@@ -703,8 +703,8 @@ func truncateLine(s string, width int) string {
 	return ansi.Truncate(s, width, "…")
 }
 
-// yesNo renders a boolean as a styled yes/no, matching the design language rather than
-// leaking Go's raw true/false into the form.
+/* yesNo renders a boolean as a styled yes/no, matching the design language rather than
+   leaking Go's raw true/false into the form. */
 func yesNo(b bool) string {
 	if b {
 		return okStyle.Render("yes")
@@ -712,9 +712,9 @@ func yesNo(b bool) string {
 	return hintStyle.Render("no")
 }
 
-// formRow pairs a rendered row with the field enum it represents, so rows that are only
-// SOMETIMES present (the auth user/password rows) don't desync the cursor/bold-highlight
-// logic below from a plain positional index the way a bare []string would.
+/* formRow pairs a rendered row with the field enum it represents, so rows that are only
+   SOMETIMES present (the auth user/password rows) don't desync the cursor/bold-highlight
+   logic below from a plain positional index the way a bare []string would. */
 type formRow struct {
 	cursor int
 	text   string
@@ -755,16 +755,16 @@ func (m appAdminModel) renderForm() string {
 		}
 		b.WriteString(marker + text + "\n")
 	}
-	// An inline explanation of the focused field, so onboarding is self-explanatory
-	// without reaching for the docs.
+	/* An inline explanation of the focused field, so onboarding is self-explanatory
+	   without reaching for the docs. */
 	if help := appFieldHelp(m.formCursor); help != "" {
 		b.WriteString("\n" + hintStyle.Render(help))
 	}
 	return b.String()
 }
 
-// authModeLabel renders authMode as the row's display value, matching yesNo()'s styling
-// convention (ok-styled when active, hint-styled for the disabled default).
+/* authModeLabel renders authMode as the row's display value, matching yesNo()'s styling
+   convention (ok-styled when active, hint-styled for the disabled default). */
 func authModeLabel(mode string) string {
 	if mode == "basic" {
 		return okStyle.Render("basic auth")
@@ -772,7 +772,6 @@ func authModeLabel(mode string) string {
 	return hintStyle.Render("disabled")
 }
 
-// appFieldHelp is the one-line explanation shown under the form for the focused field.
 func appFieldHelp(cursor int) string {
 	switch cursor {
 	case fName:
@@ -845,16 +844,14 @@ func listReposCmd(c *api.Client, owner string, page int) tea.Cmd {
 	}
 }
 
-// buildCreateInput maps the wizard's selection + form into the wire input: the one frontend
-// (validateSelection guarantees exactly one) becomes Repo, every service becomes a Services[]
-// entry in selection order. env is attached only when non-empty (Slice C populates it).
+/* Maps the wizard's selection + form into the wire input: the one frontend (validateSelection guarantees exactly one) becomes Repo, every service becomes a Services[] entry in selection order. env is attached only when non-empty. */
 func buildCreateInput(sel []repoRole, name, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string) contract.CreateAppInput {
 	var repo string
 	var services []contract.OnboardServiceInput
 	for _, s := range sel {
 		if s.role == "frontend" {
 			if repo == "" {
-				repo = s.fullName // first frontend wins, matching frontendRepo()
+				repo = s.fullName /* first frontend wins, matching frontendRepo() */
 			}
 		} else {
 			services = append(services, contract.OnboardServiceInput{Repo: s.fullName})
@@ -887,17 +884,17 @@ func createAppCmd(c *api.Client, in contract.CreateAppInput, name string) tea.Cm
 		if _, err := c.CreateApp(ctx, in); err != nil {
 			return errMsg{err}
 		}
-		// Chain straight into the boundary-propose screen for the new app (model.go's
-		// onboardedMsg handler) instead of reloading the app list and returning to the
-		// dashboard — the wizard's job isn't done until boundaries are proposed too.
+		/* Chain straight into the boundary-propose screen for the new app (model.go's
+		   onboardedMsg handler) instead of reloading the app list and returning to the
+		   dashboard — the wizard's job isn't done until boundaries are proposed too. */
 		return onboardedMsg{app: name}
 	}
 }
 
-// buildUpdateInput maps the edit form into the wire input, mirroring buildCreateInput's env
-// handling: env is attached only when non-empty (m.envVars() already resolves basic-auth-off or
-// an empty user to nil), so an edit made with auth left disabled sends no Env and never wipes
-// DEV Basic Auth creds already stored server-side.
+/* buildUpdateInput maps the edit form into the wire input, mirroring buildCreateInput's env
+   handling: env is attached only when non-empty (m.envVars() already resolves basic-auth-off or
+   an empty user to nil), so an edit made with auth left disabled sends no Env and never wipes
+   DEV Basic Auth creds already stored server-side. */
 func buildUpdateInput(repo, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string) contract.UpdateAppInput {
 	in := contract.UpdateAppInput{
 		Repo:           stringPtrOrNil(repo),
@@ -939,8 +936,8 @@ func deleteAppCmd(c *api.Client, name string, purge bool) tea.Cmd {
 }
 
 func reloadAppsMsg(c *api.Client, _ context.Context, status string) tea.Msg {
-	// The create/delete already consumed most of the caller's deadline; give the reload its
-	// own budget so a slow mutation doesn't make the refresh time out and look like a failure.
+	/* The create/delete already consumed most of the caller's deadline; give the reload its
+	   own budget so a slow mutation doesn't make the refresh time out and look like a failure. */
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	apps, err := c.ListApps(ctx)

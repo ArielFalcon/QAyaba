@@ -11,8 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// A 404 on the HANDSHAKE means the host answered but is not a qayaba control plane — the
-// classic "pointed at the app's port, not the orchestrator".
+/* A 404 on the HANDSHAKE means the host answered but is not a qayaba control plane — the
+   classic "pointed at the app's port, not the orchestrator". */
 func TestDiagnoseHandshake404IsWrongServer(t *testing.T) {
 	got := diagnoseConnectError("localhost:8080", &api.APIError{Status: 404, Msg: "Not Found"}, true)
 	low := strings.ToLower(got)
@@ -27,8 +27,8 @@ func TestDiagnoseHandshake404IsWrongServer(t *testing.T) {
 	}
 }
 
-// A 404 AFTER a successful handshake is NOT "wrong server" — the handshake already proved the
-// server is qayaba; saying "not a qayaba control plane" here would misdirect the operator.
+/* A 404 AFTER a successful handshake is NOT "wrong server" — the handshake already proved the
+   server is qayaba; saying "not a qayaba control plane" here would misdirect the operator. */
 func TestDiagnoseProbe404IsNotWrongServer(t *testing.T) {
 	got := diagnoseConnectError("localhost:8088", &api.APIError{Status: 404, Msg: "Not Found"}, false)
 	if strings.Contains(strings.ToLower(got), "not a qayaba") {
@@ -51,10 +51,10 @@ func TestDiagnoseTransportIsUnreachable(t *testing.T) {
 	}
 }
 
-// A resolved (auto-discovered or saved) token for the current host auto-connects and records
-// where it came from for the UI.
+/* A resolved (auto-discovered or saved) token for the current host auto-connects and records
+   where it came from for the UI. */
 func TestConnectSavedTokenAutoConnects(t *testing.T) {
-	m := newConnectModel() // host defaults to localhost:8080
+	m := newConnectModel() /* host defaults to localhost:8080 */
 
 	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8080", token: "secret", source: "config/.api_token"})
 
@@ -69,12 +69,12 @@ func TestConnectSavedTokenAutoConnects(t *testing.T) {
 	}
 }
 
-// A session saved under a NON-default host (e.g. the operator connected to :8088) must restore
-// that host into the field AND auto-connect with its token — otherwise the saved session is
-// orphaned because startup only ever looked at the default host. This is the persistence
-// regression: close the TUI, reopen it, and it should reconnect, not ask to log in again.
+/* A session saved under a NON-default host (e.g. the operator connected to :8088) must restore
+   that host into the field AND auto-connect with its token — otherwise the saved session is
+   orphaned because startup only ever looked at the default host. This is the persistence
+   regression: close the TUI, reopen it, and it should reconnect, not ask to log in again. */
 func TestConnectRestoresSavedHost(t *testing.T) {
-	m := newConnectModel() // host defaults to localhost:8080
+	m := newConnectModel() /* host defaults to localhost:8080 */
 
 	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8088", token: "sess.jwt", source: "saved for localhost:8088"})
 
@@ -89,11 +89,11 @@ func TestConnectRestoresSavedHost(t *testing.T) {
 	}
 }
 
-// If the operator has already typed a different host (the keyring/file read raced behind their
-// input), a token resolved for the original host must not be applied or auto-connected.
+/* If the operator has already typed a different host (the keyring/file read raced behind their
+   input), a token resolved for the original host must not be applied or auto-connected. */
 func TestConnectSavedTokenNotAppliedToTypedHost(t *testing.T) {
 	m := newConnectModel()
-	m.host.SetValue("localhost:9090") // user typed a different host before the read returned
+	m.host.SetValue("localhost:9090") /* user typed a different host before the read returned */
 
 	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8080", token: "secret", source: "config/.api_token"})
 
@@ -105,8 +105,8 @@ func TestConnectSavedTokenNotAppliedToTypedHost(t *testing.T) {
 	}
 }
 
-// The note tells the operator exactly where the token came from (so it is never a mystery).
-// (Shown in token/advanced mode, which a prefilled-but-failed connection drops back to.)
+/* The note tells the operator exactly where the token came from (so it is never a mystery).
+   (Shown in token/advanced mode, which a prefilled-but-failed connection drops back to.) */
 func TestConnectShowsTokenSource(t *testing.T) {
 	m := newConnectModel()
 	m.width = 80
@@ -120,8 +120,8 @@ func TestConnectShowsTokenSource(t *testing.T) {
 	}
 }
 
-// ^X clears the token, its source label, and the saved flag together (no stale source can
-// linger to mislabel a later token).
+/* ^X clears the token, its source label, and the saved flag together (no stale source can
+   linger to mislabel a later token). */
 func TestConnectForgetClearsTokenAndSource(t *testing.T) {
 	m := newConnectModel()
 	m.advanced = true
@@ -136,8 +136,8 @@ func TestConnectForgetClearsTokenAndSource(t *testing.T) {
 	}
 }
 
-// On a failed connect with a saved token, the view surfaces the diagnosis AND offers to forget
-// the token.
+/* On a failed connect with a saved token, the view surfaces the diagnosis AND offers to forget
+   the token. */
 func TestConnectViewShowsDiagnosisAndForget(t *testing.T) {
 	m := newConnectModel()
 	m.width = 80
@@ -156,13 +156,13 @@ func TestConnectViewShowsDiagnosisAndForget(t *testing.T) {
 	}
 }
 
-// ── GitHub device-flow login ──────────────────────────────────────────────────
+/* ── GitHub device-flow login ────────────────────────────────────────────────── */
 
-// By default the screen presents "Log in with GitHub" as the primary action.
+/* By default the screen presents "Log in with GitHub" as the primary action. */
 func TestConnectGitHubModeIsPrimary(t *testing.T) {
 	m := newConnectModel()
 	m.width = 80
-	m.advanced = false // force GitHub mode regardless of the build's client_id
+	m.advanced = false /* force GitHub mode regardless of the build's client_id */
 
 	out := m.View()
 	if !strings.Contains(out, "Log in with GitHub") {
@@ -170,10 +170,10 @@ func TestConnectGitHubModeIsPrimary(t *testing.T) {
 	}
 }
 
-// Pressing enter in GitHub mode first contacts the server (handshake) to learn its OAuth client
-// id — so the id need not be baked into the binary. The screen shows the "contacting…" phase.
+/* Pressing enter in GitHub mode first contacts the server (handshake) to learn its OAuth client
+   id — so the id need not be baked into the binary. The screen shows the "contacting…" phase. */
 func TestConnectLoginStartsWithHandshake(t *testing.T) {
-	m := newConnectModel() // defaults to GitHub mode
+	m := newConnectModel() /* defaults to GitHub mode */
 
 	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -182,8 +182,8 @@ func TestConnectLoginStartsWithHandshake(t *testing.T) {
 	}
 }
 
-// A device code moves the screen into the waiting phase, shows the user code + verify URL, and
-// remembers the resolved client id so the subsequent polls use the same one.
+/* A device code moves the screen into the waiting phase, shows the user code + verify URL, and
+   remembers the resolved client id so the subsequent polls use the same one. */
 func TestConnectDeviceCodeShowsUserCode(t *testing.T) {
 	m := newConnectModel()
 	m.width = 80
@@ -205,7 +205,7 @@ func TestConnectDeviceCodeShowsUserCode(t *testing.T) {
 	}
 }
 
-// A completed poll (the user approved) advances to the session exchange.
+/* A completed poll (the user approved) advances to the session exchange. */
 func TestConnectPollDoneExchanges(t *testing.T) {
 	m := newConnectModel()
 	m.phase = phaseDevice
@@ -217,7 +217,7 @@ func TestConnectPollDoneExchanges(t *testing.T) {
 	}
 }
 
-// A denied / expired poll returns to the login screen with a clear, distinct reason.
+/* A denied / expired poll returns to the login screen with a clear, distinct reason. */
 func TestConnectPollTerminalReturnsToLogin(t *testing.T) {
 	for _, tc := range []struct {
 		status auth.PollStatus
@@ -238,8 +238,8 @@ func TestConnectPollTerminalReturnsToLogin(t *testing.T) {
 	}
 }
 
-// slow_down must raise the poll-interval floor for ALL subsequent polls (RFC 8628 §3.5), so a
-// following pending-poll keeps the slower cadence instead of reverting to the original.
+/* slow_down must raise the poll-interval floor for ALL subsequent polls (RFC 8628 §3.5), so a
+   following pending-poll keeps the slower cadence instead of reverting to the original. */
 func TestConnectSlowDownPersistsInterval(t *testing.T) {
 	m := newConnectModel()
 	m.phase = phaseDevice
@@ -252,7 +252,7 @@ func TestConnectSlowDownPersistsInterval(t *testing.T) {
 	}
 }
 
-// A minted session records the username and probes the control plane with the session token.
+/* A minted session records the username and probes the control plane with the session token. */
 func TestConnectLoginExchangedConnects(t *testing.T) {
 	m := newConnectModel()
 	m.phase = phaseExchanging
@@ -267,7 +267,7 @@ func TestConnectLoginExchangedConnects(t *testing.T) {
 	}
 }
 
-// ^T toggles into token-paste (advanced) mode, revealing the token field.
+/* ^T toggles into token-paste (advanced) mode, revealing the token field. */
 func TestConnectToggleToTokenMode(t *testing.T) {
 	m := newConnectModel()
 	m.width = 80
@@ -283,8 +283,8 @@ func TestConnectToggleToTokenMode(t *testing.T) {
 	}
 }
 
-// An error mid-flow (e.g. GitHub unreachable, or login rejected) returns to the login screen
-// with the diagnosis, never stranding the user on a spinner.
+/* An error mid-flow (e.g. GitHub unreachable, or login rejected) returns to the login screen
+   with the diagnosis, never stranding the user on a spinner. */
 func TestConnectErrorReturnsToLogin(t *testing.T) {
 	m := newConnectModel()
 	m.phase = phaseDevice
@@ -296,7 +296,7 @@ func TestConnectErrorReturnsToLogin(t *testing.T) {
 	}
 }
 
-// A 403 at the login exchange is diagnosed as "not a collaborator", distinct from a generic auth failure.
+/* A 403 at the login exchange is diagnosed as "not a collaborator", distinct from a generic auth failure. */
 func TestDiagnoseLogin403IsNotCollaborator(t *testing.T) {
 	got := strings.ToLower(diagnoseLoginError("localhost:8080", &api.APIError{Status: 403, Msg: "forbidden"}))
 	if !strings.Contains(got, "collaborator") {

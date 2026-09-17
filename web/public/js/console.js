@@ -2,12 +2,12 @@
    qayaba console — vanilla render of the QA control panel.
    Mission-control Fleet, runs feed, run detail + the live run, app detail,
    integrity, learning, reports. Deep-linkable via ?run=<id> and #<section>.
-
    All data comes from window.QayabaConsole.api (see api.js). The UI never
    fetches directly; swap config.mode mock↔live to connect to the server.
-   ═══════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════════
+ */
 (function () {
-  let D = null; // the view model; populated by api.loadAll() before first render
+  let D = null; /* the view model; populated by api.loadAll() before first render */
   const root = document.getElementById('app');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const refreshIcons = () => { try { window.lucide && lucide.createIcons(); } catch (e) {} };
@@ -67,8 +67,9 @@
     return '<div class="dev-badge"><span class="dev-badge__tag">En desarrollo</span><span class="dev-badge__note">· datos mock · backend pendiente</span></div>';
   }
   const apiOf = () => (window.QayabaConsole && window.QayabaConsole.api) || null;
-  // Asset URLs resolved relative to THIS script, so the dashboard works whether it
-  // is served from the site root (standalone) or mounted at /app (ai-pipeline).
+  /* Asset URLs resolved relative to THIS script, so the dashboard works whether it
+     is served from the site root (standalone) or mounted at /app (ai-pipeline).
+   */
   const ASSET_BASE = (function () {
     try { return new URL('../assets/', (document.currentScript && document.currentScript.src) || location.href).href; }
     catch (e) { return 'assets/'; }
@@ -89,7 +90,6 @@
     }
     return s;
   }
-  // lucide icon, sized
   const I = (n, sz, st) => '<i data-lucide="' + n + '" style="width:' + (sz || 16) + 'px;height:' + (sz || 16) + 'px' + (st ? ';' + st : '') + '"></i>';
 
   /* ── color maps ────────────────────────────────────────────────────────── */
@@ -118,7 +118,6 @@
   const fmtMMSS = (sec) => Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's';
   const fmtDur = (sec) => (sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's');
 
-  /* ═══ DESIGN-SYSTEM PRIMITIVES ═══════════════════════════════════════════ */
   function VerdictTag(verdict, o) {
     o = o || {};
     const label = o.label != null ? o.label : verdict;
@@ -163,7 +162,6 @@
     ).join('') + '</div>';
   }
 
-  /* ═══ SHARED PARTS ═══════════════════════════════════════════════════════ */
   function PulseDot(color, size) {
     color = color || 'var(--pass-500)'; size = size || 9;
     return '<span style="' + sty({ position: 'relative', display: 'inline-flex', width: size, height: size, flex: 'none' }) + '">' +
@@ -336,7 +334,6 @@
   var LIVE = null;
   var toastTimer = 0;
 
-  /* ═══ OVERVIEW (Fleet — mission control) ════════════════════════════════ */
   function LiveStepper(stages) {
     return '<div style="display:flex;align-items:center;flex-wrap:wrap">' + stages.map(([name, status], i) => {
       const done = status === 'done', active = status === 'active';
@@ -406,8 +403,9 @@
       '<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--ember-600)">App Value ' + I('arrow-right', 12) + '</span></div></button>';
   }
   function RecentRow(r) {
-    // Provenance tag: only when a sidekick actually produced this run's specs (outcome
-    // action=delegate). Silent for lead-authored runs — the absence IS the lead story.
+    /* Provenance tag: only when a sidekick actually produced this run's specs (outcome
+       action=delegate). Silent for lead-authored runs — the absence IS the lead story.
+     */
     const provenance = r.workforce ? WorkforceBadge(r) : '';
     return '<button class="row-hover" data-action="open-run" data-id="' + esc(r.id) + '" style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 0, borderTop: 'var(--border-rule)', background: 'transparent', cursor: 'pointer', textAlign: 'left', padding: '10px 18px' }) + '">' +
       '<span style="width:92px;flex:none;display:inline-flex;gap:6px;align-items:center">' + VerdictTag(r.verdict, { sm: true }) + provenance + '</span>' +
@@ -450,7 +448,6 @@
       '<h2 style="' + sty({ fontSize: 17, fontWeight: 700, letterSpacing: '-0.015em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(title) + '</h2></div>' + (action || '') + '</div>';
   }
 
-  /* ═══ RUNS FEED ═════════════════════════════════════════════════════════ */
   function viewRunsFeed() {
     const runs = D.runs, stats = D.stats, running = D.running, filter = state.runFilter;
     const filters = ['all', 'pass', 'fail', 'flaky', 'infra-error', 'skipped'];
@@ -491,7 +488,6 @@
       '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' + head + runningRow + rows + empty + '</div></div>';
   }
 
-  /* ═══ RUN DETAIL ════════════════════════════════════════════════════════ */
   function QChip(icon, label, value, tone) {
     return '<div style="' + sty({ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 11, padding: '12px 14px', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '">' +
       '<span style="' + sty({ display: 'inline-flex', width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-xs)', background: 'var(--surface-sunken)', color: tone || 'var(--text-muted)', flex: 'none' }) + '">' + I(icon, 16) + '</span>' +
@@ -499,9 +495,10 @@
       '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }) + '">' + esc(label) + '</span>' +
       '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-strong)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(value) + '</span></div></div>';
   }
-  // Multi-agent workforce chips: who wrote this run's specs and how the delegation behaved.
-  // Rendered only when the run actually went through a delegation — a direct lead run adds no
-  // chips (the pipeline was the non-coordinated baseline every operator already knows).
+  /* Multi-agent workforce chips: who wrote this run's specs and how the delegation behaved.
+     Rendered only when the run actually went through a delegation — a direct lead run adds no
+     chips (the pipeline was the non-coordinated baseline every operator already knows).
+   */
   function WorkforceChips(run) {
     const wf = run && run.workforce;
     if (!wf) return '';
@@ -555,7 +552,6 @@
       runChat(run, false) + '</div>';
   }
 
-  /* ═══ RUN CHAT (interactive; wired in mountChat) ════════════════════════ */
   function chatAnswer(run, live, q) {
     const t = (q || '').toLowerCase();
     const has = function () { for (var i = 0; i < arguments.length; i++) if (t.indexOf(arguments[i]) >= 0) return true; return false; };
@@ -627,7 +623,6 @@
       '<button data-chat-send style="' + sty({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, flex: 'none', border: 0, borderRadius: 'var(--radius-xs)', cursor: 'not-allowed', background: 'var(--bone-300)', color: 'var(--text-faint)' }) + '">' + I('arrow-up', 16) + '</button></div></div></div>';
   }
 
-  /* ═══ LIVE RUN DETAIL (streaming; wired in mountLive) ═══════════════════ */
   const MS = [412, 338, 274, 221];
   function livePipeHTML() {
     const L = LIVE;
@@ -660,12 +655,14 @@
     return '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' + EYEBROW('test cases') +
       '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">' + done + '/' + cases.length + ' green</span></div>' + rows;
   }
-  // Real in-flight run detail: fields come from the RunRecord (cases/logs/step) and live updates
-  // from the run's SSE stream via mountLive. No fake plan/case content is ever rendered here —
-  // sections appear only once real data exists for them.
+  /* Real in-flight run detail: fields come from the RunRecord (cases/logs/step) and live updates
+     from the run's SSE stream via mountLive. No fake plan/case content is ever rendered here —
+     sections appear only once real data exists for them.
+   */
   function viewLiveDetailReal(run) {
-    // run.stages already arrives derived (mapRun builds the stage states from the record's
-    // current step) — no cross-module call here, api.js internals are module-private.
+    /* run.stages already arrives derived (mapRun builds the stage states from the record's
+       current step) — no cross-module call here, api.js internals are module-private.
+     */
     var stages = run.stages && run.stages.length ? run.stages : [];
     LIVE = { elapsed: Math.max(0, run.mins | 0), log: (run.log || []).slice(), cases: (run.cases || []).slice(), stages: stages.map(function (st) { return [st[0], st[1]]; }), note: (run.note || run.step || ''), plan: [], done: (run.specs || 0), total: (run.specs || 0), run: run };
     var header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
@@ -703,10 +700,11 @@
     }).join('');
   }
   function viewLiveDetail(run) {
-    // IMPORTANT split: the simulated (mock) live view seeds from `currentTest/plan/liveLog`, which
-    // ONLY the demo dataset provides. In live mode those mock fields used to bleed into real runs
-    // via mergeLiveRun — every real run showed the same fake plan/cases. Real runs now route to
-    // viewLiveDetailReal (record fields SSE-fed) and the mock keeps its simulation.
+    /* IMPORTANT split: the simulated (mock) live view seeds from `currentTest/plan/liveLog`, which
+       ONLY the demo dataset provides. In live mode those mock fields used to bleed into real runs
+       via mergeLiveRun — every real run showed the same fake plan/cases. Real runs now route to
+       viewLiveDetailReal (record fields SSE-fed) and the mock keeps its simulation.
+     */
     if (run && run.__live === true) return viewLiveDetailReal(run);
     if (!run || !run.currentTest || !run.plan || !run.liveLog) return viewRunDetail(run);
     LIVE = { elapsed: run.startedAt || 0, log: run.liveLog.slice(), cases: run.currentTest.cases.map((c) => Object.assign({}, c)), stages: run.stages.map((s) => s.slice()), note: 'shows spinner while a query is pending', queue: run.liveQueue, done: run.specsDone + 1, total: run.specsTotal, run: run };
@@ -749,7 +747,6 @@
       runChat(run, true) + '</div>';
   }
 
-  /* ═══ APP DETAIL ════════════════════════════════════════════════════════ */
   const HC = { H: 188, PADX: 7, TOP: 20, BOT: 22 };
   function hcGeom(history) {
     const n = history.length;
@@ -785,7 +782,6 @@
       '<div class="hc-span" style="position:absolute;top:0;bottom:0;left:' + g.xPct(lo) + '%;width:' + (g.xPct(hi) - g.xPct(lo)) + '%;background:var(--ember-500);opacity:0.08;pointer-events:none"></div>' + guides + points + '</div>' +
       '<div style="position:relative;height:30px;margin-top:2px">' + xlabels + '</div></div>';
   }
-  // Surgical, transition-friendly update of the chart selection (no remount).
   function updateAppChart() {
     const history = D.histories[state.appName] || [];
     const a = state.appSel.a, b = state.appSel.b, lo = Math.min(a, b), hi = Math.max(a, b);
@@ -976,7 +972,6 @@
       '<div style="display:flex;flex-direction:column;gap:var(--space-4);min-width:0;flex:1 1 540px">' + healthCard + cmpCard + activityCard + '</div>' + rail + '</div></div>';
   }
 
-  /* ═══ INTEGRITY ═════════════════════════════════════════════════════════ */
   function GateRow(g, last) {
     const blocks = g.mode === 'blocks', pct = Math.round((g.pass / g.of) * 100);
     return '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', borderTop: last ? 'var(--border-rule)' : 0 }) + '">' +
@@ -1014,7 +1009,6 @@
       Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: '<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>' }) + '</div>';
   }
 
-  /* ═══ LEARNING ══════════════════════════════════════════════════════════ */
   function viewLearning() {
     const devBadge = DevBadge();
     const flywheel = D.flywheel, ledger = D.ledger;
@@ -1063,7 +1057,6 @@
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px,1fr));gap:var(--space-4);align-items:start">' + curriculum + audit + '</div>' + engram + '</div>';
   }
 
-  /* ═══ REPORTS ═══════════════════════════════════════════════════════════ */
   function insightBlock(ins, rank) {
     const shapeIcon = { multiplier: 'x', gauge: 'gauge', bars: 'bar-chart-3', sparkline: 'trending-up', note: 'info' };
     let viz;
@@ -1120,7 +1113,6 @@
       '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + builder + delivery + '</div></div></div>';
   }
 
-  /* ═══ SHELL ═════════════════════════════════════════════════════════════ */
   const NAV = [
     { id: 'overview', label: 'Fleet', icon: 'layout-grid' },
     { id: 'runs', label: 'Runs', icon: 'activity' },
@@ -1234,7 +1226,7 @@
     if (state.appName) return [state.appName, 'App Value · health & history'];
     return TITLES[state.section] || TITLES.overview;
   }
-  // Full render — only on navigation. Rebuilds the shell and plays the view-entrance.
+  /* Full render — only on navigation. Rebuilds the shell and plays the view-entrance. */
   function render() {
     teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
     const onView = !state.appName && !state.runId;
@@ -1260,8 +1252,9 @@
     refreshIcons();
     mountInteractive();
   }
-  // In-view update — same section/run/app. Swaps only the view body, preserves
-  // scroll, and does NOT replay the entrance animation.
+  /* In-view update — same section/run/app. Swaps only the view body, preserves
+     scroll, and does NOT replay the entrance animation.
+   */
   function renderView() {
     teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
     const dv = document.getElementById('dash-view');
@@ -1273,8 +1266,9 @@
     refreshIcons();
     mountInteractive();
   }
-  // Overlays (dialog + toast) live outside the shell, so toggling them never
-  // touches the scroll container, the view, or the live stream.
+  /* Overlays (dialog + toast) live outside the shell, so toggling them never
+     touches the scroll container, the view, or the live stream.
+   */
   function renderOverlays() {
     const ov = document.getElementById('overlay');
     if (!ov) return;
@@ -1290,9 +1284,7 @@
     const burger = document.getElementById('side-burger');
     const nav = document.getElementById('side-nav');
     if (burger && nav) burger.onclick = function (e) { e.stopPropagation(); nav.classList.toggle('is-open'); };
-    // gauge draw-in
     document.querySelectorAll('.pa-gauge-arc').forEach((el) => requestAnimationFrame(() => { el.style.strokeDashoffset = el.dataset.final; }));
-    // overview "running now" timer
     const ovTimers = document.querySelectorAll('.ov-timer');
     if (ovTimers.length) {
       let s = 72;
@@ -1313,12 +1305,14 @@
       const term = document.getElementById('live-term'); if (term) term.innerHTML = Terminal(LIVE.log);
       refreshIcons();
     };
-    // LIVE: drive the view from the server's SSE feed (api.subscribeRun returns an
-    // unsubscribe). MOCK: api.subscribeRun returns null → fall through to the local sim.
+    /* LIVE: drive the view from the server's SSE feed (api.subscribeRun returns an
+       unsubscribe). MOCK: api.subscribeRun returns null → fall through to the local sim.
+     */
     const api = apiOf();
     if (api && api.subscribeRun) {
-      // Watch the view's own run (not whatever state.runId was) — the SSE feed is authoritative
-      // once live data starts flowing, so the mock replay below never runs for a real run.
+      /* Watch the view's own run (not whatever state.runId was) — the SSE feed is authoritative
+         once live data starts flowing, so the mock replay below never runs for a real run.
+       */
       const unsub = api.subscribeRun(LIVE.run.id, {
         onLog: (g, t) => { LIVE.log = LIVE.log.concat([[g, t]]); repaint(); },
         onStep: (step, detail) => {
@@ -1337,8 +1331,9 @@
         onVerdict: (v) => {
           for (let i = 0; i < LIVE.stages.length; i++) LIVE.stages[i][1] = 'done';
           LIVE.note = 'verdict ' + v; repaint();
-          // Terminal-ish refresh: brief pause, then reload the model so the finished record
-          // shows real cases/coverage instead of the live skeleton (SSE event precedes DB commit).
+          /* Terminal-ish refresh: brief pause, then reload the model so the finished record
+             shows real cases/coverage instead of the live skeleton (SSE event precedes DB commit).
+           */
           setTimeout(function () { loadAndRender(); }, 1400);
         },
         onError: () => {},
@@ -1443,10 +1438,10 @@
   function backToRuns() { state.runId = null; state.section = 'runs'; history.pushState({ section: 'runs' }, '', '#runs'); render(); }
   function backToFleet() { state.appName = null; state.section = 'overview'; history.pushState({ section: 'overview' }, '', '#overview'); render(); }
   function showToast(msg) { showToastHtml(esc(msg), 2600); }
-  // Toast other than plain text: callers may embed a [data-action] button (e.g. open the run).
+  /* Toast other than plain text: callers may embed a [data-action] button (e.g. open the run). */
   function showToastHtml(html, ttl) { state.toastHtml = html; state.toast = null; renderOverlays(); clearTimeout(toastTimer); toastTimer = setTimeout(() => { state.toastHtml = null; renderOverlays(); }, ttl || 2600); }
 
-    // reload the model in place (model refresh WITHOUT navigation) and repaint the current view.
+    /* reload the model in place (model refresh WITHOUT navigation) and repaint the current view. */
   async function loadAndRender() {
     try {
       const data = await api.loadAll();
@@ -1456,8 +1451,9 @@
     } catch (err) { /* keep the current view; a refresh failure must not break the session */ }
   }
 
-  // Follow a queued run's verdict via its SSE feed. When the verdict lands, refresh the model
-  // once and surface a "view run" toast — without stealing the screen the operator is on.
+  /* Follow a queued run's verdict via its SSE feed. When the verdict lands, refresh the model
+     once and surface a "view run" toast — without stealing the screen the operator is on.
+   */
   function queueVerdictWatch(runId) {
     if (!api || !api.subscribeRun) return;
     state.toastingRunId = runId;
@@ -1489,22 +1485,19 @@
       return;
     }
     const action = el.dataset.action, id = el.dataset.id;
-    // navigation → full render (entrance animation, fresh scroll)
     if (action === 'nav') go(id);
     else if (action === 'open-run') openRun(id);
     else if (action === 'open-app') openApp(id);
     else if (action === 'back-runs') backToRuns();
     else if (action === 'back-fleet') backToFleet();
     else if (action === 'cancel') { const rid = liveRun() && liveRun().id; const api = apiOf(); if (rid && api && api.cancelRun) api.cancelRun(rid); state.runId = null; state.section = 'runs'; history.pushState({ section: 'runs' }, '', '#runs'); render(); showToast('run ' + rid + ' cancelled · working copy discarded'); }
-    // in-view → swap only the view body (no entrance, scroll preserved)
     else if (action === 'runfilter') { state.runFilter = id; renderView(); }
     else if (action === 'rep-tpl') { state.repTpl = id; renderView(); }
     else if (action === 'rep-view') { state.repView = id; renderView(); }
-    // surgical → mutate just the affected widgets, smoothly
     else if (action === 'apptab') setAppTab(id);
     else if (action === 'apppick') { const i = parseInt(id, 10); const s = state.appSel; state.appSel = (i === s.a || i === s.b) ? s : { a: s.b, b: i }; updateAppChart(); }
     else if (action === 'apppreset') { const h = D.histories[state.appName] || []; const last = h.length - 1; state.appSel = id === 'first' ? { a: 0, b: last } : { a: Math.max(0, last - 1), b: last }; updateAppChart(); }
-    // overlays → never touch the view
+    /* overlays → never touch the view */
     else if (action === 'trigger') { state.dialog = 'trigger'; renderOverlays(); }
     else if (action === 'dialog-bg') { if (e.target.classList && e.target.classList.contains('dialog-bg')) { state.dialog = false; renderOverlays(); } }
     else if (action === 'dialog-close') { state.dialog = false; renderOverlays(); }
@@ -1524,8 +1517,9 @@
         api.createRun(body).then((res) => {
           const newId = res && res.id && res.id !== 'queued' ? res.id : null;
           if (!newId) return;
-          // Queued → watch. Reload the model so the run exists in the fleet list, then follow
-          // the live verdict; when it lands the view refreshes by itself (and offers the jump).
+          /* Queued → watch. Reload the model so the run exists in the fleet list, then follow
+             the live verdict; when it lands the view refreshes by itself (and offers the jump).
+           */
           showToast('queued ' + body.app + ' · ' + body.mode + ' mode · run ' + newId.slice(-6));
           loadAndRender().then(() => queueVerdictWatch(newId));
         }).catch(() => { showToast('could not queue the run'); });
@@ -1629,7 +1623,6 @@
               loginScreen.style.display = 'none';
               window.location.reload();
             } else if (tokenData.error === 'authorization_pending') {
-              // keep polling
             } else if (tokenData.error === 'slow_down') {
               clearInterval(pollInterval);
               pollInterval = setInterval(arguments.callee, interval * 2);

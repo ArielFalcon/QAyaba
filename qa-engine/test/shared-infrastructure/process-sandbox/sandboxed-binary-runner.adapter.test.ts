@@ -1,13 +1,15 @@
-// qa-engine/test/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.test.ts
-// Behavioral tests over REAL spawned processes (leaf IO — test the real behavior, not a mock),
-// matching the pattern established for ProcessKillAdapter/scrubEnv in this same directory.
+/* qa-engine/test/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.test.ts
+   Behavioral tests over REAL spawned processes (leaf IO — test the real behavior, not a mock),
+   matching the pattern established for ProcessKillAdapter/scrubEnv in this same directory.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SandboxedBinaryRunnerAdapter } from "../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts";
 import { ProcessKillAdapter } from "../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "../../../src/shared-kernel/process-sandbox/process-kill.port.ts";
-// Import depth: from qa-engine/test/shared-infrastructure/process-sandbox/ → qa-engine/src/ is 3 levels
-// up (../../../), matching process-kill.test.ts and scrub-env.test.ts in this same directory.
+/* Import depth: from qa-engine/test/shared-infrastructure/process-sandbox/ → qa-engine/src/ is 3 levels
+   up (../../../), matching process-kill.test.ts and scrub-env.test.ts in this same directory.
+ */
 
 function makeAdapter(processKill: ProcessKillPort = new ProcessKillAdapter()): SandboxedBinaryRunnerAdapter {
   return new SandboxedBinaryRunnerAdapter({ processKill });
@@ -16,7 +18,7 @@ function makeAdapter(processKill: ProcessKillPort = new ProcessKillAdapter()): S
 test("run() spawns a real command and captures exitCode + stdout", async () => {
   const adapter = makeAdapter();
   const result = await adapter.run({
-    command: process.execPath, // node itself — no PATH lookup surprises
+    command: process.execPath, /* node itself — no PATH lookup surprises */
     args: ["-e", "process.stdout.write('ok')"],
     cwd: process.cwd(),
     env: { PATH: process.env.PATH ?? "" },
@@ -47,7 +49,7 @@ test("run() honors cwd — the spawned command sees it as its working directory"
     cwd: "/tmp",
     env: { PATH: process.env.PATH ?? "" },
   });
-  // macOS /tmp is a symlink to /private/tmp; realpath both sides so this holds cross-platform.
+  /* macOS /tmp is a symlink to /private/tmp; realpath both sides so this holds cross-platform. */
   const { realpathSync } = await import("node:fs");
   assert.equal(realpathSync(result.stdout.trim()), realpathSync("/tmp"));
 });
@@ -57,14 +59,14 @@ test("run() kills the process tree on timeout and reports timedOut:true", async 
   const spyKill: ProcessKillPort = {
     killTree(child) {
       if (child.pid) killed.push(child.pid);
-      new ProcessKillAdapter().killTree(child); // still actually reap it — no leaked children
+      new ProcessKillAdapter().killTree(child); /* still actually reap it — no leaked children */
     },
   };
   const adapter = makeAdapter(spyKill);
   const start = Date.now();
   const result = await adapter.run({
     command: process.execPath,
-    args: ["-e", "setTimeout(() => {}, 60000)"], // would hang for 60s without a timeout kill
+    args: ["-e", "setTimeout(() => {}, 60000)"], /* would hang for 60s without a timeout kill */
     cwd: process.cwd(),
     env: { PATH: process.env.PATH ?? "" },
     timeoutMs: 200,

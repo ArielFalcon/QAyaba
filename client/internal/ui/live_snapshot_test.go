@@ -8,9 +8,9 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/events"
 )
 
-// On resume, the live view must paint the run's current state from the record snapshot
-// BEFORE any SSE event is folded — otherwise a mid-run re-attach shows an empty rail and
-// 0% during a quiet phase (the photo-2 "broken on resume" bug).
+/* On resume, the live view must paint the run's current state from the record snapshot
+   BEFORE any SSE event is folded — otherwise a mid-run re-attach shows an empty rail and
+   0% during a quiet phase (the photo-2 "broken on resume" bug). */
 func TestLiveSeedFromRecordPaintsPhaseBeforeEvents(t *testing.T) {
 	m := newLiveModel("run_1", "petclinic", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	step := "generate"
@@ -35,8 +35,8 @@ func TestLiveSeedFromRecordPaintsPhaseBeforeEvents(t *testing.T) {
 	}
 }
 
-// The snapshot can be staler than the live stream (it is fetched once on attach while the
-// stream keeps advancing). Seeding must never regress a phase the stream already moved past.
+/* The snapshot can be staler than the live stream (it is fetched once on attach while the
+   stream keeps advancing). Seeding must never regress a phase the stream already moved past. */
 func TestLiveSeedDoesNotRegressStreamPhase(t *testing.T) {
 	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "step.changed", Body: events.StepChanged{Step: "validate"}}))

@@ -1,8 +1,8 @@
-// Assembles the BOUNDED, SANITIZED run-context blob fed to the read-only qa-assistant
-// (the interactive layer's `ask`). Read-only and sanitization are infra-enforced here,
-// not trusted to the agent: the context is capped (recent cases + truncated logs) and
-// passes through src/orchestrator/sanitizer.ts on the way IN. The answer is sanitized
-// again on the way OUT (in the API handler) — logs→chat is a new egress.
+/*
+ * Bounded, sanitized run-context for the read-only qa-assistant. Sanitization is
+ * infra-enforced here, not trusted to the agent: cap cases/logs, sanitize on the way in.
+ * The API handler sanitizes the answer on the way out — logs→chat is an egress.
+ */
 
 import { RunRecord } from "../types";
 import { sanitizeText } from "../orchestrator/sanitizer";
@@ -74,7 +74,6 @@ export function buildLearningContext(app: string): string | null {
       }
     }
 
-    // Cap to avoid blowing the context budget
     const text = lines.join("\n");
     return text.length > 3000 ? text.slice(0, 3000) + "\n…(truncated)" : text;
   } catch {
@@ -99,8 +98,6 @@ export function buildRunContext(
 ): string {
   const lines: string[] = [];
 
-  // Pipeline phase reference so the assistant can interpret the step field.
-  // Descriptions are target-aware: code mode has no browser, no DEV, no Playwright.
   const isCode = record.target === "code";
   lines.push(
     isCode
@@ -166,6 +163,6 @@ export function buildRunContext(
     lines.push("", learningContext);
   }
 
-  // Sanitize the whole blob on ingress (run data can carry DEV secrets/PII).
+  /* Sanitize the whole blob on ingress (run data can carry DEV secrets/PII). */
   return sanitizeText(lines.join("\n")).text;
 }

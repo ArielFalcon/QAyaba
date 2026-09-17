@@ -1,10 +1,9 @@
-// Unit tests for OpenCodeRuntimeStrategy's model-listing fallback (WS9.4(b)).
-//
-// modelsFromOpenCodeConfig only falls back to FALLBACK_MODELS when agents/opencode.json is
-// missing or unreadable. That is rare in production (the file ships with the image), but when it
-// DOES fire, the fallback roster must not reject the actual default primary model — a stale
-// roster naming models the live config no longer has is worse than an empty list, because it
-// looks authoritative while being wrong.
+/* modelsFromOpenCodeConfig only falls back to FALLBACK_MODELS when agents/opencode.json is
+   missing or unreadable. That is rare in production (the file ships with the image), but when it
+   DOES fire, the fallback roster must not reject the actual default primary model — a stale
+   roster naming models the live config no longer has is worse than an empty list, because it
+   looks authoritative while being wrong.
+ */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -13,13 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 
-// Repo root relative to this test file (src/agent-runtime/ → two levels up), for reading the
-// REAL agents/opencode.json in the structural anti-drift test below.
+/* Repo root relative to this test file (src/agent-runtime/ → two levels up), for reading the
+   REAL agents/opencode.json in the structural anti-drift test below.
+ */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
 
 describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => {
   it("the fallback roster includes the LIVE default primary model (from agents/opencode.json), not a stale one", async () => {
-    // Point at a config path that does not exist, forcing the FALLBACK_MODELS path.
+    /* Point at a config path that does not exist, forcing the FALLBACK_MODELS path. */
     const strategy = new OpenCodeRuntimeStrategy({
       env: { OPENCODE_API_KEY: "test-key" },
       configPath: "/nonexistent/opencode/config/path.json",
@@ -40,9 +40,10 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => 
   });
 
   it("structural anti-drift: EVERY fallback roster entry appears in the REAL agents/opencode.json roster", async () => {
-    // Read the actual shipped config — not a hand-transcribed copy — and assert the fallback list
-    // is a subset of the models genuinely assigned there. If someone retires a model from
-    // opencode.json without updating FALLBACK_MODELS, this fails; no manual transcription to rot.
+    /* Read the actual shipped config — not a hand-transcribed copy — and assert the fallback list
+       is a subset of the models genuinely assigned there. If someone retires a model from
+       opencode.json without updating FALLBACK_MODELS, this fails; no manual transcription to rot.
+     */
     const livePath = join(REPO_ROOT, "agents", "opencode.json");
     const liveConfig = JSON.parse(readFileSync(livePath, "utf8")) as {
       agent?: Record<string, { model?: string }>;
@@ -54,7 +55,6 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => 
     );
     assert.ok(liveModels.size > 0, `agents/opencode.json must assign at least one model (read from ${livePath})`);
 
-    // Force the fallback path with a nonexistent configPath.
     const strategy = new OpenCodeRuntimeStrategy({
       env: { OPENCODE_API_KEY: "test-key" },
       configPath: "/nonexistent/opencode/config/path.json",
@@ -71,8 +71,9 @@ describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => 
   });
 
   it("parsing logic: distinct agent models in a config are surfaced exactly (temp-config shape test)", async () => {
-    // Build a tiny temp config mirroring the SHAPE this parser reads (agent -> model) and confirm
-    // the LIVE-config parse path (not the fallback) surfaces exactly the distinct assigned ids.
+    /* Build a tiny temp config mirroring the SHAPE this parser reads (agent -> model) and confirm
+       the LIVE-config parse path (not the fallback) surfaces exactly the distinct assigned ids.
+     */
     const dir = mkdtempSync(join(tmpdir(), "opencode-config-test-"));
     const configPath = join(dir, "opencode.json");
     try {

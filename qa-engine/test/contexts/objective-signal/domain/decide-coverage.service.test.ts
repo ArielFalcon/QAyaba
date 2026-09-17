@@ -1,4 +1,3 @@
-// test/contexts/objective-signal/domain/decide-coverage.service.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

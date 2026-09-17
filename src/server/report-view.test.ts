@@ -8,8 +8,9 @@ function trends(over: Partial<TrendsView> = {}): TrendsView {
     app: "a",
     generatedAt: "2026-06-14T00:00:00Z",
     window: { current: 10, previous: 10 },
-    // Full-length series (≥10) so confidence is not throttled — confidence is sized by each
-    // metric's own measured-sample count, and a sparse series would bury an otherwise-big mover.
+    /* Full-length series (≥10) so confidence is not throttled — confidence is sized by each
+       metric's own measured-sample count, and a sparse series would bury an otherwise-big mover.
+     */
     coverage: {
       measured: true,
       ratio: 0.8,
@@ -26,7 +27,6 @@ function trends(over: Partial<TrendsView> = {}): TrendsView {
     verdictMix: { pass: 7, fail: 2, flaky: 1 },
     reviewerPassRate: 0.7,
     flaky: { rate: 0.1, previousRate: 0.1, runs: 10 },
-    // unchanged (multiplier 1) so coverage is unambiguously the biggest mover.
     errorClasses: [{ errorClass: "E-COVERAGE-GAP", count: 4, previousCount: 4, multiplier: 1 }],
     duration: { avgMs: null, previousMs: null, runs: 0 },
     flows: [],
@@ -38,20 +38,20 @@ test("toReportView ranks the biggest mover first and picks a chart per metric", 
   const report = toReportView(trends());
   assert.equal(report.app, "a");
   assert.ok(report.insights.length >= 4);
-  // coverage moved 0.5 → 0.8 (1.6×) — outranks the flat metrics and headlines.
   assert.equal(report.insights[0]?.id, "change-coverage");
   assert.equal(report.insights[0]?.multiplier, 1.6);
   assert.equal(report.insights[0]?.direction, "up");
   assert.match(report.headline, /1\.6/);
-  // chart selection by data shape (verdict mix is a composition → preferred chart is a donut).
+  /* chart selection by data shape (verdict mix is a composition → preferred chart is a donut). */
   assert.equal(report.insights.find((i) => i.id === "verdict-mix")?.chart, "donut");
   assert.equal(report.insights.find((i) => i.id === "error-classes")?.chart, "ranked-bars");
   assert.ok((report.insights.find((i) => i.id === "verdict-mix")?.breakdown?.length ?? 0) >= 1);
 });
 
 test("toReportView ranks a from-zero climb first and headlines it honestly", () => {
-  // coverage 0 → 0.8 has no finite multiplier but is a real, large movement: it must outrank the
-  // other (flat) metrics and the headline must say it climbed from zero.
+  /* coverage 0 → 0.8 has no finite multiplier but is a real, large movement: it must outrank the
+     other (flat) metrics and the headline must say it climbed from zero.
+   */
   const report = toReportView(
     trends({
       coverage: {
@@ -61,7 +61,6 @@ test("toReportView ranks a from-zero climb first and headlines it honestly", () 
         minRatio: 0.7,
         series: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8],
       },
-      // hold the other movers flat so coverage is unambiguously first.
       valueOracle: {
         measured: true,
         avgScore: 0.5,
@@ -73,13 +72,14 @@ test("toReportView ranks a from-zero climb first and headlines it honestly", () 
   );
   assert.equal(report.insights[0]?.id, "change-coverage");
   assert.equal(report.insights[0]?.direction, "up");
-  assert.equal(report.insights[0]?.multiplier, null); // no finite multiplier from a zero baseline
+  assert.equal(report.insights[0]?.multiplier, null); /* no finite multiplier from a zero baseline */
   assert.match(report.headline, /climbed from zero/);
 });
 
 test("toReportView scales a from-zero move by magnitude — a tiny blip does NOT outrank a real move", () => {
-  // flaky climbs a trivial 0 → 0.1; coverage makes a real 0 → 0.8 move. Under the magnitude-scaled
-  // fix the big mover wins; the old "slam to the cap" bug would have tied (or inverted via weight).
+  /* flaky climbs a trivial 0 → 0.1; coverage makes a real 0 → 0.8 move. Under the magnitude-scaled
+     fix the big mover wins; the old "slam to the cap" bug would have tied (or inverted via weight).
+   */
   const report = toReportView(
     trends({
       coverage: {
@@ -95,7 +95,7 @@ test("toReportView scales a from-zero move by magnitude — a tiny blip does NOT
         previousAvgScore: 0.5,
         series: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
       },
-      flaky: { rate: 0.1, previousRate: 0, runs: 10 }, // trivial from-zero blip
+      flaky: { rate: 0.1, previousRate: 0, runs: 10 },
     }),
   );
   const coverage = report.insights.find((i) => i.id === "change-coverage")!;
@@ -107,9 +107,9 @@ test("toReportView scales a from-zero move by magnitude — a tiny blip does NOT
 test("toReportView emits self-describing fields: intent, unit, target, breakdown semantic", () => {
   const report = toReportView(trends());
   const cov = report.insights.find((i) => i.id === "change-coverage")!;
-  assert.equal(cov.intent, "trend"); // a multi-point series → a trend
+  assert.equal(cov.intent, "trend"); /* a multi-point series → a trend */
   assert.equal(cov.unit, "ratio");
-  assert.equal(cov.target, 0.7); // the minRatio threshold line travels with the insight
+  assert.equal(cov.target, 0.7); /* the minRatio threshold line travels with the insight */
   assert.match(cov.caption ?? "", /target/);
   const mix = report.insights.find((i) => i.id === "verdict-mix")!;
   assert.equal(mix.intent, "composition");
@@ -149,10 +149,10 @@ test("trendsToCsv dumps a flat metric,current,previous table", () => {
 
 test("toReportView applies per-app weight overrides (qa.reports.weights)", () => {
   const covNormal = toReportView(trends()).insights.find((i) => i.id === "change-coverage")!.score;
-  assert.ok(covNormal > 0); // coverage moved 0.5 → 0.8, so it scores under the default weight
+  assert.ok(covNormal > 0); /* coverage moved 0.5 → 0.8, so it scores under the default weight */
 
   const deweighted = toReportView(trends(), { weights: { "change-coverage": 0 } });
   const covDe = deweighted.insights.find((i) => i.id === "change-coverage")!.score;
-  assert.equal(covDe, 0); // weight 0 → score 0 regardless of how much it moved
-  assert.notEqual(deweighted.insights[0]?.id, "change-coverage"); // and it no longer headlines
+  assert.equal(covDe, 0); /* weight 0 → score 0 regardless of how much it moved */
+  assert.notEqual(deweighted.insights[0]?.id, "change-coverage"); /* and it no longer headlines */
 });

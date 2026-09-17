@@ -1,31 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Qayaba Console — data layer (the ONE seam between UI and backend).
-
    console.js never fetches; it asks window.QayabaConsole.api for data. Two
    adapters implement the same interface:
-
-     • mock  — returns window.QayabaMockData; runs the live-run + chat
-               simulations locally. Zero backend. Default.
-     • live  — talks to the ai-pipeline orchestrator over /api/v1/* (same
-               origin, Bearer/credentials) and the SSE live feed. Mirrors
-               @ai-pipeline/sdk's createClient() method-for-method, so a future
-               swap to the real SDK is mechanical.
-
+   • mock — returns window.QayabaMockData; runs the live-run + chat
+   simulations locally. Zero backend. Default.
+   • live — talks to the ai-pipeline orchestrator over /api/v1/* (same
+   origin, Bearer/credentials) and the SSE live feed. Mirrors
+   @ai-pipeline/sdk's createClient() method-for-method, so a future
+   swap to the real SDK is mechanical.
    Configure by setting window.QAYABA_CONSOLE_CONFIG before this script loads:
-     window.QAYABA_CONSOLE_CONFIG = { mode:'live', baseUrl:'', token:null, landingUrl:'/' }
-
+   window.QAYABA_CONSOLE_CONFIG = { mode:'live', baseUrl:'', token:null, landingUrl:'/' }
    Interface consumed by console.js:
-     api.loadAll()                  → Promise<ViewModel>   (the whole dashboard model)
-     api.subscribeRun(id, handlers) → unsubscribe()|null   (null ⇒ UI self-simulates)
-     api.ask(runId, question)       → Promise<string|null> (null ⇒ UI uses canned answer)
-     api.createRun({app,mode,sha})  → Promise<any>
-     api.cancelRun(runId)           → Promise<any>
-
+   api.loadAll() → Promise<ViewModel> (the whole dashboard model)
+   api.subscribeRun(id, handlers) → unsubscribe()|null (null ⇒ UI self-simulates)
+   api.ask(runId, question) → Promise<string|null> (null ⇒ UI uses canned answer)
+   api.createRun({app,mode,sha}) → Promise<any>
+   api.cancelRun(runId) → Promise<any>
    See API.md for the full endpoint requirements + field-mapping + gaps.
-   ═══════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════════
+ */
 window.QayabaConsole = (function () {
   const storedToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qayaba_token') : null;
-  
+
   const cfg = Object.assign(
     { mode: 'live', baseUrl: '', token: storedToken, landingUrl: '/' },
     window.QAYABA_CONSOLE_CONFIG || {}
@@ -33,7 +29,8 @@ window.QayabaConsole = (function () {
 
   /* ── mock adapter ──────────────────────────────────────────────────────
      loadAll resolves the bundled model. subscribeRun/ask return null so the UI
-     keeps its built-in simulations (so the kit looks alive with no server). */
+     keeps its built-in simulations (so the kit looks alive with no server).
+   */
   const mock = {
     loadAll() { return Promise.resolve(window.QayabaMockData); },
     subscribeRun() { return null; },
@@ -45,7 +42,8 @@ window.QayabaConsole = (function () {
   /* ── live adapter ──────────────────────────────────────────────────────
      Real transport to /api/v1/*. Reads map the contract → the dashboard view
      model (see mapModel). Anything the contract does not yet provide is marked
-     TODO(server) here and listed in API.md so the backend can be extended. */
+     TODO(server) here and listed in API.md so the backend can be extended.
+   */
   const API = cfg.baseUrl + '/api/v1';
   function headers() {
     const h = { 'Content-Type': 'application/json' };
@@ -60,7 +58,6 @@ window.QayabaConsole = (function () {
       body: body == null ? undefined : JSON.stringify(body),
     }).then((r) => {
       if (r.status === 401) {
-        // Token invalid or expired → clear and redirect to login
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.removeItem('qayaba_token');
         }
@@ -71,7 +68,6 @@ window.QayabaConsole = (function () {
       return r.status === 204 ? null : r.json();
     });
   }
-  // SDK-mirroring calls (1:1 with @ai-pipeline/sdk createClient()).
   const ep = {
     version: () => req('GET', '/version'),
     signals: () => req('GET', '/signals'),
@@ -84,14 +80,16 @@ window.QayabaConsole = (function () {
     intelligence: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/intelligence'),
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
     agentModels: (provider) => req('GET', '/agent/models?provider=' + encodeURIComponent(provider || '')),
-    // Multi-agent coordination audit tail: one bounded request per dashboard load; the
-    // JSONL ledger it reads is the same artifact the engine writes (read-only tail, cap 1000).
+    /* Multi-agent coordination audit tail: one bounded request per dashboard load; the
+       JSONL ledger it reads is the same artifact the engine writes (read-only tail, cap 1000).
+     */
     coordinationEvents: () => req('GET', '/coordination-events?limit=1000'),
   };
 
   const live = {
-    // Composes the whole dashboard model from the control API. For a fleet of a
-    // few apps this fan-out is cheap; lazily-load per view later if it grows.
+    /* Composes the whole dashboard model from the control API. For a fleet of a
+       few apps this fan-out is cheap; lazily-load per view later if it grows.
+     */
     async loadAll() {
       const [apps, queue, signals, coordination] = await Promise.all([
         ep.listApps(), ep.queue(), ep.signals().catch(() => null), ep.coordinationEvents().catch(() => null),
@@ -111,8 +109,9 @@ window.QayabaConsole = (function () {
       }
       return mapModel({ apps, queue, signals, coordination, runsByApp, trendsByApp, intelByApp, runningRecord });
     },
-    // SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
-    // variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
+    /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
+       variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
+     */
     subscribeRun(runId, h) {
       h = h || {};
       const es = new EventSource(API + '/runs/' + encodeURIComponent(runId) + '/events');
@@ -129,7 +128,7 @@ window.QayabaConsole = (function () {
           case 'log.line': h.onLog && h.onLog(logGlyph(b.level), b.text); break;
           case 'run.verdict': h.onVerdict && h.onVerdict(b.verdict, b); break;
           case 'agent.error': h.onLog && h.onLog('!', b.detail); break;
-          default: break; // run.started / agent.activity / spec.written / test.discovered / reviewer.verdict / coverage.computed
+          default: break; /* run.started / agent.activity / spec.written / test.discovered / reviewer.verdict / coverage.computed */
         }
       };
       es.onerror = () => { h.onError && h.onError(); };
@@ -151,15 +150,16 @@ window.QayabaConsole = (function () {
 
   /* Map the /api/v1 contract responses onto the dashboard's internal view model.
      Implemented for the fields the contract clearly provides; everything else is
-     flagged TODO(server) and itemised in API.md. */
+     flagged TODO(server) and itemised in API.md.
+   */
   function mapModel(raw) {
     const m = (window.QayabaMockData) || {};
     const apps = raw.apps.map((a) => ({
-      name: a.name, repo: a.repo, stack: '', // TODO(server): AppView has no `stack` label
+      name: a.name, repo: a.repo, stack: '', /* TODO(server): AppView has no `stack` label */
       shadow: a.shadow, watching: true,
       baseBranch: 'main', devUrl: a.baseUrl, target: a.code ? 'code' : 'e2e',
       status: a.shadow ? 'shadow' : a.code ? 'code-mode' : 'live',
-      // TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends + /intelligence
+      /* TODO(server): vmix, value, coverage, reviewerPass, errClasses, trend come from /apps/:name/trends + /intelligence */
       vmix: trendVmix(raw.trendsByApp[a.name]) || [],
       value: pick(raw.trendsByApp[a.name], 'valueOracle.avgScore'),
       coverage: pick(raw.trendsByApp[a.name], 'coverage.measured') ? pick(raw.trendsByApp[a.name], 'coverage.ratio') : null,
@@ -172,8 +172,9 @@ window.QayabaConsole = (function () {
     }));
     const runs = [].concat.apply([], raw.apps.map((a) => (raw.runsByApp[a.name] || []).map(mapRun)))
       .sort((x, y) => (y._at || 0) - (x._at || 0));
-    // Coordination workforce: attach to every run the events describe. Producer comes from the
-    // run's outcome (the authoritative boundary), the rest from its delegation samples.
+    /* Coordination workforce: attach to every run the events describe. Producer comes from the
+       run's outcome (the authoritative boundary), the rest from its delegation samples.
+     */
     const coordinationEvents = (raw.coordination && raw.coordination.events)
       || (window.QayabaMockData && window.QayabaMockData.coordinationEvents) || [];
     const coordByRun = {};
@@ -183,32 +184,33 @@ window.QayabaConsole = (function () {
     const rawRunning = raw.runningRecord
       || (runningRef && (raw.runsByApp[runningRef.app] || []).find((r) => r.id === runningRef.id))
       || null;
-    // __live marks the mapped record as the REAL in-flight run: the live detail view must
-    // stay off the mock simulation (mock path never reaches mapModel).
+    /* __live marks the mapped record as the REAL in-flight run: the live detail view must
+       stay off the mock simulation (mock path never reaches mapModel).
+     */
     const mappedRunning = rawRunning ? Object.assign(mapRun(rawRunning), { __live: true }) : null;
     const F = window.QayabaFormat || {};
     const running = F.mergeLiveRun
       ? F.mergeLiveRun(mappedRunning, m.running)
       : mappedRunning;
     return {
-      models: m.models, // TODO(server): expose generator/reviewer model ids (see /agent/config)
+      models: m.models, /* TODO(server): expose generator/reviewer model ids (see /agent/config) */
       apps: apps,
       running: running,
       runs: runs,
-      stats: m.stats,           // TODO(server): runs7d/passRate/specsAdded/openIssues — fleet rollup endpoint
-      live: mapLive(raw.queue), // partial; health/sessions/mirrors/webhook need an engine-status endpoint
-      verdictMix: m.verdictMix, // TODO(server): fleet 7d verdict distribution
-      signals: mapSignals(raw.signals) || m.signals, // see API.md: SignalsView is leaner than the hero needs
+      stats: m.stats,           /* TODO(server): runs7d/passRate/specsAdded/openIssues — fleet rollup endpoint */
+      live: mapLive(raw.queue), /* partial; health/sessions/mirrors/webhook need an engine-status endpoint */
+      verdictMix: m.verdictMix, /* TODO(server): fleet 7d verdict distribution */
+      signals: mapSignals(raw.signals) || m.signals, /* see API.md: SignalsView is leaner than the hero needs */
       coordination: {
         byRun: coordByRun,
         signals: (raw.signals && raw.signals.coordination) || (window.QayabaMockData && window.QayabaMockData.coordinationSignals) || null,
       },
-      fleetErrorClasses: m.fleetErrorClasses, // TODO(server): fleet-wide ErrorClass rollup
-      flywheel: m.flywheel,     // TODO(server): learning flywheel counters
-      gates: m.gates,           // TODO(server): 4-layer quality-gate effectiveness
-      histories: m.histories,   // TODO(server): per-app health history (per-run checkpoints)
-      suite: m.suite,           // TODO(server): committed suite per app
-      engram: m.engram,         // TODO(server): per-app episodic memory
+      fleetErrorClasses: m.fleetErrorClasses, /* TODO(server): fleet-wide ErrorClass rollup */
+      flywheel: m.flywheel,     /* TODO(server): learning flywheel counters */
+      gates: m.gates,           /* TODO(server): 4-layer quality-gate effectiveness */
+      histories: m.histories,   /* TODO(server): per-app health history (per-run checkpoints) */
+      suite: m.suite,           /* TODO(server): committed suite per app */
+      engram: m.engram,         /* TODO(server): per-app episodic memory */
       ledger: mapLedger(raw.intelByApp) || m.ledger,
       integrity: m.integrity || {
         flakyRate: { v: 0, prev: 0, series: [0] },
@@ -222,14 +224,15 @@ window.QayabaConsole = (function () {
           regenRecovered: { v: '0%', desc: 'regen recovered' },
           staticRejected: { v: '0%', desc: 'static rejected' },
         },
-      },   // TODO(server): suite-health/trust rollup
-      reports: m.reports,       // partial; /apps/:name/report → ReportView (see API.md)
+      },   /* TODO(server): suite-health/trust rollup */
+      reports: m.reports,       /* partial; /apps/:name/report → ReportView (see API.md) */
       modes: m.modes, rules: m.rules, trend: m.trend,
     };
   }
   function mapRun(r) {
-    // Runs still in flight carry no verdict — map them to 'running' so the fleet list renders
-    // a live tag instead of an empty verdict cell that reads like a cancelled run.
+    /* Runs still in flight carry no verdict — map them to 'running' so the fleet list renders
+       a live tag instead of an empty verdict cell that reads like a cancelled run.
+     */
     const statusVerdict = !r.verdict && r.status === 'running' ? 'running' : r.verdict;
     const cases = (r.cases || []).map((c) => ({
       name: c.name,
@@ -247,8 +250,9 @@ window.QayabaConsole = (function () {
       log: (r.logs || []).map((l) => ['›', l]),
     };
   }
-  // Canonical stage order — real RunRecords expose only the CURRENT step; progress renders by
-  // position (mirrors the engine's own run flow order). 'step' strings vary; aliases normalize.
+  /* Canonical stage order — real RunRecords expose only the CURRENT step; progress renders by
+     position (mirrors the engine's own run flow order). 'step' strings vary; aliases normalize.
+   */
   const PIPELINE_STAGES = ['classify', 'setup', 'generate', 'validate', 'execute', 'decide'];
   function pipelineStageStates(currentStep) {
     const normalized = String(currentStep || '').toLowerCase();
@@ -259,9 +263,10 @@ window.QayabaConsole = (function () {
   function mapRunElapsed(at) {
     const t = Date.parse(at); return t ? Math.round((Date.now() - t) / 1000) : 0;
   }
-  // Derive the run's workforce from its coordination events. Absent events → null (pre-coordination
-  // runs, or a run whose router chose direct without delegating). producer: sidekick only when the
-  // outcome says delegate — a sidekick whose result was rejected falls back to lead, honestly.
+  /* Derive the run's workforce from its coordination events. Absent events → null (pre-coordination
+     runs, or a run whose router chose direct without delegating). producer: sidekick only when the
+     outcome says delegate — a sidekick whose result was rejected falls back to lead, honestly.
+   */
   function deriveWorkforce(events) {
     if (!events || !events.length) return null;
     let producer = 'lead';
@@ -286,8 +291,9 @@ window.QayabaConsole = (function () {
   }
   function mapSignals(s) {
     if (!s) return null;
-    // SignalsView → the hero's six KPI tiles. prev/series/suitesGreen/prsAutoMerged/issuesOpen
-    // are NOT in SignalsView today → see API.md "Overview gap".
+    /* SignalsView → the hero's six KPI tiles. prev/series/suitesGreen/prsAutoMerged/issuesOpen
+       are NOT in SignalsView today → see API.md "Overview gap".
+     */
     const vo = s.valueOracle || {};
     const rp = s.reviewer || {};
     const co = s.coordination || null;
@@ -318,7 +324,7 @@ window.QayabaConsole = (function () {
       }));
     });
     if (!rules.length) return null;
-    return { rules: rules, archetypes: [], audit: [] }; // TODO(server): archetypes (curriculum) + governance audit log
+    return { rules: rules, archetypes: [], audit: [] }; /* TODO(server): archetypes (curriculum) + governance audit log */
   }
   function trendVmix(t) { return t && t.verdictMix ? Object.keys(t.verdictMix).map((v) => ({ v: v, n: t.verdictMix[v] })) : null; }
   function pick(obj, path, dflt) {

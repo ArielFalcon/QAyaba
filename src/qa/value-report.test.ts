@@ -9,7 +9,7 @@ const baseSignals: ValueSignals = {
   reviewerApproved: null,
 };
 
-// ── renderValueTag (always plain — embedded in an event payload) ─────────────────
+/* ── renderValueTag (always plain — embedded in an event payload) ───────────────── */
 
 test("value tag: measured coverage + oracle score are appended as numeric signals", () => {
   const tag = renderValueTag({ ...baseSignals, coverageMeasured: true, coverageRatio: 0.82, valueScore: 0.75 });
@@ -23,7 +23,7 @@ test("value tag: only coverage when the oracle did not run (the shadow-mode defa
 
 test("value tag: empty when nothing was measured (never pollutes a clean outcome)", () => {
   assert.equal(renderValueTag(baseSignals), "");
-  // unmeasured coverage must NOT surface a misleading 0%
+  /* unmeasured coverage must NOT surface a misleading 0% */
   assert.equal(renderValueTag({ ...baseSignals, coverageMeasured: false, coverageRatio: 0 }), "");
 });
 
@@ -32,8 +32,6 @@ test("value tag: reviewer verdict is NOT duplicated in the tag", () => {
   assert.equal(tag, " · change-coverage 90%");
   assert.ok(!tag.includes("reviewer"));
 });
-
-// ── deriveAction ───────────────────────────────────────────────────────────────
 
 test("deriveAction: a green reviewer-approved run opens an auto-merge PR", () => {
   assert.match(deriveAction("pass", true), /auto-merge suite PR/);
@@ -52,7 +50,7 @@ test("deriveAction: a fail is framed as a real bug found (engine succeeded → I
   const a = deriveAction("fail", null);
   assert.match(a, /Issue/);
   assert.match(a, /real bug|defect/i);
-  assert.match(a, /succeed/i); // the run SUCCEEDED — it found a real defect
+  assert.match(a, /succeed/i); /* the run SUCCEEDED — it found a real defect */
 });
 
 test("renderRunReport: a fail run reads as a real bug found, distinct from an engine error", () => {
@@ -60,7 +58,7 @@ test("renderRunReport: a fail run reads as a real bug found, distinct from an en
   assert.match(out, /real bug|defect/i);
 });
 
-// ── renderRunReport (default: plain, deterministic) ──────────────────────────────
+/* ── renderRunReport (default: plain, deterministic) ────────────────────────────── */
 
 const baseReport: RunReportInput = {
   app: "petclinic",
@@ -86,7 +84,7 @@ test("run report: shadow green run frames the WOULD-do action and the value sign
   assert.match(out, /action\s+would open an auto-merge suite PR/);
   assert.match(out, /produced\s+3 specs · login, add-owner, add-pet/);
   assert.match(out, /change-cov\s+82%\s+signal · measured/);
-  assert.match(out, /oracle\s+off \(set valueOracle: signal/); // default-off (no oraclePolicy ⇒ off)
+  assert.match(out, /oracle\s+off \(set valueOracle: signal/); /* default-off (no oraclePolicy ⇒ off) */
   assert.match(out, /reviewer\s+approved · covers the new validation branch/);
 });
 
@@ -98,7 +96,7 @@ test("run report: default output is plain (no ANSI escapes) so pipes/redirects s
 test("run report: color mode wraps the verdict in ANSI (matches the TUI palette)", () => {
   const out = renderRunReport(baseReport, { color: true });
   assert.ok(out.includes("\x1b["), "color render must contain ANSI escape codes");
-  assert.match(out, /\x1b\[38;5;42m/); // green — the pass/approved color
+  assert.match(out, /\x1b\[38;5;42m/); /* green — the pass/approved color */
 });
 
 test("run report: reviewer rejection surfaces the rationale (the keystone publish gate's reason)", () => {
@@ -120,10 +118,11 @@ test("run report: non-shadow run says what it DID and shows a measured oracle sc
   assert.match(out, /oracle\s+60% mutant-kill/);
 });
 
-// The oracle is ENABLED (valueOracle: signal) but produced no score this run — e.g. an
-// infra-error/zero-spec run with no baseline-passing specs to score. The report must NOT say "off"
-// (which would tell the operator to enable an already-enabled oracle); it says "enabled · no
-// ground-truth this run". This is exactly the PetClinic-with-valueOracle-signal case.
+/* The oracle is ENABLED (valueOracle: signal) but produced no score this run — e.g. an
+   infra-error/zero-spec run with no baseline-passing specs to score. The report must NOT say "off"
+   (which would tell the operator to enable an already-enabled oracle); it says "enabled · no
+   ground-truth this run". This is exactly the PetClinic-with-valueOracle-signal case.
+ */
 test("run report: an ENABLED oracle with no score reads 'enabled · no ground-truth', not 'off'", () => {
   const out = renderRunReport({
     ...baseReport,

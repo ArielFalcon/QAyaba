@@ -1,7 +1,4 @@
-// Webhook core. Receives the notification after a merge to main + deploy to DEV and
-// decides whether to enqueue a run. Pure and verifiable: signature check, payload
-// parsing, status decision. The HTTP wrapper lives in src/index.ts (which multiplexes
-// the webhook with the control API on one port).
+/* Webhook core: signature, payload, enqueue decision. HTTP wrapper lives in src/index.ts. */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { RUN_MODES, RunMode } from "../types";
@@ -9,9 +6,9 @@ import { RUN_MODES, RunMode } from "../types";
 export interface WebhookPayload {
   repo: string;
   sha: string;
-  mode: RunMode; // defaults to "diff" when absent
-  guidance?: string; // for "manual" mode
-  baseSha?: string; // push-event range base: the SHA prior to the push (undefined for new branches)
+  mode: RunMode;
+  guidance?: string;
+  baseSha?: string;
 }
 
 function asMode(v: unknown): RunMode {
@@ -34,13 +31,11 @@ export function parseWebhook(body: unknown): WebhookPayload | null {
   const b = body as Record<string, unknown>;
   const guidance = typeof b.guidance === "string" ? b.guidance.slice(0, 2000) : undefined;
 
-  // Simple shape { repo, sha, mode?, guidance?, baseSha? } — sha must be a hex commit id.
   if (typeof b.repo === "string" && typeof b.sha === "string" && HEX_SHA.test(b.sha)) {
     return { repo: b.repo, sha: b.sha, mode: asMode(b.mode), guidance, baseSha: typeof b.baseSha === "string" && HEX_SHA.test(b.baseSha) ? b.baseSha : undefined };
   }
 
-  // GitHub push event: { repository: { full_name }, before, after } → always "diff".
-  // `before` is the SHA prior to the push (the range base); all-zeros means a new branch — drop it.
+  /* GitHub push: after is the SHA; before all-zeros means a new branch — drop it. */
   const repository = b.repository as { full_name?: unknown } | undefined;
   if (typeof repository?.full_name === "string" && typeof b.after === "string" && HEX_SHA.test(b.after)) {
     const before =

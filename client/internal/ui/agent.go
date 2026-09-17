@@ -65,15 +65,15 @@ type agentModel struct {
 	stagedKeys    map[string]string
 	editingRole   string
 	roleCursor    int
-	focusRole     string // role to jump into editing once the config loads (from the dashboard MODELS row)
-	busyRun       string // app of the active run, if any — the runtime is locked while it runs
-	width         int    // terminal width, for the grid (0 → default via contentWidth)
+	focusRole     string /* role to jump into editing once the config loads (from the dashboard MODELS row) */
+	busyRun       string /* app of the active run, if any — the runtime is locked while it runs */
+	width         int    /* terminal width, for the grid (0 → default via contentWidth) */
 }
 
 func newAgentModel(client *api.Client) agentModel {
 	keyInput := textinput.New()
 	keyInput.Placeholder = "paste api key"
-	keyInput.Prompt = "" // the screen draws its own ember caret
+	keyInput.Prompt = "" /* the screen draws its own ember caret */
 	keyInput.EchoMode = textinput.EchoPassword
 	keyInput.CharLimit = 600
 	keyInput.Width = 42
@@ -99,8 +99,8 @@ func (m agentModel) Update(msg tea.Msg) (agentModel, tea.Cmd) {
 		m.config = &cfg
 		m.draft = &draft
 		m.err = ""
-		// Opened from a specific MODELS row on the dashboard → jump straight into editing that role
-		// (the editor needs the now-loaded draft). A one-shot: cleared so a later refresh stays put.
+		/* Opened from a specific MODELS row on the dashboard → jump straight into editing that role
+		   (the editor needs the now-loaded draft). A one-shot: cleared so a later refresh stays put. */
 		if m.focusRole != "" {
 			m.openRoleEditor(m.focusRole)
 			m.focusRole = ""
@@ -300,8 +300,8 @@ func (m agentModel) triggerAction(action agentMenuAction) (agentModel, tea.Cmd) 
 		return m, restartAgentProviderCmd(m.client, "codex")
 	case agentActionApply:
 		if m.busyRun != "" {
-			// The server hard-blocks (409) runtime changes while a run is active, and they
-			// must NOT affect the in-flight session anyway. Explain instead of failing late.
+			/* The server hard-blocks (409) runtime changes while a run is active, and they
+			   must NOT affect the in-flight session anyway. Explain instead of failing late. */
 			m.err = "a run is active on '" + m.busyRun + "' — its session keeps its current models; runtime changes are locked until it finishes. Stop the run from the NOW panel to change now."
 			return m, nil
 		}
@@ -377,8 +377,8 @@ func (m agentModel) View() string {
 	}
 
 	w := contentWidth(m.width)
-	// Reset the builder: the redesigned screen leads with a labelled rule, not the
-	// plain title written above (kept only for the loading / error fallbacks).
+	/* Reset the builder: the redesigned screen leads with a labelled rule, not the
+	   plain title written above (kept only for the loading / error fallbacks). */
 	b.Reset()
 	right := renderSegs("", sg("mode ", colFaint), sg(string(cfg.Mode), colFg), sg(" · ", colFaint), sg(string(cfg.SingleProvider), colDim))
 	b.WriteString(accentRule(w, "agent runtime", right) + "\n")
@@ -452,9 +452,9 @@ func (m agentModel) renderDowngradeConfirm() string {
 	return screenStyle.Render(b.String())
 }
 
-// renderProviders draws the providers as an aligned table under a labelled rule: a
-// faint header row, a hairline, then one row per provider. Status (auth + health) uses
-// the verdict ramp, never ad-hoc color, so the column reads at a glance.
+/* renderProviders draws the providers as an aligned table under a labelled rule: a
+   faint header row, a hairline, then one row per provider. Status (auth + health) uses
+   the verdict ramp, never ad-hoc color, so the column reads at a glance. */
 func (m agentModel) renderProviders(w int, cfg *contract.PublicAgentConfig) string {
 	var b strings.Builder
 	b.WriteString(labelRule(w, "providers", hintStyle.Render("2")) + "\n")
@@ -498,7 +498,7 @@ func providerRow(provider string, cfg *contract.PublicAgentConfig, staged bool) 
 				icon, hcol = "◐", colFlaky
 			case "starting":
 				icon, hcol = "◐", colInfra
-			default: // failed | needs_config
+			default: /* failed | needs_config */
 				icon, hcol = "○", colFlaky
 			}
 		}
@@ -649,10 +649,10 @@ func (m agentModel) agentConfigUpdate(confirm bool) contract.AgentConfigUpdate {
 	return input
 }
 
-// ── Messages ─────────────────────────────────────────────────────────────────
+/* ── Messages ───────────────────────────────────────────────────────────────── */
 
-// agentSelectedMsg opens the agent runtime screen. `role` ("primary"/"reviewer"/"chat") jumps
-// straight into editing that model; empty opens the full screen with nothing pre-selected.
+/* agentSelectedMsg opens the agent runtime screen. `role` ("primary"/"reviewer"/"chat") jumps
+   straight into editing that model; empty opens the full screen with nothing pre-selected. */
 type agentSelectedMsg struct{ role string }
 
 type agentConfigLoadedMsg struct{ config contract.PublicAgentConfig }

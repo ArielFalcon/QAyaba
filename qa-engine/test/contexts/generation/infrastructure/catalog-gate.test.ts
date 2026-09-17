@@ -5,10 +5,10 @@ import { catalogGate } from "@contexts/generation/infrastructure/catalog-gate.ts
 import { buildRouteCatalog } from "@contexts/generation/infrastructure/route-catalog.ts";
 import type { RouteCatalog } from "@contexts/generation/infrastructure/route-catalog.ts";
 
-// Pillar 2 slice 4 (docs/superpowers/selector-grounding-root-cause-and-design.md): the confidence-aware
-// gate fail-closes on a fabricated test-id BEFORE execution (cheap regeneration, not a 30s timeout) —
-// but ONLY inside the confident window (captured && settled route, pre-first-navigation). Everywhere
-// else it is advisory and the runtime executor is the backstop. It must NEVER turn a valid spec invalid.
+/* gate fail-closes on a fabricated test-id BEFORE execution (cheap regeneration, not a 30s timeout) —
+   but ONLY inside the confident window (captured && settled route, pre-first-navigation). Everywhere
+   else it is advisory and the runtime executor is the backstop. It must NEVER turn a valid spec invalid.
+ */
 
 function cat(over: Partial<RouteCatalog>): RouteCatalog {
   return { route: "/login", status: "captured", settled: true, testIds: new Map(), ...over };
@@ -44,8 +44,8 @@ test("catalogGate: a degraded catalog → advisory, never fail-closed", () => {
 test("catalogGate: a post-navigation test-id is advisory even if absent (no false block)", () => {
   const spec = [
     `await page.goto("/login");`,
-    `await page.getByTestId("submit").click();`, // closes the window
-    `await page.getByTestId("only-on-next-page");`, // absent from /login but its page is not this catalog
+    `await page.getByTestId("submit").click();`,
+    `await page.getByTestId("only-on-next-page");`, /* absent from /login but its page is not this catalog */
   ].join("\n");
   const r = catalogGate(spec, cat({ testIds: new Map([["submit", 1]]) }));
   assert.deepEqual(r.failClosed, [], "a post-click absent selector is NOT fail-closed");
@@ -58,11 +58,12 @@ test("catalogGate: no test-ids → empty result (never throws)", () => {
   assert.deepEqual(r, { failClosed: [], inWindow: 0, advisory: 0 });
 });
 
-// Regression guard (SAFE DIRECTION invariant, Fix 2 / audit leak 5): buildRouteCatalog's NEW degrade
-// reasons (classified runtimeErrors, empty nodes, redirect) MUST behave exactly like the existing
-// degraded-via-`error` case here — advisory only, NEVER fail-closed-block. catalog-gate.ts itself is
-// untouched; these tests pipe a REAL RouteSnapshot through buildRouteCatalog (not a hand-built
-// RouteCatalog) so the invariant is proven end-to-end, not just asserted on a pre-shaped fixture.
+/* Regression guard (SAFE DIRECTION invariant, Fix 2 / audit leak 5): buildRouteCatalog's NEW degrade
+   reasons (classified runtimeErrors, empty nodes, redirect) MUST behave exactly like the existing
+   degraded-via-`error` case here — advisory only, NEVER fail-closed-block. catalog-gate.ts itself is
+   untouched; these tests pipe a REAL RouteSnapshot through buildRouteCatalog (not a hand-built
+   RouteCatalog) so the invariant is proven end-to-end, not just asserted on a pre-shaped fixture.
+ */
 
 test("catalogGate: a RENDERED route with runtime errors is CAPTURED (trusted) — the gate fail-closes on a genuinely-absent selector instead of being disabled by app-health", () => {
   const spec = `await page.goto("/owners/new"); await page.getByTestId("ghost-btn").click();`;
@@ -74,7 +75,7 @@ test("catalogGate: a RENDERED route with runtime errors is CAPTURED (trusted) �
     runtimeErrors: [{ type: "pageerror", text: "TypeError: undefined is not a function" }],
   };
   const catalog = buildRouteCatalog(snapshot);
-  // Live-probe fix: runtime errors no longer degrade a rendered route — its selectors are real.
+  /* Live-probe fix: runtime errors no longer degrade a rendered route — its selectors are real. */
   assert.equal(catalog.status, "captured", "a rendered route stays trusted despite runtime errors");
   const r = catalogGate(spec, catalog);
   assert.deepEqual(r.failClosed, ["ghost-btn"], "on a TRUSTED route the ghost-btn (absent from the real testId catalog) is now correctly fail-closed — the grounding gate works instead of being disabled by a console error");

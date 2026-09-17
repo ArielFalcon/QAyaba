@@ -1,10 +1,10 @@
-// qa-engine/test/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.test.ts
-// sdd/migration-remediation Slice 5 (P1 process-audit reconnect, D-P1b): ProcessAuditPortAdapter
-// self-sources `recent` outcomes + `rules` via factory-injected reads, runs the deterministic
-// auditProcess/applyAudit domain logic, and dispatches findings to 3 injected sinks
-// (recordEngineIncident/deprecateRule/invalidateContext). Every failure mode (a throwing read/sink,
-// a slow read past the timeout budget) is caught inline — never re-thrown — mirroring
-// ReflectorPortAdapter's own documented fault-isolation contract on the sibling port.
+/* qa-engine/test/contexts/cross-run-learning/infrastructure/process-audit-port.adapter.test.ts
+   self-sources `recent` outcomes + `rules` via factory-injected reads, runs the deterministic
+   auditProcess/applyAudit domain logic, and dispatches findings to 3 injected sinks
+   (recordEngineIncident/deprecateRule/invalidateContext). Every failure mode (a throwing read/sink,
+   a slow read past the timeout budget) is caught inline — never re-thrown — mirroring
+   ReflectorPortAdapter's own documented fault-isolation contract on the sibling port.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
@@ -114,11 +114,12 @@ test("no findings at all → no sink call, resolves cleanly", async () => {
 test("two-layer gating: flaky/infra-class outcomes are excluded from the recent-outcomes streak input before reaching auditProcess", async () => {
   const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
   const incidents: ProcessFinding[] = [];
-  // Raw feed: current + a FLAKY entry with a DIFFERENT errorClass wedged in the window + 2 more
-  // E-STATIC entries. Unfiltered, slice(0,3) = [E-STATIC, E-FLAKY, E-STATIC] never matches (breaks
-  // the streak) — the recurring-error-class finding would NOT fire. Filtered (excluding the flaky
-  // entry), the streak becomes 3 consecutive E-STATIC entries and the finding DOES fire — proving
-  // the adapter filters before calling into auditProcess, not merely inside the domain function.
+  /* Raw feed: current + a FLAKY entry with a DIFFERENT errorClass wedged in the window + 2 more
+     E-STATIC entries. Unfiltered, slice(0,3) = [E-STATIC, E-FLAKY, E-STATIC] never matches (breaks
+     the streak) — the recurring-error-class finding would NOT fire. Filtered (excluding the flaky
+     entry), the streak becomes 3 consecutive E-STATIC entries and the finding DOES fire — proving
+     the adapter filters before calling into auditProcess, not merely inside the domain function.
+   */
   const rawRecent: RunOutcome[] = [
     current,
     outcome({ verdict: "flaky", errorClass: "E-FLAKY", sha: "noise" }),
@@ -201,7 +202,7 @@ test("timeout-capped: a hanging read never blocks audit() past the configured ti
   const lines: string[] = [];
   const adapter = new ProcessAuditPortAdapter({
     app: "petclinic",
-    readRecentOutcomes: () => new Promise<RunOutcome[]>(() => {}), // never resolves
+    readRecentOutcomes: () => new Promise<RunOutcome[]>(() => {}), /* never resolves */
     readRules: () => [],
     deprecateRule: () => {},
     recordEngineIncident: () => {},

@@ -1,7 +1,3 @@
-// src/contexts/workspace-and-publication/domain/publish-decision.service.ts
-// The pure decide step (CLAUDE.md §9): given the verdict + reviewer approval + coverage-block +
-// shadow + whether e2e/ changed, decide the outcome. No I/O — the adapters act on the outcome.
-// Shadow mode replaces every side effect with a log line, so it short-circuits to "shadow".
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 
 export type PublishOutcome = "pr" | "issue" | "shadow" | "quarantine" | "noop";

@@ -1,7 +1,7 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/setup-port.adapter.test.ts
-// RED-first: SetupPortAdapter dispatches between the e2e/code setup collaborators (duck-typed
-// callbacks matching setupE2eProject/setupCodeProject's call shape). THIN — no new policy: this
-// bridge only selects the collaborator by target and forwards specDir/signal.
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/setup-port.adapter.test.ts
+   callbacks matching setupE2eProject/setupCodeProject's call shape). THIN — no new policy: this
+   bridge only selects the collaborator by target and forwards specDir/signal.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SetupPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/setup-port.adapter.ts";

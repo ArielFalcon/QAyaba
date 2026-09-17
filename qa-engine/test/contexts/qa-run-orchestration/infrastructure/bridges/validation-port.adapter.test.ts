@@ -1,13 +1,3 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter.test.ts
-// RED-first (Task E.0): ValidationPortAdapter delegates to test-execution's REAL StaticGateAdapter
-// (validateAll — the FULL gate including the zero-assertion guard, WF-02) for the e2e target. Maps
-// {ok, errors, infra} -> {ok, errors, infra}. THIN — no re-validation logic.
-//
-// WS2.2 (full-flow remediation, code-mode restoration): the adapter is now TARGET-DISPATCHED — the
-// SAME {e2e, code} + {target} collaborator/context pattern ExecutionPortAdapter/SetupPortAdapter
-// already establish. The code branch delegates to CodeValidationStrategy (the compile-feedback gate
-// ported from src/qa/code-validate.ts, never wired here before this fix — the code target
-// previously had NO pre-execution feedback at all, an execution-only Filter C).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ValidationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/validation-port.adapter.ts";
@@ -68,11 +58,11 @@ test("validate() surfaces infra:true when the gate's own failures are all infras
   assert.equal(result.infra, true);
 });
 
-// ── code target — dispatches to CodeValidationStrategy instead of StaticGateAdapter ──────────────
+/* ── code target — dispatches to CodeValidationStrategy instead of StaticGateAdapter ────────────── */
 
 function codeOnlyAdapter(codeResult: ValidationResult, capture?: (dir: string, changedFiles?: string[]) => void): ValidationPortAdapter {
   const e2e = new StaticGateAdapter(fakeChecks({ ok: true, errors: [], infra: false }));
-  // Cast: production wiring always passes a real StaticGateAdapter for e2e — never called on this path.
+  /* Cast: production wiring always passes a real StaticGateAdapter for e2e — never called on this path. */
   const throwingE2e = { validateAll: async () => { throw new Error("must not be called for target 'code'"); } } as unknown as StaticGateAdapter;
   void e2e;
   const code = new CodeValidationStrategy(async (dir, opts) => {

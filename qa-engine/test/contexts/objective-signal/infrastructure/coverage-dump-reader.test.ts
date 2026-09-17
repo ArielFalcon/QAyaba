@@ -1,10 +1,10 @@
-// test/contexts/objective-signal/infrastructure/coverage-dump-reader.test.ts
-// Behavioral tests for the src/-independent dump readers (Sub-Plan 7.2 item 2). These are the
-// missing `(specDir, namespace) => Promise<T[]>` closures the existing collector adapters declare
-// but never got a real default for — see F.2's GAP note (engram obs #914). Each reader is exercised
-// against a real temp-dir fixture (no FS mocking — the readers ARE the FS boundary), asserting the
-// exact injected-type shape each adapter expects (V8DumpFile[] / CoverageFile[] / IstanbulFile[] /
-// JacocoFile[]) and the fail-open contract (absent dir/files -> empty array, never throw).
+/* test/contexts/objective-signal/infrastructure/coverage-dump-reader.test.ts
+   missing `(specDir, namespace) => Promise<T[]>` closures the existing collector adapters declare
+   but never got a real default for — see F.2's GAP note (engram obs #914). Each reader is exercised
+   against a real temp-dir fixture (no FS mocking — the readers ARE the FS boundary), asserting the
+   exact injected-type shape each adapter expects (V8DumpFile[] / CoverageFile[] / IstanbulFile[] /
+   JacocoFile[]) and the fail-open contract (absent dir/files -> empty array, never throw).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -26,7 +26,7 @@ function withTmpDir<T>(fn: (dir: string) => T): T {
   }
 }
 
-// ── readV8Dumps: e2eDir + namespace -> V8_DUMP_DIR = join(e2eDir, ".qa", "coverage", namespace) ──
+/* ── readV8Dumps: e2eDir + namespace -> V8_DUMP_DIR = join(e2eDir, ".qa", "coverage", namespace) ── */
 
 test("readV8Dumps: reads every *.json dump under .qa/coverage/<namespace>", async () => {
   await withTmpDir(async (e2eDir) => {
@@ -77,8 +77,9 @@ test("readV8Dumps: a non-array JSON dump degrades to empty entries (fail-open)",
   });
 });
 
-// ── readLcovFiles: repoDir + conventional relative paths (namespace unused — native reports are ──
-// ── per-run-directory scoped by the tool itself, not by our namespace convention) ────────────────
+/* ── readLcovFiles: repoDir + conventional relative paths (namespace unused — native reports are ──
+   ── per-run-directory scoped by the tool itself, not by our namespace convention) ────────────────
+ */
 
 test("readLcovFiles: reads coverage/lcov.info when present", async () => {
   await withTmpDir(async (repoDir) => {
@@ -122,7 +123,7 @@ test("readLcovFiles: returns [] when no conventional lcov path exists (fail-open
   });
 });
 
-// ── readIstanbulFiles: repoDir/coverage/coverage-final.json ───────────────────────────────────
+/* ── readIstanbulFiles: repoDir/coverage/coverage-final.json ─────────────────────────────────── */
 
 test("readIstanbulFiles: reads coverage/coverage-final.json when present", async () => {
   await withTmpDir(async (repoDir) => {
@@ -153,7 +154,7 @@ test("readIstanbulFiles: a corrupt coverage-final.json degrades to [] instead of
   });
 });
 
-// ── readJacocoFiles: Maven/Gradle conventional JaCoCo XML report paths ─────────────────────────
+/* ── readJacocoFiles: Maven/Gradle conventional JaCoCo XML report paths ───────────────────────── */
 
 test("readJacocoFiles: reads the Maven default report path", async () => {
   await withTmpDir(async (repoDir) => {

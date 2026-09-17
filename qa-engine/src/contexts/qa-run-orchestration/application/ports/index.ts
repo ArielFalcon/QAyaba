@@ -1,8 +1,10 @@
-// qa-engine/src/contexts/qa-run-orchestration/application/ports/index.ts
-// The core's segregated ports. The DRIVING seam (RunPipelinePort) is the strangler; the driven ports
-// are the 10 capability seams the Run lifecycle composes, plus ObserverPort (replaces the 7 positional
-// callbacks) and RunHistoryPort (inverts the leaky dynamic import() at pipeline.ts:487-619).
-// Interfaces only — adapters arrive in Plan 6. Every type is kernel-resident; no cross-context import.
+/*
+ * Segregated ports for the QA run lifecycle. RunPipelinePort is the driving
+ * seam (one RunInput → RunOutcome). Driven ports are the capabilities the run
+ * composes, plus ObserverPort and RunHistoryPort. Types here stay
+ * kernel-resident: no cross-context imports; generation and topology shapes
+ * are structural mirrors.
+ */
 
 import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
@@ -14,26 +16,22 @@ import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
 
-// W2 fix (F5, CommitIntent threading): a structural mirror of generation's own CommitIntent
-// (@contexts/generation/application/ports/generation-ports.ts) — NOT imported, per this barrel's
-// own "no cross-context import" rule (every type here is kernel-resident). Mirrors the legacy's
-// GenerateInput.intent/ReviewInput.intent shape (src/integrations/opencode-client.ts) exactly:
-// type/breaking/message/body/changedFiles. A generation-context CommitIntent value is structurally
-// assignable to this port-local shape (both are plain data), so no adapter-side remapping is
-// needed beyond a type-level cast at the bridge boundary.
+/**
+ * Port-local CommitIntent. Generation's type is structurally assignable;
+ * this barrel does not import across contexts.
+ */
 export interface CommitIntent {
   type: string;
   breaking: boolean;
-  message: string; // first line (what the agent uses as intent)
-  body?: string; // the commit message body (lines after the subject) — the richest statement of intent
-  changedFiles: string[]; // the agent derives the scope/area from these
+  /** First line — the agent uses this as intent. */
+  message: string;
+  /** Commit body after the subject — the richest statement of intent. */
+  body?: string;
+  /** The agent derives scope/area from these paths. */
+  changedFiles: string[];
 }
 
-// T4: port-local structural mirror of generation's ArchitectureContext (generation-ports.ts).
-// Not imported from generation — this barrel's "every type kernel-resident, no cross-context
-// import" rule (same as CommitIntent/ServiceLink above). Generation's type is plain data and
-// structurally assignable at the bridge (PreGenerationGroundingPortAdapter already imports the
-// canonical type from generation-ports).
+/** Port-local ArchitectureContext. Same no-cross-context-import rule as CommitIntent. */
 export interface ArchitectureContext {
   builtAtSha: string;
   routes: Array<{ path: string; name?: string; component?: string; source?: string }>;
@@ -42,9 +40,7 @@ export interface ArchitectureContext {
   flows?: Array<{ id: string; routes: string[]; operations?: string[] }>;
 }
 
-// Port-local structural mirror of generation's ExplorationBrief (generation-ports.ts). Same
-// no-cross-context-import rule as ArchitectureContext above. Extra optional fields on the
-// generation type remain assignable.
+/** Port-local ExplorationBrief. Extra optional fields on the generation type remain assignable. */
 export interface ExplorationBrief {
   builtForSha: string;
   objective: string;
@@ -56,8 +52,7 @@ export interface ExplorationBrief {
   notes?: string;
 }
 
-// The immovable strangler seam: a single input → a RunOutcome. Both LegacyPipelineAdapter and the
-// RewrittenOrchestratorAdapter satisfy this (Plan 6).
+/** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
 export interface RunInput {
   app: string;
   sha: Sha;
@@ -66,304 +61,179 @@ export interface RunInput {
   target: TestTarget;
   guidance?: string;
   runId: string;
-  // Cross-repo deploy-event semantics: set when this run was triggered by a webhook from a SERVICE
-  // repo (a microservice whose commit deployed, not the primary app repo itself) — mirrors legacy
-  // RunRequest.triggerRepo (src/server/runner.ts) / pipeline.ts's own `triggerService`. When set,
-  // browser V8 coverage cannot map the service repo's changed lines, so change-coverage MUST stay
-  // "unknown" (src/pipeline.ts:2912's `!triggerService` conjunct; CLAUDE.md: "Change-coverage is
-  // unknown for these [cross-repo] runs"). Absent (the common case) -> ordinary monorepo run.
+  /**
+   * Set when a SERVICE-repo webhook triggered this run. Browser coverage cannot
+   * map that repo's changed lines, so change-coverage stays "unknown" (unknown
+   * never blocks publish). Absent is an ordinary same-repo run.
+   */
   triggerRepo?: string;
-  // Audit CRITICAL (task #33): mirrors legacy's RunOptions.previousNamespace (src/types.ts) — see
-  // CleanupPort's own header (below) and RunQaInput.previousNamespace's own doc
-  // (run-qa.use-case.ts) for the full contract. Threaded straight through by
-  // RewrittenOrchestratorAdapter.run(input) into RunQaUseCase.run(input) unchanged (this type is
-  // structurally what RunQaInput expects — see that adapter's own header on why no remapping is
-  // needed beyond a type-level cast).
+  /**
+   * Prior interrupted run's test-data namespace. Cleanup runs only when this is
+   * set (prior run was still running/enqueued, or ended infra-error).
+   */
   previousNamespace?: string;
-  // WS7.1 (full-flow remediation, multi-commit range restoration): mirrors legacy's RunOptions.
-  // baseSha (src/types.ts) / RunRequest.baseSha (src/server/runner.ts) — when set, this run's diff
-  // spans baseSha..sha (a PR/push range), not a single commit. Threaded straight through by
-  // RewrittenOrchestratorAdapter.run(input) into RunQaUseCase.run(input) unchanged (this type is
-  // structurally what RunQaInput expects), which forwards it to ChangeAnalysisPort.classify(sha,
-  // {baseSha}) in diff mode. Absent (the common case) -> single-commit classification, unchanged.
+  /**
+   * When set, classification spans baseSha..sha (a PR/push range). Absent is
+   * single-commit classification (sha^..sha).
+   */
   baseSha?: Sha;
-  // sdd/migration-wiring-phase-2 Slice 5 (D-F parentRunId producer): continuation provenance — the
-  // run this one continues. Sourced ONLY from the /continue API flow (src/server/api.ts
-  // handleContinue -> deps.continueRun -> src/index.ts's continueRun -> RunRequest.parentRunId,
-  // src/server/runner.ts). Threaded straight through by RewrittenOrchestratorAdapter.run(input) into
-  // RunQaUseCase.run(input) unchanged (this type is structurally what RunQaInput expects), which
-  // forwards it into PublicationPort.publish()'s own parentRunId field (already widened, Phase 1).
-  // Absent (the common case: webhook/manual/CLI runs) -> no continuation reference rendered, never
-  // fabricated. Intra-run regenerations (coverage-regen, FixLoop rounds) reuse this SAME `input`
-  // object for their own publish() calls — they structurally cannot invent a different parentRunId.
+  /**
+   * Continuation provenance from the /continue API only. Absent is never
+   * fabricated. Intra-run regenerations reuse this same input object.
+   */
   parentRunId?: string;
 }
 export interface RunPipelinePort {
-  // signal is a SEPARATE transport arg (mirrors legacy runPipeline's own trailing signal
-  // parameter), NOT a field on RunInput — the queue's cancellation is orthogonal to what run is
-  // being requested. Plan 7.1 (engram #913): closes the rewritten cancellation gap — a cancelled
-  // rewritten run must actually stop instead of resolving late and overwriting a finalized record.
+  /**
+   * `signal` is a separate transport argument, not a RunInput field: queue
+   * cancellation is orthogonal to which run is requested. A cancelled run must
+   * stop rather than resolve late and overwrite a finalized record.
+   */
   run(input: RunInput, signal?: AbortSignal): Promise<RunOutcome>;
 }
 
-// ── Driven capability ports (one per orchestrated context) ────────────────────
-// WS7.7(a) (full-flow remediation, hygiene): analyze(sha) was DELETED — rg-verified zero
-// production callers anywhere in run-qa.use-case.ts (the only consumer of this port). A dead port
-// method invites false confidence ("classify() failing? maybe try analyze()") for a capability
-// nothing actually calls. NOTE this is narrower than the plan's original framing ("+ VcsReadPort.
-// blastRadius") — VcsReadPort.blastRadius (the underlying git-mirror method) is NOT dead: it has a
-// real, separate production caller (service-topology/application/resolve-cross-repo-impact.
-// use-case.ts, via its own locally-scoped VcsReadPort-shaped interface), so it stays. Only the
-// unreachable ChangeAnalysisPort.analyze() wrapper is removed.
 export interface ChangeAnalysisPort {
-  // diff: the "dynamic diff" fix (engram #936) — classify() already fetches the commit's diff
-  // internally (to feed classifyCommit); surfacing it here lets the caller thread the REAL per-run
-  // diff into generation instead of a stale/empty static value. Only "diff" mode calls classify()
-  // (CLAUDE.md "Run modes"), so this is the only source of a genuine per-run diff at this layer.
-  //
-  // intent: W2 fix (F5) — classifyCommit() ALREADY derives the full CommitIntent (type/breaking/
-  // message/body/changedFiles) as part of computing action/reason (it returns a CommitClassification
-  // extends CommitIntent), but the port previously discarded everything except {action, reason}.
-  // Surfacing it here mirrors the diff fix's own precedent: the caller (RunQaUseCase) threads intent
-  // into GenerationPort.generate()'s enrichment (diff-mode generation) and — where the legacy's own
-  // reviewer objective derivation reads intent?.message (src/pipeline.ts:1682) — into review() too.
-  // Optional: a stub/legacy caller that omits it is unaffected (matches every other optional field
-  // this barrel has widened with — dynamic diff, signal, etc.).
-  //
-  // contradiction: WS7.4 (full-flow remediation) — classifyCommit() already computes this
-  // (CommitClassification.contradiction: the message claimed no behavior change but the diff
-  // escalated the action anyway) and it was dropped at this exact boundary, same class of gap as
-  // intent/diff above. Surfaced so RunQaUseCase can thread it (alongside `reason`, already
-  // returned) into the generation enrichment — the highest-value aiming hint for an escalated
-  // commit is telling the agent EXACTLY why the message and the diff disagree. Optional/undefined
-  // when classifyCommit did not escalate (the common case) — never fabricated.
-  //
-  // opts.baseSha: WS7.1 (full-flow remediation, multi-commit range restoration) — when set, the
-  // caller is asking for a RANGE classification (baseSha..sha), not a single commit. The adapter
-  // fetches every commit's message in the range and the UNION diff, then applies
-  // classifyRange's own MAX-severity reduction (domain/commit-classification.ts). Absent (the
-  // common case) -> `sha^..sha` exactly as today, byte-identical behavior — this parameter is
-  // strictly additive.
+  /**
+   * Only "diff" mode calls classify. Returns the real per-run diff so generation
+   * is not fed a stale static value. `intent` and `contradiction` are optional:
+   * contradiction is set only when the message claimed no behavior change but
+   * the diff escalated the action — never fabricated. `opts.baseSha` requests a
+   * range classification; absent classifies sha^..sha.
+   */
   classify(sha: Sha, opts?: { baseSha?: Sha }): Promise<{ action: "skip" | "regression" | "generate"; reason: string; diff: string; intent?: CommitIntent; contradiction?: boolean }>;
 }
-// W2 fix (F1, generation regen/enrichment context — audit-verified cutover blocker): the legacy's
-// GenerateInput (src/integrations/opencode-client.ts's OpencodeRunInput) carries fixCases/
-// reviewCorrections/selectorContradictions/domSnapshot/coverageGap/intent — the fields a regen or
-// reviewer-correction round needs so the agent sees WHY it is being asked to try again. This barrel's
-// GenerationPort.generate() had no slot for any of them, so every regen (the FixLoop's own retry,
-// the reviewer-correction loop, F3) silently generated with the SAME contextless prompt as the
-// initial attempt. Widened with ONE optional trailing object (not more positional args — the diff/
-// signal precedent already set two; a 3rd/4th/5th positional arg would be unreadable at call sites)
-// so every field is independently absent-safe: an adapter/stub that never reads `enrichment` is
-// unaffected (backward compatible with every existing GenerationPort implementation/test).
+/** Optional trailing bag on generate(). Every field is independently absent-safe. */
 export interface GenerationEnrichment {
-  // Reviewer rejection corrections (F3) — mirrors the legacy's reviewCorrections: threaded into the
-  // regen prompt's "Apply reviewer corrections HIGHEST priority" section (src/integrations/
-  // prompts.ts:727-737).
+  /** Reviewer rejection corrections — highest priority on a regen prompt. */
   reviewCorrections?: string[];
-  // FixLoop retry context (F2) — mirrors FixLoopGenerateInput's own fixCases/selectorContradictions/
-  // domSnapshot (../../domain/fix-loop.aggregate.ts) so a fix-loop regen renders the legacy's "Fix
-  // failing tests" section instead of a bare re-prompt.
+  /** Fix-loop retry context so a regen sees failing cases instead of a bare re-prompt. */
   fixCases?: readonly QaCase[];
   selectorContradictions?: readonly string[];
   domSnapshot?: string;
-  // Change-coverage enforce-mode regeneration (src/pipeline.ts's renderUncovered(cc) call site,
-  // baseGenInput({ coverageGap: ... })) — the changed lines a green run failed to exercise.
+  /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
-  // F5 — the run's CommitIntent (diff mode), threaded from ChangeAnalysisPort.classify() the same
-  // way the dynamic diff already is, so diff-mode generation receives the SAME intent the legacy's
-  // baseGenInput() forwards on every call (src/pipeline.ts:1678's `intent,`).
+  /** Diff-mode CommitIntent from classify(). */
   intent?: CommitIntent;
-  // WS7.4 (full-flow remediation): classifyCommit()'s own explanation of ITS decision — why this
-  // commit's action is what it is (e.g. "message 'refactor' expected no tests, but the diff adds
-  // logic → escalated to generate"). Distinct from `intent` (WHAT changed) — this is WHY the
-  // classifier decided what it decided, the highest-value aiming hint for a commit whose message
-  // and diff disagree. Rendered as one line in the task section (buildTask, src/integrations/
-  // prompts.ts), sanitized like every other model-bound string. Absent outside diff mode (matches
-  // every other classify()-sourced field's diff-mode-only contract).
+  /**
+   * Classifier's explanation of its decision (why the action is what it is).
+   * Distinct from `intent` (what changed). Absent outside diff mode.
+   */
   classificationReason?: string;
-  // WS7.4: classifyCommit()'s own `contradiction` flag — true when the message claimed no behavior
-  // change (skip/regression) but the diff cross-check escalated the action anyway. A one-line
-  // boolean hint the generator can act on directly ("the message under-promises — trust the diff").
+  /**
+   * True when the message claimed no behavior change but the diff escalated.
+   * Hint to trust the diff. Undefined when classify did not escalate.
+   */
   contradiction?: boolean;
-  // Manifest-enrichment fix: the run's commit sha, needed to stamp OpencodeRunInput.sha so
-  // GenerateTestsUseCase can populate ManifestEntry.changeRef.sha (the real manifest schema
-  // requires changeRef.sha non-empty — src/orchestrator/schemas.ts ManifestEntrySchema). `sha` is
-  // available on EVERY RunQaUseCaseInput regardless of mode (unlike diff/intent, which are
-  // diff-mode-only via classify()) — callers should thread `input.sha.toString()` here on every
-  // generate() call, the same way baseEnrichment already threads `intent`. NOT YET WIRED at the
-  // run-qa.use-case.ts call sites (out of this change's scope — see GenerationPortAdapter.generate's
-  // own comment for the adapter-side half of this fix); until wired, OpencodeRunInput.sha stays ""
-  // and changeRef.sha fails the schema, exactly the live-run evidence this fix responds to.
+  /**
+   * Run SHA for ManifestEntry.changeRef.sha (required non-empty). Available on
+   * every run regardless of mode; callers should thread input.sha on every generate().
+   */
   sha?: string;
-  // W5 fix (seam-parity FIXME, runId threading half): the run's id (RunInput.runId, this barrel,
-  // above), mirrors legacy's OpencodeRunInput.runId — opencode-client.ts uses it for the SSE session
-  // descriptor (registerRunSession/appendLog telemetry) so a generator session appears in live run
-  // activity/telemetry. Threaded here (not the static per-run context) because it is a genuinely
-  // PER-RUN value, the same "dynamic" precedent `sha`/`intent` above already establish. Absent ->
-  // OpencodeRunInput.runId stays unset, unchanged (today's behavior).
+  /** Per-run id for the generator SSE session descriptor. */
   runId?: string;
-  // W3 F2 (cross-run learning retrieval): the structured rules LearningPort.retrieve(sha) returned
-  // (the port's OWN established contract — RetrievedRule, widened per W3 F1 above) — mirrors
-  // legacy's own retrieval injection (src/pipeline.ts's `learnedRules` local, baseGenInput({
-  // learnedRules, ... }) at pipeline.ts:1899). The adapter boundary (GenerationPortAdapter) renders
-  // this array into the SAME OpencodeRunInput.learnedRules string field buildPromptAssembled
-  // already renders a section for, using the SAME proven/experimental split legacy's own
-  // renderRulesForPrompt applies (src/qa/learning/learning-rule.ts:237-278) — format decisions
-  // belong at that boundary, matching every other enrichment field's own 1:1-at-the-adapter
-  // mapping. Absent/empty -> unchanged prompt (retrieval found nothing, or the app's
-  // LearningRepositoryPort is the StubLearningRepository no-op default).
+  /**
+   * Structured rules from LearningPort.retrieve. The adapter renders them;
+   * absent/empty leaves the prompt unchanged.
+   */
   learnedRules?: readonly RetrievedRule[];
-  // W4 (Plan 7-R, selector-grounding cutover): the PRE-generate grounding data — mirrors legacy's
-  // baseGenInput({ contextPack: builtContextPack, existingSpecFiles, ... }) (src/pipeline.ts:1898,
-  // 1908). Unlike domSnapshot above (which is REGEN-time grounding, sourced from a failure-point or
-  // pre-review capture), these two are FIRST-WRITE grounding: built ONCE before the initial
-  // generate() call (PreGenerationGroundingPort, below) and reused unchanged across every
-  // regeneration in the SAME run (mirrors legacy's own "the pack is first-write ground truth; fix/
-  // review/coverage passes use domSnapshot instead" comment, pipeline.ts:1820-1822). Absent -> the
-  // generator falls back to its own live-MCP exploration (today's rewritten-engine behavior,
-  // unchanged) — never fabricated, never required.
-  //
-  // contextPack: the assembled blast-radius + DOM + contracts text block (generation/infrastructure's
-  // ContextPackAssembly.text, buildContextPack) — pushed into the VOLATILE "context-pack" prompt
-  // section buildPromptAssembled already renders (OpencodeRunInput.contextPack's own doc).
+  /**
+   * First-write context pack, built once before the initial generate() and reused
+   * unchanged on every regeneration in the same run. Absent falls back to live-MCP
+   * exploration — never fabricated.
+   */
   contextPack?: string;
-  // T4: the per-run ArchitectureContext loaded from `${specDir}/.qa/context.json` by
-  // PreGenerationGroundingPort. Mapped 1:1 onto OpencodeRunInput.contextMap so
-  // renderArchitectureContext can run. Distinct from contextPack (assembled markdown): this is
-  // the structured map. Absent when the json is missing/invalid (fail-open, never fabricated).
+  /**
+   * Structured map from specDir/.qa/context.json. Distinct from contextPack
+   * (assembled markdown). Absent when the json is missing/invalid (fail-open).
+   */
   contextMap?: ArchitectureContext;
-  // Distilled explorer pass (qa-explorer). Mapped 1:1 onto OpencodeRunInput.contextBrief so
-  // renderBrief runs. Distinct from contextPack (assembled markdown that already received the
-  // brief as pack input). Absent when explorer is unwired or fail-open.
+  /**
+   * Distilled explorer brief. Distinct from contextPack. Absent when explorer is
+   * unwired or fail-open.
+   */
   contextBrief?: ExplorationBrief;
-  // existingSpecFiles: the suite's on-disk spec file paths (relative to e2eRelDir), enumerated
-  // BEFORE the first generate() call so the "existing-suite-manifest" prompt section lets the
-  // generator reuse/extend instead of duplicating a flow (mirrors legacy's Seam b,
-  // src/pipeline.ts:1845-1872 + OpencodeRunInput.existingSpecFiles's own doc).
+  /**
+   * On-disk spec paths enumerated before the first generate(), so the agent reuses
+   * instead of duplicating.
+   */
   existingSpecFiles?: string[];
-  // CodeGraph Phase 4 (design §5.1, ADR-3): the rendered advisory "structural blast radius" block
-  // (blast-radius-signal.ts's renderBlastRadiusSignal output) — mirrors legacy's OpencodeRunInput.
-  // staticSignal (generation-ports.ts:137), which prompts.ts already renders a section for in
-  // generation mode. Filled by RunQaUseCase from the OPTIONAL StructuralSignalPort collaborator
-  // (below); absent -> no section, byte-identical to today (the field was previously listed in
-  // seam-parity.contract.test.ts's ALLOWLIST as a confirmed drop — this closes that gap). Advisory
-  // ONLY: this string reaches the generation prompt and NOTHING else — no verdict/gate/coverage
-  // path reads it (ADR-2).
+  /**
+   * Advisory structural blast-radius markdown. Reaches the generation prompt only —
+   * no verdict, gate, or coverage path reads it. Absent omits the section.
+   */
   staticSignal?: string;
-  // Curriculum-ranked, cap-limited authoring templates (CurriculumPort.select). Mapped 1:1 at the
-  // GenerationPortAdapter onto OpencodeRunInput.skillExemplars, which prompts.ts renders INSTEAD of
-  // its own local diff-derived derivation. Absent -> prompts.ts falls back to that local derivation,
-  // byte-identical to today.
+  /**
+   * Curriculum-ranked authoring templates. Absent lets the prompt builder fall
+   * back to its local derivation.
+   */
   skillExemplars?: readonly SelectedExemplar[];
-  // Stitcher→Generation seam (design §3.4): the deterministic cross-repo FE→BE links + contract
-  // drift findings ServiceLinksPort.resolve() (below) produced. STRUCTURED, not pre-rendered —
-  // unlike staticSignal above, rendering happens at the src/integrations/prompts.ts boundary (ADR-1:
-  // the field is structured by proposal decree, and prompts.ts already renders every other
-  // cross-repo framing from structured input.service/input.services). Filled by RunQaUseCase from
-  // the OPTIONAL ServiceLinksPort collaborator (below); absent -> no key at all (not an empty
-  // array), byte-identical to today. Advisory ONLY: reaches the generation prompt and NOTHING else
-  // — no verdict/gate/coverage path reads it (ADR-2 parity with staticSignal).
+  /**
+   * Structured FE→BE links. Rendering belongs at the prompt boundary, not here.
+   * Absent means no key (not an empty array). Advisory only.
+   */
   serviceLinks?: readonly ServiceLink[];
-  // FE↔BE contract drift (front calls an endpoint the backend contract does not declare) —
-  // independently optional from serviceLinks (a run can have links-but-no-drift or
-  // drift-but-no-links; see ServiceLinksPort.resolve()'s own {links, drift} pairing).
+  /**
+   * FE↔BE contract drift, independently optional from serviceLinks (a run can
+   * have links without drift, or the reverse).
+   */
   contractDrift?: readonly ContractDrift[];
-  // Slice C (structural-signals-expansion, design §3.8): the advisory cross-repo impact narrowing
-  // CrossRepoImpactPort.resolve() (below) produced. Structured, not pre-rendered — mirrors
-  // serviceLinks' own "prompts.ts owns rendering" precedent. Filled from the OPTIONAL
-  // CrossRepoImpactPort collaborator; absent -> no key at all, byte-identical to today. Advisory
-  // ONLY: reaches the generation prompt and NOTHING else — no verdict/gate/coverage path reads it.
+  /**
+   * Advisory cross-repo impact narrowing. Structured, not pre-rendered. Absent
+   * means no key. Advisory only.
+   */
   crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
 }
 export interface GenerationPort {
-  // signal: Plan 7.1 (engram #913) — an optional, separate transport arg (mirrors RunPipelinePort's
-  // own signal), threaded through so a cancelled run's in-flight generation can be interrupted
-  // rather than resolving late. Wraps runE2E/runPipeline's own signal-aware generate() in
-  // production; a port stub that ignores it is unaffected (backward compatible).
-  //
-  // diff: the "dynamic diff" fix (engram #936) — an optional, separate transport arg carrying the
-  // RUN's actual commit diff (sourced from ChangeAnalysisPort.classify() in diff mode), threaded
-  // through so generation gets real change context instead of a static composition-time value.
-  // Absent (non-diff modes, which never classify) -> the adapter falls back to its own static
-  // per-run diff, unaffected (backward compatible).
-  //
-  // enrichment: W2 fix (F1) — see GenerationEnrichment's own header. Optional trailing object;
-  // absent -> the adapter's OpencodeRunInput carries none of these fields, an unchanged prompt
-  // (exactly today's behavior).
-  //
-  // specSources: WS4 (full-flow remediation, 4.1) — the JUST-GENERATED spec files' own source text,
-  // mirrors FixLoopGenerateResult.specSources' own contract (fix-loop.aggregate.ts) and the REAL
-  // GenerationPortAdapter's already-wired (optional) readSpecSource collaborator, which populates
-  // this exact field on its concrete return value today — this barrel simply never declared it, so
-  // the field was silently dropped at this interface boundary and Lever-2's checkSpecSelectors
-  // always received specSources:[] no matter what the adapter produced underneath. Absent/empty ->
-  // unchanged (no readSpecSource collaborator wired, or nothing was generated) — never fabricated.
-  //
-  // specMetas: sdd/migration-remediation Slice 4 (D-P1a, publication rendering + tested metadata) —
-  // the agent's own per-spec metadata (flow/objective), sourced from GenerateTestsUseCase's
-  // GenerationResult.specMetas (generate-tests.use-case.ts, ManifestEntry[]) and narrowed at this
-  // PORT BOUNDARY to only the two fields ever rendered into a PR/Issue body — the SAME projection
-  // discipline as RetrievedRule below (id/trigger/action/errorClass/confidence/status are the
-  // domain's fuller shape; this port only ever needs flow/objective). Threaded through
-  // RunQaUseCase into PublicationPort.publish()'s `tested` field. Absent/empty -> the caller's
-  // "tested" section is omitted (never fabricated, matches every other optional field on this port).
+  /**
+   * `signal` interrupts in-flight generation on cancel. `diff` is the real
+   * per-run commit diff (diff mode only); absent falls back to the adapter's
+   * static per-run value. `enrichment` is independently absent-safe.
+   * `specSources` is just-generated spec text for selector checks; absent/empty
+   * is never fabricated. `specMetas` is the flow/objective projection for
+   * publication; absent/empty omits the "tested" section.
+   * `parsed` is false only when no verdict JSON could be parsed.
+   */
   generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<{ specs: string[]; approved: boolean; note?: string; specSources?: string[]; parsed?: boolean; specMetas?: { flow?: string; objective?: string }[] }>;
 }
-// ReviewPort is the authoritative publish gate's seam. blockingCount distinguishes blocking
-// corrections (must regenerate) from advisory ones (may approve when only advisory remain);
-// parsed is FALSE only on a parse miss (no verdict JSON could be parsed) — NOT a real rejection —
-// so the FixLoop re-prompts once instead of burning a fix round. Both are carried from the legacy
-// ReviewResult (src/integrations/opencode-client.ts) so the domain drops no behavior (the #1
-// fail-closed invariant: parsed).
-// W2 fix (F3, reviewer-corrections regeneration loop): the legacy's reviewGenerated() threads the
-// PRIOR round's own corrections into the NEXT review call (src/pipeline.ts:1682's
-// `...(previousRoundCorrections ? { priorCorrections: previousRoundCorrections } : {})`) so the
-// reviewer can judge CONVERGENCE — approve once the previously-raised BLOCKING issues are resolved,
-// rather than inventing new nits on unchanged specs. Optional trailing object, same precedent as
-// GenerationEnrichment (F1) — absent -> the adapter's ReviewInput carries none of these, unchanged
-// prompt (today's behavior).
+/**
+ * `priorCorrections` lets the next review judge convergence on previously
+ * raised blocking issues instead of inventing new nits.
+ */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
-  // F5 — mirrors legacy's `objective: opts.guidance ?? intent?.message` (src/pipeline.ts:1682): when
-  // no manual guidance exists, the reviewer's objective is derived from the commit intent's message.
+  /** When no manual guidance exists, the reviewer's objective is the commit intent message. */
   intent?: CommitIntent;
-  // W3 F2 (cross-run learning retrieval): mirrors legacy's `learnedRules: renderRulesForReviewer(
-  // retrievedRules)` (src/pipeline.ts:1679) — the SAME retrieved structured rules the generator's
-  // prompt received (LearningPort.retrieve(sha)'s own established RetrievedRule[] contract),
-  // rendered at the adapter boundary — using ONLY active rules, exactly legacy's
-  // renderRulesForReviewer (src/qa/learning/learning-rule.ts:299-313; candidates are for the
-  // generator to explore, never for the judge to gate on) — for the reviewer's "app-specific
-  // reject-on-sight rules" section so the independent reviewer judges against the SAME earned
-  // rules the generator was grounded on. Absent/empty -> unchanged prompt (today's behavior).
+  /**
+   * Same retrieved rules the generator saw. The adapter renders only active
+   * rules; candidates are for the generator to explore, never for the judge to
+   * gate on.
+   */
   learnedRules?: readonly RetrievedRule[];
-  // W4 (Plan 7-R, selector-grounding cutover): the live DEV a11y snapshot of the routes the specs
-  // under review target — mirrors legacy's reviewGenerated() captureDom call (src/pipeline.ts:1643-
-  // 1649's `domSnapshot = await deps.captureDom(...).catch(() => undefined)`), grounding the
-  // independent reviewer's UI-fact claims (labels, button/link text) in the real DOM instead of its
-  // training memory (the SAME anti-hallucination rationale ReviewInput.domSnapshot's own doc states
-  // — "it claimed PetClinic's submit button says 'Add Owner' when the live DOM says 'Submit'").
-  // Absent -> the reviewer defers on unverifiable UI facts (today's behavior, unchanged).
+  /**
+   * Live DEV a11y snapshot of routes under review. Absent: the reviewer defers
+   * on unverifiable UI facts.
+   */
   domSnapshot?: string;
-  // W5 fix (seam-parity FIXME, runId threading half): mirrors GenerationEnrichment.runId's own doc
-  // above — opencode-client.ts uses input.runId for the reviewer session's OWN SSE descriptor too
-  // (a SEPARATE session from the generator's). Absent -> ReviewInput.runId stays unset, unchanged.
+  /** Per-run id for the reviewer SSE session (separate from the generator's). */
   runId?: string;
 }
-// Follow-up #28: the ReviewPort failure contract's rationale marker — the adapter's catch PRODUCES
-// `${REVIEWER_UNAVAILABLE_MARKER}: <reason>` and the use-case MATCHES on it to thread the outage
-// note into the published Issue + RunOutcome.gateSignals.reviewerRationale. One exported constant
-// so producer and matcher can never drift apart (a reworded message would otherwise silently stop
-// the note from threading while the fail-closed posture kept working — invisible feature death).
+/**
+ * Adapter catch produces `${REVIEWER_UNAVAILABLE_MARKER}: <reason>`; the
+ * use-case matches on it. One constant so producer and matcher cannot drift.
+ */
 export const REVIEWER_UNAVAILABLE_MARKER = "reviewer unavailable";
 
+/**
+ * Authoritative publish-gate seam. `blockingCount` distinguishes blocking
+ * corrections from advisory ones. `parsed` is false only on a parse miss — not
+ * a real rejection — so FixLoop re-prompts once instead of burning a fix round.
+ * Fail-closed: a missing parse is never treated as approval.
+ */
 export interface ReviewPort {
-  // diff: the run's REAL per-run commit diff (Plan 7.6 dynamic-diff), so the reviewer grounds on the
-  // actual change — NOT a static composition-time value that is empty in production. Optional: absent
-  // -> the adapter falls back to its static ctx.diff (the F.2 operator / unit-test path).
-  //
-  // enrichment: W2 fix (F3) — see ReviewEnrichment's own header. Optional trailing object; absent ->
-  // the adapter's ReviewInput carries no priorCorrections/intent, unchanged prompt.
+  /**
+   * `diff` is the real per-run commit diff; absent falls back to the adapter's
+   * static ctx.diff. `enrichment` is independently absent-safe.
+   */
   review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): Promise<{
     approved: boolean;
     corrections: string[];
@@ -373,126 +243,67 @@ export interface ReviewPort {
   }>;
 }
 export interface ValidationPort {
-  // changedFiles: WS2.2 (full-flow remediation) — optional trailing arg (the SAME "enrichment
-  // object"-adjacent, absent-safe precedent ExecutionOpts/ReviewEnrichment already established),
-  // threaded to the code-target compile gate for diff-scoped compilation (mirrors
-  // ExecutionRequest.changedFiles' own module-scoping concept). Ignored by the e2e static gate
-  // (StaticGateAdapter.validateAll takes no such param) — present only so the SAME port call site
-  // in RunQaUseCase can pass it uniformly regardless of target.
-  validate(specDir: string, changedFiles?: string[]): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>; // infra optional: mirrors src/qa/validate.ts CheckResult
+  /**
+   * `changedFiles` scopes the code-target compile gate. Ignored by the e2e
+   * static gate. Present so the same call site can pass it for either target.
+   * `infra` is optional: a validation failure may be infrastructure, not a code defect.
+   */
+  validate(specDir: string, changedFiles?: string[]): Promise<{ ok: boolean; errors: string[]; infra?: boolean }>;
 }
-// W4 fix (F1, audit-verified cutover blocker): the legacy's execute() opts (src/qa/execute.ts
-// ExecuteOptions, threaded through pipeline.ts's own runE2E/runCodeTests call sites) carry
-// faultInject/specFiles/project/timeoutMs/onCase/onRunning/onDiscovered — E2eExecutionStrategy
-// (test-execution/infrastructure/e2e-execution.strategy.ts) already forwards every one of these
-// into ExecutionRequest, but THIS port previously exposed only `signal` as a 2nd positional arg,
-// so every capability past signal was structurally unreachable at the orchestration layer no
-// matter what the strategy supported underneath. Widened with ONE optional opts bag — the SAME
-// "enrichment object" precedent GenerationEnrichment/ReviewEnrichment already established (no
-// further positional creep) — so each field is independently absent-safe.
-//
-// Backward compat: `opts` accepts EITHER the bag OR a bare AbortSignal (the pre-existing 2nd
-// positional arg shape) so every caller/stub/test written against `execute(specDir, signal?)`
-// keeps compiling and behaving identically — a bare AbortSignal is normalized to `{ signal }`
-// internally by the adapter (see execution-port.adapter.ts). Distinguishing the two shapes needs
-// no runtime type-check ambiguity: AbortSignal is a class instance (has `.aborted`/`.addEventListener`),
-// the opts bag is a plain object literal — callers pass one or the other, never both.
+/**
+ * Optional execute bag. Also accepts a bare AbortSignal (normalized to
+ * `{ signal }`): AbortSignal is a class instance; the bag is a plain object.
+ */
 export interface ExecutionOpts {
   signal?: AbortSignal;
   faultInject?: boolean;
-  // Filtered-retry (F1a): scope a re-execution to ONLY the specs that failed (mirrors legacy's
-  // `canFilter ? { specFiles: failedSpecFiles } : {}`, src/pipeline.ts's own filtered-retry gate) —
-  // the FixLoop aggregate (domain/fix-loop.aggregate.ts) already computes canFilter/failedSpecFiles
-  // on its OWN local FixLoopExecutionPort; this field is what lets the use-case-level wiring thread
-  // that decision through to the REAL strategy instead of dropping it on the floor.
+  /** Scope re-execution to only the specs that failed. */
   specFiles?: string[];
   project?: string;
   timeoutMs?: number;
-  // Live per-case/per-test progress (F1b): mirrors ExecutionRequest's own onCase/onRunning/
-  // onDiscovered (test-execution/application/ports/index.ts) — threading these through lets a
-  // caller emit ObserverPort.onEvent("test.started"/"test.passed"/"test.failed"/"test.discovered")
-  // DURING execution instead of only reconstructing them post-hoc from the final case list.
+  /**
+   * Live per-case progress so ObserverPort can emit test events during execution
+   * instead of reconstructing them after the fact.
+   */
   onCase?: (c: QaCase) => void;
   onRunning?: (title: string) => void;
   onDiscovered?: (title: string, file?: string) => void;
-  // namespace: P2 (post-cutover-remediation) Constraint 2 — the enforce-mode one-shot coverage
-  // regen must execute+re-measure under a DEDICATED namespace (`${runId}-coverage-regen`) so its
-  // coverage dumps never collide with / shadow the first run's dumps under the SAME ctx.namespace
-  // (execution-port.adapter.ts previously hardcoded ctx.namespace with no override seam). Optional
-  // -> every pre-existing caller/stub keeps compiling and behaving identically (falls back to
-  // ctx.namespace, unchanged).
+  /**
+   * Dedicated coverage-dump namespace. Enforce-mode one-shot regen must execute
+   * and re-measure under `${runId}-coverage-regen` so dumps never collide with
+   * the first run. Absent falls back to the composition-time namespace.
+   */
   namespace?: string;
 }
 export interface ExecutionPort {
-  // signal: Plan 7.1 (engram #913) — see GenerationPort's own signal note; wraps runE2E's existing
-  // signal-aware execute() so a cancelled run's in-flight test execution can be interrupted.
-  //
-  // opts: W4 fix (F1) — see ExecutionOpts's own header above. A bare AbortSignal (the pre-existing
-  // shape) or the richer opts bag; absent -> no capability beyond specDir (unchanged default).
+  /** Bare AbortSignal or richer opts bag; absent is specDir only. */
   execute(specDir: string, opts?: AbortSignal | ExecutionOpts): Promise<{ verdict: RunVerdict; cases: QaCase[]; logs: string }>;
 }
 export interface ObjectiveSignalPort {
-  // valueScore: the value-oracle (mutation-testing) result the legacy persists alongside
-  // coverageRatio in gateSignals.valueScore (src/pipeline.ts:3267's persistOutcome call site;
-  // src/qa/learning/labeler.ts's LabelerInput.valueScore). Optional/nullable so a stub or a
-  // composition root that has not yet wired the mutation-testing oracle (Task E.0) can omit it —
-  // absent is read as "not measured", never a fabricated 0.
-  //
-  // diff: the "dynamic diff" precedent (GenerationPort.generate's own optional trailing `diff` arg,
-  // above) — the run's REAL per-run commit diff (sourced from ChangeAnalysisPort.classify() in diff
-  // mode, the only mode that ever measures change-coverage: CLAUDE.md "Run modes" + src/pipeline.ts's
-  // own `mode === "diff"` coverage gate). Absent (every non-diff mode, or a caller that predates this
-  // param) -> the adapter's assembler is never invoked -> decide() receives null -> "unknown" -> NEVER
-  // blocks (the keystone's own architecturally-safe default, unchanged).
-  //
-  // baselineCases: W4 fix (F2, audit-verified cutover blocker — "the dead value oracle"). The
-  // e2e fault-injection oracle (ValueOraclePort.measure's own baselineCases param,
-  // objective-signal/application/ports/index.ts) returns valueScore:null FOREVER unless it is
-  // told which specs are the green baseline to inject faults against — the legacy computes this
-  // PER RUN, post-execution, from the just-executed run's own passing case names
-  // (src/pipeline.ts:731's `run.cases.filter(c=>c.status==="pass").map(c=>c.name)`). The
-  // composition root previously had no per-run value to supply here (rewritten-engine-factory.ts's
-  // own `baselineCases: []` is a STATIC, composition-time placeholder — always empty, since no
-  // per-run case list exists yet when CompositionConfig is built) — every rewritten-engine run's
-  // valueScore was silently null. Same "dynamic diff" precedent as the `diff` param immediately
-  // above: an OPTIONAL trailing arg, threaded from RunQaUseCase's own just-executed `run.cases` at
-  // the measure() call site. Absent -> the adapter falls back to its static ctx.baselineCases
-  // (backward compatible with every pre-existing caller/stub/test).
-  // uncovered: P2 (post-cutover-remediation) — the enforce-mode one-shot coverage regen needs to
-  // know WHICH lines went unmeasured so it can target regeneration there (renderCoverageGap). The
-  // adapter already computes this INSIDE assembleChangeCoverage's ChangeCoverage.uncovered and
-  // previously dropped it. Optional/absent-safe: only populated when the adapter actually assembled
-  // a ChangeCoverage this call (willAssemble); every pre-existing caller/stub reading only
-  // {status, ratio, valueScore} keeps compiling and behaving identically — never fabricated as [].
-  //
-  // opts.namespace: P2c GATE FIX (post-cutover-remediation, coordinator review) — the SAME per-call
-  // namespace override precedent as ExecutionOpts.namespace (Constraint 2) above. The adapter's dump
-  // namespace was previously fixed at COMPOSITION time (ObjectiveSignalPortStaticContext.namespace,
-  // `this.ctx.namespace`) with no per-call escape hatch — so the enforce-mode regen's re-measure
-  // silently re-read the FIRST run's dumps under the composition-time namespace, never the regen's
-  // own `${runId}-coverage-regen` dumps that its own namespace-overridden execute() call actually
-  // wrote. Optional + absent-safe: every pre-existing caller/stub that omits opts keeps reading
-  // ctx.namespace unchanged (backward compatible) — only the regen's SECOND measure() call supplies
-  // the override; the FIRST measurement is untouched.
+  /**
+   * `valueScore` absent means not measured — never a fabricated 0.
+   * `diff` absent (non-diff modes) → assembler never invoked → decide() gets
+   * null → "unknown" → never blocks.
+   * `baselineCases` are this run's passing case names; absent falls back to the
+   * static composition-time list.
+   * `uncovered` is populated only when a ChangeCoverage was actually assembled;
+   * never fabricated as [].
+   * `opts.namespace` overrides the dump namespace for the regen's second
+   * measure(); the first measurement is untouched.
+   */
   measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; uncovered?: { file: string; lines: number[] }[] }>;
-  // blocks: P2b (post-cutover-remediation) Constraint 3 — the SINGLE source of truth for whether a
-  // measured status blocks publish. Delegates to DecideCoverageService.blocks() VERBATIM (the
-  // keystone: only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode). Exposing
-  // this through the port lets the use-case ask the port for the decision instead of re-reading a
-  // duplicated coveragePolicyMode string at each call site (the duplicate-source bug this closes).
+  /**
+   * Single source of truth for whether a measured status blocks publish.
+   * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
+   */
   blocks(status: "pass" | "fail" | "unknown"): boolean;
 }
 export interface PublicationPort {
-  // reviewerApproved/coverageBlocks/e2eChanged (audit fix, judgment-day): the REAL per-run values
-  // RunQaUseCase already computes (reviewerApproved at the review phase; coverageBlocks at the
-  // measure phase) — OPTIONAL so every pre-existing caller/stub/test that only ever passed
-  // {verdict, cases, logs} keeps compiling and behaving identically. Absent -> the adapter falls
-  // back to its static composition-time ctx (the F.2 operator / unit-test path), exactly the
-  // dynamic-diff precedent (ReviewPort.review's own optional `diff` param, above). When PRESENT,
-  // these override the static ctx so a green-but-reviewer-rejected run correctly routes to an Issue
-  // instead of a PR, and an enforce-mode coverage failure correctly holds the PR — neither of which
-  // the static ctx (fixed at composition-build time, before any run's real verdict exists) can ever
-  // reflect on its own.
+  /**
+   * Per-run values override composition-time ctx. Absent falls back to static
+   * ctx. When present, a green-but-reviewer-rejected run routes to an Issue,
+   * and an enforce-mode coverage failure holds the PR.
+   */
   publish(decision: {
     verdict: RunVerdict;
     cases: readonly QaCase[];
@@ -500,107 +311,59 @@ export interface PublicationPort {
     reviewerApproved?: boolean;
     coverageBlocks?: boolean;
     e2eChanged?: boolean;
-    // F3 (CRITICAL, cross-repo Issue routing): mirrors legacy's `issueRepo = triggerService ?
-    // triggerService.repo : app.repo` (src/pipeline.ts:1021). OPTIONAL — absent falls back to the
-    // adapter's static ctx.repo (every ordinary monorepo run), same precedent as the fields above.
-    // PR creation always targets ctx.repo (the primary repo), regardless of this field.
+    /**
+     * Cross-repo Issue routing. Absent falls back to ctx.repo. PR creation
+     * always targets ctx.repo (the primary), regardless of this field.
+     */
     issueRepo?: string;
-    // WS3.1 (adjudication -> Issue body): the FixLoop's own last adjudicator verdict
-    // (FixLoopResult.lastAdjudicatorVerdict) — computed, used to gate learning (shouldDistillLearning),
-    // but previously dropped silently at this exact boundary; the human reading the GitHub Issue never
-    // saw the engine's own diagnosis. OPTIONAL, same backward-compat precedent as every other dynamic
-    // field on this port: absent -> the adapter renders no adjudication section at all (every
-    // pre-existing caller/stub/test keeps compiling and behaving identically). Present only for runs
-    // whose FixLoop actually reached the adjudicate() decision point (a clean first-try pass never has
-    // one). `class`/`confidence` are carried as plain strings (not the domain's closed unions) — this
-    // is a PORT-BOUNDARY projection, matching the RetrievedRule precedent above: the adapter only ever
-    // renders them as text, never branches on them, so a closed union here would buy nothing but an
-    // import edge into the FixLoop's domain types from this port surface.
+    /**
+     * FixLoop's last adjudicator verdict. Present only when FixLoop reached
+     * adjudicate(); a clean first-try pass has none. Strings, not domain unions:
+     * the adapter renders them as text and never branches on them.
+     */
     adjudication?: { class: string; confidence: string; reason: string };
-    // Follow-up #28 (reviewer-outage observability hardening): the review loop's reviewer-unavailable
-    // rationale — ReviewPortAdapter's own fail-closed catch produces `rationale: "reviewer
-    // unavailable: <reason>"` when the reviewer session itself throws (timeout, env misconfig,
-    // provider down), but the review loop only ever branches on approved/parsed/corrections/
-    // blockingCount, so this rationale was silently dropped: a fleet-wide reviewer outage degraded
-    // every green run to Issue-instead-of-PR with no trace beyond a console.error at the moment of
-    // failure. OPTIONAL, same backward-compat precedent as adjudication immediately above: absent ->
-    // the adapter renders no "Reviewer unavailable" section at all. Threaded ONLY for that specific
-    // fail-closed exit — never for a genuine reviewer rejection (corrections are already the signal
-    // for that case) — so the human reading the Issue can tell "reviewer never actually ran" apart
-    // from "reviewer ran and rejected".
+    /**
+     * Threaded only for a reviewer-unavailable fail-closed exit — never for a
+     * genuine rejection (corrections already signal that).
+     */
     reviewerNote?: string;
-    // PROD-BLOCKER fix: the REAL per-run mirrorDir (WorkspacePort.prepare()'s own return value,
-    // threaded by the use-case — the same "dynamic per-run value" precedent as every other optional
-    // field on this port) + the run's sha, needed ONLY by the "pr" route's git-write step (stage/
-    // commit/push the agent's generated tests before the PR is opened — see
-    // publication-port.adapter.ts's own header for why this was missing entirely before this fix).
-    // OPTIONAL for the same backward-compat reason as every field above: a pre-existing caller/stub/
-    // test that only ever passed {verdict, cases, logs} keeps compiling. Absent on an ACTUAL "pr"
-    // route with a required vcsWrite collaborator wired is a composition defect, not a valid steady
-    // state — PublicationPortAdapter's "pr" branch throws loudly rather than silently skip the git
-    // write (see that file's own fail-closed comment).
+    /**
+     * Real per-run mirrorDir + sha for the "pr" route's git-write. Absent on an
+     * actual "pr" route with a required vcsWrite collaborator is a composition
+     * defect: the adapter throws rather than skip the write (fail-closed).
+     */
     mirrorDir?: string;
     sha?: string;
-    // sdd/migration-remediation Slice 4 (D-P1a, publication rendering + tested metadata): the agent's
-    // "what was tested" evidence (flow/objective per spec) — see GenerationPort.generate()'s own
-    // specMetas doc for the SAME narrow port-boundary shape and its source. RunQaUseCase prefers the
-    // FixLoop's own final regen's specMetas when the loop engaged and produced any, falling back to
-    // the pre-loop/static-fix-loop generation's own specMetas otherwise (see run-qa.use-case.ts's
-    // resolveTested() for the exact precedence). OPTIONAL, same backward-compat precedent as every
-    // other dynamic field on this port: absent -> the rendered "Covers:"/"What was tested" section is
-    // omitted entirely, never a throw (spec's own negative scenario).
+    /** Agent "what was tested" evidence. Absent omits the section; never throws. */
     tested?: { flow?: string; objective?: string }[];
-    // sdd/migration-remediation Slice 4 (D-P1a): whether this run targeted the code (vs e2e) test
-    // target — the PR body's own wording branches on it ("Source-code tests" vs "E2E tests", and the
-    // validation statement's phrasing). Sourced from RunQaConfig.isCode, the SAME static per-run flag
-    // every other target-branching decision in this use-case already reads. OPTIONAL: absent renders
-    // the e2e-flavored wording (this port's pre-existing implicit default — every prior caller/test
-    // that omits it keeps compiling and behaving identically).
+    /** Code vs e2e wording. Absent renders e2e-flavored copy. */
     isCode?: boolean;
-    // sdd/migration-remediation Slice 4 (D-P1a): continuation provenance — the run this one continues
-    // (legacy parity: src/report/reporter.ts's PrBodyInput.parentRunId, src/server/runner.ts's own
-    // parentRunId chain). OPTIONAL: RunQaInput carries no parentRunId field today (the rewritten
-    // engine's continuation-provenance wiring is a KNOWN GAP, same class of gap as this method's own
-    // documented e2eChanged omission above — no fabricated value here, only the type widened so a
-    // FUTURE caller that DOES have one can thread it). Absent -> no continuation reference rendered.
+    /** Continuation provenance. Absent: no continuation reference rendered. */
     parentRunId?: string;
   }): Promise<{
     outcome: string;
-    // judgment-day round 2 (FIX 3, HIGH): surfaces the vcs-write tracked-file denylist guard's own
-    // revert (VcsWritePort.commit's `revertedDenylisted`) up through the "pr" route so the caller
-    // (RunQaUseCase) can merge it into the SAME gateSignals.confinement accumulator
-    // ConfinementPort.enforce() already feeds — a reverted supply-chain tamper must never be visible
-    // only in a container log. OPTIONAL: absent for every route that never reaches "pr" (issue/
-    // shadow/quarantine/noop) and for every pre-existing caller/stub/test, matching this port's own
-    // established backward-compat precedent.
+    /**
+     * Tracked-file denylist reverts from the "pr" git-write, merged into
+     * gateSignals.confinement. Absent on every route that never reaches "pr".
+     */
     revertedDenylisted?: string[];
-    // judgment-day round 3 (FIX E, both judges): the SUBSET of revertedDenylisted matching the
-    // narrower secret tier (VcsWritePort.commit's own `revertedDangerous` doc) — surfaced the SAME
-    // way so RunQaUseCase can sum ONLY genuine secret-tier reverts toward gateSignals.confinement's
-    // `dangerous`, instead of conflating every revert with a secret-leak-severity signal.
+    /**
+     * Subset of revertedDenylisted matching the secret tier. Counted toward
+     * gateSignals.confinement.dangerous — not every revert is a secret leak.
+     */
     revertedDangerous?: string[];
   }>;
 }
-// W3 fix (F1, dual-judge round): LearningPort.retrieve() previously returned bare trigger strings
-// (readonly string[]), which starved BOTH prompt renderers of the fields legacy's own LearningRule
-// shape carries and legacy's renderRulesForPrompt/renderRulesForReviewer actually render (src/qa/
-// learning/learning-rule.ts:15-32,237-313) — action, errorClass, status (proven vs experimental),
-// and confidence. The minimal FAITHFUL widening: the fields BOTH legacy renderers consume, and
-// nothing else (no successRate/usageCount/archetype/etc. — those stay internal to
-// cross-run-learning's own LearningRule; this is a PORT-BOUNDARY projection, not a re-export of the
-// full internal shape). `status` is narrowed to the two render-relevant buckets ("active" |
-// "candidate") because deprecated/superseded rules are never retrieved (RuleGovernanceService.
-// topRules's own RETRIEVABLE gate) — a widened union here would let callers handle branches that
-// can structurally never occur.
+/**
+ * Port-boundary projection of a retrieved learning rule. `status` is only
+ * "active" | "candidate" because deprecated/superseded rules are never retrieved.
+ */
 export interface RetrievedRule {
-  // WS1.1 (full-flow remediation, most critical finding): the ledger's PRIMARY KEY, used for
-  // outcome-fold attribution ONLY (RunOutcome.rulesRetrieved persists ids so the by-id fold at the
-  // consumer — e.g. rewritten-engine-factory.ts's recordOutcome / history.ts's
-  // `SELECT * FROM learning_rules WHERE id = ?` — actually matches a row instead of silently
-  // missing every one). `trigger` (below) remains the prompt-facing text rendered into the
-  // generator/reviewer prompt — the two fields serve DIFFERENT consumers and must never be
-  // conflated: this id is never rendered into a prompt, and `trigger` is never used for fold
-  // attribution.
+  /**
+   * Ledger primary key for outcome-fold attribution. Never rendered into a
+   * prompt. `trigger` is the prompt-facing text and must never be used for fold
+   * attribution.
+   */
   id: string;
   trigger: string;
   action: string;
@@ -609,118 +372,55 @@ export interface RetrievedRule {
   confidence: "low" | "medium" | "high";
 }
 export interface LearningPort {
-  // Off-path by contract — a failure is logged and swallowed, never gates publish.
+  /** Off-path: a failure is logged and swallowed, never gates publish. */
   fold(outcome: RunOutcome): Promise<void>;
   retrieve(sha: Sha): Promise<RetrievedRule[]>;
 }
-// DeployGatePort is a cross-cutting infra port; it is kernel-resident (Task 8) so neither context
-// needs to import it from the other. Re-export it here so callers of this barrel get a single import.
+/** Cross-cutting infra port, kernel-resident so neither context imports it from the other. */
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
 export interface WorkspacePort {
-  // PROD-BLOCKER fix: `mirrorDir` (the bare per-run working-copy dir checkout(sha) resolved, BEFORE
-  // specRelDir is joined on) is now ALSO returned alongside `specDir` — the publish "pr" route needs
-  // the mirror root (to stage/commit/push e2e/ or the whole tree), not the target-aware specDir
-  // (WorkspacePortAdapter's own e2e-vs-code join). Previously only specDir existed and there was no
-  // other source for mirrorDir anywhere in RunQaUseCase, which is exactly why the git-write step
-  // could never be threaded through publish() before this fix.
+  /**
+   * `mirrorDir` is the working-copy root before specRelDir is joined. The "pr"
+   * route needs the mirror root, not the target-aware specDir.
+   */
   prepare(sha: Sha): Promise<{ specDir: string; mirrorDir: string }>;
 }
-// Replaces the 7 positional callbacks (onStep/onCase/…) with one typed observer.
+/** Replaces positional run callbacks with one typed observer. */
 export interface ObserverPort {
   onStep(step: RunStep, detail?: string): void;
   onEvent(body: RunEventBody): void;
 }
-// Inverts the leaky dynamic import() into a port (pipeline.ts:487-619).
+/** Persistence seam for the completed RunOutcome. */
 export interface RunHistoryPort {
   save(outcome: RunOutcome): Promise<void>;
 }
 
-// SetupPort — CLAUDE.md's run-flow step 3 ("Setup — bootstrap the config/e2e seed into e2e/, then
-// npm ci; runs BEFORE generation so the agent has the fixtures/config"), missing from this rewrite.
-// Prepares specDir so the generator has fixtures/deps to build on: e2e bootstraps the seed (first
-// run) + npm ci; code installs the repo's own deps. e2e-vs-code dispatch is the ADAPTER's concern
-// (mirrors ExecutionPort's own target-dispatch split) — this port's own signature stays generic. A
-// throw MUST propagate to the caller: the legacy treats a setup failure as infra-error, never a code
-// verdict (src/qa/setup.ts's own doc: "the pipeline surfaces that as infra-error, never a code
-// verdict"), and RunQaUseCase.run is the place that maps the throw to infraErrorResult().
+/**
+ * Bootstraps fixtures/deps before generation. e2e-vs-code dispatch is the
+ * adapter's concern. A throw must propagate: setup failure is infra-error,
+ * never a code verdict.
+ */
 export interface SetupPort {
   setup(specDir: string, signal?: AbortSignal): Promise<void>;
 }
 
-// CleanupPort — audit CRITICAL (task #33): orphan test-data cleanup, missing from this rewrite
-// entirely until now. Mirrors legacy's src/pipeline.ts:1450-1458 EXACTLY:
-//
-//   if (opts.previousNamespace && !isCode && app.dev?.baseUrl) {
-//     await deps.cleanup(e2eDir, { baseUrl: app.dev.baseUrl, namespace: opts.previousNamespace, testIdAttribute })
-//       .catch((err) => { log(`cleanup warning (non-blocking): ${err.message}`); });
-//   }
-//
-// WHEN legacy cleans (verified against src/pipeline.ts + src/server/runner.ts's own
-// enqueueTrackedRun): NOT every run. Only when a PREVIOUS run's namespace is known to carry
-// possibly-orphaned data — src/server/runner.ts:313-324 computes `previousNamespace` from the
-// immediately-prior run RECORD (via testDataNamespace(prefix, prev.sha, prev.id)) ONLY when that
-// prior run's own status was "running"/"enqueued" (i.e. it never reached a terminal state — a
-// crash/SIGKILL/docker-restart interrupted it mid-flight) OR its verdict was "infra-error". A
-// prior run that finished cleanly (pass/fail/flaky/invalid/skipped) leaves previousNamespace
-// undefined -> cleanup is skipped entirely for that run (its own in-suite `cleanup` fixture,
-// config/e2e/fixtures.ts, already tore down its own data on every attempt — there is nothing
-// orphaned to sweep). This runs BEFORE this run's OWN generation/execution begins (legacy step
-// "4a", strictly before the context-map load) — it cleans the PRIOR interrupted run's leftover
-// data, not this run's own. e2e-only (isCode has no web test data) and requires app.dev.baseUrl
-// (no live DEV target to clean against otherwise).
-//
-// WHAT cleanup does (src/qa/execute.ts's runCleanup/defaultCleanupDeps): spawns ONLY
-// `cleanup.spec.ts` (a dedicated seed spec, config/e2e/cleanup.spec.ts) with PW_CLEANUP=1 and
-// PW_NAMESPACE=<the interrupted run's BASE prefix, no per-attempt -w<worker>r<retry> suffix> —
-// every OTHER spec in the suite self-skips via `test.skip(!process.env.PW_CLEANUP, ...)`, so this
-// is a narrowly-scoped single-spec pass, not a full suite re-run. The seed's own contract: delete
-// every entity whose name starts with the base PREFIX (covers every worker/retry the interrupted
-// run used), and be IDEMPOTENT (no entities -> pass).
-//
-// FAILURE SEMANTICS (best-effort, VERIFIED against both layers): defaultCleanupDeps.runCleanup
-// itself NEVER rejects — its Promise executor only ever calls resolve(), even on a spawn error, a
-// non-zero exit, or a timeout-triggered kill (DEFAULT_CLEANUP_TIMEOUT_MS = 5 min; a timeout kills
-// the process TREE via killTree() and still resolves). The pipeline call site ALSO wraps the call
-// in `.catch((err) => log(...))` as a second, redundant safety net. A cleanup failure of ANY kind
-// (spawn error, non-zero exit, timeout) is logged as a non-blocking warning and MUST NEVER alter
-// this run's verdict, block generation, or propagate — orphan data is reaped by a LATER run's own
-// cleanup pass if this one fails.
-//
-// [SWAP] absent -> the phase is a no-op, the SAME backward-compatible posture SetupPort/
-// PreExecGroundingPort/PreGenerationGroundingPort already established — no orphan-data cleanup
-// runs, never fabricated, never blocking (matches legacy's own `opts.previousNamespace` absent
-// case exactly, which also skips the call entirely).
-//
-// baseUrl/testIdAttribute are DELIBERATELY absent from this signature — mirrors SetupPort's own
-// "e2e-vs-code dispatch is the ADAPTER's concern... this port's own signature stays generic"
-// precedent immediately above: RunQaUseCase has no baseUrl of its own anywhere in its body (every
-// other port that needs it — ExecutionPort, GenerationPort's adapter — resolves it from its OWN
-// static per-run composition context, the "adapter resolves its own paths" precedent
-// PreExecGroundingPort/ExecutionPort already use). A real adapter (the bridge) is constructed with
-// baseUrl/testIdAttribute as STATIC per-run context (matching ExecutionPortAdapter/
-// SetupPortAdapter's own constructor shape) and reads them from there, not from this call.
+/**
+ * Orphan test-data cleanup for a PRIOR interrupted run. Fires only when
+ * previousNamespace is set, e2e-only, before this run's generation. Failure is
+ * best-effort: never alters this run's verdict. baseUrl/testIdAttribute live
+ * on the adapter, not this signature.
+ */
 export interface CleanupPort {
   cleanup(specDir: string, opts: { namespace: string; signal?: AbortSignal }): Promise<void>;
 }
 
-// PreExecGroundingPort — Plan 7-R B5.3: the capture half of the pre-execution grounding gate.
-// Reads the CURRENT on-disk specs at specDir and captures the live DOM of the routes they target,
-// returning BOTH — mirrors legacy's capturePreExecSnaps EXACTLY (src/pipeline.ts:1943-1952, which
-// returns `{ specSources, snaps }` for the SAME reason: the domain-service ambiguity/catalog checks
-// need the spec TEXT to extract selectors from, not just the captured trees). Re-reading specSources
-// off disk on EVERY call (never cached) means a re-invocation after a corrective regen sees the
-// REWRITTEN specs, never a stale capture — required for the W2 persisting-ambiguity re-check to be
-// meaningful. Routes are returned in the domain service's own RouteTree shape
-// (pre-exec-grounding.service.ts) — kept structurally LOCAL here (not importing the domain type) so
-// this barrel's "every type is kernel-resident, no cross-context import" rule holds; RouteTree's
-// shape is duck-typed identical on purpose. [SWAP] absent -> RunQaUseCase's pre-exec grounding gate
-// is skipped entirely (the SAME backward-compatible posture DeployGatePort/SetupPort/ObserverPort
-// already established) — preExecAmbiguityCatches/deterministicSelectorBlocks/catalogGate* all stay
-// the literal 0 they were before this port existed, never fabricated. A real adapter (Task E.0/
-// Slice E) wraps generation/infrastructure's captureRouteTrees + buildRouteCatalog, reading the
-// app's baseUrl/testIdAttribute from its own composition-time config (this port's signature stays
-// generic — specDir is enough for the adapter to find + read the on-disk specs itself, the same
-// "adapter resolves its own paths" precedent SetupPort/ExecutionPort already use).
+/**
+ * Post-generate capture of on-disk spec text plus live route trees.
+ * Re-reads specs on every call so a re-check after regen sees rewritten specs.
+ * RouteTree is duck-typed locally (no cross-context import). Absent: the
+ * pre-exec gate is skipped and related gateSignals stay the number 0, not
+ * undefined. Adapter must not throw.
+ */
 export interface PreExecGroundingPort {
   capture(specDir: string, signal?: AbortSignal): Promise<{
     specSources: string[];
@@ -734,62 +434,32 @@ export interface PreExecGroundingPort {
   }>;
 }
 
-// PreGenerationGroundingPort — Plan 7-R W4 (audit CRITICAL): the FIRST-WRITE grounding phase, run
-// AFTER setup and BEFORE the initial generate() call — mirrors legacy's ordering EXACTLY (the
-// explorer pass + buildContextPack block sits at src/pipeline.ts:2078-2138, strictly between
-// baseGenInput's declaration and the first `generateOnce(baseGenInput(...))` call at :2164). Builds
-// the Pillar-1/Pillar-2 selector-grounding data (DOM tree, route catalog, context pack) the
-// GENERATION prompt needs so the agent transcribes real selectors instead of grounding via its own
-// live-MCP exploration alone — closing the audit gap where a live jhipster run used getByRole()
-// where the diff carried data-cy="shopNowMenu" because the prompt received NO DOM/route/context-pack
-// data at all.
-//
-// Distinct from PreExecGroundingPort (above): that port is a POST-generate corrective gate (W1/W2 —
-// re-checks the ALREADY-WRITTEN specs for ambiguity/fabricated test-ids). This port is a PRE-generate
-// enrichment source (mirrors legacy's explorer+buildContextPack closure) — it runs ONCE per run,
-// before ANY spec exists, and its output is threaded into GenerationEnrichment.contextPack /
-// .existingSpecFiles for the ENTIRE run (never rebuilt on regen passes — "the pack is first-write
-// ground truth", pipeline.ts:1820-1822). Distinct ALSO from ReviewDomGroundingPort (below): the
-// reviewer's DOM snapshot is keyed on the GENERATED specs' routes (they don't exist yet at this
-// phase) and captured fresh at review time, mirroring legacy's reviewGenerated() capture exactly —
-// it is NOT part of this port's output.
-//
-// [SWAP] absent -> the whole phase is skipped entirely, the SAME backward-compatible posture
-// DeployGatePort/SetupPort/PreExecGroundingPort already established: GenerationEnrichment.contextPack/
-// existingSpecFiles stay absent, and generation degrades to its own live-MCP exploration — never a
-// broken run, never fabricated data.
-//
-// Failures are non-fatal by design (mirrors legacy's own fail-open posture EXACTLY): buildContextPack's
-// own call site wraps the WHOLE build in try/catch and logs a non-blocking warning on failure
-// (pipeline.ts:2135-2137's `context-pack: build FAILED (non-blocking)`); the explorer pass is
-// independently best-effort (pipeline.ts:2099-2101's own try/catch + warning). A real adapter
-// reproduces this: it must NEVER throw — a capture/build failure degrades to an absent field on
-// GroundingResult, loudly logged by the adapter itself, and RunQaUseCase proceeds with ungrounded
-// generation exactly as if the port were absent.
 export interface GroundingResult {
-  // The assembled context-pack text block (blast-radius + DOM + contracts) — feeds
-  // GenerationEnrichment.contextPack. Absent when the pack build failed or produced nothing.
+  /** Assembled context-pack text. Absent when the pack build failed or produced nothing. */
   contextPack?: string;
-  // The suite's on-disk spec file paths (relative to e2eRelDir), enumerated before the first
-  // generate() call — feeds GenerationEnrichment.existingSpecFiles. Absent/empty when the e2e dir
-  // does not exist yet or enumeration failed (mirrors legacy's Seam b try/catch, pipeline.ts:1845-
-  // 1872 — graceful, never blocks).
+  /**
+   * On-disk spec paths enumerated before the first generate(). Absent/empty when
+   * the e2e dir does not exist yet or enumeration failed (fail-open).
+   */
   existingSpecFiles?: string[];
-  // T4: the per-run ArchitectureContext from `${specDir}/.qa/context.json` — feeds
-  // GenerationEnrichment.contextMap. Absent when the file is missing/invalid (fail-open).
+  /** ArchitectureContext from specDir/.qa/context.json. Absent when missing/invalid (fail-open). */
   contextMap?: ArchitectureContext;
-  // Distilled explorer brief — feeds GenerationEnrichment.contextBrief. Absent when explorer
-  // is unwired, throws, or returns nothing (fail-open).
+  /** Distilled explorer brief. Absent when explorer is unwired, throws, or returns nothing (fail-open). */
   contextBrief?: ExplorationBrief;
 }
+/**
+ * Pre-generate first-write grounding (DOM/route/context pack), run once after
+ * setup and before the initial generate(). Distinct from PreExecGroundingPort
+ * (post-generate corrective gate) and ReviewDomGroundingPort (review-time
+ * snapshot keyed on generated specs). Absent: generation falls back to live-MCP
+ * exploration. Adapter must never throw — capture/build failure degrades to an
+ * absent field (fail-open).
+ */
 export interface PreGenerationGroundingPort {
-  // WS5.3 (full-flow remediation, option c — deterministic Context Pack feed): `diff` is an OPTIONAL
-  // third arg carrying the run's ACTUAL commit diff (diff mode only — mirrors the "dynamic diff" fix
-  // precedent GenerationEnrichment/ReviewEnrichment already established for classificationDiff). The
-  // adapter derives [CHANGED] markers from it deterministically (no LLM) and forwards them to
-  // buildContextPack. Absent (non-diff modes, or a caller that omits it) -> unchanged, byte-identical
-  // to before this field existed — the SAME backward-compatible precedent every other optional arg on
-  // this port's siblings (GenerationPort.diff, etc.) already follows.
+  /**
+   * Optional `diff` (diff mode only) for deterministic [CHANGED] markers.
+   * Absent is unchanged.
+   */
   ground(
     specDir: string,
     signal?: AbortSignal,
@@ -798,53 +468,25 @@ export interface PreGenerationGroundingPort {
   ): Promise<GroundingResult>;
 }
 
-// ReviewDomGroundingPort — Plan 7-R W4: the reviewer's live-DEV-DOM grounding, mirroring legacy's
-// reviewGenerated() captureDom call EXACTLY (src/pipeline.ts:1643-1649's `if (!isCode && deps.
-// captureDom && app.dev?.baseUrl) { ... domSnapshot = await deps.captureDom(...).catch(() =>
-// undefined); }`). Distinct from PreGenerationGroundingPort (above): this is keyed on the
-// JUST-GENERATED specs' own `.goto(...)` routes (they do not exist before generate() runs), so it is
-// invoked at the review call site, not the pre-generate phase.
-//
-// specs are the relative spec file names under review (mirrors ReviewPort.review()'s own `cases`-
-// derived specs list) — the adapter re-reads their CURRENT on-disk content itself (the same
-// "adapter resolves its own paths" precedent PreExecGroundingPort.capture(specDir, ...) already
-// established), so the caller never needs the file text. The caller re-invokes this per round
-// (mirrors legacy's own per-round memoization keyed on the sorted spec-name set, reviewGenerated()'s
-// `specsKey`/`lastSpecsKey`) so a regenerated spec set is re-captured, never stale.
-//
-// [SWAP] absent -> ReviewEnrichment.domSnapshot stays absent every round; the reviewer defers on
-// unverifiable UI facts (today's behavior, unchanged) — never fabricated, never blocking.
-//
-// Failure is non-fatal by design (mirrors legacy's `.catch(() => undefined)` exactly): a real adapter
-// must NEVER throw — capture failure degrades to `undefined`, loudly logged by the adapter itself
-// (dom-snapshot.ts's captureDom already does this internally), and review proceeds ungrounded.
+/**
+ * Reviewer's live-DEV DOM snapshot, keyed on just-generated specs' routes.
+ * Caller re-invokes per round so a regenerated set is re-captured. Absent:
+ * reviewer defers on unverifiable UI facts. Adapter must never throw.
+ */
 export interface ReviewDomGroundingPort {
   capture(specDir: string, specs: readonly string[], signal?: AbortSignal): Promise<string | undefined>;
 }
 
-// StructuralSignalPort — CodeGraph Phase 4 (design §5.3, ADR-2, ADR-7): the ADVISORY blast-radius
-// bridge. Composes CodeGraphPort's impactedSymbols/coChangeCoupling/callersOf against the run's REAL
-// changed-file set and renders ONE markdown block for GenerationEnrichment.staticSignal (above).
-// This is a thin ORCHESTRATION-layer port (not the kernel CodeGraphPort itself) so qa-run-orchestration
-// stays free of any direct codebase-memory/CLI dependency — the real adapter
-// (StructuralSignalPortAdapter, infrastructure/bridges/) composes the kernel port + the pure renderer.
-//
-// [SWAP] absent -> RunQaUseCase never assembles staticSignal; baseEnrichment carries no such field,
-// byte-identical to today (the SAME backward-compatible posture setup/preGenerationGrounding/
-// reviewDomGrounding already established). When present, invoked ONCE per run, before the first
-// generate() call, with the run's REAL BlastRadius (built from classificationIntent.changedFiles —
-// CRITICAL-1, design §5.4/ADR-7). A throw here is wrapped best-effort by the caller (mirrors
-// preGenerationGrounding's own fail-open posture) — this port's own contract never surfaces an error
-// past render(); an unavailable/failed query degrades to "" (no section), never a fabricated claim.
+/**
+ * Advisory blast-radius markdown for GenerationEnrichment.staticSignal.
+ * Absent: no staticSignal. Throw is fail-open at the caller. Unavailable
+ * query degrades to "" — never a fabricated claim.
+ */
 export interface StructuralSignalPort {
   render(repoDir: string, changed: BlastRadius): Promise<string>;
 }
 
-// ServiceLinksPort — Stitcher→Generation seam (design §3.3). Port-local structural mirrors of
-// service-topology's domain ServiceLink/ContractDrift (this barrel's own "every type
-// kernel-resident, no cross-context import" rule — see CommitIntent's precedent above).
-// service-topology's domain types are plain data, structurally assignable to these at the
-// bridge boundary (a type-level cast, no remapping).
+/** Port-local structural mirrors of service-topology types (no cross-context import). */
 export interface ServiceSymbolRef {
   repo: string;
   file: string;
@@ -864,144 +506,108 @@ export interface ContractDrift {
   path: string;
 }
 
-// ServiceLinksPort — Stitcher→Generation seam. The ADVISORY cross-repo-links bridge, matching
-// StructuralSignalPort's thin-orchestration-port PATTERN (not its exact signature — service links
-// are app-static per SHA: the boundary profiles, the service list, and the primary mirror are all
-// fixed for the run before generation begins, so there is no per-run BlastRadius-shaped input to
-// thread; resolve() is honestly no-arg rather than fabricating a per-call dependency that does not
-// exist). Composes the service-topology resolver (buildServiceBoundaryResolver +
-// YamlBoundaryProfileAdapter) against the app's mirrors and returns STRUCTURED links/drift —
-// prompts.ts owns rendering (E.3 seam), never this port.
-//
-// [SWAP] absent -> RunQaUseCase never assembles serviceLinks; baseEnrichment carries no such field,
-// byte-identical to today (SAME posture as structuralSignal/setup/grounding). When present, invoked
-// ONCE per run before the first generate() call. NEVER throws: any error (missing mirror, malformed
-// profile, resolver failure) degrades to { links: [], drift: [] } — advisory-only, never a fabricated
-// claim, never a verdict/gate/coverage input (ADR-2 parity with staticSignal).
+/**
+ * Advisory cross-repo links. resolve() is no-arg: links are app-static per SHA.
+ * Absent: no serviceLinks. Never throws: any error degrades to { links: [], drift: [] }.
+ * Advisory only — never a verdict/gate/coverage input.
+ */
 export interface ServiceLinksPort {
   resolve(): Promise<{ links: ServiceLink[]; drift: ContractDrift[] }>;
 }
 
-// CrossRepoImpactPort — advisory cross-repo IMPACTED-links seam (Slice C, structural-signals-
-// expansion design §3.1, ADR-C6). Port-local structural mirrors of service-topology's domain
-// CrossRepoImpact/ImpactedLink/MatchTier — this barrel's OWN "every type kernel-resident, no
-// cross-context import" rule, honored verbatim by CommitIntent/RouteTree/ServiceLinksPort above.
-// The real domain VO lives in service-topology/domain/cross-repo-impact.ts; the ADAPTER performs
-// the structural cast (the SAME cast ServiceLinksPortAdapter performs for ServiceLink/ContractDrift).
-//
-// Fires ONLY on cross-repo runs (input.triggerRepo present AND a resolvedServiceLinks entry targets
-// it). Self-sources the triggering service's OWN diff from ITS OWN mirror. NEVER throws: any failure
-// degrades to null -> whole-link rendering falls back, byte-identical to today.
-// tier "contract-file": the OpenAPI contract file itself changed (deterministic).
-// tier "impacted-symbol": a graph-impacted symbol name matches the link's operationId (heuristic).
+/** "contract-file" is deterministic; "impacted-symbol" is a name-match heuristic. */
 export type MatchTier = "contract-file" | "impacted-symbol";
 export interface ImpactedLink {
-  link: ServiceLink; // the barrel's OWN ServiceLink (above), not service-topology's
+  /** This barrel's ServiceLink, not service-topology's. */
+  link: ServiceLink;
   tier: MatchTier;
 }
 export interface CrossRepoImpact {
   impactedLinks: ImpactedLink[];
-  serviceImpacted?: ServiceSymbolRef[]; // deferred tier-3 front expansion (design C.5) — never populated in v1
+  /** Deferred; never populated in v1. */
+  serviceImpacted?: ServiceSymbolRef[];
 }
+/**
+ * Advisory impacted-link narrowing. Fires only on cross-repo runs
+ * (triggerRepo present and a resolved link targets it). Never throws: failure
+ * degrades to null and whole-link rendering falls back.
+ */
 export interface CrossRepoImpactPort {
   resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null>;
 }
 
-// ── CurriculumPort ────────────────────────────────────────────────────────────
-// The per-app scenario-archetype prior. [SWAP]-optional on RunQaUseCaseDeps, off-path, fault-
-// isolated INSIDE the adapter — same contract as ReflectorPort/ProcessAuditPort/ConfinementPort:
-// absent means the run behaves exactly as it does today, and a curriculum fault never gates a
-// verdict or a publish decision.
-//
-// Selection lives BEHIND the port on purpose. The derivation (diff -> detectStructuralPatterns ->
-// matchExemplars -> curriculum rank -> cap) is one decision; splitting it between the use-case and
-// the prompt builder would let "what we offered" drift from "what we folded". The use-case holds
-// exactly the list it sent, which is exactly what it must fold.
-
-// The prompt-budget cap. This is a COUNT cap, not a byte cap, and it is enforced by the CALLER so
-// the rendered section can never be silently dropped by prompts.ts's own { maxBytes: 1536,
-// overflow: "drop" } — a dropped section would make every `evaluated` counter a lie. Proven safe
-// exhaustively over all C(6,3) three-exemplar subsets (qa-engine/test/shared-kernel/
-// scenario-catalog.test.ts). If that proof ever breaks, lower THIS constant; do not raise maxBytes.
+/**
+ * Count cap (not byte cap), enforced by the caller so a prompt-section drop
+ * cannot silently make `evaluated` counters lie. If the exhaustive subset
+ * proof breaks, lower this constant; do not raise the prompt maxBytes.
+ */
 export const MAX_SELECTED_EXEMPLARS = 3;
 
 export interface SelectedExemplar {
   id: string;
   name: string;
   template: string;
-  // Wide `string`, not ScenarioArchetype: this barrel is consumed by the generation bridge, and the
-  // narrow union adds nothing a caller can act on here.
+  /** Wide string, not ScenarioArchetype: the narrow union adds nothing a caller can act on here. */
   archetype: string;
-  // caughtRealBug for THIS app — drives the prompt's inline PROVEN marker.
+  /** Caught a real bug for this app — drives the prompt's PROVEN marker. */
   proven: boolean;
   promotionCount: number;
 }
 
 export interface CurriculumFoldInput {
-  // The archetypes actually RENDERED into this run's generation prompt (SelectedExemplar.archetype
-  // of what select() returned) — never the wider matched set.
+  /** Archetypes actually rendered into this run's generation prompt — never the wider matched set. */
   offered: readonly string[];
   verdict: RunVerdict;
-  // RunOutcome.adjudication?.class (wide string, kernel convention).
+  /** RunOutcome.adjudication?.class (wide string, kernel convention). */
   adjudicationClass?: string;
-  // DecideCoverageService's status for this run, as returned by ObjectiveSignalPort.measure().
-  // Absent -> treated as unmeasured, which classifyEvidence reads as inconclusive.
+  /** Absent is unmeasured, which classifyEvidence reads as inconclusive. */
   coverageStatus?: "pass" | "fail" | "unknown";
 }
 
+/**
+ * Per-app scenario-archetype prior. Optional and off-path: absent is today's
+ * run; a curriculum fault never gates a verdict or publish. Selection lives
+ * behind the port so "what we offered" cannot drift from "what we folded".
+ */
 export interface CurriculumPort {
-  // diff absent (every non-diff mode) -> [] : no structural patterns, so nothing was offered and
-  // nothing can be folded. The gate is data-driven, not a mode branch.
+  /**
+   * Absent diff (non-diff modes) → []: no patterns, nothing offered, nothing folded.
+   * Data-driven, not a mode branch.
+   */
   select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]>;
   fold(input: CurriculumFoldInput): Promise<void>;
 }
 
-// ConfinementPort — sdd/migration-remediation Slice 3 (P0 write-confinement wiring, D-P0b). Detects
-// and reverts agent writes that fall outside the run's permitted area (e2e-target: only `e2e/`
-// survives; code-target: any path except CONFINEMENT_DENYLIST survives) and any changed path that is
-// a symlink whose realpath escapes the mirror root (both targets). The pure classifiers already live
-// in workspace-and-publication/domain/write-confinement.service.ts; this port's real adapter
-// (workspace-and-publication/infrastructure/write-confinement.adapter.ts) wraps them over an injected
-// Git + realpath/isSymlink — the ONLY context permitted vcs writes (dependency-cruiser's
-// no-vcs-write-in-agent-contexts gate). Local, duck-typed (this barrel's own "no cross-context
-// import" rule) — the adapter never imports this interface, it just matches its shape structurally.
-//
-// [SWAP] absent -> RunQaUseCase never calls enforce(); no revert, no gateSignals.confinement — the
-// SAME backward-compatible posture every other optional collaborator on this barrel establishes.
-//
-// Fault isolation (design D-P0b): a thrown enforce() (including a failed revert) MUST be caught by
-// the CALLER (RunQaUseCase), logged loudly, and best-effort recorded in gateSignals.confinement — it
-// MUST NEVER alter the verdict or block publish. This adapter itself does NOT swallow errors (mirrors
-// the legacy src/qa/confinement.ts::runConfinement's own "never swallows git errors" contract) — the
-// use-case owns fault isolation, matching every other [SWAP]-optional port's own established split
-// (adapter throws, use-case catches — see structuralSignal/serviceLinks/crossRepoImpact above).
 export interface ConfinementResult {
   strays: number;
   dangerous: number;
   reverted: string[];
 }
+/**
+ * Detects and reverts agent writes outside the permitted area (e2e-target:
+ * only e2e/ survives; code-target: any path except the denylist) and symlinks
+ * whose realpath escapes the mirror root. This is the only context permitted
+ * vcs writes. Absent: no enforce, no gateSignals.confinement.
+ * A thrown enforce() (including a failed revert) MUST be caught by the caller,
+ * logged, and recorded best-effort in gateSignals.confinement — never alter
+ * the verdict or block publish. The adapter itself does not swallow git errors.
+ */
 export interface ConfinementPort {
   enforce(mirrorDir: string, isCode: boolean, signal?: AbortSignal): Promise<ConfinementResult>;
 }
 
-// MirrorGcPort — sdd/migration-wiring-phase-2 Slice 2 (D-B mirror-gc). Keeps the mirror working
-// copies lean (orphaned object packs accumulate over time — `git gc` compacts them). The real
-// adapter (workspace-and-publication/infrastructure/mirror-gc.adapter.ts) wraps an injected git gc
-// fn. Local, duck-typed (this barrel's own "no cross-context import" rule) — the adapter never
-// imports this interface, it just matches its shape structurally.
-//
-// [SWAP] absent -> RunQaUseCase never calls prune(); no gc, the SAME backward-compatible posture
-// every other optional collaborator on this barrel establishes.
-//
-// Fault isolation (design D-B): a thrown prune() MUST be caught by the CALLER (RunQaUseCase),
-// logged loudly, and MUST NEVER alter the verdict or block the run from completing. This adapter
-// itself does NOT swallow errors (mirrors ConfinementPort's own "adapter throws, use-case catches"
-// split, immediately above).
+/**
+ * Compacts orphaned object packs on the mirror. Absent: no prune.
+ * A thrown prune() MUST be caught by the caller, logged, and never alter the
+ * verdict or block the run.
+ */
 export interface MirrorGcPort {
   prune(mirrorDir: string): Promise<void>;
 }
 
-// CoordinationPort is application-layer (CoordinationContext holds CycleBudget /
-// WallClockBudget), so it is not kernel-resident and is not re-exported here.
-// See ./coordination.port.ts. Fase 1 created the seam; RunQaUseCase does not call it.
+/*
+ * CoordinationPort is application-layer (CycleBudget / WallClockBudget live
+ * there), so it is not kernel-resident and is not re-exported here.
+ * See ./coordination.port.ts.
+ */
 

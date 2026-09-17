@@ -1,11 +1,6 @@
-// qa-engine/test/arch/no-src-import.test.ts
-// Boundary machine-enforcement (migration-tier-1-2, Slice 5): qa-engine production code MUST NOT
-// import src/. The `*-parity.test.ts` files are the only sanctioned, temporary exception (and only
-// pre-deletion, under qa-engine/test/) — this rule's `from` scope covers qa-engine/src/ only, so it
-// never conflicts with them. Sibling of vcs-write-confinement.test.ts: shells depcruise with the
-// dedicated config and asserts on its exit.
-// Manual-audit note: depcruise may miss dynamic import()/barrel re-exports; if a new src/ coupling
-// is added via either mechanism, audit it by hand — this static rule will not catch it.
+/* qa-engine production code must not import src/. Parity tests under qa-engine/test/ are the
+   sanctioned exception (they import src/ by design). depcruise may miss dynamic import() and
+   barrel re-exports — audit those by hand. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -14,40 +9,39 @@ import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..", "..", "..");
 
-// judgment-day round 4 (FIX IV, Judge B): a prior INTERRUPTED run (e.g. SIGINT mid-suite, before a
-// test's own finally-cleanup fires) can leave stale TEST-OWNED probe artifacts on disk, which makes
-// CLEAN ON HEAD report a false violation on an otherwise-untouched tree — an interrupted run poisons
-// the NEXT run, violating this repo's #1 priority (deterministic). Sweep any leftover artifacts once,
-// before any test runs.
-//
-// The original sweep only matched the qa-engine/src/__no_src_import_probe_N__.ts / __arch_check_
-// probe*__.ts family — it MISSED the SYNTHETIC MASKING REGRESSION test's own pair
-// (__masking_regression_real_module__.ts under qa-engine/src/, and its counterpart
-// __fake_leaked_probe_9__.ts under the REPO-ROOT src/, a directory the sweep never even looked at).
-// Judge B observed exactly this pair orphaned on disk (from a suite he had killed mid-mutation-work)
-// poisoning the next run's CLEAN ON HEAD. Pre-cleaning these exact, test-owned reserved filenames
-// cannot mask a real violation: a real violator would never coincidentally use these exact literal
-// names, and the SYNTHETIC MASKING REGRESSION test itself proves a non-probe-named violation is still
-// caught (it asserts on the FROM side, not these reserved names). This is a targeted delete of known
-// artifacts this file itself creates, never a wildcard/pattern sweep of unrelated content.
+/* test's own finally-cleanup fires) can leave stale TEST-OWNED probe artifacts on disk, which makes
+   CLEAN ON HEAD report a false violation on an otherwise-untouched tree — an interrupted run poisons
+   the NEXT run, violating this repo's #1 priority (deterministic). Sweep any leftover artifacts once,
+   before any test runs.
+   The original sweep only matched the qa-engine/src/__no_src_import_probe_N__.ts / __arch_check_
+   probe*__.ts family — it MISSED the SYNTHETIC MASKING REGRESSION test's own pair
+   (__masking_regression_real_module__.ts under qa-engine/src/, and its counterpart
+   __fake_leaked_probe_9__.ts under the REPO-ROOT src/, a directory the sweep never even looked at).
+   poisoning the next run's CLEAN ON HEAD. Pre-cleaning these exact, test-owned reserved filenames
+   cannot mask a real violation: a real violator would never coincidentally use these exact literal
+   names, and the SYNTHETIC MASKING REGRESSION test itself proves a non-probe-named violation is still
+   caught (it asserts on the FROM side, not these reserved names). This is a targeted delete of known
+   artifacts this file itself creates, never a wildcard/pattern sweep of unrelated content.
+ */
 function sweepOrphanTestArtifacts(): void {
   for (const entry of readdirSync(join(root, "qa-engine", "src"))) {
     if (/^__(no_src_import|arch_check)_probe.*__\.ts$/.test(entry)) {
       rmSync(join(root, "qa-engine", "src", entry), { force: true });
     }
   }
-  // The masking-regression pair — exact, reserved filenames only (see this function's own comment).
+  /* The masking-regression pair — exact, reserved filenames only (see this function's own comment). */
   rmSync(join(root, "qa-engine", "src", "__masking_regression_real_module__.ts"), { force: true });
   rmSync(join(root, "src", "__fake_leaked_probe_9__.ts"), { force: true });
 }
 
 sweepOrphanTestArtifacts();
 
-// The --config argument is always resolved as an ABSOLUTE path (not root-relative) so this helper
-// works identically regardless of the invoking `cwd` — the CLI resolves --config off process.cwd()
-// itself, before the config's own `options.baseDir` (which governs the from/to rule matching) is
-// even loaded. `target` stays baseDir-relative ("qa-engine/src") in every call, proving the SAME
-// argument resolves identically no matter which directory the command runs from.
+/* The --config argument is always resolved as an ABSOLUTE path (not root-relative) so this helper
+   works identically regardless of the invoking `cwd` — the CLI resolves --config off process.cwd()
+   itself, before the config's own `options.baseDir` (which governs the from/to rule matching) is
+   even loaded. `target` stays baseDir-relative ("qa-engine/src") in every call, proving the SAME
+   argument resolves identically no matter which directory the command runs from.
+ */
 function runDepcruise(target: string, cwd: string = root): { ok: boolean; output: string } {
   try {
     const output = execFileSync(
@@ -67,9 +61,9 @@ function runDepcruise(target: string, cwd: string = root): { ok: boolean; output
 }
 
 test("FIX IV: the orphan sweep deletes a leftover masking-regression pair (Judge B's exact interrupted-run reproduction)", () => {
-  // Reproduce the exact orphan state Judge B observed: the masking-regression test's own pair,
-  // left on disk as if a PREVIOUS run had been interrupted (e.g. SIGINT) before its finally-cleanup
-  // fired — written by hand here, never through the masking-regression test's own try/finally.
+  /* left on disk as if a PREVIOUS run had been interrupted (e.g. SIGINT) before its finally-cleanup
+     fired — written by hand here, never through the masking-regression test's own try/finally.
+   */
   const orphanFrom = join(root, "qa-engine", "src", "__masking_regression_real_module__.ts");
   const orphanTo = join(root, "src", "__fake_leaked_probe_9__.ts");
   writeFileSync(orphanTo, "export type Leaked = string;\n");
@@ -80,8 +74,9 @@ test("FIX IV: the orphan sweep deletes a leftover masking-regression pair (Judge
   assert.equal(existsSync(orphanFrom), false, "the sweep must delete the orphaned masking-regression FROM file");
   assert.equal(existsSync(orphanTo), false, "the sweep must delete the orphaned masking-regression TO file (under repo-root src/, not qa-engine/src/)");
 
-  // With both orphans gone, a fresh scan must be clean of them — confirms the sweep actually closes
-  // the flake, not merely that the files no longer exist on disk.
+  /* With both orphans gone, a fresh scan must be clean of them — confirms the sweep actually closes
+     the flake, not merely that the files no longer exist on disk.
+   */
   const { ok, output } = runDepcruise("qa-engine/src");
   if (!ok) {
     assert.doesNotMatch(output, /__masking_regression_real_module__|__fake_leaked_probe_9__/, `the swept orphan pair must not resurface in the scan — got:\n${output}`);
@@ -89,12 +84,13 @@ test("FIX IV: the orphan sweep deletes a leftover masking-regression pair (Judge
 });
 
 test("SYNTHETIC VIOLATION: a qa-engine production file importing src/ is caught by the boundary rule", () => {
-  // A throwaway probe under qa-engine/src/ (a SIBLING of contexts/, deliberately — the sibling
-  // vcs-write-confinement.test.ts's own depcruise scan targets qa-engine/src/contexts specifically,
-  // and node:test runs separate test FILES concurrently by default; a probe placed inside contexts/
-  // can be observed mid-write by that concurrent scan and produce a flaky cross-file failure) that
-  // imports a real, still-present src/ module. Proves the guard actually FIRES on a real violation,
-  // not just that depcruise runs clean by omission.
+  /* A throwaway probe under qa-engine/src/ (a SIBLING of contexts/, deliberately — the sibling
+     vcs-write-confinement.test.ts's own depcruise scan targets qa-engine/src/contexts specifically,
+     and node:test runs separate test FILES concurrently by default; a probe placed inside contexts/
+     can be observed mid-write by that concurrent scan and produce a flaky cross-file failure) that
+     imports a real, still-present src/ module. Proves the guard actually FIRES on a real violation,
+     not just that depcruise runs clean by omission.
+   */
   const probePath = join(root, "qa-engine", "src", "__no_src_import_probe_1__.ts");
   writeFileSync(
     probePath,
@@ -105,25 +101,27 @@ test("SYNTHETIC VIOLATION: a qa-engine production file importing src/ is caught 
     assert.equal(ok, false, "depcruise must report a violation for the synthetic src/ import probe");
     assert.match(output, /no-src-import-in-qa-engine/, `expected the no-src-import-in-qa-engine rule to fire, got:\n${output}`);
   } finally {
-    // Never left committed regardless of assertion outcome.
+    /* Never left committed regardless of assertion outcome. */
     rmSync(probePath, { force: true });
   }
 });
 
-// Anchored to the EXACT probe filenames THIS FILE ITSELF writes (`__no_src_import_probe_1/2/3__.ts`,
-// all under qa-engine/src/, never under src/) — never a generic "contains 'probe'" substring. Matched
-// against the FROM side ONLY (the depcruise output line is
-// "  error no-src-import-in-qa-engine: <from> → <to>"), never the whole line: a generic whole-line
-// substring match would ALSO hit the TO side, so a normally-named, REAL qa-engine production file
-// importing a src/ file that merely happens to be NAMED like a probe artifact would have its entire
-// violation silently dropped — a genuine masking bug the SYNTHETIC MASKING REGRESSION test below
-// reproduces and pins closed.
+/* Anchored to the EXACT probe filenames THIS FILE ITSELF writes (`__no_src_import_probe_1/2/3__.ts`,
+   all under qa-engine/src/, never under src/) — never a generic "contains 'probe'" substring. Matched
+   against the FROM side ONLY (the depcruise output line is
+   " error no-src-import-in-qa-engine: <from> → <to>"), never the whole line: a generic whole-line
+   substring match would ALSO hit the TO side, so a normally-named, REAL qa-engine production file
+   importing a src/ file that merely happens to be NAMED like a probe artifact would have its entire
+   violation silently dropped — a genuine masking bug the SYNTHETIC MASKING REGRESSION test below
+   reproduces and pins closed.
+ */
 const PROBE_FROM_PATTERN = /^qa-engine\/src\/__no_src_import_probe_\d+__\.ts$/;
 
-// Extracts only the REAL (non-probe-FROM) violations from a raw depcruise output. Shared by the
-// CLEAN ON HEAD test and the SYNTHETIC MASKING REGRESSION test below so both exercise the exact same
-// filtering logic — a fix to one is a fix to both, and the regression test is a direct pin on this
-// function's own behavior, not a parallel hand-rolled copy that could drift from the real gate.
+/* Extracts only the REAL (non-probe-FROM) violations from a raw depcruise output. Shared by the
+   CLEAN ON HEAD test and the SYNTHETIC MASKING REGRESSION test below so both exercise the exact same
+   filtering logic — a fix to one is a fix to both, and the regression test is a direct pin on this
+   function's own behavior, not a parallel hand-rolled copy that could drift from the real gate.
+ */
 function filterRealViolations(output: string): string[] {
   return output
     .split("\n")
@@ -131,8 +129,9 @@ function filterRealViolations(output: string): string[] {
     .filter((l) => {
       const fromMatch = /no-src-import-in-qa-engine:\s*(\S+)\s*→/.exec(l);
       const from = fromMatch?.[1];
-      // Unparseable line shape — never silently drop an unrecognized line (CLAUDE.md "surface
-      // integration errors loudly"); treat it as a real violation instead.
+      /* Unparseable line shape — never silently drop an unrecognized line (CLAUDE.md "surface
+         integration errors loudly"); treat it as a real violation instead.
+       */
       if (from === undefined) return true;
       return !PROBE_FROM_PATTERN.test(from);
     });
@@ -141,16 +140,16 @@ function filterRealViolations(output: string): string[] {
 test("CLEAN ON HEAD: no qa-engine production file imports src/ today", () => {
   const { ok, output } = runDepcruise("qa-engine/src");
   if (ok) return;
-  // This file's OWN probe-writing tests (the SYNTHETIC/PITFALL cases below, ids 1/2/3) each
-  // transiently create a `__no_src_import_probe_N__.ts` file under qa-engine/src for the span of
-  // their own write -> scan -> cleanup. If this scan's own run interleaves with one of those, a
-  // stale/transient probe could surface here too. Those are definitionally test artifacts, never
-  // real production code, so a genuine HEAD violation would be on a normally-named FROM file. Fail
-  // ONLY on a non-probe-FROM violation, so the gate stays strict without this file's own probe
-  // lifecycle producing a false red (judgment-day tier-4b round-2). CORRECTION: an earlier revision
-  // of this comment also blamed the sibling vcs-write-confinement.test.ts — verified false: that
-  // file creates ZERO temp files and scans a disjoint subtree (qa-engine/src/contexts, not
-  // qa-engine/src), so it cannot produce this race at all.
+  /* This file's OWN probe-writing tests (the SYNTHETIC/PITFALL cases below, ids 1/2/3) each
+     transiently create a `__no_src_import_probe_N__.ts` file under qa-engine/src for the span of
+     their own write -> scan -> cleanup. If this scan's own run interleaves with one of those, a
+     stale/transient probe could surface here too. Those are definitionally test artifacts, never
+     real production code, so a genuine HEAD violation would be on a normally-named FROM file. Fail
+     ONLY on a non-probe-FROM violation, so the gate stays strict without this file's own probe
+     of this comment also blamed the sibling vcs-write-confinement.test.ts — verified false: that
+     file creates ZERO temp files and scans a disjoint subtree (qa-engine/src/contexts, not
+     qa-engine/src), so it cannot produce this race at all.
+   */
   const realViolations = filterRealViolations(output);
   assert.deepEqual(
     realViolations,
@@ -160,12 +159,13 @@ test("CLEAN ON HEAD: no qa-engine production file imports src/ today", () => {
 });
 
 test("SYNTHETIC MASKING REGRESSION: a real violation is not hidden merely because the imported src/ file's name looks like a probe artifact (the filter must scope to the FROM side only, anchored to this file's own literal probe names)", () => {
-  // A normally-named, REAL production-style qa-engine file (never one of this file's own probe
-  // filenames) importing a src/ file that happens to be NAMED to look like a probe artifact on the
-  // TO side. Reproduced independently before this fix: the prior generic whole-line substring filter
-  // matched "probe" on the TO side and silently dropped the ENTIRE violation line, even though the
-  // FROM side is not a probe at all — all CLEAN ON HEAD-style assertions passed despite a real
-  // violation on disk.
+  /* A normally-named, REAL production-style qa-engine file (never one of this file's own probe
+     filenames) importing a src/ file that happens to be NAMED to look like a probe artifact on the
+     TO side. Reproduced independently before this fix: the prior generic whole-line substring filter
+     matched "probe" on the TO side and silently dropped the ENTIRE violation line, even though the
+     FROM side is not a probe at all — all CLEAN ON HEAD-style assertions passed despite a real
+     violation on disk.
+   */
   const realFromPath = join(root, "qa-engine", "src", "__masking_regression_real_module__.ts");
   const fakeProbeNamedSrcFile = join(root, "src", "__fake_leaked_probe_9__.ts");
   writeFileSync(fakeProbeNamedSrcFile, "export type Leaked = string;\n");
@@ -188,16 +188,14 @@ test("SYNTHETIC MASKING REGRESSION: a real violation is not hidden merely becaus
 });
 
 test("KNOWN PITFALL, documented and out-of-gate (judgment-day round-2): a bare 'src' TARGET ARGUMENT invoked from cwd=qa-engine/ silently scans the wrong tree and misses a real violation", () => {
-  // Pinning options.baseDir (round-1) fixed rule-MATCHING, but baseDir also governs how the CLI's
-  // own target argument resolves: a bare `src` target from cwd=qa-engine/ resolves against baseDir
-  // (the repo root) as "<repo-root>/src" — the LEGACY root src/ tree — NOT qa-engine/src. This does
-  // not error; it silently reports clean because none of that tree's module ids match the
-  // `^qa-engine/src/` `from` pattern, even with the SAME real probe violation present. This is the
-  // exact invocation form quoted (as "now fixed") in the round-1 commit message/header — it is
-  // NOT fixed for this bare-target form; the canonical fix is the baseDir-relative target used by
-  // `npm run arch:check`, asserted as the CLEAN ON HEAD / SYNTHETIC VIOLATION tests above. This
-  // test documents the pitfall as known-and-out-of-gate: it must keep reporting a false "ok" so a
-  // future accidental fix here doesn't silently hide the still-real ad-hoc CLI foot-gun untested.
+/* A bare `src` target from cwd=qa-engine/ resolves against baseDir (the repo root) as
+     "<repo-root>/src" — the shell src/ tree — NOT qa-engine/src. This does not error; it
+     silently reports clean because none of that tree's module ids match the `^qa-engine/src/`
+     `from` pattern, even with a real probe violation present. The canonical invocation uses the
+     baseDir-relative target from `npm run arch:check`. This pitfall stays known-and-out-of-gate:
+     it must keep reporting a false "ok" so an accidental "fix" here does not hide the still-real
+     ad-hoc CLI foot-gun.
+   */
   const probePath = join(root, "qa-engine", "src", "__no_src_import_probe_2__.ts");
   writeFileSync(
     probePath,
@@ -216,12 +214,13 @@ test("KNOWN PITFALL, documented and out-of-gate (judgment-day round-2): a bare '
 });
 
 test("SYNTHETIC VIOLATION, invoked with cwd=qa-engine/: the boundary rule still fires (judgment-day round-1 — was a silent false-clean no-op before options.baseDir was pinned)", () => {
-  // Reproduced false-clean: before pinning `options.baseDir` in .dependency-cruiser.cjs, running
-  // depcruise from ANY cwd other than the repo root made the from/to path regexes (anchored to
-  // "qa-engine/src/"/"^src/") never match the cwd-relative module ids depcruise generated — the
-  // rule silently never fired, reporting a false "clean" even on a real violation. Same probe/target
-  // as the root-cwd SYNTHETIC VIOLATION test above, only `cwd` differs — proving the SAME
-  // baseDir-relative target ("qa-engine/src") now resolves identically regardless of invocation cwd.
+  /* Reproduced false-clean: before pinning `options.baseDir` in .dependency-cruiser.cjs, running
+     depcruise from ANY cwd other than the repo root made the from/to path regexes (anchored to
+     "qa-engine/src/"/"^src/") never match the cwd-relative module ids depcruise generated — the
+     rule silently never fired, reporting a false "clean" even on a real violation. Same probe/target
+     as the root-cwd SYNTHETIC VIOLATION test above, only `cwd` differs — proving the SAME
+     baseDir-relative target ("qa-engine/src") now resolves identically regardless of invocation cwd.
+   */
   const probePath = join(root, "qa-engine", "src", "__no_src_import_probe_3__.ts");
   writeFileSync(
     probePath,

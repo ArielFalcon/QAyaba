@@ -1,5 +1,3 @@
-// Fase 8 — FixLoop regen capability: sidekick may regenerate via FixLoopGenerationPort;
-// FixLoop keeps retries/adjudication. Point is independent of pre-generate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -161,7 +159,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
   const useCase = new RunQaUseCase({
     ...ports,
     coordination: createCoordinationPort(),
-    // Only FixLoop point — pre-generate stays off so initial gen is still GenerationPort.
+    /* Only FixLoop point — pre-generate stays off so initial gen is still GenerationPort. */
     coordinationEnabledPoints: ["fix-loop-regen"],
     coordinationTelemetry: tel,
     sidekick,
@@ -195,7 +193,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
     runtime: {
       openSession: async () => {
         sidekickCalls++;
-        // needs-lead so pre-generate fails open to GenerationPort; FixLoop must not call sidekick.
+        /* needs-lead so pre-generate fails open to GenerationPort; FixLoop must not call sidekick. */
         return sessionReturning({
           delegationId: "coord-fixloop-2-pre-generate",
           runId: "coord-fixloop-2",
@@ -288,7 +286,6 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
   let executeCalls = 0;
   let sidekickCalls = 0;
   const ports = basePorts({
-    // 0 ms ceiling: any positive elapsed trips exhausted() → router abort-human.
     wallClockBudgetMs: 0,
     generate: async () => {
       generateCalls++;

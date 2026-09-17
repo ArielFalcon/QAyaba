@@ -1,5 +1,6 @@
-// Delegation gates: pre-generate + FixLoop regen. Points are independent; coordination is
-// the single operating mode (no advisory downgrade exists anymore).
+/* Delegation gates: pre-generate + FixLoop regen. Points are independent; coordination is
+   the single operating mode (no advisory downgrade exists anymore).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

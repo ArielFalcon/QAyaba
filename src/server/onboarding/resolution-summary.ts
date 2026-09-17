@@ -1,6 +1,4 @@
-// Aggregates a resolver result into a human-legible per-edge summary for the wizard result
-// screen. One row per (fromRepo -> toRepo, transport) with the count of resolved call-sites —
-// the meaningful decomposition of the score's `links`, not the score itself.
+/* Aggregates a resolver result into a per-edge summary for the wizard result screen. */
 import type { ResolveLinksResult } from "@contexts/service-topology/application/ports/index.ts";
 
 export interface BoundaryEdgeSummary {

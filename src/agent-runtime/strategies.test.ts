@@ -6,8 +6,9 @@ import { capabilitiesForRole, roleForLegacyAgent } from "./types";
 import { getAgentTurns } from "../server/history";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
 
-// Capability policy is expressed ONCE, provider-agnostic; each strategy enforces it with its own
-// mechanism (OpenCode tools{} map, Codex --sandbox flag). The judge must not be able to write.
+/* Capability policy is expressed ONCE, provider-agnostic; each strategy enforces it with its own
+   mechanism (OpenCode tools{} map, Codex --sandbox flag). The judge must not be able to write.
+ */
 test("capabilitiesForRole: the judge / chat / reflector are read-only; authoring roles can write", () => {
   for (const role of ["reviewer", "chat", "reflector"] as const) {
     assert.equal(capabilitiesForRole(role).canWrite, false, `${role} must be read-only`);
@@ -47,7 +48,7 @@ test("roleForLegacyAgent maps qa-reflector to the read-only reflector role", () 
   assert.equal(capabilitiesForRole("reflector").canWrite, false);
 });
 
-// ── Fase 1: the read-only blast-radius explorer role (both runtimes) ─────────
+/* Explorer is read-only: it distills the blast radius, never writes. */
 
 test("capabilitiesForRole: the explorer is read-only (it distills the blast radius, never writes)", () => {
   assert.equal(capabilitiesForRole("explorer").canWrite, false);
@@ -76,7 +77,7 @@ test("OpenCodeRuntimeStrategy maps the explorer role to the qa-explorer agent", 
   assert.deepEqual(calls, ["qa-explorer"]);
 });
 
-// ── Slice 1: the read-only boundary-hypothesis proposer role (both runtimes) ─
+/* Proposer is read-only: it hypothesizes candidates, never writes. */
 
 test("capabilitiesForRole: the proposer is read-only (it hypothesizes candidates, never writes)", () => {
   assert.equal(capabilitiesForRole("proposer").canWrite, false);
@@ -171,13 +172,14 @@ test("defaultCodexTransport runs Codex over the supervisor when one is configure
   assert.ok(defaultCodexTransport({}) instanceof CodexExecTransport);
 });
 
-// #2 regression: the Codex runtime must emit an AgentTurnEvent per prompt (the Codex-side
-// turn-telemetry funnel), so Codex roles persist agent_turns with a real run_id. Token fields are
-// null (codex exec surfaces no usage), and output_text is sanitized before the event fires.
+/* #2 regression: the Codex runtime must emit an AgentTurnEvent per prompt (the Codex-side
+   turn-telemetry funnel), so Codex roles persist agent_turns with a real run_id. Token fields are
+   null (codex exec surfaces no usage), and output_text is sanitized before the event fires.
+ */
 function codexStrategyWithOutput(output: string): CodexRuntimeStrategy {
   return new CodexRuntimeStrategy({
     env: { CODEX_API_KEY: "codex-key" },
-    promptRoot: "/nonexistent-prompt-root", // role preamble degrades to empty; keeps the prompt deterministic
+    promptRoot: "/nonexistent-prompt-root", /* role preamble degrades to empty; keeps the prompt deterministic */
     transport: {
       start: async () => ({ id: "codex-turn-1", prompt: async () => output, dispose: async () => {} }),
       health: async () => ({ provider: "codex", status: "healthy", configured: true }),
@@ -201,11 +203,10 @@ test("CodexRuntimeStrategy emits an AgentTurnEvent with run_id + null tokens + s
   assert.equal(t.role, "qa-reviewer");
   assert.equal(t.objective, "guard the change");
   assert.equal(t.round, 0, "session-local round starts at 0");
-  // Token/cost fields are null on the Codex path.
   assert.equal(t.tokensInput, null);
   assert.equal(t.tokensOutput, null);
   assert.equal(t.cost, null);
-  // Output is sanitized before the event fires (the GitHub token is redacted).
+  /* Output is sanitized before the event fires (the GitHub token is redacted). */
   assert.doesNotMatch(t.outputText, /ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ/, "secret must be redacted in output_text");
   assert.match(t.outputText, /REDACTED/);
   assert.equal(t.promptBytes, Buffer.byteLength(t.promptText, "utf8"));
@@ -214,7 +215,7 @@ test("CodexRuntimeStrategy emits an AgentTurnEvent with run_id + null tokens + s
 test("CodexRuntimeStrategy default sink persists a Codex turn to agent_turns when runId is present", async () => {
   const runId = `run-codex-persist-${Date.now()}`;
   const strategy = codexStrategyWithOutput("codex verdict ok");
-  // No caller onTurn → the strategy's default sink (saveAgentTurn) fires because runId is set.
+  /* No caller onTurn → the strategy's default sink (saveAgentTurn) fires because runId is set. */
   const session = await strategy.openSession("primary", "/repo", {
     descriptor: { runId, role: "qa-generator", objective: "manual objective" },
   });

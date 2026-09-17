@@ -1,4 +1,3 @@
-// qa-engine/test/shared-kernel/run-verdict.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { engineStatus, RUN_ENGINE_STATUSES, type RunVerdict } from "@kernel/run-verdict.ts";

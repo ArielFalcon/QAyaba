@@ -10,8 +10,8 @@ import {
 } from "./mirror-prune";
 
 const NOW = 1_750_000_000_000;
-const FRESH = NOW - 60_000; // touched a minute ago
-const STALE = NOW - PRUNE_MAX_AGE_MS - 60_000; // a minute past the 7-day window
+const FRESH = NOW - 60_000;
+const STALE = NOW - PRUNE_MAX_AGE_MS - 60_000; /* a minute past the 7-day window */
 
 interface StubOverrides {
   entries?: MirrorEntry[];
@@ -80,9 +80,9 @@ test("configured and fresh mirror is kept", () => {
 test("active-run guard: the running job's mirror is never deleted, orphaned or stale", () => {
   const { deps, removed } = makeDeps({
     entries: [
-      entry("active__orphan", FRESH), // orphan, but active
-      entry("active__stale", STALE), // configured but stale, and active
-      entry("inactive__orphan", FRESH), // orphan, NOT active → deleted
+      entry("active__orphan", FRESH),
+      entry("active__stale", STALE), /* configured but stale, and active */
+      entry("inactive__orphan", FRESH), /* orphan, NOT active → deleted */
     ],
     configured: ["active__stale"],
     active: ["active__orphan", "active__stale"],
@@ -94,7 +94,7 @@ test("active-run guard: the running job's mirror is never deleted, orphaned or s
 
 test("protected mirror names are never deleted", () => {
   const { deps, removed } = makeDeps({
-    entries: [entry("qayaba-self", STALE)], // orphan AND stale — still protected
+    entries: [entry("qayaba-self", STALE)], /* orphan AND stale — still protected */
     configured: [],
   });
   const result = pruneMirrors(deps);
@@ -122,7 +122,7 @@ test("freedBytes sums the size of deleted mirrors only", () => {
   const sizes: Record<string, number> = { "/mirrors/a__a": 100, "/mirrors/b__b": 200, "/mirrors/c__c": 999 };
   const { deps } = makeDeps({
     entries: [entry("a__a", FRESH), entry("b__b", FRESH), entry("c__c", FRESH)],
-    configured: ["c__c"], // kept — its size must not count
+    configured: ["c__c"], /* kept — its size must not count */
     directorySize: (path) => sizes[path] ?? 0,
   });
   const result = pruneMirrors(deps);
@@ -147,7 +147,7 @@ test("a summary line is logged only when something was deleted", () => {
   assert.equal(noop.logs.length, 0);
 });
 
-// ── computeActiveRepoSlugs (the guard's inputs) ──────────────────────────────
+/* ── computeActiveRepoSlugs (the guard's inputs) ────────────────────────────── */
 
 test("computeActiveRepoSlugs covers the running record's repo and triggerRepo", () => {
   const slugs = computeActiveRepoSlugs({

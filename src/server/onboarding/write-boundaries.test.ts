@@ -1,10 +1,10 @@
-// src/server/onboarding/write-boundaries.test.ts
-// TDD (strict): write failing tests first, then implement.
-// serializeBoundary() is the exact hand-built inverse of the REAL read-side parser
-// (yaml-boundary-profile.adapter.ts) — the round-trip tests below drive that REAL parser
-// (via YamlBoundaryProfileAdapter, reader-injected) so a drift between the two never ships
-// silently. spliceBoundariesBlock() must be idempotent and must never touch any OTHER
-// `${VAR}` placeholder or comment elsewhere in the document (spec C1, C4).
+/* src/server/onboarding/write-boundaries.test.ts
+   serializeBoundary() is the exact hand-built inverse of the REAL read-side parser
+   (yaml-boundary-profile.adapter.ts) — the round-trip tests below drive that REAL parser
+   (via YamlBoundaryProfileAdapter, reader-injected) so a drift between the two never ships
+   silently. spliceBoundariesBlock() must be idempotent and must never touch any OTHER
+   `${VAR}` placeholder or comment elsewhere in the document (spec C1, C4).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { YamlBoundaryProfileAdapter } from "@contexts/service-topology/infrastructure/yaml-boundary-profile.adapter";
@@ -43,8 +43,6 @@ async function roundTrip(profile: BoundaryProfile) {
   const adapter = new YamlBoundaryProfileAdapter(() => yaml);
   return adapter.forApp("fixture");
 }
-
-// ── round-trip via the REAL read-side parser (spec C1) ─────────────────────────
 
 test("serializeBoundary: an http profile round-trips through the real parser unchanged", async () => {
   const profiles = await roundTrip(HTTP_PROFILE);
@@ -93,7 +91,7 @@ test("serializeBoundary: an http profile without an optional receiver round-trip
   assert.deepEqual(profiles[0], profile);
 });
 
-// ── idempotent splice (spec C4) ─────────────────────────────────────────────────
+/* ── idempotent splice (spec C4) ───────────────────────────────────────────────── */
 
 test("spliceBoundariesBlock: writing the same profile twice leaves exactly one boundaries: block", () => {
   const original = [
@@ -145,7 +143,7 @@ test("spliceBoundariesBlock: appends a boundaries: block when absent", () => {
   assert.ok(spliced.includes("**/*.api.ts"));
 });
 
-// ── ${VAR} placeholders and comments elsewhere stay byte-identical (spec C1) ────
+/* ── ${VAR} placeholders and comments elsewhere stay byte-identical (spec C1) ──── */
 
 test("spliceBoundariesBlock: never touches ${VAR} placeholders or comments outside the boundaries block", () => {
   const original = [
@@ -172,12 +170,13 @@ test("spliceBoundariesBlock: never touches ${VAR} placeholders or comments outsi
   }
 });
 
-// ── adversarial: unescaped double-quoted scalars corrupt the document (review finding #1) ──
-// Every value below is LLM-sourced free-form text. serializeBoundary interpolates it into a
-// bare `"..."` scalar with no escaping. The real read-side parser (YamlBoundaryProfileAdapter)
-// either throws YAMLParseError (swallowed internally into an empty []) or, worse, silently
-// misinterprets a raw backslash as a YAML escape sequence — both are corruption, not a
-// round-trip. Each case below must satisfy parse(serialize(x)) deep-equals x.
+/* ── adversarial: unescaped double-quoted scalars corrupt the document (review finding #1) ──
+   Every value below is LLM-sourced free-form text. serializeBoundary interpolates it into a
+   bare `"..."` scalar with no escaping. The real read-side parser (YamlBoundaryProfileAdapter)
+   either throws YAMLParseError (swallowed internally into an empty []) or, worse, silently
+   misinterprets a raw backslash as a YAML escape sequence — both are corruption, not a
+   round-trip. Each case below must satisfy parse(serialize(x)) deep-equals x.
+ */
 
 test("serializeBoundary: an http profile with a double quote in frontFiles round-trips unchanged", async () => {
   const profile: HttpBoundaryProfile = { ...HTTP_PROFILE, frontFiles: '**/*."weird".ts' };
@@ -256,12 +255,13 @@ test("serializeBoundary: a value containing a double quote does not inject a rog
   assert.deepEqual(profiles[0], profile);
 });
 
-// ── adversarial: a top-level comment after the boundaries block is swallowed (review finding #2) ──
+/* ── adversarial: a top-level comment after the boundaries block is swallowed (review finding #2) ── */
 
 test("spliceBoundariesBlock: a top-level comment after the block survives a re-splice byte-identical", () => {
-  // No blank-line separator between the block's last child and the comment — this is the exact
-  // shape that swallows the comment (endsBoundariesBlock only stops at a blank line or a
-  // non-indented `key:` line; a non-indented `#comment` line matches neither).
+  /* No blank-line separator between the block's last child and the comment — this is the exact
+     shape that swallows the comment (endsBoundariesBlock only stops at a blank line or a
+     non-indented `key:` line; a non-indented `#comment` line matches neither).
+   */
   const original = [
     'name: "fixture"',
     'repo: "org/fixture"',
@@ -294,9 +294,10 @@ test("spliceBoundariesBlock: a top-level comment after the block survives a re-s
 });
 
 test("spliceBoundariesBlock: an indented comment inside the block is replaced along with the block, not preserved", () => {
-  // Contrast with the top-level-comment test above: an INDENTED `#comment` line between the
-  // block's children is still part of the block's own content and must be replaced/removed
-  // along with the rest of the stale block, not treated as a document-level boundary.
+  /* Contrast with the top-level-comment test above: an INDENTED `#comment` line between the
+     block's children is still part of the block's own content and must be replaced/removed
+     along with the rest of the stale block, not treated as a document-level boundary.
+   */
   const original = [
     'name: "fixture"',
     'repo: "org/fixture"',
@@ -322,8 +323,6 @@ test("spliceBoundariesBlock: an indented comment inside the block is replaced al
   assert.ok(replaced.includes('baseUrl: "https://dev.example.internal"'), "content after the old block must survive");
 });
 
-// ── defense in depth: unquoted `kind` interpolation (review finding #3) ──
-
 test("serializeBoundary: a frontCallSite.kind containing a colon still yields structurally valid YAML", async () => {
   const profile: HttpBoundaryProfile = {
     ...HTTP_PROFILE,
@@ -332,11 +331,12 @@ test("serializeBoundary: a frontCallSite.kind containing a colon still yields st
   const lines = serializeBoundary(profile);
   const yaml = ["name: \"fixture\"", "repo: \"org/fixture\"", "boundaries:", ...lines].join("\n");
   const adapter = new YamlBoundaryProfileAdapter(() => yaml);
-  // The unknown/malformed kind is correctly rejected by the read-side catalog check (warn+skip,
-  // see parseHttpBoundaryProfile) — that is expected domain behavior, not corruption. What must
-  // NOT happen is the flow-map syntax itself breaking (a bare, unquoted colon inside `{ ... }`
-  // throws "Block collections are not allowed within flow collections", which would abort
-  // parsing the WHOLE document rather than just skipping this one malformed entry).
+  /* The unknown/malformed kind is correctly rejected by the read-side catalog check (warn+skip,
+     see parseHttpBoundaryProfile) — that is expected domain behavior, not corruption. What must
+     NOT happen is the flow-map syntax itself breaking (a bare, unquoted colon inside `{ ... }`
+     throws "Block collections are not allowed within flow collections", which would abort
+     parsing the WHOLE document rather than just skipping this one malformed entry).
+   */
   const profiles = await adapter.forApp("fixture");
   assert.equal(profiles.length, 0, "an unknown kind is rejected by the catalog check, not a parse crash");
 });

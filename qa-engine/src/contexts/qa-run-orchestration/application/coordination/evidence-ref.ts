@@ -1,6 +1,4 @@
-// Opaque handle to a pipeline fact. Adapters that fill `kind` from live ports land in Fase 2;
-// the shape is specified there and is included here so CoordinationDecision.evidence can exist
-// without duplicating OpencodeRunInput.
+/* Opaque handle to a pipeline fact. Lets CoordinationDecision.evidence exist without duplicating OpencodeRunInput. */
 export type EvidenceKind =
   | "change-analysis"
   | "generation"

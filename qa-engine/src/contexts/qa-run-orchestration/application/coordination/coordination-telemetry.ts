@@ -1,5 +1,4 @@
-// Coordination telemetry (Fase 11). Records cost/decision signals without owning pipeline verdicts.
-// Token/cost aggregation stays on AgentRuntimePort (onUsage/onTurn) — this port never double-counts.
+/* Coordination telemetry. Records cost/decision signals without owning pipeline verdicts. Token/cost aggregation stays on AgentRuntimePort (onUsage/onTurn) — this port never double-counts. */
 import { appendFileSync, readFileSync } from "node:fs";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
@@ -49,9 +48,7 @@ export class InMemoryCoordinationTelemetry implements CoordinationTelemetryPort 
   private readonly persistPath: string | undefined;
   private warnedPersistFailure = false;
 
-  // persistPath: OPTIONAL durable sink (JSONL, one event per line). Without it the store is
-  // process-lifetime only. When present, events are appended live AND reloaded at construction
-  // so adaptive thresholds and shadow-divergence evidence survive process restarts (Fase 11/12).
+  /* persistPath: optional durable sink (JSONL, one event per line). Without it the store is process-lifetime only. When present, events are appended live and reloaded at construction so adaptive thresholds survive process restarts. */
   constructor(persistPath?: string) {
     this.persistPath = persistPath ? this.normalize(persistPath) : undefined;
     if (this.persistPath) this.rehydrate();
@@ -72,11 +69,11 @@ export class InMemoryCoordinationTelemetry implements CoordinationTelemetryPort 
         try {
           this.events.push(JSON.parse(trimmed) as CoordinationTelemetryEvent);
         } catch {
-          // Corrupt/partial tail line: skip it, never fail startup or previous runs' data.
+          /* Corrupt/partial tail line: skip it, never fail startup or previous runs' data. */
         }
       }
     } catch {
-      // Absent file on first boot is the normal cold-start case — not an error.
+      /* Absent file on first boot is the normal cold-start case — not an error. */
     }
   }
   private persist(event: CoordinationTelemetryEvent): void {
@@ -84,9 +81,7 @@ export class InMemoryCoordinationTelemetry implements CoordinationTelemetryPort 
       appendFileSync(this.persistPath!, `${JSON.stringify(event)}\n`, { encoding: "utf8" });
       this.warnedPersistFailure = false;
     } catch (err) {
-      // Telemetry is observational: a sink failure must never break the QA run, but it must not
-      // stay silent either (invariant: surface integration errors loudly). Warn once per burst,
-      // reset on the next success.
+      /* Telemetry is observational: a sink failure must never break the QA run, but it must not stay silent (surface integration errors loudly). Warn once per burst, reset on the next success. */
       if (!this.warnedPersistFailure) {
         this.warnedPersistFailure = true;
         console.error(

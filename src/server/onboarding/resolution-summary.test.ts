@@ -51,9 +51,10 @@ test("aggregateResolution counts drift entries (FE calls an endpoint the backend
   assert.equal(summary.drift, 2);
 });
 
-// Review finding #4: the grouping key must include transport, not just (fromRepo,toRepo) — two
-// links between the same repo pair over different transports (e.g. an HTTP call and an event
-// published/consumed between the same two services) are DISTINCT edges, never merged into one.
+/* Review finding #4: the grouping key must include transport, not just (fromRepo,toRepo) — two
+   links between the same repo pair over different transports (e.g. an HTTP call and an event
+   published/consumed between the same two services) are DISTINCT edges, never merged into one.
+ */
 test("aggregateResolution keeps links with the SAME (fromRepo,toRepo) but DIFFERENT transport as separate edges", () => {
   const input: ResolveLinksResult = {
     links: [

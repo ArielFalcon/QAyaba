@@ -1,9 +1,7 @@
-// Delegate a manual run to an already-running orchestrator instead of starting a second
-// in-process queue. This keeps the "one run at a time against DEV" invariant (the server owns
-// the only queue) AND makes the run execute IN the server process, so the TUI attached to that
-// server streams it live natively — the root cause the freeze fix addresses end-to-end.
-//
-// The HTTP collaborators are injected (fetch) so this is unit-testable without a real server.
+/*
+ * Delegate a manual run to the running orchestrator instead of a second in-process queue.
+ * Keeps the one-run-at-a-time-against-DEV invariant: the server owns the only queue.
+ */
 
 import type { RunMode, TestTarget } from "../types";
 
@@ -17,10 +15,10 @@ export interface DelegateRunInput {
 
 export interface DelegateRunDeps {
   fetch: typeof fetch;
-  baseUrl: string; // e.g. http://localhost:8080
+  baseUrl: string;
   token?: string;
-  pollMs?: number; // cadence of the run-status poll (default 1500)
-  timeoutMs?: number; // give up WAITING after this long — the run keeps going server-side (default 30 min)
+  pollMs?: number;
+  timeoutMs?: number;
   now?: () => number;
   onUpdate?: (rec: { status: string; step?: string }) => void;
 }
@@ -32,7 +30,7 @@ export interface DelegateRunResult {
   passed: number;
   failed: number;
   note?: string;
-  timedOut: boolean; // true when we stopped waiting before the run finished
+  timedOut: boolean;
 }
 
 export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps): Promise<DelegateRunResult> {
@@ -64,9 +62,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
   const start = now();
   let last: DelegateRunResult = { id, status: "enqueued", verdict: null, passed: 0, failed: 0, timedOut: false };
   for (;;) {
-    // A transient network error (a brief server reload, a Docker network blip) must NOT abort the
-    // wait — the run keeps running server-side. Tolerate it and keep polling until timeoutMs; only
-    // an explicit terminal record or a permanent auth failure ends the loop.
+    /* Transient network errors must not abort the wait — the run keeps running server-side. */
     let res: Response;
     try {
       res = await deps.fetch(`${deps.baseUrl}/api/v1/runs/${encodeURIComponent(id)}`, { headers });
@@ -76,7 +72,6 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       await new Promise((r) => setTimeout(r, pollMs));
       continue;
     }
-    // A permanent auth failure must not spin forever (surface it loudly — CLAUDE.md invariant).
     if (res.status === 401 || res.status === 403) {
       throw new Error("the service rejected the token (401/403) — set QA_API_TOKEN or config/.api_token");
     }

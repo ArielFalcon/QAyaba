@@ -23,12 +23,13 @@ test("groupByLanguage buckets files and drops unsupported", () => {
 });
 
 test("DRIFT KILLED: hasAstGrepRules derives from the ONE record — true for every ast-grep-capable lang", () => {
-  // All three currently-supported languages have ast-grep rules. The one-record design
-  // means adding a non-astGrep language (e.g. "go") would return false without touching a
-  // separate set.
+  /* All three currently-supported languages have ast-grep rules. The one-record design
+     means adding a non-astGrep language (e.g. "go") would return false without touching a
+     separate set.
+   */
   assert.equal(LanguageRegistry.hasAstGrepRules("javascript"), true);
   assert.equal(LanguageRegistry.hasAstGrepRules("typescript"), true);
   assert.equal(LanguageRegistry.hasAstGrepRules("java"), true);
-  // A language NOT in the registry returns false (no second set to diverge from).
+  /* A language NOT in the registry returns false (no second set to diverge from). */
   assert.equal(LanguageRegistry.hasAstGrepRules("ruby" as LanguageId), false);
 });

@@ -1,8 +1,8 @@
-// test/contexts/service-topology/infrastructure/level3-wiring.test.ts
-// TDD: Level 3 wiring tests.
-// 1. MirrorRegistryPort + StubMirrorRegistryAdapter
-// 2. OpencodeRunInput.serviceLinks field presence and renderMain prompt section
-// 3. GenerateTestsUseCase with optional ServiceBoundaryResolverPort
+/* test/contexts/service-topology/infrastructure/level3-wiring.test.ts
+   1. MirrorRegistryPort + StubMirrorRegistryAdapter
+   2. OpencodeRunInput.serviceLinks field presence and renderMain prompt section
+   3. GenerateTestsUseCase with optional ServiceBoundaryResolverPort
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StubMirrorRegistryAdapter } from "@contexts/service-topology/infrastructure/stub-mirror-registry.adapter.ts";
@@ -13,15 +13,15 @@ import type { GenerationPorts } from "@contexts/generation/application/generate-
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 
-// ---- L3.1: MirrorRegistryPort + StubMirrorRegistryAdapter ----
-// The stub must implement the port contract:
-//   mirrorDir(repo: string): Promise<string>
-// The stub must return a path (not throw) for any repo.
+/* ---- L3.1: MirrorRegistryPort + StubMirrorRegistryAdapter ----
+   The stub must implement the port contract:
+   mirrorDir(repo: string): Promise<string>
+   The stub must return a path (not throw) for any repo.
+ */
 
 test("L3.1: StubMirrorRegistryAdapter implements MirrorRegistryPort and resolves any repo", async () => {
   const stub: MirrorRegistryPort = new StubMirrorRegistryAdapter();
   const path = await stub.mirrorDir("ArielFalcon/ms-name-orders");
-  // The stub should return a non-empty string (the mirror dir path)
   assert.ok(typeof path === "string" && path.length > 0, `expected a non-empty string, got "${path}"`);
 });
 
@@ -32,8 +32,9 @@ test("L3.1: StubMirrorRegistryAdapter returns a consistent path for the same rep
   assert.equal(a, b, "same repo should return the same path on each call");
 });
 
-// ---- L3.2: OpencodeRunInput.serviceLinks field ----
-// The field must be optional (no existing tests break) and accept ServiceLink[].
+/* ---- L3.2: OpencodeRunInput.serviceLinks field ----
+   The field must be optional (no existing tests break) and accept ServiceLink[].
+ */
 
 test("L3.2: OpencodeRunInput accepts serviceLinks as an optional field", () => {
   const link: ServiceLink = {
@@ -44,7 +45,7 @@ test("L3.2: OpencodeRunInput accepts serviceLinks as an optional field", () => {
     confidence: 1.0,
     source: "openapi-http",
   };
-  // Construct an OpencodeRunInput with serviceLinks — must compile and be assignable.
+  /* Construct an OpencodeRunInput with serviceLinks — must compile and be assignable. */
   const input: OpencodeRunInput = {
     repo: "org/demo",
     sha: "abc",
@@ -76,18 +77,18 @@ test("L3.2: OpencodeRunInput without serviceLinks is still valid (optional field
     mode: "diff",
     appName: "a",
   };
-  // serviceLinks is absent → no error, behaves as existing code
   assert.equal(input.serviceLinks, undefined, "serviceLinks is absent when not provided");
 });
 
-// ---- L3.3: GenerateTestsUseCase propagates serviceLinks to renderMain intact ----
-// NOTE: no production renderMain implementation renders a "CROSS-REPO LINKS" prompt section
-// from serviceLinks yet (that rendering is deferred to the runtime-wiring step — see the
-// comment on OpencodeRunInput.serviceLinks in generation-ports.ts). What IS real today is that
-// GenerateTestsUseCase.generate() passes the full OpencodeRunInput through to
-// rendering.renderMain(input) unchanged — so serviceLinks (or its absence) reaches renderMain
-// intact. These tests assert only that real propagation, via a stub renderMain that captures
-// the input it received — the stub does NOT masquerade as production prompt rendering.
+/* ---- L3.3: GenerateTestsUseCase propagates serviceLinks to renderMain intact ----
+   NOTE: no production renderMain implementation renders a "CROSS-REPO LINKS" prompt section
+   from serviceLinks yet (that rendering is deferred to the runtime-wiring step — see the
+   comment on OpencodeRunInput.serviceLinks in generation-ports.ts). What IS real today is that
+   GenerateTestsUseCase.generate() passes the full OpencodeRunInput through to
+   rendering.renderMain(input) unchanged — so serviceLinks (or its absence) reaches renderMain
+   intact. These tests assert only that real propagation, via a stub renderMain that captures
+   the input it received — the stub does NOT masquerade as production prompt rendering.
+ */
 
 function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefined }): GenerationPorts {
   return {
@@ -100,8 +101,9 @@ function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefine
     rendering: {
       render: () => "",
       renderMain: (input: OpencodeRunInput) => {
-        // Stub renderMain: captures the input it was called with so the test can assert on
-        // what the use-case PASSED, not on any rendering behavior (none is implemented here).
+        /* Stub renderMain: captures the input it was called with so the test can assert on
+           what the use-case PASSED, not on any rendering behavior (none is implemented here).
+         */
         capturedInput.value = input;
         return { text: "BASE_PROMPT", sectionSizes: {} };
       },
@@ -175,7 +177,6 @@ test("L3.3: GenerateTestsUseCase passes serviceLinks as absent to renderMain whe
     target: "e2e",
     mode: "diff",
     appName: "a",
-    // serviceLinks absent
   });
   assert.equal(
     capturedInput.value?.serviceLinks,

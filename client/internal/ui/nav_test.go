@@ -16,8 +16,8 @@ func setRunning(m *dashboardModel, app, id string) {
 
 func keyRune(r string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(r)} }
 
-// At the top of FLEET, ↑ crosses up into the NOW panel when a run is active — the operator
-// can reach the live run with arrows alone, no Tab.
+/* At the top of FLEET, ↑ crosses up into the NOW panel when a run is active — the operator
+   can reach the live run with arrows alone, no Tab. */
 func TestNavUpFromFleetTopFocusesNow(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}, {Name: "b"}})
 	setRunning(&m, "a", "r1")
@@ -31,7 +31,7 @@ func TestNavUpFromFleetTopFocusesNow(t *testing.T) {
 	}
 }
 
-// When idle (no running run) there is nothing to focus above FLEET, so ↑ at the top stays put.
+/* When idle (no running run) there is nothing to focus above FLEET, so ↑ at the top stays put. */
 func TestNavUpFromFleetTopStaysWhenIdle(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	m.focus = focusFleet
@@ -44,28 +44,28 @@ func TestNavUpFromFleetTopStaysWhenIdle(t *testing.T) {
 	}
 }
 
-// ↓ past the last project lands on the "+ onboard" row (cursor == len(apps)), then continues
-// into MODELS — so the onboard action is reachable by arrows, not only the global 'o'.
+/* ↓ past the last project lands on the "+ onboard" row (cursor == len(apps)), then continues
+   into MODELS — so the onboard action is reachable by arrows, not only the global 'o'. */
 func TestNavDownReachesOnboardRowThenModels(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	m.focus = focusFleet
 	m.cursor = 0
 
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) // → onboard row
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) /* → onboard row */
 	if m.focus != focusFleet || m.cursor != 1 {
 		t.Fatalf("↓ past last project should land on the onboard row (cursor=len(apps)); focus=%d cursor=%d", m.focus, m.cursor)
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) // → models
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown}) /* → models */
 	if m.focus != focusModels {
 		t.Fatalf("↓ from the onboard row should enter MODELS; focus=%d", m.focus)
 	}
 }
 
-// ↵ on the onboard row onboards a project.
+/* ↵ on the onboard row onboards a project. */
 func TestEnterOnOnboardRowOnboards(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	m.focus = focusFleet
-	m.cursor = 1 // the onboard row
+	m.cursor = 1 /* the onboard row */
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -77,7 +77,7 @@ func TestEnterOnOnboardRowOnboards(t *testing.T) {
 	}
 }
 
-// ↵ on the focused NOW panel resumes (re-attaches) the active run.
+/* ↵ on the focused NOW panel resumes (re-attaches) the active run. */
 func TestNowEnterWatchesRun(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	setRunning(&m, "a", "run_7")
@@ -93,8 +93,8 @@ func TestNowEnterWatchesRun(t *testing.T) {
 	}
 }
 
-// Stopping the active run from NOW is destructive → two-press confirm (first x arms, second
-// x issues the cancel), reusing the established stopArmed pattern.
+/* Stopping the active run from NOW is destructive → two-press confirm (first x arms, second
+   x issues the cancel), reusing the established stopArmed pattern. */
 func TestNowStopRequiresTwoPress(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	setRunning(&m, "a", "run_7")

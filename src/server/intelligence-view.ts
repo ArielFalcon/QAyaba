@@ -2,11 +2,7 @@ import type { LearningRule } from "../qa/learning/learning-rule";
 import type { Scorecard } from "../qa/learning/oracle-types";
 import type { Curriculum } from "../qa/learning/curriculum";
 
-// toIntelligenceView projects the persisted learning artifacts into the read-only
-// contract shape the operator console renders. It is pure (no I/O), so it is unit-tested
-// directly and the orchestrator wires the real history reads at the call site. The
-// inferred return must stay structurally compatible with IntelligenceViewSchema — tsc
-// catches any drift between this projection and the contract.
+/* Projects persisted learning artifacts into the read-only IntelligenceViewSchema shape. */
 export function toIntelligenceView(
   app: string,
   rules: LearningRule[],
@@ -31,7 +27,6 @@ export function toIntelligenceView(
       measuredRuns: scorecard.summary.measuredRuns,
       avgValueScore: scorecard.summary.avgValueScore,
       lastValueScore: scorecard.summary.lastValueScore,
-      // Only the most recent entries are surfaced — the ledger is unbounded.
       entries: scorecard.entries.slice(-10).map((e) => ({
         valueScore: e.valueScore,
         mutantCount: e.mutantCount,
@@ -46,8 +41,7 @@ export function toIntelligenceView(
         archetype: a.archetype,
         caughtRealBug: a.caughtRealBug,
         promotionCount: a.promotionCount,
-        // Carried verbatim, zeros included: "never evaluated" is a real state the renderers must
-        // distinguish from a measured zero rate, so the projection invents no sentinel for it.
+        /* Zeros included: "never evaluated" must stay distinct from a measured zero rate. */
         evaluated: a.evaluated,
         credited: a.credited,
       })),

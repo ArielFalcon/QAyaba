@@ -1,6 +1,4 @@
-// Which coordination decisions may govern a live pipeline point, and where the sidekick
-// may replace the lead. pre-generate and fix-loop-regen are independent points (never
-// implied by each other). Coordination is the single mode — no advisory downgrade exists.
+/* Live points where a coordination decision may govern execution. pre-generate and fix-loop-regen are independent (never implied by each other). Coordination is always on — there is no advisory downgrade. */
 import type { AgentCapability } from "./agent-capability.ts";
 import type { ProposedOrchestrationDecision } from "./proposed-orchestration-decision.ts";
 

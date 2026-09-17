@@ -15,7 +15,7 @@ const raw = [
   JSON.stringify({ runId: "r1", kind: "delegation", reason: "sidekick status=completed-with-concerns", delegationId: "d2", attempt: 2, durationMs: 2000, at: 3 }),
   JSON.stringify({ runId: "r1", kind: "escalation", reason: "no progress", escalations: 1, at: 4 }),
   JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", reviewOutcome: "approved", escalations: 1, valueScore: 0.75, coverageRatio: 0.9, durationMs: 42000, at: 5 }),
-  // Non-JSON noise must be skipped, malformed kinds dropped — never 500 the audit read.
+  /* Non-JSON noise must be skipped, malformed kinds dropped — never 500 the audit read. */
   "{ line corrupt",
   JSON.stringify({ runId: "r0", kind: "bogus-kind", reason: "x", at: 9 }),
   JSON.stringify({ runId: "r2", kind: "outcome", action: "direct", reason: "pipeline verdict=fail", finalOutcome: "fail", reviewOutcome: "rejected", at: 6 }),
@@ -65,7 +65,7 @@ test("toCoordinationSignals: delegate share, escalation rate, contract failures,
   assert.equal(s.totalRuns, 2);
   assert.equal(s.delegateRuns, 1);
   assert.equal(s.escalationRate, 1);
-  assert.equal(s.contractFailureRate, 0.5); // 1 failed of 2 delegations
+  assert.equal(s.contractFailureRate, 0.5); /* 1 failed of 2 delegations */
   assert.equal(s.avgDelegationMs, 1500);
 });
 

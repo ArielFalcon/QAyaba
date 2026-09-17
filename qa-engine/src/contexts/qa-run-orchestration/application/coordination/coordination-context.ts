@@ -1,6 +1,4 @@
-// Minimal projection for the coordinator. Must never contain OpencodeRunInput (diff, specs,
-// learned rules, DOM, provider, …). AcceptanceCriterion has no schema in the architecture
-// document; a criterion is its statement until DelegationBrief (Fase 3) needs more structure.
+/* Minimal coordinator projection. Must never contain OpencodeRunInput (diff, specs, learned rules, DOM, provider). An AcceptanceCriterion is its statement string. */
 import type { CoordinationBudget } from "./coordination-budget.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 

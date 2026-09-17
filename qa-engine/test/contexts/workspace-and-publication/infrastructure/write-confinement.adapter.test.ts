@@ -1,13 +1,4 @@
-// test/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.test.ts
-//
-// sdd/migration-remediation, Slice 3 (P0 write-confinement wiring, D-P0b). Task 3.1: covers all 6
-// spec scenarios (sdd/migration-remediation/spec, domain "write-confinement") using injected fake
-// Git + realpathSync + isSymlink, mirroring src/qa/confinement.test.ts's own established
-// runConfinement fixture style (the legacy behavioral oracle this adapter faithfully ports). A
-// second section adds REAL throwaway-git-fixture tests (mkdtempSync + execFileSync), matching the
-// harness pattern src/server/rewritten-engine-factory.publish-excludes.test.ts established for
-// Slice 2 — proving the adapter's git-restore/git-clean calls actually revert real files, not just
-// that the right argv was recorded.
+/* Real git fixtures: git-restore/git-clean must actually revert files, not just record argv. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -16,8 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WriteConfinementAdapter, type WriteConfinementAdapterDeps } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts";
 
-// ── fake-git fixture (task 3.1) ─────────────────────────────────────────────────────────────────
-
 function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinementAdapterDeps {
   return {
     git: async (args, _cwd) => {
@@ -25,8 +14,8 @@ function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinemen
       if (args[0] === "status") return statusOut;
       return "";
     },
-    realpath: (p) => p, // identity: no symlink escapes unless a test overrides this
-    isSymlink: () => false, // nothing is a symlink unless a test overrides this
+    realpath: (p) => p, /* identity: no symlink escapes unless a test overrides this */
+    isSymlink: () => false, /* nothing is a symlink unless a test overrides this */
   };
 }
 
@@ -85,7 +74,7 @@ test("Scenario: escaping symlink is reverted regardless of target (code target)"
   const deps: WriteConfinementAdapterDeps = {
     git: async (args) => {
       gitCalls.push(args);
-      if (args[0] === "status") return "M  src/link-out\n"; // not denied by name — dangerous only by resolution
+      if (args[0] === "status") return "M  src/link-out\n"; /* not denied by name — dangerous only by resolution */
       return "";
     },
     realpath: (p) => (p === join(mirrorDir, "src/link-out") ? "/etc/passwd" : p),
@@ -211,7 +200,7 @@ test("a thrown git error (failed revert) is NOT swallowed by the adapter — it 
   await assert.rejects(() => adapter.enforce("/mirror", false), /permission denied/);
 });
 
-// ── real throwaway-git-fixture (matches rewritten-engine-factory.publish-excludes.test.ts's harness) ──
+/* ── real throwaway-git-fixture (matches rewritten-engine-factory.publish-excludes.test.ts's harness) ── */
 
 function initRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "qa-confinement-"));
@@ -303,9 +292,10 @@ test("real git fixture: legitimate writes (e2e spec + e2e/.qa/manifest.json) sur
 
     assert.equal(result.strays, 0);
     assert.deepEqual(result.reverted, []);
-    // --untracked-files=all (matching the adapter's OWN status call) — plain --porcelain collapses
-    // an untracked directory to its bare dir path (e.g. "?? e2e/.qa/"), which would make this
-    // assertion pass vacuously even if the file inside had been wrongly reverted.
+    /* --untracked-files=all (matching the adapter's OWN status call) — plain --porcelain collapses
+       an untracked directory to its bare dir path (e.g. "?? e2e/.qa/"), which would make this
+       assertion pass vacuously even if the file inside had been wrongly reverted.
+     */
     const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repo, encoding: "utf8" });
     assert.ok(status.includes("e2e/checkout.spec.ts"), "the legitimate spec must remain on disk (untouched)");
     assert.ok(status.includes("e2e/.qa/manifest.json"), "the manifest must remain on disk (untouched)");
@@ -313,16 +303,6 @@ test("real git fixture: legitimate writes (e2e spec + e2e/.qa/manifest.json) sur
     rmSync(repo, { recursive: true, force: true });
   }
 });
-
-// ── staged-rename over-revert regression (Judgment Day round 1) ────────────────────────────────
-//
-// A `git status --porcelain` rename/copy line (`R  old -> new`) used to collapse into ONE
-// ParsedChange keeping only the NEW path. enforce() then reverted only that path via
-// `git restore --staged --worktree --source=HEAD -- <new>`; since HEAD has no <new>, the staged
-// rename degraded to an ORPHANED staged deletion of <old> — the legitimate file vanished from disk
-// and would have been committed as deleted by the next publish. These tests pin the fix: both
-// sides of a reverted rename must be restored/removed TOGETHER, and a rename fully inside the
-// allowed area must survive untouched.
 
 test("real git fixture: staged rename out of e2e/ reverts BOTH sides — stray removed, legitimate origin restored intact (e2e target)", async () => {
   const repo = initRepo();
@@ -385,14 +365,13 @@ test("real git fixture (negative): a rename fully INSIDE e2e/ is not a stray —
   }
 });
 
-// ── escape-scan rename-awareness regression (Judgment Day round 2) ─────────────────────────────
-//
-// The escape-scan loop (BOTH targets) destructured only `{ xy, path }`, dropping
-// `renameCounterpart`. A rename fully inside the allowed area (both sides pass classifyStrays
-// untouched) whose NEW side is a symlink escaping the mirror only pushed the new side into the
-// revert bucket: `git restore --staged --worktree --source=HEAD -- <new>` then leaves the old
-// side's staged deletion orphaned — the exact destructive pattern the round-1 fix closed via
-// classifyStrays, reopened here via the second code path that never got the same treatment.
+/* The escape-scan loop (BOTH targets) destructured only `{ xy, path }`, dropping
+   `renameCounterpart`. A rename fully inside the allowed area (both sides pass classifyStrays
+   untouched) whose NEW side is a symlink escaping the mirror only pushed the new side into the
+   revert bucket: `git restore --staged --worktree --source=HEAD -- <new>` then leaves the old
+   side's staged deletion orphaned — the exact destructive pattern the round-1 fix closed via
+   classifyStrays, reopened here via the second code path that never got the same treatment.
+ */
 
 test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts BOTH sides — rename fully undone (e2e target)", async () => {
   const repo = initRepo();
@@ -513,13 +492,12 @@ test("real git fixture: rename INTO a denylisted destination reverts BOTH sides 
   }
 });
 
-// ── quote-aware rename-arrow parsing regression (Judgment Day round 2) ─────────────────────────
-//
-// git C-style-quotes a rename's OLD path whenever it literally contains " -> " (to disambiguate
-// from the rename separator). parseStatusOutput's arrow split used a first-match `indexOf`, which
-// broke inside such a quoted span. This end-to-end fixture proves the adapter still reverts BOTH
-// sides of a real staged rename whose origin filename contains " -> ", not just the unit test on
-// the parser in isolation.
+/* git C-style-quotes a rename's OLD path whenever it literally contains " -> " (to disambiguate
+   from the rename separator). parseStatusOutput's arrow split used a first-match `indexOf`, which
+   broke inside such a quoted span. This end-to-end fixture proves the adapter still reverts BOTH
+   sides of a real staged rename whose origin filename contains " -> ", not just the unit test on
+   the parser in isolation.
+ */
 
 test("real git fixture: staged rename OUT of e2e/ whose origin filename contains ' -> ' reverts BOTH sides intact (e2e target)", async () => {
   const repo = initRepo();
@@ -560,14 +538,13 @@ test("real git fixture: staged rename OUT of e2e/ whose origin filename contains
   }
 });
 
-// ── C-style quote decoding regression (Judgment Day round 3) ───────────────────────────────────
-//
-// With git's DEFAULT core.quotePath=true, `git status --porcelain` octal-escapes any non-ASCII
-// byte in a path (e.g. `café.spec.ts` -> `"caf\303\251.spec.ts"`). stripQuotes only stripped the
-// surrounding `"`, leaving the literal escape sequence `\303\251` in the returned path string. The
-// subsequent revert (`git clean -f -- "caf\303\251-leak.ts"`, or `git restore -- ...`) then matches
-// NOTHING on disk — enforce() reports the stray as reverted while the file survives, a silent
-// security-boundary bypass reachable with any accented filename under git's default config.
+/* With git's DEFAULT core.quotePath=true, `git status --porcelain` octal-escapes any non-ASCII
+   byte in a path (e.g. `café.spec.ts` -> `"caf\303\251.spec.ts"`). stripQuotes only stripped the
+   surrounding `"`, leaving the literal escape sequence `\303\251` in the returned path string. The
+   subsequent revert (`git clean -f -- "caf\303\251-leak.ts"`, or `git restore -- ...`) then matches
+   NOTHING on disk — enforce() reports the stray as reverted while the file survives, a silent
+   security-boundary bypass reachable with any accented filename under git's default config.
+ */
 
 test("real git fixture: an untracked non-ASCII stray at repo root is ACTUALLY deleted from disk (e2e target)", async () => {
   const repo = initRepo();
@@ -635,18 +612,16 @@ test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT 
   }
 });
 
-// Judgment Day round 3, judge A: an embedded literal double-quote in a filename is itself
-// C-style-escaped by git (`"` -> `\"`) inside the surrounding quotes — a DIFFERENT escape shape
-// than the octal non-ASCII case above, exercised here end-to-end to confirm the decoded literal
-// path (containing a real `"` character) is what actually reaches git, not the still-escaped form.
-// ── literal-byte corruption regression (Judgment Day round 4) ──────────────────────────────────
-//
-// Under `core.quotePath=false`, git still C-style-quotes a path for reasons OTHER than non-ASCII
-// bytes (here: an embedded space) but leaves the non-ASCII bytes literal inside the quotes instead
-// of octal-escaping them (as it would under the default core.quotePath=true, round 3's fix). The
-// old literal-character branch of decodeQuoted pushed a raw UTF-16 code unit as a single byte —
-// invalid standalone UTF-8 for a non-ASCII char — corrupting the decoded path so the revert
-// pathspec matched nothing on disk, the same silent-bypass class as round 3.
+/* C-style-escaped by git (`"` -> `\"`) inside the surrounding quotes — a DIFFERENT escape shape
+   than the octal non-ASCII case above, exercised here end-to-end to confirm the decoded literal
+   path (containing a real `"` character) is what actually reaches git, not the still-escaped form.
+   Under `core.quotePath=false`, git still C-style-quotes a path for reasons OTHER than non-ASCII
+   bytes (here: an embedded space) but leaves the non-ASCII bytes literal inside the quotes instead
+   of octal-escaping them (as it would under the default core.quotePath=true, round 3's fix). The
+   old literal-character branch of decodeQuoted pushed a raw UTF-16 code unit as a single byte —
+   invalid standalone UTF-8 for a non-ASCII char — corrupting the decoded path so the revert
+   pathspec matched nothing on disk, the same silent-bypass class as round 3.
+ */
 test("real git fixture: an untracked stray needing quoting for an embedded space AND a literal non-ASCII char is ACTUALLY deleted from disk under core.quotePath=false (e2e target)", async () => {
   const repo = initRepo();
   try {
@@ -711,16 +686,15 @@ test("real git fixture: an untracked stray whose filename contains an embedded q
   }
 });
 
-// ── unstaged fs-level rename pairing (Slice 9, D-G, AMENDMENT 2) — closes the Phase-1 KNOWN
-// LIMITATION ───────────────────────────────────────────────────────────────────────────────────
-//
-// The agent has no git access (read-only on watched repos), so an `fs.rename` it performs (not
-// `git mv`) surfaces as two INDEPENDENT status lines: an in-area unstaged deletion (` D e2e/x`)
-// plus an out-of-area untracked stray (`?? y`) — the exact shape the staged-rename fixtures above
-// do NOT cover (those all use `git mv`, which git detects as a staged R line on its own). These
-// fixtures prove the adapter now pairs the two via git's own content-similarity rename detection
-// (a transient `git add -N` on the untracked candidates, then `git diff --find-renames` against
-// HEAD), restoring the deleted side only when git itself confirms the move.
+/* LIMITATION ───────────────────────────────────────────────────────────────────────────────────
+   The agent has no git access (read-only on watched repos), so an `fs.rename` it performs (not
+   `git mv`) surfaces as two INDEPENDENT status lines: an in-area unstaged deletion (` D e2e/x`)
+   plus an out-of-area untracked stray (`?? y`) — the exact shape the staged-rename fixtures above
+   do NOT cover (those all use `git mv`, which git detects as a staged R line on its own). These
+   fixtures prove the adapter now pairs the two via git's own content-similarity rename detection
+   (a transient `git add -N` on the untracked candidates, then `git diff --find-renames` against
+   HEAD), restoring the deleted side only when git itself confirms the move.
+ */
 
 function realGitFnWithFailure(repo: string, failOn: (args: string[]) => boolean): (args: string[], cwd?: string) => Promise<string> {
   return async (args, cwd = repo) => {
@@ -791,8 +765,9 @@ test("real git fixture (negative): a legitimate in-area unstaged deletion with N
 
     assert.deepEqual(result.reverted, [], "the deletion must NOT be restored — over-revert is the failure mode the spec forbids");
     const status = execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" });
-    // NOTE: do not use status.trim() here — the leading space in " D" is the meaningful XY status
-    // code (unstaged deletion), and .trim() on the whole string would strip it from the start.
+    /* NOTE: do not use status.trim() here — the leading space in " D" is the meaningful XY status
+       code (unstaged deletion), and .trim() on the whole string would strip it from the start.
+     */
     assert.equal(status.replace(/\n+$/, ""), " D e2e/existing.spec.ts", "the legitimate deletion must survive exactly as the agent left it");
   } finally {
     rmSync(repo, { recursive: true, force: true });

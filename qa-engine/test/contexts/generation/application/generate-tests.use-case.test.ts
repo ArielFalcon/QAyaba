@@ -4,14 +4,10 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/generate-
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 
-// ── B.3 unit tests: orchestration sequence through port stubs ─────────────────
-//
-// These tests verify the EXTRACTED use-case's orchestration contract.
-// migration-tier-4c Slice 1 deleted the separate B.2 characterization golden
-// (generate-tests.characterization.test.ts) once its coverage was confirmed to have
-// moved here — B.3.1-B.3.5 below are now the live, sole re-pin of that behavior.
+/* Orchestration sequence through port stubs: render → open session → parse deliverable →
+   reconcile manifest. A parse miss without review is fail-closed (empty specs, no phantom names).
+ */
 
-// ── B.3.1 — basic orchestration sequence ─────────────────────────────────────
 test("B.3.1: renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
   const calls: string[] = [];
   const ports: GenerationPorts = {
@@ -61,7 +57,7 @@ test("B.3.1: renders → opens session → parses deliverable → reconciles man
     appName: "a",
   });
 
-  // render must come at some point before session fires the prompt
+  /* render must come at some point before session fires the prompt */
   assert.ok(calls.includes("render"), "prompt was rendered");
   assert.ok(calls.includes("session"), "session was opened");
   assert.ok(calls.includes("parse"), "deliverable was parsed");
@@ -118,13 +114,13 @@ test("code target skips manifest reconciliation entirely (legacy opencode-client
     appName: "a",
   });
 
-  // NOTE: the needsReview:false bail-early return deliberately carries no specMetas (pre-existing
-  // contract) — the load-bearing assertion here is that the e2e manifest is never touched for code.
+  /* NOTE: the needsReview:false bail-early return deliberately carries no specMetas (pre-existing
+     contract) — the load-bearing assertion here is that the e2e manifest is never touched for code.
+   */
   assert.ok(!calls.includes("reconcile"), "code target must never touch the e2e manifest (no e2e/ dir exists for code apps)");
   assert.deepEqual(out.specs, ["src/foo.test.ts"]);
 });
 
-// ── B.3.2 — bounded generator repair ─────────────────────────────────────────
 test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
   const promptTexts: string[] = [];
   let sessionPromptCount = 0;
@@ -136,10 +132,8 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
           promptTexts.push(text);
           sessionPromptCount++;
           if (sessionPromptCount === 1) {
-            // First call: output that fails the typed contract (no specs field)
             return { output: '{"note":"oops — forgot specs"}' };
           }
-          // Second call (the ONE bounded repair): valid verdict
           return { output: '{"specs":["flows/repair.spec.ts"]}' };
         },
         dispose: () => {},
@@ -156,7 +150,7 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
     verdicts: {
       parseGenerator: (text) => {
         if (text.includes('"specs"')) return { specs: ["flows/repair.spec.ts"], parsed: true };
-        return { specs: [], parsed: true }; // contract miss — no specs key, but JSON present
+        return { specs: [], parsed: true }; /* contract miss — no specs key, but JSON present */
       },
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
     },
@@ -171,7 +165,6 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
     },
     repair: {
       checkGenerator: (text) => {
-        // Mimic checkGeneratorVerdict: valid if the text has a specs array
         if (text.includes('"specs"')) return { valid: true, issues: [] };
         return { valid: false, issues: ["no closing verdict JSON found (expected a block with a `specs` array)"] };
       },
@@ -196,13 +189,12 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
 
   assert.equal(sessionPromptCount, 2, "exactly two prompt calls: initial + one bounded repair");
   assert.equal(repairCount, 1, "onRepair notified exactly once");
-  // The repair prompt must reference the contract issues
+  /* The repair prompt must reference the contract issues */
   const repairPrompt = promptTexts[1] ?? "";
   assert.match(repairPrompt, /REPAIR generator/, "repair prompt fired for the generator");
   assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "repaired specs in result");
 });
 
-// ── B.3.3 — bounded reviewer repair (reviewer contract miss, valid:false) ─────
 test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
   const promptTexts: string[] = [];
   let reviewCallCount = 0;
@@ -230,10 +222,9 @@ test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:f
       parseReview: () => {
         reviewCallCount++;
         if (reviewCallCount === 1) {
-          // First parse: contract miss — `approved` field present but not boolean
+          /* First parse: contract miss — `approved` field present but not boolean */
           return { approved: false, corrections: [], valid: false, issues: ["approved: expected boolean"], parsed: true };
         }
-        // After repair: clean verdict
         return { approved: true, corrections: [], valid: true, issues: [], parsed: true };
       },
     },
@@ -267,14 +258,14 @@ test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:f
     appName: "a",
   }, { onRepair: () => { repairCount++; } });
 
-  // EXACTLY ONE reviewer repair re-prompt
   const repairPrompts = promptTexts.filter((p) => p.includes("REPAIR reviewer"));
   assert.equal(repairPrompts.length, 1, "exactly one reviewer repair prompt fired");
   assert.equal(repairCount, 1, "onRepair called once for reviewer repair");
   assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
-// ── B.3.4 — fail-closed: parse miss without review ───────────────────────────
+/* Fail-closed: parse miss without review.
+ */
 test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
   const ports: GenerationPorts = {
     runtime: {
@@ -322,11 +313,12 @@ test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", a
   assert.deepEqual(out.specs, [], "parse miss → empty specs");
 });
 
-// ── B.3.5 — manifest.reconcile is ALWAYS called, even with zero specMetas ─────
-// Legacy-faithful: manifest entries are built EXCLUSIVELY from specMetas (opencode-client.ts:
-// 772-788), never from the bare specs[] list. A deliverable with specs but NO specMetas produces
-// an EMPTY rawEntries array — reconcile still fires (so an empty entries array can prune/no-op
-// per the port's own contract), but with nothing to upsert.
+/* manifest.reconcile is ALWAYS called, even with zero specMetas.
+   Manifest entries are built EXCLUSIVELY from specMetas (opencode-client.ts), never from the bare
+   specs[] list. A deliverable with specs but NO specMetas produces an EMPTY rawEntries array —
+   reconcile still fires (so an empty entries array can prune/no-op per the port's own contract),
+   but with nothing to upsert.
+ */
 test("B.3.5: manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
@@ -375,19 +367,20 @@ test("B.3.5: manifest.reconcile is called with [] when the deliverable carries s
     mode: "diff",
     appName: "a",
   });
-  // reconcile must be called — if it was skipped, reconcileArgs would be undefined
+  /* reconcile must be called — if it was skipped, reconcileArgs would be undefined */
   assert.ok(reconcileArgs !== undefined, "reconcile was called");
   assert.deepEqual(reconcileArgs, [], "no specMetas -> no manifest entries synthesized from specs[] alone");
   assert.deepEqual(out.specs, ["flows/checkout.spec.ts"]);
 });
 
-// ── manifest-enrichment fix: entries are built from specMetas, stamped with changeRef ─────────
-// Live-run root cause: the rewritten engine assembled rawEntries from deliverable.specs alone
-// (objective:"", no targets/changeRef), which the real manifest schema (src/orchestrator/
-// schemas.ts ManifestEntrySchema) always rejects — verdict=invalid on every real run that reached
-// the static gate with a non-empty manifest. Faithful port of opencode-client.ts:772-788: entries
-// come from specMetas (objective/flow/targets from the agent), changeRef stamped by the
-// orchestrator from input.sha + input.intent?.type.
+/* ── manifest-enrichment fix: entries are built from specMetas, stamped with changeRef ─────────
+   Live-run root cause: the rewritten engine assembled rawEntries from deliverable.specs alone
+   (objective:"", no targets/changeRef), which the real manifest schema (src/orchestrator/
+   schemas.ts ManifestEntrySchema) always rejects — verdict=invalid on every real run that reached
+   the static gate with a non-empty manifest. Faithful port of opencode-client.ts:772-788: entries
+   come from specMetas (objective/flow/targets from the agent), changeRef stamped by the
+   orchestrator from input.sha + input.intent?.type.
+ */
 test("manifest entries are built from specMetas with objective/flow/targets + changeRef stamped from input.sha/intent.type", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
@@ -509,20 +502,19 @@ test("manifest entry changeRef.type falls back to 'unknown' when input.intent is
     target: "e2e",
     mode: "manual",
     appName: "a",
-    // no `intent` — manual mode, no commit classification
   });
 
   assert.equal(reconcileArgs?.[0]?.changeRef?.type, "unknown");
   assert.equal(reconcileArgs?.[0]?.changeRef?.sha, "def5678");
 });
 
-// ── missing-from-specMetas: legacy-faithful behavior pinned ────────────────────────────────────
-// Legacy evidence (src/integrations/opencode-client.ts:772): the manifest-building loop is
-// `verdict.specMetas.map(...)` — it iterates specMetas ONLY and never cross-references
-// verdict.specs. A spec file the agent listed in specs[] but did NOT describe in specMetas[]
-// gets NO manifest entry — silently, not an error (the spec file itself still executes; only its
-// metadata entry is skipped). This test pins that a partial specMetas list (2 specs, 1 meta)
-// yields exactly 1 manifest entry, not a synthesized default for the second.
+/* missing-from-specMetas: the manifest-building loop is `verdict.specMetas.map(...)` — it iterates
+   specMetas ONLY and never cross-references verdict.specs. A spec file the agent listed in specs[]
+   but did NOT describe in specMetas[] gets NO manifest entry — silently, not an error (the spec
+   file itself still executes; only its
+   metadata entry is skipped). This test pins that a partial specMetas list (2 specs, 1 meta)
+   yields exactly 1 manifest entry, not a synthesized default for the second.
+ */
 test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest entry (legacy-faithful, opencode-client.ts:772)", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
@@ -542,7 +534,6 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     },
     verdicts: {
       parseGenerator: () => ({
-        // Two specs written, but the agent's specMetas only describes ONE of them.
         specs: ["flows/checkout.spec.ts", "flows/login.spec.ts"],
         parsed: true,
         specMetas: [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "user can checkout", targets: ["CheckoutService.pay"] }],
@@ -577,18 +568,17 @@ test("a spec present in specs[] but ABSENT from specMetas[] gets NO manifest ent
     appName: "a",
   });
 
-  // Both specs are still reported in the deliverable's specs list (they were written to disk)...
+  /* Both specs are still reported in the deliverable's specs list (they were written to disk)... */
   assert.deepEqual(out.specs, ["flows/checkout.spec.ts", "flows/login.spec.ts"]);
-  // ...but only the one with specMetas coverage gets a manifest entry.
   assert.equal(reconcileArgs?.length, 1);
   assert.equal(reconcileArgs?.[0]?.flow, "checkout");
 });
 
-// ── follow-up #27: RepairPort.instruction carries priorResponseTail ───────────────────────────
-// Widens the bounded repair loop (B.3.2/B.3.3 above) to thread the agent's own prior-turn output
-// through RepairPort.instruction's opts, so a STATELESS repair re-prompt (e.g. a fresh `codex exec`
-// process with no session resume) can genuinely recover its prior specifics instead of fabricating a
-// new verdict. Pinned via a fake RepairPort that captures the opts it receives at each call site.
+/* The bounded repair loop threads the agent's own prior-turn output through
+   RepairPort.instruction's opts, so a STATELESS repair re-prompt (e.g. a fresh `codex exec`
+   process with no session resume) can recover its prior specifics instead of fabricating a new
+   verdict. Pinned via a fake RepairPort that captures the opts it receives at each call site.
+ */
 test("follow-up #27: a malformed generator verdict triggers ONE bounded repair whose instruction carries priorResponseTail (the agent's own prior output)", async () => {
   const capturedOpts: Array<{ kind: string; issues: string[]; opts?: { priorResponseTail?: string } }> = [];
   let sessionPromptCount = 0;
@@ -599,7 +589,7 @@ test("follow-up #27: a malformed generator verdict triggers ONE bounded repair w
         prompt: async () => {
           sessionPromptCount++;
           if (sessionPromptCount === 1) {
-            // First call: malformed generator output (no specs field) — the prior turn's text.
+            /* First call: malformed generator output (no specs field) — the prior turn's text. */
             return { output: '{"note":"oops — forgot specs"}' };
           }
           return { output: '{"specs":["flows/repair.spec.ts"]}' };
@@ -738,12 +728,13 @@ test("follow-up #27: a malformed reviewer verdict triggers ONE bounded repair wh
   assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
-// ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
-// Cross-checks the assembled entry shape against the ACTUAL ManifestEntrySchema the orchestrator's
-// static gate validates (src/orchestrator/schemas.ts) — replicated here (qa-engine does not import
-// from src/, per the src/-independence invariant) as the same field/type assertions the schema
-// encodes: id/objective/flow non-empty strings, targets a non-empty array, changeRef.sha/type
-// non-empty strings. This is the exact shape whose absence produced the live-run "invalid" verdict.
+/* ── manifest schema conformance: assembled entries satisfy the real static-gate schema ─────────
+   Cross-checks the assembled entry shape against the ACTUAL ManifestEntrySchema the orchestrator's
+   static gate validates (src/orchestrator/schemas.ts) — replicated here (qa-engine does not import
+   from src/, per the src/-independence invariant) as the same field/type assertions the schema
+   encodes: id/objective/flow non-empty strings, targets a non-empty array, changeRef.sha/type
+   non-empty strings. This is the exact shape whose absence produced the live-run "invalid" verdict.
+ */
 test("assembled manifest entries satisfy the real ManifestEntrySchema shape (objective/flow/targets non-empty, changeRef required)", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
@@ -800,7 +791,7 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
 
   const entry = reconcileArgs?.[0];
   assert.ok(entry, "an entry was produced");
-  // Replicates ManifestEntrySchema's field checks (src/orchestrator/schemas.ts:137-148).
+  /* Replicates ManifestEntrySchema's field checks (src/orchestrator/schemas.ts:137-148). */
   assert.ok(typeof entry?.id === "string" && entry.id.length > 0, "id: non-empty string");
   assert.ok(typeof entry?.objective === "string" && entry.objective.length > 0, "objective: non-empty string");
   assert.ok(typeof entry?.flow === "string" && entry.flow.length > 0, "flow: non-empty string");

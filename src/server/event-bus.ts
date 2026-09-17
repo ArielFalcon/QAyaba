@@ -1,16 +1,4 @@
-// Read-side, in-process typed event bus — the single fan-out point from the
-// lifecycle/agent-activity PRODUCERS (pipeline callbacks, the OpenCode activity
-// router) to OBSERVABILITY consumers: the SSE endpoints (TUI / future OpenClaw),
-// the history projection, metrics. It is STRICTLY read-side: it never schedules
-// or coordinates work — commands flow through the JobQueue and pipeline control
-// flow, and no consumer ever feeds state back to a producer. That orthogonality
-// is what keeps the lifecycle authority single (src/pipeline.ts); see
-// docs/interactive-layer.md §3.4.
-//
-// Built on node:events (zero dependencies). `stream()` exposes an AbortSignal-
-// aware async iterator so an SSE handler can `for await` the events for one run
-// and terminate cleanly the instant the HTTP connection closes (abort the
-// signal) — matching the request lifecycle without manual listener bookkeeping.
+
 
 import { EventEmitter, on, once } from "node:events";
 
@@ -20,8 +8,10 @@ export class TypedEventBus<Events extends Record<string, unknown>> {
   private readonly emitter = new EventEmitter();
 
   constructor() {
-    // Unbounded: many concurrent SSE connections may subscribe to the same key
-    // (one per watching client), which would trip the default 10-listener warning.
+    /*
+     * Unbounded: many concurrent SSE connections may subscribe to the same key
+     * (one per watching client), which would trip the default 10-listener warning.
+     */
     this.emitter.setMaxListeners(0);
   }
 

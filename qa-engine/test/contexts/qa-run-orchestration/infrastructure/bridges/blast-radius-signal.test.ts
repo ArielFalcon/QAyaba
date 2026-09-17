@@ -1,9 +1,7 @@
-// qa-engine/test/contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.test.ts
-//
-// RED for Slice 4b.1 (design §5.2, tasks 4b.1.1): the pure advisory renderer that composes
-// impactedSymbols/callersOf/coChangeCoupling results into ONE markdown block for
-// GenerationEnrichment.staticSignal. Mirrors legacy renderStaticSignal's own test discipline
-// (empty -> "", per-section cap, sanitized cells, byte-budget truncation at a newline boundary).
+/* qa-engine/test/contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.test.ts
+   impactedSymbols/callersOf/coChangeCoupling results into ONE markdown block for
+   (empty -> "", per-section cap, sanitized cells, byte-budget truncation at a newline boundary).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
@@ -97,7 +95,6 @@ test("each sub-block is capped at MAX_ITEMS (200) items", () => {
     coupled: [],
   });
 
-  // header says the TRUE count, but only 200 lines are rendered
   assert.match(out, /Impacted symbols \(250\)/);
   const occurrences = out.split("\n").filter((l) => l.startsWith("- `method")).length;
   assert.equal(occurrences, 200, "impacted sub-block must cap at 200 rendered items even though 250 were supplied");
@@ -115,10 +112,11 @@ test("coupled sub-block is also capped at MAX_ITEMS (200) items", () => {
 });
 
 test("the whole block is capped at the byte budget, truncated at the last newline boundary", () => {
-  // MAX_ITEMS caps each sub-block at 200 rendered lines — well under the byte budget on its own.
-  // To actually exercise the whole-block byte-budget truncation, spread the 200-item cap across
-  // three sub-blocks with long, distinctive symbol/file names so the combined output exceeds
-  // MAX_LEN (20_000 bytes).
+  /* MAX_ITEMS caps each sub-block at 200 rendered lines — well under the byte budget on its own.
+     To actually exercise the whole-block byte-budget truncation, spread the 200-item cap across
+     three sub-blocks with long, distinctive symbol/file names so the combined output exceeds
+     MAX_LEN (20_000 bytes).
+   */
   const long = (prefix: string, n: number) =>
     Array.from({ length: n }, (_, i) => ({ file: `src/main/java/very/long/package/path/${prefix}File${i}Repository.java`, symbol: `${prefix}veryLongMethodNameNumber${i}ForBudgetPadding` }));
 
@@ -150,8 +148,9 @@ test("every cell is passed through sanitizeText (secrets redacted)", () => {
 });
 
 test("an all-CodeGraphUnavailable composition (every collaborator absent) still renders an empty string", () => {
-  // Mirrors what StructuralSignalPortAdapter passes when every CodeGraphPort method returned err(...):
-  // empty arrays for every field, same as the true all-empty case.
+  /* Mirrors what StructuralSignalPortAdapter passes when every CodeGraphPort method returned err(...):
+     empty arrays for every field, same as the true all-empty case.
+   */
   const out = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [] });
   assert.equal(out, "");
 });

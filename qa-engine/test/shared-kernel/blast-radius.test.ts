@@ -8,7 +8,7 @@ test("BlastRadius: groups changed files under a Sha and is immutable", () => {
   assert.equal(br.sha.value, "abc1234");
   assert.deepEqual(br.changedFiles, ["src/a.ts", "src/b.ts"]);
   assert.equal(br.isEmpty, false);
-  assert.throws(() => { (br.changedFiles as string[]).push("x"); }); // frozen
+  assert.throws(() => { (br.changedFiles as string[]).push("x"); }); /* frozen */
 });
 
 test("BlastRadius: dedupes and sorts changed files for a deterministic identity", () => {

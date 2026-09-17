@@ -104,6 +104,6 @@ test("buildYaml omits services when absent or in code mode", () => {
   const none = buildYaml({ name: "a", repo: "o/a", baseBranch: "main", baseUrl: "https://x", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" });
   assert.doesNotMatch(none, /services:/);
   const code = buildYaml({ name: "b", repo: "o/b", baseBranch: "main", baseUrl: "https://x", target: "code", needsReview: true, shadow: true, testDataPrefix: "qa", services: [{ repo: "o/svc" }] });
-  // In code mode, services must not be rendered even if provided (the schema rejects them; YAML must match).
+  /* In code mode, services must not be rendered even if provided (the schema rejects them; YAML must match). */
   assert.doesNotMatch(code, /services:/);
 });

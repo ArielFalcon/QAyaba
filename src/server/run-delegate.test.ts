@@ -84,7 +84,7 @@ test("delegateRun tolerates a transient network error during polling and keeps w
       return new Response(JSON.stringify({ id: "run-1" }), { status: 202 });
     }
     poll++;
-    if (poll === 1) throw new Error("ECONNRESET"); // a transient blip mid-run must not abort the wait
+    if (poll === 1) throw new Error("ECONNRESET"); /* a transient blip mid-run must not abort the wait */
     return new Response(JSON.stringify({ id: "run-1", status: "done", verdict: "pass", passed: 1, failed: 0 }), { status: 200 });
   }) as unknown as typeof fetch;
 

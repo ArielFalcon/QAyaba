@@ -1,7 +1,8 @@
-// One typed client over the orchestrator control API, shared by every TS consumer (the web
-// dashboard today; any future TS client tomorrow). Methods mirror the /api/v1 surface;
-// streamRunEvents wraps the SSE live feed. Same-origin clients pass baseUrl "" so the browser
-// carries the operator's existing credentials.
+/* One typed client over the orchestrator control API, shared by every TS consumer (the web
+   dashboard today; any future TS client tomorrow). Methods mirror the /api/v1 surface;
+   streamRunEvents wraps the SSE live feed. Same-origin clients pass baseUrl "" so the browser
+   carries the operator's existing credentials.
+ */
 import { createTransport, type TransportOptions } from "./transport";
 import { streamRunEvents, type StreamOptions } from "./sse";
 import type {

@@ -1,10 +1,4 @@
-// qa-engine/src/contexts/generation/infrastructure/exploration-brief.adapter.ts
-// WRAP of src/qa/exploration-brief.ts schema fns (parseExplorationBrief/coerceExplorationBrief/
-// renderExplorationBrief) — pure, thin delegators. Parity test pins the round-trip to the legacy fn.
-// The legacy source is src/qa/exploration-brief.ts (NOT src/integrations/ — there is no such file).
-// All three fns are injected (constructor seam) so the adapter test needs no real implementations.
 
-// Structural shapes mirroring src/qa/exploration-brief.ts — no src/ import at runtime.
 export interface BlastNode {
   symbol: string;
   file: string;

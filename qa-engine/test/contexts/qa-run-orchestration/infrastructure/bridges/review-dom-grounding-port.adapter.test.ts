@@ -1,9 +1,6 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/review-dom-grounding-port.adapter.test.ts
-// Plan 7-R W4 (audit CRITICAL): ReviewDomGroundingPortAdapter wraps the REAL captureDom
-// (generation/infrastructure/dom-snapshot.ts, already-ported), mirroring legacy's reviewGenerated()
-// captureDom call exactly (src/pipeline.ts:1643-1651). Existence-level: captureDom is injected as a
-// fake here (no real Playwright/browser) — dom-snapshot.ts's own test suite already covers its
-// internal render/format behavior.
+/* Review DOM grounding uses generation/infrastructure/dom-snapshot.ts. This suite fakes the
+   browser (no real Playwright) — dom-snapshot.ts's own tests already cover render/format behavior.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -108,8 +105,6 @@ test("capture(): a captureDom throw is non-fatal — resolves undefined, never r
   }
 });
 
-// ── capture(): AbortSignal plumbing (judgment-day, FIX 1) ────────────────────────────────────────
-
 test("capture(): an already-aborted signal skips the capture entirely — resolves undefined without calling captureDom", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-review-dom-abort-precheck-"));
   try {
@@ -137,7 +132,7 @@ test("capture(): an in-flight abort unblocks the caller promptly, even when capt
     writeFileSync(join(dir, "a.spec.ts"), `await page.goto("/x");`);
     const adapter = new ReviewDomGroundingPortAdapter(
       { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
-      { captureDom: () => new Promise(() => {}) }, // never resolves — simulates a hung render
+      { captureDom: () => new Promise(() => {}) }, /* never resolves — simulates a hung render */
     );
     const controller = new AbortController();
 
@@ -145,8 +140,9 @@ test("capture(): an in-flight abort unblocks the caller promptly, even when capt
     queueMicrotask(() => controller.abort());
     const result = await capturePromise;
 
-    // The adapter's own contract (never rejects) still holds — abort degrades to undefined, NOT a
-    // throw, so a caller without a signal?.aborted check after this call is not broken.
+    /* The adapter's own contract (never rejects) still holds — abort degrades to undefined, NOT a
+       throw, so a caller without a signal?.aborted check after this call is not broken.
+     */
     assert.equal(result, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// RequestCode posts the OAuth App's client_id + scope to GitHub's device-code endpoint and
-// returns the user code + verification URI the human must visit.
+/* RequestCode posts the OAuth App's client_id + scope to GitHub's device-code endpoint and
+   returns the user code + verification URI the human must visit. */
 func TestRequestCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/login/device/code" {
@@ -45,8 +45,8 @@ func TestRequestCode(t *testing.T) {
 	}
 }
 
-// A pending authorization is reported as StatusPending (the caller keeps polling); once the
-// user approves, Poll returns the access token with StatusDone.
+/* A pending authorization is reported as StatusPending (the caller keeps polling); once the
+   user approves, Poll returns the access token with StatusDone. */
 func TestPollPendingThenDone(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +86,7 @@ func TestPollPendingThenDone(t *testing.T) {
 	}
 }
 
-// slow_down carries a new (larger) interval the caller must adopt before the next poll.
+/* slow_down carries a new (larger) interval the caller must adopt before the next poll. */
 func TestPollSlowDown(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -104,8 +104,8 @@ func TestPollSlowDown(t *testing.T) {
 	}
 }
 
-// access_denied (user clicked Cancel) and expired_token are terminal, surfaced as distinct
-// statuses so the UI can tell "you cancelled" apart from "the code timed out".
+/* access_denied (user clicked Cancel) and expired_token are terminal, surfaced as distinct
+   statuses so the UI can tell "you cancelled" apart from "the code timed out". */
 func TestPollTerminalStates(t *testing.T) {
 	for _, tc := range []struct {
 		body string
@@ -130,7 +130,7 @@ func TestPollTerminalStates(t *testing.T) {
 	}
 }
 
-// ResolveClientID priority: env override > server-advertised > baked-in build value.
+/* ResolveClientID priority: env override > server-advertised > baked-in build value. */
 func TestResolveClientIDPriority(t *testing.T) {
 	t.Setenv("QAYABA_GITHUB_CLIENT_ID", "env-cid")
 	if got := ResolveClientID("server-cid"); got != "env-cid" {

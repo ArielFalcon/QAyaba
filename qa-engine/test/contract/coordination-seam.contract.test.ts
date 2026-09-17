@@ -1,6 +1,6 @@
-// Fase 1 — coordination seam contracts. The application can represent a coordination
-// decision without knowing provider or model. Generation / FixLoop / AgentRuntime
-// call sites stay equivalent: this file also pins that they do not import the seam.
+/* decision without knowing provider or model. Generation / FixLoop / AgentRuntime
+   call sites stay equivalent: this file also pins that they do not import the seam.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

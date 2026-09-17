@@ -1,7 +1,8 @@
-// Friendly type aliases over the generated OpenAPI types. types.gen.ts is produced by
-// `npm run sdk:gen` (openapi-typescript) from contract/openapi.json — the single source of
-// truth — so these never drift from the server: tsc fails if a wire shape changes. Consumers
-// import these names; the raw `components`/`paths` are re-exported for anything not aliased.
+/* Friendly type aliases over the generated OpenAPI types. types.gen.ts is produced by
+   `npm run sdk:gen` (openapi-typescript) from contract/openapi.json — the single source of
+   truth — so these never drift from the server: tsc fails if a wire shape changes. Consumers
+   import these names; the raw `components`/`paths` are re-exported for anything not aliased.
+ */
 import type { components } from "./types.gen";
 
 type S = components["schemas"];
@@ -39,9 +40,10 @@ export type AgentConfigApplyResult = S["AgentConfigApplyResult"];
 export type AgentModelsResponse = S["AgentModelsResponse"];
 export type AgentRestartResponse = S["AgentRestartResponse"];
 
-// The live event body (discriminated on `type`) is a generated schema. The wire envelope
-// the SSE gateway stamps around it is not a JSON response body, so it is composed here from
-// the generated body — the one small shape the SDK owns rather than generates.
+/* The live event body (discriminated on `type`) is a generated schema. The wire envelope
+   the SSE gateway stamps around it is not a JSON response body, so it is composed here from
+   the generated body — the one small shape the SDK owns rather than generates.
+ */
 export type RunEventBody = S["RunEventBody"];
 export interface RunEvent {
   seq: number;

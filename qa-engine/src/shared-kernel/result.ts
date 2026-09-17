@@ -1,8 +1,4 @@
-// qa-engine/src/shared-kernel/result.ts
-// Explicit success/failure flow without exceptions for the EXPECTED-failure paths (typed degradation,
-// fail-open extractors). Loud-throw discipline (§8 R3) still governs UNEXPECTED faults — a swallowed
-// integration error once looked like a silent false no-op; Result is for modeled outcomes, not for
-// hiding throws.
+/* Explicit success/failure for modeled outcomes. Unexpected integration faults still throw — Result is not for swallowing errors into a silent no-op. */
 
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 

@@ -1,9 +1,6 @@
-// test/contexts/objective-signal/domain/assemble-change-coverage.test.ts
-// THE VALUE KEYSTONE, closed: assembleChangeCoverage() is what turns CoverageCollectorPort's raw
-// CoverageReport + the run's diff into the ChangeCoverage read-model DecideCoverageService.decide()
-// consumes — the assembly step ObjectiveSignalPortAdapter's own header previously documented as
-// missing. parseDiffHunks/computeChangeCoverage are ported verbatim from src/qa/change-coverage.ts;
-// these tests pin the same fixture shapes as src/qa/change-coverage.test.ts (parity, not reinvention).
+/* assembleChangeCoverage() turns CoverageCollectorPort's raw CoverageReport + the run's diff into
+   the ChangeCoverage read-model DecideCoverageService.decide() consumes.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -20,7 +17,7 @@ function lines(m: Map<string, Set<number>>): Record<string, number[]> {
   return o;
 }
 
-// ── parseDiffHunks parity ──────────────────────────────────────────────────────────────────────
+/* ── parseDiffHunks parity ────────────────────────────────────────────────────────────────────── */
 
 test("parseDiffHunks: added lines numbered on the new side, context advances, deletions don't", () => {
   const diff = [
@@ -78,7 +75,7 @@ test("parseDiffHunks: a hunk CONTENT line starting with '+++ ' is NOT misread as
   assert.deepEqual(lines(parseDiffHunks(diff)), { "README.md": [2, 3] });
 });
 
-// ── computeChangeCoverage intersection math parity ────────────────────────────────────────────
+/* ── computeChangeCoverage intersection math parity ──────────────────────────────────────────── */
 
 test("computeChangeCoverage: intersects, reports uncovered, computes ratio", () => {
   const changed = new Map([["a.ts", new Set([1, 2, 3, 4])]]);
@@ -89,7 +86,7 @@ test("computeChangeCoverage: intersects, reports uncovered, computes ratio", () 
   assert.equal(cc.overall.coveredChanged, 2);
   assert.equal(cc.overall.ratio, 0.5);
   assert.deepEqual(cc.uncovered, [{ file: "a.ts", lines: [3, 4] }]);
-  assert.equal(cc.branches, null); // the rewritten port carries no branch-coverage signal (yet)
+  assert.equal(cc.branches, null); /* the rewritten port carries no branch-coverage signal (yet) */
 });
 
 test("computeChangeCoverage: a changed file with NO coverage data → measured stays false", () => {
@@ -115,7 +112,7 @@ test("computeChangeCoverage: perFile ratios and multi-file intersection", () => 
   ]);
 });
 
-// ── report-shape conversion (CoverageReport [{file,lines}] -> Map<string, Set<number>>) ─────────
+/* ── report-shape conversion (CoverageReport [{file,lines}] -> Map<string, Set<number>>) ───────── */
 
 test("assembleChangeCoverage: converts CoverageReport's array-of-objects shape and intersects with the diff", () => {
   const diff = [
@@ -147,12 +144,12 @@ test("assembleChangeCoverage: a file in the report that the diff never touched c
 
   const cc = assembleChangeCoverage(diff, report);
 
-  assert.equal(cc.measured, false); // a.ts (the only changed file) has no matching report entry
+  assert.equal(cc.measured, false); /* a.ts (the only changed file) has no matching report entry */
   assert.equal(cc.overall.changedLines, 1);
   assert.equal(cc.overall.coveredChanged, 0);
 });
 
-// ── zero-changed-lines semantics (matches legacy: decide() -> "unknown") ─────────────────────────
+/* ── zero-changed-lines semantics (decide() -> "unknown") ───────────────────────── */
 
 test("assembleChangeCoverage: a diff with no added lines (pure deletion) → measured but decide() reads unknown", () => {
   const diff = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,2 +0,0 @@", "-x", "-y"].join("\n");
@@ -167,7 +164,7 @@ test("assembleChangeCoverage: a diff with no added lines (pure deletion) → mea
   assert.equal(svc.blocks(status, { mode: "enforce", minRatio: 0.7 }), false, "unknown must never block, even in enforce mode");
 });
 
-// ── MUTATION-PROOF: the keystone actually gates on real ratios ──────────────────────────────────
+/* ── MUTATION-PROOF: the keystone actually gates on real ratios ────────────────────────────────── */
 
 test("KEYSTONE: uncovered diff lines under a real assembler → decide() returns fail under enforce, and blocks publish", () => {
   const diff = [
@@ -179,7 +176,6 @@ test("KEYSTONE: uncovered diff lines under a real assembler → decide() returns
     "+c",
     "+d",
   ].join("\n");
-  // Only 1 of 4 changed lines covered — ratio 0.25, below the 0.7 default minRatio.
   const report: CoverageReport = { covered: [{ file: "src/checkout.ts", lines: [1] }] };
 
   const cc = assembleChangeCoverage(diff, report);
@@ -208,7 +204,7 @@ test("KEYSTONE: the SAME uncovered gap under signal mode never blocks (records o
   const policy = { mode: "signal" as const, minRatio: 0.7 };
   const status = svc.decide(cc, policy);
 
-  assert.equal(status, "fail"); // the STATUS is still fail (an honest signal)...
+  assert.equal(status, "fail"); /* the STATUS is still fail (an honest signal)... */
   assert.equal(svc.blocks(status, policy), false, "...but signal mode must never block publish on it");
 });
 

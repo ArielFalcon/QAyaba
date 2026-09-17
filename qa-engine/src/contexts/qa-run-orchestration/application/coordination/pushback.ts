@@ -1,4 +1,4 @@
-// External authority checks for DelegationResult (Fase 6). Prompt compliance is not enough.
+/* External authority checks for DelegationResult. Prompt compliance is not enough. */
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { belongsToBrief, type DelegationResult } from "./delegation-result.ts";
@@ -34,7 +34,7 @@ export function validateDelegationAuthority(
       findings.push({ reason: "path-outside-scope", detail: file.path });
     }
   }
-  // Sidekick cannot claim expanded authority via result metadata — authority is frozen on the brief.
+  /* Sidekick cannot claim expanded authority via result metadata — authority is frozen on the brief. */
   if (brief.authority.canExpandScope !== SIDEKICK_AUTHORITY.canExpandScope) {
     findings.push({ reason: "authority-violation", detail: "brief authority was mutated" });
   }

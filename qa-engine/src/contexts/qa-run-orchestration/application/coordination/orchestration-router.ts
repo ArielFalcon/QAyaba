@@ -1,6 +1,4 @@
-// Progress fingerprint + deterministic orchestration router (Fase 7).
-// Returns OrchestrationDecision — distinct from CoordinationDecision (assignment).
-// Order: infra → budget → contradiction → no-progress → same-capability retry → escalate → FixLoop.
+/* Deterministic orchestration router. Returns OrchestrationDecision — distinct from CoordinationDecision (assignment). */
 import { createHash } from "node:crypto";
 import type { AgentCapability } from "./agent-capability.ts";
 import { agentClaimInvalidatedBy } from "./evidence-precedence.ts";

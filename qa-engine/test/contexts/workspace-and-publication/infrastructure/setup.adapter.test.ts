@@ -1,21 +1,5 @@
-// test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts
-// migration-tier-4a: parity port of src/qa/setup.test.ts (now deleted along with src/qa/setup.ts),
-// NOT a 1:1 port of its 42 tests (judgment-day round-1 corrected this claim). Precise accounting:
-// 42 original - 2 dropped (SetupDeps's optional ensureFailureCapture/ensurePlaywrightEnvKeys
-// function-slot stubs became SetupAdapter's own always-present class methods, so the "older stubs
-// absent" no-op tests no longer apply) + 1 added (SandboxedBinaryRunner.run() resolves a
-// runner-signaled timeout as a `{timedOut: true}` RESULT rather than throwing, unlike the original
-// SetupDeps.install's throw-based contract — a new test proves install() still throws on that
-// result) = 41 net at the original port. Judgment-day round-1 (FIX 1, below) added a 42nd test for
-// the mid-install-abort path, so this file's current count is 42 again — coincidentally equal to
-// the original, but via a different composition. The orchestration-layer tests (bootstrap/install/
-// ensureSpecDir ordering, install timeout/abort) are re-expressed against SetupAdapter's injected
-// fs/runner seam instead of the original SetupDeps function-slot seam (SetupAdapter bakes
-// hasProject/bootstrap/ensureSpecDir/install-caching logic internally — see setup.adapter.ts's own
-// header). The ensureFailureCapture/ensurePlaywrightEnvKeys real-fs tests, and every FIX4/D2/C1/
-// Feature-B constant/twin test, port near-verbatim — only the relative path to config/e2e/
-// {fixtures,playwright.config}.ts is RECOMPUTED for this file's new directory depth (rider 3:
-// mechanical, fails RED if wrong).
+/* SetupAdapter.install() still throws on a runner-signaled timeout; optional helper slots are
+   always-present class methods, not injectable no-ops. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -32,9 +16,10 @@ import {
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 
-// 5 levels up from this file to the repo root (qa-engine/test/contexts/workspace-and-publication/
-// infrastructure/ -> qa-engine/test/contexts/ -> qa-engine/test/ -> qa-engine/ -> repo root) —
-// verified empirically against the real config/e2e/ tree before writing this file (rider 3).
+/* 5 levels up from this file to the repo root (qa-engine/test/contexts/workspace-and-publication/
+   infrastructure/ -> qa-engine/test/contexts/ -> qa-engine/test/ -> qa-engine/ -> repo root) —
+   verified empirically against the real config/e2e/ tree before writing this file (rider 3).
+ */
 const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
 
 function okResult(overrides: Partial<SandboxedRunResult> = {}): SandboxedRunResult {
@@ -55,11 +40,12 @@ function realAdapter(seedDir = REAL_SEED_DIR): SetupAdapter {
   return new SetupAdapter({ fs: nodeFsDeps, runner: neverCalledRunner, seedDir });
 }
 
-// A minimal, fully-stubbed fs fake for the orchestration-layer (setup()) tests below — no real disk
-// touched. `hasPackageJson` controls the bootstrap/no-bootstrap branch; every other exists() probe
-// (node_modules, .install-hash, package-lock.json) defaults to false so isInstallCurrent() is always
-// false and install() always runs, matching the original tests' fixtures (a fresh /mirror/e2e with no
-// real cache marker on disk).
+/* A minimal, fully-stubbed fs fake for the orchestration-layer (setup()) tests below — no real disk
+   touched. `hasPackageJson` controls the bootstrap/no-bootstrap branch; every other exists() probe
+   (node_modules, .install-hash, package-lock.json) defaults to false so isInstallCurrent() is always
+   false and install() always runs, matching the original tests' fixtures (a fresh /mirror/e2e with no
+   real cache marker on disk).
+ */
 function orchestrationFs(opts: { hasPackageJson: boolean; onBootstrap?: (dest: string) => void; onEnsureSpecDir?: (path: string) => void }): SetupAdapterFsDeps {
   return {
     exists: (path) => (path.endsWith("package.json") ? opts.hasPackageJson : false),
@@ -100,13 +86,14 @@ test("repo without an e2e project: seeds first, then installs", async () => {
     return okResult();
   });
   await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
-  assert.deepEqual(seq, ["bootstrap", "install"]); // bootstrap BEFORE install
+  assert.deepEqual(seq, ["bootstrap", "install"]); /* bootstrap BEFORE install */
   assert.equal(seeded, "/mirror/e2e");
 });
 
-// The parallel fan-out workers are each assigned `flows/<flow>.spec.ts` and can only `write` (no
-// mkdir). If the orchestrator does not create `flows/` first, every worker write fails silently and a
-// complete/exhaustive run generates ZERO specs. Setup MUST ensure the dir — after seeding, before install.
+/* The parallel fan-out workers are each assigned `flows/<flow>.spec.ts` and can only `write` (no
+   mkdir). If the orchestrator does not create `flows/` first, every worker write fails silently and a
+   complete/exhaustive run generates ZERO specs. Setup MUST ensure the dir — after seeding, before install.
+ */
 test("ensures the flows/ spec dir exists (after bootstrap, before install) so fan-out workers can write", async () => {
   const seq: string[] = [];
   let ensuredFor = "";
@@ -127,8 +114,9 @@ test("ensures the flows/ spec dir exists (after bootstrap, before install) so fa
   assert.equal(ensuredFor, join("/mirror/e2e", "flows"));
 });
 
-// Even on the install-cached fast path (deps up to date → no npm ci), the flows/ dir must still be
-// ensured: a fresh checkout/clean can wipe it while node_modules (and the install marker) survive.
+/* Even on the install-cached fast path (deps up to date → no npm ci), the flows/ dir must still be
+   ensured: a fresh checkout/clean can wipe it while node_modules (and the install marker) survive.
+ */
 test("ensures flows/ even when the install is cached and skipped", async () => {
   const seq: string[] = [];
   const fs = orchestrationFs({
@@ -140,18 +128,18 @@ test("ensures flows/ even when the install is cached and skipped", async () => {
     seq.push("install");
     return okResult();
   });
-  // /mirror/e2e has no node_modules marker, so isInstallCurrent is false and install runs; the point
-  // here is simply that ensureSpecDir is invoked unconditionally before that branch.
+  /* /mirror/e2e has no node_modules marker, so isInstallCurrent is false and install runs; the point
+     here is simply that ensureSpecDir is invoked unconditionally before that branch.
+   */
   await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
   assert.ok(seq.includes("ensureSpecDir"), `ensureSpecDir must run: ${seq.join(",")}`);
 });
 
-// ── Process safeguards: install timeout + operator cancel ────────────────────
-
 test("a hung install times out and throws (the pipeline surfaces it as infra-error)", async () => {
   const fs = orchestrationFs({ hasPackageJson: true });
-  // The runner hangs forever (never resolves) — the OUTER race in setup() (defense-in-depth,
-  // independent of the runner's own internal timeout) must still fire and throw.
+  /* The runner hangs forever (never resolves) — the OUTER race in setup() (defense-in-depth,
+     independent of the runner's own internal timeout) must still fire and throw.
+   */
   const runner = fakeRunner(() => new Promise(() => {}));
   await assert.rejects(
     () => new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e", { timeoutMs: 30 }),
@@ -206,19 +194,21 @@ test("a runner-signaled timeout (timedOut:true, never rejects per SandboxedRunRe
   );
 });
 
-// A mid-install operator cancel collapses to the SAME timedOut:true result shape as an internal
-// timeout (SandboxedBinaryRunnerAdapter's onAbort branch resolves timedOut:true on operator
-// cancel, mirroring its own timeout branch — see that module's header note). Without a consumer-
-// level check, install() could not tell the two apart and always threw the generic "timed out
-// after Xms — killed" message, masking the distinct operator-cancel message the deleted
-// src/qa/setup.ts original always threw for this path. Fixed at the consumer level (this method),
-// same pattern as stryker-mutation-oracle.adapter.ts's own signal check.
+/* A mid-install operator cancel collapses to the SAME timedOut:true result shape as an internal
+   timeout (SandboxedBinaryRunnerAdapter's onAbort branch resolves timedOut:true on operator
+   cancel, mirroring its own timeout branch — see that module's header note). Without a consumer-
+   level check, install() could not tell the two apart and always threw the generic "timed out
+   after Xms — killed" message, masking the distinct operator-cancel message the deleted
+   src/qa/setup.ts original always threw for this path. Fixed at the consumer level (this method),
+   same pattern as stryker-mutation-oracle.adapter.ts's own signal check.
+ */
 test("a mid-install operator cancel (signal aborts DURING the run) throws the distinct operator-cancel message, not the generic timeout message", async () => {
   const controller = new AbortController();
   const fs = orchestrationFs({ hasPackageJson: true });
   const runner = fakeRunner(async () => {
-    // Simulate the abort firing WHILE the install is in flight: by the time the runner settles,
-    // the signal is already aborted — matching SandboxedBinaryRunnerAdapter's onAbort resolution.
+    /* Simulate the abort firing WHILE the install is in flight: by the time the runner settles,
+       the signal is already aborted — matching SandboxedBinaryRunnerAdapter's onAbort resolution.
+     */
     controller.abort();
     return okResult({ exitCode: null, timedOut: true });
   });
@@ -232,9 +222,9 @@ test("a mid-install operator cancel (signal aborts DURING the run) throws the di
   );
 });
 
-// ── ensureFailureCapture (Unit 2 — Task 2.6) ────────────────────────────────
-// Tests run against real temp dirs so append-only and idempotency are provable without mocking the
-// FS. SetupAdapter's own ensureFailureCapture (nodeFsDeps-backed) is the production code under test.
+/* Tests run against real temp dirs so append-only and idempotency are provable without mocking the
+   FS. SetupAdapter's own ensureFailureCapture (nodeFsDeps-backed) is the production code under test.
+ */
 
 test("ensureFailureCapture: first injection appends the block; existing lines untouched", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-test-"));
@@ -244,21 +234,20 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     writeFileSync(fixturesPath, existingContent);
     realAdapter().ensureFailureCapture(dir);
     const after = readFileSync(fixturesPath, "utf8");
-    // Marker must be present after injection.
+    /* Marker must be present after injection. */
     assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "marker not found after injection");
-    // Existing lines must still be present at the start (append-only).
+    /* Existing lines must still be present at the start (append-only). */
     assert.ok(after.startsWith(existingContent), "existing content was modified (not append-only)");
-    // The original content is a prefix of the new content (nothing was deleted or reordered).
     assert.equal(after.slice(0, existingContent.length), existingContent);
-    // W1: the injected block carries the NEW project- AND file-aware key (project + file/title hash +
-    // retry) and the new body fields — guarding that setup.adapter.ts's FAILURE_CAPTURE_BLOCK stays
-    // in sync with the fixture. C1: the block must be ESM-safe — dynamic import(), never require().
+    /* retry) and the new body fields — guarding that setup.adapter.ts's FAILURE_CAPTURE_BLOCK stays
+       in sync with the fixture. C1: the block must be ESM-safe — dynamic import(), never require().
+     */
     assert.match(after, /testInfo\.project\.name/, "the injected block must record the project name");
     assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename (W1)");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
     assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors (Feature B)");
-    // C1: ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined.
+    /* C1: ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
   } finally {
@@ -330,21 +319,22 @@ test("setup() calls ensureFailureCapture after ensureSpecDir", async () => {
   const specIdx = seq.indexOf("ensureSpecDir");
   const captureIdx = seq.indexOf("ensureFailureCapture");
   assert.ok(specIdx !== -1, "ensureSpecDir was not called");
-  // fixtures.ts does not exist under this fake (exists() always false for non-package.json paths), so
-  // ensureFailureCapture returns before reaching read() — assert the ORDER contract structurally
-  // instead: ensureSpecDir must run, and setup() must not throw when fixtures.ts is absent.
+  /* fixtures.ts does not exist under this fake (exists() always false for non-package.json paths), so
+     ensureFailureCapture returns before reaching read() — assert the ORDER contract structurally
+     instead: ensureSpecDir must run, and setup() must not throw when fixtures.ts is absent.
+   */
   assert.equal(captureIdx, -1, "read() is never reached when fixtures.ts does not exist (no-op path)");
   assert.ok(seq.includes("install"), "setup() must complete through install");
 });
 
-// ── ensurePlaywrightEnvKeys (Task D5) ───────────────────────────────────────
-// Repos onboarded before actionTimeout/testIdAttribute were added to the seed's playwright.config.ts
-// never receive them (bootstrap only runs once, on first onboard). This repairs already-onboarded
-// repos: if the repo's e2e/playwright.config.ts is a recognizable, unmodified copy of an OLDER seed
-// version (carries the seed's ownership marker) AND is missing the managed env-passthrough keys,
-// replace the whole file with the CURRENT seed (env-passthrough only — never bakes concrete values).
-// A customized config (marker absent) is left untouched with a loud warning naming the missing keys —
-// the repo owns its e2e/ after first PR.
+/* Repos onboarded before actionTimeout/testIdAttribute were added to the seed's playwright.config.ts
+   never receive them (bootstrap only runs once, on first onboard). This repairs already-onboarded
+   repos: if the repo's e2e/playwright.config.ts is a recognizable, unmodified copy of an OLDER seed
+   version (carries the seed's ownership marker) AND is missing the managed env-passthrough keys,
+   replace the whole file with the CURRENT seed (env-passthrough only — never bakes concrete values).
+   A customized config (marker absent) is left untouched with a loud warning naming the missing keys —
+   the repo owns its e2e/ after first PR.
+ */
 
 test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFailureCapture, before the install-current check", async () => {
   const seq: string[] = [];
@@ -354,7 +344,7 @@ test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFai
     exists: (path) => {
       if (path.endsWith("playwright.config.ts")) {
         seq.push("ensurePlaywrightEnvKeys");
-        return false; // no-op path — file absent
+        return false; /* no-op path — file absent */
       }
       return fs.exists(path);
     },
@@ -372,7 +362,7 @@ test("ensurePlaywrightEnvKeys: seed-owned config missing the managed keys is rep
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-"));
   try {
     const configPath = join(dir, "playwright.config.ts");
-    // An older seed copy: carries the ownership marker but predates actionTimeout/testIdAttribute.
+    /* An older seed copy: carries the ownership marker but predates actionTimeout/testIdAttribute. */
     const oldSeed = `// Base Playwright config — harness SEED (Filter A).\n// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig, devices } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL },\n  projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],\n});\n`;
     writeFileSync(configPath, oldSeed);
     assert.ok(!oldSeed.includes("actionTimeout"), "test precondition: old seed must lack actionTimeout");
@@ -383,7 +373,7 @@ test("ensurePlaywrightEnvKeys: seed-owned config missing the managed keys is rep
     const after = readFileSync(configPath, "utf8");
     assert.match(after, /actionTimeout: Number\(process\.env\.PW_ACTION_TIMEOUT_MS/, "repaired config must gain actionTimeout (env-passthrough)");
     assert.match(after, /testIdAttribute: process\.env\.PW_TEST_ID_ATTRIBUTE/, "repaired config must gain testIdAttribute (env-passthrough)");
-    // Must be the byte-identical current seed (no baked concrete values — reads process.env at runtime).
+    /* Must be the byte-identical current seed (no baked concrete values — reads process.env at runtime). */
     const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
     assert.equal(after, currentSeed, "repaired config must be byte-identical to the current seed");
   } finally {
@@ -456,8 +446,9 @@ test("ensurePlaywrightEnvKeys: a config missing only one of the two managed keys
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-partial-"));
   try {
     const configPath = join(dir, "playwright.config.ts");
-    // Has testIdAttribute already (e.g. hand-added) but not actionTimeout — still repaired, since the
-    // repair replaces the whole file wholesale once the marker recognizes it as seed-owned.
+    /* Has testIdAttribute already (e.g. hand-added) but not actionTimeout — still repaired, since the
+       repair replaces the whole file wholesale once the marker recognizes it as seed-owned.
+     */
     const partialSeed = `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { testIdAttribute: process.env.PW_TEST_ID_ATTRIBUTE ?? "data-testid" },\n});\n`;
     writeFileSync(configPath, partialSeed);
 
@@ -470,15 +461,16 @@ test("ensurePlaywrightEnvKeys: a config missing only one of the two managed keys
   }
 });
 
-// ── C1: the failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
-// config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
-// afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
-// surrounding try/catch → NO dump file → Lever-1's primary grounding path was DEAD. These tests prove
-// the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
+/* ── C1: the failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
+   config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
+   afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
+   surrounding try/catch → NO dump file → Lever-1's primary grounding path was DEAD. These tests prove
+   the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
+ */
 
 test("C1: FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
   assert.doesNotMatch(FAILURE_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
-  // And it MUST pull its deps via dynamic import() instead.
+  /* And it MUST pull its deps via dynamic import() instead. */
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:fs"\)/);
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:path"\)/);
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
@@ -761,10 +753,11 @@ test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no
   }
 });
 
-// ── FIX 4: byte-twin token guard for config/e2e/fixtures.ts ─────────────────
-// The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above (C1 block). Nothing
-// asserted that config/e2e/fixtures.ts's qa-failure-capture block stays in sync. These token-presence
-// tests catch a future edit that updates one twin but not the other.
+/* ── FIX 4: byte-twin token guard for config/e2e/fixtures.ts ─────────────────
+   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above (C1 block). Nothing
+   asserted that config/e2e/fixtures.ts's qa-failure-capture block stays in sync. These token-presence
+   tests catch a future edit that updates one twin but not the other.
+ */
 
 test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
@@ -813,9 +806,10 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains httpStatus"
   assert.ok(block.includes("httpStatus"), "fixtures.ts qa-failure-capture block must contain httpStatus");
 });
 
-// ── Feature B: byte-twin token guard — runtimeErrors capture ──────────────────
-// Same FIX4 pattern: catches a future edit that updates the fixtures.ts seed but not the
-// setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
+/* ── Feature B: byte-twin token guard — runtimeErrors capture ──────────────────
+   Same FIX4 pattern: catches a future edit that updates the fixtures.ts seed but not the
+   setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
+ */
 
 test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
@@ -855,17 +849,18 @@ test("Feature B: setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('consol
   );
 });
 
-// ── D2: byte-level twin guard for the shared capture region ────────────────
-// FIX4/Feature B above only assert individual tokens are present in both twins — they would NOT have
-// caught a literal NUL byte silently replacing the space in the runtimeErrors dedup key
-// (`${e.type}\0${text}` in the seed vs `${e.type} ${text}` in FAILURE_CAPTURE_BLOCK), because both
-// strings still contain the same tokens. This test compares the two blocks structurally:
-// config/e2e/fixtures.ts is real strict-mode TypeScript (config/e2e/tsconfig.json has `strict: true`),
-// so its capture block legitimately carries type annotations (`let x: T[] = []`, `new Set<string>()`,
-// the `!` non-null assertion) that FAILURE_CAPTURE_BLOCK — a plain-JS string appended into an
-// arbitrary existing repo's fixtures.ts — deliberately omits. Stripping ONLY those known TS-only
-// annotations from the seed's block must leave it byte-identical to FAILURE_CAPTURE_BLOCK; any other
-// divergence (like the NUL byte) is a real drift and must fail.
+/* ── D2: byte-level twin guard for the shared capture region ────────────────
+   FIX4/Feature B above only assert individual tokens are present in both twins — they would NOT have
+   caught a literal NUL byte silently replacing the space in the runtimeErrors dedup key
+   (`${e.type}\0${text}` in the seed vs `${e.type} ${text}` in FAILURE_CAPTURE_BLOCK), because both
+   strings still contain the same tokens. This test compares the two blocks structurally:
+   config/e2e/fixtures.ts is real strict-mode TypeScript (config/e2e/tsconfig.json has `strict: true`),
+   so its capture block legitimately carries type annotations (`let x: T[] = []`, `new Set<string>()`,
+   the `!` non-null assertion) that FAILURE_CAPTURE_BLOCK — a plain-JS string appended into an
+   arbitrary existing repo's fixtures.ts — deliberately omits. Stripping ONLY those known TS-only
+   annotations from the seed's block must leave it byte-identical to FAILURE_CAPTURE_BLOCK; any other
+   divergence (like the NUL byte) is a real drift and must fail.
+ */
 test("D2: config/e2e/fixtures.ts qa-failure-capture block matches FAILURE_CAPTURE_BLOCK byte-for-byte (modulo TS-only type annotations)", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
@@ -874,11 +869,11 @@ test("D2: config/e2e/fixtures.ts qa-failure-capture block matches FAILURE_CAPTUR
   assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
   assert.ok(end !== -1, "fixtures.ts must contain the qa-failure-capture end marker");
 
-  const blockStart = content.lastIndexOf("\n", start); // the newline just before "// >>>"
+  const blockStart = content.lastIndexOf("\n", start); /* the newline just before "// >>>" */
   const endMarkerLine = "// <<< qa-failure-capture <<<";
   const endMarkerIdx = content.lastIndexOf(endMarkerLine, end);
   assert.ok(endMarkerIdx !== -1, "fixtures.ts must contain the full end marker line");
-  const blockEnd = endMarkerIdx + endMarkerLine.length + 1; // include the trailing newline
+  const blockEnd = endMarkerIdx + endMarkerLine.length + 1; /* include the trailing newline */
   const seedBlock = content.slice(blockStart, blockEnd);
 
   const normalized = seedBlock
@@ -896,9 +891,10 @@ test("D2: config/e2e/fixtures.ts qa-failure-capture block matches FAILURE_CAPTUR
   );
 });
 
-// ── C1: the afterEach body, run as a real ES module, dumps runtimeErrors (Feature B) ─────────
-// Same harness as the D1/D2 C1 tests above: run the block's beforeEach/afterEach as genuine ESM
-// callbacks against a fake page that emits console/pageerror events, and assert the dump.
+/* ── C1: the afterEach body, run as a real ES module, dumps runtimeErrors (Feature B) ─────────
+   Same harness as the D1/D2 C1 tests above: run the block's beforeEach/afterEach as genuine ESM
+   callbacks against a fake page that emits console/pageerror events, and assert the dump.
+ */
 
 test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-"));

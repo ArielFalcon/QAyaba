@@ -5,8 +5,6 @@ import type { RepoRef } from "@contexts/service-topology/domain/index.ts";
 import type { ProposerFeedback } from "@contexts/service-topology/application/ports/index.ts";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL, commonSessionRoot } from "./llm-profile-proposer.adapter";
 
-// ── Fixtures ────────────────────────────────────────────────────────────────
-
 const FRONT: RepoRef = { repo: "ArielFalcon/nname-gateway", mirrorDir: "/mirrors/nname-gateway" };
 const SYSTEM: RepoRef[] = [{ repo: "ArielFalcon/ms-name-orders", mirrorDir: "/mirrors/ms-name-orders" }];
 
@@ -34,9 +32,10 @@ const VALID_VERDICT_JSON = JSON.stringify({
   ],
 });
 
-// A single malformed candidate (missing eventPattern.publishCall) degrades to
-// UNPARSEABLE_SENTINEL via the schema's per-entry .catch, so this verdict parses successfully but
-// filters down to zero candidates — not a throw, so it must NOT trigger the failure log.
+/* A single malformed candidate (missing eventPattern.publishCall) degrades to
+   UNPARSEABLE_SENTINEL via the schema's per-entry .catch, so this verdict parses successfully but
+   filters down to zero candidates — not a throw, so it must NOT trigger the failure log.
+ */
 const SENTINEL_ONLY_VERDICT_JSON = JSON.stringify({
   candidates: [
     {
@@ -47,7 +46,6 @@ const SENTINEL_ONLY_VERDICT_JSON = JSON.stringify({
         listenerBaseType: "ListenerMessageDelegate",
         listenerEventCall: "convertMsgToSpecificType",
         subscriberBaseType: "DomainEventSubscriber",
-        // missing publishCall -> degrades to UNPARSEABLE_SENTINEL
       },
     },
   ],
@@ -64,7 +62,6 @@ const MIXED_VERDICT_JSON = JSON.stringify({
       openApiPath: "openapi.yaml",
     },
     {
-      // malformed: missing eventPattern.publishCall
       transport: "event",
       files: "**/*.java",
       eventPattern: {
@@ -115,8 +112,6 @@ function fakeDepsFactory(opts: FakeDepsOpts): () => Promise<AgentDeps> {
     },
   });
 }
-
-// ── Tests ───────────────────────────────────────────────────────────────────
 
 test("propose(): a well-formed verdict (1 http + 1 event) returns the correctly discriminated BoundaryProfile[]", async () => {
   const disposed = { count: 0 };
@@ -190,13 +185,13 @@ test("propose(): calls depsFactory() DIRECTLY and pins the adapter's model on op
   assert.equal(opens[0]?.timeoutMs, 12345);
 });
 
-// ── Session root (sibling-repo read hang fix) ──────────────────────────────────────────────────
-// Root cause (live-verified): the proposer's task spans the front repo AND every service repo —
-// siblings under the same mirror root. Opening the session at front.mirrorDir alone leaves a
-// service mirror OUTSIDE the session root; opencode's external-read approval gate (serve mode)
-// then waits forever for an approval that never comes, stalling the tool call at state=running
-// until the adapter's 5-min timeout aborts it -> silent fail-open to []. Rooting the session at
-// the LCA of every mirror keeps all repos inside the workspace.
+/* ── Session root (sibling-repo read hang fix) ──────────────────────────────────────────────────
+   siblings under the same mirror root. Opening the session at front.mirrorDir alone leaves a
+   service mirror OUTSIDE the session root; opencode's external-read approval gate (serve mode)
+   then waits forever for an approval that never comes, stalling the tool call at state=running
+   until the adapter's 5-min timeout aborts it -> silent fail-open to []. Rooting the session at
+   the LCA of every mirror keeps all repos inside the workspace.
+ */
 
 test("propose(): multi-repo — session opens at the common ancestor of front + all service mirrors", async () => {
   const opens: Array<{ agent: string; cwd: string }> = [];
@@ -277,11 +272,11 @@ test("commonSessionRoot(): LCA edge case — segment-wise ancestor, not naive st
   assert.equal(commonSessionRoot(front, system), "/x");
 });
 
-// ── AbortSignal thread-through (Slice 5a, design delta §C session-leak fix) ────────────────────
-// The server-side onboarding job wraps onboard() in a round-budget Promise.race and owns an
-// AbortController whose signal must reach the underlying agent session so a job timeout actually
-// CANCELS the in-flight proposer session, not merely resolves the race. This proves the pass-through
-// end to end: ctx.signal -> deps.open's opts.signal.
+/* The server-side onboarding job wraps onboard() in a round-budget Promise.race and owns an
+   AbortController whose signal must reach the underlying agent session so a job timeout actually
+   CANCELS the in-flight proposer session, not merely resolves the race. This proves the pass-through
+   end to end: ctx.signal -> deps.open's opts.signal.
+ */
 
 test("propose(): ctx.signal is threaded straight through to deps.open's opts.signal (job-timeout cancellation)", async () => {
   const opens: Array<{ signal?: AbortSignal }> = [];
@@ -477,19 +472,21 @@ test("propose(): fail-open holds even when feedback is supplied and the session 
   assert.deepEqual(result, []);
 });
 
-// ── Diagnostic logging on the fail-open catch (proposer-codex-instant-fail) ────────────────────
-// LlmProfileProposerAdapter.propose()'s catch is the ONLY point where the real thrown error and
-// the app/model/singleProvider context still exist before the fail-open contract erases them to
-// `[]`. These tests assert exactly one warn-level structured log per failed round, with a redacted
-// `error` field, and NO log on a successful round — including the zero-candidates-after-filtering
-// case, which is not a throw and must stay silent.
+/* ── Diagnostic logging on the fail-open catch (proposer-codex-instant-fail) ────────────────────
+   LlmProfileProposerAdapter.propose()'s catch is the ONLY point where the real thrown error and
+   the app/model/singleProvider context still exist before the fail-open contract erases them to
+   `[]`. These tests assert exactly one warn-level structured log per failed round, with a redacted
+   `error` field, and NO log on a successful round — including the zero-candidates-after-filtering
+   case, which is not a throw and must stay silent.
+ */
 
 test("propose(): session.prompt() rejecting logs exactly one redacted warn with {app, model, singleProvider, error} and still returns []", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-  // Gotcha: save the prior value and restore via `delete` when it was unset — assigning
-  // `undefined` back would coerce to the STRING "undefined" (process.env only holds strings).
+  /* Gotcha: save the prior value and restore via `delete` when it was unset — assigning
+     `undefined` back would coerce to the STRING "undefined" (process.env only holds strings).
+   */
   const priorSingleProvider = process.env.AGENT_SINGLE_PROVIDER;
   process.env.AGENT_SINGLE_PROVIDER = "single";
   try {
@@ -534,12 +531,13 @@ test("propose(): deps.open() throwing before a session exists logs exactly one w
   }
 });
 
-// NOTE (verified against the schema module's own doc + a runtime probe): ProposerVerdictSchema
-// wraps itself in a top-level `.catch({candidates: []})`, so `.parse()` structurally NEVER throws
-// for any input shape, including `extractJson` returning null for garbage text — it degrades to
-// `{candidates: []}` inside the TRY block, not via propose()'s catch(err). This is therefore a
-// successful-round-with-zero-candidates case (same family as the sentinel-only filter below), not
-// a throw — per the "No Logging on Successful Propose" requirement it must NOT log.
+/* NOTE (verified against the schema module's own doc + a runtime probe): ProposerVerdictSchema
+   wraps itself in a top-level `.catch({candidates: []})`, so `.parse()` structurally NEVER throws
+   for any input shape, including `extractJson` returning null for garbage text — it degrades to
+   `{candidates: []}` inside the TRY block, not via propose()'s catch(err). This is therefore a
+   successful-round-with-zero-candidates case (same family as the sentinel-only filter below), not
+   a throw — per the "No Logging on Successful Propose" requirement it must NOT log.
+ */
 test("propose(): an unparseable reply degrades to an empty verdict inside the try block (no throw) — no failure log, still returns []", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];

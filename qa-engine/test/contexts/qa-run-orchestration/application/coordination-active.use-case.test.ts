@@ -1,5 +1,5 @@
-// Fase 13 — active pre-generate: sidekick may replace GenerationPort; shadow never does;
- // needs-lead / missing sidekick fail open to the lead GenerationPort.
+/* Active pre-generate: sidekick may replace GenerationPort; shadow never does.
+   needs-lead / missing sidekick fail open to the lead GenerationPort. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";

@@ -24,7 +24,7 @@ test("parseMaintainerSummary returns a not-fixed default when the markers are ab
 
 test("validJustification requires all three non-trivial arguments (gates self-merge)", () => {
   assert.ok(validJustification(just));
-  assert.equal(validJustification({ rootCause: "x", whyNecessary: just.whyNecessary, whyMinimal: just.whyMinimal }), undefined); // too short
-  assert.equal(validJustification({ rootCause: just.rootCause }), undefined); // missing args
+  assert.equal(validJustification({ rootCause: "x", whyNecessary: just.whyNecessary, whyMinimal: just.whyMinimal }), undefined);
+  assert.equal(validJustification({ rootCause: just.rootCause }), undefined);
   assert.equal(validJustification(null), undefined);
 });

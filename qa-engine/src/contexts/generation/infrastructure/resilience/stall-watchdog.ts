@@ -1,18 +1,3 @@
-// qa-engine/src/contexts/generation/infrastructure/resilience/stall-watchdog.ts
-// Liveness watchdog: fires onStall if notify() is not called within stallMs. Fully injectable (no
-// real clock) so unit tests run without real delays. Migrated WHOLE from src/integrations/
-// stall-watchdog.ts (migration-tier-4c Slice 2, D-4c-3) — zero @opencode-ai/sdk import, a pure
-// injectable-timer utility, so it is engine POLICY under the two-tier transport split, not a raw
-// primitive. Consumed by agent-transport-policy.ts's session-wrapping decorator.
-//
-// Usage pattern:
-//   const w = createStallWatchdog({ stallMs, onStall });
-//   w.notify(); // called on each agent activity event to reset the timer
-//   w.stop();   // called when the session ends
-//
-// Design: start-on-first-notify semantics — the watchdog does not arm itself
-// until the first notify() call, which prevents false-positives in the window
-// between construction and the agent starting work.
 
 export interface StallWatchdogTimers {
   setTimeout: (cb: () => void, ms: number) => ReturnType<typeof globalThis.setTimeout>;

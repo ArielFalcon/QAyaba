@@ -1,5 +1,6 @@
-// IndexStatusAdapter — durable lastIndexedSha keyed by mirrorDir (fail-open JSON sidecar).
-// SHA skip (same SHA → do not reindex) is a RunQaUseCase concern, not this adapter.
+/* IndexStatusAdapter — durable lastIndexedSha keyed by mirrorDir (fail-open JSON sidecar).
+   SHA skip (same SHA → do not reindex) is a RunQaUseCase concern, not this adapter.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";

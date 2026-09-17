@@ -1,14 +1,13 @@
-// qa-engine/test/shared-infrastructure/code-graph/lazy-project-code-graph.adapter.test.ts
-//
-// RED for Slice 4b.6's project-resolution prerequisite: LazyProjectCodeGraphAdapter wraps
-// CodebaseMemoryCodeGraphAdapter's static `project` constructor arg with a per-call, memoized,
-// fail-open resolution via ProjectNameResolver. This is what lets composition-root.ts construct the
-// REAL CodeGraphPort chain WITHOUT knowing the indexed project name up front (it is only knowable by
-// asking `list_projects` against the real repoDir, which is a per-run value the synchronous
-// wireBridges() cannot await). An unresolvable repoDir (not indexed) degrades every query to ok([])
-// — never an error, never a fabricated result — matching CodeGraphUnavailable's "no structural
-// signal" contract, but WITHOUT ever invoking the underlying adapter with an empty-string project
-// (which would silently misroute to whatever `project:""` might resolve to server-side).
+/* qa-engine/test/shared-infrastructure/code-graph/lazy-project-code-graph.adapter.test.ts
+   CodebaseMemoryCodeGraphAdapter's static `project` constructor arg with a per-call, memoized,
+   fail-open resolution via ProjectNameResolver. This is what lets composition-root.ts construct the
+   REAL CodeGraphPort chain WITHOUT knowing the indexed project name up front (it is only knowable by
+   asking `list_projects` against the real repoDir, which is a per-run value the synchronous
+   wireBridges() cannot await). An unresolvable repoDir (not indexed) degrades every query to ok([])
+   — never an error, never a fabricated result — matching CodeGraphUnavailable's "no structural
+   signal" contract, but WITHOUT ever invoking the underlying adapter with an empty-string project
+   (which would silently misroute to whatever `project:""` might resolve to server-side).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LazyProjectCodeGraphAdapter } from "../../../src/shared-infrastructure/code-graph/lazy-project-code-graph.adapter.ts";

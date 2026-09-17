@@ -1,9 +1,7 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.test.ts
-// RED-first (Task E.0): PublicationPortAdapter delegates the routing decision to the REAL
-// PublishDecisionService.decide() (workspace-and-publication's pure decide step — the legacy
-// E2e/Code/Context/Subset fan-out collapsed here per the plan) and dispatches the resulting
-// PublishOutcome to the REAL side-effect adapter (GitHubPrAdapter / GitHubIssueAdapter /
-// ShadowLogAdapter). THIN — no new routing policy, PublishDecisionService owns it verbatim.
+/* PublicationPortAdapter calls PublishDecisionService.decide() and dispatches the resulting
+   PublishOutcome to the REAL side-effect adapter (GitHubPrAdapter / GitHubIssueAdapter /
+   ShadowLogAdapter). THIN — no new routing policy; PublishDecisionService owns it.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PublicationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts";
@@ -15,12 +13,12 @@ import { ShadowLogAdapter } from "@contexts/workspace-and-publication/infrastruc
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
 import { SecretLeakError } from "@kernel/ports/redaction.port.ts";
 
-// sdd/migration-remediation Slice 4 (D-P1a): `render` is now a REQUIRED collaborator (the SAME
-// fail-closed posture as `sanitize`) — every construction in this file wires one. Tests that only
-// exercise ROUTING (which side effect fires, in what order, with what repo/branch) use this trivial
-// fake — body CONTENT is irrelevant to those assertions (they only check result.outcome, never
-// bodySeen). Tests that DO assert on body content wire the REAL renderIssue/renderPrBody via
-// realRender() below instead — the SAME collaborator composition-root.ts wires in production.
+/* fail-closed posture as `sanitize`) — every construction in this file wires one. Tests that only
+   exercise ROUTING (which side effect fires, in what order, with what repo/branch) use this trivial
+   fake — body CONTENT is irrelevant to those assertions (they only check result.outcome, never
+   bodySeen). Tests that DO assert on body content wire the REAL renderIssue/renderPrBody via
+   realRender() below instead — the SAME collaborator composition-root.ts wires in production.
+ */
 function fakeRender(): { issue: () => string; prBody: () => string } {
   return { issue: () => "issue-body", prBody: () => "pr-body" };
 }
@@ -28,10 +26,10 @@ function realRender(): { issue: typeof renderIssue; prBody: typeof renderPrBody 
   return { issue: renderIssue, prBody: renderPrBody };
 }
 
-// migration-tier-4a: GitHubPrAdapter/GitHubIssueAdapter now own their HTTP directly — these fakes
-// play the fetch/authHeaders boundary instead of the retired per-call closures. Only routing
-// (which side effect fires) matters here, so every fetch call resolves the same canned response
-// regardless of endpoint.
+/* play the fetch/authHeaders boundary instead of the retired per-call closures. Only routing
+   (which side effect fires) matters here, so every fetch call resolves the same canned response
+   regardless of endpoint.
+ */
 function fakeHttp(json: unknown): GitHubHttpDeps {
   return {
     authHeaders: () => ({}),
@@ -44,23 +42,17 @@ function fakePr(): GitHubPrAdapter {
 function fakeIssue(): GitHubIssueAdapter {
   return new GitHubIssueAdapter(fakeHttp({ html_url: "https://github.com/org/app/issues/5" }));
 }
-// WS5.4b — sanitize is now a REQUIRED collaborator (fail-closed default): every construction site in
-// this file wires an explicit identity sanitizer unless it is specifically testing a REAL sanitizer's
-// effect. This is NOT the same as the old default-to-identity behavior — the constructor now THROWS
-// if sanitize is omitted (see the dedicated test below); every other test in this file passes this
-// helper explicitly so it keeps exercising routing/rendering behavior, not the fail-closed gate itself.
+/* sanitize is a REQUIRED collaborator (fail-closed): every construction site in this file wires
+   an explicit identity sanitizer unless it is specifically testing a REAL sanitizer's effect. The
+   constructor THROWS if sanitize is omitted; every other test passes this helper explicitly so it
+   keeps exercising routing/rendering behavior, not the fail-closed gate itself.
+ */
 const identitySanitize = (text: string) => text;
 
-// PROD-BLOCKER fix: the "pr" route previously called GitHubPrAdapter.openWithAutoMerge() directly
-// against ctx.branch — a branch that was NEVER created/committed/pushed (VcsWriteAdapter, the only
-// VcsWritePort implementation, was never instantiated anywhere in composition-root.ts — grep-
-// confirmed zero references outside its own test). Every green, reviewer-approved, non-shadow run
-// failed at the PR step (GitHub 404/422 on a nonexistent branch). `vcsWrite` is a NEW required
-// collaborator (duck-typed per this file's own confinement pattern — see the header note on why
-// this bridge depends only on LOCAL structural interfaces, never a concrete workspace-and-publication
-// import) invoked ONLY on the "pr" route, BEFORE pr.openWithAutoMerge — mirroring the legacy
-// contract (src/integrations/publish.ts's publishChanges: checkout -B -> add -> commit -> push ->
-// THEN createPullRequest).
+/* The "pr" route must not call GitHubPrAdapter.openWithAutoMerge() against a branch that was
+   NEVER created/committed/pushed. `vcsWrite` is a required collaborator invoked ONLY on the "pr"
+   route, BEFORE pr.openWithAutoMerge — checkout -B -> add -> commit -> push -> THEN createPullRequest.
+ */
 function fakeVcsWrite(calls: string[]): { publish: (input: { mirrorDir: string; branch: string; sha: string }) => Promise<{ changed: boolean }> } {
   return { publish: async () => { calls.push("vcsWrite"); return { changed: true }; } };
 }
@@ -94,10 +86,10 @@ test("publish() routes to GitHubIssueAdapter when the decision resolves to 'issu
   assert.match(result.outcome, /issue/);
 });
 
-// ── sdd/migration-wiring-phase-2 Slice 6b (logs→Issue egress boundary) ────────────────────────────
-// The post-redaction fail-loud guard on the "issue" route: containsSecret is checked AFTER sanitize
-// has already run over the rendered Issue body. Absent (every routing/rendering test above) — no
-// guard, today's pre-Slice-6 behavior unchanged; present + still-flagged — refuse to publish, loudly.
+/* The post-redaction fail-loud guard on the "issue" route: containsSecret is checked AFTER sanitize
+   has already run over the rendered Issue body. Absent — no guard; present + still-flagged — refuse
+   to publish, loudly.
+ */
 
 test("publish() 'issue' route: containsSecret absent (not wired) never blocks — today's pre-Slice-6 behavior unchanged", async () => {
   const decide = new PublishDecisionService();
@@ -155,7 +147,7 @@ test("publish() 'issue' route: containsSecret is never consulted on the 'pr'/'sh
   const issue = fakeIssue();
   const shadowLog = new ShadowLogAdapter(() => {});
   const vcsWrite = fakeVcsWrite([]);
-  // containsSecret unconditionally true — if it were consulted on the 'pr' route this would throw.
+  /* containsSecret unconditionally true — if it were consulted on the 'pr' route this would throw. */
   const adapter = new PublicationPortAdapter(
     { decide, pr, issue, shadowLog, sanitize: identitySanitize, render: fakeRender(), vcsWrite, containsSecret: () => true },
     { repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true },
@@ -196,21 +188,22 @@ test("publish() produces a noop outcome with no side effect when verdict is skip
   assert.match(result.outcome, /noop/);
 });
 
-// ── Fix 5 (engram #961, CRITICAL) — the decision's REAL per-run reviewerApproved/coverageBlocks/
-// e2eChanged must override the adapter's static ctx when the caller supplies them. Previously
-// PublicationPort.publish() only carried {verdict,cases,logs}, so RunQaUseCase's genuinely
-// computed reviewerApproved (run-qa.use-case.ts ~line 511) never reached this adapter — a
-// green-but-reviewer-rejected run would still publish a PR because ctx.reviewerApproved defaulted
-// to a static `true`. Backward-compatible: absent fields still fall back to ctx (existing
-// stubs/tests keep working unchanged).
+/* e2eChanged must override the adapter's static ctx when the caller supplies them. Previously
+   PublicationPort.publish() only carried {verdict,cases,logs}, so RunQaUseCase's genuinely
+   computed reviewerApproved (run-qa.use-case.ts ~line 511) never reached this adapter — a
+   green-but-reviewer-rejected run would still publish a PR because ctx.reviewerApproved defaulted
+   to a static `true`. Backward-compatible: absent fields still fall back to ctx (existing
+   stubs/tests keep working unchanged).
+ */
 
 test("publish() prefers decision.reviewerApproved (dynamic) over ctx.reviewerApproved (static) when both are supplied", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
   const shadowLog = new ShadowLogAdapter(() => {});
-  // ctx says reviewerApproved:true (the OLD static default), but the decision's dynamic value says
-  // the reviewer actually rejected this run — the dynamic value must win, routing to "issue" not "pr".
+  /* ctx says reviewerApproved:true (the OLD static default), but the decision's dynamic value says
+     the reviewer actually rejected this run — the dynamic value must win, routing to "issue" not "pr".
+   */
   const adapter = new PublicationPortAdapter({ decide, pr, issue, shadowLog, sanitize: identitySanitize, render: fakeRender() }, {
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
@@ -240,8 +233,9 @@ test("publish() prefers decision.coverageBlocks (dynamic) over ctx.coverageBlock
   const pr = fakePr();
   const issue = fakeIssue();
   const shadowLog = new ShadowLogAdapter(() => {});
-  // ctx says coverageBlocks:false (the OLD static default), but the dynamic value says an
-  // enforce-mode coverage-fail must hold the PR — the dynamic value must win.
+  /* ctx says coverageBlocks:false (the OLD static default), but the dynamic value says an
+     enforce-mode coverage-fail must hold the PR — the dynamic value must win.
+   */
   const adapter = new PublicationPortAdapter({ decide, pr, issue, shadowLog, sanitize: identitySanitize, render: fakeRender() }, {
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
@@ -256,8 +250,9 @@ test("publish() prefers decision.e2eChanged (dynamic) over ctx.e2eChanged (stati
   const pr = fakePr();
   const issue = fakeIssue();
   const shadowLog = new ShadowLogAdapter(() => {});
-  // ctx says e2eChanged:true (the OLD static default), but the dynamic value says no e2e/ files
-  // actually changed this run — publish() should reflect the REAL signal when supplied.
+  /* ctx says e2eChanged:true (the OLD static default), but the dynamic value says no e2e/ files
+     actually changed this run — publish() should reflect the REAL signal when supplied.
+   */
   const adapter = new PublicationPortAdapter({ decide, pr, issue, shadowLog, sanitize: identitySanitize, render: fakeRender() }, {
     repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
   });
@@ -267,8 +262,9 @@ test("publish() prefers decision.e2eChanged (dynamic) over ctx.e2eChanged (stati
   assert.match(result.outcome, /noop/, "a dynamic e2eChanged:false must override the static ctx default (green with no e2e changes publishes nothing)");
 });
 
-// ── F3 (CRITICAL, cross-repo Issue routing) — Issue creation routes to decision.issueRepo when
-// supplied; PR creation ALWAYS targets ctx.repo (the primary repo), never the trigger repo. ──────
+/* ── F3 (CRITICAL, cross-repo Issue routing) — Issue creation routes to decision.issueRepo when
+   supplied; PR creation ALWAYS targets ctx.repo (the primary repo), never the trigger repo. ──────
+ */
 
 test("F3: publish() routes Issue creation to decision.issueRepo (the triggering service repo), not ctx.repo (the primary)", async () => {
   const decide = new PublishDecisionService();
@@ -319,15 +315,14 @@ test("F3: publish() falls back to ctx.repo for an Issue when issueRepo is absent
   assert.equal(issueRepoSeen, "org/app", "absent issueRepo must fall back to ctx.repo (the ordinary, non-cross-repo case)");
 });
 
-// ── F4 (CRITICAL security invariant) — logs + case details + names are sanitized before reaching
-// an Issue/PR body. Absent sanitizer -> identity (backward-compat). ──────────────────────────────
+/* Logs + case details + names are sanitized before reaching an Issue/PR body. The constructor
+   throws if sanitize is omitted — no identity fallback.
+ */
 
-// sdd/migration-remediation Slice 4 (D-P1a): the OLD version of this test asserted that `logs` (a
-// raw execution-log string) was sanitized INTO the Issue body — that premise is now the exact
-// regression this slice fixes: renderIssue's own input shape carries no `logs` field at all, so a
-// raw log dump structurally cannot reach the body through this adapter anymore (see
-// render-publication.ts's own header). Replaced with the render-content-level assertion: the Issue
-// body never contains raw log text, and the footer points at the run artifacts instead.
+/* renderIssue's input shape carries no `logs` field, so a raw log dump structurally cannot reach
+   the body through this adapter. The Issue body never contains raw log text, and the footer points
+   at the run artifacts instead.
+ */
 test("F4 (Slice 4 update): publish() never embeds raw execution logs in the Issue body — logs live in the run artifacts", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
@@ -368,15 +363,15 @@ test("F4: publish() applies the injected sanitize() to each failing case's name 
   assert.ok(!bodySeen.includes("sk-ghi789RST"), `the case detail's secret must be sanitized — got: ${bodySeen}`);
 });
 
-// ── PROD-BLOCKER fix (vcsWrite: stage/commit/push before the PR call) ─────────────────────────────
-// See fakeVcsWrite's own header note above for the full bug description. These tests pin: (1) the
-// vcsWrite collaborator runs BEFORE pr.openWithAutoMerge on the "pr" route, in that exact order;
-// (2) issue/shadow/noop/quarantine routes NEVER invoke it (git-write is a PR-only side effect);
-// (3) a "nothing changed" result from vcsWrite short-circuits — no PR call, outcome reflects noop;
-// (4) a "pr" route with vcsWrite absent throws loudly at publish() time (fail-closed, WS5.4b pattern
-// — checked lazily inside the "pr" case rather than the constructor, since unlike sanitize [used on
-// every rendered body] vcsWrite is relevant ONLY to the "pr" route; every other test in this file
-// exercising issue/shadow/noop legitimately omits it and must keep passing unchanged).
+/* vcsWrite: stage/commit/push before the PR call. These tests pin: (1) the vcsWrite collaborator
+   runs BEFORE pr.openWithAutoMerge on the "pr" route, in that exact order; (2) issue/shadow/noop/
+   quarantine routes NEVER invoke it (git-write is a PR-only side effect); (3) a "nothing changed"
+   result from vcsWrite short-circuits — no PR call, outcome reflects noop; (4) a "pr" route with
+   vcsWrite absent throws loudly at publish() time (fail-closed — checked lazily inside the "pr"
+   case rather than the constructor, since unlike sanitize [used on every rendered body] vcsWrite
+   is relevant ONLY to the "pr" route; every other test in this file exercising issue/shadow/noop
+   legitimately omits it and must keep passing unchanged).
+ */
 
 test("PROD-BLOCKER: publish() invokes vcsWrite BEFORE pr.openWithAutoMerge on the 'pr' route (call-order pinned)", async () => {
   const decide = new PublishDecisionService();
@@ -395,9 +390,10 @@ test("PROD-BLOCKER: publish() invokes vcsWrite BEFORE pr.openWithAutoMerge on th
   assert.deepEqual(order, ["vcsWrite.publish", "pr.openWithAutoMerge"], "the git write must land BEFORE the PR is opened — the legacy contract's exact ordering");
 });
 
-// judgment-day round 2 (FIX 3, HIGH, both judges): the vcs-write tracked-file guard's own revert
-// must never be silent — this bridge threads vcsWrite.publish()'s `revertedDenylisted` straight
-// through to its own caller (RunQaUseCase), so it can be merged into gateSignals.confinement.
+/* the vcs-write tracked-file guard's own revert
+   must never be silent — this bridge threads vcsWrite.publish()'s `revertedDenylisted` straight
+   through to its own caller (RunQaUseCase), so it can be merged into gateSignals.confinement.
+ */
 test("FIX 3: publish() surfaces vcsWrite's revertedDenylisted on the 'pr' route", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
@@ -534,8 +530,9 @@ test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is a
   const pr = fakePr();
   const issue = fakeIssue();
   const shadowLog = new ShadowLogAdapter(() => {});
-  // vcsWrite is deliberately omitted (it is OPTIONAL at the type level — see PublicationPortCollaborators'
-  // own doc for why) to prove the fail-closed runtime guard on the "pr" route specifically.
+  /* vcsWrite is deliberately omitted (it is OPTIONAL at the type level — see PublicationPortCollaborators'
+     own doc for why) to prove the fail-closed runtime guard on the "pr" route specifically.
+   */
   const adapter = new PublicationPortAdapter(
     { decide, pr, issue, shadowLog, sanitize: identitySanitize, render: fakeRender() },
     { repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true },
@@ -548,11 +545,10 @@ test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is a
   );
 });
 
-// WS5.4b (fail-closed publication default) — sanitize is now REQUIRED, not defaulted to identity.
-// A future composition that forgets to inject the real sanitizer must fail LOUDLY at construction
-// time, never silently publish unsanitized Issue/PR bodies. Replaces the old "falls back to identity
-// when no sanitizer is wired" test, whose entire premise (an absent sanitizer is a valid, silent
-// default) is exactly the latent fail-open this fix closes.
+/* sanitize is REQUIRED, not defaulted to identity. A composition that forgets to inject the real
+   sanitizer must fail LOUDLY at construction time, never silently publish unsanitized Issue/PR
+   bodies.
+ */
 test("WS5.4b: constructor THROWS when sanitize is omitted (fail-closed, not identity default)", () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
@@ -570,10 +566,10 @@ test("WS5.4b: constructor THROWS when sanitize is omitted (fail-closed, not iden
   );
 });
 
-// sdd/migration-remediation Slice 4 (D-P1a): the SAME fail-closed posture as WS5.4b's sanitize guard
-// immediately above, now also enforced for the `render` collaborator — a composition that forgets to
-// wire the real renderIssue/renderPrBody must throw loudly at construction time, never silently fall
-// back to a raw-log embed (the regression this slice fixes).
+/* The same fail-closed posture as the sanitize guard, now also enforced for the `render`
+   collaborator — a composition that forgets to wire the real renderIssue/renderPrBody must throw
+   loudly at construction time, never silently fall back to a raw-log embed.
+ */
 test("Slice 4: constructor THROWS when render is omitted (fail-closed, no raw-log fallback)", () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
@@ -591,10 +587,11 @@ test("Slice 4: constructor THROWS when render is omitted (fail-closed, no raw-lo
   );
 });
 
-// sdd/migration-remediation Slice 4 (D-P1a): the OLD version of this test proved identity-sanitize
-// passthrough via raw `logs` text reaching the body — that channel no longer exists (renderIssue
-// carries no logs field, see F4's own Slice-4-update test above). Re-targeted at a field the render
-// functions DO carry through unchanged with an identity sanitizer: a failing case's own name.
+/* the OLD version of this test proved identity-sanitize
+   passthrough via raw `logs` text reaching the body — that channel no longer exists (renderIssue
+   carries no logs field, see F4's own Slice-4-update test above). Re-targeted at a field the render
+   functions DO carry through unchanged with an identity sanitizer: a failing case's own name.
+ */
 test("WS5.4b: an explicitly-injected identity sanitize is still a VALID, deliberate choice", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
@@ -611,11 +608,12 @@ test("WS5.4b: an explicitly-injected identity sanitize is still a VALID, deliber
   assert.ok(bodySeen.includes("plain text, no secrets"), "an explicitly-injected identity sanitizer passes text through unchanged — this is a deliberate opt-in, not a silent default");
 });
 
-// ── SHADOW FIDELITY (live-monitoring find) ─────────────────────────────────────────────────────
-// Shadow mode's purpose is previewing the UNDERLYING side effect: a fail run's suppressed action
-// is an ISSUE, so the shadow log must say "would open Issue" — previously the shadow branch
-// unconditionally logged "would open PR" for every verdict (observed live: a fail run logging
-// 'would open PR ... title="qa-bot: fail run"').
+/* ── SHADOW FIDELITY (live-monitoring find) ─────────────────────────────────────────────────────
+   Shadow mode's purpose is previewing the UNDERLYING side effect: a fail run's suppressed action
+   is an ISSUE, so the shadow log must say "would open Issue" — previously the shadow branch
+   unconditionally logged "would open PR" for every verdict (observed live: a fail run logging
+   'would open PR ... title="qa-bot: fail run"').
+ */
 
 test("shadow fidelity: a FAIL run's shadow preview logs the would-be ISSUE, not a PR", async () => {
   const decide = new PublishDecisionService();
@@ -651,12 +649,12 @@ test("shadow fidelity: a PASS run's shadow preview still logs the would-be PR", 
   assert.ok(logs.some((l) => l.includes("would open PR")), `expected a PR preview, got: ${logs.join(" | ")}`);
 });
 
-// ── WS3.1 (adjudication -> Issue body) — the FixLoop's deterministic adjudicator verdict (class/
-// confidence/reason) is computed and gates learning, but was previously silently dropped at the
-// publish() boundary — the human reading the GitHub Issue never saw the engine's own diagnosis.
-// OPTIONAL field: absent -> the "Engine adjudication" section is omitted entirely (backward-compat
-// for every pre-existing caller/stub that never threads it). Present -> rendered through the SAME
-// injected sanitizer the logs/case fields already use. ──────────────────────────────────────────
+/* confidence/reason) is computed and gates learning, but was previously silently dropped at the
+   publish() boundary — the human reading the GitHub Issue never saw the engine's own diagnosis.
+   OPTIONAL field: absent -> the "Engine adjudication" section is omitted entirely (backward-compat
+   for every pre-existing caller/stub that never threads it). Present -> rendered through the SAME
+   injected sanitizer the logs/case fields already use. ──────────────────────────────────────────
+ */
 
 test("WS3.1: publish() renders an 'Engine adjudication' section in the Issue body when adjudication is present", async () => {
   const decide = new PublishDecisionService();
@@ -742,15 +740,12 @@ test("WS3.1: publish() sanitizes the adjudication reason through the SAME inject
   assert.ok(bodySeen.includes("[REDACTED_SECRET]"), "the sanitized replacement must appear in the rendered body");
 });
 
-// ── Follow-up #28 (reviewer-outage observability hardening) — a fleet-wide reviewer outage
-// (ReviewPortAdapter's catch mapping any session failure to {approved:false, parsed:false,
-// rationale:"reviewer unavailable: <reason>"}) previously degraded every green run to
-// Issue-instead-of-PR with the ONLY trace being a console.error at the moment of failure — never in
-// the Issue body, never in RunOutcome. `reviewerNote` (OPTIONAL, mirrors adjudication's own
-// backward-compat precedent immediately above) threads the reviewer-unavailable rationale into the
-// Issue body so the human reading it sees WHY there is no PR. Scope: ONLY the reviewer-unavailable
-// case ever threads this — a genuine reviewer REJECTION keeps today's rendering (corrections are
-// already that signal), never populating reviewerNote. ──────────────────────────────────────────
+/* A reviewer outage (ReviewPortAdapter mapping any session failure to {approved:false, parsed:false,
+   rationale:"reviewer unavailable: <reason>"}) must not degrade a green run to Issue-instead-of-PR
+   with the only trace a console.error. `reviewerNote` threads the unavailable rationale into the
+   Issue body so the human reading it sees WHY there is no PR. ONLY the reviewer-unavailable case
+   populates reviewerNote — a genuine reviewer REJECTION keeps corrections-only rendering.
+ */
 
 test("reviewer-outage note: publish() renders a 'Reviewer unavailable' section in the Issue body when reviewerNote is present", async () => {
   const decide = new PublishDecisionService();
@@ -813,11 +808,11 @@ test("reviewer-outage note: publish() sanitizes reviewerNote through the SAME in
   assert.ok(bodySeen.includes("[REDACTED_SECRET]"), "the sanitized replacement must appear in the rendered body");
 });
 
-// ── sdd/migration-remediation Slice 4 (D-P1a) — tested/isCode/parentRunId threading ──────────────
-// PublicationPort.publish()'s three new optional fields reach the REAL render functions correctly:
-// `tested` populates "Covers:"/"What was tested", `isCode` selects the PR body's wording, and
-// `parentRunId` renders the continuation reference. Absent -> each degrades gracefully (already
-// pinned at the render-publication.ts unit level; these tests pin the ADAPTER'S OWN threading).
+/* PublicationPort.publish()'s three new optional fields reach the REAL render functions correctly:
+   `tested` populates "Covers:"/"What was tested", `isCode` selects the PR body's wording, and
+   `parentRunId` renders the continuation reference. Absent -> each degrades gracefully (already
+   pinned at the render-publication.ts unit level; these tests pin the ADAPTER'S OWN threading).
+ */
 
 test("Slice 4: publish() threads tested/isCode/parentRunId into the PR body render", async () => {
   const decide = new PublishDecisionService();

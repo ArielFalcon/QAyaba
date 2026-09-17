@@ -1,21 +1,9 @@
-// qa-engine/test/contexts/test-execution/infrastructure/static-gate.checks.test.ts
-// Behavioral tests for the static gate (e2e checks + code-mode compile gate + manifest-entry
-// validation), moved from src/qa/validate.test.ts + src/qa/code-validate.test.ts +
-// src/qa/metadata.test.ts (migration-tier-4b, Slice 3 — validate cluster migration). Byte-identical
-// assertions to the three legacy files; only the import paths change (all three now live in ONE
-// module, static-gate.checks.ts, mirroring code-execution.runner.ts's own consolidation in Slice 1).
-//
-// PARITY RETIREMENT (spec's static-gate-validate-parity requirement — folded into THIS slice, not
-// deferred, because the spec MUST retire the pin in the SAME SLICE that deletes src/qa/validate.ts):
-// the former qa-engine/test/.../static-gate-validate-parity.test.ts (TE-04) existed to prove the
-// REAL, non-stubbed validateSpecs (imported across the src/qa-engine boundary) still catches the
-// WF-02 zero-assertion gap — a Plan-6-style no-op validateAll wiring that would pass every STUB test
-// but not a real one. That coverage is NOT lost: the "B2 RED"/"B2 GREEN" tests below already exercise
-// the SAME real, non-stubbed zero-assertion scan (checkZeroAssertionSpecs is baked into validateSpecs
-// itself, never injectable) against real temp-dir fixtures — now against the qa-engine-native
-// validateSpecs directly, with no cross-boundary import left to retire. The old parity file, its
-// qa-engine/tsconfig.json exclude entry, and its qa-engine/tsconfig.parity.json include entry are all
-// removed in this same commit.
+/* Behavioral tests for the static gate (e2e checks + code-mode compile gate + manifest-entry
+   validation). The "B2 RED"/"B2 GREEN" tests below exercise the real, non-stubbed zero-assertion
+   scan (checkZeroAssertionSpecs is baked into validateSpecs itself, never injectable) against
+   real temp-dir fixtures — a no-op validateAll wiring that would pass every stub test must not
+   pass a real one.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -32,9 +20,10 @@ import {
 import type { CheckResult } from "@contexts/test-execution/application/ports/index.ts";
 import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// Part 1 — validateSpecs / runCheck / checkManifest (moved from src/qa/validate.test.ts)
-// ══════════════════════════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Part 1 — validateSpecs / runCheck / checkManifest (moved from src/qa/validate.test.ts)
+   ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
 
 const ok = async () => ({ ok: true, output: "" });
 
@@ -60,8 +49,9 @@ test("accumulates ALL failures (does not stop at the first) with their label", a
 });
 
 test("infra failures (spawn ENOENT, signal-kill) are flagged separately from real lint errors", async () => {
-  // The typecheck check failed because tsc is missing (ENOENT) — infrastructure, NOT bad code.
-  // The lint check found a real error — code quality.
+  /* The typecheck check failed because tsc is missing (ENOENT) — infrastructure, NOT bad code.
+     The lint check found a real error — code quality.
+   */
   const deps: ValidateDeps = {
     typecheck: async () => ({ ok: false, output: "Error: spawn tsc ENOENT", infra: true }),
     lint: async () => ({ ok: false, output: "expect-expect: Test has no assertions" }),
@@ -70,12 +60,12 @@ test("infra failures (spawn ENOENT, signal-kill) are flagged separately from rea
   };
   const res = await validateSpecs("/dir", deps);
   assert.equal(res.ok, false);
-  // There are non-infra errors → not a pure infra failure.
-  assert.equal(res.infra, false); // lint error makes it a real validation failure
+  /* There are non-infra errors → not a pure infra failure. */
+  assert.equal(res.infra, false); /* lint error makes it a real validation failure */
 });
 
 test("a pure-infra validation failure is flagged as infra, not invalid", async () => {
-  // ALL checks failed with infrastructure errors (e.g. npx not installed, ENOMEM).
+  /* ALL checks failed with infrastructure errors (e.g. npx not installed, ENOMEM). */
   const deps: ValidateDeps = {
     typecheck: async () => ({ ok: false, output: "spawn npx ENOENT", infra: true }),
     lint: async () => ({ ok: false, output: "spawn npx ENOENT", infra: true }),
@@ -84,7 +74,7 @@ test("a pure-infra validation failure is flagged as infra, not invalid", async (
   };
   const res = await validateSpecs("/dir", deps);
   assert.equal(res.ok, false);
-  // Pure infra: the gate itself couldn't run. Should be infra-error, not invalid.
+  /* Pure infra: the gate itself couldn't run. Should be infra-error, not invalid. */
   assert.equal(res.infra, true);
 });
 
@@ -100,13 +90,10 @@ test("invalid metadata makes the run invalid", async () => {
   assert.match(res.errors[0]!, /\[manifest\].*objective/);
 });
 
-// ── runCheck process safeguards (real, cheap children — no network/tooling) ──
-
 test("runCheck kills a hung check on timeout and classifies it as INFRA", async () => {
-  // A child that would hang forever — same shape as a wedged tsc/eslint/playwright.
   const res = await runCheck(process.execPath, ["-e", "setInterval(() => {}, 1000)"], process.cwd(), 100);
   assert.equal(res.ok, false);
-  assert.equal(res.infra, true); // a wedged child is infrastructure, not a code defect
+  assert.equal(res.infra, true); /* a wedged child is infrastructure, not a code defect */
   assert.match(res.output, /timed out after 100ms — killed/);
 });
 
@@ -120,7 +107,7 @@ test("runCheck resolves ok on a clean exit and captures output", async () => {
 test("runCheck flags a non-zero exit as a CODE failure, not infra", async () => {
   const res = await runCheck(process.execPath, ["-e", "console.error('TS2322'); process.exit(2)"], process.cwd());
   assert.equal(res.ok, false);
-  assert.equal(res.infra, undefined); // the tool ran and judged the code
+  assert.equal(res.infra, undefined); /* the tool ran and judged the code */
   assert.match(res.output, /TS2322/);
 });
 
@@ -131,8 +118,9 @@ test("runCheck flags a missing binary (ENOENT) as INFRA", async () => {
 });
 
 test("a timed-out check routes through validateSpecs as pure infra", async () => {
-  // The shape runCheck produces on timeout, fed through the aggregation: the run
-  // must surface as infra-error (gate couldn't run), never `invalid`.
+  /* The shape runCheck produces on timeout, fed through the aggregation: the run
+     must surface as infra-error (gate couldn't run), never `invalid`.
+   */
   const timedOut = async () => ({ ok: false, output: "npx tsc --noEmit timed out after 300000ms — killed", infra: true });
   const deps: ValidateDeps = { typecheck: timedOut, lint: ok, listTests: ok, checkManifest: ok };
   const res = await validateSpecs("/dir", deps);
@@ -140,15 +128,12 @@ test("a timed-out check routes through validateSpecs as pure infra", async () =>
   assert.equal(res.infra, true);
 });
 
-// ── B2: zero-assertion spec detection ───────────────────────────────────────
-
 import { readFileSync as _readFileSync, writeFileSync as _writeFileSync, mkdtempSync as _mkdtempSync, mkdirSync as _mkdirSync, rmSync as _rmSync } from "node:fs";
 import { tmpdir as _tmpdir } from "node:os";
 import { join as _join } from "node:path";
 
 function makeTmpSpecDir(specContent: string): string {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-"));
-  // B2 scans the flows/ subdir (the generated-spec dir), so place the spec there.
   _mkdirSync(_join(dir, "flows"));
   _writeFileSync(_join(dir, "flows", "login.spec.ts"), specContent);
   return dir;
@@ -168,7 +153,7 @@ test("B2 RED: a spec file with NO expect() call is flagged as a zero-assertion e
     assert.equal(res.ok, false, "zero-assertion spec must produce a validation failure");
     assert.ok(res.errors.some((e) => /zero.assertion|no.*expect|login\.spec\.ts/i.test(e)),
       `expected a zero-assertion error; got: ${JSON.stringify(res.errors)}`);
-    // Must NOT be classified as infra — this is a code quality issue, not a tool failure.
+    /* Must NOT be classified as infra — this is a code quality issue, not a tool failure. */
     assert.equal(res.infra, false);
   } finally {
     _rmSync(specDir, { recursive: true });
@@ -186,7 +171,6 @@ test("B2 GREEN: a spec file with at least one expect() passes the zero-assertion
   try {
     const deps: ValidateDeps = { typecheck: ok, lint: ok, listTests: ok, checkManifest: ok };
     const res = await validateSpecs(specDir, deps);
-    // The other four checks all pass via stubs, so the overall result is ok.
     assert.equal(res.ok, true, "spec with expect() must pass the zero-assertion check");
   } finally {
     _rmSync(specDir, { recursive: true });
@@ -230,7 +214,7 @@ test("B2: a spec asserting ONLY via expect.poll() is NOT flagged (regression —
 test("B2: a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagged — only flows/ is checked", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-seed-"));
   try {
-    // The seed cleanup.spec.ts sits at the e2e ROOT and has no expect() by design (skip-guarded).
+    /* The seed cleanup.spec.ts sits at the e2e ROOT and has no expect() by design (skip-guarded). */
     _writeFileSync(_join(dir, "cleanup.spec.ts"), `import { test } from "@playwright/test";\ntest.skip("cleanup", async () => {});\n`);
     _mkdirSync(_join(dir, "flows"));
     _writeFileSync(_join(dir, "flows", "login.spec.ts"), `import { test, expect } from "@playwright/test";\ntest("login", async ({ page }) => { await expect(page).toHaveURL("/"); });\n`);
@@ -256,10 +240,9 @@ test("B2: a zero-assertion GENERATED spec under flows/ IS flagged", async () => 
   }
 });
 
-// ── migration-tier-4b Slice 2 (gate DEFECT-1 fix): checkManifest is a DISTINCT strict read from
-// generation's manifest-fs.ts::readManifest (fail-open-to-[]). This pins the byte-matching strict-
-// read behavior against the REAL defaultValidateDeps implementation (not a stub), with real fs
-// fixtures — now against the qa-engine-native home (Slice 3 relocated checkManifest itself).
+/* generation's manifest-fs.ts::readManifest (fail-open-to-[]). This pins the byte-matching strict-
+   read behavior against the REAL defaultValidateDeps implementation (not a stub), with real fs
+ */
 test("defaultValidateDeps.checkManifest: a MISSING manifest.json is ok:false (never a fail-open pass)", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-missing-"));
   try {
@@ -316,9 +299,10 @@ test("defaultValidateDeps.checkManifest: an entry with criticality:\"urgent\" (n
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// Part 2 — validateManifest (moved from src/qa/metadata.test.ts)
-// ══════════════════════════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Part 2 — validateManifest (moved from src/qa/metadata.test.ts)
+   ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
 
 const validManifestEntry = {
   id: "checkout/over-10-items",
@@ -361,10 +345,11 @@ test("empty targets is not allowed", () => {
   assert.match(r.errors.join(" "), /targets/);
 });
 
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// Part 3 — compileCommand / isToolchainFailure / validateCodeProject (moved from
-// src/qa/code-validate.test.ts)
-// ══════════════════════════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Part 3 — compileCommand / isToolchainFailure / validateCodeProject (moved from
+   src/qa/code-validate.test.ts)
+   ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
 
 const maven: CodeProject = { ecosystem: "maven", install: null, test: { cmd: "mvn", args: ["-B", "test"] } };
 const gradle: CodeProject = { ecosystem: "gradle", install: null, test: { cmd: "./gradlew", args: ["test"] } };
@@ -373,7 +358,7 @@ const rust: CodeProject = { ecosystem: "rust", install: null, test: { cmd: "carg
 const node: CodeProject = { ecosystem: "node", install: null, test: { cmd: "npm", args: ["test"] } };
 const python: CodeProject = { ecosystem: "python", install: null, test: { cmd: "python3", args: ["-m", "pytest"] } };
 
-// ── compileCommand: compiles TEST sources without running them, scoped when possible ──────────────
+/* ── compileCommand: compiles TEST sources without running them, scoped when possible ────────────── */
 test("compileCommand: maven test-compile, scoped to the changed module when it resolves", () => {
   const exists = (p: string) => p === "/repo/customers-service/pom.xml" || p === "/repo/pom.xml";
   assert.deepEqual(compileCommand(maven, "/repo", ["customers-service/src/main/java/X.java"], { exists }), {
@@ -414,7 +399,7 @@ test("compileCommand: python byte-compiles the changed .py files (syntax gate); 
   assert.equal(compileCommand(python, "/repo", [], { exists: () => true }), null);
 });
 
-// ── isToolchainFailure: a broken JVM toolchain is infra, not a code defect ─────────────────────────
+/* ── isToolchainFailure: a broken JVM toolchain is infra, not a code defect ───────────────────────── */
 test("isToolchainFailure: matches the REAL JDK/JAVA_HOME misconfig messages, not a normal compile error", () => {
   assert.equal(isToolchainFailure("Error: JAVA_HOME is not set and could not be found."), true);
   assert.equal(isToolchainFailure("The JAVA_HOME environment variable is not correctly set"), true);
@@ -422,7 +407,7 @@ test("isToolchainFailure: matches the REAL JDK/JAVA_HOME misconfig messages, not
   assert.equal(isToolchainFailure("[ERROR] /src/X.java:[12,5] cannot find symbol"), false);
 });
 
-// ── validateCodeProject: the orchestration (runCheck injected) ─────────────────────────────────────
+/* ── validateCodeProject: the orchestration (runCheck injected) ───────────────────────────────────── */
 function deps(project: CodeProject, result: CheckResult, onRun?: () => void): CodeValidateDeps {
   return {
     detect: () => project,

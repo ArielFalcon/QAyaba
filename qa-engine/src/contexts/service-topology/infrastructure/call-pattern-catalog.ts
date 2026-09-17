@@ -1,15 +1,10 @@
-// service-topology/infrastructure/call-pattern-catalog.ts
-// The BE→BE HTTP call-pattern SHAPE catalog: each entry knows how to find outbound HTTP
-// calls of one syntactic shape in a backend source file. Config supplies the optional
-// receiver (e.g. "restTemplate") via CallPatternRef; the shape itself lives here, in the
-// core, exactly once — this is the ONLY place a BE→BE call-pattern shape is defined.
 import type { CallPatternRef } from "../domain/index.ts";
 
 /** A single BE→BE HTTP call occurrence found in file text. */
 export interface CallPatternOccurrence {
-  index: number;                 // character offset of the match in the source text
-  verb: string;                  // lowercase HTTP verb, as written / derived from the shape
-  rawArg: string;                // original path argument text (quoted literal or identifier)
+  index: number;
+  verb: string;
+  rawArg: string;
   enclosingClass: string | null;
   enclosingMethod: string | null;
 }
@@ -149,7 +144,7 @@ function mappingPath(args: string): string | null {
 }
 
 const feignClient: CallPatternExtractor = (fileText, ref) => {
-  void ref; // kind is selected by catalog key; Feign has no receiver
+  void ref;
   const sites: CallPatternOccurrence[] = [];
   const headerRe =
     /@FeignClient\b(?:\([^)]*\))?\s*(?:public\s+|protected\s+|private\s+)*(?:interface|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;

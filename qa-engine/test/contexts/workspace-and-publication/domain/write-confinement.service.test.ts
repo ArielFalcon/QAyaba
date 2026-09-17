@@ -6,8 +6,9 @@ const svc = new WriteConfinementService();
 
 test("parseStatusOutput handles rename lines and quoted paths", () => {
   const parsed = svc.parseStatusOutput('R  old.ts -> new.ts\n?? "spa ced.ts"\n M e2e/a.spec.ts');
-  // A rename/copy line emits TWO records (old + new) — see the rename-over-revert regression:
-  // collapsing to only the new path orphaned the legitimate origin's staged deletion.
+  /* A rename/copy line emits TWO records (old + new) — see the rename-over-revert regression:
+     collapsing to only the new path orphaned the legitimate origin's staged deletion.
+   */
   assert.deepEqual(parsed.map((p) => p.path), ["old.ts", "new.ts", "spa ced.ts", "e2e/a.spec.ts"]);
 });
 
@@ -32,18 +33,18 @@ test("parseStatusOutput is quote-aware when the OLD path itself literally contai
   ]);
 });
 
-// ── C-style quote decoding regression (Judgment Day round 3) ───────────────────────────────────
-//
-// stripQuotes only stripped the surrounding `"` — it never decoded git's C-style quoting content.
-// With the git DEFAULT core.quotePath=true, a non-ASCII byte in a path is octal-escaped
-// (`\NNN` per byte); `\"` and `\\` escape a literal quote/backslash embedded in the name itself.
-// Leaving those escapes undecoded means the returned path is not the real on-disk path, so a
-// revert built from it (`git clean -f --`, `git restore -- ...`) silently matches nothing.
+/* stripQuotes only stripped the surrounding `"` — it never decoded git's C-style quoting content.
+   With the git DEFAULT core.quotePath=true, a non-ASCII byte in a path is octal-escaped
+   (`\NNN` per byte); `\"` and `\\` escape a literal quote/backslash embedded in the name itself.
+   Leaving those escapes undecoded means the returned path is not the real on-disk path, so a
+   revert built from it (`git clean -f --`, `git restore -- ...`) silently matches nothing.
+ */
 
 test("parseStatusOutput decodes git's octal byte-escaping for a non-ASCII path (core.quotePath default)", () => {
-  // Raw git porcelain output for `café.spec.ts` under core.quotePath=true: é (U+00E9) is UTF-8
-  // bytes 0xC3 0xA9 = octal 303 251, so git emits the literal 8 characters `\303\251` in the quoted
-  // path — the JS source below uses `\\` to produce that single literal backslash per escape.
+  /* Raw git porcelain output for `café.spec.ts` under core.quotePath=true: é (U+00E9) is UTF-8
+     bytes 0xC3 0xA9 = octal 303 251, so git emits the literal 8 characters `\303\251` in the quoted
+     path — the JS source below uses `\\` to produce that single literal backslash per escape.
+   */
   const parsed = svc.parseStatusOutput('?? "caf\\303\\251.spec.ts"\n');
   assert.deepEqual(parsed.map((p) => p.path), ["café.spec.ts"]);
 });
@@ -66,16 +67,15 @@ test("parseStatusOutput decodes octal-escaped quoted paths independently on each
   ]);
 });
 
-// ── literal-byte corruption regression (Judgment Day round 4) ──────────────────────────────────
-//
-// Under `core.quotePath=false`, git still C-style-quotes a path for OTHER reasons (an embedded
-// space, an embedded `"`/`\`), but leaves non-ASCII bytes LITERAL inside the quotes instead of
-// octal-escaping them. decodeQuoted's literal-character branch pushed `ch.charCodeAt(0)` — a raw
-// UTF-16 code unit treated as one byte — which is invalid standalone UTF-8 for any non-ASCII char
-// (a lone byte >= 0x80 has no continuation bytes), so Buffer decoded it to U+FFFD and the revert
-// pathspec built from the corrupted string matched nothing on disk. Fixed by encoding the literal
-// branch's REAL UTF-8 bytes, iterating by code point so a surrogate pair (an astral/4-byte
-// character) is consumed as one unit rather than split into two invalid lone-surrogate pushes.
+/* Under `core.quotePath=false`, git still C-style-quotes a path for OTHER reasons (an embedded
+   space, an embedded `"`/`\`), but leaves non-ASCII bytes LITERAL inside the quotes instead of
+   octal-escaping them. decodeQuoted's literal-character branch pushed `ch.charCodeAt(0)` — a raw
+   UTF-16 code unit treated as one byte — which is invalid standalone UTF-8 for any non-ASCII char
+   (a lone byte >= 0x80 has no continuation bytes), so Buffer decoded it to U+FFFD and the revert
+   pathspec built from the corrupted string matched nothing on disk. Fixed by encoding the literal
+   branch's REAL UTF-8 bytes, iterating by code point so a surrogate pair (an astral/4-byte
+   character) is consumed as one unit rather than split into two invalid lone-surrogate pushes.
+ */
 
 test("parseStatusOutput decodes a literal (unescaped) non-ASCII character inside a quoted path — core.quotePath=false leaves the byte literal instead of octal-escaping it", () => {
   const parsed = svc.parseStatusOutput('?? "café.spec.ts"\n');
@@ -144,13 +144,11 @@ test("classifyStrays: a rename INTO a denylisted destination reverts BOTH sides 
   assert.deepEqual(tracked.slice().sort(), [".github/workflows/x.yml", "src/legit.ts"]);
 });
 
-// ── decodeGitPath (Slice 9, D-G): the quote/octal-escape decoder made public ───────────────────
-//
-// Previously a local closure inside parseStatusOutput (unreachable from outside). Slice 9's
-// rename-pairing adapter code must decode `git diff --name-status` output through the SAME
-// decoding logic `git status --porcelain` output already goes through (parseStatusOutput) — a
-// second hand-rolled decoder would be exactly the kind of drift revertUnit already exists to
-// prevent for the pairing-unit logic. Exposed as a method so both callers share one implementation.
+/* rename-pairing adapter code must decode `git diff --name-status` output through the SAME
+   decoding logic `git status --porcelain` output already goes through (parseStatusOutput) — a
+   second hand-rolled decoder would be exactly the kind of drift revertUnit already exists to
+   prevent for the pairing-unit logic. Exposed as a method so both callers share one implementation.
+ */
 
 test("decodeGitPath strips surrounding quotes and decodes git's octal byte-escaping for a non-ASCII path", () => {
   assert.equal(svc.decodeGitPath('"caf\\303\\251.spec.ts"'), "café.spec.ts");
@@ -160,12 +158,12 @@ test("decodeGitPath leaves an unquoted plain path unchanged", () => {
   assert.equal(svc.decodeGitPath("e2e/plain.spec.ts"), "e2e/plain.spec.ts");
 });
 
-// ── pairUnstagedRenames (Slice 9, D-G, AMENDMENT 2) — closes the KNOWN LIMITATION on
-// classifyStrays: an fs-level agent move (no git access) surfaces as an independent in-area
-// unstaged deletion + out-of-area untracked stray, with no git-native renameCounterpart. This pure
-// decision pairs them using git's OWN content-similarity rename detection (passed in by the
-// adapter, computed via a transient `git add -N` + `git diff --find-renames`) — never a hand-rolled
-// content heuristic.
+/* classifyStrays: an fs-level agent move (no git access) surfaces as an independent in-area
+   unstaged deletion + out-of-area untracked stray, with no git-native renameCounterpart. This pure
+   decision pairs them using git's OWN content-similarity rename detection (passed in by the
+   adapter, computed via a transient `git add -N` + `git diff --find-renames`) — never a hand-rolled
+   content heuristic.
+ */
 
 test("pairUnstagedRenames: a git-detected rename FROM a candidate deletion TO a candidate stray is paired for restore", () => {
   const result = svc.pairUnstagedRenames(

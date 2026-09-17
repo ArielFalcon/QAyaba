@@ -1,21 +1,4 @@
-// test/contexts/objective-signal/infrastructure/stryker-mutation-oracle-parity.test.ts
-// PARITY (mutation-oracle twin of fault-injection-oracle-parity.test.ts — kills false-green
-// PC-003): pins StrykerMutationOracleAdapter.measure() against FROZEN snapshot literals captured
-// from the legacy src/qa/learning/mutation-code.ts's runMutationOracle BEFORE that file was
-// deleted (migration-tier-1-2, Slice 3 — this test itself was written in Slice 1, wrapping the
-// still-live legacy function, and is re-pointed here in the SAME commit as the src deletion). The
-// orchestration is now absorbed into the adapter itself (see stryker-mutation-oracle.adapter.ts)
-// — no src/ import remains in this file, and it is no longer excluded from qa-engine's typecheck.
-//
-// WARNING (judgment-day round-1, frozen-snapshot discipline — precedent:
-// error-class-parity.test.ts's LEGACY_RESOLVE_ERROR_CLASS_SNAPSHOT): the literals asserted below
-// are a FROZEN oracle — the legacy source they were captured from
-// (src/qa/learning/mutation-code.ts) no longer exists, so there is no live re-derivation
-// possible. If a change to the adapter's absorbed orchestration makes one of these assertions
-// fail, that failure is signaling a REAL behavioral divergence from the legacy oracle, not a
-// stale fixture. Editing a snapshot VALUE here to make a failing test pass silently rebaselines
-// away that regression instead of fixing it — never do that without a written justification (in
-// the commit message or a comment here) for why the NEW value is the correct behavior.
+/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -29,8 +12,6 @@ import { Sha } from "@kernel/sha.ts";
 const sha = Sha.of("abcdef1");
 const br = BlastRadius.of(sha, ["src/svc.ts"]);
 
-// Same fixture shape captured in Slice 1's original mockSpawn (mirrors
-// src/qa/learning/mutation-code.test.ts's mockSpawn helper).
 function mockSpawn(result: {
   exitCode?: number;
   stdout?: string;

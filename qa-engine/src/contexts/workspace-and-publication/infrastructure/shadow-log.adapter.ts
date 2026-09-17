@@ -1,8 +1,3 @@
-// src/contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts
-// Shadow-mode swap boundary: implements ShadowPublicationPort by replacing every side effect with a
-// log line. At composition time (Plan 6) the DI container selects this adapter when qa.shadow=true;
-// the real adapters (VcsWriteAdapter, GitHubPrAdapter, GitHubIssueAdapter, MirrorGcAdapter) are
-// selected otherwise. No network / git / GitHub API calls are made — purely observational.
 import type { ShadowPublicationPort } from "../application/ports/index.ts";
 
 export class ShadowLogAdapter implements ShadowPublicationPort {

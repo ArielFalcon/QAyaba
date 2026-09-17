@@ -83,7 +83,7 @@ func TestStatusBarShowsBrandAndState(t *testing.T) {
 }
 
 func TestShellNoChromeBeforeConnect(t *testing.T) {
-	m := New() // connect screen, client nil
+	m := New() /* connect screen, client nil */
 	if m.chromeHeight() != 0 {
 		t.Fatalf("chromeHeight before connect = %d, want 0", m.chromeHeight())
 	}
@@ -104,8 +104,8 @@ func TestShellWrapsConnectedScreen(t *testing.T) {
 		t.Fatal("connecting must start the ambient poller (non-nil cmd)")
 	}
 	out := m.View()
-	// "connecting…" is unique to the status bar before the first poll lands, so its
-	// presence proves the shell chrome wraps the home screen.
+	/* "connecting…" is unique to the status bar before the first poll lands, so its
+	   presence proves the shell chrome wraps the home screen. */
 	if !strings.Contains(out, "connecting") {
 		t.Fatalf("connected view missing the status bar:\n%s", out)
 	}

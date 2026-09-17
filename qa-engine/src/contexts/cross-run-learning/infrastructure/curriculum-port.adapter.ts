@@ -1,14 +1,3 @@
-// qa-engine/src/contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts
-// The real CurriculumPort. Owns the store round-trip and the fault isolation the port promises: a
-// load, detect, match, rank, fold or save failure is logged and swallowed — select() degrades to
-// [] (the generator falls back to its own diff-derived exemplars, today's behaviour) and fold()
-// degrades to a no-op. Same documented posture as ReflectorPortAdapter and
-// ProcessAuditPortAdapter, so the use-case needs no try/catch of its own at either call site.
-//
-// The store is INJECTED as two plain functions rather than imported: the real implementation is
-// src/server/history.ts's loadCurriculum/saveCurriculum, and qa-engine may never import src/. The
-// production wiring happens in src/server/rewritten-engine-factory.ts, the one module permitted to
-// see both trees — identical to how ProcessAuditPortAdapter sources its own reads and sinks.
 
 import type { CurriculumPort, CurriculumFoldInput, SelectedExemplar } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { MAX_SELECTED_EXEMPLARS } from "@contexts/qa-run-orchestration/application/ports/index.ts";
@@ -66,7 +55,6 @@ export class CurriculumPortAdapter implements CurriculumPort {
       if (evidence === "inconclusive") return;
       const before = this.read();
       const after = foldCurriculum(before, input.offered, evidence, new Date().toISOString());
-      // Identity means the fold recorded nothing — skip the write rather than churn updatedAt.
       if (after === before) return;
       this.saveFn(after);
     } catch (err) {

@@ -1,27 +1,12 @@
-// Stages a READ-ONLY, bounded snapshot of a related microservice's context (OpenAPI/contract
-// files + the triggering commit's diff and post-change file content) INSIDE the front repo's
-// own working copy, under e2e/.qa/service-context/<repo-slug>/.
-//
-// Why this exists (cross-repo generation stall, root cause): a cross-repo run used to embed an
-// ABSOLUTE path to a SIBLING mirror (e.g. /app/.mirrors/org__ms-orders) directly into the
-// generation prompt, but the agent session is rooted at the FRONT repo's working copy. A read
-// outside that session root trips opencode serve's external_directory permission gate (no path
-// scoping in SDK 1.17.7), which waits for an approval that never comes — the tool call hangs
-// until the 180s watchdog fires and the run surfaces as infra-error. Staging the minimal context
-// the agent actually needs (the service's contract + this commit's diff) IN-ROOT keeps every
-// read inside the session root, so the gate never engages.
-//
-// The staged directory path is a PURE function of (workingCopyDir, repo) — deliberately NOT of
-// the sha — so it can be computed synchronously at CompositionConfig build time (before the real
-// checkout/staging side effect has run), the same "single deterministic formula, computed twice"
-// precedent workdirRoot()/vcsDir already establish elsewhere in this codebase (see
-// rewritten-engine-factory.ts). The actual staging (this module's real work) happens later, once
-// the mirrors exist on disk, and writes INTO that same already-agreed-upon path.
-//
-// Every side effect (fs + git) is injected via StageDeps, so the staging/capping/omission logic
-// is fully unit-tested without touching real disk or process — mirrors the module pattern of
-// repo-mirror.ts / mirror-prune.ts / setup.ts (each integration exports its own `*Deps` +
-// `default*Deps`).
+/*
+ * Stages a READ-ONLY, bounded snapshot of a related microservice (OpenAPI/contract files + the
+ * triggering commit's diff and post-change file content) inside the front repo working copy,
+ * under e2e/.qa/service-context/<repo-slug>/. The agent session is rooted at the front copy —
+ * sibling-mirror absolute paths trip opencode serve's external_directory gate and hang. Staging
+ * in-root keeps every read inside the session. Path is a pure function of (workingCopyDir, repo),
+ * not sha, so composition can compute it before checkout. Every fs/git side effect is injected
+ * via StageDeps.
+ */
 
 import { dirname, join, relative, sep } from "node:path";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -29,9 +14,9 @@ import type { Git } from "../integrations/repo-mirror";
 import { realGit } from "../integrations/repo-mirror";
 
 export interface StageServiceContextInput {
-  workingCopyDir: string; // the FRONT repo's working copy (the agent session root)
+  workingCopyDir: string;  /* the FRONT repo's working copy (the agent session root) */
   service: { repo: string; mirrorDir: string; openapi?: string | string[] };
-  sha?: string; // the triggering commit — diff/changed-files staging only runs when present
+  sha?: string;  /* the triggering commit — diff/changed-files staging only runs when present */
 }
 
 export interface StagedServiceContext {
@@ -47,26 +32,28 @@ export interface OmittedEntry {
 export interface ServiceContextManifest {
   repo: string;
   sha?: string;
-  stagedAt: string; // ISO, derived from the injected clock — never a direct Date.now() read
-  contracts: string[]; // repo-relative paths staged under contracts/
-  changed: string[]; // repo-relative paths staged under changed/
-  omitted: OmittedEntry[]; // anything considered but NOT staged, with why — no silent truncation
+  stagedAt: string;  /* ISO, derived from the injected clock — never a direct Date.now() read */
+  contracts: string[];  /* repo-relative paths staged under contracts/ */
+  changed: string[];  /* repo-relative paths staged under changed/ */
+  omitted: OmittedEntry[];  /* anything considered but NOT staged, with why — no silent truncation */
 }
 
 export interface StageDeps {
   git: Git;
   exists(path: string): boolean;
-  mkdir(path: string): void; // recursive (mkdir -p semantics)
-  rm(path: string): void; // recursive + force (rm -rf semantics)
+  mkdir(path: string): void;  /* recursive (mkdir -p semantics) */
+  rm(path: string): void;  /* recursive + force (rm -rf semantics) */
   /** All FILES (not directories) under `dir`, recursively, as POSIX-style paths relative to `dir`. */
   listFiles(dir: string): string[];
   readFile(path: string): Buffer;
   writeFile(path: string, data: string | Buffer): void;
-  now(): number; // epoch millis — matches the now()/deploy-gate.ts, mirror-prune.ts precedent
+  now(): number;  /* epoch millis — matches the now()/deploy-gate.ts, mirror-prune.ts precedent */
 }
 
-// Determinism + boundedness caps (task spec): omissions are always recorded in the manifest,
-// never silently dropped.
+/*
+ * Determinism + boundedness caps (task spec): omissions are always recorded in the manifest,
+ * never silently dropped.
+ */
 const MAX_FILES = 200;
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 512 * 1024;
@@ -76,24 +63,27 @@ function repoSlug(repo: string): string {
   return repo.replaceAll("/", "__");
 }
 
-// The ONE formula for the staged directory — shared by this module (where it writes) and
-// rewritten-engine-factory.ts (which threads it, synchronously, into triggerService.mirrorDir /
-// services[].mirrorDir at composition time). Never re-derive this elsewhere.
+/*
+ * The ONE formula for the staged directory — shared by this module (where it writes) and
+ * rewritten-engine-factory.ts (which threads it, synchronously, into triggerService.mirrorDir /
+ * services[].mirrorDir at composition time). Never re-derive this elsewhere.
+ */
 export function serviceContextDir(workingCopyDir: string, repo: string): string {
   return join(workingCopyDir, "e2e", ".qa", "service-context", repoSlug(repo));
 }
 
-// Case-insensitive basename match for the default contract sweep (no openapi hint declared):
-// **/{openapi,swagger,api-definition}*.{yaml,yml,json}.
+/* Case-insensitive basename match for the default contract sweep when no openapi hint is declared. */
 const DEFAULT_CONTRACT_RE = /^(openapi|swagger|api-definition).*\.(ya?ml|json)$/i;
 function matchesDefaultContractSweep(relPath: string): boolean {
   const base = relPath.split("/").pop() ?? relPath;
   return DEFAULT_CONTRACT_RE.test(base);
 }
 
-// Minimal glob matcher for declared openapi hints (config/apps/*.yaml `openapi:` values): "**"
-// (any depth), "*" (single path segment), "?" (single char), everything else literal. Not a
-// general-purpose glob engine — deliberately narrow to the shapes this config surface uses.
+/*
+ * Minimal glob matcher for declared openapi hints (config/apps/*.yaml `openapi:` values): "**"
+ * (any depth), "*" (single path segment), "?" (single char), everything else literal. Not a
+ * general-purpose glob engine — deliberately narrow to the shapes this config surface uses.
+ */
 function globToRegExp(glob: string): RegExp {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
@@ -126,8 +116,10 @@ export async function stageServiceContext(
   const { workingCopyDir, service, sha } = input;
   const dir = serviceContextDir(workingCopyDir, service.repo);
 
-  // Idempotent re-stage: wipe any prior run's content first so a stale file from a previous sha
-  // (or a hint that has since changed) never survives into this run's snapshot.
+  /*
+   * Idempotent re-stage: wipe any prior run's content first so a stale file from a previous sha
+   * (or a hint that has since changed) never survives into this run's snapshot.
+   */
   if (deps.exists(dir)) deps.rm(dir);
   deps.mkdir(dir);
 
@@ -162,7 +154,7 @@ export async function stageServiceContext(
     return tryStageBuffer(destRelPath, buf);
   };
 
-  // 1. OpenAPI/contract files — hinted glob(s) when declared, otherwise the default sweep.
+  /* 1. OpenAPI/contract files — hinted glob(s) when declared, otherwise the default sweep. */
   const hints = service.openapi ? (Array.isArray(service.openapi) ? service.openapi : [service.openapi]) : undefined;
   const allFiles = deps.listFiles(service.mirrorDir);
   const candidateContracts =
@@ -178,8 +170,10 @@ export async function stageServiceContext(
     else omitted.push({ path: relPath, reason: result });
   }
 
-  // 2 & 3. The commit diff + each changed file's post-change content — only when a sha is known
-  // (context-mode services carry no per-run commit; contracts-only staging applies then).
+  /*
+   * 2 & 3. The commit diff + each changed file's post-change content — only when a sha is known
+   * (context-mode services carry no per-run commit; contracts-only staging applies then).
+   */
   if (sha) {
     try {
       const patch = await deps.git(["show", "--stat", "--patch", sha], service.mirrorDir);
@@ -220,9 +214,11 @@ export async function stageServiceContext(
   return { dir, manifestPath };
 }
 
-// Excludes VCS internals and installed deps from the default sweep's directory walk — mirrors
-// getDirectorySize's own recursive-walk precedent (mirror-prune.ts), best-effort (an unreadable
-// subtree is skipped, never thrown).
+/*
+ * Excludes VCS internals and installed deps from the default sweep's directory walk — mirrors
+ * getDirectorySize's own recursive-walk precedent (mirror-prune.ts), best-effort (an unreadable
+ * subtree is skipped, never thrown).
+ */
 function listFilesRecursive(dir: string, base: string = dir): string[] {
   let out: string[] = [];
   let entries;

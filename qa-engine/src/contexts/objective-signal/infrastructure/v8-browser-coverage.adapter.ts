@@ -1,15 +1,6 @@
-// src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts
-// CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/).
-// The missing DI seam: the dump read is injected (no hard-coded readdirSync/readFileSync), so this
-// is unit-testable without disk and fail-open by contract (no files → empty report, never a throw).
-// The parseV8Coverage fn is injected (defaults to the verbatim-carried defaultParseV8Coverage below,
-// parity-pinned to the legacy original). changedFiles is needed by the parser (URL→repo suffix match).
-// The source-map utilities (coveredOriginalLines, decodeMappings, etc.) are inlined verbatim from
-// src/qa/source-map.ts — no src/ import at runtime (only the parity test may import src/).
+/* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the dump read is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no files → empty report, never a throw). */
 import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
 
-// ── Inlined source-map types and utilities (verbatim from src/qa/source-map.ts) ────────────────
-// Pure, no deps. Inlined here so the adapter has no runtime dependency on src/.
 
 interface RawSourceMap {
   version?: number;
@@ -37,10 +28,6 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
     private readonly parse: ParseV8 = defaultParseV8Coverage,
   ) {}
 
-  // changedFiles (per-call, optional): the "dynamic diff" precedent — PREFERS the run's real changed
-  // files (derived from the diff at measure()-call time, when the composition-time constructor value
-  // is often a placeholder `[]` — see CoverageCollectorPort's own header) over the constructor value.
-  // Falls back to this.changedFiles when the caller omits it (backward compatible).
   async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {
     const dumps = await this.readDumps(specDir, namespace);
     const files = changedFiles ?? this.changedFiles;
@@ -56,7 +43,6 @@ export class V8BrowserCoverageAdapter implements CoverageCollectorPort {
   }
 }
 
-// ── Inlined source-map decoder (verbatim from src/qa/source-map.ts) ──────────────────────────
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const B64_LOOKUP: Record<string, number> = {};
@@ -152,7 +138,6 @@ function coveredOriginalLines(
   return out;
 }
 
-// ── Helpers (verbatim from change-coverage.ts) ───────────────────────────────
 
 function resolveUrlToRepoFile(url: string, changedFiles: string[]): string | null {
   let path: string;
@@ -176,9 +161,6 @@ function lineStartOffsets(source: string): number[] {
   return starts;
 }
 
-// Verbatim-carried V8 coverage parser from change-coverage.ts parseV8Coverage. Resolves covered
-// byte ranges to repo-relative line numbers via URL suffix match (unbundled) or source map
-// (bundled/hashed deploy). The parity test pins this copy to the legacy original.
 export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[]): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   const addLines = (file: string, lines: Iterable<number>): void => {
@@ -190,11 +172,6 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
     if (!entry?.source || !entry.url) continue;
     const source = entry.source;
 
-    // Resolve NESTED ranges to per-byte coverage. V8 emits ranges parent-before-child,
-    // so applying each range's count over its span in order leaves every byte with its
-    // INNERMOST range's count: a count==0 child carves an uncovered hole out of a covered
-    // parent. (The old code unioned only count>0 ranges, so a function-wrapper range marked
-    // an unexercised branch covered — over-reporting that could flip a real gap to a pass.)
     const covered = new Uint8Array(source.length);
     for (const fn of entry.functions ?? []) {
       for (const r of fn.ranges ?? []) {
@@ -226,7 +203,6 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
       );
       for (const [file, lines] of mapped) addLines(file, lines);
     }
-    // else: neither a direct match nor a usable source map → no coverage signal.
   }
   return out;
 }

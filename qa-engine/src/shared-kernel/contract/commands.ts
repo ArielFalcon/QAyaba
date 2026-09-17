@@ -1,18 +1,7 @@
-// qa-engine/src/shared-kernel/contract/commands.ts
-// Command-side DTOs + the shared wire entities clients render — the other half
-// of the Channel Gateway contract (events.ts is the live-stream half). Defined in
-// zod so the server gets types via `z.infer` (server ≡ schema) and the same
-// schemas emit the OpenAPI artifact (openapi.ts). These MIRROR src/types.ts and
-// src/tui/client.ts exactly; commands.test.ts holds a compile-time drift guard
-// so the two cannot silently diverge during the migration. See docs/tui-vnext.md §3.
-//
-// MOVED from src/contract/commands.ts (Plan 7.3) — this file is now the canonical
-// home; the legacy src/contract/commands.ts re-exports from here during coexistence.
 
 import { z } from "zod";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
 
-// ── Shared wire entities (mirror src/types.ts) ────────────────────────────────
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
 
 export const QaCaseSchema = z.object({
@@ -31,9 +20,6 @@ export const SpecRecordSchema = z.object({
   flow: z.string().optional(),
 });
 
-// The persisted live-activity feed on RunRecord (legacy ActivityKind from
-// src/types.ts). Distinct from events.ts AgentActivityKind — the two coexist
-// during the migration; this one mirrors what history.ts stores today.
 export const ActivityKindSchema = z.enum(["file", "command", "todo", "phase", "error"]);
 
 export const AgentActivitySchema = z.object({
@@ -56,8 +42,7 @@ export const RunRecordSchema = z.object({
   step: z.string().optional(),
   stepDetail: z.string().optional(),
   verdict: RunVerdictSchema.optional(),
-  // Derived from `verdict` once the run is `done` (src/types.ts engineStatus). OPTIONAL — absent while
-  // the run is enqueued/running and has no verdict yet; a still-running run is not an "error".
+  /* Derived from `verdict` once the run is `done` (src/types.ts engineStatus). OPTIONAL — absent while the run is enqueued/running and has no verdict yet; a still-running run is not an "error". */
   engineStatus: RunEngineStatusSchema.optional(),
   passed: z.number().int().nonnegative().optional(),
   failed: z.number().int().nonnegative().optional(),
@@ -73,7 +58,6 @@ export const RunRecordSchema = z.object({
   at: z.string(),
 });
 
-// The app projection clients render — mirrors src/tui/client.ts AppView.
 export const AppServiceViewSchema = z.object({
   repo: z.string(),
   openapi: z.string().optional(),
@@ -99,10 +83,6 @@ export const QueueStatusSchema = z.object({
 
 export const ChatEntrySchema = z.object({ role: z.string(), text: z.string() });
 
-// Version/capability handshake (Phase D). A Homebrew binary lags the server in
-// time, so the server is the single authority on compatibility: it returns its
-// version + the oldest client it supports + what it can do, and decides
-// `compatible` from the client version the connect screen sends.
 export const VersionInfoSchema = z.object({
   serverVersion: z.string(),
   apiVersion: z.string(),
@@ -110,26 +90,21 @@ export const VersionInfoSchema = z.object({
   compatible: z.boolean(),
   capabilities: z.array(z.string()),
   message: z.string().optional(),
-  // The server's GitHub OAuth App client id (public). Present when GitHub login is configured,
-  // so the console can run the device flow without the id being baked into the binary.
+  /* The server's GitHub OAuth App client id (public). Present when GitHub login is configured, so the console can run the device flow without the id being baked into the binary. */
   githubClientId: z.string().optional(),
 });
 
-// ── Auth (GitHub device flow → server session) ────────────────────────────────
-// The client runs the GitHub OAuth device flow itself, then exchanges the resulting
-// GitHub user token for a short-lived server session. The server verifies the token's
-// identity and that the user can push to a watched repo before issuing the session.
+/** ── Auth (GitHub device flow → server session) ──────────────────────────────── The client runs the GitHub OAuth device flow itself, then exchanges the resulting GitHub user token for a short-lived server session. The server verifies the token's identity and that the user can push to a watched repo before issuing the session. */
 export const LoginRequestSchema = z.object({
   githubToken: z.string().min(1),
 });
 
 export const LoginResponseSchema = z.object({
-  token: z.string(), // the server session (JWT) the client stores and sends as Bearer
-  username: z.string(), // the authenticated GitHub login, for display
-  expiresAt: z.string(), // ISO-8601 session expiry, so the client can refresh ahead of time
+  token: z.string(),
+  username: z.string(),
+  expiresAt: z.string(),
 });
 
-// ── Command DTOs (request → response) ─────────────────────────────────────────
 export const CreateRunInputSchema = z.object({
   app: z.string(),
   target: TestTargetSchema,
@@ -138,8 +113,7 @@ export const CreateRunInputSchema = z.object({
   ref: z.string().optional(),
   guidance: z.string().optional(),
   shadow: z.boolean().optional(),
-  // diff mode only: how many commits ending at the run's SHA the diff spans (default 1).
-  // Lets a run analyze a short series as one blast radius, not just the tip commit.
+  /* diff mode only: how many commits ending at the run's SHA the diff spans (default 1). Lets a run analyze a short series as one blast radius, not just the tip commit. */
   commits: z.number().int().min(1).max(20).optional(),
 });
 
@@ -169,7 +143,6 @@ export const ContinueResultSchema = z.object({
   parentRunId: z.string(),
 });
 
-// ── App onboarding DTOs ──────────────────────────────────────────────────────
 export const OnboardServiceInputSchema = z.object({
   repo: z.string(),
   openapi: z.string().optional(),
@@ -238,12 +211,7 @@ export const RepoListResponseSchema = z.object({
   hasMore: z.boolean(),
 });
 
-// ── Boundary-onboarding DTOs (Slice 5a: TUI-integrated boundary-profile onboarding) ──────────────
-// Wire representation of service-topology's BoundaryProfile domain union (http | event |
-// http-backend, discrim. by `transport`). shared-kernel MUST NOT import qa-engine/src/contexts/*
-// (layering invariant), so this schema structurally mirrors the domain type independently — same
-// technique as the proposer's own scripts-resident ProposerVerdictSchema, field names copied
-// verbatim from service-topology/domain/index.ts.
+
 export const HttpBoundaryProfileSchema = z.object({
   transport: z.literal("http"),
   frontFiles: z.string(),
@@ -289,8 +257,6 @@ export const MappingProgressSchema = z.object({
 export const OnboardStateSchema = z.enum(["idle", "resolvingMirrors", "proposing", "scoring", "indexing", "mapping", "done", "failed"]);
 export const OnboardOutcomeSchema = z.enum(["winner", "no-profile"]);
 
-// Per-repo advisory-index outcome (onboarding-auto-index, Slice 1, design §2.2). Flat schema — no
-// inline nested object (typescript SKILL convention).
 export const RepoIndexStatusSchema = z.enum(["ok", "failed"]);
 
 export const RepoIndexOutcomeSchema = z.object({
@@ -300,12 +266,6 @@ export const RepoIndexOutcomeSchema = z.object({
   error: z.string().optional(),
 });
 
-// Per-edge front->service resolution summary for a winning onboarding run (Add-Project Wizard,
-// Slice A). One row per (fromRepo -> toRepo, transport) with the resolved call-site count — the
-// human-legible decomposition the wizard result screen renders, never the raw score. Mirrors
-// src/server/onboarding/resolution-summary.ts's BoundaryEdgeSummary/ResolutionSummary field-for-
-// field. Flat schema — no inline nested object (typescript SKILL convention), same as
-// RepoIndexOutcomeSchema above.
 export const BoundaryEdgeTransportSchema = z.enum(["http", "event", "rpc"]);
 
 export const BoundaryEdgeSummarySchema = z.object({
@@ -319,8 +279,6 @@ export const ResolutionSummarySchema = z.object({
   edges: z.array(BoundaryEdgeSummarySchema),
   unresolved: z.number(),
   external: z.number(),
-  // FE↔BE contract drift count — frontend calls to endpoints the backend's OpenAPI doesn't
-  // declare (Add-Project Wizard, Slice A hardening). A contract mismatch worth surfacing.
   drift: z.number(),
 });
 
@@ -336,15 +294,8 @@ export const OnboardingJobStatusSchema = z.object({
   error: z.string().optional(),
   startedAt: z.string().optional(),
   finishedAt: z.string().optional(),
-  // Per-repo advisory-index progress, populated once the post-confirm indexing phase starts
-  // (design §2.1-§2.2). Absent for a job whose deps never supply indexRepo (additive-optional,
-  // ADR-4) — never present on a pre-indexing job either.
   indexProgress: z.array(RepoIndexOutcomeSchema).optional(),
-  // Post-confirm (and no-profile) architecture-map run. Absent until the mapping phase starts;
-  // additive-optional like indexProgress.
   mappingProgress: MappingProgressSchema.optional(),
-  // Winning run's front->service edge summary (Task A1 aggregation). Absent for noProfile runs
-  // and for jobs whose deps don't supply resolveLinks (additive-optional, mirrors indexProgress).
   resolution: ResolutionSummarySchema.optional(),
 });
 
@@ -357,7 +308,6 @@ export const ConfirmBoundariesInputSchema = z.object({
   confirm: z.literal(true),
 });
 
-// ── Agent runtime DTOs ───────────────────────────────────────────────────────
 export const AgentProviderSchema = z.enum(["opencode", "codex"]);
 export const AgentModeSchema = z.enum(["single", "dual"]);
 export const AgentRoleSchema = z.enum(["primary", "reviewer", "chat", "worker", "workerCode", "maintainer"]);
@@ -444,7 +394,6 @@ export const AgentRestartResponseSchema = z.object({
   health: AgentProviderHealthSchema,
 });
 
-// ── Inferred types (what the server and tests import) ─────────────────────────
 export type QaCase = z.infer<typeof QaCaseSchema>;
 export type SpecRecord = z.infer<typeof SpecRecordSchema>;
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
@@ -484,9 +433,7 @@ export type AgentConfigApplyResult = z.infer<typeof AgentConfigApplyResultSchema
 export type AgentRestartRequest = z.infer<typeof AgentRestartRequestSchema>;
 export type AgentRestartResponse = z.infer<typeof AgentRestartResponseSchema>;
 
-// ── Intelligence (read-only projections of the persisted learning artifacts) ──────
-// The operator console renders these; they are honest views of what the ledger, the
-// value-oracle scorecard and the curriculum actually hold — no signal is invented.
+/** ── Intelligence (read-only projections of the persisted learning artifacts) ────── The operator console renders these; they are honest views of what the ledger, the value-oracle scorecard and the curriculum actually hold — no signal is invented. */
 
 export const LearningRuleViewSchema = z.object({
   trigger: z.string(),
@@ -496,10 +443,7 @@ export const LearningRuleViewSchema = z.object({
   usageCount: z.number().int().nonnegative(),
   outcomeCount: z.number().int().nonnegative(),
   successRate: z.number().nullable(),
-  // "pending" is a RETIRED status (kept in the enum only for backward-compat with rows an older
-  // build may have written; nothing inserts it anymore — correction-sourced rules now enter as
-  // "candidate", see distiller.ts). Included in the contract so the ledger CLI and intelligence view
-  // can still surface any legacy pending rows to the operator.
+  /* "pending" is a RETIRED status (kept in the enum only for backward-compat with rows an older build may have written; nothing inserts it anymore — correction-sourced rules now enter as "candidate", see distiller.ts). */
   status: z.enum(["pending", "candidate", "active", "deprecated", "superseded"]),
 });
 
@@ -525,13 +469,10 @@ export const CurriculumViewSchema = z.object({
   archetypes: z.array(
     z.object({
       archetype: z.string(),
-      // Proven STRICTLY by the adjudicator's app_defect verdict — never by coverage.
+      /* Proven STRICTLY by the adjudicator's app_defect verdict — never by coverage. */
       caughtRealBug: z.boolean(),
       promotionCount: z.number().int().nonnegative(),
-      // The evidence ladder's second tier: runs in which this archetype was offered to the generator
-      // AND the run produced a determinable objective signal, and how many of those earned credit.
-      // The operator reads credited/evaluated as the archetype's hit rate for this app; evaluated 0
-      // means "never tried", which every renderer must show as such and never as a 0/0 rate.
+      /* The evidence ladder's second tier: runs in which this archetype was offered to the generator AND the run produced a determinable objective signal, and how many of those earned credit. The operator reads credited/evaluated as the archetype's hit rate for this app; evaluated 0 means "never tried", which every renderer must show as such and never as a 0/0 rate. */
       evaluated: z.number().int().nonnegative(),
       credited: z.number().int().nonnegative(),
     }),
@@ -547,62 +488,43 @@ export const IntelligenceViewSchema = z.object({
 
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
 
-// Fleet-wide coordination health: how often the router delegated, how often the
-// sidekick's contract failed (useful retry signal), and what a delegation costs.
 export const CoordinationSignalsSchema = z.object({
   measured: z.boolean(),
   totalRuns: z.number().int().nonnegative(),
   delegateRuns: z.number().int().nonnegative(),
-  escalationRate: z.number().nullable(), // escalations per delegated run; null when no delegations
-  contractFailureRate: z.number().nullable(), // failed/parse-failed delegations per delegation
-  avgDelegationMs: z.number().nullable(), // null when no delegation carried a duration
+  escalationRate: z.number().nullable(),
+  contractFailureRate: z.number().nullable(),
+  avgDelegationMs: z.number().nullable(),
 });
 
 export type CoordinationSignals = z.infer<typeof CoordinationSignalsSchema>;
 
-// ── Signals (fleet-wide integrity readout — the anti-Goodhart panel) ───────────────
-// The honest answer to "can I trust the fleet's green?". It juxtaposes the ground-truth
-// value-oracle (◆, real, from the aggregated scorecards) against the proxy the rest of
-// the console shows everywhere (◇ pass rate), and states plainly that change-coverage is
-// not measured yet (⚠). Every field is derived from persisted data — nothing is invented.
+/** ── Signals (fleet-wide integrity readout — the anti-Goodhart panel) ─────────────── The honest answer to "can I trust the fleet's green?". It juxtaposes the ground-truth value-oracle (◆, real, from the aggregated scorecards) against the proxy the rest of the console shows everywhere (◇ pass rate), and states plainly that change-coverage is not measured yet (⚠). Every field is derived from persisted data — nothing is invented. */
 export const SignalsViewSchema = z.object({
-  // ◆ ground truth: do the tests actually catch injected bugs? (value-oracle scorecard)
   valueOracle: z.object({
     measured: z.boolean(),
-    avgScore: z.number().nullable(), // 0..1, weighted by measured runs; null when unmeasured
+    avgScore: z.number().nullable(),
     measuredRuns: z.number().int().nonnegative(),
     totalRuns: z.number().int().nonnegative(),
   }),
-  // ◇ proxy: the LLM reviewer + harness produce a green/red verdict — useful, but circular.
   reviewer: z.object({
-    passRate: z.number().nullable(), // fraction of quality-verdict runs that passed
-    runs: z.number().int().nonnegative(), // runs that produced a quality verdict (pass/fail/flaky/invalid)
+    passRate: z.number().nullable(),
+    runs: z.number().int().nonnegative(),
   }),
-  // ◆/⚠ change-coverage: of runs that produced coverage data, what fraction of the changed
-  // lines did the tests actually exercise? avgRatio is null (→ "not measured") when no run
-  // carried a ratio — never a hard 0 painted as a reading.
+  /* ◆/⚠ change-coverage: of runs that produced coverage data, what fraction of the changed lines did the tests actually exercise? avgRatio is null (→ "not measured") when no run carried a ratio — never a hard 0 painted as a reading. */
   coverage: z.object({
     measured: z.boolean(),
     avgRatio: z.number().nullable(),
     measuredRuns: z.number().int().nonnegative(),
     totalRuns: z.number().int().nonnegative(),
   }),
-  // ◇ multi-agent execution health: optional (absent when the telemetry ledger is empty) —
-  // router delegation share, escalation rate, sidekick contract failures and delegation cost.
   coordination: CoordinationSignalsSchema.optional(),
 });
 
 export type SignalsView = z.infer<typeof SignalsViewSchema>;
 
-// ── Coordination (multi-agent execution audit) ────────────────────────────────
-// The coordination layer records every router proposal, sidekick delegation,
-// escalation and final outcome. These schemas expose that ledger to the control
-// plane (read-only) so the operator can audit WHO produced specs and HOW WELL
-// the layer behaves across runs. Optional fields everywhere: the ledger may be
-// absent (fresh install) or a run may not have touched the layer.
 export const CoordinationEventSchema = z.object({
   runId: z.string(),
-  // Lifecycle marker: which coordination stage produced the record.
   kind: z.enum(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]),
   action: z.string().optional(),
   capability: z.string().optional(),
@@ -622,17 +544,13 @@ export const CoordinationEventSchema = z.object({
 
 export const CoordinationEventsViewSchema = z.object({
   events: z.array(CoordinationEventSchema),
-  truncated: z.boolean(), // true when more events satisfied the filter than limit returned
+  truncated: z.boolean(),
 });
 
 export type CoordinationEvent = z.infer<typeof CoordinationEventSchema>;
 export type CoordinationEventsView = z.infer<typeof CoordinationEventsViewSchema>;
 
 
-// ── Trends & report (period-over-period analytics the report surface renders) ──────────────
-// Derived from persisted run outcomes (change-coverage ratio, value-oracle score, verdict,
-// error class) split into a current vs previous window — nothing invented. The report ranks
-// these by how much they MOVED (interestingness) and picks a chart per metric shape.
 export const TrendWindowSchema = z.object({
   current: z.number().int().nonnegative(),
   previous: z.number().int().nonnegative(),
@@ -666,15 +584,12 @@ export const ErrorClassCountSchema = z.object({
   multiplier: z.number().nullable(),
 });
 
-// Suite execution time (sum of case durations per run), averaged per window — a perf trend.
 export const DurationTrendSchema = z.object({
   avgMs: z.number().nullable(),
   previousMs: z.number().nullable(),
   runs: z.number().int().nonnegative(),
 });
 
-// Per-flow stability: of the cases tagged with a user flow, how many flaked/failed in the window —
-// shows WHERE the instability concentrates. Only unstable flows are surfaced.
 export const FlowStabilitySchema = z.object({
   flow: z.string(),
   runs: z.number().int().nonnegative(),
@@ -702,42 +617,31 @@ export const ReportChartSchema = z.enum([
   "big-number", "gauge", "paired-bars", "ranked-bars", "stacked-bar", "line", "area", "donut",
 ]);
 
-// The data SHAPE of an insight. Clients render BY INTENT: a client that cannot draw the preferred
-// `chart` (e.g. a terminal has no good pie) falls back to the best native form for the intent
-// (terminal composition → stacked bar / percentages; web composition → donut). This keeps the
-// contract multi-client without the backend knowing which client consumes it.
 export const InsightIntentSchema = z.enum([
   "single-value", "comparison", "trend", "composition", "distribution",
 ]);
 
-// How `value` should be read/formatted, so every client formats it consistently.
 export const InsightUnitSchema = z.enum(["ratio", "percent", "count", "ms", "score"]);
 
-// One slice of a composition/distribution. `semantic` lets the backend say "this slice is good/bad"
-// (pass=good, fail=bad) so every client colours it identically without hardcoding domain names.
 export const BreakdownItemSchema = z.object({
   label: z.string(),
   value: z.number(),
   semantic: z.enum(["good", "bad", "neutral"]).optional(),
 });
 
-// One ranked insight in an ad-hoc report: a metric that moved, fully SELF-DESCRIBING so any client
-// can render it without domain knowledge. `intent` + `chart` drive the visual; `score` is the
-// interestingness ranking; `goodWhen` lets the client colour the direction (a coverage rise is
-// good, a flaky rise is not).
 export const ReportInsightSchema = z.object({
   id: z.string(),
   title: z.string(),
   intent: InsightIntentSchema,
-  chart: ReportChartSchema, // preferred chart; clients may fall back to the intent's native form
+  chart: ReportChartSchema,
   value: z.number().nullable(),
   unit: InsightUnitSchema.optional(),
-  target: z.number().nullable().optional(), // a threshold line (e.g. coverage minRatio) for gauge/line
+  target: z.number().nullable().optional(),
   delta: z.number().nullable(),
   multiplier: z.number().nullable(),
   direction: z.enum(["up", "down", "flat"]),
   goodWhen: z.enum(["up", "down", "neutral"]),
-  caption: z.string().optional(), // a short human one-liner the client can show under the chart
+  caption: z.string().optional(),
   series: z.array(z.number()).optional(),
   breakdown: z.array(BreakdownItemSchema).optional(),
   score: z.number(),
@@ -753,11 +657,6 @@ export const ReportViewSchema = z.object({
 
 export type ReportView = z.infer<typeof ReportViewSchema>;
 
-// A run-scoped report bundles the TWO analyses the post-run summary surface shows: `current` — the
-// self-describing report about THE RUN THAT FINISHED (its verdict, case mix, this run's
-// change-coverage / value-oracle / duration) — and `evolution` — the period-over-period report of
-// the same app as it stood at that run, or null when there is not yet enough history to compare
-// against. Both halves are the SAME ReportView shape, so a client renders them with one renderer.
 export const RunReportViewSchema = z.object({
   current: ReportViewSchema,
   evolution: ReportViewSchema.nullable(),

@@ -1,9 +1,11 @@
-// toReportView turns a TrendsView into an ad-hoc report: it ranks each metric by how much it
-// MOVED versus the previous window (interestingness = relative change × weight × confidence) and
-// emits a SELF-DESCRIBING insight (intent + chart + unit + target + breakdown semantic) so any
-// client can render it without domain knowledge. Pure — unit-tested directly. Keystone guard
-// against vanity reporting: a metric that did not move (or has no baseline) scores 0 and never
-// headlines, so the report surfaces what changed the ground truth, not what ran.
+/*
+ * toReportView turns a TrendsView into an ad-hoc report: it ranks each metric by how much it
+ * MOVED versus the previous window (interestingness = relative change × weight × confidence) and
+ * emits a SELF-DESCRIBING insight (intent + chart + unit + target + breakdown semantic) so any
+ * client can render it without domain knowledge. Pure — unit-tested directly. Keystone guard
+ * against vanity reporting: a metric that did not move (or has no baseline) scores 0 and never
+ * headlines, so the report surfaces what changed the ground truth, not what ran.
+ */
 import type { TrendsView, ReportView } from "../contract/commands";
 
 type Insight = ReportView["insights"][number];
@@ -11,10 +13,12 @@ type Intent = Insight["intent"];
 
 const round = (n: number): number => Math.round(n * 1e4) / 1e4;
 const confidence = (sample: number): number => Math.min(sample / 10, 1);
-const pct = (n: number): number => Math.round(n * 1000) / 10; // 0.812 → 81.2
+const pct = (n: number): number => Math.round(n * 1000) / 10;  /* 0.812 → 81.2 */
 
-// Colour intent for one verdict slice: the backend owns the domain meaning so every client paints
-// it identically. pass is good; fail/invalid/flaky are bad; skipped/infra-error are neutral noise.
+/*
+ * Colour intent for one verdict slice: the backend owns the domain meaning so every client paints
+ * it identically. pass is good; fail/invalid/flaky are bad; skipped/infra-error are neutral noise.
+ */
 function verdictSemantic(verdict: string): "good" | "bad" | "neutral" {
   if (verdict === "pass") return "good";
   if (verdict === "fail" || verdict === "invalid" || verdict === "flaky") return "bad";
@@ -39,8 +43,10 @@ function metricInsight(p: {
   const both = p.value !== null && p.previous !== null;
   const delta = both ? round(p.value! - p.previous!) : null;
   const multiplier = both && p.previous !== 0 ? round(p.value! / p.previous!) : null;
-  // A rise from a zero baseline (0 → x>0) has no finite multiplier yet is a genuine movement, so
-  // score it by the magnitude ACHIEVED (these metrics are 0..1 ratios) rather than 0 or the cap.
+  /*
+   * A rise from a zero baseline (0 → x>0) has no finite multiplier yet is a genuine movement, so
+   * score it by the magnitude ACHIEVED (these metrics are 0..1 ratios) rather than 0 or the cap.
+   */
   const fromZeroUp = both && p.previous === 0 && p.value! > 0;
   const direction: Insight["direction"] = fromZeroUp
     ? "up"
@@ -50,7 +56,7 @@ function metricInsight(p: {
         ? "up"
         : "down";
   const rc = fromZeroUp
-    ? Math.min(p.value!, 4) // magnitude-scaled: the achieved 0..1 value (capped at the global 4)
+    ? Math.min(p.value!, 4)  /* magnitude-scaled: the achieved 0..1 value (capped at the global 4) */
     : both && p.previous !== 0
       ? Math.abs((p.value! - p.previous!) / p.previous!)
       : 0;
@@ -77,8 +83,10 @@ function metricInsight(p: {
 function headline(insights: Insight[]): string {
   const top = insights.find((i) => i.score > 0);
   if (!top) return "No notable movement this period.";
-  // Frame the move by whether it is good or bad for this metric: a rise in flaky/error rate is
-  // bad news, a rise in coverage is good. goodWhen "neutral" stays purely descriptive.
+  /*
+   * Frame the move by whether it is good or bad for this metric: a rise in flaky/error rate is
+   * bad news, a rise in coverage is good. goodWhen "neutral" stays purely descriptive.
+   */
   const improving =
     top.goodWhen === "neutral"
       ? null
@@ -99,7 +107,7 @@ function headline(insights: Insight[]): string {
       ? `${top.title} up ${top.multiplier}× this period.`
       : `${top.title} down to ${top.multiplier}× of last period.`;
   }
-  // No multiplier — most often a from-zero gain (previous baseline 0). Phrase the climb honestly.
+  /* No multiplier — most often a from-zero gain (previous baseline 0). Phrase the climb honestly. */
   if (top.direction === "up" && top.value !== null) {
     const tail = improving === false ? " (worse)" : improving === true ? " (better)" : "";
     return `${top.title} climbed from zero to ${top.value} this period${tail}.`;
@@ -108,10 +116,12 @@ function headline(insights: Insight[]): string {
 }
 
 export function toReportView(trends: TrendsView, opts?: { weights?: Record<string, number> }): ReportView {
-  // Each metric's confidence is sized by ITS OWN measured-sample count, not the whole window —
-  // a coverage reading from 2 measured runs must not borrow the window's confidence. Metrics
-  // measured on every run (verdict-mix, error-classes) use the window size. The per-insight
-  // interestingness weight is overridable per-app (qa.reports.weights), keyed by insight id.
+  /*
+   * Each metric's confidence is sized by ITS OWN measured-sample count, not the whole window —
+   * a coverage reading from 2 measured runs must not borrow the window's confidence. Metrics
+   * measured on every run (verdict-mix, error-classes) use the window size. The per-insight
+   * interestingness weight is overridable per-app (qa.reports.weights), keyed by insight id.
+   */
   const windowSample = trends.window.current;
   const W = (id: string, dflt: number): number => opts?.weights?.[id] ?? dflt;
   const insights: Insight[] = [];
@@ -160,7 +170,7 @@ export function toReportView(trends: TrendsView, opts?: { weights?: Record<strin
       intent: "single-value",
       chart: "big-number",
       value: trends.reviewerPassRate,
-      previous: null, // trends carries no previous-window pass-rate yet — a single value, not a move
+      previous: null,  /* trends carries no previous-window pass-rate yet — a single value, not a move */
       unit: "ratio",
       goodWhen: "up",
       weight: W("reviewer-pass-rate", 0.6),
@@ -187,7 +197,7 @@ export function toReportView(trends: TrendsView, opts?: { weights?: Record<strin
     id: "verdict-mix",
     title: "Verdict mix",
     intent: "composition",
-    chart: "donut", // preferred (web draws a donut); a terminal falls back to a stacked bar / % list
+    chart: "donut",  /* preferred (web draws a donut); a terminal falls back to a stacked bar / % list */
     value: null,
     unit: "count",
     delta: null,
@@ -237,7 +247,7 @@ export function toReportView(trends: TrendsView, opts?: { weights?: Record<strin
     }),
   );
 
-  // Per-flow stability — only when some flow actually flaked/failed (else it is not interesting).
+  /* Per-flow stability — only when some flow actually flaked/failed (else it is not interesting). */
   if (trends.flows.length > 0) {
     const top = trends.flows[0]!;
     const topInstability = top.flaky + top.fail;
@@ -268,14 +278,13 @@ export function toReportView(trends: TrendsView, opts?: { weights?: Record<strin
   };
 }
 
-// CSV-escape one cell (quote when it contains a comma, quote, or newline). null/undefined → "".
+/* CSV-escape one cell (quote when it contains a comma, quote, or newline). null/undefined → "". */
 function csvEscape(v: unknown): string {
   const s = v === null || v === undefined ? "" : String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-// reportToCsv flattens a report's insights into a spreadsheet-friendly table — one row per insight.
-// The nested series/breakdown are omitted (they belong in a chart, not a CSV cell). Pure.
+/* Flatten insights to CSV — one row per insight. Nested series/breakdown omitted. */
 export function reportToCsv(report: ReportView): string {
   const cols = ["id", "title", "intent", "chart", "value", "unit", "delta", "multiplier", "direction", "goodWhen", "score"];
   const rows = report.insights.map((i) =>
@@ -286,8 +295,7 @@ export function reportToCsv(report: ReportView): string {
   return [cols.join(","), ...rows].join("\n") + "\n";
 }
 
-// trendsToCsv dumps the trends as a flat metric,current,previous table — scalars plus each
-// error-class, verdict and unstable flow as its own row. Pure.
+/* Flat metric,current,previous CSV — scalars plus each error-class, verdict, and unstable flow. */
 export function trendsToCsv(trends: TrendsView): string {
   const rows: Array<[string, unknown, unknown]> = [
     ["coverage.ratio", trends.coverage.ratio, trends.coverage.previousRatio],

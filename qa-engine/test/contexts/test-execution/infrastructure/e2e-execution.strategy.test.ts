@@ -1,13 +1,13 @@
-// test/contexts/test-execution/infrastructure/e2e-execution.strategy.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { E2eExecutionStrategy } from "@contexts/test-execution/infrastructure/e2e-execution.strategy.ts";
 import type { ExecutionRequest } from "@contexts/test-execution/application/ports/index.ts";
 
-// ExecutionRequest carries the full set of ExecuteOptions / CodeExecuteOptions fields so no
-// capability is silently dropped at the port boundary:
-//   e2e: project? (PW --project), onCase?, onRunning?, onDiscovered? (live progress callbacks)
-//   code: changedFiles? (diff-driven module scoping)
+/* ExecutionRequest carries the full set of ExecuteOptions / CodeExecuteOptions fields so no
+   capability is silently dropped at the port boundary:
+   e2e: project? (PW --project), onCase?, onRunning?, onDiscovered? (live progress callbacks)
+   code: changedFiles? (diff-driven module scoping)
+ */
 const req: ExecutionRequest = { specDir: "/m/e2e", baseUrl: "https://dev", namespace: "qa-abc" };
 
 test("delegates to runE2E with the mapped opts and returns the verdict/cases/logs", async () => {
@@ -38,8 +38,9 @@ test("throws when baseUrl is absent (e2e requires a live DEV URL)", async () => 
   await assert.rejects(() => strategy.run({ specDir: "/m/e2e", namespace: "qa-abc" }), /baseUrl/);
 });
 
-// TE-01: pin optional-field threading — a silently-dropped onCase/onRunning/onDiscovered/project/faultInject
-// breaks the live bar and history callbacks at Plan-6 cutover with no other failing test.
+/* Pin optional-field threading — a silently-dropped onCase/onRunning/onDiscovered/project/faultInject
+   breaks the live bar and history callbacks with no other failing test.
+ */
 test("threads all optional ExecutionRequest fields (project, onCase, onRunning, onDiscovered, faultInject) to the injected runE2E fn", async () => {
   type Opts = { baseUrl: string; namespace: string; project?: string; onCase?: unknown; onRunning?: unknown; onDiscovered?: unknown; faultInject?: boolean };
   let capturedOpts: Opts | null = null;
@@ -68,10 +69,11 @@ test("threads all optional ExecutionRequest fields (project, onCase, onRunning, 
   assert.equal((capturedOpts as Opts).faultInject, true, "faultInject must be threaded");
 });
 
-// A3: testIdAttribute must reach the runner opts — apps declare their test-id convention in config
-// (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
-// validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
-// was never set and getByTestId silently resolved the default data-testid on non-default apps.
+/* A3: testIdAttribute must reach the runner opts — apps declare their test-id convention in config
+   (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
+   validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
+   was never set and getByTestId silently resolved the default data-testid on non-default apps.
+ */
 test("testIdAttribute reaches the runner opts", async () => {
   let seen: Record<string, unknown> = {};
   const strategy = new E2eExecutionStrategy(async (_dir, opts) => { seen = opts as Record<string, unknown>; return { verdict: "pass", cases: [], logs: "" }; });
@@ -79,10 +81,11 @@ test("testIdAttribute reaches the runner opts", async () => {
   assert.equal(seen.testIdAttribute, "data-cy");
 });
 
-// G1 kernel widening: the legacy re-projection used to keep only {name, status, detail?}, silently
-// dropping failureDom/httpStatus/finalUrl/runtimeErrors/file/durationMs/flow/objective/reason before
-// they ever reached the FixLoop aggregate (adjudicator Rules 2.5/2.6, Lever-2). This pins that the
-// full evidence set now survives the strategy boundary unchanged.
+/* The strategy must not keep only {name, status, detail?}, silently dropping
+   failureDom/httpStatus/finalUrl/runtimeErrors/file/durationMs/flow/objective/reason before they
+   reach the FixLoop aggregate (adjudicator Rules 2.5/2.6, Lever-2). The full evidence set survives
+   the strategy boundary unchanged.
+ */
 test("evidence fields survive the strategy boundary (G1 kernel widening)", async () => {
   const evidenceCase = {
     name: "checkout shows total", status: "fail" as const, detail: "expect(received).toBe",

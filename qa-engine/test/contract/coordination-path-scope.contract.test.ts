@@ -1,4 +1,4 @@
-// Contract: writable path scope for sidekick (code-mode "." and escape rejection).
+/* Contract: writable path scope for sidekick (code-mode "." and escape rejection). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isPathWithinWritableRoots } from "@contexts/qa-run-orchestration/application/coordination/path-scope.ts";

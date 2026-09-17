@@ -1,10 +1,4 @@
-// OracleInput and ValueOracleResult were removed here in migration-tier-1-2 (Slice 4):
-// ValueOracleResult now has ONE home (qa-engine's objective-signal/application/ports/index.ts —
-// this copy was byte-identical, confirmed against HEAD); OracleInput dissolved entirely — its only
-// consumers were the two oracle modules deleted in Slices 2-3, which each now own a local
-// structural input type instead of a shared one. This file stays SHELL-ONLY (D8 learning-store
-// boundary): Scorecard/ScorecardEntry/updateScorecard keep their existing consumers
-// (src/server/history.ts, signals-view.ts, intelligence-view.ts) with ZERO import churn.
+/* Scorecard types for the shell learning store (history + control-plane views). */
 import type { TestTarget } from "../../types";
 
 export interface ScorecardEntry {

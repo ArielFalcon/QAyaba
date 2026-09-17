@@ -1,4 +1,3 @@
-// Disk verify for sidekick-claimed files + escalated model resolver.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";

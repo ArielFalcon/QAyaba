@@ -1,33 +1,8 @@
-// qa-engine/src/contexts/generation/infrastructure/sse/agent-activity.ts
-// Phase 4 (SSE live activity) — advisory-only routing of OpenCode's global event
-// firehose to per-run structured activity. Now WIRED.
-//
-// migration-tier-4c Slice 3 (D-4c-2, SSE two-tier split): moved WHOLE from
-// src/integrations/agent-activity.ts — zero @opencode-ai/sdk import, a rider alongside the
-// EventStreamManager/startScopedEventStream lifecycle migration (event-stream.ts, this directory).
-// `ActivityKind` is declared locally below (mirrors src/types.ts's own 5-value union) — qa-engine
-// never imports src/.
-//
-// Authoritative event shapes (from @opencode-ai/sdk types):
-//   message.part.updated → { part: Part, delta? }      sessionID lives in part.sessionID
-//       part.type "tool"  → { tool, state:{ status, input, title } }  (write/edit/bash/…)
-//       part.type "patch" → { files: string[] }
-//       part.type "file"  → { filename }
-//       part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`)
-//   todo.updated      → { sessionID, todos: Todo[] }    (each: content, status, priority, id)
-//   command.executed  → { sessionID, name, arguments }
-//   file.edited       → { file }                        (no sessionID — cannot be run-scoped)
-//   session.error     → { sessionID?, error }
-//
-// The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose
-// is never surfaced — only clean structured fields (the file written, the command
-// run, the todo the agent is on).
+/* `ActivityKind` is declared locally below (mirrors src/types.ts's own 5-value union) — qa-engine never imports src/. Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
 
-// Mirrors src/types.ts's own ActivityKind exactly — declared locally (qa-engine never imports src/).
+/** Mirrors src/types.ts's own ActivityKind exactly — declared locally (qa-engine never imports src/). */
 export type ActivityKind = "file" | "command" | "todo" | "phase" | "error";
 
-// The router's output for one event: the semantic fields plus the run it belongs
-// to. The persisted/TUI `AgentActivity` (types.ts) adds a `ts` stamped at write.
 export interface RoutedActivity {
   runId: string;
   kind: ActivityKind;
@@ -35,7 +10,6 @@ export interface RoutedActivity {
   status?: "pending" | "in_progress" | "completed";
 }
 
-// The minimal view of an incoming OpenCode event the router needs.
 export interface RawEvent {
   type: string;
   properties?: Record<string, unknown>;
@@ -44,11 +18,10 @@ export interface RawEvent {
 export type DropReason = "no-session" | "unknown-session" | "unknown-kind";
 
 export interface RouteResult {
-  activities: RoutedActivity[]; // 0..N (todo.updated yields one per todo)
-  dropped?: DropReason;         // set only when nothing routed AND there is a reason worth counting
+  activities: RoutedActivity[];
+  dropped?: DropReason;
 }
 
-// Tools whose completion means a file was written/changed.
 const FILE_TOOLS = /^(write|edit|multiedit|create|apply_patch|patch)$/i;
 const SHELL_TOOLS = /^(bash|shell|run)$/i;
 
@@ -76,15 +49,12 @@ interface PartLike {
   state?: { status?: string; input?: Record<string, unknown>; title?: string };
 }
 
-// Extract structured activity from a message part. Returns 0..N activities.
 function fromPart(runId: string, part: PartLike | undefined): RoutedActivity[] {
   if (!part || typeof part !== "object") return [];
 
   if (part.type === "tool") {
     const tool = String(part.tool ?? "");
     const state = part.state ?? {};
-    // Only surface a tool once it has actually run (completed) — pending/running
-    // updates stream repeatedly and carry no definitive result yet.
     if (state.status !== "completed") return [];
     const input = (state.input ?? {}) as Record<string, unknown>;
     if (FILE_TOOLS.test(tool)) {
@@ -108,15 +78,12 @@ function fromPart(runId: string, part: PartLike | undefined): RoutedActivity[] {
     return [{ runId, kind: "file", text: basename(String(part.filename)) }];
   }
 
-  // text / reasoning / step-start / step-finish / agent / … → prose or control → drop.
   return [];
 }
 
-// Routes ONE event to 0..N activities, or reports a drop reason.
 export function routeEvent(event: RawEvent, sessions: ReadonlyMap<string, string>): RouteResult {
   const p = event.properties ?? {};
   const part = p.part as PartLike | undefined;
-  // sessionID is top-level on most events, but inside the part for message.part.updated.
   const sessionID = (p.sessionID as string | undefined) ?? part?.sessionID;
   if (!sessionID) return { activities: [], dropped: "no-session" };
   const runId = sessions.get(sessionID);
@@ -150,12 +117,10 @@ export function routeEvent(event: RawEvent, sessions: ReadonlyMap<string, string
   }
 }
 
-// Stateful registry: routes events, dedups repeats (tool parts stream many updates),
-// and tracks per-session context for the heartbeat enrichment.
 export class ActivityRouter {
   private readonly sessions = new Map<string, string>();
   private readonly context = new Map<string, SessionContext>();
-  private readonly workers = new Map<string, string>(); // sessionId → workerId (parallelDiff fan-out)
+  private readonly workers = new Map<string, string>();
   readonly drops: Record<DropReason, number> = { "no-session": 0, "unknown-session": 0, "unknown-kind": 0 };
 
   register(sessionId: string, runId: string, workerId?: string): void {
@@ -170,20 +135,14 @@ export class ActivityRouter {
     this.workers.delete(sessionId);
   }
 
-  // Read-only view of the session→run mapping, for the stream consumer that maps
-  // raw events to contract RunEvents (mapOpencodeEvent needs the same demux map).
   sessionMap(): ReadonlyMap<string, string> {
     return this.sessions;
   }
 
-  // Read-only session→workerId map: lets the mapper tag a fan-out worker's activity
-  // so the TUI can show a dedicated multi-worker view.
   workerMap(): ReadonlyMap<string, string> {
     return this.workers;
   }
 
-  // Returns the activities to surface for this event (already deduped). Empty when
-  // nothing new is worth showing.
   route(event: RawEvent): RoutedActivity[] {
     const r = routeEvent(event, this.sessions);
     if (r.dropped) this.drops[r.dropped]++;
@@ -194,9 +153,6 @@ export class ActivityRouter {
 
     const out: RoutedActivity[] = [];
     for (const a of r.activities) {
-      // Dedup repeated emissions (a tool part updates many times; a todo snapshot
-      // re-sends unchanged rows). Key by kind+text+status so a status progression
-      // (pending→in_progress→completed) still flows.
       const key = `${a.kind}:${a.text}:${a.status ?? ""}`;
       if (ctx) {
         if (ctx.emitted.has(key)) continue;
@@ -209,7 +165,6 @@ export class ActivityRouter {
     return out;
   }
 
-  // Short contextual summary for heartbeat enrichment (last todo, files, last file).
   getContext(sessionId: string): string {
     const ctx = this.context.get(sessionId);
     if (!ctx) return "";

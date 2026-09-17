@@ -1,9 +1,4 @@
-// qa-engine/test/shared-infrastructure/code-graph/stub-code-graph.adapter.test.ts
-// Behavioral test for the Phase 1 inert stub: every method MUST resolve to an ok(...) Result with
-// the documented empty/zero shape, ignoring all arguments, never throwing/rejecting. Traces to spec
-// sdd/codegraph-port-skeleton/spec scenarios A1-A8 (topic id 940).
-// Import depth: from qa-engine/test/shared-infrastructure/code-graph/ → qa-engine/src/ is 3 levels
-// up (../../../), matching process-kill.test.ts's sibling precedent.
+/* Inert stub: every method resolves ok(...) with the documented empty/zero shape and never throws. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { StubCodeGraphAdapter } from "../../../src/shared-infrastructure/code-graph/stub-code-graph.adapter.ts";

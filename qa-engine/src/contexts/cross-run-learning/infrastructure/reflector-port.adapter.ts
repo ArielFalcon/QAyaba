@@ -1,73 +1,12 @@
-// qa-engine/src/contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts
-// ReflectorPort adapter (reflector-rewire design, Phase 2). Runs a ONE-SHOT, read-only "reflector"
-// session over AgentRuntimePort, parses the closing StructuredReflection JSON, and — on a valid
-// parse only — writes a candidate/low LearningRule via LearningRepositoryPort.save (ADR-3: this
-// call site NEVER threads an initialStatus-shaped field, which is the whole anti-Goodhart
-// guarantee) and back-fills the persisted RunOutcome.reflection via the injected `backfill` dep
-// (ADR-2: host-side updateRunOutcomeReflection, not a widened RunHistoryPort).
-//
-// Fault isolation (ADR-1's stricter gate lives at the CALL SITE, not here — this adapter's own
-// contract is: whatever reaches reflect(), a crash, a rejected prompt, a hung session past its own
-// timeout, or a malformed/incomplete JSON response is caught INLINE and never re-thrown, mirroring
-// LearningPortAdapter.fold()'s documented off-path convention on the sibling LearningRepositoryPort.
-// The run's verdict and already-made ledger writes (runHistory.save, learning.fold) are made BEFORE
-// this call and are structurally unaffected by anything that happens inside reflect().
-//
-// isStructuredReflection / parseStructuredReflection / buildReflectionPrompt are ported VERBATIM
-// from src/qa/learning/reflector.ts (task 2.3) — qa-engine/ never imports from src/, so the shared
-// balanced-brace JSON extractor (lastJsonMatching/extractJsonObjects, originally
-// src/integrations/verdict-parse.ts) is ported alongside them rather than imported across the
-// hexagonal boundary.
-//
-// WS1.3 (full-flow remediation): the save path now routes through distill-rule.ts's decideDistill
-// (the ported anti-respawn dedup guard + field caps + trigger canonicalization) instead of
-// constructing the LearningRule inline. This restores the dedup semantics legacy's
-// src/qa/learning/distiller.ts had (exact-text ruleKey dedup against ALL statuses incl.
-// deprecated/superseded) that the inline construction bypassed entirely. `app` on ReflectorPortDeps
-// (previously carried only for ctor parity, never read) is now genuinely consumed: it scopes the
-// repo.listAll(app, ...) call that fetches the existing-rule set the dedup decision runs against.
-//
-// LIVE as of Task 2 (full-flow remediation): repo.listAll(app, ...) above used to resolve to []
-// in every production run — the factory's historyLearningStore (src/server/
-// rewritten-engine-factory.ts) never implemented LearningStore.selectAllRules, so
-// SqliteLearningRepository.listAll() fell back to its own documented fail-open empty set, and this
-// dedup guard, though fully implemented here, was a structural pass-through end-to-end. Task 2
-// wires selectAllRules onto history.ts's listAllLearningRules, so decideDistill below now runs
-// against the REAL full existing-rule set (all statuses) in production.
-//
-// WS1.5 (full-flow remediation): TWO further gaps closed. (1) archetype was hardcoded `null` on
-// every saved rule — now threaded from `input.archetype` (the use-case's diff-derived structural
-// shape, distill-rule.ts's detectArchetype), coalesced to null only when the use-case genuinely
-// has none to offer (never fabricated here). (2) errorClass was always trusted from the LLM's own
-// echoed `reflection.errorClass` — now, when `input.gateSignals.reviewerCorrections` is non-empty
-// (a reviewer-rejection outcome), it is DETERMINISTICALLY re-derived via distill-rule.ts's
-// correctionToErrorClass, restoring legacy's correctionToRuleUpsert non-LLM-trusting semantics
-// (the prompt's "do NOT change it" instruction is advisory, not enforced — an LLM can still drift).
+/* app scopes repo.listAll for the existing-rule set the dedup decision runs against. archetype comes from the use-case (never fabricated here; coalesced to null only when the use-case has none). */
 import type { LearningRepositoryPort, LearningRule, ReflectionInput, StructuredReflection } from "../application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { capRuleFields, correctionToErrorClass, decideDistill } from "../domain/distill-rule.ts";
-// sdd/security-hardening Slice 3: the qa-engine-side canonical model-prompt sanitizer (CLAUDE.md
-// names this file explicitly as the diff/commit-body/reviewer-text → model prompt boundary). Reused
-// here (not re-implemented) so the reviewer-authored `gateSignals.reviewerCorrections` text gets the
-// SAME redaction every sibling model-bound field in prompts.ts already receives — the reviewer has
-// read/bash/glob on the actual repo files, so its rejection rationale can legitimately quote a secret.
-// judgment-day round 3 (FIX D, Judge B): buildReflectionPrompt below used to call this with the
-// "model" mode, which is STRICTLY WEAKER than the "issue" default — "model" mode's modelSkip escape
-// hatch (WS5.4a) treats a short, low-entropy `password: value`-shaped match as a code-shape false
-// positive and leaves it unredacted. Every sibling reviewer/selector-authored field in prompts.ts
-// (reviewCorrections, priorCorrections, selectorContradictions) moved to the stricter DEFAULT mode
-// in round 2 (commit 8cc53bf) — this call site was the one sibling the sweep missed. Call with no
-// mode argument so it defaults to "issue", matching every sibling instead of contradicting them.
+/* Default sanitize mode is "issue" — the same as every sibling reviewer/selector-authored field. */
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 
-// Bounded so a single reflect() call never fans out unbounded rule history when scanning for
-// dedup — mirrors legacy's own listAllLearningRules(app, limit) default cap (src/server/
-// history.ts / src/qa/learning/distiller.ts's DEDUP_WINDOW).
 const DEDUP_SCAN_LIMIT = 200;
 
-// ── Ported verbatim from src/integrations/verdict-parse.ts ──────────────────────────────────────
-// Extracts every BALANCED top-level JSON object from free-form agent text, respecting string
-// literals and escapes (so a `}` inside a string, or nested objects, never mis-split the span).
 function extractJsonObjects(text: string): unknown[] {
   const objs: unknown[] = [];
   let depth = 0;
@@ -103,7 +42,6 @@ function extractJsonObjects(text: string): unknown[] {
   return objs;
 }
 
-// Returns the LAST extracted JSON object for which `pred` holds, or undefined.
 function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
   const objs = extractJsonObjects(text);
   for (let i = objs.length - 1; i >= 0; i--) {
@@ -113,8 +51,6 @@ function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: R
   return undefined;
 }
 
-// ── Ported verbatim from src/qa/learning/reflector.ts ────────────────────────────────────────────
-// Shape guard for a complete StructuredReflection (every field the distiller needs).
 function isStructuredReflection(o: Record<string, unknown>): boolean {
   const pr = o.preventiveRule as Record<string, unknown> | undefined;
   return (
@@ -132,11 +68,7 @@ function isStructuredReflection(o: Record<string, unknown>): boolean {
   );
 }
 
-// Parse the qa-reflector's StructuredReflection out of its raw output. The role is told to emit
-// "ONLY the JSON object, no markdown", but models do not always comply — they may wrap the object
-// in a ```json fence or surround it with prose, which makes a raw JSON.parse throw. Routing through
-// the shared balanced-brace extractor makes reflection parsing robust to fences/prose. Returns null
-// when no complete reflection object is present (never throws).
+/* Parse the qa-reflector's StructuredReflection out of its raw output. The role is told to emit "ONLY the JSON object, no markdown", but models do not always comply — they may wrap the object in a ```json fence or surround it with prose, which makes a raw JSON.parse throw. Routing through the shared balanced-brace extractor makes reflection parsing robust to fences/prose. Returns null when no complete reflection object is present (never throws). */
 function parseStructuredReflection(raw: string): StructuredReflection | null {
   return lastJsonMatching<StructuredReflection>(raw, isStructuredReflection) ?? null;
 }
@@ -182,27 +114,16 @@ function buildReflectionPrompt(input: ReflectionInput): string {
   ].join("\n");
 }
 
-// Default reflect timeout: 60s, overridable via env at construction (rewritten-engine-factory.ts
-// reads REFLECTOR_TIMEOUT_MS and passes it as `timeoutMs`; this constant is the adapter's own
-// fallback default when no override is supplied). Independent of any other port's timeout.
 export const REFLECT_TIMEOUT_MS = 60_000;
 
 export interface ReflectorPortDeps {
   runtime: AgentRuntimePort;
   repo: LearningRepositoryPort;
-  // ADR-2: host-side back-fill (updateRunOutcomeReflection, src/server/history.ts:750), injected so
-  // this context never depends on the SQLite-backed RunHistoryPort implementer directly.
   backfill: (runId: string, refl: StructuredReflection) => void;
   cwd: string;
   app: string;
   timeoutMs?: number;
-  // Injectable so a test can assert the swallow without polluting stderr; defaults to console.error,
-  // mirroring LearningPortAdapter's onFoldError convention on the sibling port.
   onReflectError?: (e: unknown) => void;
-  // WS1.3: injectable so a test can assert the skip without polluting stderr; defaults to
-  // console.log. Fired when decideDistill finds the distilled rule duplicates an EXISTING rule
-  // (any status, incl. deprecated/superseded) — never an error, since a skip is the anti-respawn
-  // guard working as intended, not a fault.
   onSkipDuplicate?: (line: string) => void;
 }
 
@@ -223,56 +144,32 @@ export class ReflectorPortAdapter {
 
       const { output } = await session.prompt(buildReflectionPrompt(input), { textOnly: true });
       const reflection = parseStructuredReflection(output);
-      if (!reflection) return; // malformed/incomplete JSON: logged no-op, never a throw
+      if (!reflection) return;
 
-      // WS1.3: cap fields + canonicalize the trigger BEFORE the dedup key is computed — mirrors
-      // legacy's reflectionToRuleUpsert -> distillReflection ordering (the ruleKey is computed on
-      // the ALREADY-normalized/capped candidate, never the raw LLM text).
       const capped = capRuleFields({
         trigger: reflection.preventiveRule.trigger,
         action: reflection.preventiveRule.action,
       });
 
-      // WS1.3: fetch the FULL existing-rule set (any status, incl. deprecated/superseded) so a
-      // demoted pattern cannot respawn as a fresh candidate. listAll is optional on the port
-      // (mirrors incrementUsage's own optionality) — a repo/store that doesn't implement it fails
-      // open to an empty existing set, never a stricter gate than before this guard existed.
       const existing = await repo.listAll?.(app, DEDUP_SCAN_LIMIT) ?? [];
       const distilled = decideDistill(capped, existing);
 
       if (distilled.decision === "skip-duplicate") {
-        // Never an error: the anti-respawn guard working as intended, not a fault. Reflection
-        // stays fault-isolated — a skip must not surface any louder than a normal no-op.
         reportSkip(
           `[ReflectorPortAdapter] skipped duplicate rule (key="${distilled.key}", matches existing id="${distilled.match.id}", status="${distilled.match.status}")`,
         );
         return;
       }
 
-      // WS1.5 (full-flow remediation, corrections-distillation channel): when this outcome carries
-      // real reviewer-rejection corrections, the errorClass is DETERMINISTICALLY re-derived from
-      // them (correctionToErrorClass — the closed-vocabulary [tag] first, keyword heuristics, then
-      // the E-REVIEWER-REJECTED fallback) rather than trusted from the LLM's own echoed
-      // `reflection.errorClass`. The prompt instructs the model "the errorClass ... is already
-      // determined by the gates — do NOT change it", but an LLM is non-deterministic and can still
-      // disobey; corrections are the objective, non-LLM signal, so they win when present. Absent
-      // corrections (a structural failure with no reviewer involved), the reflection's own echoed
-      // class is used unchanged — matching this method's pre-existing behavior exactly.
       const derivedErrorClass = input.gateSignals.reviewerCorrections.length > 0
         ? correctionToErrorClass(input.gateSignals.reviewerCorrections[0]!)
         : reflection.errorClass;
 
-      // ADR-3: status/confidence are hardcoded here — candidate/low — NEVER threaded from an
-      // "initialStatus"-shaped field. This is the anti-Goodhart guarantee: reflection can only ever
-      // author a candidate, never an active rule.
       const rule: LearningRule = {
         id: `rule-${input.runId.slice(-8)}-${Math.random().toString(16).slice(2, 8)}`,
         trigger: capped.trigger,
         action: capped.action,
         errorClass: derivedErrorClass,
-        // WS1.5: the use-case's diff-derived structural shape (detectArchetype) — see
-        // ReflectionInput.archetype's own header for why this is a tag, not raw diff text. Coalesced
-        // to null (never undefined) so every saved rule has an explicit, non-fabricated value.
         archetype: input.archetype ?? null,
         status: "candidate",
         confidence: "low",
@@ -288,12 +185,9 @@ export class ReflectorPortAdapter {
       await repo.save(rule);
       backfill(input.runId, reflection);
     } catch (e) {
-      // Off-path by contract: never gates publish, never affects the already-made verdict/ledger
-      // writes. Logged, not re-thrown — mirrors LearningPortAdapter.fold()'s documented convention
-      // on the sibling LearningRepositoryPort.
+      /* Off-path by contract: never gates publish, never affects the already-made verdict/ledger writes. Logged, not re-thrown — mirrors LearningPortAdapter.fold()'s documented convention on the sibling LearningRepositoryPort. */
       reportError(e);
     } finally {
-      // Guard with `?.` since openSession() itself can throw before `session` is ever assigned.
       await session?.dispose();
     }
   }

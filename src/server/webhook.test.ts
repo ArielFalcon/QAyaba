@@ -4,7 +4,7 @@ import { createHmac } from "node:crypto";
 import { verifySignature, parseWebhook, handleWebhook } from "./webhook";
 
 const SECRET = "topsecret";
-const SHA = "abc1234"; // a valid 7-char hex commit id
+const SHA = "abc1234"; /* a valid 7-char hex commit id */
 const sign = (body: string) =>
   "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
 
@@ -33,7 +33,6 @@ test("parseWebhook reads mode and guidance", () => {
     guidance: "test login",
     baseSha: undefined,
   });
-  // unknown mode falls back to diff
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "nope" })?.mode, "diff");
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "complete" })?.mode, "complete");
   assert.equal(parseWebhook({ repo: "a", sha: SHA, mode: "context" })?.mode, "context");

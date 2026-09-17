@@ -1,8 +1,4 @@
-// test/contexts/generation/infrastructure/exploration-brief.adapter-parity.test.ts
-// PARITY: the wrapper round-trips a brief through both the adapter and the legacy fn,
-// proving parse/coerce/render produce identical results.
-// Imports from src/qa/exploration-brief.ts (NOT src/integrations/ — there is no such file).
-// Excluded from qa-engine typecheck; runs via tsx.
+/* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ExplorationBriefAdapter } from "@contexts/generation/infrastructure/exploration-brief.adapter.ts";

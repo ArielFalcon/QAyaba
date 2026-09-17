@@ -1,10 +1,7 @@
-// test/contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.test.ts
-// RED-first parity test (Plan 6, Task D.6): drives RewrittenOrchestratorAdapter — RunPipelinePort
-// over the REWRITTEN domain (RunQaUseCase) — with the SAME stubbed ports as run-qa.use-case.test.ts
-// (Task D.5), so this pin is genuinely comparable to the legacy adapter's own scenario tests
-// (legacy-pipeline.adapter.test.ts) and to the D.5 10-scenario parity. A gutted impl returning a
-// literal FAILS this test — the adapter must forward through RunQaUseCase and map its RunQaResult
-// to a RunOutcome (the SAME shape RunHistoryPort.save persists).
+/* RewrittenOrchestratorAdapter forwards through RunQaUseCase with the same stubbed ports as
+   run-qa.use-case.test.ts. A gutted impl returning a literal FAILS this test — the adapter must
+   map RunQaResult to a RunOutcome (the SAME shape RunHistoryPort.save persists).
+ */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,11 +23,11 @@ import type {
 import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 
-// ── Fully-stubbed port set — IDENTICAL shape to run-qa.use-case.test.ts's stubPorts() (Task D.5),
-// so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
-// parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
-// approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
-// "github-issue"). ──────────────────────────────────────────────────────────────────────────────
+/* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
+   parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
+   approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
+   "github-issue"). ──────────────────────────────────────────────────────────────────────────────
+ */
 
 function stubPorts(overrides: Partial<{
   classify: ChangeAnalysisPort["classify"];
@@ -67,7 +64,7 @@ function stubPorts(overrides: Partial<{
   };
   const objectiveSignal: ObjectiveSignalPort = {
     measure: overrides.measure ?? (async () => ({ status: "unknown", ratio: null })),
-    // Default mirrors this suite's own baseline scenario (no coverage config -> never blocks).
+    /* Default mirrors this suite's own baseline scenario (no coverage config -> never blocks). */
     blocks: overrides.blocks ?? (() => false),
   };
   const publication: PublicationPort = {
@@ -114,12 +111,12 @@ test("RewrittenOrchestratorAdapter: green-pr — fully stubbed ports, returns Ru
   assert.equal(outcome.verdict, "pass");
 });
 
-// ── The 10-scenario equivalence (mirrors Task A.4 for the rewritten adapter, and Task D.5's own
-// 10-scenario parity for RunQaUseCase) — drives ALL 10 scenarios.ts goldens through
-// RewrittenOrchestratorAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
-// The adapter's OWN job is proving the RunInput -> RunQaUseCase -> RunOutcome MAPPING is faithful —
-// not re-deriving decide()'s policy (already proven by run-decision-parity.test.ts) or the use-case's
-// own wiring (already proven by run-qa.use-case.test.ts). ─────────────────────────────────────────
+/* 10-scenario parity for RunQaUseCase) — drives ALL 10 scenarios.ts goldens through
+   RewrittenOrchestratorAdapter.run(), asserting the resulting RunOutcome.verdict equals the golden.
+   The adapter's OWN job is proving the RunInput -> RunQaUseCase -> RunOutcome MAPPING is faithful —
+   not re-deriving decide()'s policy (already proven by run-decision-parity.test.ts) or the use-case's
+   own wiring (already proven by run-qa.use-case.test.ts). ─────────────────────────────────────────
+ */
 
 interface TenScenarioCase {
   scenario: string;
@@ -139,8 +136,9 @@ interface TenScenarioCase {
 
 const tenScenarios: TenScenarioCase[] = [
   {
-    // scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
-    // scenarios.ts:226-234.
+    /* scenarioApp (needsReview:true), makeDeps({}) — generated (approved:true), passing(). Source:
+       scenarios.ts:226-234.
+     */
     scenario: "green-pr",
     overrides: {},
     config: baseConfig,
@@ -148,8 +146,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "pass",
   },
   {
-    // scenarioApp, makeDeps({ run: fail }) — a failing case, no fix-loop recovery (execute always
-    // returns the SAME fail result). Source: scenarios.ts:236-246.
+    /* scenarioApp, makeDeps({ run: fail }) — a failing case, no fix-loop recovery (execute always
+       returns the SAME fail result). Source: scenarios.ts:236-246.
+     */
     scenario: "fail-issue",
     overrides: {
       execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
@@ -160,7 +159,6 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "fail",
   },
   {
-    // scenarioApp, makeDeps({ run: flaky }). Source: scenarios.ts:248-258.
     scenario: "flaky-quarantine",
     overrides: {
       execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
@@ -170,8 +168,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "flaky",
   },
   {
-    // scenarioApp, makeDeps({ agent: noopAgent }) — the agent approves with zero specs: a VALID
-    // skipped (CLAUDE.md invariant), never invalid. Source: scenarios.ts:260-268.
+    /* scenarioApp, makeDeps({ agent: noopAgent }) — the agent approves with zero specs: a VALID
+       skipped (CLAUDE.md invariant), never invalid. Source: scenarios.ts:260-268.
+     */
     scenario: "no-op-skip",
     overrides: {
       generate: async () => ({ specs: [], approved: true }),
@@ -181,7 +180,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "skipped",
   },
   {
-    // scenarioApp, makeDeps({ validation: { ok:false, ... } }). Source: scenarios.ts:270-280.
+    /* scenarioApp, makeDeps({ validation: { ok:false, ... } }). Source: scenarios.ts:270-280. */
     scenario: "invalid-issue",
     overrides: {
       validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -191,8 +190,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "invalid",
   },
   {
-    // scenarioApp, makeDeps({ healthy: false }) — DEV unhealthy before execution. Source:
-    // scenarios.ts:282-290.
+    /* scenarioApp, makeDeps({ healthy: false }) — DEV unhealthy before execution. Source:
+       scenarios.ts:282-290.
+     */
     scenario: "infra-error",
     overrides: {
       waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }),
@@ -202,8 +202,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "infra-error",
   },
   {
-    // codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
-    // pass-path chain. Source: scenarios.ts:292-300.
+    /* codeApp (needsReview:true), makeDeps({ isCodeMode: true }) — code mode reuses the SAME
+       pass-path chain. Source: scenarios.ts:292-300.
+     */
     scenario: "code-mode",
     overrides: {},
     config: { ...baseConfig, isCode: true },
@@ -211,8 +212,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "pass",
   },
   {
-    // crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }). Source:
-    // scenarios.ts:302-322.
+    /* crossApp (needsReview:false, shadow:false explicit), makeDeps({ isCrossRepo: true }). Source:
+       scenarios.ts:302-322.
+     */
     scenario: "cross-repo",
     overrides: {},
     config: { ...baseConfig, needsReview: false },
@@ -220,7 +222,7 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "pass",
   },
   {
-    // shadowApp (needsReview:true, shadow:true), makeDeps({}). Source: scenarios.ts:324-332.
+    /* shadowApp (needsReview:true, shadow:true), makeDeps({}). Source: scenarios.ts:324-332. */
     scenario: "shadow",
     overrides: {},
     config: { ...baseConfig, shadow: true },
@@ -228,8 +230,9 @@ const tenScenarios: TenScenarioCase[] = [
     expectedVerdict: "pass",
   },
   {
-    // scenarioApp, context mode's own generate() stub — approved:true, reviewed:false, passing().
-    // Source: scenarios.ts:334-351.
+    /* scenarioApp, context mode's own generate() stub — approved:true, reviewed:false, passing().
+       Source: scenarios.ts:334-351.
+     */
     scenario: "context",
     overrides: {
       generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
@@ -257,10 +260,10 @@ for (const c of tenScenarios) {
   });
 }
 
-// ── Genuine-mapping proofs — not a gutted literal. The RunOutcome the adapter returns must be the
-// SAME shape RunHistoryPort.save persists (per Task D.6's own contract), so these assert the
-// adapter's returned RunOutcome carries real fields the use-case's toRunOutcome() derives, not a
-// hand-rolled re-derivation with a different shape. ────────────────────────────────────────────
+/* ── Genuine-mapping proofs — not a gutted literal. The RunOutcome the adapter returns must be the
+   adapter's returned RunOutcome carries real fields the use-case's toRunOutcome() derives, not a
+   hand-rolled re-derivation with a different shape. ────────────────────────────────────────────
+ */
 
 test("RewrittenOrchestratorAdapter: returns the SAME RunOutcome shape RunHistoryPort.save receives (fail-issue — retries + coverageRatio forwarded)", async () => {
   let savedOutcome: RunOutcome | undefined;
@@ -300,16 +303,17 @@ test("RewrittenOrchestratorAdapter — infra-error (entry gate): DeployGatePort 
   assert.equal(outcome.runId, "golden-infra-error-entry-gate", "even the entry-gate infra-error path must forward runId, not a stub literal");
 });
 
-// ── Judgment-day D.7 FIX 1/3/4: toOutcome() must mirror the SAME errorClass/valueScore/
-// reviewerApproved the use-case already derived and persisted — not re-hardcode them to null a
-// second time at this adapter boundary (RunHistoryPort has no read-back path, so this adapter's own
-// toOutcome() is the ONLY place these fields can be surfaced to the RunPipelinePort caller). ──────
+/* toOutcome() must mirror the SAME errorClass/valueScore/reviewerApproved the use-case already
+   derived and persisted — not re-hardcode them to null at this adapter boundary (RunHistoryPort
+   has no read-back path, so this adapter's toOutcome() is the ONLY place these fields can be
+   surfaced to the RunPipelinePort caller).
+ */
 
 test("FIX 1 (adapter): reviewerApproved is forwarded into the returned RunOutcome, not hardcoded away", async () => {
   const { ports } = stubPorts({
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
   });
-  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig }); // needsReview: true
+  const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 
   const outcome = await adapter.run({ ...baseInput, runId: "fix-1-adapter-reviewer-approved" });
 
@@ -341,11 +345,12 @@ test("FIX 4 (adapter): errorClass is forwarded into the returned RunOutcome, not
   assert.equal(outcome.errorClass, "E-EXEC-FAIL", "errorClass must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
 });
 
-// ── CLAUDE.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
-// undiagnosable without instrumenting a live container): RunQaResult.note must reach RunOutcome.note
-// through this adapter's toOutcome() mapping — previously dropped entirely, silently breaking the
-// note chain between RunQaUseCase and src/server/runner.ts's runViaRewrittenEngine (which reads
-// outcome.note off exactly the RunOutcome this adapter returns). ──────────────────────────────────
+/* ── CLAUDE.md invariant note-chain (a live infra-error once surfaced with NO note/log/cases —
+   undiagnosable without instrumenting a live container): RunQaResult.note must reach RunOutcome.note
+   through this adapter's toOutcome() mapping — previously dropped entirely, silently breaking the
+   note chain between RunQaUseCase and src/server/runner.ts's runViaRewrittenEngine (which reads
+   outcome.note off exactly the RunOutcome this adapter returns). ──────────────────────────────────
+ */
 
 test("NOTE CHAIN (adapter): RunQaResult.note is forwarded into the returned RunOutcome.note", async () => {
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }) });
@@ -361,12 +366,11 @@ test("NOTE CHAIN (adapter): RunQaResult.note is forwarded into the returned RunO
 });
 
 test("NOTE CHAIN (adapter): a clean pass carries the real publish() outcome, never a fabricated diagnostic", async () => {
-  // F1 fix (audit, CRITICAL): a "pass"/"pr" decision now genuinely calls PublicationPort.publish()
-  // (previously the ONLY side effect that ever did), and its real return value threads into
-  // RunQaResult.note -> RunOutcome.note (see run-qa.use-case.ts's own FIX F1 comment). The stub here
-  // (stubPorts' default `publish: async () => ({ outcome: "pr" })`) makes this note genuinely
-  // reflect what publish() returned — not a fabricated value — so a clean pass's note is now
-  // "pr" (the publish outcome string), not absent.
+  /* A "pass"/"pr" decision must call PublicationPort.publish(); its return value threads into
+     RunQaResult.note -> RunOutcome.note. The stub here (stubPorts' default
+     `publish: async () => ({ outcome: "pr" })`) makes this note reflect what publish() returned —
+     a clean pass's note is "pr", not absent.
+   */
   const { ports } = stubPorts();
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 

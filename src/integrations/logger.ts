@@ -1,12 +1,10 @@
 import { createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// Simple JSON-structured logger for production use.
-// Replaces ad-hoc console.log with a single stream so logs can be shipped to
-// Loki/CloudWatch/etc without being interleaved with stdout noise.
+/* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
 const LOG_DIR = join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "logs");
-const MAX_LOG_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_LOG_SIZE = 50 * 1024 * 1024;
 const MAX_LOG_FILES = 5;
 
 let stream: ReturnType<typeof createWriteStream> | null = null;
@@ -37,7 +35,7 @@ function pruneOldLogs(): void {
       if (old) unlinkSync(old.path);
     }
   } catch {
-    // ignore pruning errors
+    /* ignore pruning errors */
   }
 }
 
@@ -45,9 +43,7 @@ export function logJson(
   level: "info" | "warn" | "error",
   message: string,
   meta?: Record<string, unknown>,
-  // mirrorToConsole=false writes ONLY to the shipped JSON file. Used by the per-run pipeline log
-  // sink, which already prints a human-readable plain line to stdout — so the structured,
-  // runId-tagged copy goes to the log stream without duplicating console output.
+  /* false writes only to the shipped JSON file (the per-run sink already prints stdout). */
   mirrorToConsole = true,
 ): void {
   const entry = {

@@ -36,8 +36,8 @@ describe("renderRulesForReviewer — proven rules as reject-on-sight criteria", 
   it("frames the rules as reject criteria and includes trigger, action, and class", () => {
     const out = renderRulesForReviewer([r({ status: "active" })]);
     assert.match(out, /reject/i, "tells the judge to reject on violation");
-    assert.match(out, /use getByRole/); // the action
-    assert.match(out, /E-FRAGILE-SELECTOR/); // the class tag
+    assert.match(out, /use getByRole/);
+    assert.match(out, /E-FRAGILE-SELECTOR/);
   });
 
   it("returns empty string when there are no active rules (nothing to enforce)", () => {

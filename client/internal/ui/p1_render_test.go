@@ -7,8 +7,8 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/contract"
 )
 
-// When the running project is the FLEET selection, its row offers watch/stop instead of the
-// launch config — you resume or stop the run, you do not start a second one.
+/* When the running project is the FLEET selection, its row offers watch/stop instead of the
+   launch config — you resume or stop the run, you do not start a second one. */
 func TestFleetRunningSelectedRowShowsStopNotLaunchConfig(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "petclinic"}})
 	setRunning(&m, "petclinic", "r1")
@@ -27,7 +27,7 @@ func TestFleetRunningSelectedRowShowsStopNotLaunchConfig(t *testing.T) {
 	}
 }
 
-// An idle selection still edits its launch config in place.
+/* An idle selection still edits its launch config in place. */
 func TestFleetIdleSelectedRowKeepsLaunchConfig(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	m.focus = focusFleet
@@ -40,12 +40,12 @@ func TestFleetIdleSelectedRowKeepsLaunchConfig(t *testing.T) {
 	}
 }
 
-// The "+ onboard" row is a real, selectable cursor position now — it carries the caret when
-// focused, so it's reachable and obvious, not only via the global 'o'.
+/* The "+ onboard" row is a real, selectable cursor position now — it carries the caret when
+   focused, so it's reachable and obvious, not only via the global 'o'. */
 func TestFleetOnboardRowShowsSelectionCaret(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	m.focus = focusFleet
-	m.cursor = 1 // the onboard row
+	m.cursor = 1 /* the onboard row */
 
 	out := m.renderFleet(90)
 
@@ -60,7 +60,7 @@ func TestFleetOnboardRowShowsSelectionCaret(t *testing.T) {
 	}
 }
 
-// The focused NOW panel surfaces its live controls.
+/* The focused NOW panel surfaces its live controls. */
 func TestNowFocusedShowsWatchAndStop(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	setRunning(&m, "a", "r1")
@@ -74,8 +74,7 @@ func TestNowFocusedShowsWatchAndStop(t *testing.T) {
 	}
 }
 
-// Footers adapt to focus: NOW advertises watch/stop, the help chat is discoverable everywhere
-// (? ask), and the retired sessions screen never appears.
+/* Footers adapt to focus: NOW advertises watch/stop, the help chat is discoverable everywhere (? ask), and a sessions screen never appears. */
 func TestFooterHintsByFocus(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	setRunning(&m, "a", "r1")

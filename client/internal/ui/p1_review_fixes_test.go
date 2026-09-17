@@ -8,9 +8,9 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/contract"
 )
 
-// A successful stop must not be silently swallowed: cancelRunCmd's runCanceledMsg has to be
-// handled so the board reflects the wind-down immediately (a fresh poll) instead of showing a
-// stale "running" state until the next 3s heartbeat.
+/* A successful stop must not be silently swallowed: cancelRunCmd's runCanceledMsg has to be
+   handled so the board reflects the wind-down immediately (a fresh poll) instead of showing a
+   stale "running" state until the next 3s heartbeat. */
 func TestRunCanceledClearsArmAndPolls(t *testing.T) {
 	m := New()
 	m.client = api.New("http://x", "")
@@ -32,8 +32,8 @@ func TestRunCanceledClearsArmAndPolls(t *testing.T) {
 	}
 }
 
-// The "+ onboard" row (cursor == len(apps)) is a valid cursor position. An ambient poll that
-// leaves the app set unchanged must not bump the cursor off it.
+/* The "+ onboard" row (cursor == len(apps)) is a valid cursor position. An ambient poll that
+   leaves the app set unchanged must not bump the cursor off it. */
 func TestOnboardCursorSurvivesPoll(t *testing.T) {
 	m := New()
 	m.client = api.New("http://x", "")
@@ -42,7 +42,7 @@ func TestOnboardCursorSurvivesPoll(t *testing.T) {
 	apps := []contract.AppView{{Name: "a"}, {Name: "b"}}
 	m.sys.apps = apps
 	m.dashboard.sys = m.sys
-	m.dashboard.cursor = 2 // the onboard row
+	m.dashboard.cursor = 2 /* the onboard row */
 
 	updated, _ := m.Update(systemLoadedMsg{apps: apps})
 	m = updated.(Model)
@@ -52,11 +52,11 @@ func TestOnboardCursorSurvivesPoll(t *testing.T) {
 	}
 }
 
-// cycleFocus must be correct even if called with a focus that is not currently actionable
-// (e.g. a stale NOW focus after the run ended): Tab lands on the first actionable panel
-// (FLEET), never skipping it.
+/* cycleFocus must be correct even if called with a focus that is not currently actionable
+   (e.g. a stale NOW focus after the run ended): Tab lands on the first actionable panel
+   (FLEET), never skipping it. */
 func TestCycleFocusRecoversFromStaleNowFocus(t *testing.T) {
-	m := dashWith([]contract.AppView{{Name: "a"}}) // idle → focusOrder is [fleet, models]
+	m := dashWith([]contract.AppView{{Name: "a"}}) /* idle → focusOrder is [fleet, models] */
 	m.focus = focusNow
 
 	m.cycleFocus(1)

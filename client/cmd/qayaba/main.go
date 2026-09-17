@@ -1,6 +1,4 @@
-// Command qayaba is the installable terminal client for the Qayaba control
-// plane (the Go/Bubble Tea channel). It connects to a running orchestrator and,
-// eventually, launches and watches QA runs live.
+/* Command qayaba is the installable terminal client for the Qayaba control plane (the Go/Bubble Tea channel). It connects to a running orchestrator and launches and watches QA runs live. */
 package main
 
 import (

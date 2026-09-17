@@ -1,7 +1,4 @@
-// Verdict/JSON parsing for the agent boundary, extracted from opencode-client.ts (BND-08). This is
-// the one piece of the god module that reconstructs the agent's structured output reliably (a
-// balanced-brace JSON extractor that respects string literals + a fail-closed verdict reader), so
-// it earns its own focused, well-tested module.
+
 
 import type { SpecMeta } from "../types";
 
@@ -10,14 +7,16 @@ export interface FinalVerdict {
   specs: string[];
   specMetas?: SpecMeta[];
   note?: string;
-  parsed: boolean; // false when NO verdict JSON was found (fail-closed default), so
-  // callers can distinguish "agent rejected" from "we couldn't parse it".
+  /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
+  parsed: boolean;
 }
 
-// Extracts every BALANCED top-level JSON object from free-form agent text, respecting string
-// literals and escapes (so a `}` inside a string, or nested objects, never mis-split the span).
-// Returns them in document order; callers take the last one matching their shape. This replaces
-// brittle regex/lastIndexOf scanning of the agent's closing JSON.
+/*
+ * Extracts every BALANCED top-level JSON object from free-form agent text, respecting string
+ * literals and escapes (so a `}` inside a string, or nested objects, never mis-split the span).
+ * Returns them in document order; callers take the last one matching their shape. This replaces
+ * brittle regex/lastIndexOf scanning of the agent's closing JSON.
+ */
 export function extractJsonObjects(text: string): unknown[] {
   const objs: unknown[] = [];
   let depth = 0;
@@ -53,7 +52,7 @@ export function extractJsonObjects(text: string): unknown[] {
   return objs;
 }
 
-// Returns the LAST extracted JSON object for which `pred` holds, or undefined.
+/* Returns the LAST extracted JSON object for which `pred` holds, or undefined. */
 export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred: (o: Record<string, unknown>) => boolean): T | undefined {
   const objs = extractJsonObjects(text);
   for (let i = objs.length - 1; i >= 0; i--) {
@@ -63,23 +62,15 @@ export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred
   return undefined;
 }
 
-// The discriminator for the GENERATOR's closing verdict block: which balanced JSON object in the
-// agent's free-form text IS the deliverable. It carries a `specs` array (the deliverable) or, for
-// legacy/other modes, a boolean `approved`. SHARED — both the extractor (parseVerdict here) and the
-// shape validator (checkGeneratorVerdict in verdict-validate.ts) must locate the SAME block; if the
-// two drifted apart, validation and extraction could disagree on which object is the verdict.
-// (The REVIEWER's block is discriminated separately, by a boolean `approved` alone.)
+/* Discriminator: the generator's closing JSON carries a `specs` array or a boolean `approved`. */
 export function isClosingVerdict(o: Record<string, unknown>): boolean {
   return Array.isArray(o.specs) || typeof o.approved === "boolean";
 }
 
-// Extracts the agent's closing verdict JSON: the LAST balanced object carrying either a `specs`
-// array (the deliverable) OR a boolean `approved` (legacy/other modes). The generator no longer
-// self-reports `approved` — the independent reviewer is the authoritative gate — so a closing
-// block with `specs` but no `approved` is a valid result, not a rejection; `approved` defaults to
-// true in that case (the reviewer decides for real downstream). If no block is valid, assumes not
-// approved (fail-closed) so nothing publishes by accident, and flags `parsed:false` so callers can
-// tell a parse miss from a real rejection.
+/*
+ * Last balanced object with `specs` or `approved`. A missing `approved` is not a rejection
+ * (the reviewer is the gate); no parseable block is fail-closed with parsed:false.
+ */
 export function parseVerdict(text: string): FinalVerdict {
   const o = lastJsonMatching(text, isClosingVerdict);
   if (o) {

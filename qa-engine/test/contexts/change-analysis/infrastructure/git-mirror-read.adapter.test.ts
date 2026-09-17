@@ -12,9 +12,10 @@ function runnerReturning(stdout: string, capture?: (r: SandboxedRunRequest) => v
   return { run: async (req) => { capture?.(req); return { exitCode: 0, stdout, stderr: "", timedOut: false }; } };
 }
 
-// A REAL SandboxedBinaryRunner that shells out to git for real — used only by the merge-commit
-// integration test below, where a stub would beg the exact question under test (does the git range
-// traverse both merge parents?). Deterministic: git output for a fixed repo is fixed.
+/* A REAL SandboxedBinaryRunner that shells out to git for real — used only by the merge-commit
+   integration test below, where a stub would beg the exact question under test (does the git range
+   traverse both merge parents?). Deterministic: git output for a fixed repo is fixed.
+ */
 const realGitRunner: SandboxedBinaryRunner = {
   run: async (req) => {
     try {
@@ -62,8 +63,6 @@ test("diff() throws on non-zero exitCode — never returns silent empty diff (CL
   );
 });
 
-// ── WS7.1 (full-flow remediation, multi-commit range restoration) ──────────────────────────────
-
 test("diff({baseSha}) shells git diff over the explicit baseSha..sha range, not the default sha^", async () => {
   let seen: SandboxedRunRequest | null = null;
   const adapter = new GitMirrorReadAdapter("/repo", runnerReturning("RANGE DIFF", (r) => (seen = r)));
@@ -76,9 +75,10 @@ test("diff({baseSha}) shells git diff over the explicit baseSha..sha range, not 
 
 test("otherMessages() shells git log over the FULL baseSha..sha range (NOT sha^), parses <hash>%x00<message>%x00 records, drops the head, splits NUL-delimited messages", async () => {
   let seen: SandboxedRunRequest | null = null;
-  // Record shape now: `<hash>\0<message>\0` per commit. The head (deadbee1...) must be dropped by
-  // hash; the other two messages survive. Hashes are full 40-char; the head arg is abbreviated
-  // (deadbee1) — the adapter must drop by PREFIX, not exact match.
+  /* Record shape now: `<hash>\0<message>\0` per commit. The head (deadbee1...) must be dropped by
+     hash; the other two messages survive. Hashes are full 40-char; the head arg is abbreviated
+     (deadbee1) — the adapter must drop by PREFIX, not exact match.
+   */
   const headFull = "deadbee1" + "0".repeat(32);
   const stdout = `${headFull}\0chore: merge feature\n\0abc1230000000000000000000000000000000000\0feat: add x\n\nbody line\0`;
   const adapter = new GitMirrorReadAdapter("/repo", runnerReturning(stdout, (r) => (seen = r)));
@@ -108,10 +108,9 @@ test("otherMessages() throws on non-zero exitCode — never returns a silent emp
   );
 });
 
-// F1 fix (adversarial review, MEDIUM): a REAL merge-commit integration test. Builds an actual git
-// repo with a merge commit whose second parent (the merged branch) carries a `feat:` commit, then
-// asserts that commit's message reaches otherMessages() — the earlier `baseSha..sha^` (first-parent
-// only) silently dropped it, which defeated WS7.1's whole purpose for merge-commit pushes.
+/* otherMessages() must reach a `feat:` commit on the merged branch (second parent). A first-parent
+   range `baseSha..sha^` would drop that commit; the merge head itself must not appear.
+ */
 test("F1 REAL merge commit: otherMessages() reaches the merged-branch commit (second-parent ancestry), and drops the merge head itself", async () => {
   const repo = mkdtempSync(join(tmpdir(), "qa-mergetest-"));
   try {
@@ -125,8 +124,9 @@ test("F1 REAL merge commit: otherMessages() reaches the merged-branch commit (se
     git("add", "base.txt");
     git("commit", "-qm", "chore: base");
     const baseSha = git("rev-parse", "HEAD");
-    // Capture the default branch name NOW (varies by git version: master vs main) so we can return
-    // to it after the feature branch is done.
+    /* Capture the default branch name NOW (varies by git version: master vs main) so we can return
+       to it after the feature branch is done.
+     */
     const defaultBranch = git("rev-parse", "--abbrev-ref", "HEAD");
 
     git("checkout", "-qb", "feature");
@@ -134,8 +134,9 @@ test("F1 REAL merge commit: otherMessages() reaches the merged-branch commit (se
     git("add", "feature.txt");
     git("commit", "-qm", "feat: add g in the merged branch");
 
-    // Return to the default branch and merge with --no-ff so a real merge commit (two parents) is
-    // created — the head commit's first parent is baseSha, its second parent is the feature commit.
+    /* Return to the default branch and merge with --no-ff so a real merge commit (two parents) is
+       created — the head commit's first parent is baseSha, its second parent is the feature commit.
+     */
     git("checkout", "-q", defaultBranch);
     git("merge", "-q", "--no-ff", "feature", "-m", "chore: merge feature");
     const mergeSha = git("rev-parse", "HEAD");

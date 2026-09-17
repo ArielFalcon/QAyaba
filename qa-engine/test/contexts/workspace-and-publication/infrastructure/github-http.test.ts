@@ -1,7 +1,6 @@
-// test/contexts/workspace-and-publication/infrastructure/github-http.test.ts
-// migration-tier-4a: clampTitle/clampBody moved here from src/integrations/github.ts (deliberately
-// duplicated, not shared — see github-http.ts's own header) so GitHubPrAdapter/GitHubIssueAdapter can
-// clamp without importing src/. Same boundary-guard tests as the legacy github.test.ts pinned.
+/* Boundary-guard tests for clampTitle/clampBody (duplicated, not shared — see github-http.ts's
+   own header) so GitHubPrAdapter/GitHubIssueAdapter can clamp without importing src/.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clampTitle, clampBody, GITHUB_MAX_TITLE, GITHUB_MAX_BODY } from "@contexts/workspace-and-publication/infrastructure/github-http.ts";

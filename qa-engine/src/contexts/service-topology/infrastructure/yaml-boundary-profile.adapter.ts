@@ -1,21 +1,4 @@
-// service-topology/infrastructure/yaml-boundary-profile.adapter.ts
-// Piece 1 of the stitcher config→resolver loader (step 2 + step 3): reads an app's
-// `boundaries[]` declaration from config/apps/<app>.yaml and validates it into BoundaryProfile[]
-// (a mix of HttpBoundaryProfile, EventBoundaryProfile, and HttpBackendBoundaryProfile entries,
-// dispatched by `transport`).
-// Invariant #1: every app-specific pattern (receiver, prefix/repo templates, OpenAPI path,
-// listener/publisher base-type and method names) is a config STRING here, never a literal in
-// the engine core.
-//
-// The reader is INJECTED — production wires config/apps/<name>.yaml + readFileSync + env
-// expansion (mirroring src/orchestrator/config-loader.ts); tests pass a stub string, so this
-// module never touches the filesystem directly.
-//
-// Validation is LOUD + fail-CLOSED per entry (mirrors the config compilers from step 1,
-// e.g. boundary-template.ts): an entry with an unsupported/missing transport, or any
-// missing/malformed required field, is warned about by name + index and SKIPPED — it never
-// throws past this adapter. A totally malformed YAML, a non-array `boundaries`, or a reader
-// that throws all degrade to [] (fail-open).
+/* Reads `boundaries[]` from app YAML into BoundaryProfile[]. App-specific patterns are config strings, never literals in engine core. The reader is injected — this module never touches the filesystem. Per-entry validation is fail-closed (warn + skip). Malformed YAML, a non-array `boundaries`, or a throwing reader degrade to [] (fail-open). */
 import { parse as parseYaml } from "yaml";
 import type { BoundaryProfileProviderPort } from "../application/ports/index.ts";
 import type {
@@ -51,24 +34,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Validate a single raw `boundaries[]` entry into an HttpBoundaryProfile, or null if it
- *  does not structurally conform. Pure — no I/O, no logging — so the caller can decide how
- *  to report the reason (adapter warns with app + index context). */
+/** Validate a single raw `boundaries[]` entry into an HttpBoundaryProfile, or null if it does not structurally conform. Pure — no I/O, no logging — so the caller can decide how to report the reason (adapter warns with app + index context). */
 export function parseHttpBoundaryProfile(raw: unknown): HttpBoundaryProfile | null {
   if (!isRecord(raw)) return null;
-  if (raw["transport"] !== "http") return null; // unknown/missing transport for THIS parser
+  if (raw["transport"] !== "http") return null;
 
   for (const field of REQUIRED_HTTP_STRING_FIELDS) {
     const value = raw[field];
-    // A blank string is structurally a string but unusable config (e.g. openApiPath: "" would
-    // read the repo root as a file) — reject it up front rather than degrade downstream.
     if (typeof value !== "string" || value.trim().length === 0) return null;
   }
 
   const rawCallSite = raw["frontCallSite"];
   if (!isRecord(rawCallSite) || typeof rawCallSite["kind"] !== "string") return null;
-  // The kind must name a shape the core can actually extract (a CallSiteCatalog key); an
-  // unknown kind would silently yield zero call-sites, so reject it at load time (loud).
   if (!KNOWN_CALL_SITE_KINDS.has(rawCallSite["kind"])) return null;
   const frontCallSite: CallSiteRef = { kind: rawCallSite["kind"] };
   if (typeof rawCallSite["receiver"] === "string") frontCallSite.receiver = rawCallSite["receiver"];
@@ -83,13 +60,10 @@ export function parseHttpBoundaryProfile(raw: unknown): HttpBoundaryProfile | nu
   };
 }
 
-/** Validate a single raw `boundaries[]` entry into an EventBoundaryProfile, or null if it does
- *  not structurally conform. Pure — no I/O, no logging — mirrors parseHttpBoundaryProfile's
- *  validation style exactly (isRecord guard, required-string-field rejection with blank-string
- *  rejection, plus an eventPattern.kind check against the in-core catalog). */
+/** Validate a single raw `boundaries[]` entry into an EventBoundaryProfile, or null if it does not structurally conform. Pure — no I/O, no logging — mirrors parseHttpBoundaryProfile's validation style exactly (isRecord guard, required-string-field rejection with blank-string rejection, plus an eventPattern.kind check against the in-core catalog). */
 export function parseEventBoundaryProfile(raw: unknown): EventBoundaryProfile | null {
   if (!isRecord(raw)) return null;
-  if (raw["transport"] !== "event") return null; // unknown/missing transport for THIS parser
+  if (raw["transport"] !== "event") return null;
 
   const files = raw["files"];
   if (typeof files !== "string" || files.trim().length === 0) return null;
@@ -97,8 +71,6 @@ export function parseEventBoundaryProfile(raw: unknown): EventBoundaryProfile | 
   const rawPattern = raw["eventPattern"];
   if (!isRecord(rawPattern)) return null;
   if (typeof rawPattern["kind"] !== "string") return null;
-  // The kind must name a shape the core can actually extract (an EventPatternCatalog key); an
-  // unknown kind would silently yield zero extracted occurrences, so reject it at load time.
   if (!KNOWN_EVENT_PATTERN_KINDS.has(rawPattern["kind"])) return null;
 
   for (const field of REQUIRED_EVENT_PATTERN_STRING_FIELDS) {
@@ -117,9 +89,7 @@ export function parseEventBoundaryProfile(raw: unknown): EventBoundaryProfile | 
   return { transport: "event", files, eventPattern };
 }
 
-/** Validate a single raw `boundaries[]` entry into an HttpBackendBoundaryProfile, or null if it
- *  does not structurally conform. Pure — no I/O, no logging. Unknown callPattern.kind is
- *  rejected at load time so it cannot silently extract zero calls downstream. */
+/** Validate a single raw `boundaries[]` entry into an HttpBackendBoundaryProfile, or null if it does not structurally conform. Pure — no I/O, no logging. Unknown callPattern.kind is rejected at load time so it cannot silently extract zero calls downstream. */
 export function parseHttpBackendBoundaryProfile(raw: unknown): HttpBackendBoundaryProfile | null {
   if (!isRecord(raw)) return null;
   if (raw["transport"] !== "http-backend") return null;
@@ -145,11 +115,7 @@ export function parseHttpBackendBoundaryProfile(raw: unknown): HttpBackendBounda
   };
 }
 
-/** Dispatch a single raw `boundaries[]` entry to the parser matching its `transport` field.
- *  Returns null for an entry whose transport is missing/unrecognized OR whose recognized
- *  parser rejects it — the caller (forApp) cannot distinguish "unknown transport" from
- *  "malformed known transport" from this return value alone, which is intentional: both cases
- *  warn+skip identically (mirrors the pre-dispatch behavior for http-only entries). */
+/** Dispatch a single raw `boundaries[]` entry to the parser matching its `transport` field. Returns null for an entry whose transport is missing/unrecognized OR whose recognized parser rejects it — the caller (forApp) cannot distinguish "unknown transport" from "malformed known transport" from this return value alone, which is intentional: both cases warn+skip identically (mirrors the pre-dispatch behavior for http-only entries). */
 function parseBoundaryProfile(raw: unknown): BoundaryProfile | null {
   if (!isRecord(raw)) return null;
   switch (raw["transport"]) {
@@ -160,7 +126,7 @@ function parseBoundaryProfile(raw: unknown): BoundaryProfile | null {
     case "http-backend":
       return parseHttpBackendBoundaryProfile(raw);
     default:
-      return null; // unsupported/missing transport — no parser registered
+      return null;
   }
 }
 
@@ -190,9 +156,9 @@ export class YamlBoundaryProfileAdapter implements BoundaryProfileProviderPort {
       return [];
     }
 
-    if (!isRecord(doc)) return []; // malformed document root — fail-open
+    if (!isRecord(doc)) return []; /* malformed document root — fail-open */
     const rawBoundaries = doc["boundaries"];
-    if (rawBoundaries === undefined) return []; // no boundaries declared — valid, not an error
+    if (rawBoundaries === undefined) return [];
     if (!Array.isArray(rawBoundaries)) {
       console.warn(`[YamlBoundaryProfileAdapter] app "${appName}": "boundaries" is not an array — ignoring`);
       return [];

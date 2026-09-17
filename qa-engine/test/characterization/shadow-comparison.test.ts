@@ -1,8 +1,8 @@
-// test/characterization/shadow-comparison.test.ts
-// RED-first (Task F.1): compareShadowRun reuses runOutcomeEquivalent (the golden-parity projection) and
-// renders a report. Identical outcomes (modulo per-invocation runId/at) → equal:true; a verdict
-// divergence → equal:false + a diff naming the field; an observed side-effect divergence → equal:false
-// even when the outcomes themselves match.
+/* test/characterization/shadow-comparison.test.ts
+   renders a report. Identical outcomes (modulo per-invocation runId/at) → equal:true; a verdict
+   divergence → equal:false + a diff naming the field; an observed side-effect divergence → equal:false
+   even when the outcomes themselves match.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { compareShadowRun } from "./shadow-comparison.ts";
@@ -53,9 +53,10 @@ test("compareShadowRun flags an observed side-effect divergence even when the ou
   assert.match(r.report, /DIVERGENT/);
 });
 
-// LLM-non-determinism guard (the real shadow proof caught this on portfolio@26614bd): on a
-// non-review verdict the independent reviewer never ran, so reviewerApproved is GENERATION's own
-// self-approval — an LLM value two independent live runs will differ on even for identical engines.
+/* LLM-non-determinism guard (the real shadow proof caught this on portfolio@26614bd): on a
+   non-review verdict the independent reviewer never ran, so reviewerApproved is GENERATION's own
+   self-approval — an LLM value two independent live runs will differ on even for identical engines.
+ */
 test("compareShadowRun EXCLUDES reviewerApproved on a non-review verdict (invalid) — it is LLM self-approval noise there, not an engine decision", () => {
   const gs = { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 };
   const legacy = outcome({ verdict: "invalid", gateSignals: { ...gs, reviewerApproved: true } });

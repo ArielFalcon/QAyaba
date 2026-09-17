@@ -1,11 +1,12 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.test.ts
-// RED-first (Task E.0): GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
-// and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
-// a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own
-// FixLoopGenerateResult.specSources contract) — absent/empty when the read collaborator is absent.
-// reexploreNavigations has NO real sibling counter (confirmed absent under generation/) so this bridge
-// omits it — the FixLoop's own documented contract treats absent as 0 (the safe default), never a
-// fabricated number.
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.test.ts
+   RED-first (Task E.0): GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
+   and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
+   a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own
+   FixLoopGenerateResult.specSources contract) — absent/empty when the read collaborator is absent.
+   reexploreNavigations has NO real sibling counter (confirmed absent under generation/) so this bridge
+   omits it — the FixLoop's own documented contract treats absent as 0 (the safe default), never a
+   fabricated number.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
@@ -111,11 +112,10 @@ test("generate() omits specSources when no readSpecSource collaborator is inject
   assert.equal(result.specSources, undefined);
 });
 
-// ── Plan 7.2 — leaf-signal forwarding (closes engram #916): GenerateTestsUseCase.generate()
-// already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the
-// generator and reviewer sessions (Plan 7.1 territory, untouched here) — this adapter is the ONLY
-// missing link. It must declare + forward the signal into GenerateTestsUseCase.generate(input,
-// opts), or the queue's AbortSignal is silently dropped before it ever reaches the agent session.
+/* already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the
+   missing link. It must declare + forward the signal into GenerateTestsUseCase.generate(input,
+   opts), or the queue's AbortSignal is silently dropped before it ever reaches the agent session.
+ */
 
 test("generate() forwards an AbortSignal into GenerateTestsUseCase.generate()'s GenerateOpts", async () => {
   const controller = new AbortController();
@@ -156,11 +156,12 @@ test("generate() with no signal at all behaves exactly as before (no third-arg r
   assert.equal(result.approved, true);
 });
 
-// ── "Dynamic diff" fix (engram #936): the real production engineFactory constructs this adapter
-// BEFORE the run/checkout, so the STATIC ctx.diff supplied at composition time is always "". This
-// bridge must accept the run's ACTUAL diff as a fourth generate() argument and PREFER it over the
-// static ctx.diff — falling back to ctx.diff only when the caller omits the argument (keeps the
-// F.2 operator, which pre-computes ctx.diff before building CompositionConfig, working unchanged).
+/* Production constructs this adapter BEFORE the run/checkout, so the STATIC ctx.diff supplied at
+   composition time is always "". This bridge must accept the run's ACTUAL diff as a fourth
+   generate() argument and PREFER it over the static ctx.diff — falling back to ctx.diff only when
+   the caller omits the argument (callers that pre-compute ctx.diff before building
+   CompositionConfig keep working unchanged).
+ */
 
 test("generate() PREFERS a dynamic diff argument over the static ctx.diff supplied at construction time", async () => {
   const ports = fakeGenerationPorts();
@@ -208,9 +209,9 @@ test("generate() FALLS BACK to the static ctx.diff when no dynamic diff argument
   }
 });
 
-// ── W2 fix (F1, generation regen/enrichment context): the adapter's new optional 5th `enrichment`
-// argument must map EVERY field 1:1 onto OpencodeRunInput — absent fields stay absent, present
-// fields flow through unchanged (never re-derived, never dropped).
+/* The adapter's optional 5th `enrichment` argument must map EVERY field 1:1 onto OpencodeRunInput
+   — absent fields stay absent, present fields flow through unchanged (never re-derived, never dropped).
+ */
 
 test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictions/domSnapshot/coverageGap/intent onto OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
@@ -247,10 +248,10 @@ test("generate() maps enrichment.reviewCorrections/fixCases/selectorContradictio
   }
 });
 
-// ── Plan 7-R W4 (audit CRITICAL): enrichment.contextPack/existingSpecFiles (PreGenerationGroundingPort,
-// run-qa.use-case.ts) must map 1:1 onto OpencodeRunInput — the SAME fields buildPromptAssembled
-// already renders sections for (contextPack's "VOLATILE context-pack section" / existingSpecFiles'
-// "existing-suite-manifest" section, generation-ports.ts).
+/* run-qa.use-case.ts) must map 1:1 onto OpencodeRunInput — the SAME fields buildPromptAssembled
+   already renders sections for (contextPack's "VOLATILE context-pack section" / existingSpecFiles'
+   "existing-suite-manifest" section, generation-ports.ts).
+ */
 
 test("generate() maps enrichment.contextPack/existingSpecFiles onto OpencodeRunInput", async () => {
   const ports = fakeGenerationPorts();
@@ -303,8 +304,9 @@ test("generate() with absent enrichment.contextPack/existingSpecFiles omits both
   }
 });
 
-// T4: enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
-// renderArchitectureContext. Spreading only contextPack text is not enough.
+/* T4: enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
+   renderArchitectureContext. Spreading only contextPack text is not enough.
+ */
 const T4_CONTEXT_MAP = {
   builtAtSha: "abc1234",
   routes: [{ path: "/owners" }],
@@ -389,9 +391,10 @@ test("generate() with absent enrichment.contextMap omits it from OpencodeRunInpu
   }
 });
 
-// ── Manifest-enrichment fix: enrichment.sha must reach OpencodeRunInput.sha so
-// GenerateTestsUseCase can stamp ManifestEntry.changeRef.sha (previously hardcoded to "" here,
-// which made every manifest entry fail the real schema's changeRef.sha non-empty check).
+/* ── Manifest-enrichment fix: enrichment.sha must reach OpencodeRunInput.sha so
+   GenerateTestsUseCase can stamp ManifestEntry.changeRef.sha (previously hardcoded to "" here,
+   which made every manifest entry fail the real schema's changeRef.sha non-empty check).
+ */
 
 test("generate() maps enrichment.sha onto OpencodeRunInput.sha", async () => {
   const ports = fakeGenerationPorts();
@@ -467,9 +470,9 @@ test("generate() with no enrichment argument omits every enrichment field from O
   }
 });
 
-// ── Stitcher→Generation seam (design §3.4, S2.3): enrichment.serviceLinks/contractDrift must map
-// 1:1 onto OpencodeRunInput.serviceLinks/contractDrift — the SAME conditional-spread precedent
-// staticSignal/contextPack already established (absent/empty -> key OMITTED, not set to []).
+/* enrichment.serviceLinks/contractDrift must map 1:1 onto OpencodeRunInput.serviceLinks/contractDrift
+   — the SAME conditional-spread as staticSignal/contextPack (absent/empty -> key OMITTED, not set to []).
+ */
 
 test("generate() maps a non-empty enrichment.serviceLinks onto OpencodeRunInput.serviceLinks, same order", async () => {
   const ports = fakeGenerationPorts();
@@ -580,13 +583,13 @@ test("generate() with absent/empty enrichment.contractDrift OMITS the key entire
   }
 });
 
-// ── Cross-repo generation-prompt parity (legacy pipeline.ts:1909): `service` identifies the
-// TRIGGERING microservice (repo + its OWN mirror dir + its OWN openapi hint) for a cross-repo run —
-// distinct from ctx.mirrorDir/ctx.openapi, which stay bound to the PRIMARY repo. App-static (known
-// once per run, fixed for the whole run), so it lives on GenerationPortStaticContext exactly like
-// baseUrl/openapi above, NOT on the per-call GenerationEnrichment (which carries only values that
-// vary between generate() calls within the same run). Absent -> OMITTED entirely, the SAME
-// absence-vs-present discipline serviceLinks/contractDrift above already established.
+/* TRIGGERING microservice (repo + its OWN mirror dir + its OWN openapi hint) for a cross-repo run —
+   distinct from ctx.mirrorDir/ctx.openapi, which stay bound to the PRIMARY repo. App-static (known
+   once per run, fixed for the whole run), so it lives on GenerationPortStaticContext exactly like
+   baseUrl/openapi above, NOT on the per-call GenerationEnrichment (which carries only values that
+   vary between generate() calls within the same run). Absent -> OMITTED entirely, the SAME
+   absence-vs-present discipline serviceLinks/contractDrift above already established.
+ */
 
 test("generate() maps ctx.service onto OpencodeRunInput.service when the run is cross-repo (triggered by a declared microservice)", async () => {
   const ports = fakeGenerationPorts();
@@ -636,13 +639,13 @@ test("generate() with no ctx.service (same-repo run) OMITS the service key entir
   }
 });
 
-// ── Context-mode multi-service parity (legacy pipeline.ts:1330-1355 buildContextMap): `services`
-// carries EVERY declared microservice repo (read-only working copies) for a context-mode run, so the
-// agent can extract each service's OpenAPI operations into the unified FE<->BE context map
-// (buildContextTask's "## Microservice repos" section, prompts.ts:1181). App-static (known once per
-// run, fixed for the whole run), the SAME shape as ctx.service above — NOT per-call/dynamic. Maps 1:1
-// onto OpencodeRunInput.services. Absent -> OMITTED entirely, the SAME absence-vs-present discipline
-// ctx.service/serviceLinks/contractDrift above already established.
+/* carries EVERY declared microservice repo (read-only working copies) for a context-mode run, so the
+   agent can extract each service's OpenAPI operations into the unified FE<->BE context map
+   (buildContextTask's "## Microservice repos" section, prompts.ts:1181). App-static (known once per
+   run, fixed for the whole run), the SAME shape as ctx.service above — NOT per-call/dynamic. Maps 1:1
+   onto OpencodeRunInput.services. Absent -> OMITTED entirely, the SAME absence-vs-present discipline
+   ctx.service/serviceLinks/contractDrift above already established.
+ */
 
 test("generate() maps ctx.services onto OpencodeRunInput.services (context mode, every declared service)", async () => {
   const ports = fakeGenerationPorts();
@@ -698,9 +701,9 @@ test("generate() with no ctx.services OMITS the services key entirely from Openc
   }
 });
 
-// ── W3 F2 (dual-judge round): renderLearnedRules is a FAITHFUL, byte-comparable port of legacy's
-// renderRulesForPrompt (src/qa/learning/learning-rule.ts:237-270) — same section headers, same
-// framing sentences, same proven/experimental split, same per-rule field layout. ──────────────────
+/* renderLearnedRules: same section headers, same framing sentences, same proven/experimental
+   split, same per-rule field layout as the generator prompt contract.
+ */
 
 const activeRule: RetrievedRule = {
   id: "rule-active", trigger: "selector absent", action: "use role+name", errorClass: "E-EXEC-FAIL",
@@ -773,10 +776,9 @@ test("renderLearnedRules: empty input renders the empty string (matches legacy's
   assert.equal(renderLearnedRules([]), "");
 });
 
-// ── W3 F2 (dual-judge round): renderLearnedRulesForReviewer is a FAITHFUL, byte-comparable port of
-// legacy's renderRulesForReviewer (src/qa/learning/learning-rule.ts:299-313) — active-only (never
-// candidates), the 2 framing sentences verbatim, and the `- trigger → action (errorClass)` line
-// format. ────────────────────────────────────────────────────────────────────────────────────────
+/* renderLearnedRulesForReviewer: active-only (never candidates), two framing sentences, and the
+   `- trigger → action (errorClass)` line format — NOT the generator's proven/experimental renderer.
+ */
 
 test("renderLearnedRulesForReviewer: active rule matches legacy's renderRulesForReviewer byte-for-byte", () => {
   const rendered = renderLearnedRulesForReviewer([activeRule]);

@@ -8,9 +8,9 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/events"
 )
 
-// Resuming a run that finished while detached lands on the recap. Like the live RunVerdict
-// path, the recap must open with the cursor on (and expanding) the first failing test, so the
-// problem is front-and-center instead of buried under a passing case.
+/* Resuming a run that finished while detached lands on the recap. Like the live RunVerdict
+   path, the recap must open with the cursor on (and expanding) the first failing test, so the
+   problem is front-and-center instead of buried under a passing case. */
 func TestLiveSeedDoneRunLandsCursorOnFirstFailure(t *testing.T) {
 	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	verdict := contract.RunRecordVerdictFail
@@ -33,8 +33,8 @@ func TestLiveSeedDoneRunLandsCursorOnFirstFailure(t *testing.T) {
 	}
 }
 
-// The snapshot is fetched once and can land AFTER the stream has already written fresher
-// focus-card values. Seeding the sticky lastFile/lastCmd must never regress them.
+/* The snapshot is fetched once and can land AFTER the stream has already written fresher
+   focus-card values. Seeding the sticky lastFile/lastCmd must never regress them. */
 func TestLiveSeedDoesNotRegressStreamFocusCard(t *testing.T) {
 	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	m, _ = m.Update(runEventMsg(events.RunEvent{Type: "agent.activity", Body: events.AgentActivity{
@@ -51,8 +51,7 @@ func TestLiveSeedDoesNotRegressStreamFocusCard(t *testing.T) {
 	}
 }
 
-// A run at the first pipeline phase ("gate") has fraction 0. The running FLEET row must not
-// print a bare "0%" — that is the very digit P0-2 set out to remove. Show the phase alone.
+/* A run at the first pipeline phase ("gate") has fraction 0. The running FLEET row must not print a bare "0%". Show the phase alone. */
 func TestFleetRunningRowAtGateHidesZeroPercent(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "petclinic"}})
 	m.sys.queue.Running = &struct {
@@ -72,8 +71,8 @@ func TestFleetRunningRowAtGateHidesZeroPercent(t *testing.T) {
 	}
 }
 
-// The snapshot anchors the elapsed clock from the run's start time so the header shows real
-// time-on-task immediately on resume (regression guard for seedFromRecord).
+/* The snapshot anchors the elapsed clock from the run's start time so the header shows real
+   time-on-task immediately on resume (regression guard for seedFromRecord). */
 func TestLiveSeedAnchorsElapsedClock(t *testing.T) {
 	m := newLiveModel("r", "app", make(chan events.RunEvent, 1), func() {}, 100, 30)
 	step := "generate"

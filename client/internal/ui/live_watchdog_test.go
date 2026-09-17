@@ -14,9 +14,9 @@ func runningLiveModel() liveModel {
 	return newLiveModel("run_1", "petclinic", make(chan events.RunEvent, 1), func() {}, 100, 30)
 }
 
-// The watchdog re-seeds from the record only when the live stream has gone silent (no events
-// for streamStaleAfter) and the run is still in flight — never when the run is done or when
-// events are flowing.
+/* The watchdog re-seeds from the record only when the live stream has gone silent (no events
+   for streamStaleAfter) and the run is still in flight — never when the run is done or when
+   events are flowing. */
 func TestWatchdogShouldReseedWhenStreamIsStale(t *testing.T) {
 	m := runningLiveModel()
 	m.client = api.New("http://x", "")
@@ -44,7 +44,7 @@ func TestWatchdogShouldReseedWhenStreamIsStale(t *testing.T) {
 	}
 }
 
-// A live stream event resets the staleness clock, so an actively-streaming run never polls.
+/* A live stream event resets the staleness clock, so an actively-streaming run never polls. */
 func TestRunEventResetsStaleness(t *testing.T) {
 	m := runningLiveModel()
 	m.lastActivity = time.Now().Add(-time.Hour)
@@ -54,7 +54,7 @@ func TestRunEventResetsStaleness(t *testing.T) {
 	}
 }
 
-// The watchdog tick re-arms while the run is live and stops once it is done.
+/* The watchdog tick re-arms while the run is live and stops once it is done. */
 func TestWatchdogTickReArmsWhileLiveStopsWhenDone(t *testing.T) {
 	m := runningLiveModel()
 	_, cmd := m.Update(watchdogTickMsg{})
@@ -68,9 +68,9 @@ func TestWatchdogTickReArmsWhileLiveStopsWhenDone(t *testing.T) {
 	}
 }
 
-// When the stream closes with no verdict (the run was produced out-of-process, so run.verdict
-// never crossed this server's bus), the client pulls the authoritative record instead of
-// freezing on the last live frame.
+/* When the stream closes with no verdict (the run was produced out-of-process, so run.verdict
+   never crossed this server's bus), the client pulls the authoritative record instead of
+   freezing on the last live frame. */
 func TestStreamClosedFetchesSnapshotWhenNotDone(t *testing.T) {
 	m := runningLiveModel()
 	m.client = api.New("http://x", "")
@@ -86,8 +86,8 @@ func TestStreamClosedFetchesSnapshotWhenNotDone(t *testing.T) {
 	}
 }
 
-// A snapshot that reveals the run finished (while we were attached to a run executing in another
-// process) must cancel the background stream so it stops reconnecting.
+/* A snapshot that reveals the run finished (while we were attached to a run executing in another
+   process) must cancel the background stream so it stops reconnecting. */
 func TestTerminalSnapshotCancelsStream(t *testing.T) {
 	cancelled := false
 	m := newLiveModel("run_1", "app", make(chan events.RunEvent, 1), func() { cancelled = true }, 100, 30)
@@ -102,8 +102,8 @@ func TestTerminalSnapshotCancelsStream(t *testing.T) {
 	}
 }
 
-// The watchdog re-seed advances the phase FORWARD from a record further along than the stream
-// has shown, but never regresses a fresher live phase.
+/* The watchdog re-seed advances the phase FORWARD from a record further along than the stream
+   has shown, but never regresses a fresher live phase. */
 func TestReseedAdvancesPhaseForwardOnly(t *testing.T) {
 	m := runningLiveModel()
 	gen := "generate"

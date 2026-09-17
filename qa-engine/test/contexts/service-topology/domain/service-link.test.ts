@@ -1,10 +1,10 @@
-// test/contexts/service-topology/domain/service-link.test.ts
-// RED: domain VO structural contract tests — written before the VOs exist.
+/* test/contexts/service-topology/domain/service-link.test.ts
+   RED: domain VO structural contract tests — written before the VOs exist.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ServiceLink, ServiceSymbolRef, RepoRef, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 
-// ---- ServiceSymbolRef ----
 test("ServiceSymbolRef has repo, file, and symbol fields", () => {
   const ref: ServiceSymbolRef = { repo: "ArielFalcon/name-webapp", file: "src/app/order/api/order.api.ts", symbol: "getOrder" };
   assert.equal(ref.repo, "ArielFalcon/name-webapp");
@@ -12,14 +12,12 @@ test("ServiceSymbolRef has repo, file, and symbol fields", () => {
   assert.equal(ref.symbol, "getOrder");
 });
 
-// ---- RepoRef ----
 test("RepoRef has repo and mirrorDir fields", () => {
   const ref: RepoRef = { repo: "ArielFalcon/ms-name-orders", mirrorDir: "/mirrors/ms-name-orders" };
   assert.equal(ref.repo, "ArielFalcon/ms-name-orders");
   assert.equal(ref.mirrorDir, "/mirrors/ms-name-orders");
 });
 
-// ---- ServiceLink ----
 test("ServiceLink carries from, to, transport, confidence, and source", () => {
   const from: ServiceSymbolRef = { repo: "ArielFalcon/name-webapp", file: "src/app/order/api/order.api.ts", symbol: "getOrder" };
   const to: ServiceSymbolRef = { repo: "ArielFalcon/ms-name-orders", file: "src/main/resources/openapi/api-definition.yaml", symbol: "getOrder" };
@@ -46,7 +44,6 @@ test("ServiceLink transport is open-union: http, event, rpc are valid", () => {
   assert.equal(rpc.transport, "rpc");
 });
 
-// ---- ContractDrift ----
 test("ContractDrift carries from, verb, and path", () => {
   const from: ServiceSymbolRef = { repo: "ArielFalcon/name-webapp", file: "src/app/order/api/order.api.ts", symbol: "unknown" };
   const drift: ContractDrift = { from, verb: "GET", path: "/name-orders-api/v2/orders" };
@@ -55,7 +52,6 @@ test("ContractDrift carries from, verb, and path", () => {
   assert.equal(drift.from.repo, "ArielFalcon/name-webapp");
 });
 
-// ---- ServiceLink with transport: "event" ----
 test("ServiceLink can represent an event link: transport=event, contractRef=event/topic name", () => {
   const from: ServiceSymbolRef = { repo: "ArielFalcon/ms-name-orders", file: "src/main/java/.../OrderCreatedPublisherNats.java", symbol: "OrderCreatedPublisherNats" };
   const to: ServiceSymbolRef = { repo: "ArielFalcon/ms-name-notifications", file: "src/main/java/.../OrderCreatedListenerNats.java", symbol: "OrderCreatedListenerNats" };

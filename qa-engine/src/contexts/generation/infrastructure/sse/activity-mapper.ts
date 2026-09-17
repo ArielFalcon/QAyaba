@@ -1,25 +1,4 @@
-// qa-engine/src/contexts/generation/infrastructure/sse/activity-mapper.ts
-// Maps ONE raw OpenCode event to 0..N contract RunEvent bodies for a known run.
-// This is the v2-ready, enriched successor to agent-activity.ts's router: it uses
-// every SDK signal worth surfacing (docs/tui-vnext.md §6) and NEVER surfaces model
-// prose — only structured tool/todo/command facts. Pure: `seq`/`ts`/dedup are the
-// gateway's concern, and it is unit-tested with synthetic fixtures shaped from the
-// @opencode-ai/sdk types, so it needs no live engine to validate.
-//
-// migration-tier-4c Slice 3 (D-4c-2, SSE two-tier split): moved WHOLE from
-// src/integrations/activity-mapper.ts — zero @opencode-ai/sdk import (it operates on the ALREADY
-// lowered `{ type, properties }` event shape), a rider alongside the EventStreamManager/
-// startScopedEventStream lifecycle migration (event-stream.ts, this directory).
-//
-// SDK facts used (types.gen.d.ts):
-//   message.part.updated → properties.part: Part   (sessionID lives on the part)
-//     ToolPart { tool, callID, state: ToolState }
-//       ToolState .status running|completed|error · .title (OpenCode-authored label)
-//       · .input (filePath/command/description) · .output
-//     text/reasoning/step parts → PROSE → dropped
-//   todo.updated     → { sessionID, todos: [{ content, status }] }
-//   command.executed → { sessionID, name, arguments }
-//   session.error    → { sessionID?, error }
+/* This is the v2-ready, enriched successor to agent-activity.ts's router: it uses every SDK signal worth surfacing (docs/tui-vnext.md §6) and NEVER surfaces model prose — only structured tool/todo/command facts. SDK facts used (types.gen.d.ts): message.part.updated → properties.part: Part (sessionID lives on the part) ToolPart { tool, callID, state: ToolState } ToolState .status running|completed|error · .title (OpenCode-authored label) · .input (filePath/command/description) · .output text/reasoning/step parts → PROSE → dropped todo.updated → { sessionID, todos: [{ content, status }] } command.executed → { sessionID, name, arguments } session.error → { sessionID?, error } */
 
 import type { RunEventBody } from "@kernel/contract/events.ts";
 
@@ -30,8 +9,6 @@ export interface RawOpencodeEvent {
 
 type ActivityKind = "analyzing" | "writing" | "command" | "subagent";
 
-// Tool name → domain activity kind. read-like tools are the "analyzing" signal the
-// old router dropped; they are what break the generation black box.
 const WRITE_TOOLS = /^(write|edit|multiedit|create|apply_patch|patch)$/i;
 const SHELL_TOOLS = /^(bash|shell|run|exec)$/i;
 const SUBAGENT_TOOLS = /^(task|agent|subtask|dispatch)$/i;
@@ -40,7 +17,7 @@ function kindForTool(tool: string): ActivityKind {
   if (WRITE_TOOLS.test(tool)) return "writing";
   if (SHELL_TOOLS.test(tool)) return "command";
   if (SUBAGENT_TOOLS.test(tool)) return "subagent";
-  return "analyzing"; // read/grep/glob/list/webfetch and unknown tools
+  return "analyzing";
 }
 
 function basename(p: string): string {
@@ -57,8 +34,6 @@ interface ToolStateLike {
   output?: string;
 }
 
-// Prefer OpenCode's own ToolState.title ("Reading Header.astro"); fall back to
-// reconstructing a label from the tool input so a missing title never blanks the line.
 function targetFor(tool: string, state: ToolStateLike): string {
   if (state.title && state.title.trim()) return cap(state.title.trim());
   const input = state.input ?? {};
@@ -103,9 +78,6 @@ function toolActivity(part: PartLike, workerId?: string): RunEventBody[] {
   if (status === "error") {
     return [{ type: "agent.error", detail: cap(state.output || state.title || `tool ${tool} failed`) }];
   }
-  // `pending` carries no result yet; only `running` (live, in-place) and
-  // `completed` are surfaced. (Narrowing a `string` by `!==` keeps it `string`,
-  // so derive the literal explicitly for the contract's status union.)
   if (status !== "running" && status !== "completed") return [];
   const liveStatus: "running" | "completed" = status === "running" ? "running" : "completed";
 
@@ -124,9 +96,6 @@ function toolActivity(part: PartLike, workerId?: string): RunEventBody[] {
   return out;
 }
 
-// Resolves the run an event belongs to via its sessionID (top-level on most
-// events, on the part for message.part.updated). Exported so the stream consumer
-// can publish each mapped body to the right run without re-deriving the session.
 export function eventRunId(
   event: RawOpencodeEvent,
   sessions: ReadonlyMap<string, string>,
@@ -137,23 +106,6 @@ export function eventRunId(
   return sessionID ? sessions.get(sessionID) : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Codex JSONL event mapper (C1.4 / AC1.4.1-2)
-//
-// Maps one line from `codex exec --json` stdout to 0..N RunEventBody entries.
-//
-// PROVISIONAL SHAPE — the exact `codex exec --json` JSONL event schema is UNVERIFIED.
-// T-P1-0 (image-gated) must capture a real fixture from the built agents image and this
-// mapper re-validated against it. The defensive multi-field probe below mirrors
-// extractCodexLastMessage (codex-strategy.ts) which was written precisely because the
-// real shape is unknown. Fields checked: msg, message, text, content (same order).
-//
-// Known signal types from OpenAI Codex CLI docs and extractCodexLastMessage observation:
-//   message  — final assistant message (msg / message / text / content)
-//   tool_use — a tool call being executed (name, input)
-//   error    — an error event (message / error / text)
-// Any other type is silently skipped (forward-compatible).
-// ---------------------------------------------------------------------------
 
 export interface RawCodexEvent {
   type?: string;
@@ -161,35 +113,27 @@ export interface RawCodexEvent {
   message?: string;
   text?: string;
   content?: string;
-  // Tool call fields
   name?: string;
   input?: unknown;
-  // Error fields
   error?: string;
 }
 
-// Extract the message text from a codex JSONL event using the same defensive probe as
-// extractCodexLastMessage — field order: msg → message → text → content.
 function codexEventText(event: RawCodexEvent): string {
   const v = event.msg ?? event.message ?? event.text ?? event.content;
   return typeof v === "string" ? v.trim() : "";
 }
 
-// Map one raw codex --json JSONL line to 0..N RunEventBody entries.
-// Malformed JSON or unknown event types produce []; they do NOT throw (AC1.4.2).
 export function mapCodexExecEvent(line: string): RunEventBody[] {
   if (!line.trim()) return [];
   let event: RawCodexEvent;
   try {
     event = JSON.parse(line) as RawCodexEvent;
   } catch {
-    // Non-JSON lines (stderr-like output) are skipped without throwing.
     return [];
   }
 
   const type = String(event.type ?? "").toLowerCase();
 
-  // Tool-use event: map to agent.activity
   if (type === "tool_use" || type === "tool") {
     const tool = String(event.name ?? "tool");
     const input = event.input as Record<string, unknown> | undefined ?? {};
@@ -199,24 +143,18 @@ export function mapCodexExecEvent(line: string): RunEventBody[] {
     return [{ type: "agent.activity", kind, target, status: "running" }];
   }
 
-  // Error event: map to agent.error
   if (type === "error") {
     const detail = codexEventText(event) || String(event.error ?? "codex error");
     return [{ type: "agent.error", detail: cap(detail) }];
   }
 
-  // Message/assistant event: prose only — drop (same as OpenCode text part).
-  // The final message is extracted separately via extractCodexLastMessage.
   if (type === "message" || type === "assistant" || type === "response") {
     return [];
   }
 
-  // Unknown type: skip (forward-compatible).
   return [];
 }
 
-// Maps one raw OpenCode event to 0..N contract event bodies. Returns [] when the
-// event cannot be attributed to a known session or carries only prose/control.
 export function mapOpencodeEvent(
   event: RawOpencodeEvent,
   sessions: ReadonlyMap<string, string>,
@@ -230,7 +168,7 @@ export function mapOpencodeEvent(
 
   switch (event.type) {
     case "message.part.updated":
-      return part?.type === "tool" ? toolActivity(part, workerId) : []; // text/reasoning/step → prose → drop
+      return part?.type === "tool" ? toolActivity(part, workerId) : [];
 
     case "todo.updated": {
       const todos = Array.isArray(p.todos) ? (p.todos as TodoLike[]) : [];
@@ -249,6 +187,6 @@ export function mapOpencodeEvent(
       return [{ type: "agent.error", detail: cap(String(p.error ?? "unknown error")) }];
 
     default:
-      return []; // session.idle, file.edited (no sessionID), etc. are not surfaced here
+      return [];
   }
 }

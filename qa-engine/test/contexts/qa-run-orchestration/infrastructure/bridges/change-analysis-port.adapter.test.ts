@@ -1,14 +1,13 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/change-analysis-port.adapter.test.ts
-// RED-first (Task E.0): ChangeAnalysisPortAdapter must DELEGATE to the REAL sibling collaborator —
-// the domain classifyCommit(message, diff) function (for classify(), sourcing message/diff from
-// the SAME VcsReadPort). NO new policy — this is a shape/delegation test, not a re-test of
-// classifyCommit's own classification table (that lives in commit-classification.test.ts /
-// commit-classification-parity.test.ts).
-//
-// WS7.7(a) (full-flow remediation, hygiene): analyze() was DELETED from ChangeAnalysisPort (zero
-// production callers) — its own delegation test is removed here too. fakeVcsRead still declares
-// blastRadius in its default shape because VcsReadPort itself still requires it (a real, separate
-// caller exists elsewhere — see change-analysis-port.adapter.ts's own header).
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/change-analysis-port.adapter.test.ts
+   RED-first (Task E.0): ChangeAnalysisPortAdapter must DELEGATE to the REAL sibling collaborator —
+   the domain classifyCommit(message, diff) function (for classify(), sourcing message/diff from
+   the SAME VcsReadPort). NO new policy — this is a shape/delegation test, not a re-test of
+   classifyCommit's own classification table (that lives in commit-classification.test.ts /
+   commit-classification-parity.test.ts).
+   production callers) — its own delegation test is removed here too. fakeVcsRead still declares
+   blastRadius in its default shape because VcsReadPort itself still requires it (a real, separate
+   caller exists elsewhere — see change-analysis-port.adapter.ts's own header).
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ChangeAnalysisPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/change-analysis-port.adapter.ts";
@@ -35,8 +34,9 @@ test("classify() sources message+diff from VcsReadPort and delegates to classify
 
   const result = await adapter.classify(sha);
 
-  // feat -> generate (DEFAULT_ACTION table in commit-classification.ts) — proves REAL delegation,
-  // not an invented/hardcoded action.
+  /* feat -> generate (DEFAULT_ACTION table in commit-classification.ts) — proves REAL delegation,
+     not an invented/hardcoded action.
+   */
   assert.equal(result.action, "generate");
   assert.match(result.reason, /type=feat/);
 });
@@ -55,10 +55,10 @@ test("classify() escalates a contradicting refactor message to generate (delegat
   assert.match(result.reason, /escalated to generate/);
 });
 
-// ── "Dynamic diff" fix (engram #936): classify() already sources the commit's diff from
-// VcsReadPort.diff(sha) internally (to pass into classifyCommit), but previously discarded it after
-// classification — RunQaUseCase had no way to reach the REAL per-run diff for generation. Surfacing
-// the SAME diff already fetched here (no second VCS round-trip) closes that gap.
+/* classify() sources the commit's diff from VcsReadPort.diff(sha) internally (to pass into
+   classifyCommit) and must SURFACE that same diff — no second VCS round-trip — so RunQaUseCase can
+   reach the REAL per-run diff for generation.
+ */
 
 test("classify() surfaces the SAME diff it already fetched from VcsReadPort for classifyCommit (no second VCS round-trip)", async () => {
   const sha = Sha.of("def5678");
@@ -76,9 +76,10 @@ test("classify() surfaces the SAME diff it already fetched from VcsReadPort for 
   assert.equal(diffCallCount, 1, "classify() must fetch the diff exactly once — reuse the SAME value for both classification and the returned diff, never a second VcsReadPort.diff() call");
 });
 
-// ── W2 fix (F5, CommitIntent threading): classifyCommit() already derives the FULL CommitIntent
-// (type/breaking/message/body/changedFiles) as part of its own CommitClassification return — this
-// bridge previously discarded everything except {action, reason}. classify() must now surface it.
+/* classifyCommit() derives the FULL CommitIntent (type/breaking/message/body/changedFiles) as
+   part of its own CommitClassification return. classify() must surface it, not discard everything
+   except {action, reason}.
+ */
 
 test("classify() surfaces the FULL CommitIntent classifyCommit() already derived (type/breaking/message/body/changedFiles)", async () => {
   const sha = Sha.of("def5678");
@@ -111,8 +112,6 @@ test("classify() surfaces breaking:true for a BREAKING CHANGE commit, matching c
   assert.equal(result.action, "generate");
 });
 
-// ── WS7.1 (full-flow remediation, multi-commit range restoration) ──────────────────────────────
-
 test("classify(sha, {baseSha}) sources the UNION diff via VcsReadPort.diff(sha, {baseSha}) and the range's other messages via otherMessages()", async () => {
   const sha = Sha.of("deadbee1");
   const baseSha = Sha.of("bad00001");
@@ -129,7 +128,7 @@ test("classify(sha, {baseSha}) sources the UNION diff via VcsReadPort.diff(sha, 
 
   assert.deepEqual(diffOpts, { baseSha }, "must forward baseSha to VcsReadPort.diff so it fetches the UNION diff");
   assert.equal(otherMessagesCalled, true, "must fetch the range's other commit messages via otherMessages()");
-  // MAX-severity: chore (head) + feat (other) → generate wins, matching classifyRange's own contract.
+  /* MAX-severity: chore (head) + feat (other) → generate wins, matching classifyRange's own contract. */
   assert.equal(result.action, "generate");
   assert.equal(result.intent.type, "chore", "intent must stay the HEAD commit's own, even when a range member escalates the action");
 });
@@ -152,8 +151,7 @@ test("classify(sha) with NO opts.baseSha never calls otherMessages — byte-iden
 test("classify(sha, {baseSha}) degrades to a single-commit-equivalent range when VcsReadPort has no otherMessages collaborator ([SWAP])", async () => {
   const sha = Sha.of("deadbee1");
   const baseSha = Sha.of("bad00001");
-  // fakeVcsRead's default shape omits otherMessages entirely — mirrors a VcsReadPort
-  // implementation/test-double that predates WS7.1.
+  /* fakeVcsRead's default shape omits otherMessages entirely — mirrors a VcsReadPort */
   const vcs = fakeVcsRead({
     message: async () => "chore: bump deps",
     diff: async () => "diff --git a/README.md b/README.md\n+++ b/README.md\n+more prose\n",

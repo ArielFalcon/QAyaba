@@ -1,16 +1,7 @@
-// sdd/migration-wiring-phase-2 Slice 1 (D-A): the webhook's cross-repo routing/dispatch decision,
-// extracted from src/index.ts's inline req.on("end") handler so it is independently testable — that
-// module runs side effects at import time (HTTP server creation, API-token file writes) and has
-// never had test coverage for exactly that reason (mirrors webhook.ts's own extraction precedent:
-// handleWebhook/parseWebhook were pulled out of index.ts for the same testability reason).
-//
-// Routes through the qa-engine app-catalog context's AppRepositoryPort.resolveByRepo
-// (YamlAppConfigAdapter, composed once at index.ts module scope) instead of the legacy
-// config-loader.ts loadAppConfigsByRepo — config-loader.ts's loadAppConfig/listAppConfigs remain the
-// shell raw loader the adapter is injected with (unchanged, still the ONLY code that reads
-// config/apps/*.yaml off disk). Output is byte-identical to the pre-swap dispatch this function
-// replaces (src/index.ts:699-705, prior to this change) — see this file's own test for the pinned
-// equivalence.
+/*
+ * Webhook cross-repo dispatch: primary uses the event's mode/guidance/baseSha;
+ * a service-repo deploy always triggers a diff-mode e2e run of the owning app.
+ */
 import type { AppRepositoryPort } from "../../qa-engine/src/contexts/app-catalog/application/ports/index";
 import type { RunMode } from "../types";
 
@@ -23,10 +14,6 @@ export interface WebhookDispatch {
   baseSha?: string;
 }
 
-// Mirrors the legacy loadAppConfigsByRepo-driven dispatch EXACTLY: role:"primary" dispatches with
-// the event payload's own mode/guidance/baseSha, target derived from app.code; role:"service" always
-// forces target:"e2e", mode:"diff", triggerRepo:<the event's repo> (a service-repo deploy always
-// triggers a diff-mode e2e run of the OWNING app, never the service's own mode/baseSha).
 export async function resolveWebhookDispatch(
   catalog: AppRepositoryPort,
   repo: string,

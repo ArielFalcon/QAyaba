@@ -1,6 +1,7 @@
-// P0-2: when qa.valueOracle resolves to "off", the composition root must wire a no-op oracle
-// that never re-runs the suite (no fault-injection, no Stryker). Signal-only contract: a null
-// valueScore never gates publish.
+/* P0-2: when qa.valueOracle resolves to "off", the composition root must wire a no-op oracle
+   that never re-runs the suite (no fault-injection, no Stryker). Signal-only contract: a null
+   valueScore never gates publish.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter.ts";

@@ -1,14 +1,8 @@
-// qa-engine/src/shared-kernel/run-event.ts
-// The closed RunEvent domain-event vocabulary. Defines the Zod schema locally so the kernel compiles
-// without crossing the qa-engine rootDir boundary — the frozen wire source of truth remains
-// src/contract/events.ts, and contract/index.ts re-exports it for adapters that bridge the trees;
-// the kernel keeps a self-contained, schema-identical copy here so the standalone typecheck passes.
-// Adding a variant means adding it to src/contract/events.ts FIRST, then mirroring here.
+/* Closed RunEvent vocabulary. Adding a variant means adding it to contract/events.ts first, then mirroring here so the schemas stay identical. */
 
 import { z } from "zod";
 export type { AgentRole, RoleAssignment, AgentProvider } from "./agent-role.ts";
 
-// ── Wire enums ────────────────────────────────────────────────────────────────
 const RunVerdictSchema = z.enum(["pass", "fail", "flaky", "invalid", "infra-error", "skipped"]);
 const RunEngineStatusSchema = z.enum(["success", "error"]);
 const RunModeSchema = z.enum(["diff", "complete", "exhaustive", "manual", "context"]);
@@ -21,7 +15,6 @@ const ActivityStatusSchema = z.enum(["running", "completed"]);
 const TodoStatusSchema = z.enum(["pending", "in_progress", "completed", "cancelled"]);
 const LogLevelSchema = z.enum(["info", "warn", "error"]);
 
-// ── The event body ─────────────────────────────────────────────────────────────
 export const RunEventBodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run.started"), app: z.string(), sha: z.string(), mode: RunModeSchema, target: TestTargetSchema }),
   z.object({ type: z.literal("step.changed"), step: RunStepSchema, detail: z.string().optional() }),
@@ -47,7 +40,6 @@ export const RunEventBodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("log.line"), level: LogLevelSchema, text: z.string() }),
 ]);
 
-// ── The wire envelope ─────────────────────────────────────────────────────────
 export const RunEventSchema = z.object({
   seq: z.number().int().nonnegative(),
   runId: z.string(),

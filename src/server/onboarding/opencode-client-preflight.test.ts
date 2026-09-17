@@ -1,18 +1,12 @@
-// src/server/onboarding/opencode-client-preflight.test.ts
-// Slice 5a pre-flight (task 5a.1): a concurrent session may be editing
-// src/integrations/opencode-client.ts while this slice re-homes the LLM proposer adapter under
-// src/server/onboarding/ and threads an AbortSignal through it. This test is a READ-ONLY re-diff
-// guard: it asserts the two stable public surfaces this slice depends on are UNCHANGED —
-// `defaultAgentDeps` (still exported, still async, still zero-arg) and `AgentDeps.open`'s opts
-// shape (still carrying `signal?: AbortSignal`, source-verified below since opts is a structural
-// type with no runtime tag to introspect). If either assumption breaks, this test goes red and
-// flags the drift BEFORE the job's timeout/cancellation wiring (5a.6/5a.7) silently relies on a
-// changed contract. Does NOT edit opencode-client.ts — read-only confirmation only.
-//
-// migration-tier-4c Slice 2: the AgentDeps interface itself (and its `signal?: AbortSignal;`
-// declaration) MOVED to qa-engine's agent-transport-policy.ts — opencode-client.ts now only
-// RE-EXPORTS the type. The re-diff below follows the type to its current, legitimate home rather
-// than re-pinning a literal that no longer lives in opencode-client.ts.
+/* READ-ONLY re-diff guard: the two stable public surfaces this onboarding path depends on stay
+   UNCHANGED — `defaultAgentDeps` (still exported, still async, still zero-arg) and `AgentDeps.open`'s
+   opts shape (still carrying `signal?: AbortSignal`, source-verified below since opts is a structural
+   type with no runtime tag to introspect). If either assumption breaks, this test goes red and
+   flags the drift BEFORE the job's timeout/cancellation wiring silently relies on a changed
+   contract. Does NOT edit opencode-client.ts — read-only confirmation only. The re-diff follows
+   the type to its current home rather than re-pinning a literal that no longer lives in
+   opencode-client.ts.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -30,9 +24,7 @@ test("pre-flight: defaultAgentDeps is still exported as a zero-arg async factory
 });
 
 test("pre-flight: AgentDeps.open's opts shape still declares signal?: AbortSignal (source re-diff)", () => {
-  // A structural TS type carries no runtime tag, so the only way to re-confirm the opts shape at
-  // apply-time (without editing the file) is a source-level re-diff — mirrors the same technique
-  // Slice 3's own pre-flight used for defaultAgentDeps' signature.
+  /* Structural type has no runtime tag — re-confirm the opts shape from source. */
   const source = readFileSync(OPENCODE_CLIENT_PATH, "utf8");
   assert.match(
     source,
@@ -40,8 +32,7 @@ test("pre-flight: AgentDeps.open's opts shape still declares signal?: AbortSigna
     "defaultAgentDeps export signature changed — coordinate with the concurrent session before proceeding",
   );
 
-  // AgentDeps itself now lives in qa-engine (migration-tier-4c Slice 2) — re-diff its declaration
-  // there instead of re-pinning a literal opencode-client.ts no longer contains.
+  /* there instead of re-pinning a literal opencode-client.ts no longer contains. */
   const engineSource = readFileSync(AGENT_TRANSPORT_POLICY_PATH, "utf8");
   assert.match(
     engineSource,

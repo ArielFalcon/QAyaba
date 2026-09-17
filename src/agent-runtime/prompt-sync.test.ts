@@ -1,36 +1,31 @@
-// Prompt-sync drift guard (T-P1-1 / AC1.1.1-3 / C3.2 / T-P3-2).
-//
-// MUST-MATCH sections must stay byte-identical between the OpenCode mirror
-// (agents/agent/*.md) and the Codex neutral mirror (agent/roles/*.md).
-//
-// T-P3-2 (C3.2 / AC3.2.1-2) STRENGTHENS this from a reviewer-only guard to a comprehensive
-// sync covering ALL files where deliberate drift must fail CI:
-//   - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol (added in P1)
-//   - qa-generator.md: Final output (must-match), + presence of the anti-hang/no-op section
-//   - AGENTS.md: Global rules section (shared safety-critical rules must not diverge silently)
-//
-// DELIBERATE divergences between the mirrors (wording improvements, phrasing adjustments) are
-// catalogued in the KNOWN_GENERATOR_PROCEDURE_DRIFT constant below. Section-level identity
-// is required for MUST-MATCH sections; prose rewrites inside WAIVED sections are allowed.
-//
-// Section detection: sections are identified by their H2 header text (##). A section
-// is a MUST-MATCH candidate when its header or content includes the sentinel phrase
-// MUST-MATCH-SECTION. For the reviewer severity contract we check by known header names.
+/* Prompt-sync drift guard. MUST-MATCH sections must stay byte-identical between the OpenCode
+   mirror (agents/agent/*.md) and the Codex neutral mirror (agent/roles/*.md). The guard covers
+   all files where deliberate drift must fail CI:
+   - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol
+   - qa-generator.md: Final output (must-match), + presence of the anti-hang/no-op section
+   - AGENTS.md: Global rules section (shared safety-critical rules must not diverge silently)
+   DELIBERATE divergences between the mirrors (wording improvements, phrasing adjustments) are
+   catalogued in the KNOWN_GENERATOR_PROCEDURE_DRIFT constant below. Section-level identity
+   is required for MUST-MATCH sections; prose rewrites inside WAIVED sections are allowed.
+   Section detection: sections are identified by their H2 header text (##). A section
+   is a MUST-MATCH candidate when its header or content includes the sentinel phrase
+   MUST-MATCH-SECTION. For the reviewer severity contract we check by known header names.
+ */
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-// Resolve repo root relative to this test file (src/agent-runtime/ → two levels up)
+/* Resolve repo root relative to this test file (src/agent-runtime/ → two levels up) */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
 
-// Skill file pairs that must be byte-identical (modulo trailing whitespace) across both trees.
-// Full-file parity is stricter than section-level parity: any one-tree edit fails CI immediately.
-// WS9.2: the playwright-authoring SKILL.md and the test-value-review SKILL.md are now BOTH
-// pinned here (previously waived/skipped) — the Codex mirror is now actually consumed (inlined
-// into the Codex role preamble by withCodexRolePreamble in codex-strategy.ts), so a one-tree edit
-// here would silently desync what the two providers' agents read as craft/review guidance.
+/* Skill file pairs that must be byte-identical (modulo trailing whitespace) across both trees.
+   Full-file parity is stricter than section-level parity: any one-tree edit fails CI immediately.
+   pinned here (previously waived/skipped) — the Codex mirror is now actually consumed (inlined
+   into the Codex role preamble by withCodexRolePreamble in codex-strategy.ts), so a one-tree edit
+   here would silently desync what the two providers' agents read as craft/review guidance.
+ */
 const SKILL_FILE_PAIRS: Array<[string, string]> = [
   [
     "agents/skill/playwright-authoring/locators-and-waiting.md",
@@ -58,9 +53,10 @@ const SKILL_FILE_PAIRS: Array<[string, string]> = [
   ],
 ];
 
-// Must-match sections for the worker role (by canonical H2 header text).
-// The guard compares H2 bodies between the OpenCode mirror (agents/agent/qa-worker.md)
-// and the Codex mirror (agent/roles/qa-worker.md). H1 may differ (Flash suffix).
+/* Must-match sections for the worker role (by canonical H2 header text).
+   The guard compares H2 bodies between the OpenCode mirror (agents/agent/qa-worker.md)
+   and the Codex mirror (agent/roles/qa-worker.md). H1 may differ (Flash suffix).
+ */
 const WORKER_MUST_MATCH_SECTIONS = ["How to write a valuable spec"];
 
 function readFile(rel: string): string {
@@ -69,7 +65,7 @@ function readFile(rel: string): string {
   return readFileSync(p, "utf8");
 }
 
-// Parse H2 sections out of a markdown document. Returns a map: header text → body.
+/* Parse H2 sections out of a markdown document. Returns a map: header text → body. */
 function parseSections(md: string): Map<string, string> {
   const sections = new Map<string, string>();
   const headerRe = /^## (.+)$/m;
@@ -84,11 +80,11 @@ function parseSections(md: string): Map<string, string> {
   return sections;
 }
 
-// The must-match sections for the reviewer role (by canonical header text).
-// These are the sections that define the shared quality contract between runtimes.
-// "Code-mode review (target: code)" (WS2.4/WS9.2 handoff) is the anti-mock rubric applied when
-// target:code — it must stay identical across both mirrors like every other quality-contract
-// section, so the Codex reviewer is exactly as strict as OpenCode's for code-mode runs.
+/* The must-match sections for the reviewer role (by canonical header text).
+   These are the sections that define the shared quality contract between runtimes.
+   target:code — it must stay identical across both mirrors like every other quality-contract
+   section, so the Codex reviewer is exactly as strict as OpenCode's for code-mode runs.
+ */
 const REVIEWER_MUST_MATCH_SECTIONS = [
   "Output format",
   "Anti-pattern catalog (reject on sight)",
@@ -96,28 +92,29 @@ const REVIEWER_MUST_MATCH_SECTIONS = [
   "Code-mode review (target: code)",
 ];
 
-// Must-match sections for the generator role.
-// "Final output" defines the JSON verdict contract shared by both runtimes — it must stay identical.
-// Procedure sections are ALLOWED to diverge (wording improvements) — see GENERATOR_WAIVED_SECTIONS.
+/* Must-match sections for the generator role.
+   "Final output" defines the JSON verdict contract shared by both runtimes — it must stay identical.
+   Procedure sections are ALLOWED to diverge (wording improvements) — see GENERATOR_WAIVED_SECTIONS.
+ */
 const GENERATOR_MUST_MATCH_SECTIONS = ["Final output"];
 
-// Sections in the generator that are ALLOWED to have different prose between the two mirrors.
-// These represent known, deliberate wording improvements — not semantic drift.
-// If a new semantic change is made to one mirror's procedure, it must be ported to the other,
-// at which point both versions become identical and can be moved to GENERATOR_MUST_MATCH_SECTIONS.
+/* Sections in the generator that are ALLOWED to have different prose between the two mirrors.
+   These represent known, deliberate wording improvements — not semantic drift.
+   If a new semantic change is made to one mirror's procedure, it must be copied to the other,
+ */
 const GENERATOR_WAIVED_SECTIONS = new Set([
   "Procedure",
   "Stop when the spec is written — then emit the verdict",
 ]);
 
-// Must-match sections for the shared AGENTS.md.
-// "Global rules" contains safety-critical constraints shared by both runtimes and must not diverge.
-// "Execution context" carries the TRANSCRIBE-from-injected-grounding contract (do not re-navigate
-// routes already covered by the Context Pack / re-judge a11y tree) — a stale mirror here silently
-// reverts Codex-run generation to always-re-explore, sabotaging grounding reuse.
-// "Protocols (to keep quality from degrading over time)" carries Protocol 4 (cleanup via the UI, or
-// namespaced-and-left; NEVER a fabricated API call) — a stale mirror here lets Codex hallucinate a
-// DELETE endpoint that was never verified to exist.
+/* Must-match sections for the shared AGENTS.md.
+   "Global rules" contains safety-critical constraints shared by both runtimes and must not diverge.
+   "Execution context" carries the TRANSCRIBE-from-injected-grounding contract (do not re-navigate
+   reverts Codex-run generation to always-re-explore, sabotaging grounding reuse.
+   "Protocols (to keep quality from degrading over time)" carries Protocol 4 (cleanup via the UI, or
+   namespaced-and-left; NEVER a fabricated API call) — a stale mirror here lets Codex hallucinate a
+   DELETE endpoint that was never verified to exist.
+ */
 const AGENTS_MUST_MATCH_SECTIONS = [
   "Global rules",
   "Execution context",
@@ -127,8 +124,9 @@ const AGENTS_MUST_MATCH_SECTIONS = [
 describe("prompt-sync drift guard", () => {
   it("agent/roles/qa-reviewer.md contains the {text,severity} structured corrections contract (AC1.1.1)", () => {
     const codexReviewer = readFile("agent/roles/qa-reviewer.md");
-    // The structured contract requires both fields in the JSON example.
-    // Plain-string corrections do NOT have a `severity` field.
+    /* The structured contract requires both fields in the JSON example.
+       Plain-string corrections do NOT have a `severity` field.
+     */
     assert.ok(
       codexReviewer.includes('"severity"'),
       'agent/roles/qa-reviewer.md is missing the structured corrections contract: ' +
@@ -149,7 +147,7 @@ describe("prompt-sync drift guard", () => {
       const codexBody = codexReviewer.get(section);
       const opencodeBody = opencodeReviewer.get(section);
 
-      if (opencodeBody === undefined) continue; // section only in codex mirror is allowed
+      if (opencodeBody === undefined) continue; /* section only in codex mirror is allowed */
 
       assert.ok(
         codexBody !== undefined,
@@ -157,7 +155,7 @@ describe("prompt-sync drift guard", () => {
           `but missing from agent/roles/qa-reviewer.md. Port it.`,
       );
 
-      // Normalize trailing whitespace for comparison; intentional content differences still fail.
+      /* Normalize trailing whitespace for comparison; intentional content differences still fail. */
       const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
       assert.equal(
         normalize(codexBody),
@@ -232,12 +230,11 @@ describe("prompt-sync drift guard", () => {
 
   it("agent/roles/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance (AC1.1.2)", () => {
     const codexReviewer = readFile("agent/roles/qa-reviewer.md");
-    // These anchors are confirmed present by the design gate.
     assert.ok(
       codexReviewer.includes("app-agnostic") || codexReviewer.includes("App-specific"),
       'agent/roles/qa-reviewer.md must contain the app-agnostic warning block.',
     );
-    // ARIA / role selector guidance (getByRole is the canonical Playwright ARIA selector)
+    /* ARIA / role selector guidance (getByRole is the canonical Playwright ARIA selector) */
     assert.ok(
       codexReviewer.includes("getByRole") || codexReviewer.includes("ARIA"),
       'agent/roles/qa-reviewer.md must contain ARIA-role selector guidance.',
@@ -248,12 +245,13 @@ describe("prompt-sync drift guard", () => {
     const opencodeReviewer = parseSections(readFile("agents/agent/qa-reviewer.md"));
     const section = "Output format";
     const opencodeBody = opencodeReviewer.get(section);
-    if (!opencodeBody) return; // section unexpectedly absent — skip inverse check
+    if (!opencodeBody) return; /* section unexpectedly absent — skip inverse check */
 
-    // Build a deliberately-diverged in-memory sections map and run it through the SAME
-    // comparison code the guard uses in the must-match loop above, confirming assert.equal
-    // throws on the diverged copy. This proves the guard catches real drift, not just that
-    // string concatenation changes a string.
+    /* Build a deliberately-diverged in-memory sections map and run it through the SAME
+       comparison code the guard uses in the must-match loop above, confirming assert.equal
+       throws on the diverged copy. This proves the guard catches real drift, not just that
+       string concatenation changes a string.
+     */
     const divergedBody = opencodeBody + "\n\n<!-- deliberate drift -->";
     const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
 
@@ -270,16 +268,13 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  // ---------------------------------------------------------------------------
-  // T-P3-2 additions: generator + AGENTS.md comprehensive sync (C3.2 / AC3.2.1-2)
-  // ---------------------------------------------------------------------------
-
   it("T-P3-2: agent/roles/qa-generator.md contains the anti-hang/no-op section (AC1.1.2, C3.2)", () => {
     const codexGenerator = readFile("agent/roles/qa-generator.md");
-    // The anti-hang section prevents the generator from over-working past the verdict, which
-    // causes run timeouts. It must be present in the codex mirror so both runtimes share this
-    // critical timing constraint. Source: agents/agent/qa-generator.md "Stop when the spec is
-    // written" section + the "DONE generating" sentinel phrase.
+    /* The anti-hang section prevents the generator from over-working past the verdict, which
+       causes run timeouts. It must be present in the codex mirror so both runtimes share this
+       critical timing constraint. Source: agents/agent/qa-generator.md "Stop when the spec is
+       written" section + the "DONE generating" sentinel phrase.
+     */
     assert.ok(
       codexGenerator.includes("DONE generating") ||
         codexGenerator.includes("Stop when the spec is written") ||
@@ -346,25 +341,26 @@ describe("prompt-sync drift guard", () => {
   });
 
   it("T-P3-2: GENERATOR_WAIVED_SECTIONS list accounts for all known generator procedure drift (C3.2)", () => {
-    // Verify that any section present in agents/ generator but NOT identical in the codex mirror
-    // is explicitly listed in GENERATOR_WAIVED_SECTIONS. If a new section appears in agents/
-    // with content that differs from agent/ and is NOT waived, this test fails — forcing the
-    // developer to either port the section or explicitly waive it with a comment.
+    /* Verify that any section present in agents/ generator but NOT identical in the codex mirror
+       is explicitly listed in GENERATOR_WAIVED_SECTIONS. If a new section appears in agents/
+       with content that differs from agent/ and is NOT waived, this test fails — forcing the
+       developer to either port the section or explicitly waive it with a comment.
+     */
     const codexSections = parseSections(readFile("agent/roles/qa-generator.md"));
     const opencodeSections = parseSections(readFile("agents/agent/qa-generator.md"));
     const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
 
     const unaccountedDrift: string[] = [];
     for (const [section, opencodeBody] of opencodeSections) {
-      if (GENERATOR_MUST_MATCH_SECTIONS.includes(section)) continue; // already tested above
-      if (GENERATOR_WAIVED_SECTIONS.has(section)) continue; // explicitly waived
+      if (GENERATOR_MUST_MATCH_SECTIONS.includes(section)) continue;
+      if (GENERATOR_WAIVED_SECTIONS.has(section)) continue;
 
       const codexBody = codexSections.get(section);
       if (codexBody === undefined) {
-        // Section only in agents/ — must be waived or ported
+        /* Section only in agents/ — must be waived or copied */
         unaccountedDrift.push(`missing: "${section}"`);
       } else if (normalize(codexBody) !== normalize(opencodeBody)) {
-        // Section in both but differs — must be waived or ported
+        /* Section in both but differs — must be waived or copied */
         unaccountedDrift.push(`diverged: "${section}"`);
       }
     }
@@ -385,9 +381,10 @@ describe("prompt-sync drift guard", () => {
     const opencodeBody = opencodeGenerator.get(section);
     if (!opencodeBody) return;
 
-    // Build a deliberately-diverged in-memory body and run it through the SAME comparison
-    // the guard uses in the must-match loop above. assert.throws confirms the guard would
-    // have caught the divergence — not just that appending text changes a string.
+    /* Build a deliberately-diverged in-memory body and run it through the SAME comparison
+       the guard uses in the must-match loop above. assert.throws confirms the guard would
+       have caught the divergence — not just that appending text changes a string.
+     */
     const divergedBody = opencodeBody + "\n\n<!-- deliberate drift -->";
     const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
 
@@ -408,11 +405,11 @@ describe("prompt-sync drift guard", () => {
 describe("agent-guidance-runtime-semantics drift guard", () => {
   const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
 
-  // ---------------------------------------------------------------------------
-  // Task 1.1: Full-file parity for playwright-authoring skill files.
-  // The two trees must be byte-identical (modulo trailing whitespace).
-  // This assertion PASSES on the current byte-identical files and FAILS on any one-tree edit.
-  // ---------------------------------------------------------------------------
+  /* ---------------------------------------------------------------------------
+     The two trees must be byte-identical (modulo trailing whitespace).
+     This assertion PASSES on the current byte-identical files and FAILS on any one-tree edit.
+     ---------------------------------------------------------------------------
+   */
   it("WS2.4/WS9.2: test-value-review/SKILL.md carries the code-mode anti-mock rubric (both mirrors, via SKILL_FILE_PAIRS parity)", () => {
     const content = readFile("agents/skill/test-value-review/SKILL.md");
     assert.ok(
@@ -439,10 +436,10 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  // ---------------------------------------------------------------------------
-  // Task 1.2: Section-level parity for the worker role's "How to write a valuable spec" section.
-  // Worker H1 may differ (Flash suffix) — the guard compares H2 bodies only.
-  // ---------------------------------------------------------------------------
+  /* ---------------------------------------------------------------------------
+     Worker H1 may differ (Flash suffix) — the guard compares H2 bodies only.
+     ---------------------------------------------------------------------------
+   */
   it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors (Task 1.2)", () => {
     const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
     const codexWorker = parseSections(readFile("agent/roles/qa-worker.md"));
@@ -451,7 +448,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
       const opencodeBody = opencodeWorker.get(sectionHeader);
       const codexBody = codexWorker.get(sectionHeader);
 
-      if (opencodeBody === undefined) continue; // section only in codex mirror is allowed
+      if (opencodeBody === undefined) continue; /* section only in codex mirror is allowed */
 
       assert.ok(
         codexBody !== undefined,
@@ -469,11 +466,10 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     }
   });
 
-  // ---------------------------------------------------------------------------
-  // Task 1.3: Inverse proofs — confirm the guard actually catches divergence.
-  // (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
-  // (b) Worker section parity: appending a comment to the in-memory section body must trigger AssertionError.
-  // ---------------------------------------------------------------------------
+  /* Inverse proofs — confirm the guard actually catches divergence.
+     (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
+     (b) Worker section parity: appending a comment to the in-memory section body must trigger AssertionError.
+   */
   it("inverse: skill-file parity guard catches one-tree drift (Task 1.3 — skill file)", () => {
     const [opencodeRel] = SKILL_FILE_PAIRS[0]!;
     const opencodeContent = readFile(opencodeRel);
@@ -496,7 +492,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
     const sectionHeader = WORKER_MUST_MATCH_SECTIONS[0]!;
     const opencodeBody = opencodeWorker.get(sectionHeader);
-    if (!opencodeBody) return; // section unexpectedly absent — skip inverse check
+    if (!opencodeBody) return; /* section unexpectedly absent — skip inverse check */
 
     const divergedBody = opencodeBody + "\n\n<!-- drift -->";
 

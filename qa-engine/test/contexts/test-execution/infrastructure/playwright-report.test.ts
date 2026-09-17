@@ -1,8 +1,6 @@
-// qa-engine/test/contexts/test-execution/infrastructure/playwright-report.test.ts
-// Moved from src/qa/playwright-report.test.ts (migration-tier-4d Slice 1a — playwright-report
-// migration, prep step ahead of the execute.ts body-move in Slice 1b). Byte-identical assertions
-// to the legacy file — only the import path changes, plus the inline QaCase type-only import,
-// which now reads from the qa-engine kernel's own canonical copy instead of src/types.ts.
+/* Behavioral tests for parsePlaywrightReport / firstErrorContext. QaCase comes from the
+   qa-engine kernel, not src/types.ts.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePlaywrightReport, firstErrorContext } from "@contexts/test-execution/infrastructure/playwright-report.ts";
@@ -58,7 +56,7 @@ test("marks flaky when a test passed after a retry (status flaky)", () => {
     ],
   };
   const parsed = parsePlaywrightReport(report);
-  assert.equal(parsed.verdict, "flaky"); // no fail, but there is a flaky
+  assert.equal(parsed.verdict, "flaky"); /* no fail, but there is a flaky */
   assert.equal(parsed.passed, false);
   assert.equal(parsed.cases.find((c) => c.status === "flaky")?.name.includes("unstable"), true);
 });
@@ -88,9 +86,10 @@ test("derives ok from results when there is no spec.ok", () => {
   assert.equal(parsePlaywrightReport(report).passed, true);
 });
 
-// Filter C invariant (the inverse of "no parseable report => infra-error"): a
-// report that PARSED but executed ZERO tests must NEVER classify as pass. A
-// suite that ran nothing proves nothing and must not publish a green PR.
+/* Filter C invariant (the inverse of "no parseable report => infra-error"): a
+   report that PARSED but executed ZERO tests must NEVER classify as pass. A
+   suite that ran nothing proves nothing and must not publish a green PR.
+ */
 test("a report that executed zero tests is never a pass", () => {
   assert.equal(parsePlaywrightReport({ suites: [] }).passed, false);
   assert.equal(parsePlaywrightReport({ suites: [] }).verdict, "infra-error");
@@ -119,10 +118,7 @@ test("a spec with one executed pass and one skipped test still passes", () => {
   assert.equal(parsePlaywrightReport(report).passed, true);
 });
 
-// ── firstErrorContext + PwCase.errorContext (Unit 2 — Task 2.11) ───────────────
-
 test("firstErrorContext returns the errorContext string from errors[0]", () => {
-  // A spec with a result that carries errors[].errorContext (simulated 1.60 shape).
   const spec = {
     title: "fails",
     tests: [
@@ -223,8 +219,6 @@ test("parsePlaywrightReport backward-compat: errorContext absent on pre-1.60 rep
   assert.equal(failed!.errorContext, undefined);
 });
 
-// ── QaCase.file — spec file basename on parsed cases ─────────────────────────
-
 test("parsePlaywrightReport: a parsed QaCase carries the spec file basename from the enclosing suite title", () => {
   const report = {
     suites: [
@@ -238,7 +232,7 @@ test("parsePlaywrightReport: a parsed QaCase carries the spec file basename from
     ],
   };
   const parsed = parsePlaywrightReport(report);
-  // Both cases must carry the enclosing suite title as .file
+  /* Both cases must carry the enclosing suite title as .file */
   for (const c of parsed.cases) {
     assert.equal((c as import("@kernel/qa-case.ts").QaCase).file, "login.spec.ts", `expected file="login.spec.ts" on case "${c.name}", got ${JSON.stringify((c as import("@kernel/qa-case.ts").QaCase).file)}`);
   }
@@ -264,29 +258,25 @@ test("parsePlaywrightReport: nested suite (describe block) — file is still the
 });
 
 test("parsePlaywrightReport: a spec at the root suite (no file title) leaves file undefined", () => {
-  // When there is no enclosing suite that looks like a spec file, file stays undefined.
+  /* When there is no enclosing suite that looks like a spec file, file stays undefined. */
   const report = {
     suites: [
       {
-        // No title (or non-spec-file title) — file cannot be determined
         specs: [{ title: "orphan test", ok: true }],
       },
     ],
   };
   const parsed = parsePlaywrightReport(report);
   assert.equal(parsed.cases.length, 1);
-  // file is either undefined or empty — must NOT be a meaningful path
+  /* file is either undefined or empty — must NOT be a meaningful path */
   const file = (parsed.cases[0]! as import("@kernel/qa-case.ts").QaCase).file;
   assert.ok(!file || file === "", `orphan test should have no meaningful file; got ${JSON.stringify(file)}`);
 });
 
 test("firstErrorContext is defensive against null/undefined shape variants (no throw)", () => {
-  // Empty spec — nothing crashes.
   assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [] }));
-  // Test with no results.
   assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [{}] }));
-  // Result with empty errors array.
   assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [{ results: [{ errors: [] }] }] }));
-  // All return undefined — never throw.
+  /* All return undefined — never throw. */
   assert.equal(firstErrorContext({ title: "x", tests: [] }), undefined);
 });

@@ -6,13 +6,13 @@ const LCOV = ["SF:src/svc.ts", "DA:1,3", "DA:2,0", "DA:3,5", "end_of_record"].jo
 
 test("parses injected lcov text into a CoverageReport (only hit lines)", async () => {
   const adapter = new LcovCoverageAdapter(
-    async () => [{ path: "/m/coverage/lcov.info", text: LCOV }],   // injected file reader
+    async () => [{ path: "/m/coverage/lcov.info", text: LCOV }],
     "/m",
   );
   const report = await adapter.collect("/m/e2e", "qa-abc");
   const file = report.covered.find((c) => c.file === "src/svc.ts");
   assert.ok(file);
-  assert.deepEqual(file!.lines.sort((a, b) => a - b), [1, 3]); // line 2 had 0 hits → excluded
+  assert.deepEqual(file!.lines.sort((a, b) => a - b), [1, 3]); /* line 2 had 0 hits → excluded */
 });
 
 test("returns an empty report when no lcov files are found (never throws — fail-open)", async () => {

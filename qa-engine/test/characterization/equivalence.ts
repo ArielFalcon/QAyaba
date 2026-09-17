@@ -1,7 +1,7 @@
-// Structural equivalence for RunOutcome (spec §10): two outcomes are behaviorally equivalent when
-// their decision-bearing fields match. Per-invocation fields (runId, at) and free-text reasoning
-// (reviewerRationale) are NOT behavioral and are excluded. This is the contract the rewritten
-// engine must satisfy against the legacy goldens.
+/* Structural equivalence for RunOutcome: two outcomes are behaviorally equivalent when
+   their decision-bearing fields match. Per-invocation fields (runId, at) and free-text reasoning
+   (reviewerRationale) are NOT behavioral and are excluded.
+ */
 
 export interface ComparableOutcome {
   runId: string;
@@ -20,11 +20,10 @@ export interface ComparableOutcome {
     reviewerRationale?: string;
     flaky: boolean;
     retries: number;
-    // Pillar 2 catalog gate honest-coverage telemetry (pipeline.ts:1018-1020, set on every
-    // persistOutcome call). Comparator-blind until the Plan 6 addendum's G2 fix (2026-07-01):
-    // absent from every committed golden (they predate this instrumentation), so both sides
-    // default to 0 via the ?? 0 normalization below — the semantic "gate did not fire" value,
-    // not a spurious null-vs-number mismatch on stale fixtures.
+    /* absent from every committed golden (they predate this instrumentation), so both sides
+       default to 0 via the ?? 0 normalization below — the semantic "gate did not fire" value,
+       not a spurious null-vs-number mismatch on stale fixtures.
+     */
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
@@ -32,7 +31,6 @@ export interface ComparableOutcome {
   at: string;
 }
 
-// The fields that define behavior. Order is stable so the serialized form is deterministic.
 function behavioralProjection(o: ComparableOutcome): Record<string, unknown> {
   return {
     app: o.app,

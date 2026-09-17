@@ -7,10 +7,10 @@ import (
 	"github.com/ArielFalcon/qayaba/internal/contract"
 )
 
-// The FLEET pass-rate (history) and NOW's pipeline progress are both rendered as "NN%",
-// which made "FLEET 0% vs NOW 38%" read as a contradiction. A project that is currently
-// running must show its LIVE progress in FLEET (matching NOW), never the historical
-// pass-rate of its past runs.
+/* The FLEET pass-rate (history) and NOW's pipeline progress are both rendered as "NN%",
+   which made "FLEET 0% vs NOW 38%" read as a contradiction. A project that is currently
+   running must show its LIVE progress in FLEET (matching NOW), never the historical
+   pass-rate of its past runs. */
 func TestFleetRunningRowShowsLiveProgressNotPassRate(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "petclinic"}})
 	m.sys.queue.Running = &struct {
@@ -19,8 +19,8 @@ func TestFleetRunningRowShowsLiveProgressNotPassRate(t *testing.T) {
 	}{App: "petclinic", Id: "r1"}
 	step := "generate"
 	m.sys.running = &contract.RunRecord{App: "petclinic", Step: &step}
-	// A history that computes a 0% pass-rate (all skipped) — the misleading number the
-	// running row must NOT surface while the run is in flight.
+	/* A history that computes a 0% pass-rate (all skipped) — the misleading number the
+	   running row must NOT surface while the run is in flight. */
 	sk := contract.RunRecordVerdictSkipped
 	m.fleet = map[string][]contract.RunRecord{"petclinic": {{Verdict: &sk}, {Verdict: &sk}}}
 
@@ -37,8 +37,8 @@ func TestFleetRunningRowShowsLiveProgressNotPassRate(t *testing.T) {
 	}
 }
 
-// An idle project's "NN%" is a pass-rate, not progress. Label it so the two NN% readouts on
-// the board are never confused.
+/* An idle project's "NN%" is a pass-rate, not progress. Label it so the two NN% readouts on
+   the board are never confused. */
 func TestFleetIdleRowLabelsPassRate(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	p := contract.RunRecordVerdictPass

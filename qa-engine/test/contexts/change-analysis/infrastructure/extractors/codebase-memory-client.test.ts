@@ -1,13 +1,13 @@
-// Behavioral tests for CodebaseMemoryClient — the shared spawn+parse primitive for the
-// codebase-memory-mcp CLI, layered over SandboxedBinaryRunner exactly like runbinary.ts
-// (see runbinary.test.ts for the sibling pattern), but reimplemented independently at the
-// shared-infrastructure layer per design ADR-3 (a shared-infrastructure file cannot import
-// from a context, so this client does NOT reuse runbinary.ts — it reproduces the same
-// scrubEnv + {code:null} degrade contract on its own).
-//
-// The runner is constructor-injected (default = the real SandboxedBinaryRunnerAdapter), so
-// every test here passes a FAKE runner and never spawns a real process — these are pure
-// unit tests of the client's parse/degrade mapping, not integration tests of the binary.
+/* Behavioral tests for CodebaseMemoryClient — the shared spawn+parse primitive for the
+   codebase-memory-mcp CLI, layered over SandboxedBinaryRunner exactly like runbinary.ts
+   (see runbinary.test.ts for the sibling pattern), but reimplemented independently at the
+   shared-infrastructure layer per design ADR-3 (a shared-infrastructure file cannot import
+   from a context, so this client does NOT reuse runbinary.ts — it reproduces the same
+   scrubEnv + {code:null} degrade contract on its own).
+   The runner is constructor-injected (default = the real SandboxedBinaryRunnerAdapter), so
+   every test here passes a FAKE runner and never spawns a real process — these are pure
+   unit tests of the client's parse/degrade mapping, not integration tests of the binary.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -15,8 +15,9 @@ import { fileURLToPath } from "node:url";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { CodebaseMemoryClient } from "../../../../../src/shared-infrastructure/code-graph/codebase-memory-client.ts";
 
-// A minimal fake implementing SandboxedBinaryRunner's run() — the client is constructor-injected
-// with this instead of the real SandboxedBinaryRunnerAdapter, so no process is ever spawned here.
+/* A minimal fake implementing SandboxedBinaryRunner's run() — the client is constructor-injected
+   with this instead of the real SandboxedBinaryRunnerAdapter, so no process is ever spawned here.
+ */
 class FakeRunner implements SandboxedBinaryRunner {
   public lastRequest: SandboxedRunRequest | null = null;
   constructor(private readonly result: () => Promise<SandboxedRunResult>) {}
@@ -85,10 +86,10 @@ test("cli() applies scrubEnv to the spawn env — an unscrubbed secret never rea
   }
 });
 
-// migration-tier-4b Slice 1 (gate DEFECT-2 fix, tier-4a regression check): scrubEnv's base allowlist
-// narrowed to the legacy set (no CBM_CACHE_DIR). This client must keep injecting it via extraExact
-// for its OWN spawn — a tier-4a consumer regression here would silently break codebase-memory's
-// docker-volume-mounted graph-store persistence.
+/* scrubEnv does not pass CBM_CACHE_DIR through. This client must keep injecting it via extraExact
+   for its OWN spawn — dropping it would silently break codebase-memory's docker-volume-mounted
+   graph-store persistence.
+ */
 test("cli() still forwards CBM_CACHE_DIR to the spawn env after the scrubEnv narrow-base change (tier-4a regression check)", async () => {
   const runner = new FakeRunner(async () => ({
     exitCode: 0,
@@ -129,9 +130,10 @@ test("the captured codebase-memory-complexity.json fixture parses and matches th
   assert.ok(Array.isArray(parsed.columns) && parsed.columns.length > 0, "fixture must carry a columns array");
   assert.ok(Array.isArray(parsed.rows) && parsed.rows.length > 0, "fixture must carry at least one row");
   assert.ok(parsed.total >= parsed.rows.length);
-  // The client is tool-agnostic: it hands back raw stdout for the caller (2b's adapter) to parse.
-  // Re-stringifying the fixture and feeding it through the client's success path must round-trip
-  // exactly, proving the client does not mutate or reinterpret the JSON body.
+  /* The client is tool-agnostic: it hands back raw stdout for the caller (2b's adapter) to parse.
+     Re-stringifying the fixture and feeding it through the client's success path must round-trip
+     exactly, proving the client does not mutate or reinterpret the JSON body.
+   */
   const runner = new FakeRunner(async () => ({ exitCode: 0, stdout: raw, stderr: "", timedOut: false }));
   return new CodebaseMemoryClient(runner).cli("query_graph", "{}", "/repo").then((result) => {
     assert.equal(result.code, 0);

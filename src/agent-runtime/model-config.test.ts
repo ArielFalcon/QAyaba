@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { singleProviderConfig } from "./config";
 import { CODEX_MODELS } from "./codex-strategy";
 
-// Guard against the model "split-brain": config.ts's DEFAULT_MODELS (used by the runtime
-// reconfig layer) and opencode/opencode.json (the file that actually runs the agents) must
-// agree, and the reviewer must be a DIFFERENT model from the generator. When the default
-// reviewer drifted out of the opencode.json catalog, validateAssignedModels threw on every
-// applyConfig and the operator-facing docs advertised a model the system was not running.
+/* Guard against the model "split-brain": config.ts's DEFAULT_MODELS (used by the runtime
+   reconfig layer) and opencode/opencode.json (the file that actually runs the agents) must
+   agree, and the reviewer must be a DIFFERENT model from the generator. When the default
+   reviewer drifted out of the opencode.json catalog, validateAssignedModels threw on every
+   applyConfig and the operator-facing docs advertised a model the system was not running.
+ */
 
 function opencodeAgentModels(): Record<string, string> {
   const raw = JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as {
@@ -63,10 +64,10 @@ test("config.ts default reviewer matches opencode.json's qa-reviewer (single sou
   );
 });
 
-// Audit C4b (1): mirrors the reviewer guard above for `primary`. config.ts's DEFAULT_MODELS.opencode.primary
-// claimed (in its own comment) to match opencode.json's qa-generator model but had drifted to
-// "opencode-go/kimi-k2.7-code" (qa-maintainer's model) — the primary role that actually GENERATES tests
-// on the e2e path was silently misdocumented. This guard makes that drift fail loudly.
+/* config.ts's DEFAULT_MODELS.opencode.primary must match opencode.json's qa-generator model —
+   not drift to qa-maintainer's model. The primary role that GENERATES tests on the e2e path must
+   not be silently misdocumented. This guard makes that drift fail loudly.
+ */
 test("config.ts default primary matches opencode.json's qa-generator (single source of truth)", () => {
   const models = opencodeAgentModels();
   const cfg = singleProviderConfig("opencode", {});
@@ -77,8 +78,9 @@ test("config.ts default primary matches opencode.json's qa-generator (single sou
   );
 });
 
-// T-P0-4: generalize the reviewer!=primary guard to cover BOTH providers (AC0.2.1, AC0.2.3).
-// This test is RED until DEFAULT_MODELS.codex.reviewer is set to a model distinct from primary.
+/* reviewer must differ from primary for EVERY provider — otherwise the quality loop is the
+   generator grading its own homework.
+ */
 test("reviewer differs from primary for EVERY provider (independent judgment guard)", () => {
   const providers = ["opencode", "codex"] as const;
   for (const provider of providers) {
@@ -91,10 +93,11 @@ test("reviewer differs from primary for EVERY provider (independent judgment gua
   }
 });
 
-// T-P0-4: codex reviewer model must exist in CODEX_MODELS catalog (AC0.2.2) so
-// validateAssignedModels does not throw on applyConfig.
-// Driven by the real exported CODEX_MODELS catalog so that a catalog change that removes or
-// renames a model automatically breaks this test — hardcoded IDs would silently miss drift.
+/* The Codex reviewer model must exist in the CODEX_MODELS catalog so validateAssignedModels
+   does not throw on applyConfig. Driven by the real exported catalog so that a catalog change
+   that removes or renames a model automatically breaks this test — hardcoded IDs would silently
+   miss drift.
+ */
 test("codex reviewer model id is present in the CODEX_MODELS catalog (AC0.2.2)", () => {
   const catalogIds = new Set(CODEX_MODELS.map((m) => m.id));
   const cfg = singleProviderConfig("codex", {});

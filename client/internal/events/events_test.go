@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Each sample is the SSE `data:` payload the orchestrator emits (RunEventStore →
-// {seq,runId,ts,body}). Decoding them through Decode ties the hand-written decoder
-// to the contract (src/contract/events.ts) so a variant cannot drift.
+/* Each sample is the SSE `data:` payload the orchestrator emits (RunEventStore →
+   {seq,runId,ts,body}). Decoding them through Decode ties the hand-written decoder
+   to the contract (src/contract/events.ts) so a variant cannot drift. */
 func TestDecodeRunEventVariants(t *testing.T) {
 	cases := []struct {
 		name string
@@ -53,8 +53,8 @@ func TestDecodeEnvelopeFields(t *testing.T) {
 	}
 }
 
-// Tolerant reader: a body type this build does not know becomes UnknownEvent, not
-// an error — a newer server must never break an older binary.
+/* Tolerant reader: a body type this build does not know becomes UnknownEvent, not
+   an error — a newer server must never break an older binary. */
 func TestDecodeUnknownTypeIsTolerant(t *testing.T) {
 	ev, err := Decode([]byte(`{"seq":9,"runId":"r1","ts":1,"body":{"type":"future.thing","x":1}}`))
 	if err != nil {

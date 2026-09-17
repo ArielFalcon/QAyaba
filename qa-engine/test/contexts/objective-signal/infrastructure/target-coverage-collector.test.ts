@@ -1,10 +1,11 @@
-// test/contexts/objective-signal/infrastructure/target-coverage-collector.test.ts
-// Behavioral tests for makeTargetCoverageCollector — the real, src/-free CoverageCollectorPort
-// factory closing the F.2 GAP (engram obs #914). Selects the concrete collector(s) by TestTarget:
-// "e2e" -> V8BrowserCoverageAdapter (real readV8Dumps); "code" -> the composite of
-// LcovCoverageAdapter/C8CoverageAdapter/JacocoCoverageAdapter (real readers) via CoverageCollectorAdapter.
-// Uses REAL temp-dir fixtures end to end (no per-function mocking) — this proves the whole wiring,
-// not just each reader in isolation.
+/* test/contexts/objective-signal/infrastructure/target-coverage-collector.test.ts
+   Behavioral tests for makeTargetCoverageCollector — the real, src/-free CoverageCollectorPort
+   factory closing the F.2 GAP (engram obs #914). Selects the concrete collector(s) by TestTarget:
+   "e2e" -> V8BrowserCoverageAdapter (real readV8Dumps); "code" -> the composite of
+   LcovCoverageAdapter/C8CoverageAdapter/JacocoCoverageAdapter (real readers) via CoverageCollectorAdapter.
+   Uses REAL temp-dir fixtures end to end (no per-function mocking) — this proves the whole wiring,
+   not just each reader in isolation.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";

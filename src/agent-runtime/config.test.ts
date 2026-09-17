@@ -43,15 +43,14 @@ test("dual mode requires both provider keys and at least two visible providers",
 
 test("dual mode: reviewer defaults to the primary's COMPLEMENT, not a hardcoded codex (CFG-04)", () => {
   const keys = { OPENCODE_API_KEY: "ok", CODEX_API_KEY: "ck" };
-  // primary=codex with no explicit reviewer provider → reviewer must be opencode (independent
-  // judgment), NOT codex again (the old hardcoded fallback collapsed both roles onto codex).
+  /* primary=codex with no explicit reviewer provider → reviewer must be opencode (independent
+     judgment), NOT codex again (the old hardcoded fallback collapsed both roles onto codex).
+   */
   const codexPrimary = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "codex" });
   assert.equal(codexPrimary.assignments.primary.provider, "codex");
   assert.equal(codexPrimary.assignments.reviewer.provider, "opencode");
-  // symmetric case still holds: primary=opencode → reviewer defaults to codex
   const opencodePrimary = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "opencode" });
   assert.equal(opencodePrimary.assignments.reviewer.provider, "codex");
-  // an explicit reviewer provider always wins over the complement default
   const explicit = configFromEnv({ ...keys, AGENT_RUNTIME_MODE: "dual", AGENT_SINGLE_PROVIDER: "codex", AGENT_REVIEWER_PROVIDER: "codex" });
   assert.equal(explicit.assignments.reviewer.provider, "codex");
 });
@@ -80,11 +79,12 @@ test("publicAgentConfig never exposes API key values", () => {
   assert.deepEqual(pub.keys, { opencode: true, codex: true });
 });
 
-// Audit C4b (2): validateAgentRuntimeConfig never enforced reviewer.model !== primary.model at
-// runtime — the DEFAULT_MODELS guard in model-config.test.ts only protects the compiled-in
-// defaults; an env override (AGENT_PRIMARY_MODEL / AGENT_REVIEWER_MODEL) can still collapse both
-// roles onto the same model and validation would report ok:true, silently defeating the
-// independent-judgment guarantee (the reviewer would grade the generator's own homework).
+/* validateAgentRuntimeConfig must enforce reviewer.model !== primary.model at runtime — the
+   DEFAULT_MODELS guard in model-config.test.ts only protects the compiled-in defaults; an env
+   override (AGENT_PRIMARY_MODEL / AGENT_REVIEWER_MODEL) can still collapse both roles onto the
+   same model and validation would report ok:true, silently defeating independent judgment (the
+   reviewer would grade the generator's own homework).
+ */
 
 test("single mode: the default config still validates ok (reviewer != primary by default)", () => {
   const cfg = defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" });

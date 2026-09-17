@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 
 import { confidentWindowEnd, extractTestIdSelectorsWithIndex } from "@contexts/generation/infrastructure/selector-catalog-window.ts";
 
-// Pillar 2 slice 4 dependency surface: the catalog gate's confident window (lexically before the first
-// click/tap or the second goto — where the initial-route catalog is still the live DOM) and the
-// getByTestId extraction WITH source index (so the gate can tell which selectors fall inside it).
+/* click/tap or the second goto — where the initial-route catalog is still the live DOM) and the
+   getByTestId extraction WITH source index (so the gate can tell which selectors fall inside it).
+ */
 
 test("confidentWindowEnd returns the index of the first click", () => {
   const spec = `await page.goto("/login"); await page.getByTestId("submit").click();`;

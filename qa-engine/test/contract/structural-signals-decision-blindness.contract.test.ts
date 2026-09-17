@@ -1,23 +1,11 @@
-// qa-engine/test/contract/structural-signals-decision-blindness.contract.test.ts
-//
-// Slice B (structural-signals-expansion, design §2/spec "Never read by decision logic"): the three
-// new telemetry field names (structuralSignalBytes, serviceLinksCount, contractDriftCount) are
-// PERSIST-ONLY — intended for the Phase-7 batch calibrator, never live UI/caller consumption or a
-// verdict/gate/publish input. This is a static regression guard, not a behavioral test: it greps
-// every decide/verdict/gate/publish source file and asserts NONE of them reference the three field
-// names as identifiers. Only the two legitimate producers/consumers — the use-case's own
-// construction-site literal (run-qa.use-case.ts) and the persistence adapter's mapping
-// (run-history-sqlite-adapter.ts) — are allowed to reference the names at all.
-//
-// Written BEFORE the field names exist anywhere (B-R5, RED-authored per the tasks artifact): it
-// trivially passes now (no file references a name that doesn't exist yet) and continues to hold as
-// a permanent guard once B-G3/B-G4 introduce the names — a future change that starts branching a
-// decide/verdict/gate/publish path on one of these fields will fail this test immediately.
-//
-// Slice C (structural-signals-expansion, design §3/spec scenario "Zero verdict/gate/publish
-// coupling"): crossRepoImpact/impactedLinks/crossRepoImpactedCount extend the SAME guard (C-R8) —
-// advisory-only, fail-open, never a decision input. Cross-repo change-coverage must independently
-// stay "unknown" (never derived from this seam) — see the dedicated assertion below.
+/* structuralSignalBytes, serviceLinksCount, and contractDriftCount are persist-only telemetry:
+   never a live UI/caller input and never a verdict/gate/publish branch. This static guard greps
+   every decide/verdict/gate/publish source file and asserts none reference those identifiers.
+   Only the use-case construction site (run-qa.use-case.ts) and the persistence mapping
+   (run-history-sqlite-adapter.ts) may name them. crossRepoImpact/impactedLinks/crossRepoImpactedCount
+   extend the same guard — advisory-only, fail-open, never a decision input. Cross-repo
+   change-coverage stays "unknown" independently of this seam.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -27,18 +15,10 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const qaEngineRoot = join(here, "..", "..");
 
-// Every source file that owns a decide/verdict/gate/publish decision path. Deliberately an
-// exhaustive allowlist of PATHS (not a glob) so a new decision file added later must be added here
-// explicitly — the same "loud by construction" discipline the design applies to the telemetry
-// fields themselves.
-//
-// migration-tier-4d Slice 7: `run.aggregate.ts` was REMOVED from this list — the module itself was
-// deleted (zero production references anywhere in qa-engine; the live decision path already runs
-// through run-decision.service.ts/adjudicate.service.ts, not this dead-code Run aggregate built once
-// to satisfy a DDD checklist during the original hexagonal rewrite). This file's own `readFileSync`
-// over the list is exactly why the module couldn't just be deleted on its own — dropping it from
-// `src/contexts/qa-run-orchestration/domain/` without removing this entry first would have thrown
-// ENOENT here and turned `npm test` RED.
+/* Every source file that owns a decide/verdict/gate/publish decision path. Deliberately an
+   exhaustive allowlist of PATHS (not a glob) so a new decision file added later must be added here
+   explicitly — dropping a path from disk without removing its entry here would throw ENOENT.
+ */
 const DECISION_PATH_FILES = [
   "src/contexts/qa-run-orchestration/domain/run-decision.service.ts",
   "src/contexts/qa-run-orchestration/domain/adjudicate.service.ts",
@@ -54,8 +34,9 @@ const DECISION_PATH_FILES = [
 
 const STRUCTURAL_SIGNAL_TELEMETRY_FIELDS = ["structuralSignalBytes", "serviceLinksCount", "contractDriftCount"];
 
-// Slice C (C-R8): crossRepoImpact/impactedLinks/crossRepoImpactedCount must ALSO be blind to every
-// decision path — same static guard, same file list, extended field set.
+/* crossRepoImpact/impactedLinks/crossRepoImpactedCount must be blind to every decision path —
+   same static guard, same file list, extended field set.
+ */
 const CROSS_REPO_IMPACT_FIELDS = ["crossRepoImpact", "impactedLinks", "crossRepoImpactedCount"];
 
 test("no decide/verdict/gate/publish source file references structuralSignalBytes/serviceLinksCount/contractDriftCount — persist-only telemetry, never a decision input", () => {

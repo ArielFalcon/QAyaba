@@ -1,6 +1,4 @@
-// Prometheus metrics helpers. Extracted from index.ts so the gauge logic is
-// unit-testable without starting a full HTTP server. index.ts imports and calls
-// generatePrometheusMetrics() directly; nothing else should need this module.
+/* Prometheus gauges for the control plane. */
 
 import { join } from "node:path";
 import { type AppConfig } from "../orchestrator/config-loader";
@@ -31,7 +29,7 @@ export function collectArtifactBytes(deps: ArtifactBytesDeps): ArtifactSizeEntry
     try {
       bytes = deps.getDirectorySize(qaDir);
     } catch {
-      // best-effort: ignore scan errors
+      /* best-effort: ignore scan errors */
     }
     return { name: app.name, bytes };
   });

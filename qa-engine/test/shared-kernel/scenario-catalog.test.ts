@@ -2,12 +2,13 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { BUILT_IN_EXEMPLARS, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 
-// The skill-exemplars prompt section is rendered at { maxBytes: 1536, overflow: "drop" } — an
-// over-budget match set is omitted ENTIRELY. The curriculum folds "what the generator was shown",
-// so a silently dropped section would corrupt every `evaluated` counter. Capping at 3 in the
-// selector is only honest if EVERY 3-exemplar subset provably fits: this enumerates all C(6,3)=20.
-// If this ever fails, LOWER MAX_SELECTED_EXEMPLARS to 2 — do not raise maxBytes, which would steal
-// window from the other priority-3 sections (static-signal, service-links, diff-archetypes).
+/* The skill-exemplars prompt section is rendered at { maxBytes: 1536, overflow: "drop" } — an
+   over-budget match set is omitted ENTIRELY. The curriculum folds "what the generator was shown",
+   so a silently dropped section would corrupt every `evaluated` counter. Capping at 3 in the
+   selector is only honest if EVERY 3-exemplar subset provably fits: this enumerates all C(6,3)=20.
+   If this ever fails, LOWER MAX_SELECTED_EXEMPLARS to 2 — do not raise maxBytes, which would steal
+   window from the other priority-3 sections (static-signal, service-links, diff-archetypes).
+ */
 const SECTION_MAX_BYTES = 1536;
 
 describe("skill-exemplar section fits the prompt budget at the selection cap", () => {

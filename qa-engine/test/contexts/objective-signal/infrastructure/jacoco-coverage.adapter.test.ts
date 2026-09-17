@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { JacocoCoverageAdapter } from "@contexts/objective-signal/infrastructure/jacoco-coverage.adapter.ts";
 
-// Minimal JaCoCo XML fixture
 const JACOCO_XML = `<?xml version="1.0" encoding="UTF-8" ?>
 <report name="app">
   <package name="com/example">

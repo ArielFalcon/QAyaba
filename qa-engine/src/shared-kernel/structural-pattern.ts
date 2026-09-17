@@ -1,9 +1,4 @@
-// qa-engine/src/shared-kernel/structural-pattern.ts
-// Deterministic diff -> StructuralPattern detection (pure regex/extension heuristics, no LLM).
-// Relocated to the kernel alongside scenario-catalog.ts: cross-run-learning's CurriculumPortAdapter
-// needs the SAME derivation the generation prompt uses, and both must see one implementation —
-// two copies of this detector would silently diverge the "offered archetypes" the curriculum folds
-// from the ones the generator was actually shown.
+/* Deterministic diff → StructuralPattern detection (regex/extension heuristics, no LLM). Generation and the curriculum share this detector so offered archetypes cannot silently diverge from what the generator was shown. */
 import type { StructuralPattern } from "./scenario-catalog.ts";
 
 export function detectStructuralPatterns(diff: string, changedFiles: string[]): StructuralPattern[] {

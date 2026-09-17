@@ -1,18 +1,10 @@
-// Behavioral test for context-pack.ts — ported subset of src/qa/context-pack.test.ts scoped to
-// `buildContextPack` ITSELF (the pure assembler this module owns). The legacy test file's remaining
-// suites exercise `buildPromptAssembled`/`buildPlanPromptAssembled` from src/integrations/prompts.ts —
-// a SEPARATE, not-yet-ported module (qa-engine only WRAPS it via injected fns in
-// PromptRenderingAdapter/PromptBuilders; the actual string-assembly logic is out of this sub-plan's
-// scope). Those "NOT INERT" / Slice-H prompt-wiring tests are intentionally NOT ported here — porting
-// them would require porting prompts.ts too, which Sub-Plan 7.4b does not name.
+/* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildContextPack, type ContextPackInput, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
-
-// ── Stub factories ─────────────────────────────────────────────────────────────
 
 function stubDomDeps(result: string | undefined): CaptureDomDeps {
   return {
@@ -48,8 +40,6 @@ const MINIMAL_CONTEXT_MAP: ArchitectureContext = {
   feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
 };
 
-// ── Unit tests for buildContextPack ───────────────────────────────────────────
-
 test("buildContextPack returns undefined text when all components are absent", async () => {
   const result = await buildContextPack({}, stubContextPackDeps(undefined));
   assert.equal(result.text, undefined);
@@ -82,10 +72,10 @@ test("buildContextPack includes DOM section when capture succeeds", async () => 
   assert.ok(result.domBytes > 0, "DOM byte count must be positive when DOM was captured");
 });
 
-// WS5.4c — the captured DOM text is rendered by the actual DEV page and can legitimately contain a
-// leaked secret-shaped string (an admin debug banner echoing a key, an attribute value that reads
-// like a credential assignment). blastSection/contractSection already sanitize via the local s()
-// wrapper; the DOM section was the one inconsistent gap.
+/* leaked secret-shaped string (an admin debug banner echoing a key, an attribute value that reads
+   like a credential assignment). blastSection/contractSection already sanitize via the local s()
+   wrapper; the DOM section was the one inconsistent gap.
+ */
 test("buildContextPack sanitizes a secret-shaped string in the captured DOM text", async () => {
   const domContent = 'button: Submit\ntextbox: apiKey: "sk-liveSECRETVALUE123456"';
   const result = await buildContextPack(
@@ -132,12 +122,12 @@ test("buildContextPack filters contracts using prChangedFiles", async () => {
     "contracts are either included (path matched) or empty (no brief to match from)");
 });
 
-// ── WS5.3: the deterministic `routes` input (option c — no LLM explorer pass) ──────────────────
-// buildContextPack's candidateRoutes came ONLY from a brief (briefRoutePaths, contextMapRoutes gated
-// on brief.feBe) — with no brief-less route path at all, the pack was structurally empty whenever
-// the explorer pass never ran (which is EVERY production run today — the explorer stays unwired by
-// design). A thin `routes` input lets a caller (the grounding adapter, deterministically, from
-// contextMap.routes — no LLM) populate DOM candidates with NO brief present.
+/* buildContextPack's candidateRoutes came ONLY from a brief (briefRoutePaths, contextMapRoutes gated
+   on brief.feBe) — with no brief-less route path at all, the pack was structurally empty whenever
+   the explorer pass never ran (which is EVERY production run today — the explorer stays unwired by
+   design). A thin `routes` input lets a caller (the grounding adapter, deterministically, from
+   contextMap.routes — no LLM) populate DOM candidates with NO brief present.
+ */
 test("buildContextPack: the `routes` input populates DOM candidates with NO brief present at all", async () => {
   const domContent = "button: Submit\nheading: Checkout";
   const result = await buildContextPack(
@@ -235,8 +225,6 @@ test("brief wired to buildContextPack produces blast-radius + DOM (unverified ro
   assert.ok(result.text!.includes("Live DOM"), "DOM section header must appear in pack");
 });
 
-// ── GAP 2 (Slice H fix): DOM captured from unverified candidate routes ────────
-
 test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)", async () => {
   const briefWithUnverifiedRoutes: ExplorationBrief = {
     builtForSha: "abc1234",
@@ -295,8 +283,6 @@ test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {
   assert.ok(capturedRouteCount > 0, "DOM capture must have been called with at least 1 route");
 });
 
-// ── Phase 3 (Slice 1): changedElements threading to the DOM section ─────────────────────────────
-
 test("changedElements on ContextPackInput reaches DOM section via captureDomForRoutes (4th arg)", async () => {
   const changed: ChangedElement[] = [{ file: "f.html", line: 1, testId: "register-btn", raw: "raw" }];
 
@@ -330,8 +316,6 @@ test("changedElements=undefined on ContextPackInput → output byte-identical (r
   );
   assert.equal(withExplicitUndefined.text, withUndefined.text, "undefined changedElements is byte-identical to omitting it");
 });
-
-// ── Pillar 1: testIdAttribute threading ────────────────────────────────────────
 
 test("testIdAttribute on ContextPackInput is forwarded to captureDomForRoutes input", async () => {
   let receivedTestIdAttribute: string | undefined = undefined;

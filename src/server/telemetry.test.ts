@@ -1,7 +1,7 @@
-// Phase 8: holistic telemetry analysis surface tests.
-// These tests verify that computeTelemetryAnalysis correctly aggregates agent_turns + run_outcomes
-// for an app into the metrics exposed by GET /api/apps/:app/telemetry.
-// The tests use the real SQLite history layer (same pattern as history.test.ts).
+/* These tests verify that computeTelemetryAnalysis correctly aggregates agent_turns + run_outcomes
+   for an app into the metrics exposed by GET /api/apps/:app/telemetry.
+   The tests use the real SQLite history layer (same pattern as history.test.ts).
+ */
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -10,12 +10,11 @@ import { saveAgentTurn, saveRunOutcome } from "./history";
 import type { AgentTurnRecord } from "./history";
 import type { RunOutcome } from "../types";
 
-// Unique-per-invocation app name so tests don't bleed into each other.
+/* Unique-per-invocation app name so tests don't bleed into each other. */
 function uniqueApp(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// Minimal valid RunOutcome factory.
 function outcome(runId: string, app: string, overrides: Partial<RunOutcome> = {}): RunOutcome {
   return {
     runId,
@@ -39,7 +38,6 @@ function outcome(runId: string, app: string, overrides: Partial<RunOutcome> = {}
   };
 }
 
-// Minimal AgentTurnRecord factory.
 function turn(runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord {
   return {
     runId,
@@ -105,7 +103,6 @@ describe("Phase 8: computeTelemetryAnalysis — cache hit rate", () => {
     const app = uniqueApp("tel-cache");
     const runId = `run-tel-cache-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    // Two turns: cacheRead/tokensInput = 20/100=0.2 and 50/100=0.5 → median = 0.35
     saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: 100, tokensCacheRead: 20 }));
     saveAgentTurn(turn(runId, { role: "qa-generator", tokensInput: 100, tokensCacheRead: 50 }));
 
@@ -134,7 +131,6 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
     const app = uniqueApp("tel-grnd");
     const runId = `run-tel-grnd-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    // One grounded turn (contains "## Context Pack"), one ungrounded.
     saveAgentTurn(turn(runId, {
       role: "qa-generator", round: 0, isRepair: false,
       promptText: "## System\n...## Context Pack\n<routes>...</routes>",
@@ -149,26 +145,27 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
     assert.equal(analysis.groundingPresence, 0.5, "1 of 2 first-round turns grounded = 0.5");
   });
 
-  // FIX 6: the PLANNER turn (role qa-generator, objective "(planner)") is a plan-only pass that never
-  // carries a Context Pack. Counting it deflated groundingPresence. It must be EXCLUDED.
+  /* the PLANNER turn (role qa-generator, objective "(planner)") is a plan-only pass that never
+     carries a Context Pack. Counting it deflated groundingPresence. It must be EXCLUDED.
+   */
   it("FIX 6: a planner turn does NOT count against grounding presence", () => {
     const app = uniqueApp("tel-grnd-planner");
     const runId = `run-tel-grnd-planner-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
-    // The PLANNER turn: round 0, qa-generator, objective "(planner)", NO pack. Must be excluded.
+    /* The PLANNER turn: round 0, qa-generator, objective "(planner)", NO pack. Must be excluded. */
     saveAgentTurn(turn(runId, {
       role: "qa-generator", round: 0, isRepair: false, objective: "(planner)",
       promptText: "## Phase 1 of 2 — PLANNING ONLY\n... no pack here",
     }));
-    // The real first-round WRITE turn: grounded with a Context Pack.
     saveAgentTurn(turn(runId, {
       role: "qa-generator", round: 0, isRepair: false, objective: "checkout flow",
       promptText: "## System\n...## Context Pack\n<routes>...</routes>",
     }));
 
     const analysis = computeTelemetryAnalysis(app);
-    // Only the WRITE turn counts → 1/1 grounded = 1.0. If the planner were (wrongly) counted it
-    // would be 1/2 = 0.5 — so 1.0 proves the planner was excluded.
+    /* Only the WRITE turn counts → 1/1 grounded = 1.0. If the planner were (wrongly) counted it
+       would be 1/2 = 0.5 — so 1.0 proves the planner was excluded.
+     */
     assert.equal(analysis.groundingPresence, 1, "planner turn must be excluded → 1/1 write turn grounded");
   });
 
@@ -192,7 +189,7 @@ describe("Phase 8: computeTelemetryAnalysis — repair fraction", () => {
     saveRunOutcome(outcome(runId, app));
     saveAgentTurn(turn(runId, { isRepair: false }));
     saveAgentTurn(turn(runId, { isRepair: false }));
-    saveAgentTurn(turn(runId, { isRepair: true }));  // 1 of 3 turns = 1/3 ≈ 0.333
+    saveAgentTurn(turn(runId, { isRepair: true }));  /* 1 of 3 turns = 1/3 ≈ 0.333 */
 
     const analysis = computeTelemetryAnalysis(app);
     assert.ok(analysis.repairFraction !== null);
@@ -210,7 +207,6 @@ describe("Phase 8: computeTelemetryAnalysis — reviewer convergence approveRate
 
     const analysis = computeTelemetryAnalysis(app);
     assert.ok(analysis.reviewerConvergence.approveRate !== null);
-    // 1 pass + 1 fail = 0.5
     assert.equal(analysis.reviewerConvergence.approveRate, 0.5);
   });
 });
@@ -234,7 +230,7 @@ describe("Phase 8: computeTelemetryAnalysis — turns per run and wall-clock", (
     const runId = `run-tel-wall-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
     const t0 = new Date();
-    const t1 = new Date(t0.getTime() + 5000); // 5 seconds later
+    const t1 = new Date(t0.getTime() + 5000);
     saveAgentTurn(turn(runId, { ts: t0.toISOString() }));
     saveAgentTurn(turn(runId, { ts: t1.toISOString() }));
 
@@ -250,17 +246,13 @@ describe("Phase 8: computeTelemetryAnalysis — windowDays filtering", () => {
     const oldRunId = `run-old-${Date.now()}`;
     const newRunId = `run-new-${Date.now()}`;
 
-    // Old run outcome: 2 days ago.
     const oldAt = new Date(Date.now() - 2 * 86400_000).toISOString();
     saveRunOutcome(outcome(oldRunId, app, { at: oldAt }));
-    // New run outcome: now.
     saveRunOutcome(outcome(newRunId, app));
 
-    // Turns for both runs.
     saveAgentTurn(turn(oldRunId, { ts: oldAt }));
     saveAgentTurn(turn(newRunId));
 
-    // window=1 should include only the new run's turns.
     const analysis = computeTelemetryAnalysis(app, 1);
     assert.equal(analysis.runCount, 1, "only the new run should be within the 1-day window");
     assert.equal(analysis.medianTurnsPerRun, 1, "only 1 turn in the window");

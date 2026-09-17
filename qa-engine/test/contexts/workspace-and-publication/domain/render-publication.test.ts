@@ -1,8 +1,4 @@
-// test/contexts/workspace-and-publication/domain/render-publication.test.ts
-// sdd/migration-remediation Slice 4 (D-P1a, publication rendering + tested metadata). Pins the
-// spec's own 4 acceptance scenarios (publication-rendering domain) directly against the pure
-// renderIssue/renderPrBody functions — no sanitizer collaborator needed (see render-publication.ts's
-// own header for why sanitize is applied ONCE, by the caller, to the whole composed body).
+/* renderIssue/renderPrBody are pure; sanitize is applied once by the caller to the whole body. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderIssue, renderPrBody } from "@contexts/workspace-and-publication/domain/render-publication.ts";
@@ -12,7 +8,7 @@ function failCase(overrides: Partial<QaCase> = {}): QaCase {
   return { name: "checkout flow", status: "fail", detail: "expect(locator).toBeVisible() failed\nTimeout 5000ms exceeded", ...overrides };
 }
 
-// ── Scenario: Failing run renders a distilled Issue, not a log dump ──────────────────────────────
+/* ── Scenario: Failing run renders a distilled Issue, not a log dump ────────────────────────────── */
 
 test("renderIssue: a fail run with 3 failing cases shows the headline and capped failing cases with one-line causes", () => {
   const cases: QaCase[] = [
@@ -26,16 +22,18 @@ test("renderIssue: a fail run with 3 failing cases shows the headline and capped
   assert.match(body, /3 of 3 check\(s\) failed against the live environment/);
   assert.match(body, /### Failing cases/);
   assert.match(body, /\*\*checkout\*\*/);
-  // oneLineCause prefers the FIRST line naming an error/assertion — "checkout"'s own detail has
-  // its assertion on line 1, so that (not the "Timeout" line 2) is the distilled cause shown.
+  /* oneLineCause prefers the FIRST line naming an error/assertion — "checkout"'s own detail has
+     its assertion on line 1, so that (not the "Timeout" line 2) is the distilled cause shown.
+   */
   assert.match(body, /expect\(locator\)\.toBeVisible\(\) failed/);
   assert.match(body, /Error: getByRole resolved to 0 elements/);
 });
 
 test("renderIssue: contains no raw execution-log text (the regression this slice fixes — no logs input exists to embed)", () => {
   const body = renderIssue({ verdict: "fail", cases: [failCase()] });
-  // renderIssue's own input shape (RenderIssueInput) carries no `logs` field at all — structural
-  // proof that a raw log dump cannot reach the body through this function.
+  /* renderIssue's own input shape (RenderIssueInput) carries no `logs` field at all — structural
+     proof that a raw log dump cannot reach the body through this function.
+   */
   assert.ok(!body.includes("stdout:"), "no raw log marker text should ever appear");
   assert.match(body, /Full trace \+ logs in the run artifacts/, "the footer points at the run artifacts instead of embedding logs");
 });
@@ -59,7 +57,7 @@ test("renderIssue: an invalid verdict renders the static-gate headline", () => {
   assert.match(body, /the generated tests could not be validated \(static gate\)/);
 });
 
-// ── Existing engine-adjudication + reviewer-unavailable sections — KEPT (binding rider) ──────────
+/* ── Existing engine-adjudication + reviewer-unavailable sections — KEPT (binding rider) ────────── */
 
 test("renderIssue: renders an 'Engine adjudication' section when adjudication is present", () => {
   const body = renderIssue({
@@ -97,7 +95,7 @@ test("renderIssue: omits the 'Reviewer unavailable' section entirely when review
   assert.ok(!body.includes("Reviewer unavailable"));
 });
 
-// ── "What was tested" (Issue) ─────────────────────────────────────────────────────────────────────
+/* ── "What was tested" (Issue) ───────────────────────────────────────────────────────────────────── */
 
 test("renderIssue: renders a 'What was tested' section when tested is present", () => {
   const body = renderIssue({
@@ -110,7 +108,7 @@ test("renderIssue: renders a 'What was tested' section when tested is present", 
   assert.match(body, /user can pay with a saved card/);
 });
 
-// ── Scenario (negative): absent tested metadata does not crash rendering ─────────────────────────
+/* ── Scenario (negative): absent tested metadata does not crash rendering ───────────────────────── */
 
 test("renderIssue: a caller that omits tested completes without throwing and omits the section", () => {
   assert.doesNotThrow(() => renderIssue({ verdict: "fail", cases: [] }));
@@ -126,7 +124,7 @@ test("renderPrBody: a caller that omits tested completes without throwing and om
   assert.match(body, /\*\*Validation:\*\*/);
 });
 
-// ── Scenario: Green run renders a PR body with coverage statement ────────────────────────────────
+/* ── Scenario: Green run renders a PR body with coverage statement ──────────────────────────────── */
 
 test("renderPrBody: a green run with tested metadata present renders 'What this PR adds', a matching 'Covers:' list, and the validation statement", () => {
   const body = renderPrBody({
@@ -155,7 +153,7 @@ test("renderPrBody: tested items missing flow or objective still render (partial
   assert.match(body, /- no flow name/);
 });
 
-// ── Scenario: Continuation run shows provenance ───────────────────────────────────────────────────
+/* ── Scenario: Continuation run shows provenance ─────────────────────────────────────────────────── */
 
 test("renderPrBody: a run carrying parentRunId includes a continuation reference", () => {
   const body = renderPrBody({ isCode: false, parentRunId: "run-deadbeef" });

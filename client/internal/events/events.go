@@ -1,10 +1,4 @@
-// Package events decodes the RunEvent SSE stream. RunEventBody is a 15-variant
-// discriminated union that does not codegen into idiomatic Go (a oneOf without an
-// OpenAPI discriminator), so the envelope + variants are hand-written here — in
-// their own package to avoid name clashes with the codegen'd command types in
-// internal/contract (both have an "AgentActivity", different concepts). The
-// contract stays the source of truth: events_test.go round-trips canonical server
-// JSON (matching src/contract/events.ts) to catch drift. See docs/tui-vnext.md §4.
+/* Package events decodes the RunEvent SSE stream. RunEventBody is a 15-variant discriminated union that does not codegen into idiomatic Go (a oneOf without an OpenAPI discriminator), so the envelope + variants are hand-written here — in their own package to avoid name clashes with the codegen'd command types in internal/contract (both have an "AgentActivity", different concepts). The contract stays the source of truth: events_test.go round-trips canonical server JSON (matching src/contract/events.ts) to catch drift. */
 package events
 
 import (
@@ -12,10 +6,10 @@ import (
 	"fmt"
 )
 
-// RunEvent is the SSE envelope. Body is one of the variant types below — or
-// UnknownEvent for a `type` this build does not know (tolerant reader: a newer
-// server never breaks an older binary). Bubble Tea's Update switches on Body's
-// concrete type.
+/* RunEvent is the SSE envelope. Body is one of the variant types below — or
+   UnknownEvent for a `type` this build does not know (tolerant reader: a newer
+   server never breaks an older binary). Bubble Tea's Update switches on Body's
+   concrete type. */
 type RunEvent struct {
 	Seq   int
 	RunID string
@@ -37,9 +31,9 @@ type StepChanged struct {
 }
 
 type AgentActivity struct {
-	Kind     string `json:"kind"` // analyzing | writing | command | subagent
+	Kind     string `json:"kind"` /* analyzing | writing | command | subagent */
 	Target   string `json:"target"`
-	Status   string `json:"status"` // running | completed
+	Status   string `json:"status"` /* running | completed */
 	CallID   string `json:"callId"`
 	WorkerID string `json:"workerId"`
 }
@@ -96,7 +90,7 @@ type RunVerdict struct {
 	Verdict string `json:"verdict"`
 	Passed  int    `json:"passed"`
 	Failed  int    `json:"failed"`
-	Outcome string `json:"outcome"` // what the run produced — "suite PR merged · <url>", "Issue filed · <url>"
+	Outcome string `json:"outcome"` /* what the run produced — "suite PR merged · <url>", "Issue filed · <url>" */
 }
 
 type AgentError struct {
@@ -108,15 +102,15 @@ type LogLine struct {
 	Text  string `json:"text"`
 }
 
-// UnknownEvent carries a body type this build does not recognize, so the TUI can
-// ignore it instead of erroring (tolerant-reader / additive contract evolution).
+/* UnknownEvent carries a body type this build does not recognize, so the TUI can
+   ignore it instead of erroring (tolerant-reader / additive contract evolution). */
 type UnknownEvent struct {
 	Type string
 	Raw  json.RawMessage
 }
 
-// Decode parses one SSE `data:` payload into a RunEvent. It errors only on
-// malformed JSON or a missing discriminator — never on an unknown event type.
+/* Decode parses one SSE `data:` payload into a RunEvent. It errors only on
+   malformed JSON or a missing discriminator — never on an unknown event type. */
 func Decode(data []byte) (RunEvent, error) {
 	var env struct {
 		Seq   int             `json:"seq"`

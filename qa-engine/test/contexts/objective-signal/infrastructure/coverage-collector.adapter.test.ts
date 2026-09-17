@@ -32,7 +32,7 @@ test("a throwing collector degrades to an empty report (fail-open, never throws)
   const broken: CoverageCollectorPort = { collect: async () => { throw new Error("broken"); } };
   const working = stub({ covered: [{ file: "src/a.ts", lines: [1] }] });
   const composite = new CoverageCollectorAdapter([broken, working]);
-  // Should not throw — the broken collector degrades to empty, working one is used
+  /* Should not throw — the broken collector degrades to empty, working one is used */
   const result = await composite.collect("/e2e", "qa-abc");
   assert.ok(result.covered.some((c) => c.file === "src/a.ts"));
 });
@@ -41,7 +41,7 @@ test("a slow collector times out and returns empty (bounded timeout, fail-open)"
   const slow: CoverageCollectorPort = {
     collect: () => new Promise(() => { /* never resolves */ }),
   };
-  const composite = new CoverageCollectorAdapter([slow], 50); // 50ms timeout
+  const composite = new CoverageCollectorAdapter([slow], 50);
   const result = await composite.collect("/e2e", "qa-abc");
   assert.deepEqual(result.covered, []);
 });

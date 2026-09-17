@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// Login posts the GitHub token to the public login route and decodes the minted session. It
-// must work WITHOUT a bearer token (the client has none yet — that is the whole point).
+/* Login posts the GitHub token to the public login route and decodes the minted session. It
+   must work WITHOUT a bearer token (the client has none yet — that is the whole point). */
 func TestLoginExchangesGithubTokenForSession(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/auth/login" {
@@ -40,8 +40,8 @@ func TestLoginExchangesGithubTokenForSession(t *testing.T) {
 	}
 }
 
-// A 403 (authenticated GitHub user, but not a collaborator on any watched repo) surfaces as an
-// APIError the connect screen can diagnose, not a silent empty result.
+/* A 403 (authenticated GitHub user, but not a collaborator on any watched repo) surfaces as an
+   APIError the connect screen can diagnose, not a silent empty result. */
 func TestLoginForbiddenReturnsAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

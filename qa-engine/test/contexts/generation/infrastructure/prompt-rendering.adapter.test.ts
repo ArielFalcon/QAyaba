@@ -1,13 +1,13 @@
-// test/contexts/generation/infrastructure/prompt-rendering.adapter.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PromptRenderingAdapter, type PromptBuilders } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import type { ParallelWorkerInput, ReviewInput, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
-// Minimal fake builders — typed against the real PromptBuilders interface so a field mismatch
-// is caught at compile time; the "as never" casts on the input shapes keep the stubs concise.
-// NOTE: the specFileForFlow default here uses "flows/" (the real path) so the delegation test
-// below can assert the real output rather than an invented "e2e/" string.
+/* Minimal fake builders — typed against the real PromptBuilders interface so a field mismatch
+   is caught at compile time; the "as never" casts on the input shapes keep the stubs concise.
+   NOTE: the specFileForFlow default here uses "flows/" (the real path) so the delegation test
+   below can assert the real output rather than an invented "e2e/" string.
+ */
 function makeBuilders(overrides: Partial<PromptBuilders>): PromptBuilders {
   return {
     buildPromptAssembled: (_i: OpencodeRunInput) => ({ text: "", sectionSizes: {} }),
@@ -27,7 +27,7 @@ test("renderWorker delegates to buildWorkerPromptAssembled and returns its assem
   const out = adapter.renderWorker({ flow: "login" } as never);
   assert.ok(seen, "the builder must be called — a gutted impl FAILS this");
   assert.equal(out.text, "WORKER");
-  assert.deepEqual(out.sectionSizes, { task: 7 }); // sectionSizes forwarded for telemetry (not dropped)
+  assert.deepEqual(out.sectionSizes, { task: 7 }); /* sectionSizes forwarded for telemetry (not dropped) */
 });
 
 test("renderReviewer delegates to buildReviewerPromptAssembled and returns assembled text + sectionSizes", () => {
@@ -52,10 +52,11 @@ test("renderExplorer delegates to buildExplorerPrompt and returns its string", (
 });
 
 test("specFileForFlow delegates to the injected builder — delegation captured and path forwarded", () => {
-  // The real specFileForFlow (src/integrations/prompts.ts:specFileForFlow) returns "flows/<safe>.spec.ts",
-  // NOT "e2e/". A gutted impl that hardcodes "e2e/checkout.spec.ts" FAILS both assertions below:
-  // (1) the seen flag is false if the builder was never called, and
-  // (2) the output must match what the injected builder returns, not an invented path.
+  /* The real specFileForFlow (src/integrations/prompts.ts:specFileForFlow) returns "flows/<safe>.spec.ts",
+     NOT "e2e/". A gutted impl that hardcodes "e2e/checkout.spec.ts" FAILS both assertions below:
+     (1) the seen flag is false if the builder was never called, and
+     (2) the output must match what the injected builder returns, not an invented path.
+   */
   let seen = false;
   const adapter = new PromptRenderingAdapter(makeBuilders({
     specFileForFlow: (flow: string) => { seen = true; return `flows/${flow}.spec.ts`; },

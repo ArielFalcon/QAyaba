@@ -1,15 +1,15 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.test.ts
-// ObjectiveSignalPortAdapter composes the REAL keystone collaborators — CoverageCollectorPort.collect
-// (raw covered lines), the assembler (diff + raw CoverageReport -> ChangeCoverage read-model),
-// DecideCoverageService.decide (the keystone: unknown NEVER blocks — consumed VERBATIM, never
-// reimplemented) and ValueOraclePort.measure (the mutation-testing / fault-injection valueScore).
-// THIN — no new coverage-ratio logic added here.
-//
-// The assembler is wired via qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts
-// (a pure port of legacy parseDiffHunks + computeChangeCoverage — see that module's own tests for the
-// port's own correctness). This suite exercises the BRIDGE: diff present + assembler -> real
-// status/ratio; diff absent -> unknown; assembler absent -> unknown; the namespace fix; and the
-// changedFiles threading into collect()'s optional trailing arg.
+/* test/contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.test.ts
+   ObjectiveSignalPortAdapter composes the REAL keystone collaborators — CoverageCollectorPort.collect
+   (raw covered lines), the assembler (diff + raw CoverageReport -> ChangeCoverage read-model),
+   DecideCoverageService.decide (the keystone: unknown NEVER blocks — consumed VERBATIM, never
+   reimplemented) and ValueOraclePort.measure (the mutation-testing / fault-injection valueScore).
+   THIN — no new coverage-ratio logic added here.
+   The assembler is wired via qa-engine/src/contexts/objective-signal/domain/assemble-change-coverage.ts
+   (see that module's own tests for the assembler's correctness). This suite exercises the BRIDGE:
+   diff present + assembler -> real
+   status/ratio; diff absent -> unknown; assembler absent -> unknown; the namespace fix; and the
+   changedFiles threading into collect()'s optional trailing arg.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ObjectiveSignalPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/objective-signal-port.adapter.ts";
@@ -62,7 +62,7 @@ test("measure() returns unknown+null when an assembler IS injected but diff is a
   );
 
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
-  const result = await adapter.measure(br, "/mirrors/org/app/e2e"); // no diff argument
+  const result = await adapter.measure(br, "/mirrors/org/app/e2e");
 
   assert.equal(result.status, "unknown", "an assembler with no diff must never fabricate a status");
   assert.equal(result.ratio, null);
@@ -75,7 +75,7 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
   const oracle = fakeOracle({ valueScore: 0.5, mutantCount: 2, killedCount: 1, details: "" });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
-  // Case 1: assembler wired, diff absent (non-diff modes / cross-repo starved diff) -> no collection.
+  /* Case 1: assembler wired, diff absent (non-diff modes / cross-repo starved diff) -> no collection. */
   const withAssembler = new ObjectiveSignalPortAdapter(
     { collector, decide, oracle },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
@@ -85,7 +85,6 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
   assert.equal(starved.status, "unknown");
   assert.equal(starved.valueScore, 0.5, "the value-oracle still runs — only coverage collection is skipped (legacy parity)");
 
-  // Case 2: no assembler wired -> no collection either.
   const withoutAssembler = new ObjectiveSignalPortAdapter(
     { collector, decide, oracle },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" },
@@ -93,7 +92,6 @@ test("measure() short-circuits the collector's IO entirely when no assembly will
   await withoutAssembler.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
   assert.equal(collectCalls, 0, "no assembler -> the collector's real IO must be skipped");
 
-  // Control: assembler + diff -> collection happens exactly once.
   await withAssembler.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
   assert.equal(collectCalls, 1, "assembler + diff -> collection runs (the only consumer of the report)");
 });
@@ -116,8 +114,9 @@ test("measure() delegates to the injected ChangeCoverageAssembler + DecideCovera
 });
 
 test("measure() surfaces uncovered from the assembled ChangeCoverage when willAssemble is true", async () => {
-  // SAMPLE_DIFF adds src/checkout.ts lines 1-2; the collector reports NOTHING covered there, so
-  // both diff lines are uncovered — assembleChangeCoverage's real output threads through measure().
+  /* SAMPLE_DIFF adds src/checkout.ts lines 1-2; the collector reports NOTHING covered there, so
+     both diff lines are uncovered — assembleChangeCoverage's real output threads through measure().
+   */
   const collector = fakeCollector({ covered: [] });
   const decide = new DecideCoverageService();
   const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
@@ -138,7 +137,6 @@ test("measure() omits uncovered (undefined, never []) when willAssemble is false
   const oracle = fakeOracle({ valueScore: null, mutantCount: 0, killedCount: 0, details: "" });
   const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
 
-  // No assembler wired at all.
   const withoutAssembler = new ObjectiveSignalPortAdapter(
     { collector, decide, oracle },
     { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" },
@@ -146,7 +144,6 @@ test("measure() omits uncovered (undefined, never []) when willAssemble is false
   const resultNoAssembler = await withoutAssembler.measure(br, "/mirrors/org/app/e2e", SAMPLE_DIFF);
   assert.equal(resultNoAssembler.uncovered, undefined, "no assembler -> uncovered must be absent, never fabricated as []");
 
-  // Assembler wired but diff absent (non-diff modes).
   const withAssembler = new ObjectiveSignalPortAdapter(
     { collector, decide, oracle },
     { policy: { mode: "enforce", minRatio: 0.7 }, repoDir: "/mirrors/org/app", assembleChangeCoverage },
@@ -167,12 +164,10 @@ test("measure() surfaces valueScore from the injected ValueOraclePort (the mutat
   assert.equal(result.valueScore, 0.85);
 });
 
-// ── NAMESPACE FIX ──────────────────────────────────────────────────────────────────────────────
+/* ── NAMESPACE FIX ────────────────────────────────────────────────────────────────────────────── */
 
-// Collection is observable ONLY on the assemble path (assembler wired + diff supplied): the
-// judgment-day short-circuit skips collect() entirely otherwise (see the short-circuit test above),
-// exactly like the legacy keeps collection INSIDE the `!triggerService`-gated block. These
-// threading tests therefore always wire the real assembler and pass a diff.
+/* Collection is observable only on the assemble path (assembler wired + diff supplied);
+   otherwise collect() is skipped entirely. */
 
 test("measure() uses ctx.namespace (the SAME per-run namespace ExecutionPortAdapter uses), not br.sha.toString()", async () => {
   const seenNamespaces: string[] = [];
@@ -206,12 +201,11 @@ test("measure() falls back to br.sha.toString() when ctx.namespace is absent (ba
   assert.deepEqual(seenNamespaces, ["abc1234"]);
 });
 
-// P2c GATE FIX (post-cutover-remediation, coordinator review): opts.namespace is a PER-CALL override
-// that must take precedence over the composition-time ctx.namespace — mirrors ExecutionOpts.namespace's
-// own `o.namespace ?? this.ctx.namespace` precedent (execution-port.adapter.ts, Constraint 2). Without
-// this override, the enforce-mode regen's re-measure() call has no way to read its OWN
-// `${runId}-coverage-regen` dumps — it silently falls back to reading the composition-time namespace
-// (the FIRST run's dumps), even though its own execute() call wrote fresh dumps elsewhere.
+/* opts.namespace is a PER-CALL override that must take precedence over the composition-time
+   ctx.namespace (`o.namespace ?? this.ctx.namespace`, same as ExecutionOpts.namespace). Without
+   this override, the enforce-mode regen's re-measure() call has no way to read its OWN
+   `${runId}-coverage-regen` dumps — it silently falls back to the first run's dumps.
+ */
 test("measure() opts.namespace overrides ctx.namespace for the collector call (per-call regen escape hatch)", async () => {
   const seenNamespaces: string[] = [];
   const collector = fakeCollector({ covered: [] }, (_specDir, namespace) => seenNamespaces.push(namespace));
@@ -244,7 +238,7 @@ test("measure() falls back to ctx.namespace when opts.namespace is absent (backw
   assert.deepEqual(seenNamespaces, ["qa-bot-abc1234"], "an opts bag with no namespace field must fall back to ctx.namespace unchanged");
 });
 
-// ── CHANGED-FILES THREADING ───────────────────────────────────────────────────────────────────
+/* ── CHANGED-FILES THREADING ─────────────────────────────────────────────────────────────────── */
 
 test("measure() derives changedFiles from the diff and threads them into collect()'s optional trailing arg", async () => {
   const seenChangedFiles: (string[] | undefined)[] = [];
@@ -262,10 +256,11 @@ test("measure() derives changedFiles from the diff and threads them into collect
   assert.deepEqual(seenChangedFiles, [["src/checkout.ts"]]);
 });
 
-// ── W4 fix (F2) — per-call baselineCases (the dead value oracle). The e2e fault-injection oracle
-// returns valueScore:null forever unless it knows the green run's passing spec names; the
-// composition root's static ctx.baselineCases is a permanent [] placeholder (no per-run case list
-// exists at composition time) — the PER-CALL arg is what finally supplies a real value. ──────────
+/* Per-call baselineCases: the e2e fault-injection oracle returns valueScore:null forever unless
+   it knows the green run's passing spec names; the composition root's static ctx.baselineCases is
+   a permanent [] placeholder (no per-run case list exists at composition time) — the PER-CALL arg
+   is what supplies a real value.
+ */
 
 test("measure() forwards a PER-CALL baselineCases arg into ValueOraclePort.measure, taking precedence over ctx.baselineCases", async () => {
   const seenBaselineCases: (string[] | undefined)[] = [];
@@ -305,7 +300,7 @@ test("measure() falls back to ctx.baselineCases when the per-call arg is absent 
   );
 
   const br = BlastRadius.of(Sha.of("abc1234"), []);
-  await adapter.measure(br, "/mirrors/org/app/e2e"); // no baselineCases arg at all
+  await adapter.measure(br, "/mirrors/org/app/e2e"); /* no baselineCases arg at all */
 
   assert.deepEqual(seenBaselineCases, [["ctx-fallback-case"]]);
 });
@@ -328,10 +323,10 @@ test("measure() passes undefined to the oracle when NEITHER a per-call arg NOR c
   assert.deepEqual(seenBaselineCases, [undefined]);
 });
 
-// ── P2b (post-cutover-remediation) Constraint 3: blocks(status) — single-source blocksPublish ────
-// ObjectiveSignalPort.blocks() delegates to DecideCoverageService.blocks() VERBATIM (the keystone —
-// "enforce" + "fail" is the ONLY combination that blocks; every other combination must NOT). This
-// lets the use-case ask the port for the decision instead of re-reading a duplicated mode string.
+/* ObjectiveSignalPort.blocks() delegates to DecideCoverageService.blocks() VERBATIM — "enforce" +
+   "fail" is the ONLY combination that blocks; every other combination must NOT. The use-case asks
+   the port for the decision instead of re-reading a duplicated mode string.
+ */
 
 test("blocks() delegates to DecideCoverageService.blocks() verbatim: enforce+fail -> true", () => {
   const collector = fakeCollector({ covered: [] });
@@ -369,7 +364,7 @@ test("blocks(): enforce+pass -> false", () => {
   assert.equal(adapter.blocks("pass"), false, "a pass status must never block");
 });
 
-// P0-5: coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty).
+/* P0-5: coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
 test("P0-5: measure() with policy.mode off skips collector and oracle", async () => {
   let collectCalls = 0;
   let oracleCalls = 0;

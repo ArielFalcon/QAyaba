@@ -1,5 +1,4 @@
-// Confidence order from the architecture document. A lower-confidence claim cannot invalidate
-// a higher-confidence one without new evidence of equal or greater rank.
+/* A lower-confidence claim cannot invalidate a higher-confidence one without new evidence of equal or greater rank. */
 import type { EvidenceConfidence, EvidenceRef } from "./evidence-ref.ts";
 
 const RANK: Record<EvidenceConfidence, number> = {
@@ -17,7 +16,7 @@ export function preferredEvidence(a: EvidenceRef, b: EvidenceRef): EvidenceRef {
   return RANK[a.confidence] >= RANK[b.confidence] ? a : b;
 }
 
-// Deterministic pipeline facts win over agent observations when they disagree on success.
+/* Deterministic pipeline facts win over agent observations when they disagree on success. */
 export function agentClaimInvalidatedBy(evidence: readonly EvidenceRef[]): EvidenceRef | undefined {
   const agentSuccess = evidence.find(
     (e) =>

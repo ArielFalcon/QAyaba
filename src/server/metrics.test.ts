@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { collectArtifactBytes, buildArtifactBytesMetrics, type ArtifactBytesDeps, type ArtifactSizeCache } from "./metrics";
 import type { AppConfig } from "../orchestrator/config-loader";
 
-// Minimal AppConfig stub — only fields used by the metrics module.
 function makeApp(name: string, repo: string): AppConfig {
   return { name, repo } as unknown as AppConfig;
 }
@@ -64,7 +63,7 @@ test("buildArtifactBytesMetrics: uses cached result within TTL, does not re-scan
   const cache: { current: ArtifactSizeCache | null } = { current: null };
   const now = 1_000_000;
   buildArtifactBytesMetrics(deps, cache, 60_000, now);
-  buildArtifactBytesMetrics(deps, cache, 60_000, now + 30_000); // within TTL
+  buildArtifactBytesMetrics(deps, cache, 60_000, now + 30_000);
   assert.equal(scanCount, 1, "should scan only once within TTL");
 });
 
@@ -78,7 +77,7 @@ test("buildArtifactBytesMetrics: refreshes cache after TTL expires", () => {
   const cache: { current: ArtifactSizeCache | null } = { current: null };
   const now = 1_000_000;
   buildArtifactBytesMetrics(deps, cache, 60_000, now);
-  buildArtifactBytesMetrics(deps, cache, 60_000, now + 61_000); // past TTL
+  buildArtifactBytesMetrics(deps, cache, 60_000, now + 61_000);
   assert.equal(scanCount, 2, "should scan again after TTL");
 });
 

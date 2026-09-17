@@ -1,1 +1,1 @@
-// Placeholder — will be replaced by Plan 2 when the hexagonal kernel is added.
+/* qa-engine public entry is unused; the host runs via src/index.ts */

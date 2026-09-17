@@ -1,11 +1,4 @@
-// qa-engine/src/shared-infrastructure/code-graph/stub-code-graph.adapter.ts
-// Phase 1 inert stub for CodeGraphPort. Every method returns an ok(...) Result with an empty/zero
-// shape — NEVER throws, NEVER random, ignores all arguments. Behavior is unchanged: no live consumer,
-// no composition-root wiring (same precedent as StubMirrorRegistryAdapter). Placement mirrors
-// ProcessKillAdapter: a shared-kernel port with no single owning context has its concrete
-// implementation in shared-infrastructure/, not in the kernel and not in one context (see design §2).
-// The real CodebaseMemoryGraphAdapter (backed by the codebase-memory MCP) is Phase 2/3 and will live
-// in the consuming context's infrastructure/, not here.
+/* Every method returns an ok(...) Result with an empty/zero shape — NEVER throws, NEVER random, ignores all arguments. Behavior is unchanged: no live consumer, no composition-root wiring (same precedent as StubMirrorRegistryAdapter). */
 import { ok, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";

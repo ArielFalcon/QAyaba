@@ -1,21 +1,18 @@
-// qa-engine/test/contexts/generation/infrastructure/resilience/stall-watchdog.test.ts
-// Moved from src/integrations/stall-watchdog.test.ts (migration-tier-4c Slice 2, D-4c-3). All timing
-// is injected — no real clock delays.
+/* qa-engine/test/contexts/generation/infrastructure/resilience/stall-watchdog.test.ts
+   is injected — no real clock delays.
+ */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createStallWatchdog } from "@contexts/generation/infrastructure/resilience/stall-watchdog.ts";
 
-// ─── deterministic timer helpers ────────────────────────────────────────────
-
 interface FakeTimer {
-  /** Call all pending callbacks whose deadline is <= `now` and advance `now`. */
+  /* Call all pending callbacks whose deadline is <= `now` and advance `now`. */
   tick(ms: number): void;
-  /** Current virtual time. */
   now(): number;
-  /** The injected setTimeout implementation. */
+  /* The injected setTimeout implementation. */
   setTimeout: (cb: () => void, ms: number) => ReturnType<typeof globalThis.setTimeout>;
-  /** The injected clearTimeout implementation. */
+  /* The injected clearTimeout implementation. */
   clearTimeout: (id: ReturnType<typeof globalThis.setTimeout> | undefined) => void;
 }
 
@@ -41,8 +38,9 @@ function makeFakeTimer(): FakeTimer {
     now: () => current,
     tick(ms: number) {
       current += ms;
-      // Fire all callbacks whose deadline is <= current (in insertion order).
-      // Iterate a snapshot because callbacks may reschedule.
+      /* Fire all callbacks whose deadline is <= current (in insertion order).
+         Iterate a snapshot because callbacks may reschedule.
+       */
       const toFire = pending.filter((p) => p.deadline <= current);
       for (const p of toFire) {
         const idx = pending.indexOf(p);
@@ -55,8 +53,6 @@ function makeFakeTimer(): FakeTimer {
   };
 }
 
-// ─── tests ───────────────────────────────────────────────────────────────────
-
 test("onStall fires after stallMs of silence", () => {
   const timer = makeFakeTimer();
   const fired: number[] = [];
@@ -67,12 +63,12 @@ test("onStall fires after stallMs of silence", () => {
     timers: { setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout },
   });
 
-  w.notify(); // start the watchdog
+  w.notify();
 
   timer.tick(999);
   assert.equal(fired.length, 0, "onStall must NOT fire before stallMs elapses");
 
-  timer.tick(1); // now at 1000ms
+  timer.tick(1);
   assert.equal(fired.length, 1, "onStall must fire exactly once after stallMs");
   assert.equal(fired[0], 1000);
 
@@ -89,13 +85,13 @@ test("notify() resets the stall timer, preventing onStall", () => {
     timers: { setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout },
   });
 
-  w.notify();      // arm at t=0
-  timer.tick(800); // t=800 — not yet stalled
-  w.notify();      // reset: new deadline is t=800+1000=1800
-  timer.tick(500); // t=1300 — would have stalled at 1000, but was reset
+  w.notify();
+  timer.tick(800); /* t=800 — not yet stalled */
+  w.notify();      /* reset: new deadline is t=800+1000=1800 */
+  timer.tick(500); /* t=1300 — would have stalled at 1000, but was reset */
   assert.equal(fired.length, 0, "onStall must NOT fire when notify() keeps resetting the timer");
 
-  timer.tick(500); // t=1800 — stall deadline reached
+  timer.tick(500); /* t=1800 — stall deadline reached */
   assert.equal(fired.length, 1, "onStall must fire after stallMs of silence following the last notify()");
 
   w.stop();
@@ -113,8 +109,8 @@ test("stop() prevents onStall from firing", () => {
 
   w.notify();
   timer.tick(500);
-  w.stop(); // cancel before stall fires
-  timer.tick(1000); // would have fired at t=1000
+  w.stop(); /* cancel before stall fires */
+  timer.tick(1000); /* would have fired at t=1000 */
   assert.equal(fired.length, 0, "stop() must prevent onStall from firing");
 });
 
@@ -129,8 +125,8 @@ test("onStall fires only once per stall event (not repeatedly)", () => {
   });
 
   w.notify();
-  timer.tick(500); // stall fires
-  timer.tick(500); // additional time — no reschedule after stall
+  timer.tick(500);
+  timer.tick(500); /* additional time — no reschedule after stall */
   assert.equal(fireCount, 1, "onStall must fire exactly once and not repeat");
 
   w.stop();
@@ -146,7 +142,7 @@ test("notify() before any tick starts the watchdog (start-on-first-use semantics
     timers: { setTimeout: timer.setTimeout, clearTimeout: timer.clearTimeout },
   });
 
-  // Do NOT call notify before ticking — watchdog should NOT fire without being armed
+  /* Do NOT call notify before ticking — watchdog should NOT fire without being armed */
   timer.tick(500);
   assert.equal(fired, false, "watchdog must not fire if notify() was never called");
 

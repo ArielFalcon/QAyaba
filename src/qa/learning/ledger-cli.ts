@@ -1,9 +1,11 @@
-// Read + human-override CLI for the learning ledger. Read-only by default; the veto/restore verbs
-// are the one human-initiated write path into learning_rules (the agent never writes rules).
-//
-//   node --import tsx src/qa/learning/ledger-cli.ts show <app> [limit]
-//   node --import tsx src/qa/learning/ledger-cli.ts veto <ruleId>
-//   node --import tsx src/qa/learning/ledger-cli.ts restore <ruleId>
+/*
+ * Read + human-override CLI for the learning ledger. Read-only by default; veto/restore
+ * are the one human-initiated write path into learning_rules (the agent never writes rules).
+ *
+ *   node --import tsx src/qa/learning/ledger-cli.ts show <app> [limit]
+ *   node --import tsx src/qa/learning/ledger-cli.ts veto <ruleId>
+ *   node --import tsx src/qa/learning/ledger-cli.ts restore <ruleId>
+ */
 import { listAllLearningRules, setRuleStatusByHuman } from "../../server/history";
 import { renderLedgerReport } from "./ledger-report";
 
@@ -17,7 +19,7 @@ const [cmd, arg, arg2] = process.argv.slice(2);
 switch (cmd) {
   case "show": {
     if (!arg) fail("usage: ledger-cli show <app> [limit]");
-    const limit = Number(arg2); // NaN when absent/invalid → falls back below
+    const limit = Number(arg2); /* NaN when absent/invalid → falls back below */
     const rules = listAllLearningRules(arg, Number.isFinite(limit) && limit > 0 ? limit : 500);
     process.stdout.write(renderLedgerReport(rules, { app: arg }));
     break;

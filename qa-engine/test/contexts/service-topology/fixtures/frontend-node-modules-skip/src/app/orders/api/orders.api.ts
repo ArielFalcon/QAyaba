@@ -1,5 +1,6 @@
-// Fixture: a normal src call-site, to prove the walk() skip-set guard only excludes
-// vendor/build directories and still extracts real application code.
+/* Fixture: a normal src call-site, to prove the walk() skip-set guard only excludes
+   vendor/build directories and still extracts real application code.
+ */
 const BASE_PATH = 'name-orders-api';
 
 const ordersApi = {

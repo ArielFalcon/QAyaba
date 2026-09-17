@@ -1,5 +1,3 @@
-// qa-engine/test/contexts/generation/infrastructure/sse/activity-mapper.test.ts
-// Moved from src/integrations/activity-mapper.test.ts (migration-tier-4c Slice 3, D-4c-2).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mapOpencodeEvent, eventRunId, type RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
@@ -7,15 +5,15 @@ import { RunEventBodySchema } from "@kernel/contract/events.ts";
 
 const SESSIONS = new Map<string, string>([["sess_1", "run_1"]]);
 
-// Every body the mapper emits MUST be a valid contract event — this ties the
-// integration adapter to the source of truth so it can never drift.
+/* Every body the mapper emits MUST be a valid contract event — this ties the
+   integration adapter to the source of truth so it can never drift.
+ */
 function mapValid(event: RawOpencodeEvent): unknown[] {
   const out = mapOpencodeEvent(event, SESSIONS);
   for (const body of out) RunEventBodySchema.parse(body);
   return out;
 }
 
-// Helper to build a message.part.updated tool event.
 const toolEvent = (state: Record<string, unknown>, extra: Record<string, unknown> = {}): RawOpencodeEvent => ({
   type: "message.part.updated",
   properties: { part: { type: "tool", sessionID: "sess_1", state, ...extra } },
@@ -35,7 +33,7 @@ test("a fan-out worker's tool activity is tagged with its workerId", () => {
   const workers = new Map<string, string>([["sess_1", "checkout"]]);
   const out = mapOpencodeEvent(toolEvent({ status: "running", title: "Reading Header.astro" }, { tool: "read", callID: "c1" }), SESSIONS, workers);
   assert.deepEqual(out, [{ type: "agent.activity", kind: "analyzing", target: "Reading Header.astro", status: "running", callId: "c1", workerId: "checkout" }]);
-  RunEventBodySchema.parse(out[0]); // still a valid contract event
+  RunEventBodySchema.parse(out[0]); /* still a valid contract event */
 });
 
 test("a completed write to a spec file emits writing + spec.written", () => {

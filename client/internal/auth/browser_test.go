@@ -2,8 +2,8 @@ package auth
 
 import "testing"
 
-// OpenBrowser refuses anything that is not an https URL — the only value it should ever receive
-// is GitHub's verification_uri, and handing an unexpected scheme to the OS opener is a risk.
+/* OpenBrowser refuses anything that is not an https URL — the only value it should ever receive
+   is GitHub's verification_uri, and handing an unexpected scheme to the OS opener is a risk. */
 func TestOpenBrowserRejectsNonHTTPS(t *testing.T) {
 	for _, bad := range []string{
 		"http://github.com/login/device",

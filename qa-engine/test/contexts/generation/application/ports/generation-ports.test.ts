@@ -1,6 +1,7 @@
-// test/contexts/generation/application/ports/generation-ports.test.ts
-// Structural unit test for the Seam-2 canonical input types. The real guard is tsc: the literal below
-// must satisfy OpencodeRunInput with the full deterministic-signal field set. Imports only from @contexts.
+/* test/contexts/generation/application/ports/generation-ports.test.ts
+   Structural unit test for the Seam-2 canonical input types. The real guard is tsc: the literal below
+   must satisfy OpencodeRunInput with the full deterministic-signal field set. Imports only from @contexts.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -11,7 +12,7 @@ test("OpencodeRunInput accepts the full deterministic-signal field set (contextP
     needsReview: true, target: "e2e", mode: "diff", appName: "a",
     contextPack: "pack", domSnapshot: "dom", staticSignal: "sig", diffArchetypes: ["auth-flow"],
   };
-  assert.equal(input.target, "e2e"); // compile-time is the real assertion; this keeps node:test happy
+  assert.equal(input.target, "e2e"); /* compile-time is the real assertion; this keeps node:test happy */
 });
 
 test("ReviewInput accepts the full reviewer field set (specs/blockingCount inputs/executionResult)", () => {

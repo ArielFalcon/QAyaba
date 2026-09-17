@@ -1,9 +1,6 @@
-// test/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.test.ts
-// migration-tier-1-2, Slice 3: the node-stdlib/Stryker helpers and runMutationOracle's
-// orchestration previously in src/qa/learning/mutation-code.ts are now absorbed into this file's
-// module (helpers as plain exports) and class (orchestration in measure()). Ctor takes one
-// {spawn, detectCodeProject, scrubEnv} bundle — no more injected "runner closure" wrapping a
-// legacy function.
+/* StrykerMutationOracleAdapter: helpers as plain exports, orchestration in measure(). Ctor takes
+   one {spawn, detectCodeProject, scrubEnv} bundle — no injected "runner closure".
+ */
 import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
@@ -22,7 +19,6 @@ import { Sha } from "@kernel/sha.ts";
 const sha = Sha.of("abcdef1");
 const br = BlastRadius.of(sha, ["src/svc.ts"]);
 
-// Mirrors the legacy src/qa/learning/mutation-code.test.ts's mockSpawn helper.
 function mockSpawn(result: {
   exitCode?: number;
   stdout?: string;
@@ -83,9 +79,9 @@ function deps(overrides: Partial<MutationOracleDeps> = {}): MutationOracleDeps {
   };
 }
 
-// A spawn stub that NEVER fires "close" — only the ctor-injected short `timeoutMs` (or an abort)
-// resolves the promise. Mirrors the legacy src/qa/learning/mutation-code.test.ts "aborts"/"timeout"
-// fixtures' neverResolve shape (git show 06444c2's stryker-mutation-oracle-parity.test.ts).
+/* A spawn stub that NEVER fires "close" — only the ctor-injected short `timeoutMs` (or an abort)
+   resolves the promise.
+ */
 function neverCloseSpawn(): ChildProcess {
   return {
     stdout: { on: () => {} },
@@ -267,9 +263,10 @@ describe("selectMutateTargets (change-scoped mutation) — absorbed helper, exer
 
 describe("resolveStrykerCommand — absorbed helper, exercised directly", () => {
   it("prefers the orchestrator's bundled Stryker binary over npx (no runtime download)", () => {
-    // We ship @stryker-mutator/core in the orchestrator, so the resolved command must be the
-    // local bin — never `npx stryker`, which would resolve from the watched repo and download the
-    // deprecated unscoped package at runtime (the bug that made the code oracle a silent no-op).
+    /* We ship @stryker-mutator/core in the orchestrator, so the resolved command must be the
+       local bin — never `npx stryker`, which would resolve from the watched repo and download the
+       deprecated unscoped package at runtime (the bug that made the code oracle a silent no-op).
+     */
     const { cmd, args } = resolveStrykerCommand();
     assert.notEqual(cmd, "npx", "must not fall through to npx when the bundled binary is present");
     assert.match(cmd, /[/\\]stryker$/, `expected a path to the local stryker bin, got ${cmd}`);

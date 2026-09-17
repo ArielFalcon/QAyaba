@@ -12,9 +12,9 @@ import (
 )
 
 type chatEntry struct {
-	role string // "q" | "a" | "err"
-	text string // display (answers are Glamour-rendered ANSI)
-	raw  string // original text (sent back as history)
+	role string /* "q" | "a" | "err" */
+	text string /* display (answers are Glamour-rendered ANSI) */
+	raw  string /* original text (sent back as history) */
 }
 
 type answerMsg struct{ text string }
@@ -45,9 +45,9 @@ func chatHistory(entries []chatEntry) []contract.ChatEntry {
 	return out
 }
 
-// renderMarkdown turns the assistant's Markdown answer into styled terminal output via
-// Glamour — headings, lists, code blocks, emphasis — word-wrapped to the available width
-// so it reads as a well-structured message rather than a flat blob clipped at 80 cols.
+/* renderMarkdown turns the assistant's Markdown answer into styled terminal output via
+   Glamour — headings, lists, code blocks, emphasis — word-wrapped to the available width
+   so it reads as a well-structured message rather than a flat blob clipped at 80 cols. */
 func renderMarkdown(md string, width int) string {
 	if width < 20 {
 		width = 20

@@ -1,8 +1,9 @@
-// test/characterization/shadow-run-args.ts
-// Pure --app/--sha arg parsing for shadow-run.operator.ts. Mirrors the flat --key value scan in
-// src/cli.ts parseArgs, scoped to the two flags this operator script needs. Unknown flags are
-// ignored (the operator script has no other options today); a missing --app/--sha throws so the
-// operator gets an immediate, specific error instead of an undefined propagating into the run.
+/* test/characterization/shadow-run-args.ts
+   Pure --app/--sha arg parsing for shadow-run.operator.ts. Mirrors the flat --key value scan in
+   src/cli.ts parseArgs, scoped to the two flags this operator script needs. Unknown flags are
+   ignored (the operator script has no other options today); a missing --app/--sha throws so the
+   operator gets an immediate, specific error instead of an undefined propagating into the run.
+ */
 export interface ShadowRunArgs {
   app: string;
   sha: string;

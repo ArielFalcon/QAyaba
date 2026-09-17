@@ -1,8 +1,8 @@
-// test/contexts/service-topology/infrastructure/resolver-factory.test.ts
-// TDD (strict): write failing tests first, then implement.
-// Piece 2 of the stitcher config→resolver loader (step 2): buildServiceBoundaryResolver turns
-// a set of BoundaryProfile[] (already validated by YamlBoundaryProfileAdapter) into a composed
-// ServiceBoundaryResolverPort, via an internal transport → adapter-constructor registry.
+/* test/contexts/service-topology/infrastructure/resolver-factory.test.ts
+   Piece 2 of the stitcher config→resolver loader (step 2): buildServiceBoundaryResolver turns
+   a set of BoundaryProfile[] (already validated by YamlBoundaryProfileAdapter) into a composed
+   ServiceBoundaryResolverPort, via an internal transport → adapter-constructor registry.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
@@ -21,9 +21,10 @@ import type {
   BoundaryProfile,
 } from "@contexts/service-topology/domain/index.ts";
 
-// Real fixture pool used by event-resolver.adapter.test.ts (service-a: listeners incl. one
-// exact + one stem match; service-b: publishers) — reused here to prove the factory's composed
-// resolver reaches a real, working EventResolver rather than silently degrading to empty.
+/* Real fixture pool used by event-resolver.adapter.test.ts (service-a: listeners incl. one
+   exact + one stem match; service-b: publishers) — reused here to prove the factory's composed
+   resolver reaches a real, working EventResolver rather than silently degrading to empty.
+ */
 const EVENT_FIXTURES = join(import.meta.dirname, "../fixtures/event-cross-repo");
 
 const HTTP_PROFILE: HttpBoundaryProfile = {
@@ -65,9 +66,10 @@ test("buildServiceBoundaryResolver: one http profile builds a CompositeServiceBo
 });
 
 test("buildServiceBoundaryResolver: one http profile resolves via a real OpenApiHttpResolver (not a stub)", async () => {
-  // Prove delegation is real: an OpenApiHttpResolver constructed directly from the SAME profile
-  // must behave identically to the factory's composed resolver against nonexistent paths
-  // (both degrade to empty — fail-open — but through the OpenApiHttpResolver code path).
+  /* Prove delegation is real: an OpenApiHttpResolver constructed directly from the SAME profile
+     must behave identically to the factory's composed resolver against nonexistent paths
+     (both degrade to empty — fail-open — but through the OpenApiHttpResolver code path).
+   */
   const direct = new OpenApiHttpResolver(HTTP_PROFILE);
   const directResult = await direct.resolveLinks([BACK], FRONT);
 
@@ -78,14 +80,16 @@ test("buildServiceBoundaryResolver: one http profile resolves via a real OpenApi
 });
 
 test("buildServiceBoundaryResolver: a profile with an unknown transport is skipped (composite has fewer resolvers)", async () => {
-  // Cast through unknown: simulates a forward-compat profile shape (e.g. "rpc") the registry
-  // does not yet know how to construct. The registry must skip it, not throw. ("event" is no
-  // longer a valid stand-in for "unknown" now that the registry has a real entry for it — see
-  // the dedicated "one event profile builds ... EventResolver" test below.)
+  /* Cast through unknown: simulates a forward-compat profile shape (e.g. "rpc") the registry
+     does not yet know how to construct. The registry must skip it, not throw. ("event" is no
+     longer a valid stand-in for "unknown" now that the registry has a real entry for it — see
+     the dedicated "one event profile builds ... EventResolver" test below.)
+   */
   const unknownProfile = { transport: "rpc" } as unknown as BoundaryProfile;
   const resolver = buildServiceBoundaryResolver([HTTP_PROFILE, unknownProfile]);
-  // Behavior proof (constructor count is private): resolving still works and matches the
-  // single-http-profile behavior — the unknown profile contributed nothing.
+  /* Behavior proof (constructor count is private): resolving still works and matches the
+     single-http-profile behavior — the unknown profile contributed nothing.
+   */
   const withUnknown = await resolver.resolveLinks([BACK], FRONT);
   const httpOnly = await buildServiceBoundaryResolver([HTTP_PROFILE]).resolveLinks([BACK], FRONT);
   assert.deepEqual(withUnknown, httpOnly);
@@ -97,9 +101,10 @@ test("buildServiceBoundaryResolver: one event profile builds a CompositeServiceB
 });
 
 test("buildServiceBoundaryResolver: one event profile resolves via a real EventResolver (not a stub) — fail-open equivalence", async () => {
-  // Prove delegation is real: an EventResolver constructed directly from the SAME profile must
-  // behave identically to the factory's composed resolver against nonexistent paths (both
-  // degrade to empty — fail-open — but through the EventResolver code path).
+  /* Prove delegation is real: an EventResolver constructed directly from the SAME profile must
+     behave identically to the factory's composed resolver against nonexistent paths (both
+     degrade to empty — fail-open — but through the EventResolver code path).
+   */
   const direct = new EventResolver(EVENT_PROFILE);
   const directResult = await direct.resolveLinks([BACK], FRONT);
 
@@ -110,10 +115,11 @@ test("buildServiceBoundaryResolver: one event profile resolves via a real EventR
 });
 
 test("buildServiceBoundaryResolver: one event profile resolves via a real EventResolver (not a stub) — positive-match equivalence against real fixtures", async () => {
-  // Stronger proof than the fail-open equivalence above: against the REAL event-cross-repo
-  // fixtures (same ones used in event-resolver.adapter.test.ts), the factory's composed
-  // resolver must produce the SAME non-empty links as a directly-constructed EventResolver —
-  // a stub or a mis-wired registry entry would silently degrade to empty here.
+  /* Stronger proof than the fail-open equivalence above: against the REAL event-cross-repo
+     fixtures (same ones used in event-resolver.adapter.test.ts), the factory's composed
+     resolver must produce the SAME non-empty links as a directly-constructed EventResolver —
+     a stub or a mis-wired registry entry would silently degrade to empty here.
+   */
   const serviceA = { repo: "org/service-a", mirrorDir: join(EVENT_FIXTURES, "service-a") };
   const serviceB = { repo: "org/service-b", mirrorDir: join(EVENT_FIXTURES, "service-b") };
 
@@ -130,8 +136,9 @@ test("buildServiceBoundaryResolver: one event profile resolves via a real EventR
 test("buildServiceBoundaryResolver: an http profile and an event profile together build two delegating resolvers merged by the composite", async () => {
   const resolver = buildServiceBoundaryResolver([HTTP_PROFILE, EVENT_PROFILE]);
   const result = await resolver.resolveLinks([BACK], FRONT);
-  // Both delegate against nonexistent paths — fail-open on each — merged result is still empty,
-  // but the call must not throw (proves both the http and the event constructor ran).
+  /* Both delegate against nonexistent paths — fail-open on each — merged result is still empty,
+     but the call must not throw (proves both the http and the event constructor ran).
+   */
   assert.deepEqual(result, { links: [], drift: [], external: [], unresolved: [] });
 });
 
@@ -209,9 +216,10 @@ paths:
 });
 
 test("buildServiceBoundaryResolver: two http profiles produce two delegating resolvers merged by the composite", async () => {
-  // A second, DIFFERENT profile (proves the registry constructs one OpenApiHttpResolver PER
-  // profile, not a single shared instance) — mirrors the AGNOSTICISM proof pattern from
-  // openapi-http-resolver.adapter.test.ts.
+  /* A second, DIFFERENT profile (proves the registry constructs one OpenApiHttpResolver PER
+     profile, not a single shared instance) — mirrors the AGNOSTICISM proof pattern from
+     openapi-http-resolver.adapter.test.ts.
+   */
   const altProfile: HttpBoundaryProfile = {
     transport: "http",
     frontFiles: "**/*.api.ts",
@@ -222,7 +230,8 @@ test("buildServiceBoundaryResolver: two http profiles produce two delegating res
   };
   const resolver = buildServiceBoundaryResolver([HTTP_PROFILE, altProfile]);
   const result = await resolver.resolveLinks([BACK], FRONT);
-  // Both delegate against nonexistent paths — fail-open on each — merged result is still empty,
-  // but the call must not throw (proves both constructors ran and both resolveLinks completed).
+  /* Both delegate against nonexistent paths — fail-open on each — merged result is still empty,
+     but the call must not throw (proves both constructors ran and both resolveLinks completed).
+   */
   assert.deepEqual(result, { links: [], drift: [], external: [], unresolved: [] });
 });

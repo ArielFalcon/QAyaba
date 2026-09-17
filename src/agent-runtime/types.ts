@@ -7,12 +7,10 @@ export type AgentProvider = "opencode" | "codex";
 export type AgentMode = "single" | "dual";
 export type AgentRole = "primary" | "reviewer" | "chat" | "worker" | "workerCode" | "sidekick" | "maintainer" | "reflector" | "explorer" | "proposer";
 
-// What a role is structurally allowed to do, independent of the runtime provider — the single,
-// provider-agnostic capability policy. Each AgentRuntimeStrategy translates it to its own mechanism
-// (OpenCode: the agent's tools{} map in opencode.json, checked against this policy by the
-// agent-tool-surface tripwire; Codex: the `codex exec --sandbox` flag, see codexSandboxForRole).
-// This is the security-boundary principle applied to quality: trust what a role CAN do, not that its
-// prompt behaves. The judge, the read-only chat and the one-shot reflector never mutate the workspace.
+/*
+ * What a role is allowed to do, independent of provider. Trust capability, not prompt behavior.
+ * Reviewer, chat, reflector, explorer, and proposer never mutate the workspace.
+ */
 export interface RoleCapabilities {
   canWrite: boolean;
 }
@@ -59,12 +57,7 @@ export interface AgentRuntimeStrategy {
   provider: AgentProvider;
   health(): Promise<AgentProviderHealth>;
   listModels(): Promise<AgentModelInfo[]>;
-  // onUsage is part of the TYPED end-to-end usage path: the facade forwards it through to the
-  // underlying strategy's deps.open, where each session.prompt response emits a UsageSnapshot
-  // (observation-only — never influences any verdict). `descriptor`/`onTurn` are part of the
-  // analogous TYPED turn-telemetry path: the facade spreads them from opts into openSession, and
-  // each strategy emits an AgentTurnEvent per prompt so agent_turns rows are persisted with a real
-  // run_id regardless of provider (OpenCode fires it at the SDK funnel; Codex per `codex exec`).
+  /** Usage is observation-only (never a verdict input). Each prompt emits an AgentTurnEvent so agent_turns persist with a real run_id. */
   openSession(
     role: AgentRole,
     cwd: string,
@@ -120,9 +113,8 @@ export function roleForLegacyAgent(agent: string): AgentRole {
 export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): RoleAssignment {
   if (role === "reviewer") return config.assignments.reviewer;
   if (role === "chat") return config.assignments.chat;
-  // The one-shot reflector is a cheap read-only transform: it rides the chat tier (same provider
-  // and small model), not the expensive primary author.
+  /* Reflector is a cheap read-only transform: it rides the chat tier, not the primary author. */
   if (role === "reflector") return config.assignments.chat;
-  // Parallel workers and self-maintainer inherit the primary provider/model by design.
+  /* Workers and maintainer inherit the primary provider/model. */
   return config.assignments.primary;
 }

@@ -1,4 +1,4 @@
-// Minimal lead context (Fase 10). Derivable from artifacts — never a second OpencodeRunInput.
+/* Lead context derived from artifacts — never a second OpencodeRunInput. */
 import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { CoordinationDecision } from "./coordination-decision.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";

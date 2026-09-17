@@ -1,17 +1,7 @@
-// Loads and validates the configuration of a watched app. All app-specific
-// detail lives here (config/), never in the code. ${VARS} in the YAML are
-// expanded from the environment, so credentials never live in the repo.
-//
-// ── SHELL SURVIVOR (migration-tier-4d, Slice 3) ─────────────────────────────────────────────────
-// DECLARED a permanent shell survivor, not migration debt: this is the real fs/env I/O — reads
-// config/apps/*.yaml off disk (existsSync/readFileSync/readdirSync) and expands ${VARS} from
-// process.env — behind qa-engine's AppRepositoryPort. qa-engine's own app-catalog context
-// (yaml-app-config.adapter.ts's YamlAppConfigAdapter) is a WRAP that DELEGATES to this module's
-// injected loadAppConfig/listAppConfigs functions rather than duplicating the I/O — the exact
-// DI-is-the-testing-strategy pattern (CLAUDE.md) that keeps the port unit-tested via fakes while
-// the real fs/env reads stay shell-side. Moving these reads into qa-engine would violate the
-// env-read/fs-read confinement invariant this migration program enforced everywhere else
-// (execute.ts's env injection, D-4d-3b).
+/*
+ * Loads and validates watched-app config. App-specific detail lives in config/, never in code.
+ * ${VARS} expand from the environment so credentials never live in the repo.
+ */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -31,9 +21,7 @@ export function loadAppConfig(name: string, root = ROOT): ValidatedAppConfig {
   return AppConfigSchema.parse(parse(raw));
 }
 
-// An unset ${VAR} is an OPERATOR error that silently un-watches an app (no webhooks for it),
-// which reads very differently from a genuinely malformed YAML — surface it as an ERROR so it
-// is not lost in the noise.
+/* An unset ${VAR} silently un-watches an app — surface it as an error, not a malformed-YAML skip. */
 function logConfigSkip(file: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   if (/unset env var/.test(msg)) {
@@ -53,10 +41,7 @@ export interface RepoMatch {
   role: RepoRole;
 }
 
-// Resolves EVERY app the event's repo participates in. A repo can be the primary
-// of one app AND a service of another (its own code-mode app + the front's e2e app):
-// the webhook enqueues one run per match. A malformed YAML is skipped (and logged),
-// never hiding the other apps.
+/* One repo can be primary of one app and a service of another; enqueue one run per match. */
 export function loadAppConfigsByRepo(repo: string, root = ROOT): RepoMatch[] {
   const dir = join(root, "config", "apps");
   if (!existsSync(dir)) return [];
@@ -76,8 +61,6 @@ export function loadAppConfigsByRepo(repo: string, root = ROOT): RepoMatch[] {
   return out;
 }
 
-// Returns all configured apps (name, repo, baseUrl). A single malformed YAML
-// is skipped (and logged), never hiding every other app.
 export function listAppConfigs(root = ROOT): AppConfig[] {
   const dir = join(root, "config", "apps");
   if (!existsSync(dir)) return [];
@@ -94,9 +77,7 @@ export function listAppConfigs(root = ROOT): AppConfig[] {
 }
 
 export function expandEnv(s: string, env: Record<string, string | undefined> = process.env): string {
-  // Match any valid shell-style identifier (NOT uppercase-only): a mis-cased ${myToken}
-  // previously slipped through the uppercase regex unexpanded and reached the parser as the
-  // literal string "${myToken}" — a silently broken config instead of a clear "unset" error.
+  /* Match any shell-style identifier (not uppercase-only) so a mis-cased ${myToken} fails as unset. */
   return s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key) => {
     const val = env[key];
     if (val === undefined) throw new Error(`config references unset env var \${${key}}`);

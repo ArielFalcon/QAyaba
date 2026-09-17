@@ -1,5 +1,4 @@
-// ParallelWorkerInput is dormant on the rewritten engine (generation-ports.ts). Fase 3 inspects
-// it for reusable fields and does NOT convert it into DelegationBrief.
+/* ParallelWorkerInput is unused. Fields below exist on that type for inventory; they are not converted into DelegationBrief. The missing fields are why a sidekick cannot be driven from that type. */
 export const PARALLEL_WORKER_REUSABLE_FIELDS = [
   "objective",
   "flow",

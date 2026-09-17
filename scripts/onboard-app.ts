@@ -1,23 +1,13 @@
-// scripts/onboard-app.ts
-//   npm run onboard -- --app <app> --repo <primary> [--service <repo> ...]
-//                       [--mirror-root <dir>] [--config <path>] [--dry-run]
-//
-// Onboarding CLI for the profile-generator tool: composes the LLM proposer
-// (LlmProfileProposerAdapter, scripts/adapters/) with the REAL deterministic scorer
-// (OnboardingService, qa-engine — imported, never reimplemented) to hypothesize and grade an
-// app's cross-service `boundaries:` convention, then splices the winning profile into
-// config/apps/<app>.yaml as a human-review-first block (scripts/yaml/write-boundaries.ts).
-//
-// runOnboarding(argv, deps) is the DI-testable core: every collaborator (mirror resolution, the
-// onboarding loop, config read/write, logging) is injected, so tests drive it with fakes and
-// never open a real LLM session or touch the filesystem. The argv entrypoint below is a thin
-// shell that wires the REAL collaborators (mirrors src/cli.ts's established pattern).
-//
-// Exit codes (design §D):
-//   0 = a profile resolved (resolvedScore > 0) and was written/printed
-//   1 = nothing resolved within budget (nothing written)
-//   2 = usage/arg error
-//   3 = hard I/O error writing config (scoring OK, write failed — distinct from 1)
+/*
+ * Onboarding CLI: hypothesize a cross-service boundaries: profile, score it with
+ * OnboardingService, and splice the winner into config/apps/<app>.yaml for human review.
+ *
+ *   npm run onboard -- --app <app> --repo <primary> [--service <repo> ...]
+ *                       [--mirror-root <dir>] [--config <path>] [--dry-run]
+ *
+ * runOnboarding is the injectable core (tests use fakes). The argv entrypoint wires real
+ * collaborators. Exit codes: 0 resolved, 1 unresolved, 2 usage, 3 config write failed.
+ */
 import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -170,7 +160,7 @@ export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Pr
   return EXIT.RESOLVED;
 }
 
-// ---- real collaborators (argv entrypoint only — never imported by tests) ----
+/* Argv entrypoint collaborators — tests never import this path. */
 
 function realDeps(app: string, mirrorRoot: string): OnboardingCliDeps {
   const registry = new MirrorRegistryAdapter(mirrorRoot);
@@ -188,12 +178,11 @@ function realDeps(app: string, mirrorRoot: string): OnboardingCliDeps {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
-  // mirrorRoot resolution happens twice on purpose: parseCliArgs (inside runOnboarding) validates
-  // --app/--repo first; realDeps needs app + mirrorRoot up front to construct the proposer. A
-  // lightweight pre-parse here mirrors src/cli.ts's own argv-then-loadConfig sequencing.
-  // allowPositionals here (and ONLY here): under strict:false an unknown option's value falls
-  // through as a positional — forbidding positionals in the pre-parse would throw on any option
-  // the pre-parse doesn't know (e.g. --repo X). Real validation is parseCliArgs' job downstream.
+  /*
+   * Pre-parse app + mirrorRoot so realDeps can construct the proposer before runOnboarding
+   * validates the full argv. allowPositionals + strict:false: an unknown option's value would
+   * otherwise throw here; parseCliArgs does the real validation.
+   */
   const preParsed = parseArgs({
     args: argv,
     options: { app: { type: "string" }, "mirror-root": { type: "string" } },

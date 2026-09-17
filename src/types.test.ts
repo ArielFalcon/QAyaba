@@ -2,10 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { engineStatus, RUN_ENGINE_STATUSES } from "./types";
 
-// The run STATUS is distinct from the test VERDICT: it answers "did the engine do its job and
-// produce a trustworthy result?" — NOT "did every test pass?". A real bug found (verdict `fail`
-// → Issue) is a SUCCESS; only a run where the engine itself could not run, or could not produce
-// runnable tests, is an error.
+/* The run STATUS is distinct from the test VERDICT: it answers "did the engine do its job and
+   produce a trustworthy result?" — NOT "did every test pass?". A real bug found (verdict `fail`
+   → Issue) is a SUCCESS; only a run where the engine itself could not run, or could not produce
+   runnable tests, is an error.
+ */
 describe("engineStatus", () => {
   it("maps pass to success (green suite → PR)", () => {
     assert.equal(engineStatus("pass"), RUN_ENGINE_STATUSES.SUCCESS);

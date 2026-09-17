@@ -1,4 +1,4 @@
-// Infra resolves escalated capacity to an optional model id; domain never names providers.
+/* Infra resolves escalated capacity to an optional model id; domain never names providers. */
 import type { AgentCapability } from "./agent-capability.ts";
 
 export function resolveSidekickModel(

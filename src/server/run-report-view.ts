@@ -1,23 +1,24 @@
-// toRunReportView turns ONE finished run (its record + learning outcome) into a self-describing
-// report about THAT execution — distinct from the evolutionary report (toReportView), which ranks
-// period-over-period trends. This answers "what is important about the run that just finished?":
-// the verdict, the case mix, this run's change-coverage and value-oracle, its duration, and which
-// flows misbehaved. It emits the SAME ReportView shape as the evolutionary report, so every client
-// renders both with one renderer (render by `intent`, not by domain).
-//
-// Pure — unit-tested directly. Snapshot semantics: there is no previous window, so delta/multiplier
-// are null and ranking is by IMPORTANCE plus a CONCERN boost — a failing/under-target metric rises
-// to the top so problems surface first; a clean green run lists the facts in natural importance
-// order. Absence is never painted as a hard zero (a not-measured ratio is null, not 0).
+/*
+ * toRunReportView turns ONE finished run (its record + learning outcome) into a self-describing
+ * report about THAT execution — distinct from the evolutionary report (toReportView), which ranks
+ * period-over-period trends. This answers "what is important about the run that just finished?":
+ * the verdict, the case mix, this run's change-coverage and value-oracle, its duration, and which
+ * flows misbehaved. It emits the SAME ReportView shape as the evolutionary report, so every client
+ * renders both with one renderer (render by `intent`, not by domain).
+ * Pure — unit-tested directly. Snapshot semantics: there is no previous window, so delta/multiplier
+ * are null and ranking is by IMPORTANCE plus a CONCERN boost — a failing/under-target metric rises
+ * to the top so problems surface first; a clean green run lists the facts in natural importance
+ * order. Absence is never painted as a hard zero (a not-measured ratio is null, not 0).
+ */
 import type { RunRecord, RunOutcome } from "../types";
 import type { ReportView } from "../contract/commands";
 
 type Insight = ReportView["insights"][number];
 
 const round = (n: number): number => Math.round(n * 1e4) / 1e4;
-const pct = (n: number): number => Math.round(n * 1000) / 10; // 0.812 → 81.2
+const pct = (n: number): number => Math.round(n * 1000) / 10;  /* 0.812 → 81.2 */
 
-// Sum of the run's case wall-clock times; null when no case carried timing (never 0-as-absence).
+/* Sum of the run's case wall-clock times; null when no case carried timing (never 0-as-absence). */
 function suiteDurationMs(record: RunRecord): number | null {
   let sum = 0;
   let any = false;
@@ -30,8 +31,10 @@ function suiteDurationMs(record: RunRecord): number | null {
   return any ? sum : null;
 }
 
-// Case counts by status, derived from the case list; falls back to the record's pass/fail tallies
-// when no per-case detail is present (e.g. a code-target run that only carries counts).
+/*
+ * Case counts by status, derived from the case list; falls back to the record's pass/fail tallies
+ * when no per-case detail is present (e.g. a code-target run that only carries counts).
+ */
 function caseCounts(record: RunRecord): { pass: number; fail: number; flaky: number; total: number } {
   if (record.cases.length > 0) {
     let pass = 0;
@@ -49,8 +52,10 @@ function caseCounts(record: RunRecord): { pass: number; fail: number; flaky: num
   return { pass, fail, flaky: 0, total: pass + fail };
 }
 
-// Per-flow fail+flaky for THIS run — only flows that misbehaved are surfaced (a clean flow is not
-// interesting), ranked by instability then name.
+/*
+ * Per-flow fail+flaky for THIS run — only flows that misbehaved are surfaced (a clean flow is not
+ * interesting), ranked by instability then name.
+ */
 function flowResults(record: RunRecord): Array<{ flow: string; instability: number }> {
   const m = new Map<string, number>();
   for (const c of record.cases) {
@@ -62,7 +67,7 @@ function flowResults(record: RunRecord): Array<{ flow: string; instability: numb
     .sort((a, b) => b.instability - a.instability || a.flow.localeCompare(b.flow));
 }
 
-// A run-centric headline: the verdict first, then the one fact that matters most for it.
+/* A run-centric headline: the verdict first, then the one fact that matters most for it. */
 function runHeadline(record: RunRecord, outcome: RunOutcome | null, counts: ReturnType<typeof caseCounts>): string {
   const verdict = record.verdict ?? "skipped";
   const cov = outcome?.gateSignals.coverageRatio;
@@ -87,8 +92,10 @@ function runHeadline(record: RunRecord, outcome: RunOutcome | null, counts: Retu
   }
 }
 
-// A snapshot metric insight: no previous window, so delta/multiplier are null and direction is flat
-// (the client colours by value-vs-target + goodWhen, not by movement). `score` carries the ranking.
+/*
+ * A snapshot metric insight: no previous window, so delta/multiplier are null and direction is flat
+ * (the client colours by value-vs-target + goodWhen, not by movement). `score` carries the ranking.
+ */
 function snapshot(p: {
   id: string;
   title: string;
@@ -120,21 +127,23 @@ function snapshot(p: {
 
 export interface RunReportInput {
   record: RunRecord;
-  outcome: RunOutcome | null; // the learning-ledger outcome for the run (coverage/value/reviewer)
-  minRatio?: number; // change-coverage target for the gauge (default 0.7)
-  weights?: Record<string, number>; // per-insight base-importance override (qa.reports.weights)
+  outcome: RunOutcome | null;  /* the learning-ledger outcome for the run (coverage/value/reviewer) */
+  minRatio?: number;  /* change-coverage target for the gauge (default 0.7) */
+  weights?: Record<string, number>;  /* per-insight base-importance override (qa.reports.weights) */
 }
 
 export function toRunReportView(input: RunReportInput): ReportView {
   const { record, outcome } = input;
   const minRatio = input.minRatio ?? 0.7;
-  // Base importance per insight; concern (in 0..1) is added on top so a problem outranks its base.
-  // Overridable per-app by id, sharing the keys the evolutionary ranker uses where they overlap.
+  /*
+   * Base importance per insight; concern (in 0..1) is added on top so a problem outranks its base.
+   * Overridable per-app by id, sharing the keys the evolutionary ranker uses where they overlap.
+   */
   const W = (id: string, dflt: number): number => input.weights?.[id] ?? dflt;
   const counts = caseCounts(record);
   const insights: Insight[] = [];
 
-  // Case mix — the headline composition of the run. Concern = share of non-passing cases.
+  /* Case mix — the headline composition of the run. Concern = share of non-passing cases. */
   if (counts.total > 0) {
     const concern = (counts.fail + counts.flaky) / counts.total;
     const breakdown: Insight["breakdown"] = [{ label: "pass", value: counts.pass, semantic: "good" }];
@@ -157,7 +166,7 @@ export function toRunReportView(input: RunReportInput): ReportView {
     });
   }
 
-  // Change-coverage of THIS run — did the test actually exercise the diff? Gauge vs the target.
+  /* Change-coverage of THIS run — did the test actually exercise the diff? Gauge vs the target. */
   {
     const value = outcome?.gateSignals.coverageRatio ?? null;
     const concern = value !== null && value < minRatio ? (minRatio - value) / minRatio : 0;
@@ -179,7 +188,7 @@ export function toRunReportView(input: RunReportInput): ReportView {
     );
   }
 
-  // Value-oracle (mutation kill rate) of THIS run. Concern when below a coin-flip.
+  /* Value-oracle (mutation kill rate) of THIS run. Concern when below a coin-flip. */
   {
     const value = outcome?.gateSignals.valueScore ?? null;
     const concern = value !== null && value < 0.5 ? 0.5 - value : 0;
@@ -197,7 +206,7 @@ export function toRunReportView(input: RunReportInput): ReportView {
     );
   }
 
-  // Per-flow results — only when a flow actually failed/flaked this run.
+  /* Per-flow results — only when a flow actually failed/flaked this run. */
   const flows = flowResults(record);
   if (flows.length > 0) {
     const top = flows[0]!;
@@ -217,7 +226,7 @@ export function toRunReportView(input: RunReportInput): ReportView {
     });
   }
 
-  // Suite duration — informational; never a concern on its own.
+  /* Suite duration — informational; never a concern on its own. */
   insights.push(
     snapshot({
       id: "suite-duration",
@@ -230,16 +239,18 @@ export function toRunReportView(input: RunReportInput): ReportView {
     }),
   );
 
-  // Agent usage — one informational line; absent when no snapshot fired (never shows $0).
+  /* Agent usage — one informational line; absent when no snapshot fired (never shows $0). */
   {
     const u = outcome?.gateSignals.usage ?? null;
-    // Compact thousands: 1500 → "1.5k", 800 → "800".
+    /* Compact thousands: 1500 → "1.5k", 800 → "800". */
     const k = (n: number): string => (n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n));
     const caption = u
       ? `${k(u.tokens.input)} in / ${k(u.tokens.output)} out / ${k(u.tokens.reasoning)} reason` +
-        // Render the $ segment ONLY when a real cost was computed (> 0). cost === 0 means the
-        // model's rate config is absent from opencode.json (a documented real case) — printing
-        // "$0.0000" would falsely imply a free run, violating "never $0".
+        /*
+         * Render the $ segment ONLY when a real cost was computed (> 0). cost === 0 means the
+         * model's rate config is absent from opencode.json (a documented real case) — printing
+         * "$0.0000" would falsely imply a free run, violating "never $0".
+         */
         (u.cost !== undefined && u.cost > 0 ? ` · $${u.cost.toFixed(4)}` : "") +
         (!u.complete ? " (partial)" : "")
       : "not measured this run";
@@ -262,7 +273,7 @@ export function toRunReportView(input: RunReportInput): ReportView {
   return {
     app: record.app,
     generatedAt: record.at,
-    window: { current: 1, previous: 0 }, // a single run — not a windowed comparison
+    window: { current: 1, previous: 0 },  /* a single run — not a windowed comparison */
     headline: runHeadline(record, outcome, counts),
     insights,
   };

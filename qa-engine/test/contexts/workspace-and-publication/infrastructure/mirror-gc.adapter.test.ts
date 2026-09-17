@@ -1,4 +1,4 @@
-// test/contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.test.ts
+/* test/contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.test.ts */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.ts";

@@ -1,26 +1,25 @@
 import type { LearningRule, RuleStatus, Confidence } from "./learning-rule";
 
-// Read-only, human-readable rendering of the learning ledger for audit. The ledger is governed
-// state owned by the deterministic orchestrator (the agent never writes it), but until now it was
-// only inspectable as opaque SQLite rows. This turns it into prose a reviewer can read and veto in
-// one pass. Pure (no I/O): the CLI in ledger-report-cli.ts feeds it the rows.
+/*
+ * Read-only, human-readable rendering of the learning ledger for audit. The ledger is governed
+ * state owned by the deterministic orchestrator (the agent never writes it), but until now it was
+ * only inspectable as opaque SQLite rows. This turns it into prose a reviewer can read and veto in
+ * one pass. Pure (no I/O): the CLI in ledger-report-cli.ts feeds it the rows.
+ */
 
-// Re-homed from the deleted src/qa/learning/distiller.ts (migration-wiring-phase-2, Slice 8b-1):
-// ledger-report.ts was the sole live consumer of isWellFormedTrigger, so the check moves here
-// verbatim rather than surviving as the last reason to keep distiller.ts around. Canonical trigger
-// form is "Applies when <condition>" — see distiller.ts's history for the full rationale (git
-// blame); this module only needs the well-formedness predicate, not the canonicalization writer.
+
 const TRIGGER_PREFIX_RE = /^applies\s+when\b\s*/i;
 
-// A trigger is well-formed when it carries the canonical prefix AND a non-empty condition body.
-// Used by the ledger's static gate / audit view to flag (not drop) malformed rules.
+
 function isWellFormedTrigger(trigger: string): boolean {
   return TRIGGER_PREFIX_RE.test(trigger) && trigger.replace(TRIGGER_PREFIX_RE, "").trim().length > 0;
 }
 
-// Plain-language labels for the auto-labeled taxonomy, so the report never leaks internal E-… codes.
-// Kept here rather than in taxonomy.ts to keep this an additive reporting module with no coupling
-// back into the governance core.
+/*
+ * Plain-language labels for the auto-labeled taxonomy, so the report never leaks internal E-… codes.
+ * Kept here rather than in taxonomy.ts to keep this an additive reporting module with no coupling
+ * back into the governance core.
+ */
 const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-STATIC": "static-gate failure",
   "E-EXEC-FAIL": "execution failure",
@@ -39,11 +38,13 @@ function classLabel(errorClass: string): string {
   return ERROR_CLASS_LABEL[errorClass] ?? errorClass;
 }
 
-// Confidence → provenance, in words. This encodes the ledger's core trust invariant for the reader:
-// 'high' is reserved for oracle-proven rules; the weaker prevention proxy tops out at 'medium'.
-// A demoted rule (deprecated/superseded — e.g. a human veto leaves confidence stale) must NOT make
-// a present-tense trust claim: it reads in the past tense so the report never contradicts its own
-// section header ("proven by the oracle" under a DEPRECATED heading).
+/*
+ * Confidence → provenance, in words. This encodes the ledger's core trust invariant for the reader:
+ * 'high' is reserved for oracle-proven rules; the weaker prevention proxy tops out at 'medium'.
+ * A demoted rule (deprecated/superseded — e.g. a human veto leaves confidence stale) must NOT make
+ * a present-tense trust claim: it reads in the past tense so the report never contradicts its own
+ * section header ("proven by the oracle" under a DEPRECATED heading).
+ */
 function provenance(confidence: Confidence, status: RuleStatus): string {
   const demoted = status === "deprecated" || status === "superseded";
   switch (confidence) {
@@ -89,16 +90,20 @@ export function renderLedgerReport(rules: LearningRule[], opts: { app?: string }
   for (const section of SECTIONS) {
     const inSection = rules
       .filter((r) => r.status === section.status)
-      // Most-proven first; newest-first among unproven peers so the order is deterministic
-      // regardless of input/DB ordering.
+      /*
+       * Most-proven first; newest-first among unproven peers so the order is deterministic
+       * regardless of input/DB ordering.
+       */
       .sort((a, b) => (b.successRate ?? -1) - (a.successRate ?? -1) || b.at.localeCompare(a.at));
     if (inSection.length === 0) continue;
     out.push(`## ${section.title} (${inSection.length}) — ${section.blurb}`, "");
     for (const r of inSection) out.push(renderRule(r), "");
   }
 
-  // Defensive: if RuleStatus ever gains a member SECTIONS doesn't cover, surface those rules
-  // instead of silently dropping them from the audit view.
+  /*
+   * Defensive: if RuleStatus ever gains a member SECTIONS doesn't cover, surface those rules
+   * instead of silently dropping them from the audit view.
+   */
   const known = new Set(SECTIONS.map((s) => s.status));
   const uncategorized = rules.filter((r) => !known.has(r.status));
   if (uncategorized.length > 0) {

@@ -1,5 +1,6 @@
-// Fases 5–14 coordination contracts: proposal, pushback, router, escalation, lead context,
-// FixLoop capability selection, telemetry, adaptive policy.
+/* Coordination contracts: proposal, pushback, router, escalation, lead context,
+   FixLoop capability selection, telemetry, adaptive policy.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
@@ -73,10 +74,11 @@ test("proposer delegates large/contradictory changes and keeps simple ones direc
   assert.equal(delegated.nextCapability, "sidekick-standard");
 });
 
-// Intentional policy (not a missing-field accident): non-diff modes (manual/complete/exhaustive/
-// context) never emit change-analysis evidence — RunQaUseCase only classifies in mode==="diff".
-// Without that evidence the deterministic proposer stays on the direct/lead path. Documented so a
-// future "delegate in complete" decision is explicit, not inferred from absent files=N.
+/* Intentional policy (not a missing-field accident): non-diff modes (manual/complete/exhaustive/
+   context) never emit change-analysis evidence — RunQaUseCase only classifies in mode==="diff".
+   Without that evidence the deterministic proposer stays on the direct/lead path. Documented so a
+   future "delegate in complete" decision is explicit, not inferred from absent files=N.
+ */
 test("proposer stays direct when change-analysis evidence is absent (manual/complete shape)", async () => {
   const port = createCoordinationPort();
   const decision = await port.decide({
@@ -254,8 +256,9 @@ test("adaptive proposer raises file threshold when escalate rate is high", async
     });
   }
   const port = createCoordinationPort({ telemetry: tel, adaptiveMinSamples: 5 });
-  // 10 files: default threshold 8 would delegate; adaptive escalate rate → threshold 12 → direct.
-  // Use a non-generate action so the half-threshold generate branch does not force delegate.
+  /* 10 files: default threshold 8 would delegate; adaptive escalate rate → threshold 12 → direct.
+     Use a non-generate action so the half-threshold generate branch does not force delegate.
+   */
   const decision = await port.decide({
     runId: "r-adapt",
     objective: "o",

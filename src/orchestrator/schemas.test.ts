@@ -61,8 +61,6 @@ test("qa.parallelDiff parses and defaults to undefined", () => {
   assert.equal(off.qa.parallelDiff, undefined);
 });
 
-// ── qa.structuralSignals (advisory calibration gate, Slice B) ─────────────────
-
 test("qa.structuralSignals absent leaves the field undefined (factory defaults to 'signal')", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.qa.structuralSignals, undefined);
@@ -102,8 +100,6 @@ test("qa.structuralSignals rejects any mode outside off|signal", () => {
   );
 });
 
-// ── manifest entry: write↔read alignment (post-ADR-001, Phase 3.1) ─────────────
-
 const manifestEntry = {
   id: "login",
   objective: "valid credentials reach the dashboard",
@@ -117,16 +113,10 @@ test("ManifestEntrySchema accepts a well-formed entry", () => {
 });
 
 test("ManifestEntrySchema rejects empty targets / empty objective — write uses the read invariant (Phase 3.1)", () => {
-  // The write path (opencode-client) validates each entry with THIS schema before writing,
-  // so it can never emit a manifest that read-validation would later reject (empty targets
-  // is a deliberate invariant — see qa-engine's static-gate.checks.test.ts, migration-tier-4b
-  // Slice 3). The bad entry is dropped at write with a warning rather than corrupting
-  // e2e/.qa/manifest.json.
+  /* Write uses the same schema as read — a bad entry is dropped rather than corrupting the manifest. */
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, targets: [] }).success, false);
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, objective: "" }).success, false);
 });
-
-// ── e2e.testIdAttribute config field ─────────────────────────────────────────
 
 test("AppConfigSchema accepts e2e.testIdAttribute override (e.g. data-cy)", () => {
   const cfg = AppConfigSchema.parse({ ...base, e2e: { testIdAttribute: "data-cy" } });
@@ -147,8 +137,6 @@ test("AppConfigSchema rejects testIdAttribute: empty string", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { testIdAttribute: "" } }));
 });
 
-// ── qa.specTriage config flag ─────────────────────────────────────────────────
-
 test("qa.specTriage: true parses without error", () => {
   const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, specTriage: true } });
   assert.equal(cfg.qa.specTriage, true);
@@ -164,11 +152,11 @@ test("qa.specTriage: false parses without error", () => {
   assert.equal(cfg.qa.specTriage, false);
 });
 
-// ── boundaries[] config (Stitcher → Generation seam, S1.1) ────────────────────
-// Shallow/pass-through validation: field names copied verbatim from
-// YamlBoundaryProfileAdapter's REQUIRED_HTTP_STRING_FIELDS/REQUIRED_EVENT_PATTERN_STRING_FIELDS.
-// Deep validation (catalog-key checks, blank-string rejection) stays owned by that adapter —
-// this schema only stops config-loader stripping the block and gives AppConfig.boundaries a shape.
+/* boundaries[] config. Shallow/pass-through validation: field names match
+   YamlBoundaryProfileAdapter's REQUIRED_HTTP_STRING_FIELDS/REQUIRED_EVENT_PATTERN_STRING_FIELDS.
+   Deep validation (catalog-key checks, blank-string rejection) stays owned by that adapter —
+   this schema only stops config-loader stripping the block and gives AppConfig.boundaries a shape.
+ */
 
 const httpBoundary = {
   transport: "http",
@@ -257,7 +245,7 @@ test("boundaries[]: code:true app with NO boundaries[] still parses (empty/absen
   assert.equal(cfg.boundaries, undefined);
 });
 
-// P0-2: YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports.
+/* P0-2: YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
 test("resolveValueOraclePolicy: an explicit valueOracle wins over shadow", () => {
   assert.equal(resolveValueOraclePolicy({ valueOracle: "signal", shadow: true }), "signal");
   assert.equal(resolveValueOraclePolicy({ valueOracle: "off", shadow: false }), "off");

@@ -14,7 +14,7 @@ test("issueSession + validateSession round-trips the username", () => {
 test("validateSession rejects an expired session", () => {
   const now = 1_000_000_000;
   const token = issueSession("alice", secret, 3600, now);
-  assert.equal(validateSession(token, secret, now + 3601_000), null); // 1h+1s later
+  assert.equal(validateSession(token, secret, now + 3601_000), null);
 });
 
 test("validateSession rejects a tampered payload", () => {
@@ -29,8 +29,9 @@ test("validateSession rejects a token whose header is not our pinned header", ()
   const now = 1_000_000_000;
   const token = issueSession("alice", secret, 3600, now);
   const parts = token.split(".");
-  // Re-sign with a forged "alg:none" header so the signature matches the forged header —
-  // it must still be rejected because the header is not the one we issue.
+  /* Re-sign with a forged "alg:none" header so the signature matches the forged header —
+     it must still be rejected because the header is not the one we issue.
+   */
   const forgedHeader = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
   const forgedSig = createHmac("sha256", secret).update(`${forgedHeader}.${parts[1]}`).digest("base64url");
   assert.equal(validateSession(`${forgedHeader}.${parts[1]}.${forgedSig}`, secret, now), null);

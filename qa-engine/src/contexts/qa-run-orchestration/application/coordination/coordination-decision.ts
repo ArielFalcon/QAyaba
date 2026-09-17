@@ -1,5 +1,4 @@
-// Assignment decision for the Fase 1 seam. Distinct from §11 OrchestrationDecision
-// (accept / retry-sidekick / continue-fix-loop / …), which belongs to the Fase 7 router.
+/* Who executes next. Distinct from OrchestrationDecision (accept / retry-sidekick / continue-fix-loop / …). */
 import type { AgentCapability } from "./agent-capability.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 

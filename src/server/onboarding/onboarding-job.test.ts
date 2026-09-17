@@ -1,9 +1,9 @@
-// src/server/onboarding/onboarding-job.test.ts
-// TDD (strict): write failing tests first, then implement.
-// OnboardingJob is the server-side, in-memory single-job state machine that composes the LLM
-// proposer adapter + the REAL OnboardingService (qa-engine) with server-side mirror provisioning,
-// a runner-busy guard, an env-guard, and a round-budget timeout with AbortSignal cancellation.
-// Design delta §C is the authoritative HOW; spec-delta group E is the WHAT.
+/* src/server/onboarding/onboarding-job.test.ts
+   OnboardingJob is the server-side, in-memory single-job state machine that composes the LLM
+   proposer adapter + the REAL OnboardingService (qa-engine) with server-side mirror provisioning,
+   a runner-busy guard, an env-guard, and a round-budget timeout with AbortSignal cancellation.
+   Design delta §C is the authoritative HOW; spec-delta group E is the WHAT.
+ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -27,9 +27,10 @@ const CORRECT_PROFILE: HttpBoundaryProfile = {
   openApiPath: "openapi.yaml",
 };
 
-/** A ProfileProposerPort stub with an injectable propose() body — lets each test control the
- *  round-by-round result AND observe the AbortSignal ctx threading without touching the real
- *  LlmProfileProposerAdapter or the agent runtime. */
+/* A ProfileProposerPort stub with an injectable propose() body — lets each test control the
+   round-by-round result AND observe the AbortSignal ctx threading without touching the real
+   LlmProfileProposerAdapter or the agent runtime.
+ */
 function stubProposer(propose: ProfileProposerPort["propose"]): ProfileProposerPort {
   return { propose };
 }
@@ -40,7 +41,7 @@ function alwaysCorrectProposer(): ProfileProposerPort {
 
 function neverResolvingProposer(signalCapture?: { signal?: AbortSignal }): ProfileProposerPort {
   return stubProposer(() => new Promise<BoundaryProfile[]>(() => {
-    // never resolves — the job's own round-budget race must be what ends this.
+    /* never resolves — the job's own round-budget race must be what ends this. */
   }));
 }
 
@@ -48,15 +49,16 @@ function noWinnerProposer(): ProfileProposerPort {
   return stubProposer(async () => []);
 }
 
-/** A fake "OnboardingService"-shaped object (structurally, not `instanceof`) that drives the
- *  injected onRound observer and returns a deterministic OnboardingResult — job-level tests exist
- *  to prove the JOB's own orchestration (env-guards, mirror phase, mutex, timeout/abort, outcome
- *  mapping), not OnboardingService's real filesystem-backed scoring (already covered exhaustively
- *  in onboarding-service.test.ts). Calls the real proposer.propose() once (so proposer-driven tests
- *  like the AbortSignal thread-through and the never-resolving proposer still exercise it), then
- *  reports either a winning or a no-winner OnboardingResult depending on what the proposer returned.
- *  buildOnboardingServiceFake is the type onboarding-job.ts's OnboardingJobDeps.buildOnboardingService
- *  expects — a real `OnboardingService` instance — so this is intentionally cast at the call site. */
+/* A fake "OnboardingService"-shaped object (structurally, not `instanceof`) that drives the
+   injected onRound observer and returns a deterministic OnboardingResult — job-level tests exist
+   to prove the JOB's own orchestration (env-guards, mirror phase, mutex, timeout/abort, outcome
+   mapping), not OnboardingService's real filesystem-backed scoring (already covered exhaustively
+   in onboarding-service.test.ts). Calls the real proposer.propose() once (so proposer-driven tests
+   like the AbortSignal thread-through and the never-resolving proposer still exercise it), then
+   reports either a winning or a no-winner OnboardingResult depending on what the proposer returned.
+   buildOnboardingServiceFake is the type onboarding-job.ts's OnboardingJobDeps.buildOnboardingService
+   expects — a real `OnboardingService` instance — so this is intentionally cast at the call site.
+ */
 function fakeOnboardingService(winningProfile: BoundaryProfile) {
   return (
     proposer: ProfileProposerPort,
@@ -73,7 +75,7 @@ function fakeOnboardingService(winningProfile: BoundaryProfile) {
   });
 }
 
-/** Builds a full OnboardingJobDeps fixture with sane defaults, overridable per test. */
+/* Builds a full OnboardingJobDeps fixture with sane defaults, overridable per test. */
 function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
   return {
     isRunnerBusy: () => false,
@@ -90,7 +92,7 @@ function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDep
   };
 }
 
-// ── State machine + status DTO (spec E1, E2, E6) ────────────────────────────────
+/* ── State machine + status DTO (spec E1, E2, E6) ──────────────────────────────── */
 
 test("ONBOARD_STATE is a const-object, not a raw string union (typescript SKILL convention)", () => {
   assert.deepEqual(
@@ -105,10 +107,7 @@ test("job status starts idle before propose() is ever called", () => {
   assert.equal(status.state, ONBOARD_STATE.idle);
 });
 
-// ── isActive() mirror-race guard seam (Slice 1, onboarding-hardening) ──────────
-// Backs RunnerDeps.isOnboardingActive (src/server/runner.ts): the QA runner polls this to defer
-// mirror work while an onboarding job is in flight. isActive() mirrors the module-private `busy`
-// mutex flag exactly — no new state, just a read.
+/* isActive() is the mutex the QA runner polls so mirror work waits while onboarding is in flight. */
 
 test("isActive() is false before any propose() call", () => {
   const job = createOnboardingJob(buildDeps());
@@ -121,7 +120,7 @@ test("isActive() is true while a job is in flight (mid-run, before its finally r
   const job = createOnboardingJob(buildDeps({ buildProposer: () => slowProposer }));
 
   const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
-  await new Promise((r) => setImmediate(r)); // let run() past its own synchronous awaits into the proposer call
+  await new Promise((r) => setImmediate(r)); /* let run() past its own synchronous awaits into the proposer call */
   assert.equal(job.isActive(), true, "busy is set true in propose(), before run()'s finally clears it");
 
   resolveProposer([CORRECT_PROFILE]);
@@ -150,21 +149,20 @@ test("propose(): the mutex-accept decision is synchronous — a caller does not 
   const slowProposer = stubProposer(() => new Promise<BoundaryProfile[]>((resolve) => { resolveProposer = resolve; }));
   const job = createOnboardingJob(buildDeps({ buildProposer: () => slowProposer }));
 
-  // The 202-fire-and-forget contract (spec E1) lives at the HTTP handler layer (5a.8): the handler
-  // calls propose() and responds 202 WITHOUT awaiting its returned promise. Here we only prove the
-  // accept/reject decision (job.propose(...).then(...) is not required before the caller can move
-  // on) — kickoff's SETTLEMENT is allowed to wait for the round; NOT awaiting it is the point.
+  /* The 202-fire-and-forget contract (spec E1) lives at the HTTP handler layer (5a.8): the handler
+     calls propose() and responds 202 WITHOUT awaiting its returned promise. Here we only prove the
+     accept/reject decision (job.propose(...).then(...) is not required before the caller can move
+     on) — kickoff's SETTLEMENT is allowed to wait for the round; NOT awaiting it is the point.
+   */
   const kickoff = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
   assert.ok(kickoff instanceof Promise, "propose() returns a promise the HTTP handler may choose not to await");
 
-  // Let run()'s own awaits (env-guard, mirror provisioning) drain before the proposer is reached.
+  /* Let run()'s own awaits (env-guard, mirror provisioning) drain before the proposer is reached. */
   await new Promise((r) => setImmediate(r));
   resolveProposer([CORRECT_PROFILE]);
   await kickoff;
   assert.equal(job.status().state, ONBOARD_STATE.done);
 });
-
-// ── Mirror phase is distinct and timed separately (spec E1) ────────────────────
 
 test("resolvingMirrors runs BEFORE the round-budget timer starts, calling ensureMirrorAtBranch for front + every service", async () => {
   const calls: string[] = [];
@@ -185,7 +183,7 @@ test("a slow/hanging mirror provisioning trips ONBOARD_MIRROR_TIMEOUT_MS and lan
     mirrorTimeoutMs: 20,
     jobTimeoutMs: 10_000,
     ensureMirrorAtBranch: () => new Promise(() => {
-      // never resolves
+      /* never resolves */
     }),
   });
   const job = createOnboardingJob(deps);
@@ -196,12 +194,13 @@ test("a slow/hanging mirror provisioning trips ONBOARD_MIRROR_TIMEOUT_MS and lan
   assert.match(status.error ?? "", /resolving mirrors timed out/);
 });
 
-// ── One-job mutex (spec E4 case 1) ──────────────────────────────────────────────
+/* ── One-job mutex (spec E4 case 1) ────────────────────────────────────────────── */
 
 test("starting a second propose while a job is non-terminal returns a 409-shaped rejection; mutex released in finally", async () => {
-  // Round 1 (the "first" propose below) is held open until resolveFirstRound fires; every
-  // SUBSEQUENT round (the "third" propose, after the mutex releases) resolves immediately — proves
-  // the mutex release without making the assertion itself wait out a timeout.
+  /* Round 1 (the "first" propose below) is held open until resolveFirstRound fires; every
+     SUBSEQUENT round (the "third" propose, after the mutex releases) resolves immediately — proves
+     the mutex release without making the assertion itself wait out a timeout.
+   */
   let resolveFirstRound!: (profiles: BoundaryProfile[]) => void;
   let calls = 0;
   const proposer = stubProposer(() => {
@@ -212,7 +211,7 @@ test("starting a second propose while a job is non-terminal returns a 409-shaped
   const job = createOnboardingJob(buildDeps({ buildProposer: () => proposer }));
 
   const first = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
-  await new Promise((r) => setImmediate(r)); // let the first propose reach a non-terminal state
+  await new Promise((r) => setImmediate(r)); /* let the first propose reach a non-terminal state */
 
   const second = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
   assert.ok(!(second instanceof Promise), "the mutex rejection is synchronous, not a promise");
@@ -222,8 +221,9 @@ test("starting a second propose while a job is non-terminal returns a 409-shaped
   resolveFirstRound([CORRECT_PROFILE]);
   await first;
 
-  // Mutex released: a THIRD propose after the first finished must be accepted (a Promise, not a
-  // synchronous rejection — proves `busy` was cleared in run()'s finally).
+  /* Mutex released: a THIRD propose after the first finished must be accepted (a Promise, not a
+     synchronous rejection — proves `busy` was cleared in run()'s finally).
+   */
   const third = job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
   assert.ok(third instanceof Promise, "the mutex must be released after the first run's finally");
   const thirdResult = await third;
@@ -231,7 +231,7 @@ test("starting a second propose while a job is non-terminal returns a 409-shaped
   await job.settled();
 });
 
-// ── Runner-busy fail-fast guard fires BEFORE resolvingMirrors (spec E4 case 2) ──
+/* ── Runner-busy fail-fast guard fires BEFORE resolvingMirrors (spec E4 case 2) ── */
 
 test("runner-busy guard fires before resolvingMirrors: job fails fast and ensureMirrorAtBranch is NEVER called", async () => {
   let mirrorCalls = 0;
@@ -251,7 +251,7 @@ test("runner-busy guard fires before resolvingMirrors: job fails fast and ensure
   assert.match(status.error ?? "", /runner busy, retry later/);
 });
 
-// ── Env-guard short-circuit, both branches (spec E5) ────────────────────────────
+/* ── Env-guard short-circuit, both branches (spec E5) ──────────────────────────── */
 
 test("missing OPENCODE_API_KEY short-circuits to failed BEFORE resolvingMirrors starts", async () => {
   let mirrorCalls = 0;
@@ -281,7 +281,7 @@ test("missing qa-proposer agent on the target server short-circuits to a distinc
   assert.match(status.error ?? "", /qa-proposer agent/);
 });
 
-// ── Round-budget timeout + AbortSignal cancellation (session-leak fix, spec E5) ─
+/* ── Round-budget timeout + AbortSignal cancellation (session-leak fix, spec E5) ─ */
 
 test("a proposer that never resolves trips ONBOARD_JOB_TIMEOUT_MS -> failed, AND the AbortController's signal reached the proposer ctx", async () => {
   let capturedSignal: AbortSignal | undefined;
@@ -301,7 +301,7 @@ test("a proposer that never resolves trips ONBOARD_JOB_TIMEOUT_MS -> failed, AND
   assert.equal(capturedSignal?.aborted, true, "the AbortController must have fired on timeout");
 });
 
-// ── No-winner outcome (spec E8) ──────────────────────────────────────────────────
+/* ── No-winner outcome (spec E8) ────────────────────────────────────────────────── */
 
 test("a budget-exhausted no-winner run lands done with outcome no-profile and resolvedProfile absent", async () => {
   const job = createOnboardingJob(buildDeps({ buildProposer: () => noWinnerProposer() }));
@@ -313,7 +313,7 @@ test("a budget-exhausted no-winner run lands done with outcome no-profile and re
   assert.equal(status.resolvedProfile, undefined);
 });
 
-// ── Confirm against non-winner (spec E3, E8) ────────────────────────────────────
+/* ── Confirm against non-winner (spec E3, E8) ──────────────────────────────────── */
 
 test("confirm against a non-winner (no-profile) job is rejected; no write attempted", async () => {
   let writeCalls = 0;
@@ -350,8 +350,6 @@ test("confirm against a failed job is rejected; no write attempted", async () =>
   assert.equal(writeCalls, 0);
 });
 
-// ── Confirm against a winner (spec E3, E7) — reuses the Slice 4 splice verbatim ──
-
 test("confirm against a winner writes the config via the injected writeConfig with a spliced boundaries: block", async () => {
   let written: { path: string; content: string } | undefined;
   const job = createOnboardingJob(buildDeps({
@@ -367,7 +365,7 @@ test("confirm against a winner writes the config via the injected writeConfig wi
   assert.ok(written!.content.includes("name-{service}-api"));
 });
 
-// ── Propose is read-only end-to-end (spec E3, E-MUST) ───────────────────────────
+/* ── Propose is read-only end-to-end (spec E3, E-MUST) ─────────────────────────── */
 
 test("propose() never calls writeConfig at any point in the propose->poll lifecycle", async () => {
   let writeCalls = 0;
@@ -377,7 +375,7 @@ test("propose() never calls writeConfig at any point in the propose->poll lifecy
   assert.equal(writeCalls, 0, "propose must never write — only an explicit confirm() does");
 });
 
-// ── Status DTO round-trip (spec E6) ─────────────────────────────────────────────
+/* ── Status DTO round-trip (spec E6) ───────────────────────────────────────────── */
 
 test("status() returns an OnboardingJobStatus-shaped object for every state, including outcome once terminal", async () => {
   const job = createOnboardingJob(buildDeps());
@@ -392,7 +390,7 @@ test("status() returns an OnboardingJobStatus-shaped object for every state, inc
   assert.ok(doneStatus.finishedAt);
 });
 
-// ── Per-app scoping (judgment-day C1): status()/confirm() must not leak another app's job ──
+/* status()/confirm() must not leak another app's job. */
 
 test("status(otherApp) while a job for app-x is done+winner returns a SCOPED idle response naming otherApp, not app-x's data", async () => {
   const job = createOnboardingJob(buildDeps());
@@ -458,12 +456,11 @@ test("zero-arg status() and confirm() keep working exactly as before (backwards-
   assert.ok(written, "zero-arg confirm() must still write against the current job");
 });
 
-// ── Post-confirm indexing phase (onboarding-auto-index, Slice 1) ────────────────
-// Design §2.1-§2.6, ADR-2 through ADR-5. confirm() keeps its SYNCHRONOUS validation+splice
-// contract (boundaries are written before indexing ever starts), then fire-and-forgets an
-// indexing phase mirroring propose()'s own contract. A job WITHOUT deps.indexRepo behaves
-// byte-identical to today (S1.4, additive-optional dep, ADR-4) — every test above this comment
-// omits indexRepo and therefore never exercises the new phase.
+/* confirm() keeps its SYNCHRONOUS validation+splice contract (boundaries are written before
+   indexing ever starts), then fire-and-forgets an indexing phase mirroring propose()'s own
+   contract. A job WITHOUT deps.indexRepo stays synchronous — every test above this comment omits
+   indexRepo and therefore never exercises the indexing phase.
+ */
 
 function buildIndexedDeps(overrides: Partial<OnboardingJobDeps> = {}) {
   return buildDeps({
@@ -530,7 +527,7 @@ test("S1.3: a never-resolving indexRepo is bounded by indexTimeoutMs, degrades t
     indexRepo: async (repo: string): Promise<RepoIndexOutcome> => {
       if (repo.endsWith("slow")) {
         return new Promise(() => {
-          // never resolves — the per-repo timeout must be what ends this, not this promise.
+          /* never resolves — the per-repo timeout must be what ends this, not this promise. */
         });
       }
       return { repo, status: "ok", nodeCount: 3 };
@@ -578,7 +575,7 @@ test("S1.5: isActive() (the mutex) is true DURING indexing and false only once i
 
   const result = job.confirm();
   assert.equal(result.ok, true);
-  await new Promise((r) => setImmediate(r)); // let the fire-and-forget runIndexing() re-acquire the mutex
+  await new Promise((r) => setImmediate(r)); /* let the fire-and-forget runIndexing() re-acquire the mutex */
 
   assert.equal(job.isActive(), true, "the mutex must be re-held while indexing runs (§2.6 torn-index rationale)");
   resolveIndex({ repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 1 });
@@ -586,10 +583,9 @@ test("S1.5: isActive() (the mutex) is true DURING indexing and false only once i
   assert.equal(job.isActive(), false, "the mutex is released again once indexing's finally clears it");
 });
 
-// ── Resolution summary on a winning run (Add-Project Wizard, Task A2) ───────────
-// Reuses Task A1's aggregateResolution (resolution-summary.ts). resolveLinks is an OPTIONAL,
-// additive dep on OnboardingJobDeps (mirrors indexRepo?'s precedent), populated in run()'s own
-// winner branch — BEFORE confirm() is ever called, unlike the post-confirm indexing phase above.
+/* additive dep on OnboardingJobDeps (mirrors indexRepo?'s precedent), populated in run()'s own
+   winner branch — BEFORE confirm() is ever called, unlike the post-confirm indexing phase above.
+ */
 
 test("a winning run with resolveLinks attaches the aggregated per-edge resolution summary to the status", async () => {
   const resolveLinksResult: ResolveLinksResult = {
@@ -646,9 +642,10 @@ test("a winning run whose resolveLinks throws still finishes winner; resolution 
   }
 });
 
-// ── Post-confirm / no-profile architecture-map phase (context.json onboarding) ──
-// Spec 2026-09-13-onboarding-architecture-map-design.md. enqueueContextRun is additive-optional
-// (mirrors indexRepo). Mapping never holds busy (the context run would deadlock on isActive()).
+/* ── Post-confirm / no-profile architecture-map phase (context.json onboarding) ──
+   Spec 2026-09-13-onboarding-architecture-map-design.md. enqueueContextRun is additive-optional
+   (mirrors indexRepo). Mapping never holds busy (the context run would deadlock on isActive()).
+ */
 
 function buildMappedDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDeps {
   return buildIndexedDeps({

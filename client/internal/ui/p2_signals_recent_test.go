@@ -8,8 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// P2-2: the integrity panel must frame, in plain words, what it measures — otherwise the
-// numbers read as inert decoration.
+/* The integrity panel must frame, in plain words, what it measures — otherwise the numbers read as inert decoration. */
 func TestSignalsFramesItsPurpose(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 
@@ -24,8 +23,7 @@ func TestSignalsFramesItsPurpose(t *testing.T) {
 	}
 }
 
-// P2-3: RECENT is interactive — ↵ on a recent run opens it (the live screen, which shows the
-// recap for a finished run via the snapshot seed).
+/* RECENT is interactive — ↵ on a recent run opens it (the live screen, which shows the recap for a finished run via the snapshot seed). */
 func TestRecentEnterOpensRun(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	p := contract.RunRecordVerdictPass
@@ -45,7 +43,7 @@ func TestRecentEnterOpensRun(t *testing.T) {
 	}
 }
 
-// ↓ flows from the last model role into RECENT, so the feed joins the one ↑↓ list.
+/* ↓ flows from the last model role into RECENT, so the feed joins the one ↑↓ list. */
 func TestNavCrossesModelsToRecent(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "a"}})
 	p := contract.RunRecordVerdictPass
@@ -53,7 +51,7 @@ func TestNavCrossesModelsToRecent(t *testing.T) {
 		{Id: "r1", App: "a", Verdict: &p, At: "2026-06-14T10:00:00Z"},
 	}}
 	m.focus = focusModels
-	m.modelCursor = len(m.modelRoleList()) // the all-settings row — MODELS' last navigable item
+	m.modelCursor = len(m.modelRoleList()) /* the all-settings row — MODELS' last navigable item */
 
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 

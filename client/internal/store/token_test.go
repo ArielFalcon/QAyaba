@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// The token is discovered from QA_API_TOKEN first (mirrors the server's own resolution order),
-// so an operator who exported it never has to paste it.
+/* The token is discovered from QA_API_TOKEN first (mirrors the server's own resolution order),
+   so an operator who exported it never has to paste it. */
 func TestDiscoverTokenFromEnv(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "envtok")
 
@@ -21,8 +21,8 @@ func TestDiscoverTokenFromEnv(t *testing.T) {
 	}
 }
 
-// When the env var is unset, the token is read from the orchestrator's token file
-// (config/.api_token under the configured root), trimmed — the same file the server writes.
+/* When the env var is unset, the token is read from the orchestrator's token file
+   (config/.api_token under the configured root), trimmed — the same file the server writes. */
 func TestDiscoverTokenFromFile(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	dir := t.TempDir()
@@ -45,8 +45,8 @@ func TestDiscoverTokenFromFile(t *testing.T) {
 	}
 }
 
-// mkRepo creates a qayaba-shaped repo (config/apps + config/e2e) at dir, with the given
-// token in config/.api_token.
+/* mkRepo creates a qayaba-shaped repo (config/apps + config/e2e) at dir, with the given
+   token in config/.api_token. */
 func mkRepo(t *testing.T, dir, token string) {
 	t.Helper()
 	for _, d := range []string{"apps", "e2e"} {
@@ -59,8 +59,8 @@ func mkRepo(t *testing.T, dir, token string) {
 	}
 }
 
-// The console finds the token even when launched from a SUBDIRECTORY of the repo — it walks up
-// to the repo root (recognised by its shape: config/apps + config/e2e).
+/* The console finds the token even when launched from a SUBDIRECTORY of the repo — it walks up
+   to the repo root (recognised by its shape: config/apps + config/e2e). */
 func TestDiscoverTokenWalksUpToRepo(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	t.Setenv("QAYABA_ROOT", "")
@@ -81,13 +81,13 @@ func TestDiscoverTokenWalksUpToRepo(t *testing.T) {
 	}
 }
 
-// A config/.api_token without the repo shape (no config/e2e) is NOT trusted — a forged
-// config/apps marker alone must not make the walk-up read a planted token.
+/* A config/.api_token without the repo shape (no config/e2e) is NOT trusted — a forged
+   config/apps marker alone must not make the walk-up read a planted token. */
 func TestDiscoverTokenIgnoresForgedMarker(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	t.Setenv("QAYABA_ROOT", "")
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config", "apps"), 0o755); err != nil { // only one marker
+	if err := os.MkdirAll(filepath.Join(dir, "config", "apps"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "config", ".api_token"), []byte("planted"), 0o600); err != nil {
@@ -100,7 +100,7 @@ func TestDiscoverTokenIgnoresForgedMarker(t *testing.T) {
 	}
 }
 
-// When two repo-shaped roots are nested, the CLOSEST one to the working directory wins.
+/* When two repo-shaped roots are nested, the CLOSEST one to the working directory wins. */
 func TestDiscoverTokenClosestRepoWins(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
 	t.Setenv("QAYABA_ROOT", "")
@@ -119,12 +119,12 @@ func TestDiscoverTokenClosestRepoWins(t *testing.T) {
 	}
 }
 
-// The last host the operator successfully reached is remembered across launches (in a plain
-// file — the host is not a secret), so a returning operator neither retypes it nor has their
-// per-host saved session orphaned under a host the startup never looks at.
+/* The last host the operator successfully reached is remembered across launches (in a plain
+   file — the host is not a secret), so a returning operator neither retypes it nor has their
+   per-host saved session orphaned under a host the startup never looks at. */
 func TestSaveAndLoadLastHost(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "") // Linux: force the $HOME/.config path
-	t.Setenv("HOME", t.TempDir())   // macOS + Linux: redirect os.UserConfigDir() into a temp dir
+	t.Setenv("XDG_CONFIG_HOME", "") /* Linux: force the $HOME/.config path */
+	t.Setenv("HOME", t.TempDir())   /* macOS + Linux: redirect os.UserConfigDir() into a temp dir */
 
 	if got := LoadLastHost(); got != "" {
 		t.Fatalf("no host saved yet should be empty; got %q", got)
@@ -137,7 +137,7 @@ func TestSaveAndLoadLastHost(t *testing.T) {
 	}
 }
 
-// An empty host is never persisted (so a failed first connect can't wipe a good remembered host).
+/* An empty host is never persisted (so a failed first connect can't wipe a good remembered host). */
 func TestSaveLastHostIgnoresEmpty(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", t.TempDir())
@@ -150,12 +150,12 @@ func TestSaveLastHostIgnoresEmpty(t *testing.T) {
 	}
 }
 
-// No env var and no repo in scope → no token (the screen falls back to a manual field with a
-// concrete instruction).
+/* No env var and no repo in scope → no token (the screen falls back to a manual field with a
+   concrete instruction). */
 func TestDiscoverTokenNone(t *testing.T) {
 	t.Setenv("QA_API_TOKEN", "")
-	t.Setenv("QAYABA_ROOT", t.TempDir()) // a root with no config/.api_token
-	t.Chdir(t.TempDir())                       // a cwd whose ancestors are not the repo
+	t.Setenv("QAYABA_ROOT", t.TempDir()) /* a root with no config/.api_token */
+	t.Chdir(t.TempDir())                       /* a cwd whose ancestors are not the repo */
 
 	if tok, _ := DiscoverToken(); tok != "" {
 		t.Fatalf("with no env and no repo in scope, token should be empty; got %q", tok)

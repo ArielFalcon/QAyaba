@@ -1,17 +1,4 @@
-// service-topology/infrastructure/http-backend-resolver.adapter.ts
-// OpenAPI-anchored BE→BE HTTP link resolver. Config-driven: every app-specific pattern
-// (call-pattern kind + optional receiver, service-prefix and repo-slug templates, OpenAPI
-// path, source-file glob) comes from the injected HttpBackendBoundaryProfile — this class
-// carries no literal from any one watched app (Invariant #1).
-//   INGRESS: parse each backend's OpenAPI file at profile.openApiPath (shared parseOpenApiYaml)
-//   SCAN:    walk profile.sourceFiles in every backend repo (system + front if not already in system)
-//   EXTRACT: CallPatternCatalog[kind]
-//   JOIN:    prefix-strip via compilePrefixTemplate when present; otherwise match the full
-//            path across known services. All-literal wins (shared findOp / findOpAnyService).
-//   EMIT:    ServiceLink transport "http", source "http-backend-resolver"
-//
-// Fail-open: resolveLinks NEVER throws. Per-repo/per-file errors skip that unit; an unknown
-// callPattern.kind degrades to an empty result.
+/* OpenAPI-anchored BE→BE HTTP link resolver. App-specific patterns come from the injected HttpBackendBoundaryProfile. resolveLinks never throws: per-repo/per-file errors skip that unit; an unknown callPattern.kind degrades to an empty result. */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
@@ -68,8 +55,6 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
     const extractor = CallPatternCatalog[this.profile.callPattern.kind];
     if (!extractor) return EMPTY;
 
-    // BE→BE: scan backend repos. Fold `front` into the pool when it is not already in system
-    // (the port signature cannot drop `front`; a caller repo may be passed only there).
     const seenRepos = new Set<string>();
     const pool: RepoRef[] = [];
     for (const repo of [...system, front]) {

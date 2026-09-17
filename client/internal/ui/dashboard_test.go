@@ -22,7 +22,7 @@ func TestSparkline(t *testing.T) {
 	if flat := sparkline([]float64{3, 3, 3}); flat != "▅▅▅" {
 		t.Fatalf("flat sparkline = %q, want the mid-ramp glyph repeated", flat)
 	}
-	// Fixed-range: a semantic 0..1 score must read full when high, low when low.
+	/* Fixed-range: a semantic 0..1 score must read full when high, low when low. */
 	if hi := sparklineRange([]float64{1, 1, 1}, 0, 1); hi != "███" {
 		t.Fatalf("all-high fixed sparkline = %q, want ███", hi)
 	}
@@ -32,7 +32,7 @@ func TestSparkline(t *testing.T) {
 }
 
 func TestComputeFleetStats(t *testing.T) {
-	// newest-first, as ListRuns returns: pass (newest) · fail · pass (oldest)
+	/* newest-first, as ListRuns returns: pass (newest) · fail · pass (oldest) */
 	runs := []contract.RunRecord{
 		{Verdict: vptr(contract.RunRecordVerdictPass)},
 		{Verdict: vptr(contract.RunRecordVerdictFail)},
@@ -48,7 +48,7 @@ func TestComputeFleetStats(t *testing.T) {
 	if len([]rune(st.spark)) != 3 {
 		t.Fatalf("spark width = %d, want 3", len([]rune(st.spark)))
 	}
-	// last must be oldest→newest: pass, fail, pass
+	/* last must be oldest→newest: pass, fail, pass */
 	if len(st.last) != 3 || st.last[1] == nil || *st.last[1] != contract.RunRecordVerdictFail {
 		t.Fatalf("last verdicts not oldest→newest: %+v", st.last)
 	}
@@ -82,7 +82,7 @@ func TestDashboardRendersSections(t *testing.T) {
 }
 
 func TestDashboardEnterQuickLaunchesSelectedApp(t *testing.T) {
-	m := dashWith([]contract.AppView{{Name: "portfolio"}}) // an e2e app; default mode diff
+	m := dashWith([]contract.AppView{{Name: "portfolio"}}) /* an e2e app; default mode diff */
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter must emit a command")
@@ -97,11 +97,11 @@ func TestDashboardEnterQuickLaunchesSelectedApp(t *testing.T) {
 }
 
 func TestDashboardFleetCyclesModeAndTarget(t *testing.T) {
-	m := dashWith([]contract.AppView{{Name: "portfolio"}}) // e2e app → natural target e2e
-	// → advances the mode (diff → complete); t flips the target to code.
+	m := dashWith([]contract.AppView{{Name: "portfolio"}}) /* e2e app → natural target e2e */
+	/* → advances the mode (diff → complete); t flips the target to code. */
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
-	// complete is a heavy mode → the first Enter arms a confirmation, the second launches.
+	/* complete is a heavy mode → the first Enter arms a confirmation, the second launches. */
 	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil || !m.launchArmed {
 		t.Fatalf("a heavy mode's first Enter must arm a confirm, not launch (armed=%v cmd=%v)", m.launchArmed, cmd)
@@ -116,7 +116,7 @@ func TestDashboardFleetCyclesModeAndTarget(t *testing.T) {
 	}
 }
 
-// A heavy mode must not launch on a single Enter, and any other key cancels the armed state.
+/* A heavy mode must not launch on a single Enter, and any other key cancels the armed state. */
 func TestDashboardHeavyModeConfirmCancels(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	m.launchMode = "exhaustive"
@@ -124,7 +124,7 @@ func TestDashboardHeavyModeConfirmCancels(t *testing.T) {
 	if !m.launchArmed {
 		t.Fatal("first Enter on a heavy mode must arm the confirm")
 	}
-	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // any other key
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) /* any other key */
 	if m.launchArmed || cmd != nil {
 		t.Fatalf("a non-Enter key must cancel the armed confirm (armed=%v)", m.launchArmed)
 	}
@@ -132,7 +132,7 @@ func TestDashboardHeavyModeConfirmCancels(t *testing.T) {
 
 func TestDashboardManualModeRoutesToWizard(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
-	m.launchMode = "manual" // manual needs a guidance string → the full wizard
+	m.launchMode = "manual" /* manual needs a guidance string → the full wizard */
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if _, ok := cmd().(appSelectedMsg); !ok {
 		t.Fatalf("manual mode must open the launcher wizard, got %#v", cmd())
@@ -162,8 +162,8 @@ func TestDashboardSignalsRenderGroundTruthVsProxy(t *testing.T) {
 	m.signals.Reviewer.PassRate = &pass
 	m.signals.Reviewer.Runs = 10
 	out := m.renderSignals(96)
-	// ◆ value-oracle truth, ◇ proxy pass-rate, and coverage stated precisely (measured per
-	// run, not yet a gate) — never a flat "not measured" that contradicts the live run.
+	/* ◆ value-oracle truth, ◇ proxy pass-rate, and coverage stated precisely (measured per
+	   run, not yet a gate) — never a flat "not measured" that contradicts the live run. */
 	for _, want := range []string{"0.82", "90% pass", "per run", "gate not built ⚠"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("signals readout missing %q:\n%s", want, out)
@@ -171,9 +171,9 @@ func TestDashboardSignalsRenderGroundTruthVsProxy(t *testing.T) {
 	}
 }
 
-// A stop the server rejects (e.g. the run was no longer the active run) arrives as a cancelErrMsg.
-// The dashboard must show it — never swallow it — otherwise "press x to STOP" looks inert.
-// Regression: the dashboard had no error case, so cancel failures vanished silently.
+/* A stop the server rejects (e.g. the run was no longer the active run) arrives as a cancelErrMsg.
+   The dashboard must show it — never swallow it — otherwise "press x to STOP" looks inert.
+   Regression: the dashboard had no error case, so cancel failures vanished silently. */
 func TestDashboardSurfacesCancelError(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "petclinic"}})
 	m.stopArmed = true
@@ -192,7 +192,7 @@ func TestDashboardSurfacesCancelError(t *testing.T) {
 	}
 }
 
-// Any other failed dashboard command (a plain errMsg) must also surface, never be swallowed.
+/* Any other failed dashboard command (a plain errMsg) must also surface, never be swallowed. */
 func TestDashboardSurfacesGenericError(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "petclinic"}})
 	m, _ = m.Update(errMsg{err: errors.New("something broke")})
@@ -222,7 +222,7 @@ func TestDashboardCursorNavigation(t *testing.T) {
 	if m.cursor != 1 {
 		t.Fatalf("cursor after down = %d, want 1 (app b)", m.cursor)
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // → the onboard row
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) /* → the onboard row */
 	if m.focus != focusFleet || m.cursor != 2 {
 		t.Fatalf("down past the last project should reach the onboard row (cursor=2); focus=%d cursor=%d", m.focus, m.cursor)
 	}
@@ -232,8 +232,7 @@ func TestDashboardCursorNavigation(t *testing.T) {
 	}
 }
 
-// The classic menu is retired from the dashboard (the board IS the home surface), so 'm'
-// is no longer a binding — it must be an inert no-op, not open the redundant screen.
+/* The board is the home surface, so 'm' is an inert no-op — it must not open another menu screen. */
 func TestDashboardMenuKeyRetired(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
@@ -242,8 +241,7 @@ func TestDashboardMenuKeyRetired(t *testing.T) {
 	}
 }
 
-// The dashboard is the single home surface now, so its keys must emit the destination
-// messages the retired menu used to (onboard / edit / delete / agents).
+/* Dashboard keys must emit the destination messages (onboard / edit / delete / agents). */
 func TestDashboardActionKeysEmitDestinations(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	cases := []struct {
@@ -331,7 +329,7 @@ func TestDashboardEventTailFromRunningRecord(t *testing.T) {
 
 func TestDashboardColumnsRenderNarrow(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
-	m.width = 50 // contentWidth ~46, below the 72 threshold → columns stack
+	m.width = 50 /* contentWidth ~46, below the 72 threshold → columns stack */
 	out := m.View()
 	for _, want := range []string{"MODELS", "INTEGRITY", "FLEET"} {
 		if !strings.Contains(out, want) {

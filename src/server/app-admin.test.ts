@@ -101,7 +101,7 @@ test("create applies env FIRST, validates the expanded YAML, then writes", async
   assert.equal(r.ok, true);
   assert.deepEqual(order, ["env", "write"]);
   assert.deepEqual(r.envApplied, ["SHOP_TOKEN"]);
-  assert.equal(JSON.stringify(r).includes("\"t\""), false); // the secret value never leaves
+  assert.equal(JSON.stringify(r).includes("\"t\""), false); /* the secret value never leaves */
 });
 
 test("invalid config returns the Zod errors and writes nothing", async () => {
@@ -208,7 +208,7 @@ test("updateApp preserves an existing boundaries block, in order, across a rebui
   assert.match(yaml, /boundaries:/);
   assert.match(yaml, /openApiPath: "src\/main\/resources\/openapi\/api-definition\.yaml"/);
   assert.match(yaml, /listenerBaseType: "ListenerMessageDelegate"/);
-  // order: the http entry (first in the input array) must appear before the event entry
+  /* order: the http entry (first in the input array) must appear before the event entry */
   assert.ok(yaml.indexOf("transport: http") < yaml.indexOf("transport: event"));
 
   const expectedOnboard: OnboardInput = {

@@ -15,8 +15,8 @@ func unitPtr(u string) *contract.ReportInsightUnit {
 	return &x
 }
 
-// insightFromJSON decodes a wire-shape insight — the anonymous breakdown struct carries json tags,
-// so building it from JSON is cleaner (and exercises the real decode path) than a literal.
+/* insightFromJSON decodes a wire-shape insight — the anonymous breakdown struct carries json tags,
+   so building it from JSON is cleaner (and exercises the real decode path) than a literal. */
 func insightFromJSON(t *testing.T, js string) contract.ReportInsight {
 	t.Helper()
 	var ins contract.ReportInsight
@@ -38,7 +38,7 @@ func TestFmtValueByUnit(t *testing.T) {
 		{f32(125000), "ms", "2m05s"},
 		{f32(8), "count", "8"},
 		{f32(2.5), "score", "2.5"},
-		{nil, "ratio", "—"}, // absence is an em dash, never a fabricated zero
+		{nil, "ratio", "—"}, /* absence is an em dash, never a fabricated zero */
 	}
 	for _, c := range cases {
 		got := fmtValue(c.v, unitPtr(c.unit))
@@ -49,7 +49,7 @@ func TestFmtValueByUnit(t *testing.T) {
 }
 
 func TestInsightColorGaugeVsTarget(t *testing.T) {
-	// A coverage gauge (goodWhen up) that meets its target is good; below target is bad.
+	/* A coverage gauge (goodWhen up) that meets its target is good; below target is bad. */
 	meets := contract.ReportInsight{Value: f32(0.8), Target: f32(0.7), GoodWhen: "up"}
 	if got := insightColor(meets); got != colPass {
 		t.Errorf("meeting target should be colPass, got %v", got)
@@ -58,12 +58,12 @@ func TestInsightColorGaugeVsTarget(t *testing.T) {
 	if got := insightColor(misses); got != colFail {
 		t.Errorf("missing target should be colFail, got %v", got)
 	}
-	// A flaky rate (goodWhen down) rising is bad.
+	/* A flaky rate (goodWhen down) rising is bad. */
 	rising := contract.ReportInsight{Direction: "up", GoodWhen: "down"}
 	if got := insightColor(rising); got != colFail {
 		t.Errorf("a rising bad-metric should be colFail, got %v", got)
 	}
-	// A neutral metric stays foreground.
+	/* A neutral metric stays foreground. */
 	if got := insightColor(contract.ReportInsight{GoodWhen: "neutral", Direction: "up"}); got != colFg {
 		t.Errorf("neutral should be colFg, got %v", got)
 	}
@@ -76,7 +76,7 @@ func TestRenderInsightFullByIntent(t *testing.T) {
 		"caption":"3/3 passed","score":2,
 		"breakdown":[{"label":"pass","value":3,"semantic":"good"},{"label":"fail","value":0,"semantic":"bad"}]}`)
 	out := renderInsightFull(composition, 80)
-	for _, want := range []string{"CASE RESULTS", "pass", "3/3 passed"} { // labelRule upper-cases the title
+	for _, want := range []string{"CASE RESULTS", "pass", "3/3 passed"} { /* labelRule upper-cases the title */
 		if !strings.Contains(out, want) {
 			t.Errorf("composition render missing %q in:\n%s", want, out)
 		}
@@ -135,11 +135,11 @@ func TestRenderReportSummaryHeadlineAndTopK(t *testing.T) {
 	if !strings.Contains(out, "r open") {
 		t.Errorf("summary missing the 'r open' hint:\n%s", out)
 	}
-	// Top-3 only: the 4th insight (suite-duration) must not appear.
+	/* Top-3 only: the 4th insight (suite-duration) must not appear. */
 	if strings.Contains(out, "SUITE DURATION") {
 		t.Errorf("summary should cap at top-K (3), but rendered the 4th insight:\n%s", out)
 	}
-	// Compact composition lists its slices.
+	/* Compact composition lists its slices. */
 	if !strings.Contains(out, "pass") {
 		t.Errorf("summary case-mix should list slices:\n%s", out)
 	}

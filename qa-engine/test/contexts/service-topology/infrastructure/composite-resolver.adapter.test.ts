@@ -1,5 +1,4 @@
-// test/contexts/service-topology/infrastructure/composite-resolver.adapter.test.ts
-// TDD: composite dedup + per-resolver error isolation
+/* test/contexts/service-topology/infrastructure/composite-resolver.adapter.test.ts */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CompositeServiceBoundaryResolver } from "@contexts/service-topology/infrastructure/composite-resolver.adapter.ts";
@@ -24,7 +23,6 @@ function emptyResult(): ResolveLinksResult {
   return { links: [], drift: [], external: [], unresolved: [] };
 }
 
-// ---- StubServiceBoundaryResolver ----
 test("StubServiceBoundaryResolver.resolveLinks returns empty result without throwing", async () => {
   const stub = new StubServiceBoundaryResolver();
   const result = await stub.resolveLinks([BACK], FRONT);
@@ -32,7 +30,6 @@ test("StubServiceBoundaryResolver.resolveLinks returns empty result without thro
   assert.deepEqual(result.drift, []);
 });
 
-// ---- Composite: delegates to all resolvers and merges links ----
 test("CompositeServiceBoundaryResolver merges links from multiple resolvers", async () => {
   const r1 = makeResolver({ links: [makeLink("opA")], drift: [], external: [], unresolved: [] });
   const r2 = makeResolver({ links: [makeLink("opB")], drift: [], external: [], unresolved: [] });
@@ -41,7 +38,6 @@ test("CompositeServiceBoundaryResolver merges links from multiple resolvers", as
   assert.equal(result.links.length, 2);
 });
 
-// ---- Composite: deduplicates identical links, keeping highest confidence ----
 test("CompositeServiceBoundaryResolver deduplicates links with same key, keeping highest confidence", async () => {
   const low = { ...makeLink("opA"), confidence: 0.5 };
   const high = { ...makeLink("opA"), confidence: 0.9 };
@@ -53,7 +49,7 @@ test("CompositeServiceBoundaryResolver deduplicates links with same key, keeping
   assert.equal(result.links[0]!.confidence, 0.9);
 });
 
-// ---- Composite: two links with same call-site/handler but different contractRef are NOT collapsed ----
+/* ---- Composite: two links with same call-site/handler but different contractRef are NOT collapsed ---- */
 test("CompositeServiceBoundaryResolver keeps two links that differ only by contractRef", async () => {
   const r1 = makeResolver({ links: [makeLink("opA"), makeLink("opB")], drift: [], external: [], unresolved: [] });
   const composite = new CompositeServiceBoundaryResolver([r1]);
@@ -61,7 +57,7 @@ test("CompositeServiceBoundaryResolver keeps two links that differ only by contr
   assert.equal(result.links.length, 2);
 });
 
-// ---- Composite: a throwing resolver is isolated and does not break others ----
+/* ---- Composite: a throwing resolver is isolated and does not break others ---- */
 test("CompositeServiceBoundaryResolver isolates a throwing resolver and returns results from others", async () => {
   const bad: ServiceBoundaryResolverPort = { resolveLinks: async () => { throw new Error("resolver exploded"); } };
   const good = makeResolver({ links: [makeLink("opOk")], drift: [], external: [], unresolved: [] });
@@ -71,7 +67,6 @@ test("CompositeServiceBoundaryResolver isolates a throwing resolver and returns 
   assert.equal(result.links[0]!.contractRef, "opOk");
 });
 
-// ---- Composite: merges drift, external, unresolved from all resolvers ----
 test("CompositeServiceBoundaryResolver merges drift/external/unresolved from all resolvers", async () => {
   const r1 = makeResolver({ links: [], drift: [{ from: fromRef, verb: "DELETE", path: "/gone" }], external: [], unresolved: [] });
   const r2 = makeResolver({ links: [], drift: [], external: [{ path: "name-other-api/x", verb: "GET" }], unresolved: [{ rawArg: "dynId", file: "f.ts" }] });
@@ -82,7 +77,6 @@ test("CompositeServiceBoundaryResolver merges drift/external/unresolved from all
   assert.equal(result.unresolved.length, 1);
 });
 
-// ---- Fix 2: dedup drift, external, unresolved across resolvers ----
 test("CompositeServiceBoundaryResolver deduplicates identical drift entries from multiple resolvers", async () => {
   const sameDrift = { from: fromRef, verb: "DELETE", path: "/name-orders-api/gone" };
   const r1 = makeResolver({ links: [], drift: [sameDrift], external: [], unresolved: [] });
@@ -110,13 +104,15 @@ test("CompositeServiceBoundaryResolver deduplicates identical unresolved entries
   assert.equal(result.unresolved.length, 1, "identical unresolved entries from two resolvers should be deduped to one");
 });
 
-// ==========================================
-// LEVEL 1 CORRECTNESS FIXES (RED → GREEN)
-// ==========================================
+/* ==========================================
+   LEVEL 1 CORRECTNESS FIXES (RED → GREEN)
+   ==========================================
+ */
 
-// ---- L1.3: composite drift dedup must include from.file ----
-// When two resolvers independently surface drift from different files (same verb+path but different
-// from.file), the composite must NOT collapse them to one entry (from.file distinguishes them).
+/* ---- L1.3: composite drift dedup must include from.file ----
+   When two resolvers independently surface drift from different files (same verb+path but different
+   from.file), the composite must NOT collapse them to one entry (from.file distinguishes them).
+ */
 test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two files, same endpoint → two drift entries)", async () => {
   const driftFile1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/alpha.api.ts", symbol: "createOrder" },
@@ -139,14 +135,12 @@ test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two
   );
 });
 
-// ==========================================
-// ROUND 2 FINDINGS (RED → GREEN)
-// ==========================================
 
-// ---- R2-F6: drift dedup must include from.symbol ----
-// Two methods in the SAME file each calling the same undeclared endpoint should produce
-// two drift entries, not one. The current dedup key is `from.file|verb|path` — adding
-// `from.symbol` ensures per-method granularity.
+/* Drift dedup must include from.symbol.
+   Two methods in the SAME file each calling the same undeclared endpoint should produce
+   two drift entries, not one. The current dedup key is `from.file|verb|path` — adding
+   `from.symbol` ensures per-method granularity.
+ */
 test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpoint → two drift entries)", async () => {
   const driftMethod1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/api.ts", symbol: "createOrder" },
@@ -158,7 +152,7 @@ test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpo
     verb: "POST",
     path: "name-orders-api/orders",
   };
-  // Two different resolvers, each surfacing drift from a different method in the SAME file.
+  /* Two different resolvers, each surfacing drift from a different method in the SAME file. */
   const r1 = makeResolver({ links: [], drift: [driftMethod1], external: [], unresolved: [] });
   const r2 = makeResolver({ links: [], drift: [driftMethod2], external: [], unresolved: [] });
   const composite = new CompositeServiceBoundaryResolver([r1, r2]);
@@ -170,11 +164,12 @@ test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpo
   );
 });
 
-// ---- L1.4: composite sync-throw — a resolver that throws synchronously must be isolated ----
-// resolveWithTimeout currently passes the Promise from resolver.resolveLinks(...) to .then().
-// If resolver.resolveLinks throws SYNCHRONOUSLY (before returning a Promise), the .then() is
-// never reached and the synchronous throw propagates through Promise.all, breaking all resolvers.
-// The composite must guard against synchronous throws too.
+/* ---- L1.4: composite sync-throw — a resolver that throws synchronously must be isolated ----
+   resolveWithTimeout currently passes the Promise from resolver.resolveLinks(...) to .then().
+   If resolver.resolveLinks throws SYNCHRONOUSLY (before returning a Promise), the .then() is
+   never reached and the synchronous throw propagates through Promise.all, breaking all resolvers.
+   The composite must guard against synchronous throws too.
+ */
 test("L1.4: CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing resolver", async () => {
   const syncThrow: ServiceBoundaryResolverPort = {
     resolveLinks: () => {
@@ -183,7 +178,7 @@ test("L1.4: CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing r
   };
   const good = makeResolver({ links: [makeLink("opOk")], drift: [], external: [], unresolved: [] });
   const composite = new CompositeServiceBoundaryResolver([syncThrow, good]);
-  // Must NOT throw and must return the good resolver's results
+  /* Must NOT throw and must return the good resolver's results */
   const result = await composite.resolveLinks([BACK], FRONT);
   assert.equal(result.links.length, 1, "expected good resolver's link even when sibling throws synchronously");
   assert.equal(result.links[0]!.contractRef, "opOk");

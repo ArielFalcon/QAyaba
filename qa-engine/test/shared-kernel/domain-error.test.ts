@@ -1,4 +1,3 @@
-// qa-engine/test/shared-kernel/domain-error.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { InfraError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
@@ -22,7 +21,7 @@ test("isInfraError falls back to name + operator-cancel message across realms", 
   crossRealm.name = "StalledAgentError";
   assert.equal(isInfraError(crossRealm), true);
   assert.equal(isInfraError(new Error("run cancelled by operator")), true);
-  assert.equal(isInfraError({ name: "InfraError" }), false); // not an Error instance
+  assert.equal(isInfraError({ name: "InfraError" }), false); /* not an Error instance */
 });
 
 test("cause is preserved when provided", () => {

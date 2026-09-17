@@ -1,5 +1,4 @@
-// Writable-path scope checks for sidekick pushback / executor (shared — one semantics).
-// "." / "./" means "any relative path under cwd" without ".." or absolute escapes.
+/* Writable-path confinement for sidekick pushback and executor (one semantics). "." / "./" means any relative path under cwd with no ".." or absolute escapes. */
 
 export function isPathWithinWritableRoots(
   filePath: string,

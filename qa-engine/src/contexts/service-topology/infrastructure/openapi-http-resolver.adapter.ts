@@ -1,19 +1,4 @@
-// service-topology/infrastructure/openapi-http-resolver.adapter.ts
-// OpenAPI-anchored FE↔BE link resolver. Config-driven: every app-specific pattern (the front
-// call-site shape and receiver, the service-prefix and repo-slug naming templates, and the
-// per-repo OpenAPI path) comes from the injected HttpBoundaryProfile — this class carries no
-// literal from any one watched app (Invariant #1: app-specificity lives only in config).
-//   INGRESS: parse each backend's OpenAPI file at profile.openApiPath (yaml dep; fallback to line-parser)
-//   EGRESS:  scan profile.frontFiles for call-sites matching profile.frontCallSite
-//   JOIN:    strip the profile.servicePrefixTemplate prefix, structural segment match ({param} matches any segment)
-//   OUTPUTS: links (matched), drift (contract gap), external (unknown service), unresolved (dynamic arg)
-//
-// Fail-open: any per-repo error degrades to an empty result for that repo. Never throws past this class.
-//
-// Level 2: from.symbol uses tree-sitter to walk UP the AST from the call-site node to the nearest
-// enclosing method_definition / function_declaration / public_field_definition (arrow), giving the
-// correct method name even when the call-site is nested inside .pipe(switchMap(...), catchError(...)).
-// Falls back to a backward-scan heuristic if tree-sitter fails to load.
+/* OpenAPI-anchored FE↔BE HTTP link resolver. App-specific patterns come from the injected HttpBoundaryProfile. Per-repo errors degrade to an empty result for that repo — never throws. from.symbol walks the AST to the enclosing method; falls back to a backward-scan heuristic if tree-sitter fails to load. */
 import { readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
@@ -28,17 +13,14 @@ import { compileFileGlob } from "./glob-suffix.ts";
 import { walkRepoFiles } from "./repo-walk.ts";
 import { parseOpenApiYaml, findOp, segs, isParam, type IngressOp } from "./openapi-ingress.ts";
 
-// ---- Constants ----
-// Matches: const NAME = 'value' or export const NAME = 'value' (for const resolution)
 const CONST_RE = /(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(['"`])((?:\\.|(?!\2).)*)\2/g;
 
-// ---- Egress: parsed frontend call-site ----
 interface EgressCallSite {
-  file: string;           // repo-relative path
-  verb: string;           // uppercase
-  rawArg: string;         // original argument text
-  path: string | null;    // resolved path, or null if unresolvable
-  enclosingMethod: string | null; // the method/function name enclosing this call-site (Level 2)
+  file: string;
+  verb: string;
+  rawArg: string;
+  path: string | null;
+  enclosingMethod: string | null;
 }
 
 /** Build a const-resolution map from all *.api.ts files. Cross-file const refs use the last-seen value. */
@@ -62,15 +44,11 @@ function resolveVal(raw: string, consts: Record<string, string>, seen = new Set<
   return String(raw).replace(/\$\{([^}]+)\}/g, (_, expr: string) => {
     const k = expr.trim();
     if (consts[k] !== undefined && !seen.has(k)) {
-      // Clone `seen` before passing to the recursive call so that sibling substitutions
-      // (e.g. both ${API} in `${API}/${API}`) each start with a fresh cycle-guard state.
-      // Sharing the same Set would cause the second ${API} to appear "already seen" and
-      // resolve to {p} — a false unresolvable result.
       const childSeen = new Set(seen);
       childSeen.add(k);
       return resolveVal(consts[k]!, consts, childSeen);
     }
-    return "{p}"; // method param / unresolved import → placeholder segment
+    return "{p}";
   });
 }
 
@@ -79,38 +57,23 @@ function resolveArg(arg: string, consts: Record<string, string>): string | null 
   const trimmed = arg.trim();
   const q = trimmed[0];
   if (q === "'" || q === '"' || q === "`") {
-    // Use indexOf(q, 1) — the FIRST closing quote — not lastIndexOf.
-    // The call-site extractor's stop-set ([^,)\n]+) already prevents a spurious second
-    // delimiter from being captured, but lastIndexOf would return -1 if the closing quote
-    // was trimmed by that stop-set boundary, silently dropping the last character of the path.
     const close = trimmed.indexOf(q, 1);
     return resolveVal(close === -1 ? trimmed.slice(1) : trimmed.slice(1, close), consts);
   }
   if (consts[trimmed] !== undefined) return resolveVal(consts[trimmed]!, consts);
-  return null; // bare identifier that's not a const = method param = unresolvable
+  return null;
 }
 
-// ---- Tree-sitter enclosing-method extraction (Level 2) ----
-// Primary: parse the file with the TypeScript grammar and walk UP from the call-site node.
-// This correctly handles nested calls (RxJS pipe/switchMap/catchError, toString, etc.) —
-// the backward-scan heuristic mis-attributes operators inside .pipe() as the method name.
-// Fallback: backward scan (retained when tree-sitter fails to load in the environment).
 
-// AST node types that represent named callable declarations in TypeScript.
-// public_field_definition covers arrow-function class fields: `myMethod = () => { ... }`.
-// NOTE: "arrow_function" is intentionally EXCLUDED — it never carries a name child in tree-sitter.
-// For `const listOrders = () => ...`, the name lives in the parent variable_declarator's identifier.
-// walkUpToMethod handles variable_declarator explicitly.
 const ENCLOSING_NODE_TYPES = new Set([
-  "method_definition",          // object literal or class method
-  "function_declaration",       // top-level function
-  "function",                   // function expression
-  "method_signature",           // interface method signature
-  "public_field_definition",    // class field (arrow function assigned)
+  "method_definition",
+  "function_declaration",
+  "function",
+  "method_signature",
+  "public_field_definition",
 ]);
 
-// Lazily-resolved tree-sitter parser for TypeScript. null = failed to load (fail-open).
-// Using a module-level promise so initialization runs once across all resolver calls.
+/* Lazily-resolved tree-sitter parser for TypeScript. null = failed to load (fail-open). Using a module-level promise so initialization runs once across all resolver calls. */
 type TsParser = { parse(src: string): { rootNode: { namedDescendantForIndex(i: number): TsSyntaxNode } } };
 type TsSyntaxNode = {
   type: string;
@@ -125,12 +88,9 @@ function getTsParser(): Promise<TsParser | null> {
   if (tsParserPromise) return tsParserPromise;
   tsParserPromise = (async (): Promise<TsParser | null> => {
     try {
-      // Dynamic import: keeps this module loadable even when web-tree-sitter is absent.
-      // Mirrors the loading pattern from src/qa/static-signal/symbols.ts.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const Parser = (await import("web-tree-sitter")).default;
       await (Parser as { init(): Promise<void> }).init();
-      // Resolve the WASM grammar directory the same way symbols.ts does.
       const _require = createRequire(import.meta.url);
       let wasmPath: string;
       try {
@@ -141,7 +101,7 @@ function getTsParser(): Promise<TsParser | null> {
           "[OpenApiHttpResolver] tree-sitter-wasms not installed — enclosing-method extraction will use fallback backward scan. Install tree-sitter-wasms@0.1.13 for accurate results.",
           err instanceof Error ? err.message : String(err),
         );
-        return null; // tree-sitter-wasms not installed — fail-open
+        return null; /* tree-sitter-wasms not installed — fail-open */
       }
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
       const language = await (Parser as any).Language.load(wasmPath);
@@ -151,7 +111,6 @@ function getTsParser(): Promise<TsParser | null> {
       parser.setLanguage(language);
       return parser as TsParser;
     } catch (err) {
-      // web-tree-sitter or WASM missing — degrade gracefully to backward scan.
       console.warn(
         "[OpenApiHttpResolver] web-tree-sitter failed to load — enclosing-method extraction will use fallback backward scan. Install web-tree-sitter@0.20.8 for accurate results.",
         err instanceof Error ? err.message : String(err),
@@ -177,8 +136,6 @@ function walkUpToMethod(node: TsSyntaxNode | null): string | null {
   let cur = node?.parent ?? null;
   while (cur !== null) {
     if (ENCLOSING_NODE_TYPES.has(cur.type)) {
-      // Find the name child: for method_definition it is a child with fieldName "name";
-      // for function_declaration it is the identifier child.
       for (const child of cur.namedChildren) {
         if (child.type === "property_identifier" || child.type === "identifier") {
           const name = child.text;
@@ -186,8 +143,6 @@ function walkUpToMethod(node: TsSyntaxNode | null): string | null {
         }
       }
     } else if (cur.type === "variable_declarator") {
-      // `const listOrders = () => ...` — name is the identifier child of variable_declarator.
-      // The arrow_function is never in ENCLOSING_NODE_TYPES because it has no name child.
       for (const child of cur.namedChildren) {
         if (child.type === "identifier") {
           const name = child.text;
@@ -200,7 +155,6 @@ function walkUpToMethod(node: TsSyntaxNode | null): string | null {
   return null;
 }
 
-// Maximum number of characters to scan backward — retained as fallback when tree-sitter unavailable.
 const BACKWARD_SCAN_LIMIT = 2048;
 
 /** Fallback backward-scan heuristic: scan the text before `matchIndex` for the last
@@ -209,9 +163,6 @@ const BACKWARD_SCAN_LIMIT = 2048;
 export function extractEnclosingMethodFallback(text: string, matchIndex: number): string | null {
   const start = Math.max(0, matchIndex - BACKWARD_SCAN_LIMIT);
   const slice = text.slice(start, matchIndex);
-  // Scan for the last opening-brace-preceded by a named signature.
-  // This heuristic is known to mis-attribute RxJS operators (catchError, switchMap) —
-  // it is retained ONLY as a fallback when tree-sitter is unavailable.
   const METHOD_DECL_RE = /\b(?:async\s+)?([a-zA-Z_$][a-zA-Z0-9_$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::[^{]*)?\s*\{/g;
   let lastName: string | null = null;
   for (let mm; (mm = METHOD_DECL_RE.exec(slice)) !== null;) {
@@ -239,12 +190,12 @@ async function buildEnclosingMethodMap(
   const result = new Map<number, string | null>();
   if (matchIndices.length === 0) return result;
   const parser = await getTsParser();
-  if (!parser) return result; // tree-sitter unavailable — fallback will handle it
+  if (!parser) return result;
   let tree: { rootNode: { namedDescendantForIndex(i: number): TsSyntaxNode } };
   try {
     tree = parser.parse(text);
   } catch {
-    return result; // parse error — fallback handles it
+    return result;
   }
   for (const idx of matchIndices) {
     try {
@@ -267,23 +218,19 @@ async function extractEgress(
   frontCallSite: HttpBoundaryProfile["frontCallSite"],
 ): Promise<EgressCallSite[]> {
   const extractor = CallSiteCatalog[frontCallSite.kind];
-  if (!extractor) return []; // unknown call-site kind in config — fail-open, no match
+  if (!extractor) return []; /* unknown call-site kind in config — fail-open, no match */
 
   const result: EgressCallSite[] = [];
   for (const full of apiFiles) {
     let text: string;
     try { text = readFileSync(full, "utf8"); } catch { continue; }
-    const relFile = full.slice(mirrorDir.length + 1); // make repo-relative
+    const relFile = full.slice(mirrorDir.length + 1);
 
-    // Collect all match indices first, then resolve enclosing methods in one tree parse.
     const callSites: CallSiteOccurrence[] = extractor(text, frontCallSite);
 
-    // Build enclosing-method map via tree-sitter (or empty map if unavailable).
     const enclosingMap = await buildEnclosingMethodMap(text, callSites.map((c) => c.index));
 
     for (const { index, verb, rawArg } of callSites) {
-      // Primary: tree-sitter AST walk (avoids RxJS-operator mis-attribution).
-      // Fallback: backward scan when tree-sitter is unavailable.
       let enclosingMethod: string | null;
       if (enclosingMap.has(index)) {
         enclosingMethod = enclosingMap.get(index) ?? null;
@@ -303,8 +250,7 @@ async function extractEgress(
 }
 
 export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
-  // Compiled once from the injected profile — the ONLY place these app-specific shapes are
-  // read from config rather than hardcoded (Invariant #1).
+  /* Compiled once from the injected profile — the ONLY place these app-specific shapes are read from config rather than hardcoded (Invariant #1). */
   private readonly serviceOfRepoSlug: (slug: string) => string;
   private readonly matchServicePrefix: (path: string) => PrefixMatch | null;
   private readonly isFrontEgressFile: (filename: string) => boolean;
@@ -324,12 +270,8 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
   }
 
   async resolveLinks(system: RepoRef[], front: RepoRef): Promise<ResolveLinksResult> {
-    // --- INGRESS: parse each backend's OpenAPI ---
     const ingress: IngressOp[] = [];
     const knownServices = new Set<string>();
-    // Built once here (service → repo) so the JOIN below can look up the backend repo for a
-    // matched service in O(1) instead of re-scanning `system` with .find() per call-site
-    // (previously O(egress × system)).
     const repoOfService = new Map<string, RepoRef>();
     for (const repo of system) {
       const openapiPath = join(repo.mirrorDir, this.profile.openApiPath);
@@ -341,36 +283,28 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
       ingress.push(...parseOpenApiYaml(service, content));
     }
 
-    // --- EGRESS: scan front egress files matching profile.frontFiles ---
     const apiFiles = walkRepoFiles(front.mirrorDir, (name) => this.isFrontEgressFile(name));
     const consts = buildConstMap(apiFiles);
     const egress = await extractEgress(apiFiles, front.mirrorDir, consts, this.profile.frontCallSite);
 
-    // --- JOIN: classify each call-site ---
     const links: ServiceLink[] = [];
     const drift: ContractDrift[] = [];
     const external: ExternalCall[] = [];
     const unresolved: UnresolvedCall[] = [];
 
     for (const e of egress) {
-      // Unresolvable path (dynamic/method-param arg)
       if (e.path === null) {
         unresolved.push({ rawArg: e.rawArg, file: e.file });
         continue;
       }
 
-      // Strip service prefix via the config-supplied servicePrefixTemplate
       const m = this.matchServicePrefix(e.path);
       if (!m) {
-        // No recognized service prefix → unresolved (bare path, not service-routed).
-        // Note: semantically these could also be "external" (e.g. absolute URLs like "https://..."),
-        // but without a service prefix we cannot classify the target — unresolved is the safe bucket.
         unresolved.push({ rawArg: e.rawArg, file: e.file });
         continue;
       }
       const { service, resource } = m;
 
-      // External service (not in the indexed repo set)
       if (!knownServices.has(service)) {
         external.push({
           path: e.path,
@@ -380,29 +314,20 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
         continue;
       }
 
-      // Try structural segment match against the backend contract
       const resourceSegs = segs(resource);
       const op = findOp(ingress, service, e.verb, resourceSegs);
       if (op) {
-        // Build ServiceLink
         const fromRef: ServiceSymbolRef = {
           repo: front.repo,
           file: e.file,
-          // Level 2: from.symbol = enclosing method name (tells the generator which front flow to exercise).
-          // Falls back to rawArg when the backward scan finds no enclosing method (e.g. top-level code).
           symbol: e.enclosingMethod ?? e.rawArg,
         };
-        // Look up the backend repo for this service from the map built once in the ingress
-        // loop (single source of truth via serviceOfRepo, O(1) instead of a per-call-site scan).
         const backendRepo = repoOfService.get(service);
         const toRef: ServiceSymbolRef = {
           repo: backendRepo?.repo ?? `service:${service}`,
           file: this.profile.openApiPath,
           symbol: op.operationId,
         };
-        // Confidence: 1.0 only for all-literal/explicit front segments.
-        // When a {p} placeholder (unresolved method param) was matched against a contract {param}
-        // segment, lower the confidence: the match is structurally valid but not statically proven.
         const hasPlaceholderSegment = resourceSegs.some((s) => s === "{p}");
         const consumedPlaceholder = hasPlaceholderSegment && op.segs.some(isParam);
         const confidence = consumedPlaceholder ? 0.6 : 1.0;
@@ -415,7 +340,6 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
           source: "openapi-http",
         });
       } else {
-        // Known service but no matching operation → contract drift
         drift.push({
           from: {
             repo: front.repo,

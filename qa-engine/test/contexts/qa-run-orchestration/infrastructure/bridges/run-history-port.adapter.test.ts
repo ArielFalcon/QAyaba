@@ -1,10 +1,3 @@
-// test/contexts/qa-run-orchestration/infrastructure/bridges/run-history-port.adapter.test.ts
-// RED-first (Task E.0): RunHistoryPortAdapter — a REAL save(outcome). NO sibling adapter exists
-// (grep-confirmed zero `implements RunHistoryPort`; the legacy's own control-plane store lives at
-// src/server/history.ts, which qa-engine must NOT import — this inverts the leaky dynamic import()
-// at pipeline.ts:487-619 with an actual port, not a re-coupling). No control-plane package exists
-// under packages/ either, so this is a minimal in-memory + optional file-backed store, per the
-// plan's own fallback instruction.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
