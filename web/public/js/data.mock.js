@@ -114,6 +114,7 @@ window.QayabaMockData = (function () {
   const runs = [
     {
       id: 'r-1841', app: 'web-app', sha: '9f6edf2', verdict: 'pass', mode: 'diff',
+      workforce: { producer: 'sidekick', delegations: 1, repairs: 0, failures: 0, avgMs: 69000 },
       message: 'feat(map): cluster nearby pins at low zoom', author: 'maria',
       time: '4m ago', specs: 4, reviewer: 'approved', decision: 'PR #182 · auto-merge',
       branch: 'DEV', duration: '2m 18s', coverage: 'covered', oracle: '0.82',
@@ -218,6 +219,20 @@ window.QayabaMockData = (function () {
 
   // Headline counters.
   const stats = { runs7d: 128, passRate: 0.86, specsAdded: 41, openIssues: 3, watching: 3 };
+
+  // Multi-agent coordination (see /api/v1/coordination-events): per-run delegation samples for
+  // a representative subset (2 runs) + the fleet block the SIGNALS panel reads.
+  const coordinationEvents = [
+    { runId: 'r-1841', kind: 'proposal', action: 'delegate', capability: 'sidekick-standard', reason: 'change analysis suggests sidekick (fileThreshold=8)', at: Date.now() - 240000 },
+    { runId: 'r-1841', kind: 'delegation', action: 'delegate', capability: 'sidekick-standard', reason: 'sidekick status=completed-with-concerns', delegationId: 'r-1841-pre-generate', attempt: 1, durationMs: 69000, at: Date.now() - 180000 },
+    { runId: 'r-1841', kind: 'outcome', action: 'delegate', capability: 'sidekick-standard', reason: 'pipeline verdict=pass', finalOutcome: 'pass', reviewOutcome: 'approved', escalations: 0, durationMs: 162000, at: Date.now() - 120000 },
+    { runId: 'r-1780', kind: 'delegation', action: 'retry-sidekick', capability: 'sidekick-standard', reason: 'fix-loop-regen sidekick status=failed', delegationId: 'r-1780-fix-loop-regen', attempt: 1, durationMs: 120000, failureClass: 'fail', at: Date.now() - 900000 },
+  ];
+  const coordinationSignals = {
+    measured: true, totalRuns: 8, delegateRuns: 5,
+    escalationRate: 0.2, contractFailureRate: 0.2, avgDelegationMs: 96000,
+  };
+
 
   // Live engine telemetry — the Prometheus gauges + health poller from the engine.
   const live = {
@@ -393,6 +408,7 @@ window.QayabaMockData = (function () {
       regenRecovered: { v: 11, desc: 'runs where regeneration recovered coverage' },
       staticRejected: { v: 4, desc: 'invalid specs caught by the static gate' },
     },
+    coordination: coordinationSignals,
   };
 
   // ── Reports · ad-hoc generator (NL templates, interestingness-ranked) ──
@@ -411,5 +427,6 @@ window.QayabaMockData = (function () {
   };
 
   return { models, apps, running, runs, stats, live, verdictMix, trend, modes, flywheel, rules, gates,
+    coordinationEvents, coordinationSignals,
     histories, suite, engram, signals, fleetErrorClasses, ledger, integrity, reports };
 })();

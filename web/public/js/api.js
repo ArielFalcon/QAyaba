@@ -84,14 +84,17 @@ window.QayabaConsole = (function () {
     intelligence: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/intelligence'),
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
     agentModels: (provider) => req('GET', '/agent/models?provider=' + encodeURIComponent(provider || '')),
+    // Multi-agent coordination audit tail: one bounded request per dashboard load; the
+    // JSONL ledger it reads is the same artifact the engine writes (read-only tail, cap 1000).
+    coordinationEvents: () => req('GET', '/coordination-events?limit=1000'),
   };
 
   const live = {
     // Composes the whole dashboard model from the control API. For a fleet of a
     // few apps this fan-out is cheap; lazily-load per view later if it grows.
     async loadAll() {
-      const [apps, queue, signals] = await Promise.all([
-        ep.listApps(), ep.queue(), ep.signals().catch(() => null),
+      const [apps, queue, signals, coordination] = await Promise.all([
+        ep.listApps(), ep.queue(), ep.signals().catch(() => null), ep.coordinationEvents().catch(() => null),
       ]);
       const names = apps.map((a) => a.name);
       const perApp = await Promise.all(names.map((n) => Promise.all([
@@ -101,7 +104,12 @@ window.QayabaConsole = (function () {
       ])));
       const runsByApp = {}, trendsByApp = {}, intelByApp = {};
       names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; });
-      return mapModel({ apps, queue, signals, runsByApp, trendsByApp, intelByApp });
+      let runningRecord = null;
+      if (queue && queue.running && queue.running.id) {
+        const fromApp = (runsByApp[queue.running.app] || []).find((r) => r.id === queue.running.id);
+        runningRecord = fromApp || await ep.getRun(queue.running.id).catch(() => null);
+      }
+      return mapModel({ apps, queue, signals, coordination, runsByApp, trendsByApp, intelByApp, runningRecord });
     },
     // SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
     // variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
@@ -128,7 +136,14 @@ window.QayabaConsole = (function () {
       return () => es.close();
     },
     ask(runId, question) { return ep && req('POST', '/runs/' + encodeURIComponent(runId) + '/ask', { question: question }).then((r) => (r && r.answer) || null); },
-    createRun(input) { return req('POST', '/runs', { app: input.app, mode: input.mode, sha: input.sha || undefined, target: input.target || 'e2e' }); },
+    createRun(input) { return req('POST', '/runs', {
+      app: input.app,
+      mode: input.mode,
+      sha: input.sha || undefined,
+      target: input.target || 'e2e',
+      commits: input.commits || undefined,
+      guidance: input.guidance || undefined,
+    }); },
     cancelRun(id) { return req('DELETE', '/runs/' + encodeURIComponent(id)); },
   };
 
@@ -157,17 +172,37 @@ window.QayabaConsole = (function () {
     }));
     const runs = [].concat.apply([], raw.apps.map((a) => (raw.runsByApp[a.name] || []).map(mapRun)))
       .sort((x, y) => (y._at || 0) - (x._at || 0));
+    // Coordination workforce: attach to every run the events describe. Producer comes from the
+    // run's outcome (the authoritative boundary), the rest from its delegation samples.
+    const coordinationEvents = (raw.coordination && raw.coordination.events)
+      || (window.QayabaMockData && window.QayabaMockData.coordinationEvents) || [];
+    const coordByRun = {};
+    coordinationEvents.forEach((e) => { (coordByRun[e.runId] = coordByRun[e.runId] || []).push(e); });
+    runs.forEach((r) => { r.workforce = deriveWorkforce(coordByRun[r.id]); });
     const runningRef = raw.queue && raw.queue.running;
-    const running = runningRef ? (runs.find((r) => r.id === runningRef.id) || null) : null;
+    const rawRunning = raw.runningRecord
+      || (runningRef && (raw.runsByApp[runningRef.app] || []).find((r) => r.id === runningRef.id))
+      || null;
+    // __live marks the mapped record as the REAL in-flight run: the live detail view must
+    // stay off the mock simulation (mock path never reaches mapModel).
+    const mappedRunning = rawRunning ? Object.assign(mapRun(rawRunning), { __live: true }) : null;
+    const F = window.QayabaFormat || {};
+    const running = F.mergeLiveRun
+      ? F.mergeLiveRun(mappedRunning, m.running)
+      : mappedRunning;
     return {
       models: m.models, // TODO(server): expose generator/reviewer model ids (see /agent/config)
       apps: apps,
-      running: running || m.running, // TODO(server): live run needs plan/currentTest/liveLog (getRun on the running id)
+      running: running,
       runs: runs,
       stats: m.stats,           // TODO(server): runs7d/passRate/specsAdded/openIssues — fleet rollup endpoint
       live: mapLive(raw.queue), // partial; health/sessions/mirrors/webhook need an engine-status endpoint
       verdictMix: m.verdictMix, // TODO(server): fleet 7d verdict distribution
       signals: mapSignals(raw.signals) || m.signals, // see API.md: SignalsView is leaner than the hero needs
+      coordination: {
+        byRun: coordByRun,
+        signals: (raw.signals && raw.signals.coordination) || (window.QayabaMockData && window.QayabaMockData.coordinationSignals) || null,
+      },
       fleetErrorClasses: m.fleetErrorClasses, // TODO(server): fleet-wide ErrorClass rollup
       flywheel: m.flywheel,     // TODO(server): learning flywheel counters
       gates: m.gates,           // TODO(server): 4-layer quality-gate effectiveness
@@ -193,15 +228,57 @@ window.QayabaConsole = (function () {
     };
   }
   function mapRun(r) {
+    // Runs still in flight carry no verdict — map them to 'running' so the fleet list renders
+    // a live tag instead of an empty verdict cell that reads like a cancelled run.
+    const statusVerdict = !r.verdict && r.status === 'running' ? 'running' : r.verdict;
+    const cases = (r.cases || []).map((c) => ({
+      name: c.name,
+      s: c.status === 'pass' ? 'pass' : c.status === 'running' ? 'running' : (c.status || '').toLowerCase() === 'flaky' ? 'fail' : 'fail',
+      ms: c.durationMs,
+    }));
     return {
-      id: r.id, app: r.app, sha: r.sha, verdict: r.verdict, mode: r.mode,
+      id: r.id, app: r.app, sha: r.sha, verdict: statusVerdict, mode: r.mode,
       message: r.note || r.step || '', author: '', time: relTime(r.at), _at: Date.parse(r.at) || 0,
+      mins: mapRunElapsed(r.stepStartedAt || r.startedAt || r.at), _step: r.step || '',
       specs: (r.specs || []).length, reviewer: '—', decision: r.note || '',
       branch: r.ref || 'DEV', duration: '', coverage: '—', oracle: '—',
-      stages: [], // TODO(server): pipeline stage states — derive from RunRecord.step or activity
+      stages: pipelineStageStates(r.step), cases: cases, step: r.step || '',
       changed: [], newSpecs: (r.specs || []).map((s) => ({ file: s.name, status: r.verdict, n: 1 })),
       log: (r.logs || []).map((l) => ['›', l]),
     };
+  }
+  // Canonical stage order — real RunRecords expose only the CURRENT step; progress renders by
+  // position (mirrors the engine's own run flow order). 'step' strings vary; aliases normalize.
+  const PIPELINE_STAGES = ['classify', 'setup', 'generate', 'validate', 'execute', 'decide'];
+  function pipelineStageStates(currentStep) {
+    const normalized = String(currentStep || '').toLowerCase();
+    const idx = PIPELINE_STAGES.indexOf(normalized);
+    const cur = idx >= 0 ? idx : (currentStep ? PIPELINE_STAGES.length - 1 : -1);
+    return PIPELINE_STAGES.map((n, i) => [n, cur < 0 ? 'pending' : (i < cur ? 'done' : i === cur ? 'active' : 'pending')]);
+  }
+  function mapRunElapsed(at) {
+    const t = Date.parse(at); return t ? Math.round((Date.now() - t) / 1000) : 0;
+  }
+  // Derive the run's workforce from its coordination events. Absent events → null (pre-coordination
+  // runs, or a run whose router chose direct without delegating). producer: sidekick only when the
+  // outcome says delegate — a sidekick whose result was rejected falls back to lead, honestly.
+  function deriveWorkforce(events) {
+    if (!events || !events.length) return null;
+    let producer = 'lead';
+    let delegations = 0, repairs = 0, failures = 0, lastMs = null;
+    const times = [];
+    events.forEach((e) => {
+      if (e.kind === 'outcome' && e.action === 'delegate') producer = 'sidekick';
+      if (e.kind === 'delegation') {
+        delegations++;
+        if (typeof e.durationMs === 'number') times.push(e.durationMs);
+        if (String(e.delegationId || '').indexOf('fix-loop') >= 0) repairs++;
+        if (/status=failed/.test(String(e.reason || ''))) failures++;
+      }
+    });
+    if (!delegations && producer === 'lead') return null;
+    const avgMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : null;
+    return { producer: producer, delegations: delegations, repairs: repairs, failures: failures, avgMs: avgMs };
   }
   function mapLive(queue) {
     const m = (window.QayabaMockData && window.QayabaMockData.live) || {};
@@ -213,6 +290,7 @@ window.QayabaConsole = (function () {
     // are NOT in SignalsView today → see API.md "Overview gap".
     const vo = s.valueOracle || {};
     const rp = s.reviewer || {};
+    const co = s.coordination || null;
     const mock = (window.QayabaMockData && window.QayabaMockData.signals) || {};
     const score = vo.avgScore;
     const passRate = rp.passRate;
@@ -220,6 +298,7 @@ window.QayabaConsole = (function () {
       valueOracle: { v: score == null ? null : score, prev: score == null ? null : score, baseline: score == null ? null : score, series: score == null ? [] : [score] },
       reviewerPass: { v: passRate == null ? null : passRate, prev: passRate == null ? null : passRate, series: passRate == null ? [] : [passRate] },
       runs: { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: vo.measuredRuns || 0, prevTotal: vo.totalRuns || 0, series: [vo.measuredRuns || 0] },
+      coordination: co,
       suitesGreen: mock.suitesGreen || { v: 0, total: 0, prev: 0, series: [0] },
       prsAutoMerged: mock.prsAutoMerged || { v: 0, prev: 0, series: [0] },
       issuesOpen: mock.issuesOpen || { v: 0, prev: 0, series: [0] },

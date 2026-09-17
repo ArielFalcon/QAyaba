@@ -8,6 +8,7 @@ type Format = {
   fixed: (n: unknown, digits: number, empty?: string) => string;
   multiplierLabel: (cur: unknown, prev: unknown) => string;
   uniqueAbbrevs: (shas: string[], minLen?: number) => string[];
+  shortRepo: (repo: unknown) => string;
   renderMarkdown: (md: unknown) => string;
   pickChatAnswer: (opts: {
     mode: string;
@@ -16,6 +17,15 @@ type Format = {
     canned: string;
   }) => { text: string; kind: "assistant" | "error" | "canned" };
   mergeLiveRun: (real: Record<string, unknown> | null, mock: Record<string, unknown>) => Record<string, unknown> | null;
+  triggerExtras: (mode: unknown) => { sha: boolean; delta: boolean; guidance: boolean };
+  clampDiffCommits: (n: unknown) => number;
+  triggerPayload: (input: {
+    app: string;
+    mode: string;
+    sha?: string;
+    commits?: number | string;
+    guidance?: string;
+  }) => Record<string, unknown>;
 };
 
 function loadFormat(): Format {
@@ -69,6 +79,15 @@ test("uniqueAbbrevs does not lengthen when the same SHA repeats (re-runs of one 
   assert.deepEqual(F.uniqueAbbrevs([sha, sha, sha]), ["8d703ca", "8d703ca", "8d703ca"]);
 });
 
+test("shortRepo is the repository name, not owner/name", () => {
+  const F = loadFormat();
+  assert.equal(F.shortRepo("ArielFalcon/portfolio"), "portfolio");
+  assert.equal(F.shortRepo("spring-petclinic/spring-petclinic-microservices"), "spring-petclinic-microservices");
+  assert.equal(F.shortRepo("portfolio"), "portfolio");
+  assert.equal(F.shortRepo("git@github.com:org/app.git"), "app");
+  assert.equal(F.shortRepo(""), "");
+});
+
 test("renderMarkdown paints bold, code, lists and headings (TUI parity)", () => {
   const F = loadFormat();
   const html = F.renderMarkdown("## Why\n\nThe spec **failed** on `login.spec.ts`.\n\n- timeout\n- selector");
@@ -107,6 +126,54 @@ test("mock chat still uses the canned demo answer", () => {
   const mock = F.pickChatAnswer({ mode: "mock", apiAnswer: null, canned });
   assert.equal(mock.kind, "canned");
   assert.equal(mock.text, canned);
+});
+
+test("triggerExtras shows SHA+delta only for diff, guidance only for manual", () => {
+  const F = loadFormat();
+  const extras = (mode: string) => {
+    const e = F.triggerExtras(mode);
+    return { sha: e.sha, delta: e.delta, guidance: e.guidance };
+  };
+  assert.deepEqual(extras("diff"), { sha: true, delta: true, guidance: false });
+  assert.deepEqual(extras("manual"), { sha: false, delta: false, guidance: true });
+  assert.deepEqual(extras("complete"), { sha: false, delta: false, guidance: false });
+  assert.deepEqual(extras("exhaustive"), { sha: false, delta: false, guidance: false });
+});
+
+test("clampDiffCommits stays in the API 1–20 window", () => {
+  const F = loadFormat();
+  assert.equal(F.clampDiffCommits(1), 1);
+  assert.equal(F.clampDiffCommits(4), 4);
+  assert.equal(F.clampDiffCommits(0), 1);
+  assert.equal(F.clampDiffCommits(21), 20);
+  assert.equal(F.clampDiffCommits("8"), 8);
+});
+
+test("triggerPayload omits SHA/commits except in diff, and guidance except in manual", () => {
+  const F = loadFormat();
+  const body = (input: { app: string; mode: string; sha?: string; commits?: number; guidance?: string }) => {
+    const p = F.triggerPayload(input);
+    return JSON.parse(JSON.stringify(p)) as Record<string, unknown>;
+  };
+  assert.deepEqual(body({ app: "portfolio", mode: "complete", sha: "8d703ca", commits: 5, guidance: "x" }), {
+    app: "portfolio",
+    mode: "complete",
+  });
+  assert.deepEqual(body({ app: "portfolio", mode: "diff", sha: "", commits: 1 }), {
+    app: "portfolio",
+    mode: "diff",
+  });
+  assert.deepEqual(body({ app: "portfolio", mode: "diff", sha: "8d703ca", commits: 4 }), {
+    app: "portfolio",
+    mode: "diff",
+    sha: "8d703ca",
+    commits: 4,
+  });
+  assert.deepEqual(body({ app: "portfolio", mode: "manual", guidance: "  test the contact form  " }), {
+    app: "portfolio",
+    mode: "manual",
+    guidance: "test the contact form",
+  });
 });
 
 test("mergeLiveRun keeps the real run id (never the mock r-1842)", () => {

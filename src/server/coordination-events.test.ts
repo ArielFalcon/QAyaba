@@ -31,7 +31,9 @@ test("parseCoordinationLedger: tail + filter + truncation flag", () => {
   const limited = parseCoordinationLedger(raw, { limit: 2 });
   assert.equal(limited.events.length, 2);
   assert.equal(limited.truncated, true);
-  assert.equal(limited.events[0].kind, "outcome");
+  const firstTail = limited.events[0];
+  assert.ok(firstTail, "expected the tail to be non-empty");
+  assert.equal(firstTail.kind, "outcome");
 });
 
 test("readCoordinationLedger: missing file = empty ledger (fresh install), never throws", () => {
