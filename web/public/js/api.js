@@ -112,12 +112,21 @@ window.QayabaConsole = (function () {
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
      */
+    /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
+       variants onto {onStep,onPlan,onCase,onLog,onVerdict}. Transport is a fetch stream,
+       not EventSource: the control plane is Bearer-authed and EventSource cannot send an
+       Authorization header, so every stream 401'd and the live view froze. Runs on the
+       same Last-Event-ID resumable protocol the server already ships (replay from seq).
+     */
     subscribeRun(runId, h) {
       h = h || {};
-      const es = new EventSource(API + '/runs/' + encodeURIComponent(runId) + '/events');
-      es.onmessage = (m) => {
-        let ev; try { ev = JSON.parse(m.data); } catch (e) { return; }
+      const ctrl = new AbortController();
+      let lastSeq = null;
+      let sawTerminal = false;
+      const handleMessage = (ev) => {
         const b = ev && ev.body ? ev.body : ev; if (!b || !b.type) return;
+        if (typeof ev === 'object' && ev !== null && typeof ev.seq === 'number') lastSeq = ev.seq;
+        if (b.type === 'run.verdict') sawTerminal = true;
         switch (b.type) {
           case 'step.changed': h.onStep && h.onStep(b.step, b.detail); break;
           case 'plan.updated': h.onPlan && h.onPlan(b.todos); break;
@@ -131,8 +140,61 @@ window.QayabaConsole = (function () {
           default: break; /* run.started / agent.activity / spec.written / test.discovered / reviewer.verdict / coverage.computed */
         }
       };
-      es.onerror = () => { h.onError && h.onError(); };
-      return () => es.close();
+      const stream = async () => {
+        try {
+          const res = await fetch(API + '/runs/' + encodeURIComponent(runId) + '/events', {
+            headers: headers(),
+            credentials: 'include',
+            signal: ctrl.signal,
+          });
+          if (res.status === 401) {
+            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
+            window.location.hash = '#login';
+            throw new Error('Authentication required');
+          }
+          if (!res.ok || !res.body) { h.onError && h.onError(); return; }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let idx;
+            while ((idx = buf.indexOf('\n\n')) !== -1) {
+              const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+              /* SSE frame data: one JSON object per line(s) after a "data:" prefix */
+              const dataLines = frame.split('\n').filter((l) => l.startsWith('data:'));
+              if (!dataLines.length) continue;
+              const payload = dataLines.map((l) => l.slice(5).trim()).join('\n');
+              let ev; try { ev = JSON.parse(payload); } catch (e) { continue; }
+              handleMessage(ev);
+            }
+          }
+          /* Stream ended: the server closes on run.verdict (terminal — do NOT reconnect, else
+             the resubscribe loop hammers a finished run) or on a dropped connection mid-run
+             (retry resumably via the Last-Event-ID replay the durable poll already ships). */
+          if (sawTerminal) return;
+          if (lastSeq != null) await new Promise((r) => setTimeout(r, 1000));
+          if (!ctrl.signal.aborted) return stream();
+        } catch (err) {
+          if (ctrl.signal.aborted) return;
+          h.onError && h.onError();
+          /* transient network drop — resume through the durable poll (Last-Event-ID replay) */
+          await new Promise((r) => setTimeout(r, 2000));
+          if (!ctrl.signal.aborted) return stream();
+        }
+      };
+      /* send the resume point from the start so a RE-subscribe never loses events */
+      const headers = function () {
+        const h2 = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
+        if (lastSeq != null) h2['Last-Event-ID'] = String(lastSeq);
+        const t = cfg.token || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qayaba_token') : null);
+        if (t) h2.Authorization = 'Bearer ' + t;
+        return h2;
+      };
+      stream();
+      return () => ctrl.abort();
     },
     ask(runId, question) { return ep && req('POST', '/runs/' + encodeURIComponent(runId) + '/ask', { question: question }).then((r) => (r && r.answer) || null); },
     createRun(input) { return req('POST', '/runs', {
