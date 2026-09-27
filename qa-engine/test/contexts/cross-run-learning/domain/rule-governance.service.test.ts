@@ -132,3 +132,57 @@ test("topRules: breaks ties deterministically by id (same result regardless of i
   assert.deepEqual(forward.map((r) => r.id), reversed.map((r) => r.id));
   assert.deepEqual(forward.map((r) => r.id), ["a", "b"]);
 });
+
+/* R3: exploration slots. Restored from the deleted shell (selectForRetrieval): once active rules
+   fill the retrieval limit, candidates would otherwise never be retrieved again, so they could
+   never accumulate the outcomes that earn (or deny) promotion. The last EXPLORATION_SLOTS
+   positions are reserved for the FRESHEST not-yet-picked candidates, replacing (never appending
+   past) the tail of the ranked result.
+ */
+test("topRules: exploration floor reserves a slot for the freshest excluded candidate without growing past limit (regression: R3)", () => {
+  const rules = [
+    ruleWithMeta("active", 0.9, "a1", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("active", 0.9, "a2", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.5, "c-high", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.3, "c-mid", "E-X", null, "2026-02-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.1, "c-low-but-fresh", "E-X", null, "2026-03-01T00:00:00.000Z"),
+  ];
+  /* Without the exploration floor, plain ranking by successRate would pick a1, a2, c-high, c-mid
+     and permanently exclude c-low-but-fresh (lowest successRate) from ever being retrieved again. */
+  const top = svc.topRules(rules, 4);
+  assert.equal(top.length, 4, "must never grow past limit");
+  assert.deepEqual(
+    top.map((r) => r.trigger),
+    ["a1", "a2", "c-high", "c-low-but-fresh"],
+    "the freshest excluded candidate takes the reserved exploration slot, displacing the older, higher-successRate c-mid",
+  );
+});
+
+test("topRules: exploration floor is capped at EXPLORATION_SLOTS even with many excluded candidates (regression: R3)", () => {
+  const rules = [
+    ruleWithMeta("active", 0.9, "a1", "E-X", null),
+    ruleWithMeta("active", 0.9, "a2", "E-X", null),
+    ruleWithMeta("candidate", 0.9, "c1", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.9, "c2", "E-X", null, "2026-01-02T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.9, "c3", "E-X", null, "2026-01-03T00:00:00.000Z"),
+  ];
+  /* 2 active + 3 candidates, limit 4: the exploration floor must REPLACE, not append. */
+  const top = svc.topRules(rules, 4);
+  assert.equal(top.length, 4);
+});
+
+test("topRules: no candidates present -> exploration never fires, plain truncation applies (regression: R3 edge case)", () => {
+  const rules = Array.from({ length: 6 }, (_, i) => ruleWithMeta("active", 0.9 - i * 0.01, `a${i}`, "E-X", null));
+  const top = svc.topRules(rules, 3);
+  assert.equal(top.length, 3);
+  assert.deepEqual(top.map((r) => r.trigger), ["a0", "a1", "a2"], "highest successRate actives win, no exploration substitution when there are no candidates");
+});
+
+test("topRules: fewer eligible rules than the limit -> no truncation, exploration never fires (regression: R3 edge case)", () => {
+  const rules = [
+    ruleWithMeta("active", 0.9, "a1", "E-X", null),
+    ruleWithMeta("candidate", 0.2, "c1", "E-X", null),
+  ];
+  const top = svc.topRules(rules, 5);
+  assert.deepEqual(top.map((r) => r.trigger).sort(), ["a1", "c1"]);
+});

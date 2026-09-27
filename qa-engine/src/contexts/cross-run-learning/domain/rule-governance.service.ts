@@ -18,6 +18,14 @@ export interface RelevanceBias {
  */
 const RETRIEVAL_SUCCESS_RATE_WEIGHT = 10;
 
+/*
+ * Restored from the deleted shell (selectForRetrieval): how many of the last retrieval slots are
+ * reserved for unproven candidates once active rules alone would fill the limit. Without this, a
+ * candidate that never cracks the top `limit` by score is NEVER retrieved again — it can't
+ * accumulate the outcomes that earn (or deny) promotion, and the injected rule set ossifies.
+ */
+export const EXPLORATION_SLOTS = 2;
+
 export class RuleGovernanceService {
   rank(rules: readonly LearningRule[], bias?: (rule: LearningRule) => number, successRateWeight = 1): LearningRule[] {
     const score = bias ?? (() => 0);
@@ -48,6 +56,23 @@ export class RuleGovernanceService {
           return s;
         }
       : undefined;
-    return this.rank(rules.filter((r) => RETRIEVABLE.has(r.status)), bias, RETRIEVAL_SUCCESS_RATE_WEIGHT).slice(0, limit);
+    const eligible = rules.filter((r) => RETRIEVABLE.has(r.status));
+    const picked = this.rank(eligible, bias, RETRIEVAL_SUCCESS_RATE_WEIGHT).slice(0, limit);
+
+    /*
+     * Exploration floor: once `limit` slots are already filled by ranked rules, reserve the last
+     * EXPLORATION_SLOTS positions for the NEWEST candidates not already selected, so candidate
+     * turnover never stalls. Only replace when `picked` is actually FULL — splicing past the end
+     * would append and grow the result beyond `limit`.
+     */
+    if (eligible.length > limit && picked.length >= limit) {
+      const pickedIds = new Set(picked.map((r) => r.id));
+      const freshCandidates = eligible
+        .filter((r) => r.status === "candidate" && !pickedIds.has(r.id))
+        .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
+      const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length);
+      if (slots > 0) picked.splice(limit - slots, slots, ...freshCandidates.slice(0, slots));
+    }
+    return picked;
   }
 }
