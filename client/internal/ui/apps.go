@@ -2,7 +2,9 @@ package ui
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -48,7 +50,8 @@ func nextRole(r string) string {
 }
 
 /* Form field indices — fixed layout. version & prefix are optional (blank for code apps).
-   fAuthUser/fAuthPass only ever get focus when authMode == "basic" (see moveFormFocus). */
+   Environment Basic and app login are independent layers. Their credential rows are skipped
+   when that layer is off (see moveFormFocus). */
 const (
 	fName = iota
 	fURL
@@ -57,6 +60,9 @@ const (
 	fShadow
 	fReview
 	fPrefix
+	fEnvAuth
+	fEnvUser
+	fEnvPass
 	fAuth
 	fAuthUser
 	fAuthPass
@@ -89,11 +95,18 @@ type appAdminModel struct {
 	purge        bool
 	app          *contract.AppView
 	width        int
-	/* authMode is the DEV-environment HTTP Basic Auth gate ("disabled" | "basic") — Playwright
-	   httpCredentials, NOT app login. "basic" reveals userInput/passInput for DEV_ENV_USER/PASS. */
-	authMode  string
-	userInput textinput.Model
-	passInput textinput.Model
+	/* envBasic is the DEV host HTTP Basic layer (DEV_ENV_*). Independent of app login.
+	   authMode cycles disabled | form | mtls.
+	   form = app login (app-scoped QA_*_TEST_*).
+	   mtls = software PKCS#12 (app-scoped QA_*_CLIENT_CERT*).
+	   storedAuth is the kind already in the YAML, so an edit can clear it. */
+	envBasic     bool
+	authMode     string
+	storedAuth   string
+	envUserInput textinput.Model
+	envPassInput textinput.Model
+	userInput    textinput.Model
+	passInput    textinput.Model
 }
 
 func newOnboardModel(client *api.Client) appAdminModel {
@@ -105,8 +118,11 @@ func newOnboardModel(client *api.Client) appAdminModel {
 	m.prefixInput = appTextInput("qa-bot (optional)", 28)
 	m.manualInput = appTextInput("org/repo", 42)
 	m.authMode = "disabled"
-	m.userInput = appTextInput("env user", 28)
-	m.passInput = appTextInput("env password", 28)
+	m.envUserInput = appTextInput("env user", 28)
+	m.envPassInput = appTextInput("env password", 28)
+	m.envPassInput.EchoMode = textinput.EchoPassword
+	m.userInput = appTextInput("app user", 28)
+	m.passInput = appTextInput("app password", 28)
 	m.passInput.EchoMode = textinput.EchoPassword
 	return m
 }
@@ -128,6 +144,11 @@ func newEditAppModel(client *api.Client, app contract.AppView) appAdminModel {
 	m.versionInput.SetValue(app.VersionUrl)
 	m.prefixInput.SetValue(app.TestDataPrefix)
 	m.formCursor = 1
+	if app.AuthKind != nil && (*app.AuthKind == "form" || *app.AuthKind == "mtls") {
+		m.authMode = *app.AuthKind
+		m.storedAuth = *app.AuthKind
+		m.applyAuthPlaceholders()
+	}
 	m.nameInput.Blur()
 	m.baseInput.Focus()
 	return m
@@ -412,6 +433,10 @@ func (m appAdminModel) updateForm(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 		m.versionInput, cmd = m.versionInput.Update(msg)
 	case fPrefix:
 		m.prefixInput, cmd = m.prefixInput.Update(msg)
+	case fEnvUser:
+		m.envUserInput, cmd = m.envUserInput.Update(msg)
+	case fEnvPass:
+		m.envPassInput, cmd = m.envPassInput.Update(msg)
 	case fAuthUser:
 		m.userInput, cmd = m.userInput.Update(msg)
 	case fAuthPass:
@@ -432,23 +457,22 @@ func (m *appAdminModel) moveFormFocus(delta int) {
 	if m.formCursor > fSave {
 		m.formCursor = minCursor
 	}
-	/* The env user/password rows exist only when basic auth is selected; skip over them otherwise
-	   so tab/arrow navigation doesn't land on hidden fields. */
-	if m.authMode != "basic" {
-		for m.formCursor == fAuthUser || m.formCursor == fAuthPass {
-			m.formCursor += delta
-			if m.formCursor < minCursor {
-				m.formCursor = fSave
-			}
-			if m.formCursor > fSave {
-				m.formCursor = minCursor
-			}
+	/* Skip a credential pair while its layer is off. */
+	for m.skipsCredential(m.formCursor) {
+		m.formCursor += delta
+		if m.formCursor < minCursor {
+			m.formCursor = fSave
+		}
+		if m.formCursor > fSave {
+			m.formCursor = minCursor
 		}
 	}
 	m.nameInput.Blur()
 	m.baseInput.Blur()
 	m.versionInput.Blur()
 	m.prefixInput.Blur()
+	m.envUserInput.Blur()
+	m.envPassInput.Blur()
 	m.userInput.Blur()
 	m.passInput.Blur()
 	switch m.formCursor {
@@ -462,11 +486,25 @@ func (m *appAdminModel) moveFormFocus(delta int) {
 		m.versionInput.Focus()
 	case fPrefix:
 		m.prefixInput.Focus()
+	case fEnvUser:
+		m.envUserInput.Focus()
+	case fEnvPass:
+		m.envPassInput.Focus()
 	case fAuthUser:
 		m.userInput.Focus()
 	case fAuthPass:
 		m.passInput.Focus()
 	}
+}
+
+func (m appAdminModel) skipsCredential(cursor int) bool {
+	if !m.envBasic && (cursor == fEnvUser || cursor == fEnvPass) {
+		return true
+	}
+	if m.authMode == "disabled" && (cursor == fAuthUser || cursor == fAuthPass) {
+		return true
+	}
+	return false
 }
 
 func (m *appAdminModel) toggleFormValue() {
@@ -481,12 +519,29 @@ func (m *appAdminModel) toggleFormValue() {
 		m.shadow = !m.shadow
 	case fReview:
 		m.needsReview = !m.needsReview
+	case fEnvAuth:
+		m.envBasic = !m.envBasic
 	case fAuth:
-		if m.authMode == "basic" {
+		switch m.authMode {
+		case "disabled":
+			m.authMode = "form"
+		case "form":
+			m.authMode = "mtls"
+		default:
 			m.authMode = "disabled"
-		} else {
-			m.authMode = "basic"
 		}
+		m.applyAuthPlaceholders()
+	}
+}
+
+func (m *appAdminModel) applyAuthPlaceholders() {
+	switch m.authMode {
+	case "mtls":
+		m.userInput.Placeholder = "path to .p12"
+		m.passInput.Placeholder = "certificate passphrase"
+	default:
+		m.userInput.Placeholder = "app user"
+		m.passInput.Placeholder = "app password"
 	}
 }
 
@@ -506,27 +561,121 @@ func (m appAdminModel) save() (appAdminModel, tea.Cmd) {
 	}
 	versionURL := strings.TrimSpace(m.versionInput.Value())
 	prefix := strings.TrimSpace(m.prefixInput.Value())
+	env, envErr := m.collectedEnv()
+	if envErr != nil {
+		m.err = envErr.Error()
+		return m, nil
+	}
 	m.loading = true
 	m.err = ""
+	auth := m.authDeclaration()
+	clearAuth := m.mode == appAdminEdit && m.storedAuth != "" && m.authMode == "disabled"
 	if m.mode == appAdminEdit {
-		return m, updateAppCmd(m.client, m.appName(), name, m.repo, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, m.envVars())
+		return m, updateAppCmd(m.client, m.appName(), name, m.repo, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, env, auth, clearAuth)
 	}
-	in := buildCreateInput(m.selected, name, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, m.envVars())
+	in := buildCreateInput(m.selected, name, baseURL, versionURL, m.target, prefix, m.shadow, m.needsReview, env)
+	in.Auth = auth
 	return m, createAppCmd(m.client, in, name)
 }
 
-/* envVars returns the DEV-environment Basic Auth creds to persist (DEV_ENV_USER/PASS) when basic
-   auth is enabled with a non-empty user; nil otherwise. These feed Playwright httpCredentials —
-   the environment gate, not app login. */
+/* envVars returns text secrets for environment Basic and form login. mtls reads a file in
+   collectedEnv. nil when neither layer has a username. */
 func (m appAdminModel) envVars() map[string]string {
-	if m.authMode != "basic" {
+	out := map[string]string{}
+	if m.envBasic {
+		user := strings.TrimSpace(m.envUserInput.Value())
+		if user != "" {
+			out["DEV_ENV_USER"] = user
+			out["DEV_ENV_PASS"] = m.envPassInput.Value()
+		}
+	}
+	if m.authMode == "form" {
+		user := strings.TrimSpace(m.userInput.Value())
+		if user != "" {
+			prefix := authEnvPrefix(m.appName())
+			out[prefix+"TEST_USER"] = user
+			out[prefix+"TEST_PASS"] = m.passInput.Value()
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	user := strings.TrimSpace(m.userInput.Value())
-	if user == "" {
+	return out
+}
+
+func (m appAdminModel) collectedEnv() (map[string]string, error) {
+	if m.target == "code" {
+		return nil, nil
+	}
+	/* An edit with blank fields keeps the secrets already stored. Create must fill them. */
+	if m.envBasic && m.mode != appAdminEdit && strings.TrimSpace(m.envUserInput.Value()) == "" {
+		return nil, fmt.Errorf("environment username is required for basic auth")
+	}
+	if m.authMode == "form" && m.mode != appAdminEdit && strings.TrimSpace(m.userInput.Value()) == "" {
+		return nil, fmt.Errorf("app username is required for form login")
+	}
+	if m.authMode != "mtls" {
+		return m.envVars(), nil
+	}
+	path := strings.TrimSpace(m.userInput.Value())
+	if path == "" {
+		if m.mode == appAdminEdit {
+			return m.envVars(), nil
+		}
+		return nil, fmt.Errorf("certificate path is required")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read certificate: %w", err)
+	}
+	out := m.envVars()
+	if out == nil {
+		out = map[string]string{}
+	}
+	prefix := authEnvPrefix(m.appName())
+	out[prefix+"CLIENT_CERT"] = base64.StdEncoding.EncodeToString(raw)
+	out[prefix+"CLIENT_CERT_PASS"] = m.passInput.Value()
+	return out, nil
+}
+
+/* authDeclaration is nil for disabled and code mode. An edit that does not re-enter
+   credentials also sends nil so the server keeps the env-var names already stored.
+   Turning app login off on an app that had one sets clearAuth instead. */
+func (m appAdminModel) authDeclaration() *contract.AppAuthInput {
+	if m.target == "code" || m.authMode == "disabled" {
 		return nil
 	}
-	return map[string]string{"DEV_ENV_USER": user, "DEV_ENV_PASS": m.passInput.Value()}
+	if m.mode == appAdminEdit && strings.TrimSpace(m.userInput.Value()) == "" {
+		return nil
+	}
+	prefix := authEnvPrefix(m.appName())
+	switch m.authMode {
+	case "form":
+		userEnv := prefix + "TEST_USER"
+		passEnv := prefix + "TEST_PASS"
+		return &contract.AppAuthInput{Kind: "form", UsernameEnv: &userEnv, PasswordEnv: &passEnv}
+	case "mtls":
+		certEnv := prefix + "CLIENT_CERT"
+		passEnv := prefix + "CLIENT_CERT_PASS"
+		return &contract.AppAuthInput{Kind: "mtls", CertEnv: &certEnv, CertPassEnv: &passEnv}
+	default:
+		return nil
+	}
+}
+
+func authEnvPrefix(name string) string {
+	var b strings.Builder
+	b.WriteString("QA_")
+	for _, r := range strings.ToUpper(name) {
+		switch {
+		case r == '-' || r == ' ':
+			b.WriteByte('_')
+		case (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('_')
+	return b.String()
 }
 
 func (m appAdminModel) appName() string {
@@ -733,12 +882,23 @@ func (m appAdminModel) renderForm() string {
 		{fShadow, labelStyle.Render("shadow  ") + yesNo(m.shadow)},
 		{fReview, labelStyle.Render("review  ") + yesNo(m.needsReview)},
 		{fPrefix, labelStyle.Render("prefix  ") + m.prefixInput.View()},
-		{fAuth, labelStyle.Render("authentication ") + authModeLabel(m.authMode)},
+		{fEnvAuth, labelStyle.Render("env auth ") + yesNo(m.envBasic)},
 	}
-	if m.authMode == "basic" {
+	if m.envBasic {
 		rows = append(rows,
-			formRow{fAuthUser, labelStyle.Render("user     ") + m.userInput.View()},
-			formRow{fAuthPass, labelStyle.Render("password ") + m.passInput.View()},
+			formRow{fEnvUser, labelStyle.Render("env user ") + m.envUserInput.View()},
+			formRow{fEnvPass, labelStyle.Render("env pass ") + m.envPassInput.View()},
+		)
+	}
+	rows = append(rows, formRow{fAuth, labelStyle.Render("app login ") + authModeLabel(m.authMode)})
+	if m.authMode == "form" || m.authMode == "mtls" {
+		userLabel, passLabel := "user     ", "password "
+		if m.authMode == "mtls" {
+			userLabel, passLabel = "cert     ", "passphrase "
+		}
+		rows = append(rows,
+			formRow{fAuthUser, labelStyle.Render(userLabel) + m.userInput.View()},
+			formRow{fAuthPass, labelStyle.Render(passLabel) + m.passInput.View()},
 		)
 	}
 	rows = append(rows, formRow{fSave, "save"})
@@ -749,7 +909,7 @@ func (m appAdminModel) renderForm() string {
 		text := row.text
 		if row.cursor == m.formCursor {
 			marker = lipgloss.NewStyle().Foreground(colEmber).Render("▸ ")
-			if row.cursor == fTarget || row.cursor == fShadow || row.cursor == fReview || row.cursor == fAuth || row.cursor == fSave {
+			if row.cursor == fTarget || row.cursor == fShadow || row.cursor == fReview || row.cursor == fEnvAuth || row.cursor == fAuth || row.cursor == fSave {
 				text = lipgloss.NewStyle().Bold(true).Render(text)
 			}
 		}
@@ -766,10 +926,14 @@ func (m appAdminModel) renderForm() string {
 /* authModeLabel renders authMode as the row's display value, matching yesNo()'s styling
    convention (ok-styled when active, hint-styled for the disabled default). */
 func authModeLabel(mode string) string {
-	if mode == "basic" {
-		return okStyle.Render("basic auth")
+	switch mode {
+	case "form":
+		return okStyle.Render("username")
+	case "mtls":
+		return okStyle.Render("certificate")
+	default:
+		return hintStyle.Render("none")
 	}
-	return hintStyle.Render("disabled")
 }
 
 func appFieldHelp(cursor int) string {
@@ -788,12 +952,18 @@ func appFieldHelp(cursor int) string {
 		return "require the independent reviewer agent to approve before a suite is committed via PR"
 	case fPrefix:
 		return "optional prefix the agent uses to namespace any test data it creates"
+	case fEnvAuth:
+		return "DEV host HTTP Basic (the browser dialog). Space toggles. Independent of app login."
+	case fEnvUser:
+		return "username for the DEV environment gate. Stored as DEV_ENV_USER, never in the YAML."
+	case fEnvPass:
+		return "password for the DEV environment gate. Stored as DEV_ENV_PASS."
 	case fAuth:
-		return "disabled = no auth header · basic = DEV environment HTTP Basic Auth (Playwright httpCredentials) — not app login"
+		return "none · username = app form login · certificate = PKCS#12. Space cycles. Stacks with env auth."
 	case fAuthUser:
-		return "the DEV environment's Basic Auth username, persisted as DEV_ENV_USER"
+		return "app login: username · certificate: path to the .p12 file"
 	case fAuthPass:
-		return "the DEV environment's Basic Auth password, persisted as DEV_ENV_PASS"
+		return "app login: password · certificate: passphrase. Stored in the env, never in the YAML."
 	case fSave:
 		return "write config/apps/<name>.yaml and start watching this repo"
 	}
@@ -912,11 +1082,15 @@ func buildUpdateInput(repo, baseURL, versionURL, target, prefix string, shadow, 
 	return in
 }
 
-func updateAppCmd(c *api.Client, originalName, name, repo, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string) tea.Cmd {
+func updateAppCmd(c *api.Client, originalName, name, repo, baseURL, versionURL, target, prefix string, shadow, needsReview bool, env map[string]string, auth *contract.AppAuthInput, clearAuth bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		input := buildUpdateInput(repo, baseURL, versionURL, target, prefix, shadow, needsReview, env)
+		input.Auth = auth
+		if clearAuth {
+			input.ClearAuth = &clearAuth
+		}
 		if _, err := c.UpdateApp(ctx, originalName, input); err != nil {
 			return errMsg{err}
 		}

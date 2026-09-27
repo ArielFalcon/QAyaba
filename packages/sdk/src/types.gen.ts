@@ -587,6 +587,8 @@ export interface components {
             needsReview: boolean;
             testDataPrefix: string;
             services: components["schemas"]["AppService"][];
+            /** @enum {string} */
+            authKind?: "form" | "mtls";
         };
         AppService: {
             repo: string;
@@ -684,6 +686,14 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            auth?: {
+                /** @enum {string} */
+                kind: "form" | "mtls";
+                usernameEnv?: string;
+                passwordEnv?: string;
+                certEnv?: string;
+                certPassEnv?: string;
+            };
             dryRun?: boolean;
             validateOnly?: boolean;
         };
@@ -700,6 +710,15 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            auth?: {
+                /** @enum {string} */
+                kind: "form" | "mtls";
+                usernameEnv?: string;
+                passwordEnv?: string;
+                certEnv?: string;
+                certPassEnv?: string;
+            };
+            clearAuth?: boolean;
             dryRun?: boolean;
         };
         CreateAppResult: {

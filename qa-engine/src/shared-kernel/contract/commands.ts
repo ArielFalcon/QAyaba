@@ -74,6 +74,8 @@ export const AppViewSchema = z.object({
   needsReview: z.boolean(),
   testDataPrefix: z.string(),
   services: z.array(AppServiceViewSchema),
+  /** App login kind. Absent when the app is public. Secrets are not on this view. */
+  authKind: z.enum(["form", "mtls"]).optional(),
 });
 
 export const QueueStatusSchema = z.object({
@@ -157,6 +159,14 @@ export const RepoInfoSchema = z.object({
   description: z.string().nullable(),
 });
 
+export const AppAuthInputSchema = z.object({
+  kind: z.enum(["form", "mtls"]),
+  usernameEnv: z.string().optional(),
+  passwordEnv: z.string().optional(),
+  certEnv: z.string().optional(),
+  certPassEnv: z.string().optional(),
+});
+
 export const CreateAppInputSchema = z.object({
   repo: z.string(),
   name: z.string().optional(),
@@ -168,6 +178,7 @@ export const CreateAppInputSchema = z.object({
   testDataPrefix: z.string().optional(),
   services: z.array(OnboardServiceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  auth: AppAuthInputSchema.optional(),
   dryRun: z.boolean().optional(),
   validateOnly: z.boolean().optional(),
 });
@@ -182,6 +193,9 @@ export const UpdateAppInputSchema = z.object({
   testDataPrefix: z.string().optional(),
   services: z.array(OnboardServiceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  auth: AppAuthInputSchema.optional(),
+  /** true drops the YAML auth block. Absent preserves it. */
+  clearAuth: z.boolean().optional(),
   dryRun: z.boolean().optional(),
 });
 

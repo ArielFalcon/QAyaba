@@ -1082,6 +1082,8 @@ type AppView struct {
 	Shadow         bool         `json:"shadow"`
 	TestDataPrefix string       `json:"testDataPrefix"`
 	VersionUrl     string       `json:"versionUrl"`
+	/* App login kind when the YAML declares one. Secrets stay out of this view. */
+	AuthKind *string `json:"authKind,omitempty"`
 }
 
 // AskRequest defines model for AskRequest.
@@ -1130,8 +1132,19 @@ type CoverageTrend struct {
 	Series        []float32 `json:"series"`
 }
 
+// AppAuthInput is the app-login declaration written into config/apps/<name>.yaml.
+// Secrets stay in env; these fields are variable names.
+type AppAuthInput struct {
+	CertEnv     *string `json:"certEnv,omitempty"`
+	CertPassEnv *string `json:"certPassEnv,omitempty"`
+	Kind        string  `json:"kind"`
+	PasswordEnv *string `json:"passwordEnv,omitempty"`
+	UsernameEnv *string `json:"usernameEnv,omitempty"`
+}
+
 // CreateAppInput defines model for CreateAppInput.
 type CreateAppInput struct {
+	Auth           *AppAuthInput          `json:"auth,omitempty"`
 	BaseUrl        *string                `json:"baseUrl,omitempty"`
 	DryRun         *bool                  `json:"dryRun,omitempty"`
 	Env            *map[string]string     `json:"env,omitempty"`
@@ -1641,6 +1654,8 @@ type TrendsView struct {
 
 // UpdateAppInput defines model for UpdateAppInput.
 type UpdateAppInput struct {
+	Auth           *AppAuthInput          `json:"auth,omitempty"`
+	ClearAuth      *bool                  `json:"clearAuth,omitempty"`
 	BaseUrl        *string                `json:"baseUrl,omitempty"`
 	DryRun         *bool                  `json:"dryRun,omitempty"`
 	Env            *map[string]string     `json:"env,omitempty"`

@@ -1727,6 +1727,13 @@
             "items": {
               "$ref": "#/components/schemas/AppService"
             }
+          },
+          "authKind": {
+            "type": "string",
+            "enum": [
+              "form",
+              "mtls"
+            ]
           }
         },
         "required": [
@@ -2120,6 +2127,34 @@
               "type": "string"
             }
           },
+          "auth": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "form",
+                  "mtls"
+                ]
+              },
+              "usernameEnv": {
+                "type": "string"
+              },
+              "passwordEnv": {
+                "type": "string"
+              },
+              "certEnv": {
+                "type": "string"
+              },
+              "certPassEnv": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
           "dryRun": {
             "type": "boolean"
           },
@@ -2171,6 +2206,37 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "auth": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "form",
+                  "mtls"
+                ]
+              },
+              "usernameEnv": {
+                "type": "string"
+              },
+              "passwordEnv": {
+                "type": "string"
+              },
+              "certEnv": {
+                "type": "string"
+              },
+              "certPassEnv": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "clearAuth": {
+            "type": "boolean"
           },
           "dryRun": {
             "type": "boolean"

@@ -9,6 +9,14 @@ export interface OnboardServiceInput {
   versionUrl?: string;
 }
 
+export interface OnboardAuthInput {
+  kind: "form" | "mtls";
+  usernameEnv?: string;
+  passwordEnv?: string;
+  certEnv?: string;
+  certPassEnv?: string;
+}
+
 export interface OnboardInput {
   name: string;
   repo: string;
@@ -20,6 +28,8 @@ export interface OnboardInput {
   shadow: boolean;
   testDataPrefix: string;
   services?: OnboardServiceInput[];
+  /** Absent = public app. Omitted in code mode even if set. */
+  auth?: OnboardAuthInput;
 }
 
 export function buildYaml(input: OnboardInput): string {
@@ -44,6 +54,14 @@ export function buildYaml(input: OnboardInput): string {
 
   if (input.versionUrl && input.target !== "code") {
     lines.push(`  versionUrl: "${input.versionUrl}"`);
+  }
+
+  if (input.target !== "code" && input.auth) {
+    lines.push("", "auth:", `  kind: ${input.auth.kind}`);
+    if (input.auth.usernameEnv) lines.push(`  usernameEnv: "${input.auth.usernameEnv}"`);
+    if (input.auth.passwordEnv) lines.push(`  passwordEnv: "${input.auth.passwordEnv}"`);
+    if (input.auth.certEnv) lines.push(`  certEnv: "${input.auth.certEnv}"`);
+    if (input.auth.certPassEnv) lines.push(`  certPassEnv: "${input.auth.certPassEnv}"`);
   }
 
   if (input.target !== "code" && input.services?.length) {

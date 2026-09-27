@@ -6,7 +6,7 @@
 import { parse } from "yaml";
 import { AppConfigSchema } from "../orchestrator/schemas";
 import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
-import { buildYaml, suggestName, type OnboardInput, type OnboardServiceInput } from "./onboard";
+import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
 import type { RepoInfo } from "../integrations/github";
 import type { TestTarget } from "../types";
@@ -36,6 +36,7 @@ export interface CreateAppInput {
   testDataPrefix?: string;
   services?: OnboardServiceInput[];
   env?: Record<string, string>;
+  auth?: OnboardAuthInput;
   dryRun?: boolean;
   validateOnly?: boolean;
 }
@@ -51,6 +52,10 @@ export interface UpdateAppInput {
   testDataPrefix?: string;
   services?: OnboardServiceInput[];
   env?: Record<string, string>;
+  /** Absent on update preserves the auth block already in the YAML. */
+  auth?: OnboardAuthInput;
+  /** true drops the YAML auth block. Absent preserves it when auth is also absent. */
+  clearAuth?: boolean;
   dryRun?: boolean;
 }
 
@@ -89,6 +94,7 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
     shadow: input.shadow ?? true,
     testDataPrefix: input.testDataPrefix || "qa-bot",
     services: input.services,
+    ...(input.auth ? { auth: input.auth } : {}),
   };
   const yaml = buildYaml(onboard);
 
@@ -146,6 +152,7 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
       openapi: Array.isArray(s.openapi) ? s.openapi[0] : s.openapi,
       versionUrl: s.versionUrl,
     })),
+    ...(!input.clearAuth && (input.auth ?? existing.auth) ? { auth: input.auth ?? existing.auth } : {}),
   };
 
   let yaml = buildYaml(onboard);

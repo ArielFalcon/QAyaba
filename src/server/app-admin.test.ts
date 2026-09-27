@@ -84,6 +84,55 @@ test("dryRun returns the YAML (with services) without writing", async () => {
   assert.deepEqual(deps.written, {});
 });
 
+test("dryRun writes an auth block the app schema accepts", async () => {
+  const deps = makeDeps();
+  const r = await createApp(
+    {
+      repo: "org/shop-front", name: "shop", baseUrl: "https://dev.shop.io", target: "e2e",
+      needsReview: true, shadow: true, testDataPrefix: "qa-shop",
+      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+      dryRun: true,
+    },
+    deps,
+  );
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(r.yaml ?? "", /kind: form/);
+  assert.match(r.yaml ?? "", /usernameEnv: "QA_SHOP_TEST_USER"/);
+});
+
+test("updateApp keeps an existing auth block when the edit omits it", async () => {
+  const deps = makeDeps({
+    loadApp: (name: string) => ({
+      name,
+      repo: "org/shop-front",
+      qa: { needsReview: true, testDataPrefix: "qa" },
+      report: { onFailure: "github-issue" },
+      dev: { baseUrl: "https://x" },
+      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+    }) as unknown as AppConfig,
+  });
+  const r = await updateApp({ name: "shop", baseUrl: "https://new" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.match(deps.written["shop"] ?? "", /kind: form/);
+  assert.match(deps.written["shop"] ?? "", /usernameEnv: "QA_SHOP_TEST_USER"/);
+});
+
+test("updateApp clearAuth drops the auth block", async () => {
+  const deps = makeDeps({
+    loadApp: (name: string) => ({
+      name,
+      repo: "org/shop-front",
+      qa: { needsReview: true, testDataPrefix: "qa" },
+      report: { onFailure: "github-issue" },
+      dev: { baseUrl: "https://x" },
+      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+    }) as unknown as AppConfig,
+  });
+  const r = await updateApp({ name: "shop", clearAuth: true }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.doesNotMatch(deps.written["shop"] ?? "", /kind: form/);
+});
+
 test("create applies env FIRST, validates the expanded YAML, then writes", async () => {
   const order: string[] = [];
   const deps = makeDeps({

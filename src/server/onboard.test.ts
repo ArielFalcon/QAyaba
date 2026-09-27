@@ -100,6 +100,24 @@ test("buildYaml renders services[] for e2e apps", () => {
   assert.match(yaml, /- repo: "org\/payments-svc"/);
 });
 
+test("buildYaml renders auth for form and omits it in code mode", () => {
+  const yaml = buildYaml({
+    name: "shop", repo: "org/shop-front", baseBranch: "main",
+    baseUrl: "https://dev.shop.io", target: "e2e", needsReview: true, shadow: true,
+    testDataPrefix: "qa-shop",
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.match(yaml, /auth:/);
+  assert.match(yaml, /kind: form/);
+  assert.match(yaml, /usernameEnv: "QA_SHOP_TEST_USER"/);
+  const code = buildYaml({
+    name: "b", repo: "o/b", baseBranch: "main", baseUrl: "https://x", target: "code",
+    needsReview: true, shadow: true, testDataPrefix: "qa",
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.doesNotMatch(code, /auth:/);
+});
+
 test("buildYaml omits services when absent or in code mode", () => {
   const none = buildYaml({ name: "a", repo: "o/a", baseBranch: "main", baseUrl: "https://x", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" });
   assert.doesNotMatch(none, /services:/);

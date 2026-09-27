@@ -633,7 +633,7 @@ function handleListRuns(res: ServerResponse, deps: ApiDeps, app: string | null |
   return true;
 }
 
-function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }> } {
+function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }>; authKind?: "form" | "mtls" } {
   /* Code-mode apps have no dev environment (and no baseUrl). */
   return {
     name: app.name,
@@ -649,6 +649,7 @@ function appView(app: AppConfig): { name: string; repo: string; baseUrl: string;
       openapi: typeof s.openapi === "string" ? s.openapi : s.openapi?.[0],
       versionUrl: s.versionUrl,
     })),
+    ...(app.auth ? { authKind: app.auth.kind } : {}),
   };
 }
 
