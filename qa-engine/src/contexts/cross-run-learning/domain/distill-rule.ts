@@ -1,4 +1,5 @@
 import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 
 export const RULE_FIELD_MAX = 400;
 
@@ -55,34 +56,14 @@ export function decideDistill(
   return { decision: "save", key };
 }
 
-function detectArchetypeKinds(diff: string, changedFiles: readonly string[]): string[] {
-  const kinds: string[] = [];
-  const diffText = diff.toLowerCase();
-
-  const hasHtmlForm = changedFiles.some((f) => f.endsWith(".html")) && /<form\b/i.test(diff);
-  const hasTsxForm = changedFiles.some((f) => f.endsWith(".tsx") || f.endsWith(".jsx")) && /<form\b|formgroup|formcontrol|formbuilder/i.test(diff);
-  if (hasHtmlForm || hasTsxForm) kinds.push("form");
-
-  const hasApiCall = /\b(?:fetch|axios|got|request|http\.(?:get|post|put|delete|patch)|usequery|usemutation|createApi)\b/i.test(diffText);
-  if (hasApiCall) kinds.push("api-call");
-
-  const hasCache = /\b(?:cache|cached|memoize|memo|usememo|usecallback|redis|localstorage|sessionstorage|indexeddb)\b/i.test(diffText);
-  if (hasCache) kinds.push("stateful-cache");
-
-  const hasAuth = /\b(?:auth|login|signin|logout|signout|session|token|jwt|oauth)\b/i.test(diffText);
-  if (hasAuth) kinds.push("auth-flow");
-
-  const hasList = /\b(?:list|table|datagrid|datatable|items|results|rows)\b/i.test(diffText);
-  if (hasList) kinds.push("data-list");
-
-  if (kinds.length === 0) kinds.push("generic");
-  return kinds;
-}
-
+/*
+ * The archetype a distilled rule is stored under: the first structural kind of the run's diff, from
+ * the SAME kernel detector that biases retrieval and attributes folds (detectStructuralPatterns), so
+ * a stored archetype is always a kind that diff's shape can match.
+ */
 export function detectArchetype(diff: string | undefined, changedFiles: readonly string[]): string | null {
   if (!diff) return null;
-  const kinds = detectArchetypeKinds(diff, changedFiles);
-  return kinds[0] ?? null;
+  return detectStructuralPatterns(diff, [...changedFiles])[0]?.kind ?? null;
 }
 
 const AP_FALSE_POSITIVE = /\b(?:asserts? nothing|asserts? 200|no real assertion|test clicks? without asserting|false positive|green noise|trivial assert|passes? when feature is broken)\b/i;

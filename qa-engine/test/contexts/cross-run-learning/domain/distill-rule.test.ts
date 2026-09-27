@@ -11,7 +11,8 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { ruleKey, decideDistill } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { ruleKey, decideDistill, detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 
 function existingRule(overrides: Partial<LearningRule> = {}): LearningRule {
@@ -77,4 +78,37 @@ describe("decideDistill (per-candidate dedup against the existing rule set)", ()
     });
     assert.deepEqual(decisions, ["save", "skip-duplicate"], "the second candidate must be recognized as a duplicate of the first WITHIN the same pass");
   });
+});
+
+/*
+ * The archetype stored on a distilled rule must be one of the structural kinds retrieval biases on
+ * for the same diff — otherwise a rule written for a diff can never be matched by that diff's shape.
+ * The expected archetype is the first detected kind, in the detector's precedence order.
+ */
+describe("detectArchetype", () => {
+  const cases: Array<{ name: string; diff: string | undefined; files: string[]; archetype: string | null }> = [
+    { name: "an .html form", diff: "+<form (ngSubmit)=\"save()\">", files: ["src/app/a.component.html"], archetype: "form" },
+    { name: "a .tsx FormGroup", diff: "+const g = new FormGroup({})", files: ["src/A.tsx"], archetype: "form" },
+    { name: "a fetch call", diff: "+await fetch('/api/orders')", files: ["src/orders.ts"], archetype: "api-call" },
+    { name: "a redis cache", diff: "+redis.set(key, value)", files: ["src/cache.ts"], archetype: "stateful-cache" },
+    { name: "a login change", diff: "+function login(user) {}", files: ["src/auth.ts"], archetype: "auth-flow" },
+    { name: "a results table", diff: "+<table class=\"results\">", files: ["src/list.ts"], archetype: "data-list" },
+    { name: "a form that also fetches", diff: "+<form>\n+fetch('/api/save')", files: ["src/a.html"], archetype: "form" },
+    { name: "a <form> tag outside markup files", diff: "+<form>\n+fetch('/api')", files: ["src/a.ts"], archetype: "api-call" },
+    { name: "a change with no known shape", diff: "+const x = 1;", files: ["src/x.ts"], archetype: "generic" },
+    { name: "no diff", diff: undefined, files: ["src/x.ts"], archetype: null },
+    { name: "an empty diff", diff: "", files: [], archetype: null },
+  ];
+  for (const c of cases) {
+    test(`${c.name} is stored as ${c.archetype ?? "no archetype"}`, () => {
+      assert.equal(detectArchetype(c.diff, c.files), c.archetype);
+    });
+    if (c.archetype !== null && c.diff) {
+      const diff = c.diff;
+      test(`${c.name}: the stored archetype is a kind retrieval biases on for the same diff`, () => {
+        const retrievalKinds = detectStructuralPatterns(diff, c.files).map((p) => p.kind);
+        assert.ok(retrievalKinds.includes(c.archetype as (typeof retrievalKinds)[number]), `${c.archetype} not in [${retrievalKinds.join(", ")}]`);
+      });
+    }
+  }
 });
