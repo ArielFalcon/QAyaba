@@ -26,6 +26,8 @@ import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orches
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
+import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
+import { ContextMapCapturePortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
@@ -111,7 +113,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import { recordIncident } from "./maintainer";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
@@ -766,6 +768,16 @@ export function buildRewrittenCompositionConfig(
           }
         : {}),
       contextPackDeps: { ...defaultContextPackDeps, domDeps: createCaptureDomDeps(authDir) },
+      /*
+       * Batch F: the DB (history.ts's context_maps table) is the engine's source of truth for the
+       * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
+       * fallback (e.g. before any context run has ever completed for this app, or a fresh clone).
+       */
+      loadContextMap: (specDir: string) => {
+        const stored = loadStoredContextMap(app.name);
+        if (stored) return stored.data;
+        return loadContextMapFromDisk(specDir);
+      },
     },
     reviewDomGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
     preExecGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
@@ -945,6 +957,12 @@ export function buildRewrittenCompositionConfig(
      * only, never gates a verdict, publish, or coverage decision.
      */
     curriculumPort: new CurriculumPortAdapter(app.name, loadCurriculum, saveCurriculum),
+    /*
+     * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
+     * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
+     * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
+     */
+    contextMapCapture: new ContextMapCapturePortAdapter(saveContextMap),
     ...(observer ? { observer } : {}),
   };
 }

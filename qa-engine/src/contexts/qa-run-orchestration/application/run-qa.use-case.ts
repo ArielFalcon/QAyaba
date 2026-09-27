@@ -45,6 +45,7 @@ import type {
   ConfinementPort,
   MirrorGcPort,
   CurriculumPort,
+  ContextMapCapturePort,
   ArchitectureContext,
   ExplorationBrief,
   RelevanceBias,
@@ -237,6 +238,12 @@ export interface RunQaUseCaseDeps {
   processAudit?: ProcessAuditPort;
   /** Off-path. Fault-isolated inside the adapter — neither call site needs a try/catch. */
   curriculum?: CurriculumPort;
+  /**
+   * Write side of the FE<->BE architecture map. Invoked once per clean context-mode pass
+   * (isContextCleanPass), in BOTH shadow and non-shadow runs. Off-path and fault-isolated inside
+   * the adapter — same contract as curriculum above, no extra try/catch here.
+   */
+  contextMapCapture?: ContextMapCapturePort;
   /**
    * Once, after pre-publish confinement and publish have both resolved, so gc
    * never races this run's git write. The sequential queue already prevents other
@@ -1863,6 +1870,16 @@ export class RunQaUseCase {
      * (e.g. context-invalid) still persist+fold.
      */
     const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
+    /*
+     * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's
+     * e2e/.qa/context.json. That file does not survive the mirror's next `git checkout -f` +
+     * `git clean -fd`, so the orchestrator captures it into the durable store here — in BOTH
+     * shadow and non-shadow runs, independent of whether publish() above opened a context.json PR
+     * (which stays independently shadow-gated).
+     */
+    if (isContextCleanPass && this.deps.contextMapCapture) {
+      await this.deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
+    }
     /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
     const gateValueScore = valueScore;
     /* Thread the review loop's real final-round corrections into errorClass derivation. */

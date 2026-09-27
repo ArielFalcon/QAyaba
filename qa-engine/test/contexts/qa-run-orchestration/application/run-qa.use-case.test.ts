@@ -30,6 +30,7 @@ import type {
   CurriculumPort,
   CurriculumFoldInput,
   RelevanceBias,
+  ContextMapCapturePort,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -81,6 +82,8 @@ function stubPorts(overrides: Partial<{
      entirely from `ports`.
    */
   curriculum: CurriculumPort;
+  /* Port-shaped, like curriculum above — the write side of the FE<->BE architecture map. */
+  contextMapCapture: ContextMapCapturePort;
 }> = {}) {
   const savedOutcomes: RunOutcome[] = [];
   const foldedOutcomes: RunOutcome[] = [];
@@ -146,6 +149,7 @@ function stubPorts(overrides: Partial<{
       ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
       ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
       ...(overrides.curriculum ? { curriculum: overrides.curriculum } : {}),
+      ...(overrides.contextMapCapture ? { contextMapCapture: overrides.contextMapCapture } : {}),
     },
     savedOutcomes,
     foldedOutcomes,
@@ -2335,6 +2339,62 @@ test("FIX 2: a CLEAN context-mode pass does NOT persist (matches the legacy's Fl
 
   assert.equal(out.decision.verdict, "pass");
   assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting (src/pipeline.ts:1422-1438)");
+});
+
+test("Batch F: a clean context-mode pass invokes contextMapCapture.capture() with the run's specDir/app/sha, in BOTH shadow and non-shadow modes", async () => {
+  const captured: Array<{ specDir: string; app: string; sha: string }> = [];
+  const { ports } = stubPorts({
+    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+    contextMapCapture: { capture: async (specDir, app, sha) => { captured.push({ specDir, app, sha }); } },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow: true } });
+
+  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-clean-capture", mode: "context" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(captured.length, 1, "contextMapCapture.capture() must be invoked exactly once on a clean context-mode pass — shadow must not suppress it, since the stored map is independent of whether a context.json PR opens");
+  assert.equal(captured[0]!.specDir, "/tmp/qa-golden/e2e");
+  assert.equal(captured[0]!.app, "demo");
+  assert.equal(captured[0]!.sha, "abc1234");
+});
+
+test("Batch F: contextMapCapture is absent by default — no-op, no behavior change on a clean context-mode pass", async () => {
+  const { ports } = stubPorts({
+    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-capture-absent", mode: "context" });
+
+  assert.equal(out.decision.verdict, "pass");
+});
+
+test("Batch F: contextMapCapture is NOT invoked on a non-context mode's clean pass — capture is mode-gated to context only", async () => {
+  let captureCallCount = 0;
+  const { ports } = stubPorts({
+    contextMapCapture: { capture: async () => { captureCallCount++; } },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "batch-f-diff-mode-no-capture" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(captureCallCount, 0, "a diff-mode (non-context) pass must never invoke contextMapCapture — it is scoped to isContextCleanPass only");
+});
+
+test("Batch F: contextMapCapture is NOT invoked on a context-mode INVALID result — capture only fires on a clean (verdict pass) context run", async () => {
+  let captureCallCount = 0;
+  const { ports } = stubPorts({
+    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "tried" }),
+    validate: async () => ({ ok: false, errors: ["feBe[0]: route '/ghost' is not declared in 'routes'"] }),
+    contextMapCapture: { capture: async () => { captureCallCount++; } },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-invalid-no-capture", mode: "context" });
+
+  assert.equal(out.decision.verdict, "invalid");
+  assert.equal(captureCallCount, 0, "an invalid context-mode result must never invoke contextMapCapture — only a clean pass reached a validated, publishable map");
 });
 
 test("FIX 2: a context-mode INVALID result does NOT persist (SUPERSEDES the original assumption below — corrected per bug-register Entry 12's direct-reading root-cause, see the 'FIX 2 (D.7 batch 2)' test for the full writeup)", async () => {

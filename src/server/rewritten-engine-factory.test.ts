@@ -4,7 +4,8 @@ import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcs
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord } from "./history";
+import { getRecord, saveContextMap } from "./history";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -124,6 +125,33 @@ test("buildRewrittenCompositionConfig omits config.sidekickTimeoutMs when the en
 test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the history store", () => {
   const config = buildRewrittenCompositionConfig(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
+});
+
+/* ── Batch F: context-map capture + DB-first grounding — wired UNCONDITIONALLY, same rationale as
+   curriculumPort above: contextMapCapture is off-path (never gates a verdict/publish/coverage
+   decision), and groundingCollaborators.loadContextMap only ever WIDENS today's disk-only fallback
+   (it still calls loadContextMapFromDisk when no stored map exists), so there is no risk surface a
+   config flag would protect.
+ */
+test("buildRewrittenCompositionConfig wires a ContextMapCapturePort backed by the history store", () => {
+  const config = buildRewrittenCompositionConfig(cfg("contextmap-capture-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(config.contextMapCapture, "contextMapCapture must be wired unconditionally");
+});
+
+test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
+  const app = cfg("factory-contextmap-db-wins");
+  const map: ArchitectureContext = { builtAtSha: "sha-db", routes: [{ path: "/db" }], api: [], feBe: [] };
+  saveContextMap(app.name, "sha-db", map);
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.deepEqual(result, map, "the DB is the engine's source of truth — it must win even when the repo file is absent (and would win even if present)");
+});
+
+test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: falls back to the repo file (undefined here) when no stored map exists", () => {
+  const app = cfg(`factory-contextmap-fallback-${Date.now().toString(36)}`);
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.equal(result, undefined, "no stored map and no real file on disk -> undefined, never throws");
 });
 
 /* GenerateTestsUseCase.GenerationPorts.repair must be wired so a malformed verdict gets one
@@ -314,7 +342,7 @@ test("multi-repo: explorer:undefined (not configured) + empty services[] stays o
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
 });
 
 test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
@@ -322,7 +350,7 @@ test("multi-repo: explorer:undefined (not configured) + undefined services stays
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
 });
 
 test("O5: explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
@@ -330,14 +358,14 @@ test("O5: explorer:false explicitly wins over services.length>0 — an explicit 
   const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
 });
 
 test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {

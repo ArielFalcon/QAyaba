@@ -4,7 +4,7 @@ buildShadow always uses this engine with shadow-log publication and in-memory hi
 import { join } from "node:path";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
@@ -184,6 +184,11 @@ export interface CompositionConfig {
   processAudit?: ProcessAuditPort;
 
   curriculumPort?: CurriculumPort;
+
+  /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
+     absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
+     constructs ContextMapCapturePortAdapter backed by history.ts's saveContextMap. */
+  contextMapCapture?: ContextMapCapturePort;
 
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
@@ -464,6 +469,8 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
+    ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
     ...(() => {
       /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */

@@ -222,6 +222,50 @@ test("buildProduction omits processAudit entirely when cfg.processAudit is absen
   assert.equal(outcome.verdict, "pass");
 });
 
+/* Batch F: root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
+   black-box style as reflectorPort/processAudit above. A clean context-mode pass (mode:"context",
+   verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──
+ */
+
+test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a clean context-mode pass reaches contextMapCapture.capture()", async () => {
+  let captureCallCount = 0;
+  const cfg = fakeConfig({
+    mode: "context",
+    contextMapCapture: {
+      capture: async () => { captureCallCount++; },
+    },
+  });
+
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const outcome = await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "context",
+    target: "e2e",
+    runId: "composition-root-contextmap-capture-smoke",
+  });
+
+  assert.equal(outcome.verdict, "pass");
+  assert.equal(captureCallCount, 1, "cfg.contextMapCapture must be wired through to RunQaUseCaseDeps.contextMapCapture — a clean context-mode pass must invoke capture() exactly once");
+});
+
+test("buildProduction omits contextMapCapture entirely when cfg.contextMapCapture is absent — no behavior change on a clean context-mode pass", async () => {
+  const cfg = fakeConfig({ mode: "context" });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  const outcome = await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "context",
+    target: "e2e",
+    runId: "composition-root-contextmap-capture-absent-smoke",
+  });
+
+  assert.equal(outcome.verdict, "pass");
+});
+
 /* ── buildShadow: always rewritten, shadow-log publication, no side effects ──────────────────── */
 
 test("buildShadow always returns a RewrittenOrchestratorAdapter regardless of PIPELINE_ENGINE", () => {
