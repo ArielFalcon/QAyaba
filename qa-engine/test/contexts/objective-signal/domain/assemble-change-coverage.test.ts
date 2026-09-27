@@ -75,6 +75,59 @@ test("parseDiffHunks: a hunk CONTENT line starting with '+++ ' is NOT misread as
   assert.deepEqual(lines(parseDiffHunks(diff)), { "README.md": [2, 3] });
 });
 
+test("parseDiffHunks: a plain unified diff (no git header, unprefixed paths, timestamped file headers) maps added lines to the file", () => {
+  const diff = [
+    "--- src/lib/cart.ts\t2026-01-01 10:00:00.000000000 +0000",
+    "+++ src/lib/cart.ts\t2026-01-02 11:30:00.000000000 +0000",
+    "@@ -1,2 +1,3 @@",
+    " keep1",
+    "+added2",
+    " keep3",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "src/lib/cart.ts": [2] });
+});
+
+test("parseDiffHunks: a CRLF-terminated diff names the file without the carriage return", () => {
+  const diff = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,1 +1,2 @@", " keep", "+added"].join("\r\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [2] });
+});
+
+test("parseDiffHunks: hunk headers with an omitted count (single-line ranges) still open a hunk", () => {
+  const diff = ["diff --git a/a.ts b/a.ts", "+++ b/a.ts", "@@ -3 +3 @@", "-old", "+new", "@@ -9,2 +9 @@", "-gone", " kept"].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [3] });
+});
+
+test("parseDiffHunks: hunk headers with multi-digit counts open a hunk", () => {
+  const diff = ["diff --git a/a.ts b/a.ts", "+++ b/a.ts", "@@ -100,12 +120,13 @@", " ctx", "+added"].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [121] });
+});
+
+test("parseDiffHunks: an added line whose text looks like a hunk header is counted as content", () => {
+  const diff = [
+    "diff --git a/a.ts b/a.ts",
+    "+++ b/a.ts",
+    "@@ -1,1 +1,3 @@",
+    " ctx",
+    "+const marker = \"@@ -1,1 +40,1 @@\";",
+    "+after",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [2, 3] });
+});
+
+test("parseDiffHunks: a 'No newline at end of file' marker does not advance the new-side line number", () => {
+  const diff = [
+    "diff --git a/a.ts b/a.ts",
+    "--- a/a.ts",
+    "+++ b/a.ts",
+    "@@ -1 +1,2 @@",
+    "-last",
+    "\\ No newline at end of file",
+    "+last",
+    "+added",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [1, 2] });
+});
+
 /* ── computeChangeCoverage intersection math parity ──────────────────────────────────────────── */
 
 test("computeChangeCoverage: intersects, reports uncovered, computes ratio", () => {
@@ -110,6 +163,24 @@ test("computeChangeCoverage: perFile ratios and multi-file intersection", () => 
     { file: "a.ts", changed: 4, covered: 3, ratio: 0.75 },
     { file: "b.ts", changed: 2, covered: 2, ratio: 1 },
   ]);
+});
+
+test("computeChangeCoverage: a fully covered file is not listed as uncovered", () => {
+  const changed = new Map([
+    ["a.ts", new Set([1, 2])],
+    ["b.ts", new Set([10, 11])],
+  ]);
+  const covered = new Map([
+    ["a.ts", new Set([1])],
+    ["b.ts", new Set([10, 11])],
+  ]);
+  const cc = computeChangeCoverage(changed, covered);
+  assert.deepEqual(cc.uncovered.map((u) => u.file), ["a.ts"]);
+});
+
+test("computeChangeCoverage: uncovered lines are reported in ascending order whatever order they were collected in", () => {
+  const cc = computeChangeCoverage(new Map([["a.ts", new Set([30, 4, 12, 5])]]), new Map([["a.ts", new Set<number>()]]));
+  assert.deepEqual(cc.uncovered, [{ file: "a.ts", lines: [4, 5, 12, 30] }]);
 });
 
 /* ── report-shape conversion (CoverageReport [{file,lines}] -> Map<string, Set<number>>) ───────── */
