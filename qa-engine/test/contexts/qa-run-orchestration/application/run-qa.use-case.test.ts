@@ -3589,8 +3589,8 @@ test("an invalid verdict with onFailure:'github-issue' dispatches publish() exac
   assert.ok(publishedDecision, "publish() must have been called with a decision payload");
   assert.equal(publishedDecision!.verdict, "invalid");
   /* The static gate's own validation-errors note is threaded in as terminalResult's `note` param
-     (see the "NOTE CHAIN" test) — the publish outcome is APPENDED to it, never clobbering it (FIX 1's
-     own "append to any existing note" requirement; see the dedicated append-not-clobber test below).
+     (see the note-forwarding test) — the publish outcome is APPENDED to it, never clobbering it
+     (see the dedicated append-not-clobber test below).
    */
   assert.ok(out.note?.includes("issue: https://github.com/org/app/issues/42"), `the publish outcome must thread into RunQaResult.note — got: ${out.note}`);
 });

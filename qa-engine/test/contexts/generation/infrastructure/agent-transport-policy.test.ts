@@ -503,7 +503,7 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
   }
 });
 
-/* C7: createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
+/* createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
    qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-generator
    session, since both funnel through the SAME createAgentDeps/circuit-breaker module.
  */

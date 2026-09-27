@@ -24,10 +24,9 @@ test("a success before the threshold resets the failure streak", () => {
   resetCircuit();
 });
 
-/* C7: circuit-breaker.ts used to be a single set of module-level counters shared by every agent
-   role — a run-away qa-reviewer would trip the SAME breaker a healthy qa-generator relies on, and a
-   qa-reflector success would reset a qa-generator's genuinely-accumulating failure streak. State
-   must be keyed per role.
+/* Breaker state is keyed per role: a run-away qa-reviewer must not trip the breaker a healthy
+   qa-generator relies on, and a qa-reflector success must not reset a qa-generator's
+   genuinely-accumulating failure streak.
  */
 test("tripping one role's circuit does not block a different role", () => {
   resetCircuit();
