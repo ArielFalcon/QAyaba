@@ -103,10 +103,8 @@ export class GenerateTestsUseCase {
     /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. (mirrors reviewIndependently in opencode-client.ts:952-1009) */
     const reviewerRole: AgentRole = "reviewer";
     /* Ground this FIRST reviewer pass the same way review-port.adapter.ts grounds every regen
-       pass (domSnapshot, learned rules, guidance-or-objective, intent, baseUrl, target). `intent` is
-       passed through directly (this use case holds the full CommitIntent, unlike
-       review-port.adapter.ts's ctx/enrichment split, which can only carry the message); `objective`
-       mirrors review-port.adapter.ts's guidance-wins-over-intent precedence. The reviewer gets the
+       pass (domSnapshot, learned rules, guidance, baseUrl, target), plus the full CommitIntent this
+       use case holds, whose type the reviewer prompt names as the run type. The reviewer gets the
        reviewer render of the learned rules (proven rules only), never the generator render: the
        generator's unproven candidates must not become grounds for rejection at the publish gate. */
     const reviewerInput: ReviewInput = {
@@ -120,7 +118,6 @@ export class GenerateTestsUseCase {
       ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
       ...(input.guidance ? { guidance: input.guidance } : {}),
       ...(input.intent ? { intent: input.intent } : {}),
-      ...(!input.guidance && input.intent?.message ? { objective: input.intent.message } : {}),
       ...(input.reviewerLearnedRules ? { learnedRules: input.reviewerLearnedRules } : {}),
       ...(input.domSnapshot ? { domSnapshot: input.domSnapshot } : {}),
     };

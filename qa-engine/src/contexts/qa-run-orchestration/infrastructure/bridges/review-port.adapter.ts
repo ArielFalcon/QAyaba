@@ -57,7 +57,6 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
       ...(this.ctx.target ? { target: this.ctx.target } : {}),
       ...(enrichment?.priorCorrections?.length ? { priorCorrections: [...enrichment.priorCorrections] } : {}),
-      ...(!this.ctx.guidance && enrichment?.intent?.message ? { objective: enrichment.intent.message } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),

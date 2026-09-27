@@ -740,7 +740,6 @@ export class RunQaUseCase {
      */
     const baseReviewEnrichment = {
       runId: input.runId,
-      ...(classificationIntent ? { intent: classificationIntent } : {}),
       ...(retrievedRules.length ? { learnedRules: retrievedRules } : {}),
     };
 

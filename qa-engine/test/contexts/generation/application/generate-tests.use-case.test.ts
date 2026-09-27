@@ -353,6 +353,16 @@ test("first reviewer pass: a guided run is judged against the operator guidance,
   assert.ok(!prompt.includes("export const pay = () => charge();"));
 });
 
+test("first reviewer pass: the reviewer prompt names the commit's change type", async () => {
+  const withIntent = await firstReviewerPrompt({
+    intent: { type: "perf", breaking: false, message: "speed up checkout", changedFiles: ["src/checkout.ts"] },
+  });
+  const withoutIntent = await firstReviewerPrompt({});
+
+  assert.match(withIntent, /\bperf\b/);
+  assert.doesNotMatch(withoutIntent, /\bperf\b/, "setup check: the change type reaches the prompt only through the intent");
+});
+
 /* Fail-closed: parse miss without review.
  */
 test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", async () => {

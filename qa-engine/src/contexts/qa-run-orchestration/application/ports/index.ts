@@ -206,8 +206,6 @@ export interface GenerationPort {
  */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
-  /** When no manual guidance exists, the reviewer's objective is the commit intent message. */
-  intent?: CommitIntent;
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to
