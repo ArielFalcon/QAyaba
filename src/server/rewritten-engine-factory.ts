@@ -4,7 +4,7 @@
  * Env reads for execution timeouts stay here. Agent remains read-only on watched repos.
  */
 
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -76,6 +76,7 @@ import {
 import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import { parseExplorationBrief } from "../qa/exploration-brief";
+import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
 
@@ -666,6 +667,25 @@ export function buildRewrittenCompositionConfig(
    */
   const shouldExplore = app.qa.explorer ?? (app.services?.length ?? 0) > 0;
 
+  const explorerBriefAdapter = new ExplorerBriefSessionAdapter(
+    {
+      repo: app.repo,
+      e2eRelDir,
+      namespace,
+      needsReview: app.qa.needsReview,
+      target,
+      mode: run.mode,
+      appName: app.name,
+      timeoutMs: EXPLORER_TIMEOUT_MS,
+      ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+      ...(run.guidance ? { guidance: run.guidance } : {}),
+      ...(triggerService
+        ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
+        : {}),
+    },
+    { runtime: runtimeAdapter, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir },
+  );
+
   return {
     repo: app.repo,
     appName: app.name,
@@ -743,45 +763,7 @@ export function buildRewrittenCompositionConfig(
     groundingCollaborators: {
       ...(shouldExplore && !isCode
         ? {
-            exploreBrief: async ({ specDir, diff, signal, sha, intent }) => {
-              const cwd = dirname(specDir);
-              let session: Awaited<ReturnType<typeof runtimeAdapter.openSession>> | undefined;
-              try {
-                session = await runtimeAdapter.openSession("explorer", cwd, {
-                  ...(signal ? { signal } : {}),
-                  timeoutMs: EXPLORER_TIMEOUT_MS,
-                  descriptor: { role: "qa-explorer" },
-                });
-                const prompt = buildExplorerPrompt({
-                  repo: app.repo,
-                  /* sha is REQUIRED on the exploreBrief contract now (O5) — never a fabricated
-                   * fallback to the run namespace, which is not a commit sha. */
-                  sha,
-                  diff: diff ?? "",
-                  mirrorDir: cwd,
-                  e2eRelDir,
-                  namespace,
-                  needsReview: app.qa.needsReview,
-                  target,
-                  mode: run.mode,
-                  appName: app.name,
-                  explorer: true,
-                  ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
-                  ...(run.guidance ? { guidance: run.guidance } : {}),
-                  ...(intent ? { intent } : {}),
-                  ...(triggerService
-                    ? { service: { repo: triggerService.repo, mirrorDir: serviceContextDir(cwd, triggerService.repo), ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
-                    : {}),
-                });
-                const { output } = await session.prompt(prompt, { textOnly: true });
-                return parseExplorationBrief(output) ?? undefined;
-              } catch (err) {
-                console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-                return undefined;
-              } finally {
-                await session?.dispose();
-              }
-            },
+            exploreBrief: (args) => explorerBriefAdapter.explore(args),
           }
         : {}),
       contextPackDeps: { ...defaultContextPackDeps, domDeps: createCaptureDomDeps(authDir) },
