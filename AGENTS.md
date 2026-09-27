@@ -92,6 +92,7 @@ Prompt layers: `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-ro
 - **Honor agent's no-op**: approved + zero specs is a valid `skipped`, never `invalid`.
 - **Surface integration errors loudly** — never swallow OpenCode SDK / runner / git errors. Throw and log.
 - **Sanitize data leaving the system** — diff → model, execution logs → Issue, both pass through `src/orchestrator/sanitizer.ts`.
+- **Governance-sensitive changes ship alone.** A change to a security invariant, to agent write authority, or to a production activation switch merges in its own PR, separate from unrelated features.
 
 ## Conventions & gotchas
 

@@ -260,6 +260,9 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
 - **Security boundary:** the LLM agent is **read-only** on watched repos. Only the
   deterministic orchestrator does git writes (push/PR). Never give the agent (or
   any future chat/operator layer) direct write to a watched repo.
+- **Governance-sensitive changes ship alone.** A change to a security invariant,
+  to agent write authority, or to a production activation switch merges in its
+  own PR, separate from unrelated features.
 - **App-specificity lives only in `config/`; agents/models only in `agents/`;
   nothing app-specific in `src/`.**
 - **Sequential queue** — one run at a time; never run concurrent QA against DEV.
