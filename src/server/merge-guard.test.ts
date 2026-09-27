@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, statSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readdirSync, statSync, writeFileSync, rmSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import {
   isProtectedPath,
+  isSecuritySensitiveSurface,
   assessChange,
   parseNumstat,
   assessRate,
@@ -16,8 +18,11 @@ import {
   PROTECTED_PATHS,
 } from "./merge-guard";
 
-/* Shared walk/completeness helpers (used by the completeness test AND the FIX II(b) backstop
-   reproduction test below) — factored to module scope so both share ONE walk implementation.
+/* The completeness walk: every file under the security-sensitive surface roots of a tree rooted at
+   `treeRoot` that is neither protected nor explicitly reviewed as not-sensitive. It runs against the
+   real repository read-only, and against throwaway temp trees for the planted-file cases — tests never
+   write into the tracked tree (node --test runs files in parallel; a planted file is visible to every
+   concurrent tree-scanning test).
  */
 const repoRoot = join(import.meta.dirname, "..", "..");
 const SKIP_DIR_NAMES = new Set(["node_modules", ".git", "dist", "build", "coverage", ".claude", ".stryker-tmp"]);
@@ -32,18 +37,29 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
-function unclassifiedUnder(roots: string[]): string[] {
+function unclassifiedUnder(treeRoot: string, surfaceRoots: string[]): string[] {
   const files: string[] = [];
-  for (const root of roots) {
-    const abs = join(repoRoot, root);
+  for (const surfaceRoot of surfaceRoots) {
+    const abs = join(treeRoot, surfaceRoot);
     if (existsSync(abs)) walk(abs, files);
   }
   const bad: string[] = [];
   for (const full of files) {
-    const rel = relative(repoRoot, full).replace(/\\/g, "/");
+    const rel = relative(treeRoot, full).replace(/\\/g, "/");
     if (!isProtectedPath(rel) && !NOT_SECURITY_SENSITIVE.includes(rel)) bad.push(rel);
   }
   return bad;
+}
+
+/* A throwaway tree holding only the given repo-relative files — the planted-file cases run here. */
+function tempTreeWith(relPaths: string[]): string {
+  const treeRoot = mkdtempSync(join(tmpdir(), "merge-guard-tree-"));
+  for (const rel of relPaths) {
+    const full = join(treeRoot, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, "export {};\n");
+  }
+  return treeRoot;
 }
 
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {
@@ -169,73 +185,56 @@ test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/
   assert.equal(isProtectedPath("src/agent-runtime/config.ts"), true);
 });
 
-/* `secret-guard.service.ts` and Judge A planted `secrets.ts`/`confine.ts`/`egress.ts`, all inside
-   workspace-and-publication/domain/, and it stayed GREEN (none of those names matched a known
-   prefix). It IS a real regression gate for known naming patterns (verified: `sanitize-paths.ts`
-   still fails it correctly), but its own "closes the reactive-growth gap" framing overstated it —
-   this is defect #3 of the meta-lesson (an enumeration replacing an enumeration).
-   Fixed by INVERTING the default instead of enumerating better: every file under
-   SECURITY_SENSITIVE_SURFACE_ROOTS must be either in PROTECTED_PATHS or in the explicit, reviewed
-   NOT_SECURITY_SENSITIVE allowlist — a NEW file forces a decision regardless of what it is named.
- */
-test("PROTECTED_PATHS completeness (FIX 6, invert-the-default): every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
-  /* Baseline: every file that ACTUALLY exists under the surface today must already be classified. */
-  const baseline = unclassifiedUnder(SECURITY_SENSITIVE_SURFACE_ROOTS);
-  assert.deepEqual(baseline, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(baseline)}`);
+test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
+  const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
+  assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);
+});
 
-  /* Proof the mechanism forces a decision on a NEW file regardless of its name — reproduces BOTH
-     judges' exact planted filenames from the live probe that found this gap.
-   */
-  const plantDir = join(repoRoot, "qa-engine", "src", "contexts", "workspace-and-publication", "domain");
-  const plants = ["secret-guard.service.ts", "secrets.ts", "confine.ts", "egress.ts"];
-  const plantedFullPaths = plants.map((p) => join(plantDir, p));
+/* The default is inverted: a NEW file under the surface forces a classification decision whatever it
+   is named — an enumeration of "sensitive-looking" names would miss secrets.ts, confine.ts, egress.ts.
+ */
+test("a newly added file under the security-sensitive surface is flagged whatever its name, while protected and reviewed files are not", () => {
+  const domain = "qa-engine/src/contexts/workspace-and-publication/domain/";
+  const planted = ["secret-guard.service.ts", "secrets.ts", "confine.ts", "egress.ts"].map((name) => `${domain}${name}`);
+  const protectedFile = PROTECTED_PATHS.find((p) => !p.endsWith("/") && !p.startsWith("*") && isSecuritySensitiveSurface(p));
+  const reviewedFile = NOT_SECURITY_SENSITIVE[0];
+  assert.ok(protectedFile && reviewedFile, "the surface must hold at least one protected and one reviewed file");
+
+  const treeRoot = tempTreeWith([...planted, protectedFile, reviewedFile]);
   try {
-    for (const p of plantedFullPaths) writeFileSync(p, "export {};\n");
-    const bad = unclassifiedUnder(SECURITY_SENSITIVE_SURFACE_ROOTS);
-    for (const p of plants) {
-      assert.ok(
-        bad.includes(`qa-engine/src/contexts/workspace-and-publication/domain/${p}`),
-        `${p} must be flagged as unclassified the moment it appears — that is the whole point of inverting the default (got: ${JSON.stringify(bad)})`,
-      );
+    const unclassified = unclassifiedUnder(treeRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
+    for (const file of planted) {
+      assert.ok(unclassified.includes(file), `${file} must be flagged the moment it appears (got: ${JSON.stringify(unclassified)})`);
     }
+    assert.equal(unclassified.includes(protectedFile), false, `${protectedFile} is protected and must not be flagged`);
+    assert.equal(unclassified.includes(reviewedFile), false, `${reviewedFile} is reviewed as not-sensitive and must not be flagged`);
   } finally {
-    for (const p of plantedFullPaths) if (existsSync(p)) rmSync(p);
+    rmSync(treeRoot, { recursive: true, force: true });
   }
 });
 
 /* generation/infrastructure/ and qa-run-orchestration/infrastructure/bridges/ must be in
-   SECURITY_SENSITIVE_SURFACE_ROOTS so the completeness walk scans them. Narrowing the prefix to
-   exclude ONE file (catalog-gate.ts) must fail this test. NOT_SECURITY_SENSITIVE stays empty for
-   them (the blanket prefix already covers every file).
+   SECURITY_SENSITIVE_SURFACE_ROOTS so the completeness walk scans them: narrowing the blanket
+   generation/infrastructure/ prefix to per-file entries that skip ONE existing file must be caught.
  */
-test("FIX II(b): the completeness backstop now scans generation/infrastructure/ and orchestration bridges/ (Judge B's exact mutation is caught)", () => {
+test("narrowing the generation/infrastructure protection past one file is caught by the completeness walk", () => {
   const root = "qa-engine/src/contexts/generation/infrastructure/";
   const idx = PROTECTED_PATHS.indexOf(root);
   assert.ok(idx >= 0, "expected the blanket prefix entry to exist in PROTECTED_PATHS before mutating it");
 
-  /* per-file entries for EVERY file except one (catalog-gate.ts) — narrowing the prefix past exactly
-     one file, exactly as his mutation testing did.
-   */
   const files: string[] = [];
   walk(join(repoRoot, root), files);
   const relFiles = files.map((f) => relative(repoRoot, f).replace(/\\/g, "/"));
-  const narrowed = relFiles.filter((f) => !f.endsWith("catalog-gate.ts"));
+  const skipped = relFiles[0];
+  assert.ok(skipped, "generation/infrastructure/ must hold at least one file");
+  const narrowed = relFiles.filter((f) => f !== skipped);
   PROTECTED_PATHS.splice(idx, 1, ...narrowed);
   try {
-    /* Sanity: the mutation must actually narrow past this file (otherwise this test proves nothing). */
-    assert.equal(isProtectedPath(`${root}catalog-gate.ts`), false, "sanity: the mutation must narrow protection past catalog-gate.ts");
-
-    /* Route through the SAME SECURITY_SENSITIVE_SURFACE_ROOTS list the real completeness test scans —
-       this is the actual backstop mechanism, not just a direct walk of the mutated directory. Before
-       FIX II(b) (root not yet registered in SECURITY_SENSITIVE_SURFACE_ROOTS), this assertion FAILS —
-     */
-    const bad = unclassifiedUnder(SECURITY_SENSITIVE_SURFACE_ROOTS);
-    assert.ok(
-      bad.includes(`${root}catalog-gate.ts`),
-      `the completeness backstop must catch the narrowed prefix — got unclassified: ${JSON.stringify(bad)}`,
-    );
+    assert.equal(isProtectedPath(skipped), false, `sanity: the narrowing must leave ${skipped} unprotected`);
+    const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
+    assert.ok(unclassified.includes(skipped), `the completeness walk must catch the narrowed prefix — got unclassified: ${JSON.stringify(unclassified)}`);
   } finally {
-    PROTECTED_PATHS.splice(idx, narrowed.length, root); /* restore the original blanket entry */
+    PROTECTED_PATHS.splice(idx, narrowed.length, root);
   }
 });
 

@@ -2,7 +2,8 @@
    come from coordination telemetry JSONL. The case list does not store those numbers. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -39,9 +40,10 @@ test("loadCoordinationBenchmarkCases: a missing cases file throws a loud, action
 });
 
 test("loadCoordinationBenchmarkCases: a malformed cases file (not an array of well-formed cases) throws loudly", (t) => {
-  const badPath = join(dirname(fileURLToPath(import.meta.url)), "coordination-benchmark.malformed-fixture.json");
+  const dir = mkdtempSync(join(tmpdir(), "coordination-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const badPath = join(dir, "coordination-cases.json");
   writeFileSync(badPath, JSON.stringify([{ id: "missing-fields" }]));
-  t.after(() => rmSync(badPath, { force: true }));
   assert.throws(() => loadCoordinationBenchmarkCases(badPath), /must be a JSON array of CoordinationBenchmarkCase objects/);
 });
 
