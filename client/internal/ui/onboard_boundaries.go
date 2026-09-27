@@ -331,7 +331,7 @@ func (m boundaryProposeModel) renderWinnerCard() string {
 			b.WriteString("\n" + attention)
 		}
 	}
-	b.WriteString("\n" + hintStyle.Render(fmt.Sprintf("on confirm: writes boundaries[] to config/apps/%s.yaml, indexes the repos, and opens a PR for e2e/.qa/context.json", m.app)) + "\n")
+	b.WriteString("\n" + hintStyle.Render(fmt.Sprintf("on confirm: writes boundaries[] to config/apps/%s.yaml, indexes the repos, and builds the app's architecture map (opens a PR for e2e/.qa/context.json for non-shadow apps only)", m.app)) + "\n")
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colPass).
