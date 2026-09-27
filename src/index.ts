@@ -25,8 +25,8 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
-import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { enqueueTrackedRun, cancelTrackedRun, finalizeInterruptedRuns } from "./server/runner";
 import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
@@ -384,31 +384,6 @@ function startHealthPoller(): void {
   }, 60_000);
 }
 
-function finalizeInterruptedRuns(): void {
-  const zombies = interruptedRecords();
-  if (zombies.length === 0) {
-    console.log("[qa] no interrupted runs from previous process — queue is clean");
-    return;
-  }
-  console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
-  for (const r of zombies) {
-    updateRecord(r.id, {
-      status: "done",
-      step: "done",
-      verdict: "infra-error",
-      note: "process restarted — run was interrupted",
-    });
-    recordIncident({
-      source: "health-check",
-      severity: "warn",
-      summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
-      detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
-    });
-    console.log(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
-  }
-  console.log(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
-}
-
 /*
  * A request is authorized if it carries EITHER the static machine token (CI/automation) OR a
  * valid user-session JWT minted by POST /api/auth/login. authorizeBearer does the constant-time
@@ -672,7 +647,7 @@ const apiDeps: ApiDeps = {
    * leaving a zombie stuck at "0%" answering 409 to every stop press. queue.cancel(id) inside it
    * protects an innocent successor (it aborts only when the id matches the active run).
    */
-  cancelRun: (id) => cancelTrackedRun(queue, id),
+  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents }),
   continueRun: (parentId, cases, guidance) => {
     if (shuttingDown) return "";
     const parent = getRecord(parentId);
@@ -844,7 +819,7 @@ const server = createServer(async (req, res) => {
  * landing during boot creates a legitimate `enqueued` record that a late sweep would
  * wrongly finalize as infra-error.
  */
-finalizeInterruptedRuns();
+finalizeInterruptedRuns({ runEvents });
 
 server.listen(port, () => {
   logJson("info", `qayaba listening on :${port}${apiToken ? " (API auth on)" : ""}`);

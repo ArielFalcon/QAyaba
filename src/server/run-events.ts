@@ -43,6 +43,19 @@ export function createRunEventStore(opts: RunEventStoreOptions = {}): RunEventSt
   const buffers = new Map<string, RunEvent[]>();
   const nextSeq = new Map<string, number>();
 
+  /*
+   * A run this process has not published to yet may already have durable events from a previous
+   * process (a run interrupted by a restart, then finalized at boot). Its sequence continues after
+   * them: restarting at 0 would collide with events already streamed, and a client resuming from
+   * the last seq it saw would never receive what this process publishes.
+   */
+  const firstSeq = (runId: string): number => {
+    if (!opts.loadPersisted) return 0;
+    let last = -1;
+    for (const e of opts.loadPersisted(runId, -1)) if (e.seq > last) last = e.seq;
+    return last + 1;
+  };
+
   return {
     publish(runId, body) {
       const cleanBody = RunEventBodySchema.parse(sanitizeUnknown(body));
@@ -50,7 +63,7 @@ export function createRunEventStore(opts: RunEventStoreOptions = {}): RunEventSt
         const oldest = buffers.keys().next().value;
         if (oldest !== undefined) { buffers.delete(oldest); nextSeq.delete(oldest); }
       }
-      const seq = nextSeq.get(runId) ?? 0;
+      const seq = nextSeq.get(runId) ?? firstSeq(runId);
       nextSeq.set(runId, seq + 1);
       const event = RunEventSchema.parse({ seq, runId, ts: now(), body: cleanBody });
       const buf = buffers.get(runId) ?? [];

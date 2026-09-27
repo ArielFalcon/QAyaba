@@ -9,7 +9,7 @@
 
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords } from "./history";
+import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords } from "./history";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus } from "../types";
@@ -407,14 +407,14 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * actually executing against DEV. The boolean return + the now-terminal record together let
  * handleCancelRun answer 200 vs 409 accurately.
  */
-export function cancelTrackedRun(queue: JobQueue, id: string): boolean {
+export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents"> = {}): boolean {
   const record = getRecord(id);
   if (!record) return false;
   if (record.status !== "running" && record.status !== "enqueued") return false;
 
   /* Abort the live job first — succeeds only when this id is the one holding the queue. */
   if (record.status === "running" && queue.cancel(id)) {
-    updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note: "cancelled by operator" });
+    finalizeUnfinished(id, "cancelled by operator", deps.runEvents);
     return true;
   }
 
@@ -425,6 +425,42 @@ export function cancelTrackedRun(queue: JobQueue, id: string): boolean {
   const note = record.status === "enqueued"
     ? "cancelled by operator"
     : "cancelled by operator (run was no longer active)";
-  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note });
+  finalizeUnfinished(id, note, deps.runEvents);
   return false;
+}
+
+/*
+ * Finalizes a run that will never reach its own verdict — cancelled, or interrupted by a restart —
+ * as infra-error, and ends its event stream with that verdict. The job of a cancelled run discards
+ * its late resolution once the record is done, so this is the run's only run.verdict; without it
+ * a watching client only learns the run is over by reading the record.
+ */
+function finalizeUnfinished(id: string, note: string, runEvents: RunEventStore | undefined): void {
+  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note });
+  runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
+}
+
+/*
+ * Finalizes the runs a previous process left enqueued or running. Called at boot BEFORE traffic is
+ * accepted: a webhook landing during boot creates a legitimate enqueued record that a late sweep
+ * would wrongly finalize.
+ */
+export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents"> = {}): void {
+  const zombies = interruptedRecords();
+  if (zombies.length === 0) {
+    console.log("[qa] no interrupted runs from previous process — queue is clean");
+    return;
+  }
+  console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
+  for (const r of zombies) {
+    finalizeUnfinished(r.id, "process restarted — run was interrupted", deps.runEvents);
+    recordIncident({
+      source: "health-check",
+      severity: "warn",
+      summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
+      detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
+    });
+    console.log(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
+  }
+  console.log(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
 }

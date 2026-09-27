@@ -1147,6 +1147,41 @@ test("cancelTrackedRun is a no-op on an already-terminal record", () => {
   assert.equal(getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
 });
 
+/* A cancelled run must END its live event stream: without a terminal event, a watching console
+   only learns the run is over by polling, and the stream of a run cancelled while enqueued has
+   nothing to replay at all. */
+for (const [branch, label] of [["live", "live run"], ["enqueued", "run still enqueued"], ["stale running", "stale running record"]] as const) {
+  test(`cancelling a ${label} ends its event stream with exactly one infra-error verdict`, async () => {
+    const queue = new JobQueue();
+    const runEvents = createRunEventStore();
+    const rec = createRecord({ app: `cancel-event-${branch.replace(" ", "-")}`, sha: "fff6666", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") updateRecord(rec.id, { status: "running" });
+    if (branch === "live") {
+      queue.enqueue(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }, rec.id);
+      await new Promise((r) => setImmediate(r));
+    }
+    const seen: string[] = [];
+    runEvents.subscribe(rec.id, (e) => { if (e.body.type === "run.verdict") seen.push(e.body.verdict); });
+
+    cancelTrackedRun(queue, rec.id, { runEvents });
+    await queue.drain();
+
+    assert.deepEqual(seen, ["infra-error"], "a watcher already on the stream receives the terminal verdict");
+    const verdicts = runEvents.replay(rec.id).filter((e) => e.body.type === "run.verdict");
+    assert.equal(verdicts.length, 1, "a client connecting later replays exactly one verdict");
+  });
+}
+
+test("cancelling an already-finished run publishes nothing", () => {
+  const runEvents = createRunEventStore();
+  const rec = createRecord({ app: "cancel-event-done", sha: "fff7777", target: "e2e", mode: "diff" });
+  updateRecord(rec.id, { status: "done", verdict: "pass" });
+  cancelTrackedRun(new JobQueue(), rec.id, { runEvents });
+  assert.deepEqual(runEvents.replay(rec.id), []);
+});
+
 test("cancelTrackedRun returns false for an unknown run id", () => {
   assert.equal(cancelTrackedRun(new JobQueue(), "does-not-exist"), false);
 });
