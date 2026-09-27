@@ -925,7 +925,10 @@ export declare const test: TestType<{ page: Page }>;
 export declare const expect: (actual: unknown) => { toBe(expected: unknown): void };
 `;
 
-test("a repo fixtures.ts with the capture block appended type-checks under the seed's strict tsconfig", () => {
+const REPO_FIXTURES = 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n';
+
+/* Runs ensureFailureCapture on a repo whose fixtures.ts is `fixtures`, then type-checks it with the seed's tsconfig. */
+function typeCheckAfterCapture(fixtures: string): { exitCode: number; output: string; after: string } {
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-capture-tsc-"));
   try {
     const repoRoot = join(REAL_SEED_DIR, "..", "..");
@@ -937,26 +940,48 @@ test("a repo fixtures.ts with the capture block appended type-checks under the s
     mkdirSync(playwright, { recursive: true });
     writeFileSync(join(playwright, "package.json"), JSON.stringify({ name: "@playwright/test", types: "index.d.ts" }));
     writeFileSync(join(playwright, "index.d.ts"), PLAYWRIGHT_TYPES_STAND_IN);
-    /* A repo-owned fixtures.ts without the capture marker: the block is appended to it. */
-    writeFileSync(join(dir, "fixtures.ts"), 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n');
+    writeFileSync(join(dir, "fixtures.ts"), fixtures);
 
     realAdapter().ensureFailureCapture(dir);
-    assert.ok(readFileSync(join(dir, "fixtures.ts"), "utf8").includes(FAILURE_CAPTURE_MARKER), "precondition: the block was appended");
+    const after = readFileSync(join(dir, "fixtures.ts"), "utf8");
 
     const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-    let output = "";
-    let exitCode = 0;
     try {
-      output = execFileSync(process.execPath, [tsc, "-p", join(dir, "tsconfig.json")], { encoding: "utf8" });
+      return { exitCode: 0, output: execFileSync(process.execPath, [tsc, "-p", join(dir, "tsconfig.json")], { encoding: "utf8" }), after };
     } catch (err) {
       const e = err as { status?: number; stdout?: string; stderr?: string };
-      exitCode = e.status ?? 1;
-      output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+      return { exitCode: e.status ?? 1, output: `${e.stdout ?? ""}${e.stderr ?? ""}`, after };
     }
-    assert.equal(exitCode, 0, `the appended fixtures.ts must type-check under the seed tsconfig:\n${output}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test("a repo fixtures.ts with the capture block appended type-checks under the seed's strict tsconfig", () => {
+  const { exitCode, output, after } = typeCheckAfterCapture(REPO_FIXTURES);
+  assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "precondition: the block was appended");
+  assert.equal(exitCode, 0, `the appended fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+test("a repo that received an earlier, untyped capture block type-checks after setup", () => {
+  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"));
+  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+/* Only a block that is still byte-for-byte an earlier appended revision is upgraded, in place. */
+test("ensureFailureCapture upgrades every earlier appended block revision in place to the current block", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  for (const revision of ["failure-capture.rev1.txt", "failure-capture.rev2.txt", "failure-capture.rev3.txt", "failure-capture.rev4.txt", "failure-capture.rev5.txt"]) {
+    const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision(revision) + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+    assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later, `${revision} is an earlier appended block`);
+  }
+});
+
+test("ensureFailureCapture never touches an appended capture block someone edited", () => {
+  const edited = REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt").replace("let errorResponses = [];", "let errorResponses: unknown[] = [];");
+  assert.notEqual(edited, REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"), "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
 });
 
 /* The seed's fixtures.ts (new onboards) and FAILURE_CAPTURE_BLOCK (appended into existing repos)

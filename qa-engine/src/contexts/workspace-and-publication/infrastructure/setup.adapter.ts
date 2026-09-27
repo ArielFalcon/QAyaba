@@ -9,6 +9,22 @@ export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
 
 export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do not edit) >>>";
 
+const FAILURE_CAPTURE_END_MARKER = "// <<< qa-failure-capture <<<\n";
+
+/*
+ * sha256 of every earlier FAILURE_CAPTURE_BLOCK revision appended into repos' fixtures.ts (the
+ * whole block, from the newline before its opening marker through its closing marker line). An
+ * appended block that still byte-matches one is upgraded in place; an edited block is left as-is.
+ * Add the outgoing block's hash whenever FAILURE_CAPTURE_BLOCK changes.
+ */
+const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
+  "0665bc90120cf1f2da387182d638f279cafb27d3c36850523a26164b69e57569",
+  "4bc9fb09d3b999d50291acce880217b2aeb00cbe45cfdccf4b24598b999458a4",
+  "3ebe14ac5cdf1b445c37db2acf6cbf53f1f02057b3e58f0076a46c7bd6a32a3c",
+  "aaaec869a29d0d5066cb7cb9ab89c829bae7b04797a9e0e5372fef24de034550",
+  "607112cee45f4edf134ecefa660e815f6e40dfce2b9a0f19184f4e5372d935b1",
+]);
+
 /*
  * sha256 of every playwright.config.ts seed revision shipped into watched repos, the current one
  * included. A repo copy that byte-matches one is stock and follows the current seed; any other copy
@@ -229,12 +245,25 @@ export class SetupAdapter {
     this.deps.fs.mkdir(join(e2eDir, "flows"));
   }
 
+  /**
+   * Appends the failure-capture block to a repo's fixtures.ts that has none, and upgrades in place a
+   * block that is still byte-for-byte an earlier appended revision. Every other line — and a block
+   * someone edited — is left as-is.
+   */
   ensureFailureCapture(e2eDir: string): void {
     const path = join(e2eDir, "fixtures.ts");
     if (!this.deps.fs.exists(path)) return;
     const src = this.deps.fs.read(path);
-    if (src.includes(FAILURE_CAPTURE_MARKER)) return;
-    this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+    const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
+    if (start === -1) {
+      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+      return;
+    }
+    const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
+    if (endMarker === -1) return;
+    const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
+    if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return;
+    this.deps.fs.write(path, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
   }
 
   /** Keeps the Playwright session directory out of the suite PR. Idempotent. */
