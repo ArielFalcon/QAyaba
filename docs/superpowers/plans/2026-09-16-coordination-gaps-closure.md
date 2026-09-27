@@ -1,5 +1,11 @@
 # Coordination Gaps Closure Implementation Plan
 
+> **SUPERSEDED.** Multi-agent coordination shipped as a single always-on mode — no
+> `COORDINATION_MODE` toggle, no shadow/evidence-gated activation. Parte A/B below were not
+> implemented as designed. See README.md's "Multi-agent coordination" section and
+> `qa-engine/src/contexts/qa-run-orchestration/application/coordination/` for the shipped
+> design. Kept for historical reference only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close remaining multi-agent coordination gaps so shadow can produce evidence (`better`/`worse` via sampled dual-path) and active points are honored only when durable per-app evidence passes thresholds — then finish ops/YAML/escalated-model/docs in the same guide.

@@ -1,5 +1,12 @@
 # Coordination gaps closure — design
 
+> **SUPERSEDED.** Multi-agent coordination shipped as a single always-on mode — no
+> `COORDINATION_MODE` toggle, no shadow/evidence-gated activation. Parte A (evidence-gated
+> "active" points) and Parte B (ops/YAML/escalated-model/durable-adaptive rollout) described
+> below were not implemented as designed. See README.md's "Multi-agent coordination" section
+> and `qa-engine/src/contexts/qa-run-orchestration/application/coordination/` for the shipped
+> design. Kept for historical reference only.
+
 Closes the remaining multi-agent coordination gaps on top of the already-wired Fases 0–14 (`qa/multi-agent-coordination`), using the grounded-v2 doc as normative context and the current `RunQaUseCase` / `history.ts` seams as the implementation surface. **One document:** Parte A (MVP → evidence → safe active) and Parte B (ops, escalated model, durable adaptive, LeadContext expose, promotion).
 
 **Source context:** `/Users/arielyumn/Downloads/QAyaba-multi-agent-coordination-architecture-grounded-v2.md` (Fases 11–13, §37 migration, cost §20–21, LeadContext §6.2). **Code baseline:** `qa-engine/.../application/coordination/*`, `run-qa.use-case.ts`, `composition-root.ts`, `src/server/rewritten-engine-factory.ts` (`COORDINATION_MODE`), `src/server/history.ts` (SQLite).
