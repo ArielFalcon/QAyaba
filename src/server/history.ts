@@ -18,7 +18,12 @@ import type { LearningRule as FoldLearningRule } from "@contexts/cross-run-learn
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "../qa/learning/taxonomy";
 import type { Curriculum } from "../qa/learning/curriculum";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
+import { logJson } from "../integrations/logger";
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+
+const redactionPort = new RedactionPortAdapter();
 
 
 export interface AgentTurnRecord {
@@ -868,14 +873,26 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
   }));
 }
 
-export function loadCurriculum(app: string): Curriculum | null {
+/*
+ * A corrupt row (exists but fails to parse) is a DISTINCT outcome from "no row yet" — returning
+ * null for both let CurriculumPortAdapter.read() silently `initCurriculum` a corrupt app's
+ * history, and the next successful fold() would persist that fresh curriculum right over the
+ * corrupt row, permanently discarding whatever evidence it held with nothing logged anywhere.
+ * CURRICULUM_CORRUPT routes the adapter's read() to throw instead, which its existing
+ * try/catch (onError, no save) already fault-isolates — see curriculum-port.adapter.ts.
+ */
+export function loadCurriculum(app: string): Curriculum | null | typeof CURRICULUM_CORRUPT {
   ensureDb();
   const row = loadCurriculumStmt.get(app) as { data: string; updated_at: string } | undefined;
   if (!row) return null;
   try {
     return JSON.parse(row.data) as Curriculum;
-  } catch {
-    return null;
+  } catch (err) {
+    logJson("warn", `corrupt curriculum row for app '${app}' — refusing to silently reset it with a fresh curriculum`, {
+      app,
+      error: redactionPort.redactError(err),
+    });
+    return CURRICULUM_CORRUPT;
   }
 }
 

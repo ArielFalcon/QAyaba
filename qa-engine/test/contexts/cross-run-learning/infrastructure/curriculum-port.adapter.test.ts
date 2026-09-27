@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts";
+import { CurriculumPortAdapter, CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter.ts";
 import { initCurriculum, foldCurriculum, type Curriculum } from "@contexts/cross-run-learning/domain/curriculum.ts";
 import { MAX_SELECTED_EXEMPLARS } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
@@ -57,6 +57,18 @@ describe("CurriculumPortAdapter.select", () => {
     assert.ok(logged instanceof Error);
     assert.equal(logged.message, "db down");
   });
+
+  it("treats a CURRICULUM_CORRUPT load result as a fault (same as a throwing store) — never silently starts fresh", async () => {
+    let logged: unknown;
+    const adapter = new CurriculumPortAdapter(
+      "app",
+      () => CURRICULUM_CORRUPT,
+      () => {},
+      (error) => { logged = error; },
+    );
+    assert.deepEqual(await adapter.select(RICH_DIFF, FILES), []);
+    assert.ok(logged instanceof Error, "a corrupt load result must be surfaced through onError, not swallowed");
+  });
 });
 
 describe("CurriculumPortAdapter.fold", () => {
@@ -91,5 +103,19 @@ describe("CurriculumPortAdapter.fold", () => {
     const adapter = new CurriculumPortAdapter("app", () => null, () => { throw new Error("disk full"); }, (e) => { logged = e; });
     await adapter.fold({ offered: ["happy-path"], verdict: "pass", coverageStatus: "pass" });
     assert.ok(logged instanceof Error);
+  });
+
+  it("a CURRICULUM_CORRUPT load result is treated as a fault: fold never overwrites the corrupt row with a fresh curriculum, and onError fires", async () => {
+    let saveCalls = 0;
+    let logged: unknown;
+    const adapter = new CurriculumPortAdapter(
+      "app",
+      () => CURRICULUM_CORRUPT,
+      () => { saveCalls++; },
+      (error) => { logged = error; },
+    );
+    await adapter.fold({ offered: ["happy-path"], verdict: "pass", coverageStatus: "pass" });
+    assert.equal(saveCalls, 0, "a corrupt row must never be silently replaced by a freshly-initialized curriculum");
+    assert.ok(logged instanceof Error, "the corrupt row must be surfaced through onError, not swallowed");
   });
 });

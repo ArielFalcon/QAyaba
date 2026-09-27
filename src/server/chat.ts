@@ -7,6 +7,7 @@
 import { RunRecord } from "../types";
 import { sanitizeText } from "../orchestrator/sanitizer";
 import { listRunOutcomes, listLearningRules, loadCurriculum } from "./history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 
 export function buildRunChatContext(): string {
   return sanitizeText([
@@ -37,7 +38,13 @@ export function buildLearningContext(app: string): string | null {
   try {
     const outcomes = listRunOutcomes(app, 10);
     const rules = listLearningRules(app, 20);
-    const curriculum = loadCurriculum(app);
+    /*
+     * A corrupt row is already logged loudly by loadCurriculum() itself; this chat context is
+     * read-only advisory prose (never a fold path), so it degrades the same as "no curriculum
+     * yet" rather than surfacing the fault to the operator a second time here.
+     */
+    const curriculumRaw = loadCurriculum(app);
+    const curriculum = curriculumRaw === CURRICULUM_CORRUPT ? null : curriculumRaw;
 
     if (outcomes.length === 0 && rules.length === 0 && !curriculum) return null;
 

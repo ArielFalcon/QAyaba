@@ -4,10 +4,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns } from "./history";
+import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
 
 test("markContextStale then consumeContextStale is one-shot: first consume true, second false", () => {
   const app = "hist-ctx-stale";
@@ -206,6 +208,35 @@ test("scorecard persists oracle outcomes and aggregates valueScore across runs",
   assert.equal(sc!.summary.measuredRuns, 2);
   assert.ok(Math.abs(sc!.summary.avgValueScore! - 0.6) < 1e-9, `expected ~0.6, got ${sc!.summary.avgValueScore}`);
   assert.equal(sc!.summary.lastValueScore, 0.7);
+});
+
+test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct fault, never silently treated as absent/fresh", () => {
+  const app = `hist-curriculum-corrupt-${Date.now().toString(36)}`;
+  saveCurriculum(initCurriculum(app));
+  assert.ok(loadCurriculum(app), "sanity: the valid row round-trips before corruption");
+
+  /* Corrupt the row directly (bypassing saveCurriculum, which only ever writes valid JSON) —
+     a second connection to the SAME on-disk db (WAL mode allows this). */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run("{not valid json", app);
+  } finally {
+    raw.close();
+  }
+
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const result = loadCurriculum(app);
+    assert.equal(result, CURRICULUM_CORRUPT, "a corrupt row must be reported as a distinct fault, never treated as null/absent (which a fold() would silently overwrite with a fresh curriculum)");
+    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt-curriculum fault");
+    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("deleteAppHistory removes the app's runs (cascading cases/specs) but not other apps'", () => {

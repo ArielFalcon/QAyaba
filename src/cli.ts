@@ -20,6 +20,7 @@ import { delegateRun, type DelegateRunResult } from "./server/run-delegate";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, loadCurriculum } from "./server/history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
@@ -273,9 +274,13 @@ function showLearning(app: string): void {
     console.log("");
   }
 
-  const curriculum = loadCurriculum(app);
+  const curriculumRaw = loadCurriculum(app);
+  const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
+  const curriculum = curriculumCorrupt ? null : curriculumRaw;
   console.log(`── Curriculum ──`);
-  if (!curriculum) {
+  if (curriculumCorrupt) {
+    console.log("  (corrupt row on disk — see server logs; refusing to display or silently reset it)\n");
+  } else if (!curriculum) {
     console.log("  (none — will be created on first run)\n");
   } else {
     const proven = curriculum.archetypes.filter((a) => a.caughtRealBug);

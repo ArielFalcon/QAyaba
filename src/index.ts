@@ -33,6 +33,7 @@ import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metr
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./integrations/repo-mirror";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
@@ -574,7 +575,15 @@ const apiDeps: ApiDeps = {
    * Same retrieve cap the engine injects into generation (listLearningRules(app, 200)) so the
    * operator ledger is the live set, not a 20-row preview that silently drops the rest.
    */
-  intelligence: (app) => toIntelligenceView(app, listLearningRules(app, 200), loadScorecard(app), loadCurriculum(app)),
+  /*
+   * A corrupt curriculum row is already logged loudly by loadCurriculum() itself; this read-only
+   * ledger view degrades the same as "no curriculum yet" rather than widening
+   * IntelligenceViewSchema (and the contract regen it would force) just to say so a second time.
+   */
+  intelligence: (app) => {
+    const curriculum = loadCurriculum(app);
+    return toIntelligenceView(app, listLearningRules(app, 200), loadScorecard(app), curriculum === CURRICULUM_CORRUPT ? null : curriculum);
+  },
   signals: () => toSignalsView(
     listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),
     toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),

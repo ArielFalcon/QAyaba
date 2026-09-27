@@ -8,7 +8,18 @@ import {
   type Curriculum,
 } from "../domain/curriculum.ts";
 
-export type CurriculumLoad = (app: string) => Curriculum | null;
+/*
+ * Distinct from `null` ("no curriculum yet — start fresh"): a load result of CURRICULUM_CORRUPT
+ * means a row EXISTS but could not be parsed. Conflating the two would make `read()` silently
+ * `initCurriculum` a corrupt app's history, and the next successful `fold()` would then persist
+ * that fresh curriculum right over the corrupt row — permanently discarding whatever evidence it
+ * held, with no signal anywhere that it ever happened. Treating it as a distinct fault instead
+ * (read() throws) routes it through the SAME try/catch every store failure already goes through
+ * (onError, no save) — see read() below.
+ */
+export const CURRICULUM_CORRUPT = Symbol("curriculum-corrupt");
+
+export type CurriculumLoad = (app: string) => Curriculum | null | typeof CURRICULUM_CORRUPT;
 export type CurriculumSave = (curriculum: Curriculum) => void;
 
 export class CurriculumPortAdapter implements CurriculumPort {
@@ -64,6 +75,9 @@ export class CurriculumPortAdapter implements CurriculumPort {
 
   private read(): Curriculum {
     const raw = this.loadFn(this.app);
+    if (raw === CURRICULUM_CORRUPT) {
+      throw new Error(`curriculum row for '${this.app}' is corrupt — refusing to silently reset it`);
+    }
     return raw ? normalizeCurriculum(raw, this.app) : initCurriculum(this.app);
   }
 }
