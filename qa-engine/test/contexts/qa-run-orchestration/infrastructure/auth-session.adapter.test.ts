@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
+import { authSessionEnv } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
 const SEED = "/* qa-auth-setup-seed */\nexport {};\n";
 
@@ -191,4 +192,143 @@ test("a seed marker still counts as stock after the seed text changes", async ()
     auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
   });
   assert.equal(session.unauthored, true);
+});
+
+/* A session or certificate left by an earlier run (or an earlier auth declaration) must never stand in
+   for this run's: what the env overlay injects is only what THIS prepare produced. */
+const AUTH_ENV_KEYS = ["PW_STORAGE_STATE", "PW_CLIENT_CERT_PATH", "DEV_CLIENT_CERT_PASS"];
+
+function authDirWithEarlierRunMaterial(): string {
+  const dir = authDirFixture();
+  writeFileSync(join(dir, "user.json"), "{\"cookies\":[{\"name\":\"from-an-earlier-run\"}]}");
+  writeFileSync(join(dir, "client.p12"), "earlier-p12");
+  writeFileSync(join(dir, "cert.pass"), "earlier-pass");
+  return dir;
+}
+
+function injectedAuthKeys(authDir: string): string[] {
+  const env = authSessionEnv(authDir, {});
+  return AUTH_ENV_KEYS.filter((k) => k in env);
+}
+
+test("an authored form setup that exits 0 without writing a session fails instead of reusing an earlier run's session", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirWithEarlierRunMaterial();
+  try {
+    writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login that ignores PW_STORAGE_STATE */\n");
+    const adapter = new AuthSessionAdapter({
+      env: { QA_USER: "u", QA_PASS: "p" },
+      seedAuthSetup: SEED,
+      authDir,
+      spawnSetup: async () => ({ exitCode: 0, logs: "" }),
+    });
+    await assert.rejects(
+      () => adapter.prepare({
+        specDir,
+        baseUrl: "https://dev.example",
+        phase: "pre-execute",
+        auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+      }),
+      /auth setup failed/,
+    );
+    assert.deepEqual(injectedAuthKeys(authDir), [], "no earlier-run material may reach the suite env");
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test("a stock seed that cannot log in before generation runs unauthenticated, not on an earlier run's session", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirWithEarlierRunMaterial();
+  try {
+    writeFileSync(join(specDir, "auth.setup.ts"), SEED);
+    const adapter = new AuthSessionAdapter({
+      env: { QA_USER: "u", QA_PASS: "p" },
+      seedAuthSetup: SEED,
+      authDir,
+      spawnSetup: async () => ({ exitCode: 1, logs: "selector miss" }),
+    });
+    const session = await adapter.prepare({
+      specDir,
+      baseUrl: "https://dev.example",
+      phase: "pre-generate",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    });
+    assert.equal(session.unauthored, true);
+    assert.deepEqual(injectedAuthKeys(authDir), []);
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test("an app with no auth declared gets no auth env from an earlier run's material", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirWithEarlierRunMaterial();
+  try {
+    const adapter = new AuthSessionAdapter({
+      env: {},
+      seedAuthSetup: SEED,
+      authDir,
+      spawnSetup: async () => { throw new Error("must not spawn"); },
+    });
+    await adapter.prepare({ specDir, baseUrl: "https://dev.example", phase: "pre-generate" });
+    assert.deepEqual(injectedAuthKeys(authDir), []);
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test("a form login injects only its session, never an earlier client certificate", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirWithEarlierRunMaterial();
+  try {
+    writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
+    const adapter = new AuthSessionAdapter({
+      env: { QA_USER: "u", QA_PASS: "p" },
+      seedAuthSetup: SEED,
+      authDir,
+      spawnSetup: async (_dir, env) => {
+        writeFileSync(env.PW_STORAGE_STATE!, "{\"cookies\":[]}");
+        return { exitCode: 0, logs: "" };
+      },
+    });
+    await adapter.prepare({
+      specDir,
+      baseUrl: "https://dev.example",
+      phase: "pre-execute",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    });
+    assert.deepEqual(injectedAuthKeys(authDir), ["PW_STORAGE_STATE"]);
+    assert.equal(readFileSync(join(authDir, "user.json"), "utf8"), "{\"cookies\":[]}", "the session must be the one this login wrote");
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test("a client certificate injects only the certificate, never an earlier form session", async () => {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirWithEarlierRunMaterial();
+  try {
+    const adapter = new AuthSessionAdapter({
+      env: { QA_CERT: Buffer.from("p12-bytes").toString("base64"), QA_CERT_PASS: "secret" },
+      seedAuthSetup: SEED,
+      authDir,
+      spawnSetup: async () => { throw new Error("must not spawn"); },
+    });
+    await adapter.prepare({
+      specDir,
+      baseUrl: "https://dev.example",
+      phase: "pre-generate",
+      auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS" },
+    });
+    assert.deepEqual(injectedAuthKeys(authDir), ["PW_CLIENT_CERT_PATH", "DEV_CLIENT_CERT_PASS"]);
+    assert.equal(authSessionEnv(authDir, {}).DEV_CLIENT_CERT_PASS, "secret");
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
 });

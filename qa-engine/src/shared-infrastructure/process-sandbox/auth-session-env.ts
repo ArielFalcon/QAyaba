@@ -8,10 +8,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+/* The auth material files under authDir: written by AuthSessionAdapter.prepare(), read here. */
+export const AUTH_MATERIAL_FILES = {
+  storageState: "user.json",
+  clientCert: "client.p12",
+  certPass: "cert.pass",
+} as const;
+
 export function authSessionEnv(authDir: string, baseEnv: Record<string, string>): Record<string, string> {
-  const storage = join(authDir, "user.json");
-  const cert = join(authDir, "client.p12");
-  const passFile = join(authDir, "cert.pass");
+  const storage = join(authDir, AUTH_MATERIAL_FILES.storageState);
+  const cert = join(authDir, AUTH_MATERIAL_FILES.clientCert);
+  const passFile = join(authDir, AUTH_MATERIAL_FILES.certPass);
   const env: Record<string, string> = { ...baseEnv };
   if (existsSync(storage)) env.PW_STORAGE_STATE = storage;
   if (existsSync(cert)) {

@@ -7,8 +7,9 @@
  * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { AuthSession, AuthSessionPort, AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 
@@ -31,6 +32,13 @@ export class AuthSessionAdapter implements AuthSessionPort {
   constructor(private readonly deps: AuthSessionAdapterDeps) {}
 
   async prepare(req: AuthSessionRequest, signal?: AbortSignal): Promise<AuthSession> {
+    /*
+     * Every prepare starts from an empty authDir. authSessionEnv injects whatever material is
+     * there, so a session or certificate left by an earlier run — or by an earlier auth
+     * declaration — must never survive into this one; a setup that exits 0 without writing then
+     * reads as the failure it is, not as yesterday's session.
+     */
+    this.clearMaterial();
     if (!req.auth) return { unauthored: false };
     if (req.auth.kind === "mtls") return this.materializeCert(req);
     return this.runFormSetup(req, signal);
@@ -51,10 +59,10 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
     const dir = this.deps.authDir;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const certPath = join(dir, "client.p12");
+    const certPath = join(dir, AUTH_MATERIAL_FILES.clientCert);
     writeFileSync(certPath, Buffer.from(raw, "base64"), { mode: 0o600 });
     chmodSync(certPath, 0o600);
-    const passPath = join(dir, "cert.pass");
+    const passPath = join(dir, AUTH_MATERIAL_FILES.certPass);
     writeFileSync(passPath, this.deps.env[certPassEnv] ?? "", { mode: 0o600 });
     chmodSync(passPath, 0o600);
     return { clientCertPath: certPath, unauthored: false };
@@ -74,7 +82,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
 
     const stock = this.isStock(req.specDir);
     mkdirSync(this.deps.authDir, { recursive: true, mode: 0o700 });
-    const storageStatePath = join(this.deps.authDir, "user.json");
+    const storageStatePath = join(this.deps.authDir, AUTH_MATERIAL_FILES.storageState);
     const childEnv: Record<string, string> = {
       ...scrubEnv({ extraAllowed: /^DEV_/ }),
       PW_BASE_URL: req.baseUrl,
@@ -103,6 +111,12 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
     const detail = result.logs.trim() || `exit ${result.exitCode}`;
     throw new Error(`auth setup failed: ${detail.slice(0, 4000)}`);
+  }
+
+  private clearMaterial(): void {
+    for (const file of Object.values(AUTH_MATERIAL_FILES)) {
+      rmSync(join(this.deps.authDir, file), { force: true });
+    }
   }
 
   private isStock(specDir: string): boolean {
