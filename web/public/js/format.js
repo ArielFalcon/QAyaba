@@ -97,28 +97,6 @@ window.QayabaFormat = (function () {
     return { text: String(opts.canned == null ? '' : opts.canned), kind: 'canned' };
   }
 
-  /* Overlay a real in-flight run onto the live-view shape. Identity always
-     comes from the real record so Ask hits POST /runs/:realId/ask, not the
-     mock r-1842 demo id. Missing live theatre fields (plan/currentTest) stay
-     from the mock so viewLiveDetail does not crash.
-   */
-  function mergeLiveRun(real, mock) {
-    if (!real) return null;
-    var out = {};
-    if (mock) for (var k in mock) out[k] = mock[k];
-    for (var r in real) {
-      var v = real[r];
-      if (v == null || v === '') continue;
-      if (Array.isArray(v) && v.length === 0) continue;
-      out[r] = v;
-    }
-    out.id = real.id;
-    out.sha = real.sha;
-    out.app = real.app;
-    if (Object.prototype.hasOwnProperty.call(real, 'message')) out.message = real.message;
-    return out;
-  }
-
   function triggerExtras(mode) {
     var m = String(mode == null ? '' : mode);
     return {
@@ -172,7 +150,6 @@ window.QayabaFormat = (function () {
     shortRepo: shortRepo,
     renderMarkdown: renderMarkdown,
     pickChatAnswer: pickChatAnswer,
-    mergeLiveRun: mergeLiveRun,
     triggerExtras: triggerExtras,
     clampDiffCommits: clampDiffCommits,
     triggerPayload: triggerPayload,

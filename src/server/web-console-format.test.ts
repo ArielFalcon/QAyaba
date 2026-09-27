@@ -16,7 +16,6 @@ type Format = {
     apiError?: string | null;
     canned: string;
   }) => { text: string; kind: "assistant" | "error" | "canned" };
-  mergeLiveRun: (real: Record<string, unknown> | null, mock: Record<string, unknown>) => Record<string, unknown> | null;
   triggerExtras: (mode: unknown) => { sha: boolean; delta: boolean; guidance: boolean };
   clampDiffCommits: (n: unknown) => number;
   triggerPayload: (input: {
@@ -175,22 +174,6 @@ test("triggerPayload omits SHA/commits except in diff, and guidance except in ma
     mode: "manual",
     guidance: "test the contact form",
   });
-});
-
-test("mergeLiveRun keeps the real run id (never the mock r-1842)", () => {
-  const F = loadFormat();
-  const mock = { id: "r-1842", sha: "aa17c93", app: "web-app", plan: [{ t: "demo", s: "active" }], currentTest: { file: "debounce.spec.ts" } };
-  assert.equal(F.mergeLiveRun(null, mock), null);
-  const merged = F.mergeLiveRun({ id: "run_real", sha: "deadbeefcafebabe", app: "portfolio", message: "feat: x" }, mock);
-  assert.ok(merged);
-  assert.equal(merged.id, "run_real");
-  assert.equal(merged.sha, "deadbeefcafebabe");
-  assert.equal(merged.app, "portfolio");
-  assert.equal(merged.message, "feat: x");
-  assert.deepEqual(merged.plan, mock.plan);
-  assert.equal((merged.currentTest as { file: string }).file, "debounce.spec.ts");
-  const emptyMsg = F.mergeLiveRun({ id: "run_2", sha: "aaaaaaaa", app: "portfolio", message: "" }, mock);
-  assert.equal(emptyMsg && emptyMsg.message, "", "empty real message must not keep the mock commit subject");
 });
 
 test("nextSseRetryDelay doubles and caps (bounded exponential backoff)", () => {

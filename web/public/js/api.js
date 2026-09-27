@@ -117,9 +117,6 @@ window.QayabaConsole = (function () {
       return mapModel({ apps, queue, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, runningRecord });
     },
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
-       variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
-     */
-    /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}. Transport is a fetch stream,
        not EventSource: the control plane is Bearer-authed and EventSource cannot send an
        Authorization header, so every stream 401'd and the live view froze. Runs on the

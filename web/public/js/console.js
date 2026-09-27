@@ -42,7 +42,7 @@
     return (app && app.repo) || r.app || '';
   }
   function DevBadge() {
-    return '<div class="dev-badge"><span class="dev-badge__tag">En desarrollo</span><span class="dev-badge__note">· datos mock · backend pendiente</span></div>';
+    return '<div class="dev-badge"><span class="dev-badge__tag">In development</span><span class="dev-badge__note">· mock data · backend pending</span></div>';
   }
   const apiOf = () => (window.QayabaConsole && window.QayabaConsole.api) || null;
   /* Asset URLs resolved relative to THIS script, so the dashboard works whether it
@@ -1148,6 +1148,14 @@
       '<div style="flex:none;width:140px;display:flex;align-items:center;justify-content:center">' + viz + '</div></div>';
   }
   function poster() {
+    /* The poster's figures (value-oracle multiplier, mutation kill-rate, coverage/flaky/PR deltas)
+       have no live data source (API.md §6 only feeds D.reports.insights, not this layout) — they
+       were a hardcoded illustration. Render them only in mock mode; live mode gets an honest
+       "not available" panel instead of fabricated numbers.
+     */
+    if (CFG.mode === 'live') {
+      return '<div style="' + sty({ padding: '48px 30px', textAlign: 'center', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)' }) + '">not available from the API yet</div>';
+    }
     const grid = [['92%', 'change-coverage', 'above the 70% floor'], ['5.5%', 'flaky rate', 'down from 7.0%'], ['+23', 'PRs auto-merged', 'tests committed']]
       .map(([v, l, s]) => '<div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--font-display);font-weight:800;font-size:34px;letter-spacing:-0.02em;color:var(--bone-50);line-height:1">' + v + '</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-400)">' + l + '</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--ink-400)">' + s + '</span></div>').join('');
     return '<div class="pa-ticks pa-ticks--ink" style="position:relative;background:var(--ink-900);border-radius:var(--radius-md);border:1px solid var(--ink-700);overflow:hidden;padding:28px 30px;background-image:repeating-linear-gradient(0deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px), repeating-linear-gradient(90deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px)">' +
