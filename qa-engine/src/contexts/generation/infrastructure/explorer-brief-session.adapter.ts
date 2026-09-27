@@ -4,8 +4,9 @@
  * producer behind PreGenerationGroundingCollaborators.exploreBrief (see
  * pre-generation-grounding-port.adapter.ts) — that caller is itself fail-open, but this adapter
  * is ALSO fail-open on its own: any throw (session open, prompt, or parse) yields `undefined`,
- * never propagates. The session is always disposed, success or failure. `sha` is a required
- * argument, never a fabricated fallback (see ExploreBriefArgs).
+ * never propagates. The session is always disposed, success or failure; a dispose fault is logged
+ * and never replaces the result. `sha` is a required argument, never a fabricated fallback (see
+ * ExploreBriefArgs).
  */
 
 import { dirname } from "node:path";
@@ -106,7 +107,12 @@ export class ExplorerBriefSessionAdapter {
       console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     } finally {
-      await session?.dispose();
+      /* A dispose fault never discards a parsed brief nor escapes the fail-open contract. */
+      try {
+        await session?.dispose();
+      } catch (disposeErr) {
+        console.warn(`[qa] WARNING: explorer session dispose failed (non-blocking): ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}`);
+      }
     }
   }
 }

@@ -105,6 +105,42 @@ test("explore(): a parse failure (null) resolves to undefined, still disposes", 
   assert.equal(disposed, true);
 });
 
+test("explore(): a dispose() failure after a successful parse keeps the brief", async () => {
+  const session: AgentSession = {
+    prompt: async () => ({ output: '{"builtForSha":"deadbeef","objective":"orders","blastRadius":[]}' }),
+    dispose: async () => {
+      throw new Error("dispose: session already gone");
+    },
+  };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session),
+    parseBrief: () => ({ builtForSha: "deadbeef", objective: "orders", blastRadius: [] }),
+  });
+
+  const brief = await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(brief?.objective, "orders");
+});
+
+test("explore(): a dispose() failure after a failed prompt still resolves to undefined, never propagates", async () => {
+  const session: AgentSession = {
+    prompt: async () => {
+      throw new Error("turn timed out");
+    },
+    dispose: async () => {
+      throw new Error("dispose: session already gone");
+    },
+  };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session),
+    parseBrief: () => null,
+  });
+
+  const brief = await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(brief, undefined);
+});
+
 test("explore(): threads triggerService via the injected serviceContextDir formula, keyed on the call-time cwd", async () => {
   let promptSeen = "";
   const session: AgentSession = {
