@@ -90,7 +90,7 @@ test("yields events then ends on the terminal run.verdict", async () => {
       body: () =>
         streamOf(
           frame(ev(1, { type: "run.started", app: "a", sha: "s", mode: "diff", target: "e2e" })),
-          frame(ev(2, { type: "run.verdict", verdict: "pass" })),
+          frame(ev(2, { type: "run.verdict", verdict: "pass", engineStatus: "success" })),
           /* anything after the terminal must never be yielded — the generator returns at verdict. */
           frame(ev(3, { type: "log.line", level: "info", text: "after" })),
         ),
@@ -121,7 +121,7 @@ test("heartbeat-only connections keep the empty-close counter reset (a quiet liv
     { body: () => streamOf(heartbeat()) },
     { body: () => streamOf(heartbeat()) },
     { body: () => streamOf(heartbeat()) },
-    { body: () => streamOf(frame(ev(1, { type: "run.verdict", verdict: "pass" }))) },
+    { body: () => streamOf(frame(ev(1, { type: "run.verdict", verdict: "pass", engineStatus: "success" }))) },
   ]);
   const events = await collect(streamRunEvents(t, "r1", { sleep: noWait }));
   assert.equal(events.length, 1);
@@ -143,7 +143,7 @@ test("a transient blip recovers and does not count toward the error cap", async 
   const { t } = transportWith([
     { throws: true },
     { status: 502, body: () => null },
-    { body: () => streamOf(frame(ev(1, { type: "run.verdict", verdict: "pass" }))) },
+    { body: () => streamOf(frame(ev(1, { type: "run.verdict", verdict: "pass", engineStatus: "success" }))) },
   ]);
   const events = await collect(streamRunEvents(t, "r1", { sleep: noWait }));
   assert.equal(events.length, 1);
