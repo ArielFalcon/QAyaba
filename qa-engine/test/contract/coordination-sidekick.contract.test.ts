@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
@@ -279,40 +279,44 @@ test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wro
     "e2e/specs/login.spec.ts",
   ];
   const mirror = mkdtempSync(join(tmpdir(), "sidekick-paths-"));
-  for (const path of written) {
-    mkdirSync(dirname(join(mirror, path)), { recursive: true });
-    writeFileSync(join(mirror, path), "test('x', async () => {});\n");
-  }
-  const session: AgentSession = {
-    async prompt() {
-      return {
-        output: JSON.stringify({
-          delegationId: "d1",
-          runId: "r1",
-          status: "completed-with-concerns",
-          summary: "wrote three specs",
-          filesChanged: written.map((path) => ({ path })),
-          evidence: [],
-          validation: [],
-          assumptions: [],
-          concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
-          unresolvedQuestions: [],
-          recommendation: "review",
-        }),
-      };
-    },
-    async dispose() {},
-  };
-  const executor = new SidekickExecutor({
-    runtime: { openSession: async () => session },
-    render: renderSidekickBrief,
-  });
-  const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
+  try {
+    for (const path of written) {
+      mkdirSync(dirname(join(mirror, path)), { recursive: true });
+      writeFileSync(join(mirror, path), "test('x', async () => {});\n");
+    }
+    const session: AgentSession = {
+      async prompt() {
+        return {
+          output: JSON.stringify({
+            delegationId: "d1",
+            runId: "r1",
+            status: "completed-with-concerns",
+            summary: "wrote three specs",
+            filesChanged: written.map((path) => ({ path })),
+            evidence: [],
+            validation: [],
+            assumptions: [],
+            concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
+            unresolvedQuestions: [],
+            recommendation: "review",
+          }),
+        };
+      },
+      async dispose() {},
+    };
+    const executor = new SidekickExecutor({
+      runtime: { openSession: async () => session },
+      render: renderSidekickBrief,
+    });
+    const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
 
-  assert.equal(result.status, "completed-with-concerns");
-  const adopted = existingWritableFiles(mirror, result.filesChanged, scope.writablePaths).map((f) => f.path);
-  assert.deepEqual([...adopted].sort(), [...written].sort());
-  assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
+    assert.equal(result.status, "completed-with-concerns");
+    const adopted = existingWritableFiles(mirror, result.filesChanged, scope.writablePaths).map((f) => f.path);
+    assert.deepEqual([...adopted].sort(), [...written].sort());
+    assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
+  } finally {
+    rmSync(mirror, { recursive: true, force: true });
+  }
 });
 
 test("SidekickExecutor passes escalated model via OpenSessionOpts without naming it in domain", async () => {

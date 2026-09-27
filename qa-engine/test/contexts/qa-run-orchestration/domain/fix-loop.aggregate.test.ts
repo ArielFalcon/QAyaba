@@ -516,7 +516,7 @@ test("sub-decision (e): bestRunSoFar guard is SKIPPED when realBugDetected fired
    nav count (result?.reexploreNavigations ?? 0) is read at the next round's gate. Without this
    field populated, the thrash-stop is unreachable and the loop spends an extra retry.
  */
-test("FIX F1: reexploreNavigations thrash-stop — a heavy re-exploration round downgrades Signal B to no-progress (break-needs-human), matching src/pipeline.ts:2626+progress-gate.ts:182", async () => {
+test("FIX F1: reexploreNavigations thrash-stop — a heavy re-exploration round downgrades Signal B to no-progress (break-needs-human)", async () => {
   let executeCallCount = 0;
   let generateCallCount = 0;
   const execution: FixLoopExecutionPort = {
@@ -665,7 +665,7 @@ test("FIX F4: the regen call threads cycleBudget/wallClockBudget to the Generati
 
   assert.equal(receivedGenerateInputs.length, 1);
   assert.strictEqual(receivedGenerateInputs[0]!.cycleBudget, cycleBudget, "the SAME immutable CycleBudget instance passed into FixLoopInput must reach the generation port call — the aggregate forwards the budget unread");
-  assert.strictEqual(receivedGenerateInputs[0]!.wallClockBudget, wallClockBudget, "the SAME immutable WallClockBudget instance must reach the generation port call — matching generateOnce's wall-clock guard at src/pipeline.ts:1564");
+  assert.strictEqual(receivedGenerateInputs[0]!.wallClockBudget, wallClockBudget, "the SAME immutable WallClockBudget instance must reach the generation port call — the aggregate forwards the budget unread");
 });
 
 /* FixLoopResult.lastSpecMetas surfaces the LAST regen round's own specMetas — the caller

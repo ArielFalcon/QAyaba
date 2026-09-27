@@ -12,11 +12,14 @@ import { Sha } from "@kernel/sha";
 
    The fixture is the learning_rules table as the pre-branch build (0cd32f5) created it, written to
    disk BEFORE history.ts opens the database: it opens lazily on first use, and every test file runs
-   in its own process with its own HISTORY_DB_PATH (test-setup.mjs). */
-const APP = "legacy-ledger-app";
-const PENDING_RULE_ID = "rule-written-pending";
-const ACTIVE_RULE_ID = "rule-written-active";
-const DEPRECATED_RULE_ID = "rule-written-deprecated";
+   in its own process with its own HISTORY_DB_PATH (test-setup.mjs). An explicit HISTORY_DB_PATH (a
+   CI override) persists across runs, so the rows carry per-run ids and never collide with a
+   previous run's. */
+const RUN = `${process.pid}-${Date.now().toString(36)}`;
+const APP = `legacy-ledger-app-${RUN}`;
+const PENDING_RULE_ID = `rule-written-pending-${RUN}`;
+const ACTIVE_RULE_ID = `rule-written-active-${RUN}`;
+const DEPRECATED_RULE_ID = `rule-written-deprecated-${RUN}`;
 
 {
   const legacy = new Database(process.env.HISTORY_DB_PATH!);

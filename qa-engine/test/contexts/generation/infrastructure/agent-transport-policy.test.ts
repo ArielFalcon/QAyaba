@@ -458,45 +458,49 @@ test("createAgentDeps: an infra-class provider fault skips the fallback retry (s
 
 test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt() before the raw transport is ever called, and resetCircuit() restores normal operation", async () => {
   resetCircuit();
-  let promptCalls = 0;
-  const raw = makeRawTransport({
-    createSession: async () => ({ id: "sess-5" }),
-    promptSession: async () => {
-      promptCalls++;
-      return { parts: [{ type: "text", text: "ok" }] };
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-
-  /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures),
-     keyed to the SAME role createAgentDeps derives internally (descriptor.role ?? agent — here
-     just the bare "qa-generator" agent id, since no descriptor is passed below). */
-  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
-
-  const openSession = await deps.open("qa-generator", "/tmp");
-  /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
-     every other failure path in createAgentDeps (which fails through an async raw.promptSession call
-     and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
-     synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
-     only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
-     session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
-     a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
-   */
-  let openCircuitError: unknown;
   try {
-    await openSession.prompt("do the thing");
-  } catch (err) {
-    openCircuitError = err;
-  }
-  assert.ok(openCircuitError instanceof Error, "the OPEN circuit must reject the prompt");
-  assert.match((openCircuitError as Error).message, /circuit breaker is OPEN/);
-  assert.equal(promptCalls, 0, "checkCircuit() must reject BEFORE the raw transport's promptSession is ever invoked");
+    let promptCalls = 0;
+    const raw = makeRawTransport({
+      createSession: async () => ({ id: "sess-5" }),
+      promptSession: async () => {
+        promptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  resetCircuit();
-  const closedSession = await deps.open("qa-generator", "/tmp");
-  const out = await closedSession.prompt("do the thing");
-  assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
-  assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
+    /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures),
+       keyed to the SAME role createAgentDeps derives internally (descriptor.role ?? agent — here
+       just the bare "qa-generator" agent id, since no descriptor is passed below). */
+    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
+
+    const openSession = await deps.open("qa-generator", "/tmp");
+    /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
+       every other failure path in createAgentDeps (which fails through an async raw.promptSession call
+       and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
+       synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
+       only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
+       session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
+       a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
+     */
+    let openCircuitError: unknown;
+    try {
+      await openSession.prompt("do the thing");
+    } catch (err) {
+      openCircuitError = err;
+    }
+    assert.ok(openCircuitError instanceof Error, "the OPEN circuit must reject the prompt");
+    assert.match((openCircuitError as Error).message, /circuit breaker is OPEN/);
+    assert.equal(promptCalls, 0, "checkCircuit() must reject BEFORE the raw transport's promptSession is ever invoked");
+
+    resetCircuit();
+    const closedSession = await deps.open("qa-generator", "/tmp");
+    const out = await closedSession.prompt("do the thing");
+    assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
+    assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
+  } finally {
+    resetCircuit();
+  }
 });
 
 /* C7: createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
@@ -505,32 +509,35 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
  */
 test("createAgentDeps: an OPEN circuit for one agent role does not block a different role (C7)", async () => {
   resetCircuit();
-  let generatorPromptCalls = 0;
-  const raw = makeRawTransport({
-    promptSession: async (args) => {
-      if (args.agent === "qa-generator") generatorPromptCalls++;
-      return { parts: [{ type: "text", text: "ok" }] };
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-
-  /* Trip ONLY qa-reviewer's circuit. */
-  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-reviewer");
-
-  const reviewerSession = await deps.open("qa-reviewer", "/tmp");
-  let reviewerError: unknown;
   try {
-    await reviewerSession.prompt("review this");
-  } catch (err) {
-    reviewerError = err;
-  }
-  assert.match((reviewerError as Error).message, /circuit breaker is OPEN/, "qa-reviewer's own circuit is open");
+    let generatorPromptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async (args) => {
+        if (args.agent === "qa-generator") generatorPromptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  const generatorSession = await deps.open("qa-generator", "/tmp");
-  const out = await generatorSession.prompt("do the thing");
-  assert.equal(out, "ok", "a DIFFERENT role's circuit must stay closed and reach the raw transport");
-  assert.equal(generatorPromptCalls, 1);
-  resetCircuit();
+    /* Trip ONLY qa-reviewer's circuit. */
+    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-reviewer");
+
+    const reviewerSession = await deps.open("qa-reviewer", "/tmp");
+    let reviewerError: unknown;
+    try {
+      await reviewerSession.prompt("review this");
+    } catch (err) {
+      reviewerError = err;
+    }
+    assert.match((reviewerError as Error).message, /circuit breaker is OPEN/, "qa-reviewer's own circuit is open");
+
+    const generatorSession = await deps.open("qa-generator", "/tmp");
+    const out = await generatorSession.prompt("do the thing");
+    assert.equal(out, "ok", "a DIFFERENT role's circuit must stay closed and reach the raw transport");
+    assert.equal(generatorPromptCalls, 1);
+  } finally {
+    resetCircuit();
+  }
 });
 
 /* Two breaker levels. The provider level is fed by every raw transport failure (the agent server
@@ -548,49 +555,55 @@ async function rejectionOf(fn: () => Promise<unknown>): Promise<Error | undefine
 
 test("createAgentDeps: session-creation failures spread across roles open the provider breaker for every role", async () => {
   resetCircuit();
-  let createCalls = 0;
-  const raw = makeRawTransport({
-    createSession: async () => {
-      createCalls++;
-      throw new Error("connect ECONNREFUSED agents:4096");
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  try {
+    let createCalls = 0;
+    const raw = makeRawTransport({
+      createSession: async () => {
+        createCalls++;
+        throw new Error("connect ECONNREFUSED agents:4096");
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
-    const err = await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
-    assert.match(err?.message ?? "", /ECONNREFUSED/);
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const err = await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+      assert.match(err?.message ?? "", /ECONNREFUSED/);
+    }
+    const callsBeforeFastFail = createCalls;
+    const fastFail = await rejectionOf(() => deps.open("qa-generator", "/tmp"));
+    assert.match(fastFail?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(createCalls, callsBeforeFastFail, "an open provider breaker must not reach the transport");
+  } finally {
+    resetCircuit();
   }
-  const callsBeforeFastFail = createCalls;
-  const fastFail = await rejectionOf(() => deps.open("qa-generator", "/tmp"));
-  assert.match(fastFail?.message ?? "", /circuit breaker is OPEN/);
-  assert.equal(createCalls, callsBeforeFastFail, "an open provider breaker must not reach the transport");
-  resetCircuit();
 });
 
 test("createAgentDeps: prompt transport failures spread across roles fail every role's next prompt fast", async () => {
   resetCircuit();
-  let promptCalls = 0;
-  const raw = makeRawTransport({
-    promptSession: async () => {
-      promptCalls++;
-      throw new Error("socket hang up");
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  try {
+    let promptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async () => {
+        promptCalls++;
+        throw new Error("socket hang up");
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
-    const session = await deps.open(`role-${i}`, "/tmp");
-    await rejectionOf(() => session.prompt("do the thing"));
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open(`role-${i}`, "/tmp");
+      await rejectionOf(() => session.prompt("do the thing"));
+    }
+    const callsBeforeFastFail = promptCalls;
+    const fresh = await rejectionOf(async () => {
+      const session = await deps.open("qa-reviewer", "/tmp");
+      return session.prompt("review this");
+    });
+    assert.match(fresh?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(promptCalls, callsBeforeFastFail, "no role may reach the transport while the provider breaker is open");
+  } finally {
+    resetCircuit();
   }
-  const callsBeforeFastFail = promptCalls;
-  const fresh = await rejectionOf(async () => {
-    const session = await deps.open("qa-reviewer", "/tmp");
-    return session.prompt("review this");
-  });
-  assert.match(fresh?.message ?? "", /circuit breaker is OPEN/);
-  assert.equal(promptCalls, callsBeforeFastFail, "no role may reach the transport while the provider breaker is open");
-  resetCircuit();
 });
 
 test("createAgentDeps: a session opened before the provider breaker trips fails its next prompt fast", async () => {
@@ -622,47 +635,53 @@ test("createAgentDeps: a session opened before the provider breaker trips fails 
 
 test("createAgentDeps: an answered prompt resets the provider failure streak", async () => {
   resetCircuit();
-  let serverDown = true;
-  const raw = makeRawTransport({
-    createSession: async () => {
-      if (serverDown) throw new Error("connect ECONNREFUSED agents:4096");
-      return { id: "sess-ok" };
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  try {
+    let serverDown = true;
+    const raw = makeRawTransport({
+      createSession: async () => {
+        if (serverDown) throw new Error("connect ECONNREFUSED agents:4096");
+        return { id: "sess-ok" };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
-  serverDown = false;
-  await (await deps.open("qa-generator", "/tmp")).prompt("do the thing");
-  serverDown = true;
-  for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
-  serverDown = false;
+    for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+    serverDown = false;
+    await (await deps.open("qa-generator", "/tmp")).prompt("do the thing");
+    serverDown = true;
+    for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+    serverDown = false;
 
-  const session = await deps.open("qa-generator", "/tmp");
-  assert.equal(session.id, "sess-ok", "the streak restarted after the answered prompt, so the breaker is still closed");
-  resetCircuit();
+    const session = await deps.open("qa-generator", "/tmp");
+    assert.equal(session.id, "sess-ok", "the streak restarted after the answered prompt, so the breaker is still closed");
+  } finally {
+    resetCircuit();
+  }
 });
 
 test("createAgentDeps: model faults embedded in a response trip only that role, never the provider breaker", async () => {
   resetCircuit();
-  const raw = makeRawTransport({
-    promptSession: async (args) =>
-      args.agent === "qa-reviewer"
-        ? { agentError: { name: "APIError", data: { message: "Too Many Requests", statusCode: 429 } }, parts: [] }
-        : { parts: [{ type: "text", text: "ok" }] },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  try {
+    const raw = makeRawTransport({
+      promptSession: async (args) =>
+        args.agent === "qa-reviewer"
+          ? { agentError: { name: "APIError", data: { message: "Too Many Requests", statusCode: 429 } }, parts: [] }
+          : { parts: [{ type: "text", text: "ok" }] },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
-    const session = await deps.open("qa-reviewer", "/tmp");
-    await rejectionOf(() => session.prompt("review this"));
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open("qa-reviewer", "/tmp");
+      await rejectionOf(() => session.prompt("review this"));
+    }
+    const reviewer = await deps.open("qa-reviewer", "/tmp");
+    assert.match((await rejectionOf(() => reviewer.prompt("review this")))?.message ?? "", /circuit breaker is OPEN/);
+
+    const generator = await deps.open("qa-generator", "/tmp");
+    assert.equal(await generator.prompt("do the thing"), "ok");
+  } finally {
+    resetCircuit();
   }
-  const reviewer = await deps.open("qa-reviewer", "/tmp");
-  assert.match((await rejectionOf(() => reviewer.prompt("review this")))?.message ?? "", /circuit breaker is OPEN/);
-
-  const generator = await deps.open("qa-generator", "/tmp");
-  assert.equal(await generator.prompt("do the thing"), "ok");
-  resetCircuit();
 });
 
 test("createAgentDeps: telemetry assembly — onTurn receives a fully-populated AgentTurnEvent for a run with a runId", async () => {
