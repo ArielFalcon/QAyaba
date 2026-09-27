@@ -73,6 +73,8 @@ const NAMED_SECRET_PATTERNS: Array<{ name: string; p: RegExp; skip?: (m: string)
   { name: "github-token", p: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
   /* GitHub fine-grained tokens: github_pat_ with 36+ chars */
   { name: "github-token-fg", p: /\bgithub_pat_[A-Za-z0-9_]{36,}\b/g },
+  /* GitLab tokens: personal/project/group access (glpat-), deploy (gldt-), runner, CI job, trigger, feed, OAuth secrets */
+  { name: "gitlab-token", p: /\bgl(?:pat|dt|rt|cbt|ptt|ft|oas)-[A-Za-z0-9_.-]{20,}/g },
   /*
    * LLM-provider keys: OpenAI/Anthropic `sk-...` (sk-proj-…, sk-ant-api03-…). Bare-value
    * form (no adjacent credential keyword), which the assignment patterns below miss. The

@@ -51,6 +51,7 @@ import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastruct
 import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service";
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
 import { MirrorGcAdapter } from "@contexts/workspace-and-publication/infrastructure/mirror-gc.adapter";
+import { LocalExportPublicationAdapter } from "@contexts/workspace-and-publication/infrastructure/local-export-publication.adapter";
 import type { VcsPublishCollaborator } from "@contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector";
 import { assembleChangeCoverage } from "@contexts/objective-signal/domain/assemble-change-coverage";
@@ -108,6 +109,7 @@ import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { listLearningRules, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
 import { recordIncident } from "./maintainer";
+import { exportRoot, profileCapabilities, resolveDeploymentProfile } from "./deployment-profile";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
@@ -235,6 +237,48 @@ export function buildVcsPublish(
       return { changed: true, revertedDenylisted, revertedDangerous };
     },
   };
+}
+
+
+/*
+ * Publication effectors by deployment profile. full → GitHub PR/Issue plus commit/push of the
+ * generated tests (e2e → e2e/; code → whole tree minus deps). slim → one local exporter serving
+ * every facet (git write, PR, Issue, shadow preview) under <exportRoot>/<app>/<namespace>/. The
+ * publish decision itself is identical in both.
+ */
+export function buildPublicationEffectors(
+  input: {
+    env: Record<string, string | undefined>;
+    appName: string;
+    baseBranch: string;
+    namespace: string;
+    mode: RunMode;
+    isCode: boolean;
+    mirrorDir: string;
+  },
+  git: GitFn = realGit,
+  writeExcludesFn: (dir: string, patterns: readonly string[]) => void = writeExcludes,
+): Pick<CompositionConfig, "githubPr" | "githubIssue" | "vcsWrite" | "shadowPublication"> {
+  const { remotePublication } = profileCapabilities(resolveDeploymentProfile(input.env));
+  if (remotePublication) {
+    return {
+      githubPr: new GitHubPrAdapter(githubHttpDeps(), input.baseBranch),
+      githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
+      vcsWrite: buildVcsPublish(input.isCode, input.mode, git, writeExcludesFn),
+    };
+  }
+  const isContext = input.mode === "context";
+  const exporter = new LocalExportPublicationAdapter({
+    exportDir: join(exportRoot(input.env), input.appName, input.namespace),
+    mirrorDir: input.mirrorDir,
+    baseBranch: input.baseBranch,
+    commitMessage: isContext ? "docs(context): automated QA context map" : input.isCode ? "test(code): automated QA" : "test(e2e): automated QA",
+    addPaths: isContext ? CONTEXT_PUBLISH_ADD : input.isCode ? CODE_PUBLISH_ADD : E2E_PUBLISH_ADD,
+    excludes: isContext ? [] : input.isCode ? CODE_PUBLISH_EXCLUDES : E2E_PUBLISH_EXCLUDES,
+    git: (args, cwd) => git(args, cwd),
+    writeExcludes: writeExcludesFn,
+  });
+  return { githubPr: exporter, githubIssue: exporter, vcsWrite: exporter, shadowPublication: exporter };
 }
 
 
@@ -797,10 +841,15 @@ export function buildRewrittenCompositionConfig(
     baselineCases: [],
 
     
-    githubPr: new GitHubPrAdapter(githubHttpDeps(), app.baseBranch ?? "main"),
-    githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
-    /* Stage/commit/push generated tests before opening the PR. e2e → e2e/; code → whole tree minus deps. */
-    vcsWrite: buildVcsPublish(isCode, run.mode),
+    ...buildPublicationEffectors({
+      env: deps.env ?? process.env,
+      appName: app.name,
+      baseBranch: app.baseBranch ?? "main",
+      namespace,
+      mode: run.mode,
+      isCode,
+      mirrorDir,
+    }),
     
     confinement: buildConfinement(),
     

@@ -45,6 +45,7 @@ const NAMED_SECRET_PATTERNS: Array<{ name: string; p: RegExp; skip?: (m: string)
   { name: "aws-access-key", p: /\bAKIA[0-9A-Z]{16}\b/g },
   { name: "github-token", p: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
   { name: "github-token-fg", p: /\bgithub_pat_[A-Za-z0-9_]{36,}\b/g },
+  { name: "gitlab-token", p: /\bgl(?:pat|dt|rt|cbt|ptt|ft|oas)-[A-Za-z0-9_.-]{20,}/g },
   { name: "llm-api-key", p: /\bsk-[A-Za-z0-9_-]{20,}\b/g },
   { name: "slack-token", p: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
   { name: "url-credentials", p: /(?<=:\/\/)[^\s:/@]+:[^\s:/@]+(?=@)/g },

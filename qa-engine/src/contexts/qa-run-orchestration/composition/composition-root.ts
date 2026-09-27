@@ -17,7 +17,7 @@ import { ReviewPortAdapter, type ReviewPortRuntime } from "../infrastructure/bri
 import { ValidationPortAdapter } from "../infrastructure/bridges/validation-port.adapter.ts";
 import { ExecutionPortAdapter } from "../infrastructure/bridges/execution-port.adapter.ts";
 import { ObjectiveSignalPortAdapter } from "../infrastructure/bridges/objective-signal-port.adapter.ts";
-import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type VcsPublishCollaborator } from "../infrastructure/bridges/publication-port.adapter.ts";
+import { PublicationPortAdapter, type GitHubPrCollaborator, type GitHubIssueCollaborator, type ShadowLogCollaborator, type VcsPublishCollaborator } from "../infrastructure/bridges/publication-port.adapter.ts";
 import { LearningPortAdapter } from "../infrastructure/bridges/learning-port.adapter.ts";
 import { WorkspacePortAdapter, type CheckoutFn } from "../infrastructure/bridges/workspace-port.adapter.ts";
 import { DeployGatePortAdapter, NullDeployGateAdapter, type VersionPollFn } from "../infrastructure/bridges/deploy-gate-port.adapter.ts";
@@ -157,6 +157,8 @@ export interface CompositionConfig {
   githubIssue: GitHubIssueCollaborator;
   /* Git write for the "pr" route only. Optional at the type so issue/shadow compositions need not wire it; an actual "pr" route without it throws (fail-closed) rather than opening a PR against an unpushed branch. */
   vcsWrite?: VcsPublishCollaborator;
+  /* Shadow-preview effector. Absent → ShadowLogAdapter (log only). A deployment that exports publications to disk supplies its exporter so shadow previews keep their artifacts too. */
+  shadowPublication?: ShadowLogCollaborator;
   reviewerApprovedForPublish?: boolean;
   coverageBlocksForPublish?: boolean;
   e2eChangedForPublish?: boolean;
@@ -391,7 +393,7 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       decide: new PublishDecisionService(),
       pr: cfg.githubPr,
       issue: cfg.githubIssue,
-      shadowLog: new ShadowLogAdapter(),
+      shadowLog: cfg.shadowPublication ?? new ShadowLogAdapter(),
       sanitize: cfg.sanitize,
       /* Pure Issue/PR renderers — not app-specific, so every composition (including shadow) gets them unconditionally. */
       render: { issue: renderIssue, prBody: renderPrBody },

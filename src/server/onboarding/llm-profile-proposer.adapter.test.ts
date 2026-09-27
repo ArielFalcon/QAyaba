@@ -609,3 +609,18 @@ test("propose(): a successful round filtered to zero (sentinel-only) candidates 
     console.warn = originalWarn;
   }
 });
+
+test("resolveProposerModel reads qa-proposer's model from the agents config, else the default", async () => {
+  const { resolveProposerModel } = await import("./llm-profile-proposer.adapter");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "proposer-model-"));
+  const custom = join(dir, "custom.json");
+  writeFileSync(custom, JSON.stringify({ agent: { "qa-proposer": { model: "corp/coder-large" } } }));
+  assert.equal(resolveProposerModel(custom), "corp/coder-large");
+  const empty = join(dir, "empty.json");
+  writeFileSync(empty, JSON.stringify({ agent: {} }));
+  assert.equal(resolveProposerModel(empty), "opencode-go/glm-5.3-flash");
+  assert.equal(resolveProposerModel(join(dir, "missing.json")), "opencode-go/glm-5.3-flash");
+});

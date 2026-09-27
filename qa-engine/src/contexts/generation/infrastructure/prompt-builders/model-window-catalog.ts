@@ -64,6 +64,30 @@ export function setRuntimeRoleModels(models: RuntimeRoleModels | undefined): voi
   injectedRuntimeModels = models;
 }
 
+/* A model's context window as declared in agents/opencode.json's own provider block (`provider.<id>.models.<model>.limit.context`, the field OpenCode itself reads for custom providers). Lets a custom or corporate provider carry its window in agents/ instead of this file. Undefined on any miss — never throws. */
+export function configuredContextTokens(modelRef: string, configPath: string): number | undefined {
+  const slash = modelRef.indexOf("/");
+  if (slash <= 0) return undefined;
+  try {
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as {
+      provider?: Record<string, { models?: Record<string, { limit?: { context?: unknown } }> }>;
+    };
+    const context = raw.provider?.[modelRef.slice(0, slash)]?.models?.[modelRef.slice(slash + 1)]?.limit?.context;
+    return typeof context === "number" && Number.isFinite(context) && context > 0 ? context : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/* Window for a model reference: the provider-declared window, else the catalog entry, else the conservative default. */
+function windowBytesFor(modelRef: string, configPath: string): { bytes: number; known: boolean } {
+  const declared = configuredContextTokens(modelRef, configPath);
+  if (declared !== undefined) return { bytes: Math.floor(declared * INPUT_PROMPT_SAFETY_MARGIN * BYTES_PER_TOKEN), known: true };
+  const modelName = normalizeModelName(modelRef);
+  return { bytes: modelWindowBytes(modelName), known: modelName in MODEL_WINDOW_TOKENS };
+}
+
 /* Best-effort read of a role's model directly from agents/opencode.json — used both by the ordinary fallback path (non-visible roles, or no injected assignment) AND by the disagreement check below. Returns undefined on ANY failure (missing file, unparseable JSON, absent role/model) — never throws. */
 function readOpencodeJsonModel(role: string, configPath: string): string | undefined {
   try {
@@ -99,10 +123,11 @@ export function roleWindowBytes(
       );
     }
 
-    if (!(modelName in MODEL_WINDOW_TOKENS)) {
+    const window = windowBytesFor(modelRef, configPath);
+    if (!window.known) {
       warnFallbackOnce(role, `runtime-assigned model '${modelName}' not in the catalog`);
     }
-    return modelWindowBytes(modelName);
+    return window.bytes;
   }
 
   try {
@@ -118,11 +143,11 @@ export function roleWindowBytes(
       warnFallbackOnce(role, "role absent from agents.agent map (no model assigned)");
       return modelWindowBytes("__fallback__");
     }
-    const modelName = normalizeModelName(modelRef);
-    if (!(modelName in MODEL_WINDOW_TOKENS)) {
-      warnFallbackOnce(role, `model '${modelName}' not in the catalog`);
+    const window = windowBytesFor(modelRef, configPath);
+    if (!window.known) {
+      warnFallbackOnce(role, `model '${normalizeModelName(modelRef)}' not in the catalog`);
     }
-    return modelWindowBytes(modelName);
+    return window.bytes;
   } catch {
     warnFallbackOnce(role, "config unreadable or unparseable JSON");
     return modelWindowBytes("__fallback__");

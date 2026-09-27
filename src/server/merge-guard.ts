@@ -83,6 +83,9 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
   
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts",
+  /* The local publication effector (slim profile) and the profile switch that selects it over remote publication. */
+  "qa-engine/src/contexts/workspace-and-publication/infrastructure/local-export-publication.adapter.ts",
+  "src/server/deployment-profile.ts",
   
   "src/integrations/repo-mirror.ts",
   /*

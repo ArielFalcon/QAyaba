@@ -1,7 +1,7 @@
 /* Scrubbed environment for an untrusted spawn. Drops orchestrator secrets; keeps OS + language vars. Callers widen the base only for their own spawns (`extraExact` / `extraAllowed`); CBM_CACHE_DIR is not in the base allowlist. */
 
 /* Secret FAMILIES that must never reach untrusted code (prefix match). Defense-in-depth: the allowlist is the real gate, but blocking secrets explicitly guards against an allowlist entry widening to one. */
-const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|OPENCODE_API_KEY|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
+const BLOCKED_ENV_PREFIX = /^(?:GITHUB_TOKEN|GH_TOKEN|GIT_TOKEN|GITLAB_TOKEN|OPENCODE_API_KEY|WEBHOOK_SECRET|QA_API_TOKEN|DOPPLER_|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION_CREDENTIALS|NPM_TOKEN|NODE_AUTH_TOKEN)/;
 
 /* Allowed exact var names (OS + language essentials that are single vars, not families). */
 const ALLOWED_ENV_EXACT = new Set([

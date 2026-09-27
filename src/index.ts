@@ -13,7 +13,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
-import { handleApi, ApiDeps } from "./server/api";
+import { handleApi, ApiDeps, type LoginOutcome } from "./server/api";
 import { authorizeBearer, issueSession, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
@@ -33,7 +33,8 @@ import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
-import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch } from "./integrations/repo-mirror";
+import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getRepoInfoViaGit, isGithubRemote } from "./integrations/repo-mirror";
+import { profileCapabilities, resolveDeploymentProfile } from "./server/deployment-profile";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
@@ -54,6 +55,9 @@ import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = process.env.QAYABA_ROOT ?? process.cwd();
+/* Deployment profile (QAYABA_PROFILE): gates the peripheral effectors — remote publication, self-maintenance, GitHub login. Resolved at boot so an invalid value stops the service instead of defaulting to remote writes. */
+const DEPLOYMENT_PROFILE = resolveDeploymentProfile(process.env);
+const CAPABILITIES = profileCapabilities(DEPLOYMENT_PROFILE);
 const TOKEN_FILE = join(ROOT, "config", ".api_token");
 
 const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });
@@ -181,7 +185,9 @@ const maintainer = createMaintainerRuntime({
   autonomous: AUTONOMOUS_MAINTAINER,
   port,
 });
-const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
+const { confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
+/* Incidents are always recorded; only a profile with self-maintenance lets them start the maintainer agent. */
+const triggerMaintainer = CAPABILITIES.selfMaintenance ? maintainer.triggerMaintainer : async (): Promise<void> => {};
 
 process.on("SIGTERM", () => {
   console.log("[qa] SIGTERM received — cancelling in-flight run and draining");
@@ -410,7 +416,8 @@ const ASSISTANT_CWD = "/tmp";
  * token, the config dir and the mirror cache, so the TUI never touches them directly.
  */
 const appAdminDeps: AppAdminDeps = {
-  getRepoInfo: (repo) => github.getRepo(repo),
+  /* The GitHub REST lookup applies only to github.com; any other SCM host (e.g. GitLab) is validated through git itself. */
+  getRepoInfo: (repo) => (isGithubRemote() ? github.getRepo(repo) : getRepoInfoViaGit(repo, defaultMirrorDeps)),
   configExists: (name) => configExists(name, ROOT),
   writeConfig: (name, yaml) => writeConfig(name, yaml, ROOT),
   deleteConfig: (name) => unlinkSync(join(ROOT, "config", "apps", `${name}.yaml`)),
@@ -543,7 +550,7 @@ const apiDeps: ApiDeps = {
   createApp: (input) => adminCreateApp(input, appAdminDeps),
   updateApp: (input) => adminUpdateApp(input, appAdminDeps),
   deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),
-  listRepos: (owner, page) => github.listRepos(owner, page),
+  ...(isGithubRemote() ? { listRepos: (owner: string, page: number) => github.listRepos(owner, page) } : {}),
   runEvents,
   
   boundaries: {
@@ -624,20 +631,24 @@ const apiDeps: ApiDeps = {
    * Advertise the OAuth App client id (public) in the version handshake so the console can run
    * the device flow without baking it in — configure GitHub login once, here on the server.
    */
-  githubClientId: process.env.GITHUB_OAUTH_CLIENT_ID,
+  githubClientId: CAPABILITIES.githubLogin ? process.env.GITHUB_OAUTH_CLIENT_ID : undefined,
   /*
    * GitHub-user login: verify the token's identity, confirm push access to a watched repo,
    * then mint a session. Failures are tagged so the route returns 401 (bad token) vs 403
    * (authenticated but not a collaborator). The static QA_API_TOKEN remains the machine path.
    */
-  login: async (githubToken) => {
-    const username = await verifyGithubIdentity(githubToken);
-    if (!username) return { ok: false, reason: "identity" };
-    if (!(await authorizeUser(githubToken, watchedRepos()))) return { ok: false, reason: "forbidden" };
-    const now = Date.now();
-    const token = issueSession(username, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
-    return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
-  },
+  ...(CAPABILITIES.githubLogin
+    ? {
+        login: async (githubToken: string): Promise<LoginOutcome> => {
+          const username = await verifyGithubIdentity(githubToken);
+          if (!username) return { ok: false, reason: "identity" };
+          if (!(await authorizeUser(githubToken, watchedRepos()))) return { ok: false, reason: "forbidden" };
+          const now = Date.now();
+          const token = issueSession(username, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
+          return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
+        },
+      }
+    : {}),
   /*
    * Same-origin web console: mint a short-lived session (never the machine token) when the
    * caller is loopback or QA_WEB_AUTO_LOGIN=true (local docker, where the browser hits the
@@ -837,7 +848,7 @@ const server = createServer(async (req, res) => {
 finalizeInterruptedRuns();
 
 server.listen(port, () => {
-  logJson("info", `qayaba listening on :${port}${apiToken ? " (API auth on)" : ""}`);
+  logJson("info", `qayaba listening on :${port}${apiToken ? " (API auth on)" : ""} [profile: ${DEPLOYMENT_PROFILE}]`);
   /*
    * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
    * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)

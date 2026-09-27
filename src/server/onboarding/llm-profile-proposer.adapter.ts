@@ -1,5 +1,6 @@
 
-import { dirname, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 import type { AgentDeps } from "../../integrations/opencode-client";
 import { defaultAgentDeps } from "../../integrations/opencode-client";
 import { RedactionPortAdapter } from "../../orchestrator/sanitizer";
@@ -11,8 +12,21 @@ import type {
 } from "@contexts/service-topology/application/ports/index.ts";
 import { ProposerVerdictSchema, UNPARSEABLE_SENTINEL, type SchemaCandidate } from "./proposer-verdict.schema";
 
-/** Model pinned for every proposer session. Keep in sync with agents/opencode.json qa-proposer.model. */
-export const PROPOSER_MODEL = "opencode-go/glm-5.3-flash";
+const DEFAULT_PROPOSER_MODEL = "opencode-go/glm-5.3-flash";
+
+/** Model pinned for every proposer session: agents/opencode.json's qa-proposer model (model identities live in agents/, so a provider swap there reaches the stitcher's proposer too), else the default. */
+export function resolveProposerModel(configPath: string = join(process.cwd(), "agents", "opencode.json")): string {
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as { agent?: Record<string, { model?: unknown }> };
+    const model = raw.agent?.["qa-proposer"]?.model;
+    if (typeof model === "string" && model.trim()) return model.trim();
+  } catch {
+    /* unreadable or absent config → default below */
+  }
+  return DEFAULT_PROPOSER_MODEL;
+}
+
+export const PROPOSER_MODEL = resolveProposerModel();
 
 /* Default per-session timeout when the caller doesn't override it via ctx.timeoutMs. */
 const DEFAULT_PROPOSER_TIMEOUT_MS = 5 * 60 * 1000;

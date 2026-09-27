@@ -36,8 +36,21 @@ export function workdirRoot(): string {
  * Auth happens exclusively through the transient -c insteadOf rewrite (authHeaderArgs).
  */
 function tokenlessUrl(repo: string): string {
-  const base = process.env.GIT_REMOTE_BASE ?? "https://github.com";
-  return `${base}/${repo}.git`;
+  return `${gitRemoteBase()}/${repo}.git`;
+}
+
+/* The SCM host base URL (no trailing slash). GIT_REMOTE_BASE may carry a path prefix for hosts served under a sub-path (https://host/gitlab). */
+export function gitRemoteBase(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.GIT_REMOTE_BASE?.trim() || "https://github.com").replace(/\/+$/, "");
+}
+
+/* True when the remote is github.com, the only host whose REST API the GitHub integrations speak. */
+export function isGithubRemote(env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    return new URL(gitRemoteBase(env)).hostname === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 /*
@@ -51,15 +64,25 @@ export function assertHexSha(sha: string): void {
 }
 
 /*
- * Token-in-URL auth via -c url.insteadOf. When GITHUB_TOKEN is set, all https://github.com
- * URLs are transparently rewritten to https://x-access-token:TOKEN@github.com — no credential
- * helper involved, no token in .git/config, works on every OS.
+ * Token-in-URL auth via -c url.insteadOf, scoped to the configured remote (GIT_REMOTE_BASE): its
+ * URLs are transparently rewritten to <scheme>://<user>:<token>@<host>/… for the duration of one
+ * git command — no credential helper, no token in .git/config, works on every OS. Token:
+ * GIT_TOKEN, else GITHUB_TOKEN. User: GIT_TOKEN_USER, else "x-access-token" on github.com and
+ * "oauth2" elsewhere (the name GitLab accepts for any access token).
  */
-export function authHeaderArgs(): string[] {
-  const token = process.env.GITHUB_TOKEN;
-  return token
-    ? ["-c", `url.https://x-access-token:${token}@github.com/.insteadOf=https://github.com/`]
-    : [];
+export function authHeaderArgs(env: NodeJS.ProcessEnv = process.env): string[] {
+  const token = env.GIT_TOKEN?.trim() || env.GITHUB_TOKEN?.trim();
+  if (!token) return [];
+  const base = gitRemoteBase(env);
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    throw new Error(`GIT_REMOTE_BASE is not a valid URL: ${JSON.stringify(base)}`);
+  }
+  const user = env.GIT_TOKEN_USER?.trim() || (url.hostname === "github.com" ? "x-access-token" : "oauth2");
+  const hostAndPath = base.slice(url.protocol.length + 2);
+  return ["-c", `url.${url.protocol}//${encodeURIComponent(user)}:${encodeURIComponent(token)}@${hostAndPath}/.insteadOf=${base}/`];
 }
 
 /*
@@ -207,6 +230,27 @@ export async function resolveRef(repo: string, ref: string, deps: MirrorDeps): P
   const sha = stdout.split(/\s/)[0];
   if (!sha || sha.length < 40) throw new Error(`no SHA resolved for ${ref}`);
   return sha;
+}
+
+/*
+ * Host-agnostic repository lookup: `git ls-remote --symref <url> HEAD` both proves read access
+ * (same credential path as clone) and names the default branch. Used where the GitHub REST API
+ * does not apply (any non-github.com remote, e.g. GitLab). Visibility and description are not
+ * observable through git, so the repo is reported private with no description.
+ */
+export async function getRepoInfoViaGit(repo: string, deps: MirrorDeps): Promise<RepoInfoViaGit> {
+  const stdout = await deps.git([...authHeaderArgs(), "ls-remote", "--symref", tokenlessUrl(repo), "HEAD"]);
+  const head = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(stdout);
+  if (!head) throw new Error(`could not resolve the default branch of ${repo} (empty repository or no HEAD)`);
+  return { name: repo.split("/").pop() ?? repo, fullName: repo, private: true, defaultBranch: head[1]!, description: null };
+}
+
+export interface RepoInfoViaGit {
+  name: string;
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  description: string | null;
 }
 
 /*
