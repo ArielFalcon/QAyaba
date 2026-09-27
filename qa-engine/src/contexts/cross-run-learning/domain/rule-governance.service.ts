@@ -27,7 +27,15 @@ export class RuleGovernanceService {
       const rateDelta =
         (b.successRate ?? 0) * successRateWeight + score(b) - ((a.successRate ?? 0) * successRateWeight + score(a));
       if (rateDelta !== 0) return rateDelta;
-      return b.at.localeCompare(a.at);
+      const atDelta = b.at.localeCompare(a.at);
+      if (atDelta !== 0) return atDelta;
+      /*
+       * Final, total-order tiebreak (restored from the shell's selectForRetrieval, which used
+       * `a.rule.id.localeCompare(b.rule.id)`): without this, two rules tied on every other
+       * criterion fall through to Array.sort's stability, which preserves INPUT order — making
+       * retrieval order depend on incidental row-read order rather than the rule contents.
+       */
+      return a.id.localeCompare(b.id);
     });
   }
 

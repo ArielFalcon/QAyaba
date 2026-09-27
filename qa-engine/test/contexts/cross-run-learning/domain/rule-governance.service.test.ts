@@ -31,6 +31,18 @@ test("rank: at DESC tiebreak when status and successRate are identical (3rd SQL 
   assert.deepEqual(ranked.map((r) => r.trigger), ["newer", "older"]);
 });
 
+test("rank: ties broken deterministically by id ascending, regardless of input order (regression: R2)", () => {
+  /* Mirrors the deleted shell's selectForRetrieval determinism test: when status, successRate
+     (+ bias) AND `at` are all tied, the final tiebreak must be a stable total order (rule id),
+     not whatever order Array.sort's stability happens to preserve from the INPUT array. */
+  const sameAt = "2026-01-01T00:00:00.000Z";
+  const mk = (id: string) => rule("active", 0.5, id, sameAt);
+  const forward = svc.rank([mk("c"), mk("a"), mk("b")]);
+  const reversed = svc.rank([mk("b"), mk("a"), mk("c")]);
+  assert.deepEqual(forward.map((r) => r.id), ["a", "b", "c"], "ascending by id, per the shell's a.id.localeCompare(b.id)");
+  assert.deepEqual(reversed.map((r) => r.id), ["a", "b", "c"], "same result regardless of input order");
+});
+
 test("topRules: only active+candidate are retrievable, deprecated/superseded excluded", () => {
   const top = svc.topRules([rule("deprecated", 0.9, "dep"), rule("active", 0.5, "act"), rule("superseded", 0.9, "sup")], 5);
   assert.deepEqual(top.map((r) => r.trigger), ["act"]);
@@ -110,4 +122,13 @@ test("topRules: relevance bias never overrides the status (active) priority — 
   ];
   const top = svc.topRules(rules, 5, { errorClass: "E-EXEC-FAIL", archetypes: ["form"] });
   assert.deepEqual(top.map((r) => r.trigger), ["active-irrelevant", "candidate-relevant"], "status is a separate, higher-priority sort key — bias only breaks ties within the same status");
+});
+
+test("topRules: breaks ties deterministically by id (same result regardless of input order) (regression: R2)", () => {
+  /* Mirrors the deleted shell's "selectForRetrieval determinism" test exactly. */
+  const mk = (id: string): LearningRule => ruleWithMeta("active", 0.6, id, "E-FALSE-POSITIVE", null);
+  const forward = svc.topRules([mk("c"), mk("a"), mk("b")], 2);
+  const reversed = svc.topRules([mk("b"), mk("a"), mk("c")], 2);
+  assert.deepEqual(forward.map((r) => r.id), reversed.map((r) => r.id));
+  assert.deepEqual(forward.map((r) => r.id), ["a", "b"]);
 });
