@@ -374,10 +374,22 @@ export interface RetrievedRule {
   status: "active" | "candidate";
   confidence: "low" | "medium" | "high";
 }
+/**
+ * Port-local RelevanceBias — mirrors cross-run-learning's RuleGovernanceService.RelevanceBias
+ * structurally (same no-cross-context-import rule as CommitIntent above, this barrel's own
+ * header). Deterministic retrieval-time bias toward rules whose errorClass/archetype matches THIS
+ * run's own signals (never an LLM signal) — see learning-port.adapter.ts for what RunQaUseCase
+ * actually has available to populate it with at retrieval time.
+ */
+export interface RelevanceBias {
+  errorClass?: string | null;
+  archetypes?: readonly string[];
+}
 export interface LearningPort {
   /** Off-path: a failure is logged and swallowed, never gates publish. */
   fold(outcome: RunOutcome): Promise<void>;
-  retrieve(sha: Sha): Promise<RetrievedRule[]>;
+  /** relevance is optional enrichment — omitted (or every field absent) retrieves ungrounded, exactly as before this bias existed. */
+  retrieve(sha: Sha, relevance?: RelevanceBias): Promise<RetrievedRule[]>;
 }
 /** Cross-cutting infra port, kernel-resident so neither context imports it from the other. */
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";

@@ -47,6 +47,7 @@ import type {
   CurriculumPort,
   ArchitectureContext,
   ExplorationBrief,
+  RelevanceBias,
 } from "./ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "./ports/index.ts";
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
@@ -92,6 +93,7 @@ import { renderCoverageGap } from "@contexts/objective-signal/domain/render-cove
 import { checkPreExecGrounding, checkPersistingAmbiguity } from "../domain/pre-exec-grounding.service.ts";
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
+import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
@@ -537,9 +539,31 @@ export class RunQaUseCase {
      * continues. Prompt renderers use trigger/action; retrievedRuleIds (r.id) are
      * for by-id fold attribution — never conflate the two.
      */
+    /*
+     * R4: bias retrieval toward the CURRENT diff's structural shape — restored from the deleted
+     * shell's selectForRetrieval bias (src/qa/learning/retrieval.ts, pre migration-tier-4c), using
+     * the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
+     * below, curriculum.select() above) so the offered archetypes never silently diverge from what
+     * biases retrieval. classificationDiff is undefined outside diff mode (only "diff" classifies —
+     * see above), so there is no signal to bias with there; never fabricated.
+     *
+     * The shell ALSO biased on the app's MOST RECENT PERSISTED errorClass (deps.recentErrorClass,
+     * itself sourced from listRunOutcomes). RunHistoryPort here is save-only (no read-back — see
+     * rewritten-orchestrator.adapter.ts's own header note), and no other port wired into this
+     * use-case at this point in the flow can answer "what was this app's last outcome's
+     * errorClass" — that signal has no equivalent source today and is deliberately left unwired
+     * rather than invented.
+     */
+    const retrievalArchetypes = classificationDiff
+      ? detectStructuralPatterns(classificationDiff, classificationIntent?.changedFiles ?? [])
+          .map((p) => p.kind)
+          .filter((k) => k !== "generic")
+      : [];
+    const retrievalRelevance: RelevanceBias | undefined =
+      retrievalArchetypes.length > 0 ? { archetypes: retrievalArchetypes } : undefined;
     let retrievedRules: RetrievedRule[] = [];
     try {
-      retrievedRules = await this.deps.learning.retrieve(input.sha);
+      retrievedRules = await this.deps.learning.retrieve(input.sha, retrievalRelevance);
     } catch (err) {
       console.error("[qa] learning retrieval failed (non-fatal, generation continues ungrounded):", err);
     }

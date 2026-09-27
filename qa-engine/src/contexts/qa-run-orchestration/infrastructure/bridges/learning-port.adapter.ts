@@ -2,7 +2,7 @@
 
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { LearningPort, RetrievedRule } from "../../application/ports/index.ts";
+import type { LearningPort, RetrievedRule, RelevanceBias } from "../../application/ports/index.ts";
 import type { LearningRepositoryPort, RuleStatus } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { renderLearnedRules } from "./generation-port.adapter.ts";
 
@@ -45,8 +45,8 @@ export class LearningPortAdapter implements LearningPort {
     }
   }
 
-  async retrieve(sha: Sha): Promise<RetrievedRule[]> {
-    const rules = await this.repo.topRules(this.app, sha, this.limit);
+  async retrieve(sha: Sha, relevance?: RelevanceBias): Promise<RetrievedRule[]> {
+    const rules = await this.repo.topRules(this.app, sha, this.limit, relevance);
     const projected: RetrievedRule[] = rules.map((r) => ({
       id: r.id,
       trigger: r.trigger,

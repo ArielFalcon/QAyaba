@@ -10,6 +10,7 @@ import { LearningPortAdapter } from "@contexts/qa-run-orchestration/infrastructu
 import { renderLearnedRules } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 import type { LearningRepositoryPort, LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { RelevanceBias } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 
@@ -286,6 +287,40 @@ test("retrieve() with a generously large budget returns every retrieved rule unc
   const result = await adapter.retrieve(Sha.of("abc1234"));
 
   assert.deepEqual(result.map((r) => r.id), ["r1"], "a rule set that already fits the default budget must not be trimmed");
+});
+
+/* R4: retrieve()'s optional relevance bias must reach LearningRepositoryPort.topRules verbatim —
+   this is the wiring that was missing: RuleGovernanceService.topRules' errorClass/archetype bias
+   (rule-governance.service.ts) existed but production never fed it anything, because retrieve()
+   itself had no parameter to carry it through.
+ */
+test("retrieve() forwards an optional relevance bias to LearningRepositoryPort.topRules verbatim", async () => {
+  let capturedRelevance: RelevanceBias | undefined;
+  const repo: LearningRepositoryPort = {
+    save: async () => {},
+    topRules: async (_app, _sha, _limit, relevance) => { capturedRelevance = relevance; return []; },
+    applyOutcome: async () => {},
+  };
+  const adapter = new LearningPortAdapter(repo, "app");
+  const bias: RelevanceBias = { errorClass: "E-EXEC-FAIL", archetypes: ["api-call", "auth-flow"] };
+
+  await adapter.retrieve(Sha.of("abc1234"), bias);
+
+  assert.deepEqual(capturedRelevance, bias);
+});
+
+test("retrieve() called with no relevance bias forwards undefined to topRules (backward compatible — no fabricated bias)", async () => {
+  let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-be-overwritten" };
+  const repo: LearningRepositoryPort = {
+    save: async () => {},
+    topRules: async (_app, _sha, _limit, relevance) => { capturedRelevance = relevance; return []; },
+    applyOutcome: async () => {},
+  };
+  const adapter = new LearningPortAdapter(repo, "app");
+
+  await adapter.retrieve(Sha.of("abc1234"));
+
+  assert.equal(capturedRelevance, undefined);
 });
 
 test("retrieve() tolerates a store without incrementUsage wired (optional method, off-path)", async () => {

@@ -29,6 +29,7 @@ import type {
   MirrorGcPort,
   CurriculumPort,
   CurriculumFoldInput,
+  RelevanceBias,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -4157,6 +4158,64 @@ test("WS1.6: an invalid-verdict run that HAD retrieved rules persists a terminal
   assert.equal(foldCallCount, 1, "learning.fold() must still be called on an invalid verdict (suppression matrix: invalid folds, unchanged)");
   assert.deepEqual(foldedRulesRetrieved, ["rule-terminal-001"], "learning.fold() must receive the SAME non-empty rulesRetrieved the terminal outcome was persisted with — this is the fix: previously rulesRetrieved was always [], making the fold a structural no-op for rule-outcome attribution");
   assert.equal(reflectCallCount, 1, "reflector.reflect() must still be called on an invalid verdict (suppression matrix: invalid reflects too, unchanged by WS1.6)");
+});
+
+/* R4: retrieve()'s relevance bias must be fed from deterministic signals RunQaUseCase already has
+   at retrieval time — restored from the deleted shell's selectForRetrieval bias (src/qa/learning/
+   retrieval.ts, pre migration-tier-4c): the CURRENT diff's structural archetypes (detected the
+   SAME way generation's own curriculum.select()/detectArchetype() calls already detect them —
+   qa-engine/src/shared-kernel/structural-pattern.ts). The shell ALSO biased on the app's most
+   recent PERSISTED errorClass (deps.recentErrorClass) — RunHistoryPort is save-only (no read-back;
+   see rewritten-orchestrator.adapter.ts's own header), so that signal has no equivalent source at
+   this point in the current flow and is deliberately left unwired (never invented) — see the
+   commit body.
+ */
+test("R4: learning.retrieve(sha, relevance) receives archetypes detected from the classified diff's structural shape", async () => {
+  let capturedRelevance: RelevanceBias | undefined;
+  const { ports } = stubPorts({
+    classify: async () => ({
+      action: "generate",
+      reason: "diff touches src/login.ts",
+      diff: "await fetch('/api/login');",
+      intent: { type: "feat", breaking: false, message: "add login call", changedFiles: ["src/login.ts"] },
+    }),
+    retrieve: async (_sha, relevance) => { capturedRelevance = relevance; return []; },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "r4-retrieve-archetype-bias" });
+
+  assert.deepEqual(
+    capturedRelevance,
+    { archetypes: ["api-call", "auth-flow"] },
+    "the diff's own structural patterns (fetch -> api-call, login -> auth-flow) must reach retrieve() as the relevance bias, with no errorClass fabricated",
+  );
+});
+
+test("R4: a generic diff (no structural pattern detected) omits the relevance argument entirely — no fabricated empty bias", async () => {
+  let retrieveCallCount = 0;
+  let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
+  const { ports } = stubPorts({
+    retrieve: async (_sha, relevance) => { retrieveCallCount++; capturedRelevance = relevance; return []; },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "r4-retrieve-generic-diff-no-bias" });
+
+  assert.equal(retrieveCallCount, 1, "retrieve() must still be called exactly once");
+  assert.equal(capturedRelevance, undefined, "the default stub classify() returns an empty diff — no structural pattern to bias with, so relevance must stay undefined, not a fabricated {}");
+});
+
+test("R4: outside diff mode (no classification, no diff available) retrieve() receives no relevance bias — never invented from nothing", async () => {
+  let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
+  const { ports } = stubPorts({
+    retrieve: async (_sha, relevance) => { capturedRelevance = relevance; return []; },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, mode: "complete", runId: "r4-retrieve-non-diff-mode-no-bias" });
+
+  assert.equal(capturedRelevance, undefined, "complete/exhaustive/manual modes never classify, so there is no diff to derive archetypes from — relevance must stay undefined, not invented");
 });
 
 test("WS1.6 regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
