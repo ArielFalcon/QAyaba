@@ -97,20 +97,19 @@ test("readCoordinationLedger: reads only a bounded tail, not the whole file, for
   }
 });
 
-/* J3b: --allow-concurrent (src/cli.ts) lets a standalone CLI run share the SAME ledger file with
-   the long-lived service (both resolve resolveCoordinationTelemetryPath to the same path), so one
-   run's events are NOT guaranteed to be contiguous — a foreign process can append a large block of
-   its own events in between two of this run's events. A runId-scoped read must match a full-file
-   parse exactly regardless of interleaving; it must never assume contiguity to stop early. */
-test("readCoordinationLedger: a runId filter reads a run's events exactly, even when interleaved with another process's events (J3b)", () => {
+/* A ledger has a single writer (the long-lived service), but that still does not make one run's
+   own events a contiguous block within the file — other runs' events land in between as they are
+   appended over time. A runId-scoped read must match a full-file parse exactly regardless of that
+   interleaving; it must never assume contiguity to stop early. */
+test("readCoordinationLedger: a runId filter reads a run's events exactly, even when interleaved with other runs' events", () => {
   const dir = mkdtemp();
   try {
     const path = join(dir, "coordination-events.jsonl");
     const lines: string[] = [];
     /* The target run's OWN early event, appended first. */
     lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 1 }));
-    /* A large foreign block from a CONCURRENT process (e.g. --allow-concurrent) interleaved in
-       between — this run's events are no longer a contiguous block in the ledger. */
+    /* A large block of other runs' events interleaved in between — this run's events are no
+       longer a contiguous block in the ledger. */
     for (let i = 0; i < 3000; i++) {
       lines.push(JSON.stringify({ runId: `other-${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i + 2 }));
     }
@@ -124,7 +123,7 @@ test("readCoordinationLedger: a runId filter reads a run's events exactly, even 
     assert.equal(fullParse.events.length, 3, "sanity: a full-file parse must see all 3 of the target run's events");
 
     const view = readCoordinationLedger({ runId: "target" }, path);
-    assert.deepEqual(view.events, fullParse.events, "a runId-filtered read must match a full-file parse exactly, even when interleaved with another process's events");
+    assert.deepEqual(view.events, fullParse.events, "a runId-filtered read must match a full-file parse exactly, even when interleaved with other runs' events");
     assert.equal(view.truncated, fullParse.truncated);
   } finally {
     rmSync(dir, { recursive: true, force: true });

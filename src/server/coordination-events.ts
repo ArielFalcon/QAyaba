@@ -183,15 +183,14 @@ function isEnoent(err: unknown): boolean {
  * events are found (parseCoordinationLedger reports truncated=true — i.e. we already hold at least
  * `limit` of the most recent matches) or the file start is reached (nothing left to grow into).
  *
- * A runId filter CANNOT stop early on a contiguity assumption: --allow-concurrent (src/cli.ts) lets
- * a standalone CLI run and the long-lived service append to the SAME ledger file concurrently (both
- * resolve resolveCoordinationTelemetryPath to the same path), so one run's events are not guaranteed
- * to be a contiguous block — a foreign process's events can be interleaved in between. A runId-
- * scoped read therefore keeps growing until `truncated || position === 0`, i.e. it degrades to
- * exact full-parse semantics, the same as the unfiltered path. The bound on how much a full read can
- * ever cost is the ledger's own size cap (MAX_LEDGER_EVENTS rotation in
- * qa-engine/.../coordination-telemetry-port.adapter.ts) — the file never grows past that, so the
- * worst case is a full read of a capped file, not an unbounded one.
+ * There is a single writer per ledger (the long-lived service; a standalone CLI run always
+ * delegates to it rather than appending to this file itself), but a runId filter still CANNOT stop
+ * early on a contiguity assumption — this run's own events are not guaranteed to be a contiguous
+ * block within the file. A runId-scoped read therefore keeps growing until `truncated || position
+ * === 0`, i.e. it degrades to exact full-parse semantics, the same as the unfiltered path. The
+ * bound on how much a full read can ever cost is the ledger's own size cap (MAX_LEDGER_EVENTS
+ * rotation in qa-engine/.../coordination-telemetry-port.adapter.ts) — the file never grows past
+ * that, so the worst case is a full read of a capped file, not an unbounded one.
  */
 function readLedgerTail(
   path: string,

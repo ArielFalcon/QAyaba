@@ -3,16 +3,15 @@
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
- * [--target e2e|code] [--guidance "..."] [--allow-concurrent]
+ * [--target e2e|code] [--guidance "..."]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
  * concurrently with a service run — breaking the "one run at a time against DEV" invariant.
- * We therefore refuse to start when the local service answers its health probe, unless the
- * operator explicitly accepts the risk with --allow-concurrent. Both processes also resolve
- * the SAME coordination telemetry ledger path (resolveCoordinationTelemetryPath) — running
- * with --allow-concurrent means their reads and rotation may interleave on that shared file,
- * not just on the DEV target.
+ * We therefore always refuse the standalone path when the local service answers its health
+ * probe, with no override, and delegate the run to that service instead (runViaService) — it
+ * then executes inside the server process, so the service is the single writer of the
+ * coordination telemetry ledger both processes resolve to (resolveCoordinationTelemetryPath).
  */
 
 import { fileURLToPath } from "node:url";
@@ -127,12 +126,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!args.allowConcurrent && (await localServiceIsRunning())) {
+  if (await localServiceIsRunning()) {
     /*
      * The service owns the only queue against DEV. Rather than refuse (or race it with a second
      * queue), hand the run to it: it then executes IN the server process, so a TUI attached to
-     * that server streams it live, and the sequential-queue invariant is preserved.
-     * --allow-concurrent forces the standalone path below.
+     * that server streams it live, and the sequential-queue invariant is preserved. There is no
+     * override for this — a standalone run against DEV while the service also owns the queue is
+     * exactly the concurrency this check exists to prevent.
      */
     await runViaService(args);
     return;  /* runViaService always exits the process with the verdict's code */
@@ -218,20 +218,18 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean; allowConcurrent: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
-  let allowConcurrent = false;
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]?.replace(/^--/, "");
     if (key === "learning") { learning = true; continue; }
-    if (key === "allow-concurrent") { allowConcurrent = true; continue; }
     if (key) out[key] = argv[i + 1] ?? "";
     if (key) i++;  /* skip value */
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--allow-concurrent]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -243,7 +241,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
   /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
   const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning, allowConcurrent };
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning };
 }
 
 function showLearning(app: string): void {
