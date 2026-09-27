@@ -116,6 +116,14 @@ test("isLoopbackHost also accepts an explicitly configured allowlist entry", () 
   assert.equal(isLoopbackHost("evil.example", ["qayaba.internal"]), false, "an unrelated host is still rejected");
 });
 
+/* Docker Compose service names (and the hostnames they resolve as) may contain "_". */
+test("isLoopbackHost accepts an allowlisted hostname with an underscore, still anchored to the whole header", () => {
+  assert.equal(isLoopbackHost("qa_web:458", ["qa_web"]), true);
+  assert.equal(isLoopbackHost("qa_web", ["qa_web"]), true);
+  assert.equal(isLoopbackHost("qa_web.evil.example", ["qa_web"]), false, "a longer hostname is a different host");
+  assert.equal(isLoopbackHost("qa_web, evil.example", ["qa_web", "evil.example"]), false, "a comma-joined second value is still malformed");
+});
+
 /* A Host header is `host [":" port]` and nothing else. Anything a lenient prefix/suffix parse would
    read as a loopback hostname — trailing garbage after an IPv6 literal, userinfo, a comma-joined
    second value, whitespace — must be refused rather than trimmed into "localhost". */

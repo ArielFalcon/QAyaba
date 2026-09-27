@@ -110,10 +110,11 @@ export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: str
  */
 /*
  * A Host header is exactly `host [":" port]`: an IPv6 literal in brackets, or a hostname / IPv4
- * address of letters, digits, dots and hyphens. The whole value must match — a lenient parse
- * would read "[::1]evil.com" or "localhost:458, evil.example" as loopback. null = malformed.
+ * address of letters, digits, dots, hyphens and underscores (Docker Compose service names use
+ * them). The whole value must match — a lenient parse would read "[::1]evil.com" or
+ * "localhost:458, evil.example" as loopback. null = malformed.
  */
-const HOST_HEADER_RE = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9.-]+))(?::[0-9]{1,5})?$/i;
+const HOST_HEADER_RE = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9._-]+))(?::[0-9]{1,5})?$/i;
 
 function hostnameFromHostHeader(host: string): string | null {
   const m = HOST_HEADER_RE.exec(host);
