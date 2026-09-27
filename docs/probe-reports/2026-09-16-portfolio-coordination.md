@@ -73,3 +73,7 @@
 | total duration | ~412 s | ~396 s | **~162 s** | **−60% latency** |
 
 **Conclusion:** determinism of the *pipeline verdicts* held across runs; the multi-agent path only became deterministic after the executor-contract fixes. Final system state: coordination candidate **proven in production wiring**; economic claim (cost per valid result) now measurable — same day: latency down ~60% with green + approved outcome.
+
+## 7. Environment teardown
+
+Probe compose projects are torn down after the report is written (`docker compose down`). This run left its containers up; that was a leftover, not a plan to reuse them.
