@@ -530,6 +530,7 @@ export function buildRewrittenCompositionConfig(
   const codeSandbox = resolveSandbox(process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
+  const sidekickTimeoutMs = resolveSidekickTimeoutMsFromEnv();
 
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
@@ -648,6 +649,8 @@ export function buildRewrittenCompositionConfig(
 
   const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, authDir, pwActionTimeoutMs), recordAudit };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), authDir);
+  /* One authDir-backed DOM capture for every grounding seam (Context Pack, review DOM, pre-exec). */
+  const captureDomDeps = createCaptureDomDeps(authDir);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
 
   const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(codeSandbox), recordAudit };
@@ -794,9 +797,7 @@ export function buildRewrittenCompositionConfig(
      * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
      * composition-root itself. Absent → composition-root's own hardcoded default (420_000).
      */
-    ...(resolveSidekickTimeoutMsFromEnv() !== undefined
-      ? { sidekickTimeoutMs: resolveSidekickTimeoutMsFromEnv() }
-      : {}),
+    ...(sidekickTimeoutMs !== undefined ? { sidekickTimeoutMs } : {}),
     /*
      * The same coveragePolicy that configures the objective signal (computed once, above), so
      * the policy that measures coverage and the one that decides whether it blocks never diverge.
@@ -841,7 +842,7 @@ export function buildRewrittenCompositionConfig(
             exploreBrief: (args) => explorerBriefAdapter.explore(args),
           }
         : {}),
-      contextPackDeps: { ...defaultContextPackDeps, domDeps: createCaptureDomDeps(authDir) },
+      contextPackDeps: { ...defaultContextPackDeps, domDeps: captureDomDeps },
       /*
        * The DB (history.ts's context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
@@ -857,8 +858,8 @@ export function buildRewrittenCompositionConfig(
         return loadContextMapFromDisk(specDir);
       },
     },
-    reviewDomGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
-    preExecGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
+    reviewDomGroundingCollaborators: { captureDomDeps },
+    preExecGroundingCollaborators: { captureDomDeps },
     /*
      * Per-run lastIndexedSha sidecar (cheap JSON under QAYABA_ROOT/data). Always supplied —
      * the use-case phase is a no-op unless wireBridges also builds codeGraph from codebaseMemory

@@ -12,6 +12,7 @@ import type { ArchitectureContext } from "@contexts/generation/application/ports
 import type { AgentDeps } from "../integrations/opencode-client";
 import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { Sha } from "@kernel/sha";
@@ -441,11 +442,11 @@ test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs",
    relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
    absent (no static per-run source exists at composition-build time).
 
-   Batch S / S2: groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
-   preExecGroundingCollaborators.captureDomDeps are now ALWAYS overridden (authDir-aware), so DOM
+   groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
+   preExecGroundingCollaborators.captureDomDeps are ALWAYS overridden (authDir-aware), so DOM
    capture reads auth material from the orchestrator-only authDir, never the mirror — the qa-engine
-   default would otherwise derive credential paths from e2eDir itself. This is why the tests below
-   assert these fields are PRESENT rather than `{}`.
+   default is an inert placeholder that throws when used. This is why the tests below assert these
+   fields are PRESENT rather than `{}`.
  */
 
 test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingCollaborators for an e2e app", () => {
@@ -454,6 +455,20 @@ test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingC
   assert.ok(config.groundingCollaborators?.contextPackDeps, "contextPackDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
   assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
   assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
+});
+
+test("every DOM capture seam of an e2e app is the authDir-backed capture, never the inert default", () => {
+  const app = cfg("factory-dom-capture-seams");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const seams = {
+    "pre-generation Context Pack": config.groundingCollaborators?.contextPackDeps?.domDeps,
+    "review DOM grounding": config.reviewDomGroundingCollaborators?.captureDomDeps,
+    "pre-exec grounding": config.preExecGroundingCollaborators?.captureDomDeps,
+  };
+  for (const [seam, deps] of Object.entries(seams)) {
+    assert.ok(deps, `${seam}: a DOM capture must be wired`);
+    assert.notEqual(deps, defaultCaptureDomDeps, `${seam}: the inert default throws on use and knows no authDir`);
+  }
 });
 
 test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
