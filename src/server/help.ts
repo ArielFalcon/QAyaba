@@ -1,4 +1,5 @@
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { DEFAULT_HOST } from "./port";
 
 const PRODUCT_CONTEXT = `
 You are answering questions about qayaba — the TUI (Terminal UI) for the qayaba QA engine.
@@ -158,7 +159,7 @@ It is bounded to runs still in the in-memory history (ephemeral).
 - AGENT_SINGLE_PROVIDER — opencode or codex when AGENT_RUNTIME_MODE=single
 - GITHUB_TOKEN — required for PR/Issue creation
 - WEBHOOK_SECRET — required for production webhook validation
-- QA_HOST — orchestrator address (default: localhost:458)
+- QA_HOST — orchestrator address (default: ${DEFAULT_HOST})
 - QA_API_TOKEN — if the service requires auth
 
 ## Architecture

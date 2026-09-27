@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/ArielFalcon/qayaba/internal/api"
 )
 
 func TestParseRuntimeFlags(t *testing.T) {
@@ -25,5 +27,12 @@ func TestDefaultHostURLAddsScheme(t *testing.T) {
 	t.Setenv("QA_HOST", "https://qa.example.test/")
 	if got := defaultHostURL(); got != "https://qa.example.test" {
 		t.Fatalf("host url = %q", got)
+	}
+}
+
+func TestDefaultHostURLFallsBackToTheServerDefaultWhenQAHostIsUnset(t *testing.T) {
+	t.Setenv("QA_HOST", "")
+	if got := defaultHostURL(); got != "http://"+api.DefaultHost {
+		t.Fatalf("host url = %q, want the server's default host", got)
 	}
 }

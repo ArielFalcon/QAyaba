@@ -17,7 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const defaultConnectHost = "localhost:458"
+const defaultConnectHost = api.DefaultHost
 
 /* connectPhase is the connect screen's state machine. The default path is GitHub login:
    phaseLogin → (enter) → phaseStarting (handshake: learn the OAuth client id) → phaseDevice

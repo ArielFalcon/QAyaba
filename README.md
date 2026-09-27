@@ -391,6 +391,19 @@ docker compose up --build
 ```
 
 <details>
+<summary>The control-plane port (<code>PORT</code>, default 458)</summary>
+
+The orchestrator listens on `PORT` (default `458`) and serves the web console there at `/app`; the terminal clients (the `qayaba` TUI and `bin/qa`) connect to `localhost:458` unless `QA_HOST` says otherwise. The boot log names the interface and port it actually bound (e.g. `qayaba listening on [::]:458`).
+
+458 is a **privileged port** (below 1024):
+
+- The Docker image runs the orchestrator as root, so `docker compose up` binds it as-is.
+- Running `npm run start` as a non-root Linux user fails with `EACCES`: set `PORT` above 1023 (and `QA_HOST=localhost:<port>` for the clients), or grant node the `CAP_NET_BIND_SERVICE` capability.
+- Rootless Docker cannot publish a port below 1024: set `PORT` above 1023 before `docker compose up`.
+
+</details>
+
+<details>
 <summary>Where the orchestrator keeps its data</summary>
 
 The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qa-data` volume in `docker-compose.yml`) unless a location is overridden:

@@ -33,6 +33,7 @@ import { defaultEnvStoreFs } from "./server/env-store";
 import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
+import { resolvePort } from "./server/port";
 
 
 const cliAgentRuntime = createAgentRuntimeManager({
@@ -51,7 +52,7 @@ const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliA
  * orchestrator owns the queue on this host and a second queue here would race it against DEV.
  */
 async function localServiceIsRunning(): Promise<boolean> {
-  const port = Number(process.env.PORT ?? 458);
+  const port = resolvePort(process.env);
   try {
     const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
     return res.ok;
@@ -81,7 +82,7 @@ function discoverApiToken(): string | undefined {
  * server process, so the TUI streams it live and the single-queue invariant holds.
  */
 async function runViaService(args: { app: string; sha: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
-  const port = Number(process.env.PORT ?? 458);
+  const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");

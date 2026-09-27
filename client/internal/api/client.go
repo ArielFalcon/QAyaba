@@ -23,6 +23,10 @@ type Client struct {
 	http    *http.Client
 }
 
+/* DefaultHost is where the orchestrator listens when its PORT is unset (DEFAULT_PORT in
+   src/server/port.ts); every entry point of this client falls back to it when QA_HOST is unset. */
+const DefaultHost = "localhost:458"
+
 /* ClientVersion is the wire version this binary reports to the server's handshake.
    Release builds inject it via -ldflags "-X .../internal/api.ClientVersion=v1.2.3". */
 var ClientVersion = "0.1.0"

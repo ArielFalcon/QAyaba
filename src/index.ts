@@ -50,6 +50,7 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
+import { resolvePort, describeListenAddress, listenErrorHint } from "./server/port";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = process.env.QAYABA_ROOT ?? process.cwd();
@@ -70,7 +71,7 @@ const runEvents = createDurableRunEventStore();
  */
 const AUTONOMOUS_MAINTAINER = process.env.SELF_MAINTAINER_AUTOMERGE === "true";
 
-const port = Number(process.env.PORT ?? 458);
+const port = resolvePort(process.env);
 const MAX_BODY = 1_000_000;
 const secret = process.env.WEBHOOK_SECRET;
 
@@ -821,8 +822,18 @@ const server = createServer(async (req, res) => {
  */
 finalizeInterruptedRuns({ runEvents });
 
+/*
+ * A bind failure (a privileged port without root, a port already taken) ends the process with a
+ * hint the operator can act on instead of a bare EACCES/EADDRINUSE stack.
+ */
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (server.listening) return;
+  logJson("error", `qayaba cannot start: ${listenErrorHint(err, port)}`);
+  process.exit(1);
+});
+
 server.listen(port, () => {
-  logJson("info", `qayaba listening on :${port}${apiToken ? " (API auth on)" : ""}`);
+  logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);
   /*
    * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
    * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)
