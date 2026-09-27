@@ -131,6 +131,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
       ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
+      ...(enrichment?.authSeedUnauthored ? { authSeedUnauthored: true } : {}),
       ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
       ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),

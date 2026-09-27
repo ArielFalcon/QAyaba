@@ -606,6 +606,24 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
 
+  /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
+  const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
+  const appLoginContent =
+    input.authSeedUnauthored && isGenerationMode && !isCode
+      ? [
+          `## App login`,
+          `App login is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
+          input.contextPack
+            ? `Rewrite ${authSetupPath} from the login page in the Context Pack's live DOM.`
+            : `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
+          `Import test from @playwright/test, not from ./fixtures.`,
+          `Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.`,
+          `Wait until the password field is hidden (cookies are set on the redirect) before storageState.`,
+          `Then write the specs for this change. Each spec that needs the app calls authenticate().`,
+          `The orchestrator signs in with your setup file before execute.`,
+        ].join("\n")
+      : "";
+
   const taskContent = buildTask(input);
 
   const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
@@ -698,6 +716,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3 })] : []),
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
     ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
+    ...(appLoginContent ? [section("app-login", "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
     ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap" })] : []),
     /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
     ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1 })] : []),

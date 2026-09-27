@@ -31,6 +31,7 @@ import type {
   CurriculumFoldInput,
   RelevanceBias,
   ContextMapCapturePort,
+  GenerationEnrichment,
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 /* reflector-rewire (design ADR-1/ADR-4/ADR-5): ReflectorPort/ReflectionInput are declared in
    cross-run-learning (co-located with StructuredReflection/LearningRepositoryPort), NOT in this
@@ -6725,13 +6726,14 @@ test("auth session prepare runs before generate and again before execute", async
   assert.deepEqual(phases, ["pre-generate", "pre-execute"]);
 });
 
-test("a stock auth seed tells generation to rewrite auth.setup.ts", async () => {
-  const packs: Array<string | undefined> = [];
+function authSeedRun(opts: { unauthoredAtGenerate: boolean; groundedPack?: string }) {
+  const enrichments: Array<GenerationEnrichment | undefined> = [];
   const { ports } = stubPorts({
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
-      packs.push(enrichment?.contextPack);
+      enrichments.push(enrichment);
       return { specs: ["a.spec.ts"], approved: true };
     },
+    ...(opts.groundedPack ? { ground: async () => ({ contextPack: opts.groundedPack }) } : {}),
   });
   let calls = 0;
   const useCase = new RunQaUseCase({
@@ -6739,12 +6741,32 @@ test("a stock auth seed tells generation to rewrite auth.setup.ts", async () => 
     authSession: {
       prepare: async () => {
         calls += 1;
-        return { unauthored: calls === 1 };
+        return { unauthored: opts.unauthoredAtGenerate && calls === 1 };
       },
     },
     authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
   });
-  const out = await useCase.run({ ...baseInput, runId: "auth-seed-rewrite" });
+  return { useCase, enrichments };
+}
+
+test("an unauthored stock auth seed reaches generation as its own fact, never as a Context Pack", async () => {
+  const { useCase, enrichments } = authSeedRun({ unauthoredAtGenerate: true });
+  const out = await useCase.run({ ...baseInput, runId: "auth-seed-no-pack" });
   assert.equal(out.decision.verdict, "pass");
-  assert.match(packs[0] ?? "", /auth\.setup\.ts/);
+  assert.equal(enrichments[0]?.authSeedUnauthored, true);
+  assert.equal(enrichments[0]?.contextPack, undefined, "no grounding ran, so no Context Pack may be claimed");
+});
+
+test("an unauthored stock auth seed leaves a grounded Context Pack free of login instructions", async () => {
+  const { useCase, enrichments } = authSeedRun({ unauthoredAtGenerate: true, groundedPack: "## Context Pack\n### Live DOM\n/login: textbox Email" });
+  await useCase.run({ ...baseInput, runId: "auth-seed-with-pack" });
+  assert.equal(enrichments[0]?.authSeedUnauthored, true);
+  assert.match(enrichments[0]?.contextPack ?? "", /Live DOM/);
+  assert.doesNotMatch(enrichments[0]?.contextPack ?? "", /auth\.setup\.ts/);
+});
+
+test("a seed that signed in does not flag generation to rewrite auth.setup.ts", async () => {
+  const { useCase, enrichments } = authSeedRun({ unauthoredAtGenerate: false });
+  await useCase.run({ ...baseInput, runId: "auth-seed-signed-in" });
+  assert.notEqual(enrichments[0]?.authSeedUnauthored, true);
 });

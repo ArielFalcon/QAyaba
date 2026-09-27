@@ -122,6 +122,8 @@ export interface OpencodeRunInput {
   explorer?: boolean;
   contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
+  /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */
+  authSeedUnauthored?: boolean;
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
   staticSignal?: string;
   diffArchetypes?: string[];

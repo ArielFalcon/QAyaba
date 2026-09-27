@@ -143,6 +143,11 @@ export interface GenerationEnrichment {
    */
   contextPack?: string;
   /**
+   * App login is declared but the suite's auth.setup.ts is still the stock seed and did not
+   * sign in, so the generator must author the login first. Set only when true.
+   */
+  authSeedUnauthored?: boolean;
+  /**
    * Structured map from specDir/.qa/context.json. Distinct from contextPack
    * (assembled markdown). Absent when the json is missing/invalid (fail-open).
    */

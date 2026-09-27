@@ -102,21 +102,6 @@ const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
 /* Static-gate repair-round bound. */
 const MAX_STATIC_FIX_ROUNDS = 2;
 
-/*
- * Fact for the generator when the stock login did not sign in. Lives in the context
- * pack because diff-mode prompts do not render manual guidance.
- */
-const AUTH_SEED_REWRITE_NOTE = [
-  "## App login",
-  "App login is configured, but e2e/auth.setup.ts is still the stock seed and did not sign in.",
-  "Rewrite e2e/auth.setup.ts from the login page in this DOM pack.",
-  "Import test from @playwright/test, not from ./fixtures.",
-  "Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.",
-  "Wait until the password field is hidden (cookies are set on the redirect) before storageState.",
-  "Then write the specs for this change. Each spec that needs the app calls authenticate().",
-  "The orchestrator signs in with your setup file before execute.",
-].join("\n");
-
 /* Caps static-gate error text in the repair regen prompt. */
 const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
 
@@ -902,17 +887,14 @@ export class RunQaUseCase {
         }
       }
       /*
-       * A stock seed that did not sign in must reach the generator in every mode.
-       * guidance is manual-only; the context pack is the section diff mode actually renders.
+       * A stock seed that did not sign in reaches the generator as its own fact in every mode (the
+       * prompt builders render the rewrite instruction); the Context Pack stays grounding-only.
        * Sidekick output from the login wall is not the session the suite will run with.
        */
-      const authContextPack = authSeedUnauthored
-        ? [AUTH_SEED_REWRITE_NOTE, groundingContextPack].filter((part): part is string => Boolean(part)).join("\n\n")
-        : undefined;
       generated = (authSeedUnauthored ? undefined : fromSidekick)
         ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
-          ...(authContextPack ? { contextPack: authContextPack } : {}),
+          ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
         }));
     }
     /*
