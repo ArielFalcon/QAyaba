@@ -584,28 +584,41 @@ func (m appAdminModel) save() (appAdminModel, tea.Cmd) {
 }
 
 /* envVars returns text secrets for environment Basic and form login. mtls reads a file in
-   collectedEnv. nil when neither layer has a username. */
+   collectedEnv. On create a layer is sent as a user+password pair once its user is typed. On an
+   edit that keeps the stored login kind, every field is independent: a typed field replaces its
+   stored value and a blank one is not sent at all, because the server stores exactly what it
+   receives — an empty password would overwrite the stored secret. nil when nothing is sent. */
 func (m appAdminModel) envVars() map[string]string {
 	out := map[string]string{}
 	if m.envBasic {
-		user := strings.TrimSpace(m.envUserInput.Value())
-		if user != "" {
-			out["DEV_ENV_USER"] = user
-			out["DEV_ENV_PASS"] = m.envPassInput.Value()
-		}
+		putCredentials(out, "DEV_ENV_USER", m.envUserInput.Value(), "DEV_ENV_PASS", m.envPassInput.Value(), m.mode == appAdminEdit)
 	}
 	if m.authMode == "form" {
-		user := strings.TrimSpace(m.userInput.Value())
-		if user != "" {
-			prefix := authEnvPrefix(m.appName())
-			out[prefix+"TEST_USER"] = user
-			out[prefix+"TEST_PASS"] = m.passInput.Value()
-		}
+		prefix := authEnvPrefix(m.appName())
+		keepStored := m.mode == appAdminEdit && m.authMode == m.storedAuthMode()
+		putCredentials(out, prefix+"TEST_USER", m.userInput.Value(), prefix+"TEST_PASS", m.passInput.Value(), keepStored)
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func putCredentials(out map[string]string, userKey, user, passKey, pass string, keepStored bool) {
+	user = strings.TrimSpace(user)
+	if keepStored {
+		if user != "" {
+			out[userKey] = user
+		}
+		if pass != "" {
+			out[passKey] = pass
+		}
+		return
+	}
+	if user != "" {
+		out[userKey] = user
+		out[passKey] = pass
+	}
 }
 
 /* storedAuthMode normalizes storedAuth's zero value ("" — nothing stored, or a kind the
@@ -631,8 +644,13 @@ func (m appAdminModel) collectedEnv() (map[string]string, error) {
 	if m.envBasic && m.mode != appAdminEdit && strings.TrimSpace(m.envUserInput.Value()) == "" {
 		return nil, fmt.Errorf("environment username is required for basic auth")
 	}
-	if m.authMode == "form" && (m.mode != appAdminEdit || authChanged) && strings.TrimSpace(m.userInput.Value()) == "" {
-		return nil, fmt.Errorf("app username is required for form login")
+	if m.authMode == "form" && (m.mode != appAdminEdit || authChanged) {
+		if strings.TrimSpace(m.userInput.Value()) == "" {
+			return nil, fmt.Errorf("app username is required for form login")
+		}
+		if m.passInput.Value() == "" {
+			return nil, fmt.Errorf("app password is required for form login")
+		}
 	}
 	if m.authMode != "mtls" {
 		return m.envVars(), nil
@@ -937,7 +955,7 @@ func (m appAdminModel) renderForm() string {
 	}
 	/* An inline explanation of the focused field, so onboarding is self-explanatory
 	   without reaching for the docs. */
-	if help := appFieldHelp(m.formCursor); help != "" {
+	if help := appFieldHelp(m.formCursor, m.mode == appAdminEdit); help != "" {
 		b.WriteString("\n" + hintStyle.Render(help))
 	}
 	return b.String()
@@ -956,7 +974,8 @@ func authModeLabel(mode string) string {
 	}
 }
 
-func appFieldHelp(cursor int) string {
+/* editing: an edit keeps every stored secret left blank, so its password rows say so. */
+func appFieldHelp(cursor int, editing bool) string {
 	switch cursor {
 	case fName:
 		return "a short id for this app — lowercase, used in commands and config paths"
@@ -977,12 +996,18 @@ func appFieldHelp(cursor int) string {
 	case fEnvUser:
 		return "username for the DEV environment gate. Stored as DEV_ENV_USER, never in the YAML."
 	case fEnvPass:
+		if editing {
+			return "password for the DEV environment gate. Leave blank to keep the stored one."
+		}
 		return "password for the DEV environment gate. Stored as DEV_ENV_PASS."
 	case fAuth:
 		return "none · username = app form login · certificate = PKCS#12. Space cycles. Stacks with env auth."
 	case fAuthUser:
 		return "app login: username · certificate: path to the .p12 file"
 	case fAuthPass:
+		if editing {
+			return "app login: password · certificate: passphrase. Leave blank to keep the stored one."
+		}
 		return "app login: password · certificate: passphrase. Stored in the env, never in the YAML."
 	case fSave:
 		return "write config/apps/<name>.yaml and start watching this repo"
