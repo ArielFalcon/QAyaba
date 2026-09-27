@@ -158,7 +158,7 @@ It is bounded to runs still in the in-memory history (ephemeral).
 - AGENT_SINGLE_PROVIDER — opencode or codex when AGENT_RUNTIME_MODE=single
 - GITHUB_TOKEN — required for PR/Issue creation
 - WEBHOOK_SECRET — required for production webhook validation
-- QA_HOST — orchestrator address (default: localhost:8080)
+- QA_HOST — orchestrator address (default: localhost:458)
 - QA_API_TOKEN — if the service requires auth
 
 ## Architecture

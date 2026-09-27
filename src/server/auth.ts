@@ -94,7 +94,7 @@ export function isLoopbackAddress(addr: string | undefined): boolean {
  * published port, so the container sees a docker-bridge IP, not loopback), or
  * • the request is loopback (npm start on the host).
  * Docker-bridge / LAN IPs are NEVER trusted without the flag — that would make a
- * published :8080 an open control plane.
+ * published orchestrator port an open control plane.
  */
 export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: string }): boolean {
   return opts.enabled || isLoopbackAddress(opts.remoteAddress);

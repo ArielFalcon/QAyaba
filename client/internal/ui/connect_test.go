@@ -54,9 +54,9 @@ func TestDiagnoseTransportIsUnreachable(t *testing.T) {
 /* A resolved (auto-discovered or saved) token for the current host auto-connects and records
    where it came from for the UI. */
 func TestConnectSavedTokenAutoConnects(t *testing.T) {
-	m := newConnectModel() /* host defaults to localhost:8080 */
+	m := newConnectModel() /* host defaults to localhost:458 */
 
-	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8080", token: "secret", source: "config/.api_token"})
+	m, cmd := m.Update(savedLoadedMsg{host: "localhost:458", token: "secret", source: "config/.api_token"})
 
 	if m.phase != phaseConnecting || cmd == nil {
 		t.Fatalf("a resolved token should auto-connect (phase=%v, cmd!=nil=%v)", m.phase, cmd != nil)
@@ -74,7 +74,7 @@ func TestConnectSavedTokenAutoConnects(t *testing.T) {
    orphaned because startup only ever looked at the default host. This is the persistence
    regression: close the TUI, reopen it, and it should reconnect, not ask to log in again. */
 func TestConnectRestoresSavedHost(t *testing.T) {
-	m := newConnectModel() /* host defaults to localhost:8080 */
+	m := newConnectModel() /* host defaults to localhost:458 */
 
 	m, cmd := m.Update(savedLoadedMsg{host: "localhost:8088", token: "sess.jwt", source: "saved for localhost:8088"})
 

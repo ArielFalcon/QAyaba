@@ -48,7 +48,7 @@ const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliA
  * orchestrator owns the queue on this host and a second queue here would race it against DEV.
  */
 async function localServiceIsRunning(): Promise<boolean> {
-  const port = Number(process.env.PORT ?? 8080);
+  const port = Number(process.env.PORT ?? 458);
   try {
     const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
     return res.ok;
@@ -78,7 +78,7 @@ function discoverApiToken(): string | undefined {
  * server process, so the TUI streams it live and the single-queue invariant holds.
  */
 async function runViaService(args: { app: string; sha: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
-  const port = Number(process.env.PORT ?? 8080);
+  const port = Number(process.env.PORT ?? 458);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");

@@ -71,7 +71,7 @@ const runEvents = createDurableRunEventStore();
  */
 const AUTONOMOUS_MAINTAINER = process.env.SELF_MAINTAINER_AUTOMERGE === "true";
 
-const port = Number(process.env.PORT ?? 8080);
+const port = Number(process.env.PORT ?? 458);
 const MAX_BODY = 1_000_000;
 const secret = process.env.WEBHOOK_SECRET;
 

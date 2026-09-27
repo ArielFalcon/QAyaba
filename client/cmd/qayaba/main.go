@@ -169,7 +169,7 @@ func printAgentConfig(cfg contract.PublicAgentConfig) {
 func defaultHostURL() string {
 	host := os.Getenv("QA_HOST")
 	if host == "" {
-		host = "localhost:8080"
+		host = "localhost:458"
 	}
 	if strings.HasPrefix(host, "http://") || strings.HasPrefix(host, "https://") {
 		return strings.TrimRight(host, "/")
@@ -183,7 +183,7 @@ func defaultToken() string {
 	}
 	host := os.Getenv("QA_HOST")
 	if host == "" {
-		host = "localhost:8080"
+		host = "localhost:458"
 	}
 	return store.LoadToken(host)
 }
