@@ -100,7 +100,7 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
   const filesChanged = Array.isArray(o.filesChanged)
     ? o.filesChanged
         .filter((f): f is { path: string } => !!f && typeof f === "object" && typeof (f as { path?: unknown }).path === "string")
-        .map((f) => ({ path: f.path }))
+        .map((f) => ({ path: scrub(f.path) }))
     : [];
   const validation = Array.isArray(o.validation)
     ? o.validation
@@ -193,9 +193,9 @@ export class SidekickExecutor {
         return {
           ...parsed,
           status: "blocked",
-          summary: `write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`,
+          summary: scrub(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
           recommendation: "escalate",
-          concerns: [...parsed.concerns, `paths outside scope: ${illegal.map((f) => f.path).join(", ")}`],
+          concerns: [...parsed.concerns, scrub(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
         };
       }
       return applyPushback(brief, parsed);

@@ -1,6 +1,11 @@
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
+
+function scrub(text: string): string {
+  return sanitizeText(text).text;
+}
 
 export interface DelegationScope {
   readonly readablePaths: readonly string[];
@@ -60,13 +65,13 @@ export function createDelegationBrief(input: {
   return {
     delegationId: input.delegationId,
     runId: input.runId,
-    objective: input.objective,
-    task: input.task,
-    acceptanceCriteria: input.acceptanceCriteria ?? [],
+    objective: scrub(input.objective),
+    task: scrub(input.task),
+    acceptanceCriteria: (input.acceptanceCriteria ?? []).map(scrub),
     scope: input.scope,
-    knownFacts: input.knownFacts ?? [],
+    knownFacts: (input.knownFacts ?? []).map((fact) => ({ ...fact, summary: scrub(fact.summary) })),
     artifactRefs: input.artifactRefs ?? [],
-    validationPlan: input.validationPlan ?? [],
+    validationPlan: (input.validationPlan ?? []).map((step) => ({ ...step, description: scrub(step.description) })),
     authority: SIDEKICK_AUTHORITY,
     escalationPolicy: DEFAULT_ESCALATION_POLICY,
   };

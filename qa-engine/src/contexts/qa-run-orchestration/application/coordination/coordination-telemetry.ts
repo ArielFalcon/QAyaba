@@ -1,5 +1,6 @@
 /* Coordination telemetry. Records cost/decision signals without owning pipeline verdicts. Token/cost aggregation stays on AgentRuntimePort (onUsage/onTurn) — this port never double-counts. */
 import { appendFileSync, readFileSync } from "node:fs";
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { CoordinationAction } from "./coordination-decision.ts";
 import type { AdaptiveRoutingSignals } from "./adaptive-routing.ts";
@@ -54,8 +55,9 @@ export class InMemoryCoordinationTelemetry implements CoordinationTelemetryPort 
     if (this.persistPath) this.rehydrate();
   }
   record(event: CoordinationTelemetryEvent): void {
-    this.events.push(event);
-    if (this.persistPath) this.persist(event);
+    const safe = { ...event, reason: sanitizeText(event.reason).text };
+    this.events.push(safe);
+    if (this.persistPath) this.persist(safe);
   }
   private normalize(path: string): string {
     return path.replace(/\\/g, "/");
