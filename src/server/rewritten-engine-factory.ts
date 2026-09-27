@@ -24,6 +24,8 @@ import {
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
+import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { Sha, shaMatches } from "@kernel/sha";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
@@ -446,7 +448,16 @@ export function buildRewrittenCompositionConfig(
   const mirrorDir = join(mirrorRoot, app.repo.replaceAll("/", "__"));
   const e2eDir = join(mirrorDir, e2eRelDir);
 
-  
+  /*
+   * QAYABA_ROOT/data (the qa-data volume — NOT mounted into the agents container, only mirrors
+   * is). authDir is where AuthSessionAdapter writes storageState/client.p12/cert.pass and where
+   * every execute/DOM-capture spawn reads them back from: an orchestrator-only directory, never
+   * the watched-repo mirror (Batch S / S2).
+   */
+  const dataDir = join(process.env.QAYABA_ROOT ?? process.cwd(), "data");
+  const authDir = join(dataDir, "auth", app.name);
+
+
   const triggerService =
     run.triggerRepo && run.triggerRepo !== app.repo
       ? app.services?.find((s) => s.repo === run.triggerRepo)
@@ -528,8 +539,8 @@ export function buildRewrittenCompositionConfig(
   const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, defaultCodeValidateDeps, opts));
 
   
-  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, pwActionTimeoutMs), recordAudit };
-  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter());
+  const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, pwActionTimeoutMs, authDir), recordAudit };
+  const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), authDir);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
   
   const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(codeSandbox), recordAudit };
@@ -698,55 +709,65 @@ export function buildRewrittenCompositionConfig(
       e2e: (args) => e2eCleanupDeps.runCleanup(args),
     },
     
-    groundingCollaborators: shouldExplore && !isCode
-      ? {
-          exploreBrief: async ({ specDir, diff, signal, sha, intent }) => {
-            const cwd = dirname(specDir);
-            let session: Awaited<ReturnType<typeof runtimeAdapter.openSession>> | undefined;
-            try {
-              session = await runtimeAdapter.openSession("explorer", cwd, {
-                ...(signal ? { signal } : {}),
-                timeoutMs: EXPLORER_TIMEOUT_MS,
-                descriptor: { role: "qa-explorer" },
-              });
-              const prompt = buildExplorerPrompt({
-                repo: app.repo,
-                sha: sha ?? namespace,
-                diff: diff ?? "",
-                mirrorDir: cwd,
-                e2eRelDir,
-                namespace,
-                needsReview: app.qa.needsReview,
-                target,
-                mode: run.mode,
-                appName: app.name,
-                explorer: true,
-                ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
-                ...(run.guidance ? { guidance: run.guidance } : {}),
-                ...(intent ? { intent } : {}),
-                ...(triggerService
-                  ? { service: { repo: triggerService.repo, mirrorDir: serviceContextDir(cwd, triggerService.repo), ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
-                  : {}),
-              });
-              const { output } = await session.prompt(prompt, { textOnly: true });
-              return parseExplorationBrief(output) ?? undefined;
-            } catch (err) {
-              console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
-              return undefined;
-            } finally {
-              await session?.dispose();
-            }
-          },
-        }
-      : {},
-    reviewDomGroundingCollaborators: {},
+    /*
+     * contextPackDeps.domDeps is ALWAYS overridden (regardless of shouldExplore) so the
+     * pre-generation DOM capture reads auth material from the orchestrator-only authDir, never
+     * from the mirror (Batch S / S2) — the qa-engine default (defaultCaptureDomDeps) would
+     * otherwise derive credential paths from e2eDir itself.
+     */
+    groundingCollaborators: {
+      ...(shouldExplore && !isCode
+        ? {
+            exploreBrief: async ({ specDir, diff, signal, sha, intent }) => {
+              const cwd = dirname(specDir);
+              let session: Awaited<ReturnType<typeof runtimeAdapter.openSession>> | undefined;
+              try {
+                session = await runtimeAdapter.openSession("explorer", cwd, {
+                  ...(signal ? { signal } : {}),
+                  timeoutMs: EXPLORER_TIMEOUT_MS,
+                  descriptor: { role: "qa-explorer" },
+                });
+                const prompt = buildExplorerPrompt({
+                  repo: app.repo,
+                  sha: sha ?? namespace,
+                  diff: diff ?? "",
+                  mirrorDir: cwd,
+                  e2eRelDir,
+                  namespace,
+                  needsReview: app.qa.needsReview,
+                  target,
+                  mode: run.mode,
+                  appName: app.name,
+                  explorer: true,
+                  ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+                  ...(run.guidance ? { guidance: run.guidance } : {}),
+                  ...(intent ? { intent } : {}),
+                  ...(triggerService
+                    ? { service: { repo: triggerService.repo, mirrorDir: serviceContextDir(cwd, triggerService.repo), ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
+                    : {}),
+                });
+                const { output } = await session.prompt(prompt, { textOnly: true });
+                return parseExplorationBrief(output) ?? undefined;
+              } catch (err) {
+                console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+                return undefined;
+              } finally {
+                await session?.dispose();
+              }
+            },
+          }
+        : {}),
+      contextPackDeps: { ...defaultContextPackDeps, domDeps: createCaptureDomDeps(authDir) },
+    },
+    reviewDomGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
+    preExecGroundingCollaborators: { captureDomDeps: createCaptureDomDeps(authDir) },
     /*
      * Per-run lastIndexedSha sidecar (cheap JSON under QAYABA_ROOT/data). Always supplied —
      * the use-case phase is a no-op unless wireBridges also builds codeGraph from codebaseMemory
      * (gated by structuralSignalsOn). First-time full index of an unresolved project is now
      * LazyProjectCodeGraphAdapter.syncTo (index_repository with repo_path only).
      */
-    indexStatus: new IndexStatusAdapter(join(process.env.QAYABA_ROOT ?? process.cwd(), "data")),
+    indexStatus: new IndexStatusAdapter(dataDir),
     /*
      * Classify-source repo root: SERVICE mirror on a webhook, PRIMARY otherwise. Indexing and
      * the structural-signal adapter must pin this dir — workspace.mirrorDir is the suite (primary)
@@ -779,6 +800,7 @@ export function buildRewrittenCompositionConfig(
           authSession: new AuthSessionAdapter({
             env: process.env,
             seedAuthSetup: readFileSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "e2e", "auth.setup.ts"), "utf8"),
+            authDir,
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({
                 command: "npx",

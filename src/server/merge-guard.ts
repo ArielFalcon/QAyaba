@@ -42,6 +42,18 @@ export const PROTECTED_PATHS: string[] = [
    * gets the same protection.
    */
   "qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts",
+  /*
+   * The adapter that actually WRITES auth material (storageState/client.p12/cert.pass) into the
+   * orchestrator-only authDir — same risk class as scrub-env.ts / auth-session-env.ts above; an
+   * unreviewed edit could silently redirect writes back into the agent-visible mirror.
+   */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts",
+  /*
+   * The port contract auth-session.adapter.ts implements — an autonomous narrowing
+   * (e.g. dropping a request field a caller relies on) silently disables the guard the type exists
+   * to require, without touching the adapter file itself.
+   */
+  "qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts",
 
   "qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts",
   /*

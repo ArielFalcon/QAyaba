@@ -206,13 +206,20 @@ test("P0-5: factory threads agentTimeout(mode) into CompositionConfig.agentTimeo
    that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
    relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
    absent (no static per-run source exists at composition-build time).
+
+   Batch S / S2: groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
+   preExecGroundingCollaborators.captureDomDeps are now ALWAYS overridden (authDir-aware), so DOM
+   capture reads auth material from the orchestrator-only authDir, never the mirror — the qa-engine
+   default would otherwise derive credential paths from e2eDir itself. This is why the tests below
+   assert these fields are PRESENT rather than `{}`.
  */
 
-test("buildRewrittenCompositionConfig wires empty (real-default-resolving) groundingCollaborators for an e2e app", () => {
+test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingCollaborators for an e2e app", () => {
   const app = cfg("factory-grounding-e2e");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.deepEqual(config.groundingCollaborators, {}, "an empty object lets PreGenerationGroundingPortAdapter fall back to the real buildContextPack/defaultContextPackDeps");
-  assert.deepEqual(config.reviewDomGroundingCollaborators, {}, "an empty object lets ReviewDomGroundingPortAdapter fall back to the real captureDom/defaultCaptureDomDeps");
+  assert.ok(config.groundingCollaborators?.contextPackDeps, "contextPackDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
+  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
+  assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
 });
 
 test("P0-3: explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
@@ -267,7 +274,7 @@ test("multi-repo: explorer:false + empty services[] stays opt-in (no exploreBrie
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(config.groundingCollaborators, {});
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
 });
 
 test("multi-repo: explorer:false + undefined services stays opt-in", () => {
@@ -275,13 +282,14 @@ test("multi-repo: explorer:false + undefined services stays opt-in", () => {
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(config.groundingCollaborators, {});
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
 });
 
 test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.deepEqual(config.groundingCollaborators, {});
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
@@ -292,8 +300,8 @@ test("buildRewrittenCompositionConfig still wires groundingCollaborators for a c
      asserting the factory's OWN output stays the same shape whether or not isCode is true is the
      faithful way to pin "the factory does not need its own target check — it already exists downstream".
    */
-  assert.deepEqual(config.groundingCollaborators, {});
-  assert.deepEqual(config.reviewDomGroundingCollaborators, {});
+  assert.ok(config.groundingCollaborators?.contextPackDeps);
+  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps);
   assert.equal(config.isCode, true, "isCode is what composition-root.ts's wireBridges() reads to skip both grounding ports on this target");
 });
 

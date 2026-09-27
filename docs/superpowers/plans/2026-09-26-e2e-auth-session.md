@@ -1,5 +1,15 @@
 # E2E auth session Implementation Plan
 
+> **Update (Batch S / S2, 2026-09-27):** this plan's original design wrote auth material
+> (`user.json`, `client.p12`, `cert.pass`) under `e2e/.auth/` inside the watched-repo mirror. That
+> directory is agent-visible (the agents container mounts the `mirrors` volume, read+bash), so the
+> design was revised: `AuthSessionAdapter` now writes to `authDir` — an orchestrator-only directory
+> under the orchestrator's data dir (`<dataDir>/auth/<app>/`, supplied via `CompositionConfig`, never
+> read from `process.env` inside qa-engine) — and every DOM-capture/execute/cleanup spawn is given
+> that same `authDir` so credentials are read back from there instead. `e2e/.auth/` publish-exclusion
+> and `.gitignore` stay as defense in depth. Every `e2e/.auth/...` path mentioned below is historical;
+> read it as `authDir/...`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an e2e run enter an app that requires login, using Playwright's setup-project + `storageState` for form login and `clientCertificates` for a software PKCS#12, without a per-mechanism adapter hierarchy.

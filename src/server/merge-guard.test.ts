@@ -87,6 +87,16 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts"), true);
 });
 
+/* Batch S / S2: the adapter that actually WRITES auth material (storageState/client.p12/cert.pass)
+   and the port contract that shapes it — an unreviewed edit here could silently redirect writes
+   back into the agent-visible mirror, or drop a field a caller relies on to keep material out of
+   it. Protected the same way as scrub-env.ts / auth-session-env.ts.
+ */
+test("isProtectedPath flags the auth-material adapter and its port contract (S2)", () => {
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts"), true);
+});
+
 /* three control-plane auth files were BOTH unscanned (not
    under a SECURITY_SENSITIVE_SURFACE_ROOTS root) AND unprotected — a weakening edit to any of them
    passed silently. auth.ts mints/validates the HMAC session token; github-auth.ts is the push/admin

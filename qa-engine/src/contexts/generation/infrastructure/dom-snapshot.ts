@@ -554,50 +554,60 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 })();`;
 }
 
-export const defaultCaptureDomDeps: CaptureDomDeps = {
-  render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
-    new Promise<RouteSnapshot[]>((resolve) => {
-      const work = mkdtempSync(join(tmpdir(), "qa-dom-"));
-      const script = join(work, "capture.cjs");
-      /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
-      writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
-      let stdout = "";
-      /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
-      const child = spawn("node", [script], {
-        cwd: e2eDir,
-        env: authSessionEnv(e2eDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
-        detached: true,
-      });
-      const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
-      child.stdout.on("data", (d) => (stdout += d.toString()));
-      const done = (snaps: RouteSnapshot[]): void => { clearTimeout(timer); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } resolve(snaps); };
-      child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
-      child.on("close", () => {
-        try {
-          const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
-          done(raw.map((r) => {
-            if (r.error) {
-              const errored: RouteSnapshot = { route: r.route, error: r.error };
-              if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
-              return errored;
-            }
-            const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
-            const attrs = r.rawAttrs && r.rawAttrs.length > 0 ? mergeAttrs(nodes, r.rawAttrs) : undefined;
-            const snap: RouteSnapshot = { route: r.route, nodes };
-            if (attrs && attrs.length > 0) snap.attrs = attrs;
-            if (states.size > 0) snap.states = states;
-            if (r.testIdAttr) snap.testIdAttrName = r.testIdAttr;
-            const testIds = buildTestIdIndex(r.testIdRawList ?? []);
-            if (testIds.size > 0) snap.testIds = testIds;
-            if (r.settled === true) snap.settled = true;
-            if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
-            if (r.finalUrl) snap.finalUrl = r.finalUrl;
-            return snap;
-          }));
-        } catch {
-          console.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
-          done([]);
-        }
-      });
-    }),
-};
+/*
+ * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
+ * wrote auth material to — supplied by the composition-root shell. Absent falls back to e2eDir
+ * (pre-S2 behavior; harmless when no auth material exists there — existsSync just reads false).
+ */
+export function createCaptureDomDeps(authDir?: string): CaptureDomDeps {
+  return {
+    render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
+      new Promise<RouteSnapshot[]>((resolve) => {
+        const work = mkdtempSync(join(tmpdir(), "qa-dom-"));
+        const script = join(work, "capture.cjs");
+        /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
+        writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
+        let stdout = "";
+        /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
+        const child = spawn("node", [script], {
+          cwd: e2eDir,
+          env: authSessionEnv(authDir ?? e2eDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
+          detached: true,
+        });
+        const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
+        child.stdout.on("data", (d) => (stdout += d.toString()));
+        const done = (snaps: RouteSnapshot[]): void => { clearTimeout(timer); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } resolve(snaps); };
+        child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
+        child.on("close", () => {
+          try {
+            const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
+            done(raw.map((r) => {
+              if (r.error) {
+                const errored: RouteSnapshot = { route: r.route, error: r.error };
+                if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
+                return errored;
+              }
+              const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
+              const attrs = r.rawAttrs && r.rawAttrs.length > 0 ? mergeAttrs(nodes, r.rawAttrs) : undefined;
+              const snap: RouteSnapshot = { route: r.route, nodes };
+              if (attrs && attrs.length > 0) snap.attrs = attrs;
+              if (states.size > 0) snap.states = states;
+              if (r.testIdAttr) snap.testIdAttrName = r.testIdAttr;
+              const testIds = buildTestIdIndex(r.testIdRawList ?? []);
+              if (testIds.size > 0) snap.testIds = testIds;
+              if (r.settled === true) snap.settled = true;
+              if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
+              if (r.finalUrl) snap.finalUrl = r.finalUrl;
+              return snap;
+            }));
+          } catch {
+            console.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
+            done([]);
+          }
+        });
+      }),
+  };
+}
+
+/** Pre-S2 default (authDir absent, falls back to e2eDir). Prefer createCaptureDomDeps(authDir) so DOM capture reads auth material from the orchestrator-only authDir, not the mirror. */
+export const defaultCaptureDomDeps: CaptureDomDeps = createCaptureDomDeps();

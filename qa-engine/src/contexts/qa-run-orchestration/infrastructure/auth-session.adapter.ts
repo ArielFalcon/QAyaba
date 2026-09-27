@@ -1,4 +1,11 @@
-/* The one auth implementation. form spawns the Playwright setup project; mtls decodes a PKCS#12. Both leave files under specDir/.auth/ for capture and execute to pick up. */
+/*
+ * The one auth implementation. form spawns the Playwright setup project; mtls decodes a PKCS#12.
+ * Both leave files under `authDir` — an orchestrator-only directory supplied by the composition
+ * root (e.g. <dataDir>/auth/<app>/), NEVER under the watched-repo mirror (specDir/req.specDir).
+ * The agents container mounts the mirrors volume (read+bash) but not qa-data, so anything written
+ * under the mirror would be agent-visible; authDir lives outside it. authSessionEnv (the sibling
+ * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
+ */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +20,8 @@ export interface AuthSessionSpawnResult {
 export interface AuthSessionAdapterDeps {
   env: NodeJS.ProcessEnv;
   seedAuthSetup: string;
+  /** Orchestrator-only directory (outside the mirror) auth material is written to and read from. */
+  authDir: string;
   spawnSetup(specDir: string, env: Record<string, string>, signal?: AbortSignal): Promise<AuthSessionSpawnResult>;
 }
 
@@ -40,7 +49,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
     if (this.deps.env[certPassEnv] === undefined) {
       throw new Error(`auth certificate passphrase env ${certPassEnv} is missing`);
     }
-    const dir = join(req.specDir, ".auth");
+    const dir = this.deps.authDir;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const certPath = join(dir, "client.p12");
     writeFileSync(certPath, Buffer.from(raw, "base64"), { mode: 0o600 });
@@ -64,11 +73,16 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
 
     const stock = this.isStock(req.specDir);
+    mkdirSync(this.deps.authDir, { recursive: true, mode: 0o700 });
+    const storageStatePath = join(this.deps.authDir, "user.json");
     const childEnv: Record<string, string> = {
       ...scrubEnv({ extraAllowed: /^DEV_/ }),
       PW_BASE_URL: req.baseUrl,
       DEV_TEST_USER: user,
       DEV_TEST_PASS: pass,
+      /* Tells the setup project (auth.setup.ts) to write storageState here — outside the mirror —
+         instead of its relative, mirror-local ".auth/user.json" fallback. */
+      PW_STORAGE_STATE: storageStatePath,
     };
     if (this.deps.env.DEV_ENV_USER) {
       childEnv.DEV_ENV_USER = this.deps.env.DEV_ENV_USER;
@@ -76,7 +90,6 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
 
     const result = await this.deps.spawnSetup(req.specDir, childEnv, signal);
-    const storageStatePath = join(req.specDir, ".auth", "user.json");
     const wrote = existsSync(storageStatePath);
     if (result.exitCode === 0 && wrote) {
       chmodSync(storageStatePath, 0o600);

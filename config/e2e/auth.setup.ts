@@ -3,7 +3,13 @@ import { test as setup } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const authFile = ".auth/user.json";
+/*
+ * PW_STORAGE_STATE (set by the orchestrator's AuthSessionAdapter) points outside the watched-repo
+ * mirror — an orchestrator-only directory the agents container cannot read. Falls back to the
+ * mirror-local relative path only for a manual/standalone `playwright test` run outside the
+ * orchestrator (no orchestrator to have set the env var).
+ */
+const authFile = process.env.PW_STORAGE_STATE ?? ".auth/user.json";
 
 /* Login once for the suite. Imports @playwright/test, not ./fixtures, so coverage,
    cleanup, and failure-capture do not run while the session is created. */
