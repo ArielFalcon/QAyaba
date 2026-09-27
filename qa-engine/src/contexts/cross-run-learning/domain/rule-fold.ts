@@ -30,9 +30,8 @@ function nextStatus(
     }
     case "active":
       return successRate < DEMOTE_RATE ? "deprecated" : "active";
-    case "deprecated":
-      return successRate >= PROMOTE_RATE ? "active" : "deprecated";
     default:
+      /* deprecated and superseded are retired: outcomes never revive them, only a human restores one. */
       return status;
   }
 }

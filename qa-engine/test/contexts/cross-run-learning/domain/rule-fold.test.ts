@@ -207,9 +207,10 @@ describe("applyOutcome — running mean, promotion gate, and hysteresis (recover
     assert.equal(r.status, "active");
   });
 
-  test("is reversible: a deprecated rule recovers to active with good outcomes", () => {
-    const r = applyOutcome(makeRule({ status: "deprecated", successRate: 0.5, outcomeCount: 2 }), 0.9);
-    assert.equal(r.status, "active", "resurrected, nothing was deleted");
+  test("a deprecated rule is never revived by outcomes: only a human restores it", () => {
+    let r = makeRule({ status: "deprecated", successRate: 0.5, outcomeCount: 2 });
+    for (let i = 0; i < 5; i++) r = applyOutcome(r, 1, true, true);
+    assert.equal(r.status, "deprecated", "a veto or demotion must stick however good later outcomes look");
   });
 
   test("a single anomalous outcome barely moves a high-confidence rule", () => {
