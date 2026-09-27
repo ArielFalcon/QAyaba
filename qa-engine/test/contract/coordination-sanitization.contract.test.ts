@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
 import { evidenceFromChangeAnalysis } from "@contexts/qa-run-orchestration/application/coordination/evidence-from.ts";
-import { InMemoryCoordinationTelemetry } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
+import { FileCoordinationTelemetryAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-port.adapter.ts";
 import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
@@ -36,7 +36,7 @@ test("change-analysis evidence, the brief, and the JSONL sink redact an injected
 
   const dir = mkdtempSync(join(tmpdir(), "coord-sanitize-"));
   const path = join(dir, "coordination-events.jsonl");
-  const sink = new InMemoryCoordinationTelemetry(path);
+  const sink = new FileCoordinationTelemetryAdapter(path);
   sink.record({
     runId: "r1",
     kind: "escalation",

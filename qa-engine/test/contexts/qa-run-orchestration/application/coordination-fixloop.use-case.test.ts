@@ -21,7 +21,7 @@ import type {
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import {
   createCoordinationPort,
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   SidekickExecutor,
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
@@ -135,7 +135,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
       return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () => {
@@ -239,7 +239,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
       return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () =>
@@ -296,7 +296,7 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
       return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () => {

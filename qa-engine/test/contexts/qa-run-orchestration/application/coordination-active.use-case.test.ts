@@ -23,7 +23,7 @@ import type {
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import {
   createCoordinationPort,
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   SidekickExecutor,
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
@@ -118,7 +118,7 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
     generateCalls++;
     return { specs: ["lead.spec.ts"], approved: true };
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () =>
@@ -148,6 +148,7 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
   assert.equal(generateCalls, 0);
   assert.equal(out.decision.verdict, "pass");
   assert.ok(tel.events.some((e) => e.kind === "delegation"));
+  assert.ok(tel.events.length > 0 && tel.events.every((e) => e.app === "demo"), "every recorded event must carry the run's own app, not be left blank");
 });
 
 test("app login keeps generation on the lead and does not open a sidekick session", async () => {
@@ -219,15 +220,23 @@ test("active pre-generate falls back when sidekick JSON claims files missing on 
         }),
     },
   });
+  const tel = new CoordinationTelemetryRecorder();
   const useCase = new RunQaUseCase({
     ...ports,
     coordination: createCoordinationPort(),
     coordinationEnabledPoints: ["pre-generate"],
+    coordinationTelemetry: tel,
     sidekick,
   });
   const out = await useCase.run(input);
   assert.equal(generateCalls, 1, "fail-open to lead when claimed files are absent");
   assert.equal(out.decision.verdict, "pass");
+  const delegationEvent = tel.events.find((e) => e.kind === "delegation");
+  assert.equal(
+    delegationEvent?.failureClass,
+    "claimed-files-missing",
+    "a completed status whose claimed files never verify on disk must carry a typed failureClass, not just a status=completed reason string that HIDES the disk mismatch",
+  );
 });
 
 test("active pre-generate falls back to lead GenerationPort when sidekick needs-lead", async () => {

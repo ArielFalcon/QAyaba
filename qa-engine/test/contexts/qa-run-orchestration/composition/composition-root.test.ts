@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   buildProduction,
   buildShadow,
+  resolveSidekickTimeoutMs,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
@@ -1336,4 +1337,20 @@ test("buildProduction(rewritten) omits indexing when codebaseMemory is absent ev
   });
 
   assert.equal(indexStatus.shas.size, 0, "without codebaseMemory there is no codeGraph, so lastIndexedSha must stay unset");
+});
+
+test("resolveSidekickTimeoutMs never reads process.env — only cfg.sidekickTimeoutMs, defaulting to 420000", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "999";
+  try {
+    assert.equal(
+      resolveSidekickTimeoutMs({}),
+      420_000,
+      "an env var set behind composition-root's back must NOT leak in — qa-engine never reads process.env (the shell resolves it into cfg.sidekickTimeoutMs)",
+    );
+    assert.equal(resolveSidekickTimeoutMs({ sidekickTimeoutMs: 12_345 }), 12_345, "an explicit cfg value must still win");
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
 });

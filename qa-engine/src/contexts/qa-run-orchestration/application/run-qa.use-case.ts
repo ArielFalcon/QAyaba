@@ -79,6 +79,7 @@ import {
   raiseCapabilityFloor,
   routeOrchestration,
   existingWritableFiles,
+  classifyDelegationFailure,
   resolveSidekickModel,
   shouldHonorActiveDelegation,
   shouldHonorFixLoopSidekick,
@@ -695,6 +696,7 @@ export class RunQaUseCase {
         leadContext = appendLeadDecision(leadContext, decision);
         this.deps.coordinationTelemetry?.record({
           runId: input.runId,
+          app: input.app,
           kind: "proposal",
           action: decision.action,
           capability: decision.nextCapability,
@@ -794,8 +796,15 @@ export class RunQaUseCase {
             signal,
             timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
           });
+          /* JSON claims alone are not success — require files on disk under writable scope (fail-open).
+             Computed BEFORE the telemetry record below so failureClass reflects the same disk truth. */
+          const onDisk =
+            delegation.status === "completed" || delegation.status === "completed-with-concerns"
+              ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRoot])
+              : [];
           this.deps.coordinationTelemetry?.record({
             runId: input.runId,
+            app: input.app,
             kind: "delegation",
             action: coordinationProposal.decision.action,
             capability,
@@ -803,6 +812,10 @@ export class RunQaUseCase {
             delegationId: brief.delegationId,
             attempt: preGenerateAttempt,
             durationMs: Date.now() - delegationStarted,
+            ...(() => {
+              const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
+              return failureClass ? { failureClass } : {};
+            })(),
             at: Date.now(),
           });
           if (leadContext) {
@@ -815,11 +828,6 @@ export class RunQaUseCase {
               leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
             }
           }
-          /* JSON claims alone are not success — require files on disk under writable scope (fail-open). */
-          const onDisk =
-            delegation.status === "completed" || delegation.status === "completed-with-concerns"
-              ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRoot])
-              : [];
           if (onDisk.length > 0) {
             const prefix = writableRoot.endsWith("/") ? writableRoot : `${writableRoot}/`;
             const specs = onDisk.map((f) => {
@@ -1233,6 +1241,7 @@ export class RunQaUseCase {
             coordinationEscalations += 1;
             this.deps.coordinationTelemetry?.record({
               runId: input.runId,
+              app: input.app,
               kind: "escalation",
               action: "abort-human",
               capability: fixLoopCapability,
@@ -1270,6 +1279,7 @@ export class RunQaUseCase {
             coordinationEscalations += 1;
             this.deps.coordinationTelemetry?.record({
               runId: input.runId,
+              app: input.app,
               kind: "escalation",
               action: orchestration.action,
               capability: fixLoopCapability,
@@ -1347,8 +1357,16 @@ export class RunQaUseCase {
                 signal,
                 timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
               });
+              /* JSON claims alone are not success — require files on disk under writable scope
+                 (fail-open). Computed BEFORE the telemetry record below so failureClass reflects
+                 the same disk truth (also reused further down instead of recomputed). */
+              const onDisk =
+                delegation.status === "completed" || delegation.status === "completed-with-concerns"
+                  ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRootForFix])
+                  : [];
               this.deps.coordinationTelemetry?.record({
                 runId: input.runId,
+                app: input.app,
                     kind: "delegation",
                 action: orchestration.action,
                 capability: fixLoopCapability,
@@ -1357,7 +1375,10 @@ export class RunQaUseCase {
                 attempt: fixLoopSidekickAttempt,
                 durationMs: Date.now() - delegationStarted,
                 progressFingerprint: progress.failureFingerprint,
-                failureClass: "fail",
+                ...(() => {
+                  const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
+                  return failureClass ? { failureClass } : {};
+                })(),
                 at: Date.now(),
               });
               if (leadContext) {
@@ -1378,6 +1399,7 @@ export class RunQaUseCase {
                 coordinationEscalations += 1;
                 this.deps.coordinationTelemetry?.record({
                   runId: input.runId,
+                  app: input.app,
                         kind: "escalation",
                   action: "lead-takeover",
                   capability: advanced,
@@ -1389,10 +1411,6 @@ export class RunQaUseCase {
                   at: Date.now(),
                 });
               }
-              const onDisk =
-                delegation.status === "completed" || delegation.status === "completed-with-concerns"
-                  ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRootForFix])
-                  : [];
               if (onDisk.length > 0) {
                 const specs = mapSidekickSpecs(onDisk);
                 await enforceConfinement();
@@ -1736,6 +1754,7 @@ export class RunQaUseCase {
         : "n/a" as const;
       this.deps.coordinationTelemetry.record({
         runId: input.runId,
+        app: input.app,
         kind: "outcome",
         action: coordinationProposal?.decision.action,
         capability: coordinationProposal?.decision.nextCapability,

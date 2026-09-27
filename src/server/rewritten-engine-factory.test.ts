@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish } from "./rewritten-engine-factory";
+import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -74,6 +74,45 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.ok(config.confinement, "sdd/migration-remediation Slice 3: ConfinementPort collaborator must be wired");
   assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
   assert.ok(config.processAudit, "sdd/migration-remediation Slice 5: ProcessAuditPort collaborator must be wired");
+});
+
+test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "not-a-number";
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "90000";
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), 90_000);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
+});
+
+test("buildRewrittenCompositionConfig threads COORDINATION_SIDEKICK_TIMEOUT_MS into config.sidekickTimeoutMs", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "77000";
+    const config = buildRewrittenCompositionConfig(cfg("timeout-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.equal(config.sidekickTimeoutMs, 77_000);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
+});
+
+test("buildRewrittenCompositionConfig omits config.sidekickTimeoutMs when the env var is absent (composition-root applies its own default)", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    const config = buildRewrittenCompositionConfig(cfg("timeout-app-absent"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.equal(config.sidekickTimeoutMs, undefined);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
 });
 
 /* ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────

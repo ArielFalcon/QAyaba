@@ -129,6 +129,17 @@ export function resolveCoordinationTelemetryPath(): string {
   );
 }
 
+/*
+ * Per-delegation wall-clock cap (ms), env-tunable. qa-engine's composition-root never reads
+ * process.env itself (CLAUDE.md invariant) — this shell resolves the env var ONCE and threads the
+ * result into CompositionConfig.sidekickTimeoutMs; composition-root falls back to its own hardcoded
+ * default (420_000) when this returns undefined (env absent/invalid).
+ */
+export function resolveSidekickTimeoutMsFromEnv(): number | undefined {
+  const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+}
+
 export function roleToAgentName(role: AgentRole): string {
   const map: Record<AgentRole, string> = {
     primary: "qa-generator",
@@ -683,6 +694,13 @@ export function buildRewrittenCompositionConfig(
      */
     ...(process.env.COORDINATION_ESCALATED_MODEL?.trim()
       ? { sidekickEscalatedModel: process.env.COORDINATION_ESCALATED_MODEL.trim() }
+      : {}),
+    /*
+     * Per-delegation wall-clock cap — env-tunable here (the shell), never read by qa-engine's
+     * composition-root itself. Absent → composition-root's own hardcoded default (420_000).
+     */
+    ...(resolveSidekickTimeoutMsFromEnv() !== undefined
+      ? { sidekickTimeoutMs: resolveSidekickTimeoutMsFromEnv() }
       : {}),
     /*
      * Derived from coveragePolicy.mode (computed once, above) — single source, see this fn's own
