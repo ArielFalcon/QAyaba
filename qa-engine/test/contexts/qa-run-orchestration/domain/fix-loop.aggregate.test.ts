@@ -271,6 +271,49 @@ test("sub-decision (d): filtered-retry — canFilter true (coverageWillMeasure=f
   assert.deepEqual(receivedExecuteInputs[0]!.specFiles, ["login.spec.ts"]);
 });
 
+test("sub-decision (d): filtered-retry — regen specs are ALL outside the failing set -> full re-execute (no specFiles)", async () => {
+  const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
+  const execution: FixLoopExecutionPort = {
+    execute: async (i) => {
+      receivedExecuteInputs.push(i);
+      return { verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] };
+    },
+  };
+  const generation: FixLoopGenerationPort = {
+    /* Zero overlap with the failing set (["login.spec.ts"]) — the regen wrote an entirely
+       different spec file. Filtering execute() to the stale failing set would silently never
+       run the file the regen actually produced. */
+    generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
+  };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+  });
+
+  await loop.run({
+    initialRun: { verdict: "fail", cases: [makeCase({ file: "login.spec.ts" })] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+    coverageWillMeasure: false,
+  });
+
+  assert.equal(receivedExecuteInputs.length, 1);
+  assert.equal(
+    receivedExecuteInputs[0]!.specFiles,
+    undefined,
+    "regen specs entirely outside the failing set must NEVER filter — the regenerated file would never run",
+  );
+});
+
 test("sub-decision (d): filtered-retry — canFilter false when coverageWillMeasure=true (never filter, keystone guard)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {

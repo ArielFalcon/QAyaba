@@ -224,13 +224,14 @@ export class FixLoop {
         ];
         const allFailedHaveFile = run.cases.filter((c) => c.status === "fail").every((c) => !!c.file);
         const regenSpecBasenames = result.specs.map((s) => s.replace(/.*\//, "").replace(/.*\\/, ""));
-        const regenHasOverlap = regenSpecBasenames.some((b) =>
-          failedSpecFiles.some((f) => f === b || f.endsWith(`/${b}`) || f.endsWith(`\\${b}`)),
-        );
         const regenHasOutsiders = regenSpecBasenames.some(
           (b) => !failedSpecFiles.some((f) => f === b || f.endsWith(`/${b}`) || f.endsWith(`\\${b}`)),
         );
-        const regenStayedInFailedSet = !(regenHasOverlap && regenHasOutsiders);
+        /* Any regen spec outside the failing set means filtering execute() to the stale failing
+           set would never run the file the regen actually wrote — even when some regen specs
+           also overlap the failing set. Only "regen touched nothing but already-failing files"
+           is safe to filter. */
+        const regenStayedInFailedSet = !regenHasOutsiders;
         const canFilter =
           allFailedHaveFile &&
           failedSpecFiles.length > 0 &&
