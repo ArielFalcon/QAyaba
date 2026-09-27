@@ -71,7 +71,15 @@ export const PROTECTED_PATHS: string[] = [
    * touching the adapter files themselves.
    */
   "qa-engine/src/contexts/workspace-and-publication/application/ports/index.ts",
-  
+
+  /*
+   * Composes the reviewer-facing Issue/PR body from the run's own artifacts. Deliberately NOT a
+   * log dump — an earlier incident let an unsanitized raw execution log reach a public Issue
+   * through this render path, bypassing the "concise, high-level account" it exists to produce.
+   * An autonomous edit that starts appending unbounded/raw text here could reopen that leak even
+   * though the whole-body sanitizer downstream still runs (it redacts known secret SHAPES, not
+   * "is this actually a log dump").
+   */
   "qa-engine/src/contexts/workspace-and-publication/domain/render-publication.ts",
   /*
    * Builds the Authorization header from GITHUB_TOKEN — the token-handling boundary for every
@@ -97,7 +105,13 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.adapter.ts",
-  
+
+  /*
+   * The ONE killTree an autonomous fix could neuter quietly (e.g. drop the process-group
+   * signal, or swallow the kill and silently no-op) — the change would still compile and pass a
+   * shallow test while a hung/runaway untrusted child (Playwright, codex exec, npm/mvn/gradle)
+   * is never actually torn down, a resource-exhaustion / hang risk the sandbox exists to prevent.
+   */
   "qa-engine/src/shared-infrastructure/process-sandbox/process-kill.adapter.ts",
   /*
    * The composition root — wires RedactionPortAdapter, WriteConfinementAdapter, VcsWriteAdapter,
@@ -129,9 +143,15 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/generation/infrastructure/",
   
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
-  
+
+  /*
+   * The ShadowPublicationPort implementation — log-only, no-ops every PR/Issue/commit/push side
+   * effect when qa.shadow: true. This IS the shadow-mode safety boundary that lets a newly
+   * onboarded app run the full pipeline without touching its real repo; an autonomous edit that
+   * makes any of its methods actually perform the side effect defeats that boundary silently.
+   */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/shadow-log.adapter.ts",
-  
+
   "src/integrations/repo-mirror.ts",
   /*
    * codexExecEnv's env allowlist for untrusted `codex exec` spawns — the same risk class as
