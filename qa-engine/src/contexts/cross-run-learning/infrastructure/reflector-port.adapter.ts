@@ -161,9 +161,13 @@ export class ReflectorPortAdapter {
         return;
       }
 
+      /* The reviewerCorrections channel is deterministically derived (correctionToErrorClass); absent
+         that, the gate-computed input.errorClass is the source of truth — never reflection.errorClass,
+         which is only the LLM's own echo of it. The prompt says "do NOT change it", but a model is
+         non-deterministic and a disobedient/mangled echo must never silently corrupt the ledger. */
       const derivedErrorClass = input.gateSignals.reviewerCorrections.length > 0
         ? correctionToErrorClass(input.gateSignals.reviewerCorrections[0]!)
-        : reflection.errorClass;
+        : input.errorClass;
 
       const rule: LearningRule = {
         id: `rule-${input.runId.slice(-8)}-${Math.random().toString(16).slice(2, 8)}`,

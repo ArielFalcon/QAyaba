@@ -351,23 +351,44 @@ test("reflect() on a reviewer-rejection input derives errorClass deterministical
   );
 });
 
-test("reflect() with no reviewerCorrections trusts the reflection's own errorClass (unchanged behavior)", async () => {
+/* C4: with no reviewerCorrections, the gate-computed `input.errorClass` — never the LLM's own
+   echoed `reflection.errorClass` — must persist. The prompt tells the model "do NOT change it",
+   but a disobedient/mangled echo must not silently corrupt the learning ledger; the deterministic
+   gate signal is the only trustworthy source here, exactly as it already is on the
+   reviewerCorrections branch above.
+ */
+test("reflect() with no reviewerCorrections persists the gate-computed input.errorClass, overriding a mangled LLM echo", async () => {
   let savedRule: LearningRule | undefined;
-  const runtime = fakeRuntime({});
+  const mangledEchoJson = JSON.stringify({
+    goal: "verify the login form",
+    decision: "used a css selector",
+    assumption: "the selector would stay stable",
+    errorClass: "E-FLAKY-SELECTOR", /* mangled — disobeys "do NOT change it"; must NOT reach the rule */
+    gateSignal: "static gate: FAIL",
+    evidence: "locator('.btn-submit') not found",
+    rootCause: "css class renamed by a refactor",
+    preventiveRule: { trigger: "Applies when a form submit button lacks a stable selector", action: "use getByRole('button', { name: ... })" },
+  });
+  const runtime = fakeRuntime({ prompt: async () => ({ output: mangledEchoJson }) });
   const repo = fakeRepo((rule) => { savedRule = rule; });
   const adapter = new ReflectorPortAdapter({ runtime, repo, backfill: () => {}, cwd: "/mirror/app", app: "app" });
 
   await adapter.reflect(baseInput); /* baseInput has no reviewerCorrections, errorClass: E-EXEC-FAIL */
 
-  assert.equal(savedRule?.errorClass, "E-EXEC-FAIL");
+  assert.equal(
+    savedRule?.errorClass,
+    "E-EXEC-FAIL",
+    "the deterministic gate-computed input.errorClass must win over the LLM's mangled echo",
+  );
 });
 
 /* advisory-only corrections reaches this adapter with reviewerCorrections ALREADY cleared to [] —
    the use-case's `gateApproves ? [] : corrections` guard strips an approval's advisory notes before
    they ever cross the port (they are notes, never a learning signal). This fixture pins the
    adapter-side half of that contract: with the cleared [], the corrections-distillation override
-   must NOT engage, and the reflection's own errorClass (here a coverage-gap pass — the realistic
-   way an approved run still qualifies for reflect) is what persists.
+   must NOT engage, and the gate-computed `input.errorClass` (here a coverage-gap pass — the
+   realistic way an approved run still qualifies for reflect) is what persists — even though the
+   reflection echoes a DIFFERENT class, proving this is not a coincidental match.
  */
 test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with reviewerCorrections [] — the corrections override stays dormant, the gate-derived errorClass persists", async () => {
   let savedRule: LearningRule | undefined;
@@ -375,7 +396,7 @@ test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with revie
     goal: "verify the checkout change",
     decision: "wrote a happy-path spec",
     assumption: "the happy path exercises the changed lines",
-    errorClass: "E-COVERAGE-GAP",
+    errorClass: "E-FLAKY-SELECTOR", /* mangled echo — must NOT reach the rule */
     gateSignal: "coverage ratio: 40%",
     evidence: "changed lines in discount.ts never executed",
     rootCause: "the spec never triggers the discount branch",
