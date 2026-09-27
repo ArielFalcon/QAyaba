@@ -890,16 +890,39 @@
   }
   function appTabsInner() {
     const app = state.appName;
+    const appObj = D.apps.find((a) => a.name === app);
     const appRuns = D.runs.filter((r) => r.app === app);
     const runningHere = liveRun() && liveRun().app === app ? liveRun() : null;
     const appSuite = D.suite.filter((s) => s.app === app);
-    return Tabs({ value: state.appTab, action: 'apptab', tabs: [{ id: 'runs', label: 'Runs', icon: 'activity', count: appRuns.length + (runningHere ? 1 : 0) }, { id: 'suite', label: 'Suite', icon: 'list-checks', count: appSuite.length }] });
+    const mapRouteCount = appObj && appObj.contextMap ? appObj.contextMap.map.routes.length : null;
+    return Tabs({ value: state.appTab, action: 'apptab', tabs: [{ id: 'runs', label: 'Runs', icon: 'activity', count: appRuns.length + (runningHere ? 1 : 0) }, { id: 'suite', label: 'Suite', icon: 'list-checks', count: appSuite.length }, { id: 'map', label: 'Map', icon: 'network', count: mapRouteCount }] });
+  }
+  function appMapInner(appObj) {
+    const cm = appObj && appObj.contextMap;
+    if (!cm) {
+      return '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no stored architecture map yet — run a context-mode scan to build the FE&harr;BE map</div>';
+    }
+    const map = cm.map;
+    const header = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 18px;border-bottom:var(--border-rule)">' +
+      '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">built at <span style="color:var(--text-body)">' + esc(shaOf(cm.builtAtSha)) + '</span> &middot; updated ' + esc(cm.updatedAt) + '</span></div>';
+    const rows = (map.routes || []).map((r, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+      I('route', 14, 'color:var(--text-muted);flex:none') +
+      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(r.path) + '</span>' +
+      (r.component ? '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + esc(r.component) + '</span>' : '') + '</div>').join('');
+    const body = (map.routes || []).length
+      ? rows
+      : '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">map has no routes recorded</div>';
+    const summary = '<div style="display:flex;gap:18px;padding:11px 18px;border-top:var(--border-rule);font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">' +
+      '<span>' + (map.routes || []).length + ' routes</span><span>' + (map.api || []).length + ' operations</span><span>' + (map.feBe || []).length + ' FE&harr;BE links</span></div>';
+    return header + body + summary;
   }
   function appActivityInner() {
     const app = state.appName, tab = state.appTab;
+    const appObj = D.apps.find((a) => a.name === app);
     const appRuns = D.runs.filter((r) => r.app === app);
     const runningHere = liveRun() && liveRun().app === app ? liveRun() : null;
     const appSuite = D.suite.filter((s) => s.app === app);
+    if (tab === 'map') return appMapInner(appObj);
     if (tab === 'runs') {
       const rh = runningHere ? '<button class="row-hover" data-action="open-run" data-id="' + esc(runningHere.id) + '" style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 0, borderLeft: '3px solid var(--ember-500)', background: 'var(--ember-100)', cursor: 'pointer', textAlign: 'left', padding: '11px 18px' }) + '">' +
         '<span style="width:84px;display:inline-flex;align-items:center;gap:6px;flex:none">' + PulseDot('var(--ember-500)', 7) + '<span style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600)">running</span></span>' +

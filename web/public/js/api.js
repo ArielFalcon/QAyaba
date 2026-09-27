@@ -81,6 +81,10 @@ window.QayabaConsole = (function () {
     getRun: (id) => req('GET', '/runs/' + encodeURIComponent(id)),
     trends: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/trends'),
     intelligence: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/intelligence'),
+    /* FE<->BE architecture map persisted from the app's last successful mode:context run.
+       404 (no stored map yet) surfaces as a rejected promise, same as trends/intelligence/report
+       when unavailable — callers `.catch(() => null)` it. */
+    contextMap: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/context-map'),
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
     agentModels: (provider) => req('GET', '/agent/models?provider=' + encodeURIComponent(provider || '')),
     agentConfig: () => req('GET', '/agent/config'),
@@ -106,15 +110,16 @@ window.QayabaConsole = (function () {
         ep.trends(n).catch(() => null),
         ep.intelligence(n).catch(() => null),
         ep.report(n).catch(() => null),
+        ep.contextMap(n).catch(() => null),
       ])));
-      const runsByApp = {}, trendsByApp = {}, intelByApp = {}, reportsByApp = {};
-      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; reportsByApp[n] = perApp[i][3]; });
+      const runsByApp = {}, trendsByApp = {}, intelByApp = {}, reportsByApp = {}, contextMapByApp = {};
+      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; reportsByApp[n] = perApp[i][3]; contextMapByApp[n] = perApp[i][4]; });
       let runningRecord = null;
       if (queue && queue.running && queue.running.id) {
         const fromApp = (runsByApp[queue.running.app] || []).find((r) => r.id === queue.running.id);
         runningRecord = fromApp || await ep.getRun(queue.running.id).catch(() => null);
       }
-      return mapModel({ apps, queue, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, runningRecord });
+      return mapModel({ apps, queue, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, contextMapByApp, runningRecord });
     },
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}. Transport is a fetch stream,
@@ -295,6 +300,9 @@ window.QayabaConsole = (function () {
       coverageMode: a.code ? 'off' : 'signal', oracle: a.code ? 'code' : 'e2e',
       valueSeries: pick(raw.trendsByApp[a.name], 'valueOracle.series', null),
       coverageSeries: pick(raw.trendsByApp[a.name], 'coverage.series', null),
+      /* Stored FE<->BE architecture map (Batch F). null when the app has never completed a
+         mode:context run — the console renders that as an honest empty state, never a mock map. */
+      contextMap: (raw.contextMapByApp && raw.contextMapByApp[a.name]) || null,
     }));
     const runs = [].concat.apply([], raw.apps.map((a) => (raw.runsByApp[a.name] || []).map(mapRun)))
       .sort((x, y) => (y._at || 0) - (x._at || 0));
