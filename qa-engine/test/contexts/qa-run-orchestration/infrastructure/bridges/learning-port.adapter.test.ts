@@ -6,7 +6,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LearningPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter.ts";
+import { LearningPortAdapter, DEFAULT_RULES_CHAR_BUDGET } from "@contexts/qa-run-orchestration/infrastructure/bridges/learning-port.adapter.ts";
+import { SqliteLearningRepository, type LearningRow, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter.ts";
 import { renderLearnedRules } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { StubLearningRepository } from "@contexts/cross-run-learning/infrastructure/stub-learning-repository.adapter.ts";
 import type { LearningRepositoryPort, LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
@@ -337,4 +338,54 @@ test("retrieve() tolerates a store without incrementUsage wired (optional method
   const adapter = new LearningPortAdapter(repo, "app");
 
   await assert.doesNotReject(() => adapter.retrieve(Sha.of("abc1234")));
+});
+
+/* Governance reserves the last retrieval slots for the freshest unproven candidates so they can earn
+   (or be denied) promotion. The char budget must not silently cancel that reservation: when proven
+   rules alone overflow the budget, the retrieved set is still what governance would pick at a count
+   that fits — proven rules first, exploration candidates kept. Real SqliteLearningRepository and
+   RuleGovernanceService; only the persistence store is an in-memory fake. */
+function ledgerRow(id: string, status: "active" | "candidate", successRate: number | null, at: string): LearningRow {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `step${i}`).join(" ");
+  return {
+    id, trigger_text: `Applies when ${id} changes a form with async validation ${words(20)}`,
+    action_text: `Assert the visible validation message for ${id} using getByRole ${words(24)}`,
+    error_class: "E-FRAGILE-SELECTOR", archetype: null, status, confidence: "medium", usage_count: 0,
+    outcome_count: 3, oracle_outcome_count: 1, success_rate: successRate, last_verified: null, source: "run", at,
+  };
+}
+
+async function retrieveFromVerboseLedger() {
+  const rows = [
+    ...Array.from({ length: 22 }, (_, i) => ledgerRow(`active-${String(i).padStart(2, "0")}`, "active", 0.95 - i * 0.01, "2026-01-01T00:00:00.000Z")),
+    ...Array.from({ length: 6 }, (_, i) => ledgerRow(`candidate-${i}`, "candidate", null, `2026-09-0${i + 1}T00:00:00.000Z`)),
+  ];
+  const usageRecorded: string[] = [];
+  const store: LearningStore = {
+    selectRules: () => rows,
+    upsert: () => {},
+    recordOutcome: () => {},
+    incrementUsage: (ids) => { usageRecorded.push(...ids); },
+  };
+  const repo = new SqliteLearningRepository(store);
+  const unfitted = await repo.topRules("app", Sha.of("abc1234"), 20);
+  const retrieved = await new LearningPortAdapter(repo, "app").retrieve(Sha.of("abc1234"));
+  return { unfitted, retrieved, usageRecorded };
+}
+
+test("retrieve(): a budget overflow by proven rules still keeps an exploration candidate and records its usage", async () => {
+  const { unfitted, retrieved, usageRecorded } = await retrieveFromVerboseLedger();
+  const toRendered = (r: LearningRule) => ({ id: r.id, trigger: r.trigger, action: r.action, errorClass: r.errorClass, status: r.status as "active" | "candidate", confidence: r.confidence });
+  assert.ok(renderLearnedRules(unfitted.map(toRendered)).length > DEFAULT_RULES_CHAR_BUDGET, "setup check: the unfitted retrieval overflows the budget");
+
+  const candidates = retrieved.filter((r) => r.status === "candidate").map((r) => r.id);
+  assert.ok(candidates.length > 0, `an exploration candidate must survive budget fitting, got ${JSON.stringify(retrieved.map((r) => r.id))}`);
+  for (const id of candidates) assert.ok(usageRecorded.includes(id), `usage must be recorded for the retrieved candidate ${id}`);
+});
+
+test("retrieve(): budget fitting keeps the best-proven rule and the retrieved set fits the budget", async () => {
+  const { retrieved } = await retrieveFromVerboseLedger();
+
+  assert.ok(retrieved.some((r) => r.id === "active-00"), "the highest-ranked proven rule must not be sacrificed for exploration");
+  assert.ok(renderLearnedRules(retrieved).length <= DEFAULT_RULES_CHAR_BUDGET);
 });
