@@ -183,3 +183,24 @@ test("declared services are mirrored CONCURRENTLY, not one-at-a-time (a sequenti
   assert.equal(bStarted, true, "svc-b's mirror call must have started");
   assert.equal(outcome, "done", "checkout must complete promptly — a sequential (for-await) loop would never call svc-b while svc-a is still pending, deadlocking this test");
 });
+
+test("when several service mirrors fail, checkout rejects with the first declared service's failure", async () => {
+  const deps: MultiRepoCheckoutDeps = {
+    ensureMirror: async (repo) => `/mirrors/${repo.replaceAll("/", "__")}`,
+    ensureMirrorAtBranch: async (repo) => {
+      /* The first declared service fails last, so completion order and declared order differ. */
+      if (repo === "org/svc-a") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new Error("svc-a clone failed");
+      }
+      throw new Error("svc-b clone failed");
+    },
+    stageServiceContext: async () => {},
+  };
+  const adapter = new MultiRepoCheckoutAdapter(
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], isCode: false },
+    deps,
+  );
+
+  await assert.rejects(adapter.checkout(Sha.of("abc1234567")), /svc-a clone failed/);
+});
