@@ -1095,16 +1095,15 @@ export class RunQaUseCase {
       }
       return true;
     };
-    if (!(await devHealthy())) {
-      /*
-       * This exit persists static:false even though validation already passed — the
-       * stored field for this source is false. Append generationNote if generation
-       * was also empty and unapproved.
-       */
-      const healthNote = [lastHealthCheckError ?? "DEV health pre-flight failed before execute", generationNote]
-        .filter((part): part is string => Boolean(part))
-        .join("\n\n");
-      console.error("[qa] health pre-flight failed before execute:", healthNote);
+    /*
+     * Infra-error between validation and execute (DEV down, login broken): specs were already
+     * generated, so the run is persisted like any other terminal but never folds or reflects.
+     * This exit persists static:false even though validation already passed — the stored field
+     * for this source is false. Appends generationNote if generation was also empty and
+     * unapproved.
+     */
+    const preExecuteInfraError = async (reason: string): Promise<RunQaResult> => {
+      const note = [reason, generationNote].filter((part): part is string => Boolean(part)).join("\n\n");
       /* Confinement still runs for revert even though this exit does not publish. */
       await enforceConfinement();
       return await this.terminalResult(
@@ -1115,12 +1114,9 @@ export class RunQaUseCase {
         reviewerApprovedFromGeneration,
         false,
         retries,
-        healthNote,
+        note,
         { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-        /*
-         * Retrieved ids reach the persisted outcome for diagnosability but this
-         * infra-error never folds or reflects.
-         */
+        /* Retrieved ids reach the persisted outcome for diagnosability only. */
         retrievedRuleIds,
         diffArchetypes,
         detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
@@ -1128,6 +1124,11 @@ export class RunQaUseCase {
         resolveTested(),
         workspace.mirrorDir,
       );
+    };
+    if (!(await devHealthy())) {
+      const healthReason = lastHealthCheckError ?? "DEV health pre-flight failed before execute";
+      console.error("[qa] health pre-flight failed before execute:", healthReason);
+      return await preExecuteInfraError(healthReason);
     }
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
@@ -1142,8 +1143,8 @@ export class RunQaUseCase {
         await this.prepareAuth(workspace.specDir, "pre-execute", signal);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error("[qa] auth session failed:", err);
-        return this.infraErrorResult(`auth session failed: ${msg}`, workspace.mirrorDir);
+        console.error("[qa] auth session failed before execute:", err);
+        return await preExecuteInfraError(`auth session failed: ${msg}`);
       }
     }
     if (input.mode !== "context") {

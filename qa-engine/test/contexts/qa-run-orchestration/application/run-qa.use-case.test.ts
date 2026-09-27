@@ -6708,6 +6708,37 @@ test("auth session failure before generate is infra-error and does not generate"
   assert.match(out.note ?? "", /login failed/);
 });
 
+/* A login that breaks between generation and execute is the same class of failure as DEV going
+   down at that point: the run already generated specs, so it is recorded like any other terminal. */
+test("a pre-execute auth failure persists an infra-error outcome and neither executes nor publishes", async () => {
+  let executed = 0;
+  let published = 0;
+  const { ports, savedOutcomes } = stubPorts({
+    execute: async () => { executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    publish: async () => { published += 1; return { outcome: "pr" }; },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    config: baseConfig,
+    authSession: {
+      prepare: async (req) => {
+        if (req.phase === "pre-execute") throw new Error("login form not found");
+        return { unauthored: false };
+      },
+    },
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
+  });
+
+  const out = await useCase.run({ ...baseInput, runId: "auth-session-pre-execute-fail" });
+
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(executed, 0);
+  assert.equal(published, 0);
+  assert.equal(savedOutcomes.length, 1);
+  assert.equal(savedOutcomes[0]?.verdict, "infra-error");
+  assert.match(savedOutcomes[0]?.note ?? "", /login form not found/);
+});
+
 test("auth session prepare runs before generate and again before execute", async () => {
   const phases: string[] = [];
   const { ports } = stubPorts();
