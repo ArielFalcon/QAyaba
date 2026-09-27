@@ -64,8 +64,8 @@ services:
       # service keeps the default github.com base, so other apps' cloning is untouched. Mount
       # target ends in .git because repo-mirror clones ${GIT_REMOTE_BASE}/${repo}.git.
       # - ../<app>:/app/local-repos/<app>.git:ro
-      # Live-serve the vanilla console from web/public (resolveDashboardDir falls back here when
-      # web/dist has no index.html). Without this mount, only the image's COPY of web/ is served.
+      # Live-serve the vanilla console from web/public (served as-is at /app, no build step), so
+      # edits show on reload. Without this mount, only the image's COPY of web/ is served.
       - ./web:/app/web
 
   # The agent navigates the DEV site through its Playwright MCP during generation, so it ALSO

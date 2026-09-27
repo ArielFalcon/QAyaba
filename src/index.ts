@@ -746,12 +746,12 @@ const server = createServer(async (req, res) => {
   }
 
   /*
-   * The web dashboard (a static SPA build) is served same-origin at /app, so it shares the
-   * orchestrator's origin and the operator's credentials (no CORS). Until web/dist exists this
-   * no-ops to a placeholder. The /api surface above stays Bearer-protected.
+   * The web console (web/public, served as-is) is served same-origin at /app, so it shares the
+   * orchestrator's origin and the operator's credentials (no CORS). A missing web/public answers a
+   * placeholder page. The /api surface above stays Bearer-protected.
    */
   if (req.method === "GET" && (path === "/app" || path.startsWith("/app/"))) {
-    if (await serveDashboard(req, res, { distDir: resolveDashboardDir(ROOT) })) return;
+    if (await serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) })) return;
   }
 
   if (req.method === "POST") {

@@ -3,8 +3,5 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Operator/value web dashboard for qayaba. A self-contained vanilla JS console (no build step) in web/public/, served same-origin by the orchestrator at /app (src/server/static.ts). Talks only to /api/v1/* and the SSE live feed, through a mock adapter (offline demo data) and a live adapter that mirrors @qayaba/sdk method-for-method. See web/public/README.md and web/public/API.md.",
-  "dependencies": {
-    "@qayaba/sdk": "*"
-  }
+  "description": "Operator/value web dashboard for qayaba. A self-contained vanilla JS console (no build step) in web/public/, served same-origin by the orchestrator at /app (src/server/static.ts). Talks only to /api/v1/* and the SSE live feed, through a live adapter (the default) that mirrors @qayaba/sdk method-for-method and a mock adapter (offline demo data). See web/public/README.md and web/public/API.md."
 }
