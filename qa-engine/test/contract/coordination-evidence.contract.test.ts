@@ -29,7 +29,7 @@ test("evidence adapters produce refs with stable kinds and no OpencodeRunInput f
     evidenceFromCoverage({ status: "fail", ratio: 0.4 }),
     evidenceFromReview({ approved: false, blocking: 1 }),
     evidenceFromSelectors({ contradictions: 2 }),
-    evidenceFromBudget({ cycleCeiling: 4, cycleCount: 1, wallClockMs: 60_000 }),
+    evidenceFromBudget({ cycleCeiling: 4, wallClockMs: 60_000 }),
     evidenceFromFailureClass("selector"),
   ];
   for (const ref of refs) {

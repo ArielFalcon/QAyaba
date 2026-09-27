@@ -99,12 +99,12 @@ export function evidenceFromSelectors(input: { contradictions: number }): Eviden
   };
 }
 
-export function evidenceFromBudget(input: { cycleCeiling: number; cycleCount: number; wallClockMs: number }): EvidenceRef {
+export function evidenceFromBudget(input: { cycleCeiling: number; wallClockMs: number }): EvidenceRef {
   return {
     id: "budget",
     kind: "generation",
     source: "CoordinationBudget",
-    summary: scrub(`cycle=${input.cycleCount}/${input.cycleCeiling}; wallClockMs=${input.wallClockMs}`),
+    summary: scrub(`cycleCeiling=${input.cycleCeiling}; wallClockMs=${input.wallClockMs}`),
     confidence: "deterministic",
     dataRef: "CycleBudget+WallClockBudget",
   };

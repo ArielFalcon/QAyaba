@@ -1232,7 +1232,7 @@ test("FIX B: coveragePolicyMode:\"signal\" (the default) NEVER blocks publish ev
    blocksPublish) is now FALSE: enforce mode regenerates ONCE against the uncovered lines before
    deciding. New scenarios below cover: regen->pass->unblocks; regen->still-fail->keeps blocksPublish;
    regen throws->keeps first; sig2 unknown->never blocks; signal mode->no regen at all; ONLY ONE
-   regen ever (oneShotCoverageRegenUsed); the regen's execute()+re-measure() both use the
+   regen ever; the regen's execute()+re-measure() both use the
    `${runId}-coverage-regen` namespace (Constraint 2's dump-attribution requirement).
  */
 

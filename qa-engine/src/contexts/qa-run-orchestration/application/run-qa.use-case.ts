@@ -701,7 +701,6 @@ export class RunQaUseCase {
             : []),
           evidenceFromBudget({
             cycleCeiling: cycleBudget.ceiling,
-            cycleCount: cycleBudget.cycleCount,
             wallClockMs: wallClockBudget.budgetMs,
           }),
         ];
@@ -1244,7 +1243,6 @@ export class RunQaUseCase {
               : []),
             evidenceFromBudget({
               cycleCeiling: cycleBudget.ceiling,
-              cycleCount: cycleBudget.cycleCount,
               wallClockMs: wallClockBudget.budgetMs,
             }),
           ];
@@ -1589,13 +1587,12 @@ export class RunQaUseCase {
       blocksPublish = this.deps.objectiveSignal.blocks(signal.status);
 
       /*
-       * Enforce-mode one-shot coverage regen. Own boolean, not the FixLoop budget.
-       * A regen throw propagates. Validate-fail, non-pass rerun, or 0-spec regen keeps
-       * the first measurement's blocksPublish (never fabricated).
+       * Enforce-mode one-shot coverage regen: this block runs at most once per run (it is not
+       * inside any loop) and is independent of the FixLoop budget. A regen throw propagates.
+       * Validate-fail, non-pass rerun, or 0-spec regen keeps the first measurement's
+       * blocksPublish (never fabricated).
        */
-      let oneShotCoverageRegenUsed = false;
-      if (blocksPublish && input.mode === "diff" && !input.triggerRepo && !oneShotCoverageRegenUsed) {
-        oneShotCoverageRegenUsed = true;
+      if (blocksPublish && input.mode === "diff" && !input.triggerRepo) {
         const gap = renderCoverageGap(signal.uncovered ?? []);
         /*
          * The method's AbortSignal parameter is shadowed here by the measure() result

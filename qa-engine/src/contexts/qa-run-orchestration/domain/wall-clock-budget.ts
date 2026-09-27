@@ -1,7 +1,7 @@
 /*
  * Wall-clock ceiling on a run's total generation time — the run's ACTUAL enforcement mechanism,
  * checked directly by run-qa.use-case.ts (via exhausted()) before each regen round. CycleBudget's
- * ceiling/cycleCount are telemetry-only (see cycle-budget.ts); nothing enforces a cycle count.
+ * ceiling is telemetry-only (see cycle-budget.ts); nothing enforces a cycle count.
  *
  * "Unbounded" — no agentTimeoutMs and no wallClockBudgetMs override configured — is modeled as
  * budgetMs = Infinity, not a separate flag: exhausted() already returns false for it with no
