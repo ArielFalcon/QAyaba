@@ -215,7 +215,7 @@ export async function runE2E(
   }
   deps.recordAudit?.(opts.namespace, sanitized.detection);
 
-  /* The temp capture dir is removed on EVERY exit path — the early infra-error returns below, the main return, a throw from the harvest, AND a runSuite REJECT (W6) — via the finally at the end. A runner that produced no parseable report did not actually run the suite — it crashed (bad config, browser launch failure, OOM). That is INFRASTRUCTURE, not a pass: never let a swallowed parse error surface as green (the #1 invariant). */
+  /* The temp capture dir is removed on EVERY exit path — the early infra-error returns below, the main return, a throw from the harvest, AND a runSuite REJECT — via the finally at the end. A runner that produced no parseable report did not actually run the suite — it crashed (bad config, browser launch failure, OOM). That is INFRASTRUCTURE, not a pass: never let a swallowed parse error surface as green (the #1 invariant). */
   if (!ran || !isReportShaped(report)) {
     return {
       sha: opts.namespace,
@@ -249,10 +249,10 @@ export async function runE2E(
     };
   }
 
-  /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md INV-4). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
+  /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
   const failedPwCases = parsed.cases.filter((c) => c.status === "fail");
   if (failedPwCases.length > 0) {
-    /* W2: the per-case harvest runs whenever there are failed cases — NOT gated on failureCaptureDir. When the dir is absent (e.g. mkdtempSync failed for lack of /tmp space) `dumps` is simply [] and every failed case falls straight to the loud "no grounding captured" WARNING below. Gating the whole loop on the dir silently dropped the WARNING — violating the never-swallow invariant. Read every dump ONCE into {file, title, retry, yaml}: matching keys off the dump's own `file` + `title` (the describe›test chain the fixture wrote), which the report's case name ENDS WITH — the report prepends the spec file as the top suite, the fixture records it as a separate `file`. */
+    /* The per-case harvest runs whenever there are failed cases — NOT gated on failureCaptureDir. When the dir is absent (e.g. mkdtempSync failed for lack of /tmp space) `dumps` is simply [] and every failed case falls straight to the loud "no grounding captured" WARNING below. Gating the whole loop on the dir silently dropped the WARNING — violating the never-swallow invariant. Read every dump ONCE into {file, title, retry, yaml}: matching keys off the dump's own `file` + `title` (the describe›test chain the fixture wrote), which the report's case name ENDS WITH — the report prepends the spec file as the top suite, the fixture records it as a separate `file`. */
     const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir) : [];
     for (const c of failedPwCases) {
       const qa = c as unknown as QaCase;
@@ -264,7 +264,7 @@ export async function runE2E(
       if (dump?.httpStatus !== undefined) qa.httpStatus = dump.httpStatus;
       if (dump?.finalUrl !== undefined) qa.finalUrl = dump.finalUrl;
       if (dump?.runtimeErrors !== undefined) qa.runtimeErrors = dump.runtimeErrors;
-      /* No dump (or an unparseable one): loud WARNING (grounding gap — INV-4: never swallow). */
+      /* No dump (or an unparseable one): loud WARNING (grounding gap — never swallow). */
       if (!qa.failureDom) {
         console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
       }
@@ -329,7 +329,7 @@ export function readFailureDumps(dir: string): FailureDump[] {
         title: typeof body.title === "string" ? body.title : "",
         retry: typeof body.retry === "number" ? body.retry : parseInt(m[1]!, 10),
         ...(typeof body.yaml === "string" ? { yaml: body.yaml } : {}),
-        /* D1/D2 runtime evidence — parsed defensively: absent/garbage → undefined, never throw. */
+        /* Runtime evidence (HTTP status, final URL, runtime errors) — parsed defensively: absent/garbage → undefined, never throw. */
         ...(typeof body.httpStatus === "number" && Number.isInteger(body.httpStatus) ? { httpStatus: body.httpStatus } : {}),
         ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
         ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
@@ -377,10 +377,9 @@ export interface E2eCleanupDeps {
 
 /**
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. REQUIRED (J6, mirrors J5's
- * createCaptureDomDeps fix): authDir used to be optional with a silent fallback to `dir` (the
- * watched-repo mirror, agent-visible) — an omitted override would silently put auth material back
- * where the read-only agent can read it. There is no safe default, so a caller that forgets it is a
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED, like createCaptureDomDeps's
+ * authDir: a fallback to `dir` (the watched-repo mirror, agent-visible) would silently put auth
+ * material where the read-only agent can read it whenever a caller omitted the override. There is no safe default, so a caller that forgets it is a
  * TypeScript compile error, and — mirroring the same fail-closed constructor-guard pattern already
  * established for PublicationPortAdapter and createCaptureDomDeps — a caller that bypasses the type
  * system still gets an immediate, loud throw here, never a silent `dir` default.
@@ -455,10 +454,9 @@ export function playwrightArgs(reporterPath: string, project?: string, specFiles
 
 /**
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. REQUIRED (J6, mirrors J5's
- * createCaptureDomDeps fix): authDir used to be optional with a silent fallback to `dir` (the
- * watched-repo mirror, agent-visible) — an omitted override would silently put auth material back
- * where the read-only agent can read it. There is no safe default, so a caller that forgets it is a
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED, like createCaptureDomDeps's
+ * authDir: a fallback to `dir` (the watched-repo mirror, agent-visible) would silently put auth
+ * material where the read-only agent can read it whenever a caller omitted the override. There is no safe default, so a caller that forgets it is a
  * TypeScript compile error, and — mirroring the same fail-closed constructor-guard pattern already
  * established for PublicationPortAdapter and createCaptureDomDeps — a caller that bypasses the type
  * system still gets an immediate, loud throw here, never a silent `dir` default. Moved ahead of the

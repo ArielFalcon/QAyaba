@@ -259,7 +259,7 @@ const codexCases: ParityCase[] = [
 
 const allCases: ParityCase[] = [...goldenCases, ...goldenCasesB2, ...codexCases];
 
-test("parity pin: the golden/B2/codex scenario set is non-trivial (guards against an accidentally-empty pin)", () => {
+test("parity pin: the golden and codex scenario sets are non-trivial (guards against an accidentally-empty pin)", () => {
   assert.equal(allCases.length, 23, "expected exactly 10 goldens + 11 B2 scenarios + 2 decide-relevant codex scenarios");
 });
 

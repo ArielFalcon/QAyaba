@@ -315,7 +315,7 @@ async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: bool
 export function historyLearningStore(appName: string): LearningStore {
   return {
     /*
-     * R5: dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
+     * Dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
      * that shared-limit, actives-first-ranked query could exhaust its LIMIT on active rows alone,
      * never even fetching a fresh candidate into memory for RuleGovernanceService.topRules (the
      * single ranking truth) to rank. See listLearningRulesForGovernance's own header in history.ts.
@@ -697,7 +697,7 @@ export function buildRewrittenCompositionConfig(
   const mutationOracleDeps = { spawn, detectCodeProject, scrubEnv, processKill: new ProcessKillAdapter() };
 
   /*
-   * P0-2: honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
+   * Honor YAML qa.valueOracle (and the shadow-aware default the CLI already reports).
    * "off" → NullValueOracleAdapter (no DEV re-run, no Stryker). "signal" → the target-specific
    * oracle (Stryker for code, fault-injection for e2e).
    */
@@ -832,7 +832,7 @@ export function buildRewrittenCompositionConfig(
     /*
      * contextPackDeps.domDeps is ALWAYS overridden (regardless of shouldExplore) so the
      * pre-generation DOM capture reads auth material from the orchestrator-only authDir, never
-     * from the mirror (Batch S / S2) — the qa-engine default (defaultCaptureDomDeps) would
+     * from the mirror — the qa-engine default (defaultCaptureDomDeps) would
      * otherwise derive credential paths from e2eDir itself.
      */
     groundingCollaborators: {
@@ -843,7 +843,7 @@ export function buildRewrittenCompositionConfig(
         : {}),
       contextPackDeps: { ...defaultContextPackDeps, domDeps: createCaptureDomDeps(authDir) },
       /*
-       * Batch F: the DB (history.ts's context_maps table) is the engine's source of truth for the
+       * The DB (history.ts's context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
        * fallback (e.g. before any context run has ever completed for this app, or a fresh clone).
        * A `contextStale` flag seen above means the process audit already judged the stored (and

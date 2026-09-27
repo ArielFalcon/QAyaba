@@ -3,7 +3,7 @@ import type { LanguageId } from "./language-id.ts";
 
 export interface ChangedSymbol { file: string; name: string; kind: string; signature: string; line: number; }
 export interface RelationEdge { from: string; to: string; via: string; }
-/** Optional: lizard cannot produce cognitive complexity (ADR-5). */
+/** Optional: lizard cannot produce cognitive complexity. */
 export interface ComplexityHotspot { file: string; function: string; ccn: number; cognitive?: number; nloc: number; line: number; }
 export interface FileChangeKind { file: string; cosmetic: boolean; }
 export interface ChangePattern { file: string; pattern: string; source: "ast-grep" | "regex"; }

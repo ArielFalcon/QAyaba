@@ -7,7 +7,7 @@ import { reexploreToolKind, reexploreKindFromEvent, ReexploreTracker } from "@co
    agent re-explores despite injected grounding. Observability only — NOT a quality/ledger signal.
  */
 
-test("RE-2 classifier: browser navigation/snapshot and serena map to their kinds", () => {
+test("classifier: browser navigation/snapshot and serena map to their kinds", () => {
   assert.equal(reexploreToolKind("browser_navigate"), "navigate");
   assert.equal(reexploreToolKind("browser_snapshot"), "snapshot");
   assert.equal(reexploreToolKind("activate_project"), "serena");
@@ -16,18 +16,18 @@ test("RE-2 classifier: browser navigation/snapshot and serena map to their kinds
   assert.equal(reexploreToolKind("find_symbol"), "serena");
 });
 
-test("RE-2 classifier: tool names are matched even when the MCP prefixes them", () => {
+test("classifier: tool names are matched even when the MCP prefixes them", () => {
   assert.equal(reexploreToolKind("playwright_browser_navigate"), "navigate");
   assert.equal(reexploreToolKind("mcp__playwright__browser_snapshot"), "snapshot");
 });
 
-test("RE-2 classifier: writing/reading/interaction tools are NOT re-exploration", () => {
+test("classifier: writing/reading/interaction tools are NOT re-exploration", () => {
   for (const t of ["edit", "write", "bash", "read", "grep", "glob", "browser_click", "browser_type"]) {
     assert.equal(reexploreToolKind(t), null, `${t} must not count as re-exploration`);
   }
 });
 
-test("RE-2 event extractor: a COMPLETED browser_navigate tool part yields navigate", () => {
+test("event extractor: a COMPLETED browser_navigate tool part yields navigate", () => {
   const raw = {
     type: "message.part.updated",
     properties: { part: { type: "tool", tool: "browser_navigate", sessionID: "s1", state: { status: "completed" } } },
@@ -35,7 +35,7 @@ test("RE-2 event extractor: a COMPLETED browser_navigate tool part yields naviga
   assert.equal(reexploreKindFromEvent(raw), "navigate");
 });
 
-test("RE-2 event extractor: a RUNNING tool part is NOT counted (avoid double-count)", () => {
+test("event extractor: a RUNNING tool part is NOT counted (avoid double-count)", () => {
   const raw = {
     type: "message.part.updated",
     properties: { part: { type: "tool", tool: "browser_navigate", sessionID: "s1", state: { status: "running" } } },
@@ -43,12 +43,12 @@ test("RE-2 event extractor: a RUNNING tool part is NOT counted (avoid double-cou
   assert.equal(reexploreKindFromEvent(raw), null);
 });
 
-test("RE-2 event extractor: a non-tool part (prose) is ignored", () => {
+test("event extractor: a non-tool part (prose) is ignored", () => {
   const raw = { type: "message.part.updated", properties: { part: { type: "text", sessionID: "s1" } } };
   assert.equal(reexploreKindFromEvent(raw), null);
 });
 
-test("RE-2 tracker: records per session and snapshots totals", () => {
+test("tracker: records per session and snapshots totals", () => {
   const t = new ReexploreTracker();
   t.record("s1", "navigate");
   t.record("s1", "navigate");
@@ -59,7 +59,7 @@ test("RE-2 tracker: records per session and snapshots totals", () => {
   assert.deepEqual(t.snapshot("nope"), { navigate: 0, snapshot: 0, serena: 0, total: 0 });
 });
 
-test("RE-2 tracker: clear resets a session's counts", () => {
+test("tracker: clear resets a session's counts", () => {
   const t = new ReexploreTracker();
   t.record("s1", "navigate");
   t.clear("s1");
@@ -67,7 +67,7 @@ test("RE-2 tracker: clear resets a session's counts", () => {
 });
 
 /* reason). The RAW tap sits BEFORE that dedup, so counts must be deduped by callID or they inflate. */
-test("JD-S-B4 tracker: the same tool call (callID) is counted ONCE across re-emitted updates", () => {
+test("tracker: the same tool call (callID) is counted ONCE across re-emitted updates", () => {
   const t = new ReexploreTracker();
   t.record("s1", "navigate", "call-1");
   t.record("s1", "navigate", "call-1"); /* re-emitted completed update for the SAME call */
@@ -75,7 +75,7 @@ test("JD-S-B4 tracker: the same tool call (callID) is counted ONCE across re-emi
   assert.deepEqual(t.snapshot("s1"), { navigate: 2, snapshot: 0, serena: 0, total: 2 });
 });
 
-test("JD-S-B4 tracker: callID dedup is scoped per session", () => {
+test("tracker: callID dedup is scoped per session", () => {
   const t = new ReexploreTracker();
   t.record("s1", "serena", "call-1");
   t.record("s2", "serena", "call-1"); /* same callID, different session → distinct */
@@ -87,7 +87,7 @@ test("JD-S-B4 tracker: callID dedup is scoped per session", () => {
    happened (still burned time), so it must be counted — otherwise RE-2 under-reports the exact
    (often uncovered) routes of interest.
  */
-test("JD-C5 event extractor: an ERROR-terminal tool part is counted", () => {
+test("event extractor: an ERROR-terminal tool part is counted", () => {
   const raw = {
     type: "message.part.updated",
     properties: { part: { type: "tool", tool: "browser_navigate", sessionID: "s1", state: { status: "error" } } },
@@ -98,7 +98,7 @@ test("JD-C5 event extractor: an ERROR-terminal tool part is counted", () => {
 /* surface is more than the 4 symbol tools — read_file/search_for_pattern/find_file/list_dir are also
    repo re-exploration and must count, or RE-2 under-measures what RE-1 targets.
  */
-test("JD-C6 classifier: serena read/search tools also count as re-exploration", () => {
+test("classifier: serena read/search tools also count as re-exploration", () => {
   for (const tool of ["read_file", "search_for_pattern", "find_file", "list_dir"]) {
     assert.equal(reexploreToolKind(tool), "serena", `${tool} must count as serena re-exploration`);
   }
@@ -107,7 +107,7 @@ test("JD-C6 classifier: serena read/search tools also count as re-exploration", 
 /* browser_navigate_back is a HISTORY interaction (going back), not orientation re-exploration.
    The unanchored /browser_navigate/ matcher wrongly counted it, polluting the navigate signal.
  */
-test("JD-R2 classifier: browser_navigate_back is interaction, NOT navigation re-exploration", () => {
+test("classifier: browser_navigate_back is interaction, NOT navigation re-exploration", () => {
   assert.equal(reexploreToolKind("browser_navigate_back"), null);
   assert.equal(reexploreToolKind("browser_navigate"), "navigate"); /* the real navigate still matches */
   assert.equal(reexploreToolKind("mcp__playwright__browser_navigate"), "navigate");

@@ -426,7 +426,7 @@ test("buildRewrittenCompositionConfig sets reviewTimeoutMs to the exported REVIE
   assert.equal(config.reviewTimeoutMs, REVIEWER_TIMEOUT_MS, "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
 });
 
-test("P0-5: factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs", () => {
+test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs", () => {
   const app = cfg("factory-agent-timeout");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.agentTimeoutMs, agentTimeout("diff"));
@@ -456,7 +456,7 @@ test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingC
   assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
 });
 
-test("P0-3: explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
+test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer"), qa: { ...cfg("factory-explorer").qa, explorer: true } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
@@ -520,7 +520,7 @@ test("multi-repo: explorer:undefined (not configured) + undefined services stays
   assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
 });
 
-test("O5: explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
+test("explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
   const base = cfg("factory-explorer-explicit-false");
   const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
@@ -933,31 +933,31 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
    FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
    valueOracle:"off" still fault-injected on every green run.
  */
-test("P0-2: e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
+test("e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
+test("e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
   const app = cfg("factory-oracle-shadow-default");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
+test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
   const app: AppConfig = { ...cfg("factory-oracle-signal"), qa: { ...cfg("factory-oracle-signal").qa, shadow: true, valueOracle: "signal" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
-test("P0-2: code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
+test("code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-off"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
+test("code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-signal"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-signal").qa, shadow: false, valueOracle: "signal" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "StrykerMutationOracleAdapter");
@@ -1021,14 +1021,14 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
    constructor-injected value is the faithful, side-effect-free way to assert this wiring.
  */
 
-test("F5: buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
+test("buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
   const app: AppConfig = { ...cfg("factory-basebranch"), baseBranch: "develop" };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
   assert.equal(base, "develop", "githubPr must be constructed with app.baseBranch, not silently defaulting to GitHubPrAdapter's own 'main' fallback");
 });
 
-test("F5: buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
+test("buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
   const app = cfg("factory-basebranch-default");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
@@ -1247,7 +1247,7 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
 
 /* config.sanitize must be the real sanitizeText, not an identity fallback. */
 
-test("F4: buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
+test("buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
   const app = cfg("factory-sanitize");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.sanitize, "function", "config.sanitize must be wired — its absence silently falls back to PublicationPortAdapter's identity default, defeating the CLAUDE.md sanitize invariant");
@@ -1639,7 +1639,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
    frozen at 0 forever — no promotion/demotion ever engaged, with zero errors anywhere. This test
    pins the full chain green.
  */
-test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
+test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
   const { SqliteLearningRepository } = await import(
@@ -1728,7 +1728,7 @@ test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is 
   assert.equal(r?.outcomeCount, 0, "no rulesRetrieved means no recordRuleOutcome call at all — ledger untouched");
 });
 
-test("Ola 2: recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
+test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1749,7 +1749,7 @@ test("Ola 2: recordOutcome persists a scorecard entry even when rulesRetrieved i
   assert.equal(sc?.entries[0]?.runId, "run-scorecard-1");
 });
 
-test("O3: recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
+test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1768,7 +1768,7 @@ test("O3: recordOutcome persists the REAL mutantCount/killedCount from gateSigna
   assert.equal(sc?.entries[0]?.killedCount, 17, "a real measured killedCount must be persisted, not hardcoded to 0");
 });
 
-test("O3: recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
+test("recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1848,7 +1848,7 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
  * this — no timing dependency), proving the fold now looks the rule up directly by id instead of
  * filtering a capped bulk list.
  */
-test("R6: recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
+test("recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { upsertLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-r6-window-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -2016,7 +2016,7 @@ test("a run whose diff shapes are unknown credits every retrieved rule", async (
    uses (decideDistill against SqliteLearningRepository.listAll(app, ...)'s real output) and assert
    the duplicate is skipped — proving listAll surfaces real rows, not [].
  */
-test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate (WS1.3 dedup goes live)", async () => {
+test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
@@ -2086,7 +2086,7 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
  * buildRewrittenCompositionConfig composes, ~line 644) and proves fresh candidates still reach
  * topRules' exploration slots even with more than LEARNING_RULE_LEDGER_LIMIT active rows seeded.
  */
-test("R5: historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
+test("historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
   const app = `factory-learning-no-starve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

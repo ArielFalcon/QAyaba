@@ -39,7 +39,7 @@ test("open POSTs to the issues endpoint and maps the url", async () => {
   assert.equal((calls[0]!.init!.headers as Record<string, string>).Authorization, AUTH.Authorization);
 });
 
-test("throws when the URL has no issue number (FIX 13b — never silent 0)", async () => {
+test("throws when the URL has no issue number (never silent 0)", async () => {
   const { http } = fakeHttp(() => ({ ok: true, json: { html_url: "https://gh/org/app/pull/5" } }));
   const adapter = new GitHubIssueAdapter(http);
   await assert.rejects(() => adapter.open("org/app", "title", "body"), /cannot parse issue number/);

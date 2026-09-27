@@ -390,7 +390,7 @@ test("reflect() with no reviewerCorrections persists the gate-computed input.err
    realistic way an approved run still qualifies for reflect) is what persists — even though the
    reflection echoes a DIFFERENT class, proving this is not a coincidental match.
  */
-test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with reviewerCorrections [] — the corrections override stays dormant, the gate-derived errorClass persists", async () => {
+test("BOUNDARY: an approved-with-advisory run reaches reflect() with reviewerCorrections [] — the corrections override stays dormant, the gate-derived errorClass persists", async () => {
   let savedRule: LearningRule | undefined;
   const coverageGapReflection = JSON.stringify({
     goal: "verify the checkout change",
@@ -431,7 +431,7 @@ test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with revie
    oracleOutcomeCount. This test fails loudly if a future edit ever threads status/confidence/
    oracleOutcomeCount from the corrections channel instead of hardcoding them.
  */
-test("WS1.5 ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved as candidate/low with oracleOutcomeCount:0 — the corrections channel adds a signal, never a promotion bypass", async () => {
+test("ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved as candidate/low with oracleOutcomeCount:0 — the corrections channel adds a signal, never a promotion bypass", async () => {
   let savedRule: LearningRule | undefined;
   const runtime = fakeRuntime({});
   const repo = fakeRepo((rule) => { savedRule = rule; });

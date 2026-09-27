@@ -403,12 +403,11 @@ async function shutdown() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────
-// ensureCodexConfig — supervisor writes $CODEX_HOME/config.toml at boot (T-P0-2 / C0.1)
+// ensureCodexConfig — supervisor writes $CODEX_HOME/config.toml at boot
 // ──────────────────────────────────────────────────────────────────────────────────────
 // Generates a Codex config.toml with [mcp_servers.*] blocks matching the top-level "mcp"
-// server registry in opencode.json (referenced by key, not line — the file's agent section
-// grew substantially in WS8 and line pointers went stale).
-// Translation rules (design D2):
+// server registry in opencode.json (referenced by key, not by line).
+// Translation rules:
 //   - opencode `command` array → TOML `command` = head, `args` = tail
 //   - opencode `environment` object → TOML `env` table, with `{env:X}` placeholders
 //     RESOLVED from process.env at config-gen time (supervisor side, NOT the agent)
@@ -421,11 +420,10 @@ async function shutdown() {
 // Idempotent: if config.toml already exists, existing content (e.g. [auth] from the
 // codex-data volume) is preserved; only the [mcp_servers.*] sections are replaced/added.
 //
-// PATH A (design D2): supervisor generates config.toml; agent never writes it.
-// FALLBACK (if T-P0-1 smoke proves config.toml MCPs are not loaded by codex 0.139):
-//   wire MCP supervisor-side in runCodexExec (agent-supervisor.mjs ~268, already owns
-//   the spawn) or add an explicit MCP flag in buildCodexExecArgs. Re-scope T-P0-2/3 to
-//   the fallback shape and record the decision in apply-progress.
+// The supervisor generates config.toml; the agent never writes it. If codex ever stops
+// loading MCP servers from config.toml (agents/smoke/codex-mcp-boundary.smoke.mjs detects
+// it), wire MCP supervisor-side in runCodexExec (which already owns the spawn) or pass an
+// explicit MCP flag in buildCodexExecArgs.
 //
 // @param {string} codexHome - path to $CODEX_HOME (e.g. /root/.codex)
 // @param {Record<string,string|undefined>} [env] - environment to resolve {env:X} from

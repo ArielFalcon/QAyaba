@@ -249,7 +249,7 @@ test("section() helper accepts explicit overrides", () => {
   assert.equal(s.language, "verbatim");
 });
 
-test("assemble: a realistic multi-section prompt has canonical structure (P3 spec)", () => {
+test("assemble: a realistic multi-section prompt has canonical structure", () => {
   const sections: Section[] = [
     section("engram-rule", "stable-prefix", "engram: scoped per app", { priority: 10 }),
     section("playwright-rules", "stable-prefix", "## Working rules\nPrefer getByRole.", { priority: 5 }),
@@ -387,7 +387,7 @@ test("assemble: budget enforcement sheds volatile before semi-stable before task
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
 });
 
-test("FIX 5: under a tight budget the Context Pack survives and the diff (TASK band) is shed FIRST", () => {
+test("under a tight budget the Context Pack survives and the diff (TASK band) is shed FIRST", () => {
   /* Mirrors buildPromptAssembled's real section setup: the pack is in the VOLATILE band for READING
      (near the task) but declares shedAs:"critical-recap" so it is least-shedable. The raw diff lives
      (unrecoverable DOM ground-truth) died while the recoverable diff survived. This asserts the EFFECT.
@@ -420,7 +420,7 @@ test("FIX 5: under a tight budget the Context Pack survives and the diff (TASK b
    to be least-shedable — must still render in its VOLATILE position (after semi-stable, before task),
    NOT down in the critical-recap slot. This pins the invariant that shedAs is purely a shed-band hint.
  */
-test("FIX D: a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE position under a large budget", () => {
+test("a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE position under a large budget", () => {
   const sections: Section[] = [
     section("rules", "stable-prefix", "STABLE_SENTINEL"),
     section("arch", "semi-stable", "SEMI_SENTINEL"),
@@ -446,7 +446,7 @@ test("FIX D: a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE 
   assert.ok(packIdx < recapIdx, "shedAs:'critical-recap' must not push the pack into the recap slot");
 });
 
-test("FIX 5: WITHOUT shedAs, a volatile section is still shed before the task (the old, unwanted behavior — control)", () => {
+test("WITHOUT shedAs, a volatile section is still shed before the task (the old, unwanted behavior — control)", () => {
   /* Control proving shedAs is what changes the outcome: an ordinary volatile section (no shedAs) sheds
      before the task, exactly the path that killed the pack before the fix.
    */
@@ -566,7 +566,7 @@ test("assemble: global budget shedding does not affect sectionSizes for survivin
  */
 
 /* D1+D2-1: a forced over-budget drop produces the notice naming the dropped section id. */
-test("D1+D2: a forced budget-drop injects a notice naming the dropped section id", () => {
+test("a forced budget-drop injects a notice naming the dropped section id", () => {
   const SURVIVE = "SURVIVE_MARKER";
   const sections = [
     section("survive", "stable-prefix", SURVIVE, { priority: 1 }),
@@ -590,7 +590,7 @@ test("D1+D2: a forced budget-drop injects a notice naming the dropped section id
 /* D1+D2-2: the notice must always survive — it must remain even when the budget is very tight.
    We verify it is present alongside the stable-prefix (which is the last to shed).
  */
-test("D1+D2: the shed notice survives even under extreme budget pressure", () => {
+test("the shed notice survives even under extreme budget pressure", () => {
   const stableContent = "R".repeat(50);
   const sections = [
     section("rules", "stable-prefix", stableContent, { priority: 1 }),
@@ -609,7 +609,7 @@ test("D1+D2: the shed notice survives even under extreme budget pressure", () =>
 });
 
 /* D1+D2-3 (regression): when NOTHING is dropped, the output is unchanged — no notice, no empty header. */
-test("D1+D2: no shed notice when nothing is dropped (regression: output unchanged)", () => {
+test("no shed notice when nothing is dropped (regression: output unchanged)", () => {
   const content = "A".repeat(50);
   const sections = [
     section("task",  "task",          content),
@@ -627,7 +627,7 @@ test("D1+D2: no shed notice when nothing is dropped (regression: output unchange
 });
 
 /* D1+D2-4 (regression): without a budgetBytes option (Phase-1 behaviour), the notice must never appear. */
-test("D1+D2: no shed notice without budgetBytes option (phase-1 behaviour unchanged)", () => {
+test("no shed notice without budgetBytes option (phase-1 behaviour unchanged)", () => {
   const sections = [
     section("task", "task", "TASK_CONTENT"),
     section("huge", "volatile", "H".repeat(1_000_000), { overflow: "drop" }),

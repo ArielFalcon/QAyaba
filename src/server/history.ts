@@ -169,7 +169,7 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_outcomes_app ON run_outcomes(app);
     CREATE INDEX IF NOT EXISTS idx_outcomes_error_class ON run_outcomes(error_class);
 
-    -- Durable backing for the live RunEvent (SSE) stream (OBS-01). The in-memory store keeps a
+    -- Durable backing for the live RunEvent (SSE) stream. The in-memory store keeps a
     -- bounded replay buffer; persisting here lets replay survive a restart (e.g. the maintainer
     -- hot-swap's process.exit) and eviction of an old run from the 200-run ring.
     CREATE TABLE IF NOT EXISTS run_events (
@@ -756,7 +756,7 @@ export function listLearningRules(app: string, limit = 20): LearningRule[] {
 }
 
 /*
- * R6: direct by-id read, uncapped and unordered — the correct lookup for a fold that already knows
+ * Direct by-id read, uncapped and unordered — the correct lookup for a fold that already knows
  * the exact rule id (e.g. recordOutcome's prevention path, folding rulesRetrieved). Unlike
  * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), a rule ranked outside that shared window
  * still resolves here: unset/null only when the row genuinely does not exist (deleted, or never
@@ -889,7 +889,7 @@ export function updateRunOutcomeReflection(runId: string, reflection: import("..
 
 /*
  * Completed-run counts grouped by verdict — the backing data for the Prometheus runs_total
- * counter (OBS-05). Lets an operator alert on a fail/invalid/infra-error rate shift, which the
+ * counter. Lets an operator alert on a fail/invalid/infra-error rate shift, which the
  * two instantaneous gauges (queue depth, open sessions) cannot express.
  */
 export function runVerdictCounts(): Record<string, number> {
@@ -903,7 +903,7 @@ export function runVerdictCounts(): Record<string, number> {
 }
 
 /*
- * Durable RunEvent persistence (OBS-01). INSERT OR IGNORE keeps it idempotent if the in-memory
+ * Durable RunEvent persistence. INSERT OR IGNORE keeps it idempotent if the in-memory
  * store and a re-publish ever collide on (run_id, seq).
  */
 export function saveRunEvent(event: { runId: string; seq: number; ts: number; body: unknown }): void {

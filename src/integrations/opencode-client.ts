@@ -138,7 +138,7 @@ async function getSharedClient() {
 /*
  * Separate v2 SDK client, used ONLY for the live event subscription (observability
  * path). Sessions/verdict stay on the v1 blocking client above — the deliberate
- * split (docs/tui-vnext.md §5 D5): events→v2 scoped subscribe (advisory-only, zero
+ * split: events→v2 scoped subscribe (advisory-only, zero
  * verdict risk), generation/verdict→v1 blocking prompt (the determinism keystone).
  */
 let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient> | undefined;
@@ -269,7 +269,7 @@ export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_
 export const EXPLORER_TIMEOUT_MS = Number(process.env.OPENCODE_EXPLORER_TIMEOUT_MS) || 240 * 1000;
 /*
  * The fan-out planner for a SCOPED mode (diff/manual — one commit or one guidance string) derives
- * objectives from the brief + code; it must NOT navigate (F3), so it needs nowhere near the generator's
+ * objectives from the brief + code; it must NOT navigate, so it needs nowhere near the generator's
  * per-mode budget. Bound it with its OWN deadline: it reads OPENCODE_PLANNER_TIMEOUT_MS, NOT the global
  * OPENCODE_TIMEOUT_MS override (which, set to e.g. 900s, would otherwise let a misbehaving planner
  * consume the generator's whole window — the hang that produced 0 specs). Applied to diff/manual

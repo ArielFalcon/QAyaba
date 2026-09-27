@@ -109,7 +109,7 @@ test("CompositeServiceBoundaryResolver deduplicates identical unresolved entries
    When two resolvers independently surface drift from different files (same verb+path but different
    from.file), the composite must NOT collapse them to one entry (from.file distinguishes them).
  */
-test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two files, same endpoint → two drift entries)", async () => {
+test("CompositeServiceBoundaryResolver drift dedup includes from.file (two files, same endpoint → two drift entries)", async () => {
   const driftFile1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/alpha.api.ts", symbol: "createOrder" },
     verb: "POST",
@@ -137,7 +137,7 @@ test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two
    two drift entries, not one. The current dedup key is `from.file|verb|path` — adding
    `from.symbol` ensures per-method granularity.
  */
-test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpoint → two drift entries)", async () => {
+test("drift dedup includes from.symbol (two methods same file, same endpoint → two drift entries)", async () => {
   const driftMethod1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/api.ts", symbol: "createOrder" },
     verb: "POST",
@@ -166,7 +166,7 @@ test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpo
    never reached and the synchronous throw propagates through Promise.all, breaking all resolvers.
    The composite must guard against synchronous throws too.
  */
-test("L1.4: CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing resolver", async () => {
+test("CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing resolver", async () => {
   const syncThrow: ServiceBoundaryResolverPort = {
     resolveLinks: () => {
       throw new Error("synchronous throw before returning Promise");

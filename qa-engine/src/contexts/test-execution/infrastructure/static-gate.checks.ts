@@ -63,7 +63,7 @@ export async function validateSpecs(
   return { ok: errors.length === 0, errors, infra: errors.length > 0 && allFailuresAreInfra };
 }
 
-/* B2: deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per file with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors (fail-safe — readdirSync throws → skip). */
+/* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per file with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors (fail-safe — readdirSync throws → skip). */
 function checkZeroAssertionSpecs(specDir: string): string[] {
   const errors: string[] = [];
   const walk = (dir: string): void => {

@@ -309,7 +309,7 @@ test("RewrittenOrchestratorAdapter — infra-error (entry gate): DeployGatePort 
    surfaced to the RunPipelinePort caller).
  */
 
-test("FIX 1 (adapter): reviewerApproved is forwarded into the returned RunOutcome, not hardcoded away", async () => {
+test("reviewerApproved is forwarded into the returned RunOutcome, not hardcoded away", async () => {
   const { ports } = stubPorts({
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
   });
@@ -320,7 +320,7 @@ test("FIX 1 (adapter): reviewerApproved is forwarded into the returned RunOutcom
   assert.equal(outcome.gateSignals.reviewerApproved, true, "reviewerApproved must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
 });
 
-test("FIX 3 (adapter): valueScore is forwarded into the returned RunOutcome, not hardcoded null", async () => {
+test("valueScore is forwarded into the returned RunOutcome, not hardcoded null", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85 }),
@@ -332,7 +332,7 @@ test("FIX 3 (adapter): valueScore is forwarded into the returned RunOutcome, not
   assert.equal(outcome.gateSignals.valueScore, 0.85, "valueScore must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome, matching the value-oracle result");
 });
 
-test("FIX 4 (adapter): errorClass is forwarded into the returned RunOutcome, not hardcoded null", async () => {
+test("errorClass is forwarded into the returned RunOutcome, not hardcoded null", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
     generate: async () => ({ specs: ["a.spec.ts"], approved: true }),
@@ -352,7 +352,7 @@ test("FIX 4 (adapter): errorClass is forwarded into the returned RunOutcome, not
    outcome.note off exactly the RunOutcome this adapter returns). ──────────────────────────────────
  */
 
-test("NOTE CHAIN (adapter): RunQaResult.note is forwarded into the returned RunOutcome.note", async () => {
+test("RunQaResult.note is forwarded into the returned RunOutcome.note", async () => {
   const { ports } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms") }) });
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 
@@ -365,7 +365,7 @@ test("NOTE CHAIN (adapter): RunQaResult.note is forwarded into the returned RunO
   );
 });
 
-test("NOTE CHAIN (adapter): a clean pass carries the real publish() outcome, never a fabricated diagnostic", async () => {
+test("a clean pass carries the real publish() outcome, never a fabricated diagnostic", async () => {
   /* A "pass"/"pr" decision must call PublicationPort.publish(); its return value threads into
      RunQaResult.note -> RunOutcome.note. The stub here (stubPorts' default
      `publish: async () => ({ outcome: "pr" })`) makes this note reflect what publish() returned —

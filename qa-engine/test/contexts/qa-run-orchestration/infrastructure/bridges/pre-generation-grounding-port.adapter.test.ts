@@ -620,7 +620,7 @@ test("ground(): an in-flight abort unblocks the caller promptly, even when build
   assert.equal(result.contextPack, undefined);
 });
 
-test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as brief", async () => {
+test("exploreBrief collaborator result is forwarded to buildContextPack as brief", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-"));
   try {
     const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
@@ -643,7 +643,7 @@ test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as
   }
 });
 
-test("P0-3: exploreBrief throw is fail-open — pack still builds without a brief", async () => {
+test("exploreBrief throw is fail-open — pack still builds without a brief", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-fail-"));
   try {
     let seenBrief: unknown = "unset";
@@ -665,7 +665,7 @@ test("P0-3: exploreBrief throw is fail-open — pack still builds without a brie
   }
 });
 
-test("O5: ground() never calls exploreBrief when opts (and therefore sha) is absent — never fabricates a sha (e.g. by falling back to a run namespace downstream)", async () => {
+test("ground() never calls exploreBrief when opts (and therefore sha) is absent — never fabricates a sha (e.g. by falling back to a run namespace downstream)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-no-sha-"));
   try {
     let exploreBriefCalls = 0;

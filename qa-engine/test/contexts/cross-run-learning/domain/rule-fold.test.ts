@@ -40,7 +40,7 @@ function foldPreventionOutcome(rule: LearningRule, runErrorClass: string | null)
   return score === null ? rule : applyOutcome(rule, score);
 }
 
-test("WS1.4(a): a rule with errorClass \"\" folded across three clean runs does NOT advance outcomeCount via the prevention path (unfalsifiable — no signal, no write)", () => {
+test("a rule with errorClass \"\" folded across three clean runs does NOT advance outcomeCount via the prevention path (unfalsifiable — no signal, no write)", () => {
   let rule = makeRule({ errorClass: "" as never, status: "candidate", outcomeCount: 0, successRate: null });
 
   for (let i = 0; i < 3; i++) {
@@ -57,7 +57,7 @@ test("WS1.4(a): a rule with errorClass \"\" folded across three clean runs does 
    the candidate -> active gate. The accrual math (outcomeCount/successRate/confidence) is
    UNCHANGED and still pinned here; only the status assertion flips from "active" to "candidate".
  */
-test("WS1.4(b): a rule with a REAL errorClass still earns held credit (PREVENTION_HELD_SCORE) on clean runs, but prevention-only credit does NOT promote to active without oracle evidence", () => {
+test("a rule with a REAL errorClass still earns held credit (PREVENTION_HELD_SCORE) on clean runs, but prevention-only credit does NOT promote to active without oracle evidence", () => {
   let rule = makeRule({ errorClass: "E-FRAGILE-SELECTOR", status: "candidate", outcomeCount: 0, successRate: null });
 
   for (let i = 0; i < 3; i++) {
@@ -76,7 +76,7 @@ test("WS1.4(b): a rule with a REAL errorClass still earns held credit (PREVENTIO
    promote (oracleOutcomeCount stays 0), but the SAME three runs plus one oracle-scored outcome at
    or above the promote rate MUST promote (oracleOutcomeCount reaches 1).
  */
-test("WS1.4(b): PREVENTION_HELD_SCORE === PROMOTE_RATE — three prevention-only runs hold at candidate; a fourth ORACLE-scored outcome promotes", () => {
+test("PREVENTION_HELD_SCORE === PROMOTE_RATE — three prevention-only runs hold at candidate; a fourth ORACLE-scored outcome promotes", () => {
   assert.equal(PREVENTION_HELD_SCORE, 0.6, "pin the constant this test's design depends on");
 
   let rule = makeRule({ errorClass: "E-FRAGILE-SELECTOR", status: "candidate", outcomeCount: 0, successRate: null });
@@ -92,7 +92,7 @@ test("WS1.4(b): PREVENTION_HELD_SCORE === PROMOTE_RATE — three prevention-only
   assert.equal(rule.status, "active", "at least one oracle-scored outcome unblocks promotion once successRate/outcomeCount already clear their own thresholds");
 });
 
-test("WS1.4(a): an empty-errorClass rule also earns no debit when its own (nonexistent) class 'recurs' — the unfalsifiable guard is symmetric, not just a held-credit block", () => {
+test("an empty-errorClass rule also earns no debit when its own (nonexistent) class 'recurs' — the unfalsifiable guard is symmetric, not just a held-credit block", () => {
   /* Even if some caller passed runErrorClass === "" (never happens through the real taxonomy, but
      defensively verified here), the empty-class guard fires FIRST — no signal in either direction.
    */

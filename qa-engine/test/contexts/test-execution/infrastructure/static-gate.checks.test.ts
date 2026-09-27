@@ -139,7 +139,7 @@ function makeTmpSpecDir(specContent: string): string {
   return dir;
 }
 
-test("B2 RED: a spec file with NO expect() call is flagged as a zero-assertion error", async () => {
+test("RED: a spec file with NO expect() call is flagged as a zero-assertion error", async () => {
   const specDir = makeTmpSpecDir([
     `import { test } from "@playwright/test";`,
     `test("login loads", async ({ page }) => {`,
@@ -160,7 +160,7 @@ test("B2 RED: a spec file with NO expect() call is flagged as a zero-assertion e
   }
 });
 
-test("B2 GREEN: a spec file with at least one expect() passes the zero-assertion check", async () => {
+test("GREEN: a spec file with at least one expect() passes the zero-assertion check", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("login succeeds", async ({ page }) => {`,
@@ -177,7 +177,7 @@ test("B2 GREEN: a spec file with at least one expect() passes the zero-assertion
   }
 });
 
-test("B2: await expect() and expect.soft() both count as assertions", async () => {
+test("await expect() and expect.soft() both count as assertions", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("soft assertion", async ({ page }) => {`,
@@ -194,7 +194,7 @@ test("B2: await expect() and expect.soft() both count as assertions", async () =
   }
 });
 
-test("B2: a spec asserting ONLY via expect.poll() is NOT flagged (regression — poll is a real assertion)", async () => {
+test("a spec asserting ONLY via expect.poll() is NOT flagged (regression — poll is a real assertion)", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("eventually consistent", async ({ page }) => {`,
@@ -211,7 +211,7 @@ test("B2: a spec asserting ONLY via expect.poll() is NOT flagged (regression —
   }
 });
 
-test("B2: a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagged — only flows/ is checked", async () => {
+test("a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagged — only flows/ is checked", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-seed-"));
   try {
     /* The seed cleanup.spec.ts sits at the e2e ROOT and has no expect() by design (skip-guarded). */
@@ -226,7 +226,7 @@ test("B2: a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagge
   }
 });
 
-test("B2: a zero-assertion GENERATED spec under flows/ IS flagged", async () => {
+test("a zero-assertion GENERATED spec under flows/ IS flagged", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-flows-"));
   try {
     _mkdirSync(_join(dir, "flows"));

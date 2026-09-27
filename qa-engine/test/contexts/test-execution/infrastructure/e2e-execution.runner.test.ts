@@ -247,7 +247,7 @@ test("runE2E handles a null report by returning infra-error", async () => {
    no capture dir at all has nothing to fall back to and must warn rather than swallow the gap.
    Force mkdtempSync to throw by pointing TMPDIR at a non-existent path.
  */
-test("W2: the no-grounding WARNING still fires when the capture dir can't be minted", async () => {
+test("the no-grounding WARNING still fires when the capture dir can't be minted", async () => {
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
       /* The dir could not be minted, so the runner is handed no capture dir at all. */
@@ -620,7 +620,7 @@ test("matchFailureDumps: a dump with no file still matches a file-prefixed case 
    Match the dump's file against ANY case segment. The dump's title may be the bare describe›test
    (fixture form) OR include the file — both are a contiguous tail, both must match.
  */
-test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) matches the file dump (C1)", () => {
+test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) matches the file dump", () => {
   const projectFirst = "desktop › owners.spec.ts › Owners › add owner"; /* project is caseSegs[0], file is caseSegs[1] */
   const bareTitle: FailureDump[] = [{ project: "desktop", file: "owners.spec.ts", title: "Owners › add owner", retry: 0, yaml: "- button \"Submit\"" }];
   const m1 = matchFailureDumps(projectFirst, bareTitle);
@@ -694,7 +694,7 @@ test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.sp
    unchanged (failureDom's WARNING is still the only loud one), and best-effort absence.
  */
 
-test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", async () => {
+test("harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", async () => {
   /* Write a real capture dump (with finalUrl + httpStatus) into the captureDir that runE2E
      mints and passes to runSuite. The runSuite intercepts the dir, writes the dump into it,
      and returns a report with the matching case. Assert the QaCase carries both fields.
@@ -735,7 +735,7 @@ test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase
   assert.equal((failed as QaCase).finalUrl, "http://localhost:3000/owners/new", "harvest must fold dump.finalUrl onto the QaCase");
 });
 
-test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absent-warned path unchanged)", async () => {
+test("harvest leaves httpStatus/finalUrl absent when dump has neither (absent-warned path unchanged)", async () => {
   /* A dump with only yaml (no finalUrl, no httpStatus) — QaCase must not have them, and the
      only loud WARNING is still the existing failureDom one (no new WARNING introduced).
    */
@@ -781,7 +781,7 @@ test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absen
    receives failureDom/httpStatus/finalUrl (D1/D2 precedent). Mirrors T5 exactly.
  */
 
-test("Feature B: harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
+test("harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
   const title = "owner registration › create owner";
   const file = "owners.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
@@ -827,7 +827,7 @@ test("Feature B: harvest folds dump.runtimeErrors onto the failed QaCase", async
   );
 });
 
-test("Feature B: harvest leaves runtimeErrors absent when dump has none (best-effort, no new warning)", async () => {
+test("harvest leaves runtimeErrors absent when dump has none (best-effort, no new warning)", async () => {
   const title = "form › submit";
   const file = "form.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
@@ -863,7 +863,7 @@ test("Feature B: harvest leaves runtimeErrors absent when dump has none (best-ef
   assert.equal(newWarnings.length, 0, `must NOT emit new warnings for absent runtimeErrors: ${JSON.stringify(newWarnings)}`);
 });
 
-test("Feature B: readFailureDumps parses runtimeErrors defensively (garbage/malformed entries dropped, never throws)", () => {
+test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entries dropped, never throws)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-fail-dump-"));
   try {
     writeFileSync(
@@ -887,7 +887,7 @@ test("Feature B: readFailureDumps parses runtimeErrors defensively (garbage/malf
    an immediate, loud throw instead of a silent fallback to `dir`.
  */
 
-test("J6: createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
   assert.throws(
     () =>
       // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
@@ -897,7 +897,7 @@ test("J6: createDefaultE2eCleanupDeps requires authDir — omitting it throws im
   );
 });
 
-test("J6: createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+test("createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
   assert.throws(
     () =>
       // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.

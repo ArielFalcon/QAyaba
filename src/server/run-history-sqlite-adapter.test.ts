@@ -169,7 +169,7 @@ test("toLegacyRunOutcome forwards mutantCount/killedCount faithfully when presen
   assert.equal(out.gateSignals.killedCount, 0, "a genuine 0 (measured, none killed) must round-trip as 0, not be dropped or coerced to undefined");
 });
 
-test("toLegacyRunOutcome forwards rulesRetrieved (W3 F2) and reflection when present", () => {
+test("toLegacyRunOutcome forwards rulesRetrieved and reflection when present", () => {
   const out = toLegacyRunOutcome(
     kernelOutcome({
       rulesRetrieved: ["selector absent", "use role+name"],

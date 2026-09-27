@@ -533,7 +533,7 @@ export class RunQaUseCase {
      * for by-id fold attribution — never conflate the two.
      */
     /*
-     * R4: bias retrieval toward the CURRENT diff's structural shape — restored from the deleted
+     * Bias retrieval toward the CURRENT diff's structural shape — restored from the deleted
      * shell's selectForRetrieval bias (src/qa/learning/retrieval.ts, pre migration-tier-4c), using
      * the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
      * below, curriculum.select() above) so the offered archetypes never silently diverge from what
@@ -971,12 +971,12 @@ export class RunQaUseCase {
      * One-shot corrective regen before the static gate. Adopt the regen only if it
      * produced specs — an empty result must not discard the original specs.
      */
-    const w1Corrections = await runPreExecGrounding();
-    if (w1Corrections.length > 0) {
-      this.deps.observer?.onStep("retry", "pre-exec grounding: corrective regen (W1)");
+    const groundingCorrections = await runPreExecGrounding();
+    if (groundingCorrections.length > 0) {
+      this.deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
       const corrected = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
         ...baseEnrichment,
-        selectorContradictions: w1Corrections,
+        selectorContradictions: groundingCorrections,
       });
       await enforceConfinement();
       if (corrected.specs.length > 0) {
@@ -984,7 +984,7 @@ export class RunQaUseCase {
       }
     }
     /* Pre-exec corrections still feed later FixLoop regens until the post-static-fix re-check refreshes them. */
-    let pendingSelectorContradictions: string[] = w1Corrections;
+    let pendingSelectorContradictions: string[] = groundingCorrections;
 
     /*
      * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS). Skipped when

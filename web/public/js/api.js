@@ -363,7 +363,7 @@ window.QayabaConsole = (function () {
       coverageMode: a.code ? 'off' : 'signal', oracle: a.code ? 'code' : 'e2e',
       valueSeries: pick(raw.trendsByApp[a.name], 'valueOracle.series', null),
       coverageSeries: pick(raw.trendsByApp[a.name], 'coverage.series', null),
-      /* Stored FE<->BE architecture map (Batch F). null when the app has never completed a
+      /* Stored FE<->BE architecture map. null when the app has never completed a
          mode:context run — the console renders that as an honest empty state, never a mock map. */
       contextMap: (raw.contextMapByApp && raw.contextMapByApp[a.name]) || null,
     }));

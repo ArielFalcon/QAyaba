@@ -366,7 +366,7 @@ describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
     assert.equal(runner.calls.length, 0, "the fetch step must never fire on the cheap pre-filter path");
   });
 
-  test("an empty resolvedLinks array also short-circuits to null without any collaborator call (step 0.5)", async () => {
+  test("an empty resolvedLinks array also short-circuits to null without any collaborator call", async () => {
     let mirrorDirCalls = 0;
     const countingMirrors: MirrorRegistryPort = {
       mirrorDir: async () => { mirrorDirCalls++; return MIRROR_DIR; },

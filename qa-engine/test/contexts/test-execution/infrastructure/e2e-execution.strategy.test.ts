@@ -96,7 +96,7 @@ test("testIdAttribute reaches the runner opts", async () => {
    reach the FixLoop aggregate (adjudicator Rules 2.5/2.6, Lever-2). The full evidence set survives
    the strategy boundary unchanged.
  */
-test("evidence fields survive the strategy boundary (G1 kernel widening)", async () => {
+test("evidence fields survive the strategy boundary", async () => {
   const evidenceCase = {
     name: "checkout shows total", status: "fail" as const, detail: "expect(received).toBe",
     flow: "checkout", objective: "verify totals", reason: "assertion",

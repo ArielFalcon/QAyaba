@@ -77,7 +77,7 @@ test("existingCoverage and structurallyRelated stay inert ok([]) — never promo
   assert.equal(client.calls.length, 0);
 });
 
-test("syncTo spawns index_repository and maps a whole-index client degrade to err(IndexFailed) — never called by this slice's use-case wiring, but implemented+tested per design §6/R11", async () => {
+test("syncTo spawns index_repository and maps a whole-index client degrade to err(IndexFailed)", async () => {
   const client = new FakeClient(async () => ({ code: null, stdout: "", stderr: "codebase-memory-mcp ENOENT" }));
   const adapter = new CodebaseMemoryCodeGraphAdapter(client);
   const result = await adapter.syncTo("/repo", ["a.java"]);
@@ -393,7 +393,7 @@ test("depth>=2 intermediate-hop interface/impl-split: the traversal degrades to 
   assert.equal(fabricatedFromSave.length, 0, "an empty c_name/c_file cell must never become a fabricated symbol");
 });
 
-test("Lombok/accessor-only anchor: zero CALLS edges returns a legitimate ok([]), never miscast as a positive 'no dependency' claim (R7, §4.3)", async () => {
+test("Lombok/accessor-only anchor: zero CALLS edges returns a legitimate ok([]), never miscast as a positive 'no dependency' claim", async () => {
   const cols = ["a_file", "a_name", "b_name", "b_file", "r1_conf", "c_name", "c_file", "r2_conf"];
   const empty = { columns: cols, rows: [], total: 0 };
   const client = new FakeClient(async () => ({ code: 0, stdout: JSON.stringify(empty), stderr: "" }));
@@ -654,7 +654,7 @@ const GROUND_TRUTH: Ref[] = [
   { file: "src/main/java/es/name/restaurants/domain/model/course/CourseModel.java", symbol: "getDefaultImageUrl" },
 ];
 
-test("ground-truth accuracy: impactedSymbols against the REAL captured fixture reproduces the hand-verified ground truth (R13, Scenario J, §7)", async () => {
+test("ground-truth accuracy: impactedSymbols against the REAL captured fixture reproduces the hand-verified ground truth", async () => {
   const outbound = JSON.parse(fixture("impacted-outbound.json"));
   const emptyInbound = { columns: outbound.columns, rows: [], total: 0 };
   let call = 0;

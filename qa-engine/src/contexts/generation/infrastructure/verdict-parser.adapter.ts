@@ -30,7 +30,7 @@ export class VerdictParserAdapter implements VerdictParserPort {
 
   parseGenerator(text: string): GeneratorDeliverable {
     const v = this.p.parseVerdict(text);
-    /* specs ?? [] is the GEN-05 fail-closed default (a parse miss leaves specs undefined → never undefined out). parsed forwarded always (the #1 invariant the use-case branches on); specMetas only when present (drives the disk-reconciled manifest upsert — "disk over the agent's word"). */
+    /* specs ?? [] is the fail-closed default (a parse miss leaves specs undefined → never undefined out). parsed forwarded always (the #1 invariant the use-case branches on); specMetas only when present (drives the disk-reconciled manifest upsert — "disk over the agent's word"). */
     return {
       specs: v.specs ?? [],
       ...(v.note ? { note: v.note } : {}),

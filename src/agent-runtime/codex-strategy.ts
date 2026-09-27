@@ -273,7 +273,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
      */
     let round = 0;
     /*
-     * Circuit breaker role key (J1): mirrors opts?.descriptor?.role ?? agent in
+     * Circuit breaker role key: mirrors opts?.descriptor?.role ?? agent in
      * agent-transport-policy.ts, so a caller-supplied descriptor role wins over the raw
      * openSession role — keeps the breaker keyed the same way across both runtimes.
      */
@@ -350,7 +350,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
   }
 
   /*
-   * startEventStream for Codex (C1.4 / AC1.4.3).
+   * startEventStream for Codex.
    * ARCHITECTURAL NOTE — Codex is exec-per-prompt (no global SSE server):
    * Unlike OpenCode's persistent session server, `codex exec` is a one-shot process per prompt.
    * There is no global event bus to subscribe to. The stream here is a no-op registration
@@ -358,8 +358,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
    * for individual codex prompts are emitted via the JSONL mapper (mapCodexExecEvent) inside
    * runExec when a caller supplies an onRunEvent hook — that per-exec streaming is separate from
    * this session-lifetime subscription.
-   * PROVISIONAL: the exact `codex exec --json` JSONL event shape is UNVERIFIED (T-P1-0 image-gated
-   * fixture not yet captured). The mapper in activity-mapper.ts uses the same defensive probe
+   * PROVISIONAL: the exact `codex exec --json` JSONL event shape is UNVERIFIED (the image-gated
+   * agents/smoke/capture-codex-jsonl.smoke.mjs fixture is not yet captured). The mapper in activity-mapper.ts uses the same defensive probe
    * (event.msg ?? event.message ?? event.text ?? event.content) as extractCodexLastMessage.
    * This MUST be re-validated once the real fixture is committed from the built agents image.
    */

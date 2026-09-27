@@ -114,7 +114,7 @@ test("a seed that signed in adds no auth.setup.ts rewrite instruction", () => {
    false, but the Context Pack is still injected — the prompt must not order a re-navigation). ──
  */
 
-test("RE-1 fix-loop: with grounding present and no failure DOM, the fix prompt does NOT command browser_navigate", () => {
+test("fix-loop: with grounding present and no failure DOM, the fix prompt does NOT command browser_navigate", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM here" }));
   assert.ok(
     !text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"),
@@ -126,7 +126,7 @@ test("RE-1 fix-loop: with grounding present and no failure DOM, the fix prompt d
   );
 });
 
-test("RE-1 fix-loop: with NO grounding, the fix prompt STILL commands browser exploration (blind fix)", () => {
+test("fix-loop: with NO grounding, the fix prompt STILL commands browser exploration (blind fix)", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.ok(
     text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"),
@@ -134,7 +134,7 @@ test("RE-1 fix-loop: with NO grounding, the fix prompt STILL commands browser ex
   );
 });
 
-test("RE-1 fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate framing", () => {
+test("fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate framing", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   assert.ok(text.includes("GROUND TRUTH AT FAILURE"), "failure-sourced retry keeps the ground-truth heading");
   assert.ok(
@@ -143,7 +143,7 @@ test("RE-1 fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate fra
   );
 });
 
-test("RE-1 reviewer-corrections: with grounding present, do NOT command re-verify against the live DOM", () => {
+test("reviewer-corrections: with grounding present, do NOT command re-verify against the live DOM", () => {
   const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], contextPack: "## Context Pack\n\nDOM here" }));
   assert.ok(
     !text.includes("re-verify it against the live DOM with the Playwright MCP"),
@@ -155,7 +155,7 @@ test("RE-1 reviewer-corrections: with grounding present, do NOT command re-verif
   );
 });
 
-test("RE-1 reviewer-corrections: with NO grounding, keep the live-DOM re-verify instruction", () => {
+test("reviewer-corrections: with NO grounding, keep the live-DOM re-verify instruction", () => {
   const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"] }));
   assert.ok(
     text.includes("re-verify it against the live DOM with the Playwright MCP"),
@@ -199,7 +199,7 @@ test("SECURITY: a secret quoted in a reviewCorrection is redacted in the followu
  */
 const ORDINARY_CREDENTIAL = "hunter2";
 
-test("SECURITY (FIX 5): an ordinary unquoted credential in a reviewCorrection is redacted (stricter default mode, not model mode — prose is not code)", () => {
+test("SECURITY: an ordinary unquoted credential in a reviewCorrection is redacted (stricter default mode, not model mode — prose is not code)", () => {
   const text = buildPrompt(mkInput({
     reviewCorrections: [`password: ${ORDINARY_CREDENTIAL} was hardcoded in the fixture, replace it`],
   }));
@@ -207,7 +207,7 @@ test("SECURITY (FIX 5): an ordinary unquoted credential in a reviewCorrection is
   assert.match(text, /\[REDACTED\]/);
 });
 
-test("SECURITY (FIX 5): an ordinary unquoted credential in a selectorContradiction is redacted (stricter default mode)", () => {
+test("SECURITY: an ordinary unquoted credential in a selectorContradiction is redacted (stricter default mode)", () => {
   const text = buildPrompt(mkInput({
     mode: "diff",
     selectorContradictions: [`role:name button with name "password: ${ORDINARY_CREDENTIAL}" is NOT in the captured tree`],
@@ -216,7 +216,7 @@ test("SECURITY (FIX 5): an ordinary unquoted credential in a selectorContradicti
   assert.match(text, /\[REDACTED\]/);
 });
 
-test("SECURITY (FIX 5): an ordinary unquoted credential in a priorCorrection is redacted (stricter default mode)", () => {
+test("SECURITY: an ordinary unquoted credential in a priorCorrection is redacted (stricter default mode)", () => {
   const reviewInput: ReviewInput = {
     diff: "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n",
     specs: ["flows/checkout.spec.ts"],
@@ -240,7 +240,7 @@ test("SECURITY (FIX 5): an ordinary unquoted credential in a priorCorrection is 
  */
 const SECRET_IN_SELECTOR_CONTRADICTION = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
 
-test("SECURITY (FIX 4): a secret embedded in a selectorContradiction (agent-authored locator name) is redacted before reaching the generation prompt", () => {
+test("SECURITY: a secret embedded in a selectorContradiction (agent-authored locator name) is redacted before reaching the generation prompt", () => {
   const text = buildPrompt(mkInput({
     mode: "diff",
     selectorContradictions: [`role:name 'button' with name "${SECRET_IN_SELECTOR_CONTRADICTION}" is NOT in the captured tree; present roles: button:"Save"`],
@@ -249,7 +249,7 @@ test("SECURITY (FIX 4): a secret embedded in a selectorContradiction (agent-auth
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-test("SECURITY (FIX 4): a secret embedded in a selectorContradiction is redacted in the followup (continuation-session) prompt too", () => {
+test("SECURITY: a secret embedded in a selectorContradiction is redacted in the followup (continuation-session) prompt too", () => {
   const text = buildFollowupPrompt(mkInput({
     mode: "diff",
     selectorContradictions: [`role:name 'button' with name "${SECRET_IN_SELECTOR_CONTRADICTION}" is NOT in the captured tree`],
@@ -260,7 +260,7 @@ test("SECURITY (FIX 4): a secret embedded in a selectorContradiction is redacted
 
 /* ── workingRules: a DOM snapshot (no pack) is still grounding → suppress the explore-first mandate ── */
 
-test("RE-1 working-rules: domSnapshot present without a pack suppresses the explore-first mandate", () => {
+test("working-rules: domSnapshot present without a pack suppresses the explore-first mandate", () => {
   const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
   assert.ok(
     !text.includes("MUST use it BEFORE writing any test"),
@@ -272,7 +272,7 @@ test("RE-1 working-rules: domSnapshot present without a pack suppresses the expl
   );
 });
 
-test("RE-1 working-rules: no pack AND no DOM keeps the explore-first mandate (blind run)", () => {
+test("working-rules: no pack AND no DOM keeps the explore-first mandate (blind run)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     text.includes("MUST use it BEFORE writing any test"),
@@ -280,7 +280,7 @@ test("RE-1 working-rules: no pack AND no DOM keeps the explore-first mandate (bl
   );
 });
 
-test("RE-1 coverage-enforce: with grounding present, instruct to resolve from grounding, not re-navigate", () => {
+test("coverage-enforce: with grounding present, instruct to resolve from grounding, not re-navigate", () => {
   const text = buildPrompt(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: "## Context Pack\n\nDOM here" }));
   assert.ok(
     text.includes("Resolve any new selectors from the injected grounding"),
@@ -290,7 +290,7 @@ test("RE-1 coverage-enforce: with grounding present, instruct to resolve from gr
 
 /* ── regen-discipline: a re-generation turn must not re-orient (serena/blast-radius already distilled) ── */
 
-test("RE-1 regen-discipline: a re-generation turn suppresses serena re-orientation", () => {
+test("regen-discipline: a re-generation turn suppresses serena re-orientation", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.ok(
     text.includes("do NOT re-run find_referencing_symbols"),
@@ -298,7 +298,7 @@ test("RE-1 regen-discipline: a re-generation turn suppresses serena re-orientati
   );
 });
 
-test("RE-1 regen-discipline: a FIRST-PASS (non-regen) turn keeps full orientation", () => {
+test("regen-discipline: a FIRST-PASS (non-regen) turn keeps full orientation", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("Re-generation turn:"),
@@ -306,7 +306,7 @@ test("RE-1 regen-discipline: a FIRST-PASS (non-regen) turn keeps full orientatio
   );
 });
 
-test("JD-C1: a diff RE-gen prompt does NOT re-command the blast-radius scan (no contradiction)", () => {
+test("a diff RE-gen prompt does NOT re-command the blast-radius scan (no contradiction)", () => {
   const regen = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM" }));
   assert.ok(!regen.includes("Read ONLY the changed symbols"), "regen must not re-command find_referencing_symbols");
   const firstPass = buildPrompt(mkInput());
@@ -316,7 +316,7 @@ test("JD-C1: a diff RE-gen prompt does NOT re-command the blast-radius scan (no 
 /* hasInjectedGrounding is a coarse boolean; the grounding may not cover the failing route.
    The agent must be explicitly told to navigate an uncovered route rather than guess blindly.
  */
-test("JD-C3: a grounded RE-gen prompt MANDATES navigating a route absent from the grounding (anti-blinding)", () => {
+test("a grounded RE-gen prompt MANDATES navigating a route absent from the grounding (anti-blinding)", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM" }));
   assert.ok(
     text.includes("you MUST still browser_navigate that specific route"),
@@ -325,7 +325,7 @@ test("JD-C3: a grounded RE-gen prompt MANDATES navigating a route absent from th
 });
 
 /* the serena suppression was absolute; a fix may legitimately need a symbol not in the brief. */
-test("JD-SA4: regen-discipline carves out reading a symbol the grounding lacks", () => {
+test("regen-discipline carves out reading a symbol the grounding lacks", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.ok(
     text.includes("read ONLY that symbol"),
@@ -336,7 +336,7 @@ test("JD-SA4: regen-discipline carves out reading a symbol the grounding lacks",
 /* Moving it to the stable-prefix band makes it render before the volatile context-pack, proving it
    sheds no earlier than the volatile/task content it must outlive.
  */
-test("JD-C2: regen-discipline is in the stable band (renders before the volatile context-pack)", () => {
+test("regen-discipline is in the stable band (renders before the volatile context-pack)", () => {
   const a = buildPromptAssembled(mkInput({ fixCases: [failingCase], contextPack: "## CTXPACK-MARKER" }));
   const iRegen = a.text.indexOf("do NOT re-run find_referencing_symbols");
   const iPack = a.text.indexOf("CTXPACK-MARKER");
@@ -348,7 +348,7 @@ test("JD-C2: regen-discipline is in the stable band (renders before the volatile
    the working-rules, context-pack, brief and diff, so re-sending them wastes tokens. The follow-up
    carries only the new failure/correction signal + a "do not re-explore" continuation framing.
  */
-test("RE-3 buildFollowupPrompt: continuation carries the failures but NOT the full re-sent context", () => {
+test("buildFollowupPrompt: continuation carries the failures but NOT the full re-sent context", () => {
   const input = mkInput({
     fixCases: [failingCase],
     contextPack: "## Context Pack CTXPACK_UNIQUE_MARKER\n" + "x".repeat(2000),
@@ -369,7 +369,7 @@ test("RE-3 buildFollowupPrompt: continuation carries the failures but NOT the fu
   );
 });
 
-test("RE-3 buildFollowupPrompt: a failure-sourced continuation still injects the GROUND TRUTH AT FAILURE tree", () => {
+test("buildFollowupPrompt: a failure-sourced continuation still injects the GROUND TRUTH AT FAILURE tree", () => {
   const followup = buildFollowupPrompt(
     mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }),
   );
@@ -378,7 +378,7 @@ test("RE-3 buildFollowupPrompt: a failure-sourced continuation still injects the
 });
 
 /* anti-blinding gap — a fix that must touch a route NOT in that tree needs the same escape. */
-test("JD-R2: the failure-sourced fix branch carries the anti-blinding escape too", () => {
+test("the failure-sourced fix branch carries the anti-blinding escape too", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   assert.ok(
     text.includes("you MUST still browser_navigate that specific route"),
@@ -393,22 +393,22 @@ test("JD-R2: the failure-sourced fix branch carries the anti-blinding escape too
  */
 const secretShapedDom = 'button: Submit\ntextbox: apiKey: "sk-liveSECRETVALUE123456"';
 
-test("WS5.4c: the generator's live-DOM section sanitizes a secret-shaped DOM string", () => {
+test("the generator's live-DOM section sanitizes a secret-shaped DOM string", () => {
   const text = buildPrompt(mkInput({ domSnapshot: secretShapedDom }));
   assert.ok(!text.includes("sk-liveSECRETVALUE123456"), "a secret-shaped string in the captured DOM must not reach the model raw");
 });
 
-test("WS5.4c: the failure-sourced 'GROUND TRUTH AT FAILURE' DOM section sanitizes a secret-shaped string", () => {
+test("the failure-sourced 'GROUND TRUTH AT FAILURE' DOM section sanitizes a secret-shaped string", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: secretShapedDom, failureSourced: true }));
   assert.ok(!text.includes("sk-liveSECRETVALUE123456"), "the failure-point DOM capture must be sanitized too");
 });
 
-test("WS5.4c: buildFollowupPrompt's injected failure DOM sanitizes a secret-shaped string", () => {
+test("buildFollowupPrompt's injected failure DOM sanitizes a secret-shaped string", () => {
   const followup = buildFollowupPrompt(mkInput({ fixCases: [failingCase], domSnapshot: secretShapedDom, failureSourced: true }));
   assert.ok(!followup.includes("sk-liveSECRETVALUE123456"), "the follow-up's re-injected failure DOM must be sanitized too");
 });
 
-test("WS5.4c: buildReviewerPrompt's live-DOM section sanitizes a secret-shaped string", () => {
+test("buildReviewerPrompt's live-DOM section sanitizes a secret-shaped string", () => {
   const reviewInput: ReviewInput = {
     diff: "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n",
     specs: ["flows/checkout.spec.ts"],
@@ -430,7 +430,7 @@ test("WS5.4c: buildReviewerPrompt's live-DOM section sanitizes a secret-shaped s
  */
 const SECRET_IN_PRIOR_CORRECTION = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGH";
 
-test("SECURITY (FIX 4 sweep): a secret quoted in a priorCorrection is redacted before reaching the reviewer's next-round prompt", () => {
+test("SECURITY: a secret quoted in a priorCorrection is redacted before reaching the reviewer's next-round prompt", () => {
   const reviewInput: ReviewInput = {
     diff: "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n",
     specs: ["flows/checkout.spec.ts"],
@@ -465,12 +465,12 @@ const evidenceCase: QaCase = {
   ],
 };
 
-test("C1: buildPrompt fix-cases section renders httpStatus for a failing case", () => {
+test("buildPrompt fix-cases section renders httpStatus for a failing case", () => {
   const text = buildPrompt(mkInput({ fixCases: [evidenceCase] }));
   assert.match(text, /HTTP 503/, "the fix-cases section must surface the correlated HTTP status");
 });
 
-test("C1: buildPrompt fix-cases section renders finalUrl for a failing case", () => {
+test("buildPrompt fix-cases section renders finalUrl for a failing case", () => {
   const text = buildPrompt(mkInput({ fixCases: [evidenceCase] }));
   assert.ok(
     text.includes("https://dev.example.com/owners"),
@@ -478,13 +478,13 @@ test("C1: buildPrompt fix-cases section renders finalUrl for a failing case", ()
   );
 });
 
-test("C1: buildPrompt fix-cases section renders up to 3 runtimeErrors lines", () => {
+test("buildPrompt fix-cases section renders up to 3 runtimeErrors lines", () => {
   const text = buildPrompt(mkInput({ fixCases: [evidenceCase] }));
   assert.match(text, /\[pageerror\] TypeError: cannot read properties of undefined/);
   assert.match(text, /\[console\.error\] Failed to load resource: the server responded with a status of 503/);
 });
 
-test("C1: buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
+test("buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
   const manyErrors: QaCase = {
     ...evidenceCase,
     runtimeErrors: [
@@ -499,7 +499,7 @@ test("C1: buildPrompt fix-cases section caps runtimeErrors at 3 lines", () => {
   assert.ok(!text.includes("error four"), "runtimeErrors rendering must cap at 3 lines per case");
 });
 
-test("C1: buildPrompt fix-cases section slices a long runtimeErrors text to ~200 chars", () => {
+test("buildPrompt fix-cases section slices a long runtimeErrors text to ~200 chars", () => {
   const longText = "X".repeat(500);
   const longErrorCase: QaCase = { ...evidenceCase, runtimeErrors: [{ type: "pageerror", text: longText }] };
   const text = buildPrompt(mkInput({ fixCases: [longErrorCase] }));
@@ -507,12 +507,12 @@ test("C1: buildPrompt fix-cases section slices a long runtimeErrors text to ~200
   assert.ok(text.includes("X".repeat(200)), "the slice must keep roughly the first 200 chars");
 });
 
-test("C1: buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
+test("buildPrompt fix-cases section omits evidence lines when absent (no httpStatus/finalUrl/runtimeErrors)", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.doesNotMatch(text, /HTTP \d+ at/, "no httpStatus present must render no HTTP line");
 });
 
-test("C1: buildFollowupPrompt fix-cases section also renders httpStatus/finalUrl/runtimeErrors", () => {
+test("buildFollowupPrompt fix-cases section also renders httpStatus/finalUrl/runtimeErrors", () => {
   const followup = buildFollowupPrompt(mkInput({ fixCases: [evidenceCase] }));
   assert.match(followup, /HTTP 503/);
   assert.ok(followup.includes("https://dev.example.com/owners"));
@@ -676,7 +676,7 @@ test("seam-c: full FE↔BE rendered when contextPack is absent (non-regression)"
 /* D3-1: when BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
    must appear at most ONCE in the assembled prompt (from the pack, not the brief).
  */
-test("D3: FE↔BE links appear only once when both contextBrief (with feBe) and contextPack are present", () => {
+test("FE↔BE links appear only once when both contextBrief (with feBe) and contextPack are present", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -697,7 +697,7 @@ test("D3: FE↔BE links appear only once when both contextBrief (with feBe) and 
 /* D3-2 (non-regression): when only contextBrief is present (no contextPack), the brief's
    FE↔BE section must still render normally — suppression must NOT apply.
  */
-test("D3: FE↔BE links in contextBrief render normally when contextPack is absent", () => {
+test("FE↔BE links in contextBrief render normally when contextPack is absent", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -713,7 +713,7 @@ test("D3: FE↔BE links in contextBrief render normally when contextPack is abse
 });
 
 /* D3-3: when contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack. */
-test("D3: no FE↔BE section in brief when brief.feBe is absent — no change with or without contextPack", () => {
+test("no FE↔BE section in brief when brief.feBe is absent — no change with or without contextPack", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -854,7 +854,7 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
 /* A3-1: selector-priority rule is present in the prompt when NO domSnapshot is injected.
    Currently the priority guidance only lives in the volatile DOM snapshot section, so this FAILS.
  */
-test("A3: selector-priority rule is present in the stable band even when no domSnapshot is injected", () => {
+test("selector-priority rule is present in the stable band even when no domSnapshot is injected", () => {
   /* No domSnapshot → the volatile DOM section is empty; the stable rule must still appear. */
   const text = buildPrompt(mkInput({ domSnapshot: undefined }));
   /* The stable rule must mention the priority order: getByTestId > getByRole > getByLabel/getByText */
@@ -868,7 +868,7 @@ test("A3: selector-priority rule is present in the stable band even when no domS
    The rule must appear in the stable band (fired regardless), and the DOM snapshot section
    may also carry its own guidance — but neither should be absent when the other is present.
  */
-test("A3: selector-priority rule is present in the stable band when a domSnapshot IS injected", () => {
+test("selector-priority rule is present in the stable band when a domSnapshot IS injected", () => {
   const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
   assert.ok(
     /getByTestId.*getByRole|getByRole.*getByLabel|selector.*priority|priority.*selector/i.test(text),
@@ -881,7 +881,7 @@ test("A3: selector-priority rule is present in the stable band when a domSnapsho
    the full DOM grounding section is separate. We check there is no exact verbatim duplication of
    the stable rule. (Idempotency guard.)
  */
-test("A3: selector-priority rule appears no more than twice across the prompt (idempotency guard)", () => {
+test("selector-priority rule appears no more than twice across the prompt (idempotency guard)", () => {
   /* With both domSnapshot and grounding, the rule may appear in the stable band AND in the
      volatile grounding section. It must NOT be duplicated beyond those two natural occurrences.
    */
@@ -898,7 +898,7 @@ test("A3: selector-priority rule appears no more than twice across the prompt (i
 /* C1-1: when diffArchetypes are present in the input, the prompt must contain
    the one-line "Change shape (deterministic):" hint.
  */
-test("C1: diffArchetypes line appears in the prompt when archetypes are present", () => {
+test("diffArchetypes line appears in the prompt when archetypes are present", () => {
   const text = buildPrompt(mkInput({ diffArchetypes: ["auth-flow", "data-list"] }));
   assert.ok(
     text.includes("Change shape (deterministic)"),
@@ -915,7 +915,7 @@ test("C1: diffArchetypes line appears in the prompt when archetypes are present"
 });
 
 /* C1-2: when diffArchetypes are absent, NO empty header must appear. */
-test("C1: no diffArchetypes line when archetypes are absent", () => {
+test("no diffArchetypes line when archetypes are absent", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("Change shape (deterministic)"),
@@ -924,7 +924,7 @@ test("C1: no diffArchetypes line when archetypes are absent", () => {
 });
 
 /* C1-3: when diffArchetypes is an empty array, NO empty header must appear. */
-test("C1: no diffArchetypes line when archetypes array is empty", () => {
+test("no diffArchetypes line when archetypes array is empty", () => {
   const text = buildPrompt(mkInput({ diffArchetypes: [] }));
   assert.ok(
     !text.includes("Change shape (deterministic)"),
@@ -939,7 +939,7 @@ test("C1: no diffArchetypes line when archetypes array is empty", () => {
    semi-stable/priority-3 band), byte-budget capped at ~1.5KB like other capped sections.
  */
 
-test("Slice 4: a matched structural pattern (form+validation) includes its exemplar template in the prompt", () => {
+test("a matched structural pattern (form+validation) includes its exemplar template in the prompt", () => {
   const text = buildPrompt(mkInput({
     structuralPatterns: [{ kind: "form", hasOnSubmit: true, hasValidation: true }],
   }));
@@ -957,7 +957,7 @@ test("Slice 4: a matched structural pattern (form+validation) includes its exemp
   );
 });
 
-test("Slice 4: no matching structural pattern (generic) omits the Skill exemplars section entirely", () => {
+test("no matching structural pattern (generic) omits the Skill exemplars section entirely", () => {
   const text = buildPrompt(mkInput({ structuralPatterns: [{ kind: "generic" }] }));
   assert.ok(
     !text.includes("## Skill exemplars for the detected structural patterns"),
@@ -965,7 +965,7 @@ test("Slice 4: no matching structural pattern (generic) omits the Skill exemplar
   );
 });
 
-test("Slice 4: structuralPatterns absent omits the Skill exemplars section (never fabricated)", () => {
+test("structuralPatterns absent omits the Skill exemplars section (never fabricated)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("## Skill exemplars for the detected structural patterns"),
@@ -973,7 +973,7 @@ test("Slice 4: structuralPatterns absent omits the Skill exemplars section (neve
   );
 });
 
-test("Slice 4: an empty structuralPatterns array omits the Skill exemplars section", () => {
+test("an empty structuralPatterns array omits the Skill exemplars section", () => {
   const text = buildPrompt(mkInput({ structuralPatterns: [] }));
   assert.ok(
     !text.includes("## Skill exemplars for the detected structural patterns"),
@@ -981,7 +981,7 @@ test("Slice 4: an empty structuralPatterns array omits the Skill exemplars secti
   );
 });
 
-test("Slice 4: matched exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
+test("matched exemplars whose rendered content exceeds the ~1.5KB budget are omitted entirely (overflow:drop, no window starvation)", () => {
   /* Every BUILT_IN_EXEMPLARS entry matches — 6 exemplars, ~1.7KB rendered (measured), over the 1536
      byte cap. The whole section must drop rather than silently truncating mid-template or starving
      other sections' budget.
@@ -1001,7 +1001,7 @@ test("Slice 4: matched exemplars whose rendered content exceeds the ~1.5KB budge
   );
 });
 
-test("Slice 4: duplicate exemplar matches across multiple patterns are deduped by name (never rendered twice)", () => {
+test("duplicate exemplar matches across multiple patterns are deduped by name (never rendered twice)", () => {
   /* Two data-list-shaped patterns both match BOTH data-list exemplars (matchExemplars' own
      kind==='data-list' branch returns true unconditionally) — without dedup this would render
      "Data list empty state" twice.
@@ -1120,7 +1120,7 @@ test("curriculum: with no skillExemplars supplied the local diff derivation stil
    runs the post-redaction fail-loud guard (assertNoSecretLeak) immediately after.
  */
 
-test("Slice 6b (mode fix): the diff embedded in the generator prompt uses 'model' mode — an auth-shaped type annotation is NOT over-redacted", () => {
+test("the diff embedded in the generator prompt uses 'model' mode — an auth-shaped type annotation is NOT over-redacted", () => {
   const text = buildPrompt(mkInput({
     diff: "diff --git a/src/server/auth.ts b/src/server/auth.ts\n+function sign(data: string, secret: string): string {\n",
   }));
@@ -1130,7 +1130,7 @@ test("Slice 6b (mode fix): the diff embedded in the generator prompt uses 'model
   );
 });
 
-test("Slice 6b.1: a diff with a genuine secret is fully redacted before reaching the generator prompt — never sent raw", () => {
+test("a diff with a genuine secret is fully redacted before reaching the generator prompt — never sent raw", () => {
   const text = buildPrompt(mkInput({
     diff: 'diff --git a/src/config.ts b/src/config.ts\n+const apiKey = "sk-live-abc123XYZsecretvalue";\n',
   }));
@@ -1138,7 +1138,7 @@ test("Slice 6b.1: a diff with a genuine secret is fully redacted before reaching
   assert.match(text, /\[REDACTED\]/, "the redaction marker must appear in its place");
 });
 
-test("Slice 6b.4: an auth.ts-shaped diff never trips the diff→model guard (false-positive tolerance, never throws)", () => {
+test("an auth.ts-shaped diff never trips the diff→model guard (false-positive tolerance, never throws)", () => {
   assert.doesNotThrow(() => buildPrompt(mkInput({
     diff: [
       "diff --git a/src/server/auth.ts b/src/server/auth.ts",
@@ -1168,7 +1168,7 @@ test("Slice 6b.4: an auth.ts-shaped diff never trips the diff→model guard (fal
    the norm — silently escaped redaction in model mode despite being redacted in issue mode.
  */
 
-test("FIX 1 (file-aware redaction): a .ts hunk stays code-shaped (unredacted) while a docker-compose.yml hunk in the SAME diff gets its unquoted credential redacted", () => {
+test("file-aware redaction: a .ts hunk stays code-shaped (unredacted) while a docker-compose.yml hunk in the SAME diff gets its unquoted credential redacted", () => {
   const diff = [
     "diff --git a/src/server/auth.ts b/src/server/auth.ts",
     "+function sign(data: string, secret: string): string {",
@@ -1182,20 +1182,20 @@ test("FIX 1 (file-aware redaction): a .ts hunk stays code-shaped (unredacted) wh
   assert.match(text, /\[REDACTED\]/, "the config-file secret must be replaced with the redaction marker");
 });
 
-test("FIX 1 (file-aware redaction): a punctuated unquoted credential in a .env hunk is redacted (config files use issue mode, unaffected by the high-entropy bare-token check)", () => {
+test("file-aware redaction: a punctuated unquoted credential in a .env hunk is redacted (config files use issue mode, unaffected by the high-entropy bare-token check)", () => {
   const diff = ["diff --git a/.env b/.env", "+token=Str0ng!Pass"].join("\n");
   const text = buildPrompt(mkInput({ diff }));
   assert.ok(!text.includes("token=Str0ng!Pass"), "the .env hunk's credential must be redacted even though punctuation defeats isHighEntropyBareToken's bare-identifier shape check");
   assert.match(text, /\[REDACTED\]/);
 });
 
-test("FIX 1 (file-aware redaction, regression): a headerless diff fixture (no 'diff --git' at all) keeps whole-text model mode — existing bare-fixture tests are unaffected", () => {
+test("file-aware redaction: a headerless diff fixture (no 'diff --git' at all) keeps whole-text model mode — existing bare-fixture tests are unaffected", () => {
   const text = buildPrompt(mkInput({ diff: "password=hunter2" }));
   assert.match(text, /hunter2/, "with no file header to key a mode off, the whole text must still fall back to model mode (prior behavior, unchanged)");
 });
 
 /* C2-1: a code-mode generation input WITH staticSignal renders the static-signal section. */
-test("C2: code-mode with staticSignal renders the static-signal section", () => {
+test("code-mode with staticSignal renders the static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code", staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
   assert.ok(
     text.includes("Static signal") && text.includes("Foo.bar"),
@@ -1204,7 +1204,7 @@ test("C2: code-mode with staticSignal renders the static-signal section", () => 
 });
 
 /* C2-2: a code-mode generation input WITHOUT staticSignal must NOT add an empty section. */
-test("C2: code-mode without staticSignal emits no static-signal section", () => {
+test("code-mode without staticSignal emits no static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code" }));
   assert.ok(
     !text.includes("Static signal"),
@@ -1215,7 +1215,7 @@ test("C2: code-mode without staticSignal emits no static-signal section", () => 
 /* C2-3 (regression): the e2e path must be byte-identical when nothing changes — staticSignal present
    must still render in e2e mode (non-regression).
  */
-test("C2 regression: e2e-mode with staticSignal still renders static-signal section", () => {
+test("regression: e2e-mode with staticSignal still renders static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "e2e", staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
   assert.ok(
     text.includes("Static signal") && text.includes("Foo.bar"),
@@ -1240,7 +1240,7 @@ const drift1 = {
   path: "/orders/{id}",
 };
 
-test("S2.4(1): non-empty serviceLinks in generation mode renders a 'Cross-service links (deterministic' section with from -> to (transport, confidence)", () => {
+test("non-empty serviceLinks in generation mode renders a 'Cross-service links (deterministic' section with from -> to (transport, confidence)", () => {
   const text = buildPrompt(mkInput({ serviceLinks: [link1] }));
   assert.match(text, /Cross-service links \(deterministic/, "must render the section header");
   assert.match(
@@ -1251,13 +1251,13 @@ test("S2.4(1): non-empty serviceLinks in generation mode renders a 'Cross-servic
   assert.match(text, /Structural cross-service contract links/, "header must not label every hop as FE→BE");
 });
 
-test("S2.4: http-backend-resolver links render as BE→BE HTTP", () => {
+test("http-backend-resolver links render as BE→BE HTTP", () => {
   const be = { ...link1, source: "http-backend-resolver", from: { repo: "org/orders", file: "src/Client.java", symbol: "exchange" } };
   const text = buildPrompt(mkInput({ serviceLinks: [be] }));
   assert.match(text, /BE→BE HTTP, source http-backend-resolver/);
 });
 
-test("S2.4(2): contractDrift alongside links renders under a DISTINCT 'Contract drift (WARNINGS' sub-heading, never merged into the link list", () => {
+test("contractDrift alongside links renders under a DISTINCT 'Contract drift (WARNINGS' sub-heading, never merged into the link list", () => {
   const text = buildPrompt(mkInput({ serviceLinks: [link1], contractDrift: [drift1] }));
   assert.match(text, /Contract drift \(WARNINGS/, "must render the drift sub-heading");
   assert.match(text, /DELETE \/orders\/\{id\}/, "must render the drift verb+path");
@@ -1266,19 +1266,19 @@ test("S2.4(2): contractDrift alongside links renders under a DISTINCT 'Contract 
   assert.ok(linksIdx >= 0 && driftIdx > linksIdx, "drift sub-heading must come AFTER the links list, not merged into it");
 });
 
-test("S2.4(3): absent/empty serviceLinks renders NO section at all — byte-identical to a prompt assembled without the field", () => {
+test("absent/empty serviceLinks renders NO section at all — byte-identical to a prompt assembled without the field", () => {
   const withEmpty = buildPrompt(mkInput({ serviceLinks: [] }));
   const withoutField = buildPrompt(mkInput({}));
   assert.ok(!withEmpty.includes("Cross-service links"), "empty serviceLinks must render no section");
   assert.equal(withEmpty, withoutField, "an empty array must be byte-identical to the field being entirely absent");
 });
 
-test("S2.4(4): isGenerationMode false (context mode) suppresses the section even when serviceLinks is present", () => {
+test("isGenerationMode false (context mode) suppresses the section even when serviceLinks is present", () => {
   const text = buildPrompt(mkInput({ mode: "context", serviceLinks: [link1] }));
   assert.ok(!text.includes("Cross-service links"), "context mode must never render the service-links section, mirroring every other isGenerationMode-gated section");
 });
 
-test("S2.4(5): more than MAX_LINKS (40) links renders only the first 40; more than MAX_DRIFT (20) drift entries renders only the first 20", () => {
+test("more than MAX_LINKS (40) links renders only the first 40; more than MAX_DRIFT (20) drift entries renders only the first 20", () => {
   const manyLinks = Array.from({ length: 45 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1301,7 +1301,7 @@ test("S2.4(5): more than MAX_LINKS (40) links renders only the first 40; more th
 /* generator (and any human reading a captured prompt) had no way to know MORE links existed past the
    cut. Append an observability marker naming how many were omitted.
  */
-test("WS5.5a: more than MAX_LINKS (40) links appends a '...and N more links' marker (single-agent prompt)", () => {
+test("more than MAX_LINKS (40) links appends a '...and N more links' marker (single-agent prompt)", () => {
   const manyLinks = Array.from({ length: 45 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1313,7 +1313,7 @@ test("WS5.5a: more than MAX_LINKS (40) links appends a '...and N more links' mar
   assert.match(text, /\.\.\.and 5 more links?/i, "45 links - 40 rendered = 5 must be named in the marker");
 });
 
-test("WS5.5a: exactly MAX_LINKS (40) links does NOT append the marker (nothing was actually omitted)", () => {
+test("exactly MAX_LINKS (40) links does NOT append the marker (nothing was actually omitted)", () => {
   const exactLinks = Array.from({ length: 40 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1325,7 +1325,7 @@ test("WS5.5a: exactly MAX_LINKS (40) links does NOT append the marker (nothing w
   assert.doesNotMatch(text, /\.\.\.and \d+ more links?/i, "no marker when every link was actually rendered");
 });
 
-test("WS5.5a: more than MAX_LINKS (40) links appends the '...and N more links' marker in the worker prompt too", () => {
+test("more than MAX_LINKS (40) links appends the '...and N more links' marker in the worker prompt too", () => {
   const manyLinks = Array.from({ length: 42 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1337,7 +1337,7 @@ test("WS5.5a: more than MAX_LINKS (40) links appends the '...and N more links' m
   assert.match(text, /\.\.\.and 2 more links?/i, "42 links - 40 rendered = 2 must be named in the worker prompt marker too");
 });
 
-test("S2.4(7): contractDrift present with serviceLinks ABSENT/empty still renders the section header and the drift WARNING (pure-drift scenario)", () => {
+test("contractDrift present with serviceLinks ABSENT/empty still renders the section header and the drift WARNING (pure-drift scenario)", () => {
   const withoutLinks = buildPrompt(mkInput({ contractDrift: [drift1] }));
   assert.match(withoutLinks, /Cross-service links \(deterministic/, "must still render the section header when drift-only");
   assert.match(withoutLinks, /Contract drift \(WARNINGS/, "must render the drift sub-heading");
@@ -1357,12 +1357,12 @@ test("S2.4(7): contractDrift present with serviceLinks ABSENT/empty still render
   );
 });
 
-test("S2.4(8): links-only (no drift) still renders exactly as before — no empty 'Contract drift' heading", () => {
+test("links-only (no drift) still renders exactly as before — no empty 'Contract drift' heading", () => {
   const text = buildPrompt(mkInput({ serviceLinks: [link1] }));
   assert.ok(!text.includes("Contract drift"), "links-only must not render a drift heading at all");
 });
 
-test("S2.4(6): serviceLinks string fields pass through the local s() sanitize wrapper (secrets redacted, never passed through raw)", () => {
+test("serviceLinks string fields pass through the local s() sanitize wrapper (secrets redacted, never passed through raw)", () => {
   const dirtyLink = {
     from: { repo: "org/front", file: "src/api.ts", symbol: "const k = sk-abc123XYZsecretvalue" },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: "GET /orders/:id" },
@@ -1475,7 +1475,7 @@ function mkWorkerInput(overrides: Partial<ParallelWorkerInput> = {}): ParallelWo
   };
 }
 
-test("C4a defect 1: worker selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
+test("defect 1: worker selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
   const text = buildWorkerPrompt(mkWorkerInput({ domSnapshot: "button: Add Owner -> [data-testid=add-owner]" }));
   const rule = /Selector priority:[^\n]*/.exec(text)?.[0] ?? "";
   assert.ok(rule.length > 0, "worker prompt must contain a Selector priority rule");
@@ -1494,7 +1494,7 @@ test("C4a defect 1: worker selector-priority rule names the test-id-attribute-na
   );
 });
 
-test("C4a defect 1: stable-band selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
+test("defect 1: stable-band selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
   const text = buildPrompt(mkInput({ domSnapshot: undefined }));
   const rule = /Selector priority:[^\n]*/.exec(text)?.[0] ?? "";
   assert.ok(rule.length > 0, "stable band must contain a Selector priority rule");
@@ -1504,7 +1504,7 @@ test("C4a defect 1: stable-band selector-priority rule names the test-id-attribu
   );
 });
 
-test("C4a defect 1: DOM-snapshot section guidance also names the test-id-only discriminator (not 'any hint')", () => {
+test("defect 1: DOM-snapshot section guidance also names the test-id-only discriminator (not 'any hint')", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: false }));
   /* The volatile "Live DEV accessibility tree" section explains the `-> [attr]` hint; it must not
      claim ANY hint implies a test-id — it must name the discriminator (attribute-name prefix).
@@ -1520,7 +1520,7 @@ test("C4a defect 1: DOM-snapshot section guidance also names the test-id-only di
    for an unquotable locator — that invites inventing a data-testid/CSS value not present in any
    grounding. The ONLY permitted fallback is getByText quoted from the failure tree.
  */
-test("C4a defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/data-testid", () => {
+test("defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/data-testid", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   const block = text.slice(text.indexOf("GROUND TRUTH AT FAILURE"), text.indexOf("GROUND TRUTH AT FAILURE") + 1500);
   assert.ok(block.includes("getByText"), "the fallback must still offer getByText");
@@ -1693,7 +1693,7 @@ function bigDiff(fileCount = 5, linesPerFile = 3000): string {
   return parts.join("\n");
 }
 
-test("WS5.1: buildDiffSection (e2e diff-mode task-band section) caps a giant diff instead of embedding it whole", () => {
+test("buildDiffSection (e2e diff-mode task-band section) caps a giant diff instead of embedding it whole", () => {
   const huge = bigDiff();
   const text = buildPrompt(mkInput({ diff: huge, mode: "diff" }));
   assert.ok(text.length < huge.length, "the assembled prompt must be smaller than the raw uncapped diff");
@@ -1701,28 +1701,28 @@ test("WS5.1: buildDiffSection (e2e diff-mode task-band section) caps a giant dif
   assert.match(text, /git show/, "the marker must point the agent at `git show <sha>` for the full diff");
 });
 
-test("WS5.1: buildCodeTask (code-mode diff task) caps a giant diff instead of embedding it whole", () => {
+test("buildCodeTask (code-mode diff task) caps a giant diff instead of embedding it whole", () => {
   const huge = bigDiff();
   const text = buildPrompt(mkInput({ diff: huge, mode: "diff", target: "code" }));
   assert.ok(text.length < huge.length, "the code-mode task must not embed the raw uncapped diff");
   assert.match(text, /diff truncated/i, "a visible truncation marker must be present in code mode too");
 });
 
-test("WS5.1: buildExplorerPrompt caps a giant diff instead of embedding it whole", () => {
+test("buildExplorerPrompt caps a giant diff instead of embedding it whole", () => {
   const huge = bigDiff();
   const text = buildExplorerPrompt(mkInput({ diff: huge, mode: "diff" }));
   assert.ok(text.length < huge.length, "the explorer prompt must not embed the raw uncapped diff");
   assert.match(text, /diff truncated/i, "a visible truncation marker must be present in the explorer prompt too");
 });
 
-test("WS5.1: a small diff (under the cap) passes through buildDiffSection unmodified (no spurious truncation)", () => {
+test("a small diff (under the cap) passes through buildDiffSection unmodified (no spurious truncation)", () => {
   const small = "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n";
   const text = buildPrompt(mkInput({ diff: small, mode: "diff" }));
   assert.ok(text.includes("export function foo()"), "a small diff must render in full");
   assert.doesNotMatch(text, /diff truncated/i, "a small diff must not trigger the truncation marker");
 });
 
-test("WS5.1: reviewObjective/commitDiffObjective (reviewer diff objective) caps a giant diff instead of embedding it whole", () => {
+test("reviewObjective/commitDiffObjective (reviewer diff objective) caps a giant diff instead of embedding it whole", () => {
   const huge = bigDiff();
   const reviewInput: ReviewInput = {
     diff: huge,
@@ -1758,7 +1758,7 @@ test("reviewer defense-in-depth: a >capDiff diff never starves the specs/dom sec
   );
 });
 
-test("WS5.1: a small diff (under the cap) at the reviewer site passes through unmodified", () => {
+test("a small diff (under the cap) at the reviewer site passes through unmodified", () => {
   const small = "diff --git a/src/foo.ts b/src/foo.ts\n+export function foo() {}\n";
   const reviewInput: ReviewInput = {
     diff: small,
@@ -1811,7 +1811,7 @@ test("reviewer defense-in-depth actually FIRES: an oversized DOM snapshot alone 
    one-shot regen into a blind repeat of the original prompt (the diff is also empty on regens).
    shedAs:"critical-recap" so it survives everything else in the volatile band.
  */
-test("WS5.2: coverage-gap survives when other volatile content is large enough to force shedding", () => {
+test("coverage-gap survives when other volatile content is large enough to force shedding", () => {
   /* qa-generator's real budget is deepseek-v4-pro's window (64,000 tokens x 0.75 safety margin x 4
      bytes/token = 192,000 bytes) — the payload below must genuinely exceed that so the assembler's
      global-budget pass actually sheds something, not merely construct a payload that already fits.
@@ -1835,23 +1835,23 @@ test("WS5.2: coverage-gap survives when other volatile content is large enough t
    reviewCorrections / coverageGap) — a regen prompt must not command the agent to cross-check
    evidence that was never in the prompt at all.
  */
-test("WS5.5b: a first-pass (non-regen) e2e prompt renders 'Cross-check against the diff' alongside the diff", () => {
+test("a first-pass (non-regen) e2e prompt renders 'Cross-check against the diff' alongside the diff", () => {
   const text = buildPrompt(mkInput({ mode: "diff" }));
   assert.match(text, /Cross-check against the diff/, "first pass: the diff renders, so the instruction is valid");
   assert.match(text, /## Commit diff/, "first pass: the diff section itself must be present");
 });
 
-test("WS5.5b: a fixCases regen prompt does NOT render 'Cross-check against the diff' (the diff section is empty on regen)", () => {
+test("a fixCases regen prompt does NOT render 'Cross-check against the diff' (the diff section is empty on regen)", () => {
   const text = buildPrompt(mkInput({ mode: "diff", fixCases: [failingCase] }));
   assert.doesNotMatch(text, /Cross-check against the diff/, "regen: no diff section exists, so the instruction must not appear either");
 });
 
-test("WS5.5b: a reviewCorrections regen prompt does NOT render 'Cross-check against the diff'", () => {
+test("a reviewCorrections regen prompt does NOT render 'Cross-check against the diff'", () => {
   const text = buildPrompt(mkInput({ mode: "diff", reviewCorrections: ["[fragile-selector] tighten the locator"] }));
   assert.doesNotMatch(text, /Cross-check against the diff/, "reviewer-corrections regen: no diff section, instruction must not appear");
 });
 
-test("WS5.5b: a coverageGap regen prompt does NOT render 'Cross-check against the diff'", () => {
+test("a coverageGap regen prompt does NOT render 'Cross-check against the diff'", () => {
   const text = buildPrompt(mkInput({ mode: "diff", coverageGap: "src/checkout.ts:42-58" }));
   assert.doesNotMatch(text, /Cross-check against the diff/, "coverage-gap regen: no diff section, instruction must not appear");
 });
@@ -1862,19 +1862,19 @@ test("WS5.5b: a coverageGap regen prompt does NOT render 'Cross-check against th
  */
 const staticGateCase: QaCase = { name: "static-gate", status: "fail", detail: "TS2322: Type 'string' is not assignable to type 'number'." };
 
-test("WS5.5d: a static-gate fixCases entry renders under a 'failing gate' framing, not 'FAILED during execution against DEV'", () => {
+test("a static-gate fixCases entry renders under a 'failing gate' framing, not 'FAILED during execution against DEV'", () => {
   const text = buildPrompt(mkInput({ fixCases: [staticGateCase] }));
   assert.doesNotMatch(text, /FAILED during execution against DEV/, "a compile/lint failure never executed against DEV — the execution framing is misleading here");
   assert.match(text, /failing gate/i, "the static-gate case must render under a distinct 'failing gate' framing");
   assert.match(text, /TS2322/, "the actual validation error text must still be present");
 });
 
-test("WS5.5d: an ordinary (non-static-gate) fixCases entry keeps the original 'FAILED during execution against DEV' framing", () => {
+test("an ordinary (non-static-gate) fixCases entry keeps the original 'FAILED during execution against DEV' framing", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase] }));
   assert.match(text, /FAILED during execution against DEV/, "a real Playwright execution failure keeps its original framing");
 });
 
-test("WS5.2: the assembled coverage-gap section survives a tiny budget that sheds a lower-priority-number volatile section instead", () => {
+test("the assembled coverage-gap section survives a tiny budget that sheds a lower-priority-number volatile section instead", () => {
   /* Direct structural check against the ACTUAL section descriptor buildPromptAssembled constructs
      for coverage-gap (priority 5, shedAs "critical-recap") vs. a lower-priority-number volatile
      section (dom-snapshot, priority 1 — sheds SECOND under the old per-priority-number ordering,

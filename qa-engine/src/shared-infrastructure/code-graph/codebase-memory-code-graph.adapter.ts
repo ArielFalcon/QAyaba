@@ -297,7 +297,7 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
     return ok(mapHopRows(parsed.value, depth, minConfidence));
   }
 
-  /** Real per design §3.2 (corrected grounding, apply-progress): UNDIRECTED FILE_CHANGES_WITH match
+  /** Real: UNDIRECTED FILE_CHANGES_WITH match
    *  anchored by `WHERE f.file_path IN <inlined files>`, mapped to CoupledFile[] deduped by the
    *  coupled (non-anchor) file. No confidence floor — co-change is a git fact, not a CALLS edge. */
   async coChangeCoupling(
@@ -365,7 +365,7 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
     return ok([]);
   }
 
-  /** Real per design §6/R11: spawns index_repository, maps a whole-index failure to IndexFailed.
+  /** Real: spawns index_repository, maps a whole-index failure to IndexFailed.
    *  Called by RunQaUseCase's per-run indexing phase when IndexStatusPort says lastIndexedSha
    *  differs from the run SHA (and both ports are wired). An unresolved project is created first
    *  by LazyProjectCodeGraphAdapter.syncTo via index_repository `{ repo_path }` (same shape as

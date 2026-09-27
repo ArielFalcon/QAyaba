@@ -485,7 +485,7 @@ test("formatDomSnapshot keeps table/list roles past the node cap (a present tabl
    here"). `text` was in the parse keep-set but NOT in PRIORITY_ROLES, so capDomLines could truncate it
    away behind a wall of nav links — destroying the very signal. `text` is now a priority role.
  */
-test("S1: text is a priority node (the Bootstrap-collapse signal survives the cap)", () => {
+test("text is a priority node (the Bootstrap-collapse signal survives the cap)", () => {
   assert.ok(isPriorityNode("text: layout cell only"), "a text: node must be treated as priority");
   /* Direct capDomLines: 80 links + 2 collapse text nodes, cap 60 → both text nodes must survive. */
   const links = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`);
@@ -494,7 +494,7 @@ test("S1: text is a priority node (the Bootstrap-collapse signal survives the ca
   for (const t of textNodes) assert.ok(kept.includes(t), `text collapse node dropped by the cap: ${t}`);
 });
 
-test("S1: formatDomSnapshot keeps text: collapse nodes past the node cap (they sort after the nav)", () => {
+test("formatDomSnapshot keeps text: collapse nodes past the node cap (they sort after the nav)", () => {
   const nav = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`); /* 80 links — over the 60 cap */
   const collapse = ["text: First Last City", "text: George Franklin 110 W. Liberty"];
   const out = formatDomSnapshot([{ route: "/vets", nodes: [...nav, ...collapse] }]);
@@ -741,7 +741,7 @@ test("formatDomSnapshot: unmatched node → line unchanged even when changed is 
    The stable-attr path (testId/id/name/href) is UNCHANGED and must still work as before.
  */
 
-test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text is a substring-of-word in nodeName", () => {
+test("buildChangedMarker: text fallback must NOT fire when changed.text is a substring-of-word in nodeName", () => {
   /* "test" appears as the PREFIX of "test-submission", not as a whole word.
      The marker must NOT fire — substring match would mislead the agent.
    */
@@ -750,7 +750,7 @@ test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text i
   assert.equal(marker, "", "'test' must not match 'test-submission' via substring — word boundary required");
 });
 
-test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text is 'form' matching 'Contact form submit'", () => {
+test("buildChangedMarker: text fallback must NOT fire when changed.text is 'form' matching 'Contact form submit'", () => {
   /* The manual-mode guidance "test the contact form" emits c.text="form".
      Node name "Contact form submit" DOES contain "form" as a whole word.
      After the fix this SHOULD match (it's a whole word in the name).
@@ -762,19 +762,19 @@ test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text i
   assert.equal(marker, "", "'sub' must not match 'test-submission' as a non-word-boundary token");
 });
 
-test("buildChangedMarker FIX-1b: text fallback DOES fire when changed.text is an EXACT whole-word match in nodeName", () => {
+test("buildChangedMarker: text fallback DOES fire when changed.text is an EXACT whole-word match in nodeName", () => {
   const changed: ChangedElement[] = [{ file: "", line: 0, text: "form", raw: "form" }];
   const marker = buildChangedMarker("button: Contact form submit", undefined, changed);
   assert.ok(marker.startsWith(" [CHANGED:"), "whole-word 'form' in 'Contact form submit' must match");
 });
 
-test("buildChangedMarker FIX-1b: text fallback DOES fire when node name equals changed.text exactly", () => {
+test("buildChangedMarker: text fallback DOES fire when node name equals changed.text exactly", () => {
   const changed: ChangedElement[] = [{ file: "", line: 0, text: "Submit", raw: "Submit" }];
   const marker = buildChangedMarker("button: Submit", undefined, changed);
   assert.ok(marker.startsWith(" [CHANGED:"), "exact-equality match must still produce a marker");
 });
 
-test("buildChangedMarker FIX-1b: DIFF-mode stable-attr path (testId/id/name/href) is UNAFFECTED by word-boundary fix", () => {
+test("buildChangedMarker: DIFF-mode stable-attr path (testId/id/name/href) is UNAFFECTED by word-boundary fix", () => {
   /* Stable-attr matches never used the text fallback — they must be byte-identical after the fix */
   const attrTestId: NodeAttr = { key: "button: Submit", testId: "submit-btn" };
   const changedById: ChangedElement[] = [{ file: "f.html", line: 1, testId: "submit-btn", raw: "raw" }];
@@ -793,7 +793,7 @@ test("buildChangedMarker FIX-1b: DIFF-mode stable-attr path (testId/id/name/href
    text entries MUST NOT produce markers on unrelated nodes when stopwords are filtered
    and the text fallback uses word boundaries.
  */
-test("FIX-1 end-to-end: guidance 'test the contact form' must NOT mark test-submission or form-details nodes", async () => {
+test("end-to-end: guidance 'test the contact form' must NOT mark test-submission or form-details nodes", async () => {
   const { DiffParserService } = await import("@kernel/diff-parser/diff-parser.service.ts");
   const changed = new DiffParserService().changedElementsFromGuidance("test the contact form");
   const nodes = ["button: test-submission", "button: Contact form submit", "link: form-details"];
@@ -1127,7 +1127,7 @@ test("4.9 parseAriaSnapshotWithState companion: state IS captured in parallel ma
   assert.deepEqual(states.get("option: Dog"), ["selected"], "selected captured");
 });
 
-test("5.1 Slice 1 marker-absent-when-no-change: node with no state/inputType/nameFallback formats byte-identically", () => {
+test("no state marker when nothing changed: a node with no state/inputType/nameFallback formats byte-identically", () => {
   /* A node from the original keep-set with no new data must format identically */
   const nodes = ["button: Submit", "link: Home", "table: (present)"];
   const snap1: RouteSnapshot[] = [{ route: "/form", nodes }];
@@ -1138,7 +1138,7 @@ test("5.1 Slice 1 marker-absent-when-no-change: node with no state/inputType/nam
   assert.ok(!out1.includes("[CHANGED:"), "no CHANGED marker when changed is not provided");
 });
 
-test("5.2 Byte-identical no-op: original-keep-set role with no new data formats identically before/after Slice 3", () => {
+test("byte-identical no-op: an original-keep-set role with no new data formats identically", () => {
   const nodes = ["heading: Owners", "listitem: Item one"];
   const snap: RouteSnapshot[] = [{ route: "/", nodes }];
   const out = formatDomSnapshot(snap);
@@ -1153,7 +1153,7 @@ test("5.2 Byte-identical no-op: original-keep-set role with no new data formats 
    "test-ids on this route:" block so the agent can DISCOVER every value the gate will accept.
  */
 
-test("FIX-B-1: formatDomSnapshot appends 'test-ids on this route:' line when testIds is non-empty", () => {
+test("formatDomSnapshot appends 'test-ids on this route:' line when testIds is non-empty", () => {
   const snap: RouteSnapshot[] = [{
     route: "/form",
     nodes: ["button: Submit"],
@@ -1165,7 +1165,7 @@ test("FIX-B-1: formatDomSnapshot appends 'test-ids on this route:' line when tes
   assert.ok(out.includes("header-logo"), "second test-id listed");
 });
 
-test("FIX-B-2: formatDomSnapshot renders count>1 with ambiguity marker (×N)", () => {
+test("formatDomSnapshot renders count>1 with ambiguity marker (×N)", () => {
   const snap: RouteSnapshot[] = [{
     route: "/form",
     nodes: ["button: Submit"],
@@ -1176,7 +1176,7 @@ test("FIX-B-2: formatDomSnapshot renders count>1 with ambiguity marker (×N)", (
   assert.ok(out.includes("unique-id") && !out.includes("unique-id (×"), "count=1 renders bare");
 });
 
-test("FIX-B-3 byte-identical guarantee: testIds absent/empty → output unchanged (existing no-op tests still pass)", () => {
+test("byte-identical guarantee: testIds absent/empty → output unchanged (existing no-op tests still pass)", () => {
   const nodes = ["button: Submit", "link: Home", "table: (present)"];
   const withAbsent = formatDomSnapshot([{ route: "/x", nodes }]);
   const withEmptyMap = formatDomSnapshot([{ route: "/x", nodes, testIds: new Map() }]);
@@ -1190,7 +1190,7 @@ test("FIX-B-3 byte-identical guarantee: testIds absent/empty → output unchange
    degradedRouteWarning is tested, not the wiring into the real console).
  */
 
-test("FIX-D: captureRouteTrees calls console.warn when a render returns an errored route", async () => {
+test("captureRouteTrees calls console.warn when a render returns an errored route", async () => {
   const spec = `await page.goto("/owners");`;
   const deps: CaptureDomDeps = {
     render: async () => [{ route: "/owners", error: "Timeout 15000ms exceeded" }],
@@ -1317,7 +1317,7 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
    instead of silently degrading if it is ever actually invoked.
  */
 
-test("J5: createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
+test("createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
   assert.throws(
     () =>
       // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
@@ -1327,7 +1327,7 @@ test("J5: createCaptureDomDeps requires authDir — omitting it throws immediate
   );
 });
 
-test("J5: defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
+test("defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
   await assert.rejects(
     () => defaultCaptureDomDeps.render("/some/e2e/dir", "https://dev.example.com", ["/home"]),
     /authDir/i,

@@ -49,7 +49,7 @@ test("issue mode (default, unchanged): a type annotation is STILL redacted — a
    that belongs to the SURROUNDING prose (not the secret's own value), `\S+` greedily swallows that
    selectorContradiction line quoting a UI element's accessible name.
  */
-test("BUGFIX: a secret-shaped match immediately followed by a closing quote does not swallow that quote (Judge B's exact probe)", () => {
+test("BUGFIX: a secret-shaped match immediately followed by a closing quote does not swallow that quote", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/, "the secret-shaped value must still be redacted");
@@ -216,7 +216,7 @@ test("does NOT redact long Java identifiers or paths with >30-char segments (bot
 
 /* Twin of src/orchestrator/sanitizer.test.ts — keep in lockstep. isPathLikeRun's no-slash
    escape is a real identifier (camelCase/PascalCase with a case transition), capped at 64 chars. */
-test("JD-FIX2: a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
+test("a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
   const identifier = "populateCoursesDescriptionMultilingualUseCase";
   assert.equal(identifier.length, 45);
   const { text: out } = sanitizeText(`- \`${identifier}\``);
@@ -224,7 +224,7 @@ test("JD-FIX2: a camelCase identifier (45 chars, no digits) still survives — e
   assert.doesNotMatch(out, /\[REDACTED\]/);
 });
 
-test("JD-FIX2: a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacted, not code-shaped", () => {
+test("a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacted, not code-shaped", () => {
   const blob = "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjkl";
   assert.equal(blob.length, 45);
   const { text: out } = sanitizeText(`token blob: ${blob}`);
@@ -232,7 +232,7 @@ test("JD-FIX2: a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacte
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length cap wins over shape", () => {
+test("a 70-char camelCase-shaped run (>64 chars) IS redacted — length cap wins over shape", () => {
   const blob = "aB".repeat(35); /* 70 chars, alternating case, no digits */
   assert.equal(blob.length, 70);
   const { text: out } = sanitizeText(`value=${blob}`);
@@ -240,7 +240,7 @@ test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("JD-R2: a PERFECT 2-char case-alternation blob (the deterministic adversarial shape) IS redacted — the identifier escape requires at least one word-segment >= 3 chars", () => {
+test("a PERFECT 2-char case-alternation blob (the deterministic adversarial shape) IS redacted — the identifier escape requires at least one word-segment >= 3 chars", () => {
   const alternating = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOp"; /* 42 chars, every segment exactly 2 */
   const { text: out } = sanitizeText(alternating);
   assert.doesNotMatch(out, /AbCdEfGhIjKl/);

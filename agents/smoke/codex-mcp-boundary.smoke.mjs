@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * T-P0-1: MCP boundary sentinel smoke — IMAGE-GATED
+ * MCP boundary sentinel smoke — IMAGE-GATED
  *
  * PURPOSE: Proves that codex exec (via POST /codex/exec) actually loads the
  * [mcp_servers.*] entries from config.toml and achieves a REAL MCP round-trip.
@@ -28,12 +28,11 @@
  *   AGENT_SUPERVISOR_URL=http://localhost:4097 node agents/smoke/codex-mcp-boundary.smoke.mjs
  *
  * DECISION GATE:
- *   PASS  → config.toml MCPs are loaded by codex 0.139. Proceed with T-P0-2 path A.
- *   FAIL  → codex 0.139 does NOT load config.toml MCPs. Switch to FALLBACK:
- *           wire MCP supervisor-side in runCodexExec (agent-supervisor.mjs ~268,
- *           already owns the spawn) or add an explicit MCP flag in buildCodexExecArgs.
- *           Re-scope T-P0-2/3 to the fallback shape and record the decision in
- *           apply-progress (sdd/codex-parity/apply-progress in engram).
+ *   PASS  → config.toml MCPs are loaded by codex 0.139; the supervisor-written
+ *           config.toml (ensureCodexConfig) is enough.
+ *   FAIL  → codex 0.139 does NOT load config.toml MCPs. Switch to the fallback:
+ *           wire MCP supervisor-side in runCodexExec (which already owns the spawn)
+ *           or add an explicit MCP flag in buildCodexExecArgs.
  */
 
 import { execSync } from "node:child_process";
@@ -124,7 +123,7 @@ console.log(`[codex-mcp-boundary.smoke] Agent response: ${JSON.stringify(respons
 
 if (responseText.trim() === SENTINEL_VALUE) {
   console.log("[codex-mcp-boundary.smoke] PASS — sentinel returned verbatim via engram MCP round-trip.");
-  console.log("DECISION: codex 0.139 LOADS config.toml MCP servers. Proceed with T-P0-2 PATH A.");
+  console.log("DECISION: codex 0.139 LOADS config.toml MCP servers; the supervisor-written config.toml is enough.");
   process.exit(0);
 } else if (responseText.trim() === "MISS") {
   console.error("[codex-mcp-boundary.smoke] FAIL — agent reported MISS (key not found).");

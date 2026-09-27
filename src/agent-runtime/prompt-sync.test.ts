@@ -122,7 +122,7 @@ const AGENTS_MUST_MATCH_SECTIONS = [
 ];
 
 describe("prompt-sync drift guard", () => {
-  it("agent/roles/qa-reviewer.md contains the {text,severity} structured corrections contract (AC1.1.1)", () => {
+  it("agent/roles/qa-reviewer.md contains the {text,severity} structured corrections contract", () => {
     const codexReviewer = readFile("agent/roles/qa-reviewer.md");
     /* The structured contract requires both fields in the JSON example.
        Plain-string corrections do NOT have a `severity` field.
@@ -139,7 +139,7 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("agent/roles/qa-reviewer.md Output format section matches agents/agent/qa-reviewer.md (AC1.1.3)", () => {
+  it("agent/roles/qa-reviewer.md Output format section matches agents/agent/qa-reviewer.md", () => {
     const codexReviewer = parseSections(readFile("agent/roles/qa-reviewer.md"));
     const opencodeReviewer = parseSections(readFile("agents/agent/qa-reviewer.md"));
 
@@ -167,7 +167,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("WS2.4/WS9.2: both qa-reviewer.md mirrors carry the code-mode anti-mock rubric", () => {
+  it("both qa-reviewer.md mirrors carry the code-mode anti-mock rubric", () => {
     for (const rel of ["agent/roles/qa-reviewer.md", "agents/agent/qa-reviewer.md"]) {
       const content = readFile(rel);
       assert.ok(
@@ -181,7 +181,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("WS1.7: both qa-reviewer.md mirrors reject-on-sight a ledger-bypassing 'learned habit' spec comment", () => {
+  it("both qa-reviewer.md mirrors reject-on-sight a ledger-bypassing 'learned habit' spec comment", () => {
     for (const rel of ["agent/roles/qa-reviewer.md", "agents/agent/qa-reviewer.md"]) {
       const content = readFile(rel);
       assert.ok(
@@ -196,7 +196,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("WS1.7: both AGENTS.md mirrors scope engram to operational context and forbid test-authoring rules", () => {
+  it("both AGENTS.md mirrors scope engram to operational context and forbid test-authoring rules", () => {
     for (const rel of ["agent/AGENTS.md", "agents/AGENTS.md"]) {
       const content = readFile(rel);
       assert.ok(
@@ -214,7 +214,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("WS1.7: both qa-generator.md mirrors' engram section forbids test-authoring rules (Procedure is WAIVED but must stay consistent)", () => {
+  it("both qa-generator.md mirrors' engram section forbids test-authoring rules (Procedure is WAIVED but must stay consistent)", () => {
     for (const rel of ["agent/roles/qa-generator.md", "agents/agent/qa-generator.md"]) {
       const content = readFile(rel);
       assert.ok(
@@ -228,7 +228,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("agent/roles/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance (AC1.1.2)", () => {
+  it("agent/roles/qa-reviewer.md contains the app-agnostic warning and ARIA-role selector guidance", () => {
     const codexReviewer = readFile("agent/roles/qa-reviewer.md");
     assert.ok(
       codexReviewer.includes("app-agnostic") || codexReviewer.includes("App-specific"),
@@ -241,7 +241,7 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("a deliberate divergence in Output format is detected — drift structurally caught (AC1.1.3 inverse)", () => {
+  it("a deliberate divergence in Output format is detected — drift structurally caught", () => {
     const opencodeReviewer = parseSections(readFile("agents/agent/qa-reviewer.md"));
     const section = "Output format";
     const opencodeBody = opencodeReviewer.get(section);
@@ -268,7 +268,7 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("T-P3-2: agent/roles/qa-generator.md contains the anti-hang/no-op section (AC1.1.2, C3.2)", () => {
+  it("agent/roles/qa-generator.md contains the anti-hang/no-op section", () => {
     const codexGenerator = readFile("agent/roles/qa-generator.md");
     /* The anti-hang section prevents the generator from over-working past the verdict, which
        causes run timeouts. It must be present in the codex mirror so both runtimes share this
@@ -286,7 +286,7 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("T-P3-2: agent/roles/qa-generator.md Final output section matches agents/agent/qa-generator.md (C3.2)", () => {
+  it("agent/roles/qa-generator.md Final output section matches agents/agent/qa-generator.md", () => {
     const codexGenerator = parseSections(readFile("agent/roles/qa-generator.md"));
     const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
 
@@ -313,7 +313,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("T-P3-2: AGENTS.md Global rules section matches between agents/ and agent/ (C3.2)", () => {
+  it("AGENTS.md Global rules section matches between agents/ and agent/", () => {
     const codexAgents = parseSections(readFile("agent/AGENTS.md"));
     const opencodeAgents = parseSections(readFile("agents/AGENTS.md"));
 
@@ -340,7 +340,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("T-P3-2: GENERATOR_WAIVED_SECTIONS list accounts for all known generator procedure drift (C3.2)", () => {
+  it("GENERATOR_WAIVED_SECTIONS list accounts for all known generator procedure drift", () => {
     /* Verify that any section present in agents/ generator but NOT identical in the codex mirror
        is explicitly listed in GENERATOR_WAIVED_SECTIONS. If a new section appears in agents/
        with content that differs from agent/ and is NOT waived, this test fails — forcing the
@@ -375,7 +375,7 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("T-P3-2: AC3.2.2 — a deliberate divergence in generator Final output is structurally caught (inverse)", () => {
+  it("a deliberate divergence in generator Final output is structurally caught (inverse)", () => {
     const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
     const section = "Final output";
     const opencodeBody = opencodeGenerator.get(section);
@@ -410,7 +410,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
      This assertion PASSES on the current byte-identical files and FAILS on any one-tree edit.
      ---------------------------------------------------------------------------
    */
-  it("WS2.4/WS9.2: test-value-review/SKILL.md carries the code-mode anti-mock rubric (both mirrors, via SKILL_FILE_PAIRS parity)", () => {
+  it("test-value-review/SKILL.md carries the code-mode anti-mock rubric (both mirrors, via SKILL_FILE_PAIRS parity)", () => {
     const content = readFile("agents/skill/test-value-review/SKILL.md");
     assert.ok(
       /mock/i.test(content) && /unit under test/i.test(content),
@@ -423,7 +423,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     );
   });
 
-  it("playwright-authoring skill file parity: locators-and-waiting.md matches across both trees (Task 1.1)", () => {
+  it("playwright-authoring skill file parity: locators-and-waiting.md matches across both trees", () => {
     for (const [opencodeRel, codexRel] of SKILL_FILE_PAIRS) {
       const opencodeContent = readFile(opencodeRel);
       const codexContent = readFile(codexRel);
@@ -440,7 +440,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
      Worker H1 may differ (Flash suffix) — the guard compares H2 bodies only.
      ---------------------------------------------------------------------------
    */
-  it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors (Task 1.2)", () => {
+  it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors", () => {
     const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
     const codexWorker = parseSections(readFile("agent/roles/qa-worker.md"));
 
@@ -470,7 +470,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
      (a) Skill-file parity: appending a comment to the in-memory content must trigger AssertionError.
      (b) Worker section parity: appending a comment to the in-memory section body must trigger AssertionError.
    */
-  it("inverse: skill-file parity guard catches one-tree drift (Task 1.3 — skill file)", () => {
+  it("inverse: skill-file parity guard catches one-tree drift (skill file)", () => {
     const [opencodeRel] = SKILL_FILE_PAIRS[0]!;
     const opencodeContent = readFile(opencodeRel);
     const divergedContent = opencodeContent + "\n\n<!-- drift -->";
@@ -488,7 +488,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     );
   });
 
-  it("inverse: worker section parity guard catches one-tree drift (Task 1.3 — worker section)", () => {
+  it("inverse: worker section parity guard catches one-tree drift (worker section)", () => {
     const opencodeWorker = parseSections(readFile("agents/agent/qa-worker.md"));
     const sectionHeader = WORKER_MUST_MATCH_SECTIONS[0]!;
     const opencodeBody = opencodeWorker.get(sectionHeader);

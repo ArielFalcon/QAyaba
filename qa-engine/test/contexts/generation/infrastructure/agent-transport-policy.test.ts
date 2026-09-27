@@ -171,7 +171,7 @@ test("withStallWatchdog: dispose() stops the watchdog (no leak after session end
   assert.equal(stopCalled, true, "dispose() must stop the watchdog to prevent leaks");
 });
 
-test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog entirely (CP-01)", async () => {
+test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog entirely", async () => {
   let watchdogCreated = false;
   const base: AgentDeps = {
     open: async () => ({
@@ -193,7 +193,7 @@ test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog en
   await session.dispose();
 });
 
-test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped (CP-01 complement)", async () => {
+test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped", async () => {
   let watchdogCreated = false;
   const base: AgentDeps = {
     open: async () => ({ id: "opencode-session", prompt: async () => "ok", dispose: async () => {} }),
@@ -507,7 +507,7 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
    qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-generator
    session, since both funnel through the SAME createAgentDeps/circuit-breaker module.
  */
-test("createAgentDeps: an OPEN circuit for one agent role does not block a different role (C7)", async () => {
+test("createAgentDeps: an OPEN circuit for one agent role does not block a different role", async () => {
   resetCircuit();
   try {
     let generatorPromptCalls = 0;

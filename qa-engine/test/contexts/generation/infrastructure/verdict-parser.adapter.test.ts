@@ -59,7 +59,7 @@ test("parseGenerator forwards parsed + specMetas (WRAP-2 fail-closed + WRAP-1 ma
   assert.deepEqual(d.specMetas, specMetas);     /* WRAP-1: drives the disk-reconciled manifest upsert — gutted-impl-proof */
 });
 
-test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] = []) — GEN-05 inherited from legacy", () => {
+test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] = [])", () => {
   const adapter = new VerdictParserAdapter({
     /* parse miss: no verdict JSON found → parsed:false and specs absent (the ?? [] default must apply) */
     parseVerdict: () => ({ parsed: false }) as never,

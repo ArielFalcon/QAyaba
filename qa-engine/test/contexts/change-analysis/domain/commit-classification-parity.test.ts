@@ -69,7 +69,7 @@ test("FROZEN PARITY relocation-subtraction: a logic line that moved (both + and 
    (template extensions, removed-logic, migrations).
  */
 
-test("FROZEN PARITY WS7.3(a): .html template with added logic", () => {
+test("FROZEN PARITY: .html template with added logic", () => {
   const d = ["diff --git a/src/index.html b/src/index.html", "--- a/src/index.html", "+++ b/src/index.html", "@@ -1,1 +1,2 @@", " <html>", "+<script>if (loggedIn) redirect();</script>"].join("\n");
   const expected: CommitClassification = {
     type: "chore", breaking: false, message: "chore: tweak markup", body: undefined, changedFiles: ["src/index.html"],
@@ -79,7 +79,7 @@ test("FROZEN PARITY WS7.3(a): .html template with added logic", () => {
   assert.deepEqual(classifyCommit("chore: tweak markup", d), expected);
 });
 
-test("FROZEN PARITY WS7.3(a): .astro template with added logic", () => {
+test("FROZEN PARITY: .astro template with added logic", () => {
   const d = ["diff --git a/src/pages/index.astro b/src/pages/index.astro", "--- a/src/pages/index.astro", "+++ b/src/pages/index.astro", "@@ -1,1 +1,2 @@", " ---", "+if (isAdmin) { return Astro.redirect('/admin'); }"].join("\n");
   const expected: CommitClassification = {
     type: "style", breaking: false, message: "style: format", body: undefined, changedFiles: ["src/pages/index.astro"],
@@ -89,7 +89,7 @@ test("FROZEN PARITY WS7.3(a): .astro template with added logic", () => {
   assert.deepEqual(classifyCommit("style: format", d), expected);
 });
 
-test("FROZEN PARITY WS7.3(b): removal-heavy skip commit escalates to regression", () => {
+test("FROZEN PARITY: removal-heavy skip commit escalates to regression", () => {
   const d = ["diff --git a/src/svc.ts b/src/svc.ts", "--- a/src/svc.ts", "+++ b/src/svc.ts", "@@ -1,2 +1,1 @@", " export class S {", "-if (legacyFlag) doOldThing();", " }"].join("\n");
   const expected: CommitClassification = {
     type: "chore", breaking: false, message: "chore: cleanup dead code", body: undefined, changedFiles: ["src/svc.ts"],
@@ -99,7 +99,7 @@ test("FROZEN PARITY WS7.3(b): removal-heavy skip commit escalates to regression"
   assert.deepEqual(classifyCommit("chore: cleanup dead code", d), expected);
 });
 
-test("FROZEN PARITY WS7.3(c): Flyway migration escalates to regression", () => {
+test("FROZEN PARITY: Flyway migration escalates to regression", () => {
   const d = [
     "diff --git a/db/migration/V2__add_column.sql b/db/migration/V2__add_column.sql",
     "--- /dev/null", "+++ b/db/migration/V2__add_column.sql",
@@ -113,7 +113,7 @@ test("FROZEN PARITY WS7.3(c): Flyway migration escalates to regression", () => {
   assert.deepEqual(classifyCommit("chore: db update", d), expected);
 });
 
-test("FROZEN PARITY WS7.3(c): unrelated .sql outside a migration path does not escalate", () => {
+test("FROZEN PARITY: unrelated .sql outside a migration path does not escalate", () => {
   const d = ["diff --git a/scripts/adhoc-report.sql b/scripts/adhoc-report.sql", "--- a/scripts/adhoc-report.sql", "+++ b/scripts/adhoc-report.sql", "@@ -1,1 +1,2 @@", " SELECT 1;", "+SELECT 2;"].join("\n");
   const expected: CommitClassification = {
     type: "chore", breaking: false, message: "chore: report tweak", body: undefined, changedFiles: ["scripts/adhoc-report.sql"],
@@ -126,7 +126,7 @@ test("FROZEN PARITY WS7.3(c): unrelated .sql outside a migration path does not e
    reduction semantics.
  */
 
-test("FROZEN PARITY WS7.1: classifyRange with no range matches classifyCommit on both sides", () => {
+test("FROZEN PARITY: classifyRange with no range matches classifyCommit on both sides", () => {
   const d = srcDiff(["if (a) return;"]);
   const expected: CommitClassification = {
     type: "feat", breaking: false, message: "feat: x", body: undefined, changedFiles: ["src/svc.ts"],
@@ -137,7 +137,7 @@ test("FROZEN PARITY WS7.1: classifyRange with no range matches classifyCommit on
   assert.deepEqual(classifyRange("feat: x", [], d), classifyCommit("feat: x", d));
 });
 
-test("FROZEN PARITY WS7.1: a feat buried under a chore head escalates on both sides, head intent preserved", () => {
+test("FROZEN PARITY: a feat buried under a chore head escalates on both sides, head intent preserved", () => {
   const d = srcDiff(["if (a) return;"]);
   const got = classifyRange("chore: bump deps", ["feat: x"], d);
   const expected: CommitClassification = {

@@ -28,7 +28,7 @@ test("kernel RunOutcome is structurally assignable FROM legacy RunOutcome (legac
 });
 
 /* kernel RunOutcome.gateSignals declares catalogGate* so the type, not just the comparator, carries them. */
-test("kernel RunOutcome.gateSignals accepts catalogGateInWindow/Advisory/FailClosed (Plan 7-R B5.2)", () => {
+test("kernel RunOutcome.gateSignals accepts catalogGateInWindow/Advisory/FailClosed", () => {
   const kernel: KernelRunOutcome = {
     runId: "r1", app: "demo", sha: "abc1234", mode: "diff", target: "e2e",
     verdict: "pass", errorClass: null,

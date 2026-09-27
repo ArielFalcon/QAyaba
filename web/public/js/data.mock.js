@@ -43,7 +43,7 @@ window.QayabaMockData = (function () {
       coverageSeries: [0.84, 0.86, 0.80, 0.88, 0.90, 0.90, 0.92],
       vmix: [{ v: 'pass', n: 73 }, { v: 'fail', n: 6 }, { v: 'flaky', n: 3 }, { v: 'skipped', n: 4 }],
       errClasses: [['timing-flake', 6], ['selector-fragile', 4], ['coverage-miss', 3], ['auth-flow', 2]],
-      /* Sample FE<->BE architecture map (Batch F) — mock mode only; live mode renders only what
+      /* Sample FE<->BE architecture map — mock mode only; live mode renders only what
          GET /apps/:name/context-map actually returns, or an honest empty state. */
       contextMap: {
         builtAtSha: 'f3a9c21',

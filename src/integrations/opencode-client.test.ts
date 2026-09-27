@@ -37,7 +37,7 @@ test("renderArchitectureContext sanitizes injected fields (no prompt-injection /
   assert.doesNotMatch(out, /ghp_AAAA/, "a token in context.json must be redacted before the prompt");
 });
 
-test("renderArchitectureContext: a root route '/' does not scope-match every changed file (M9)", () => {
+test("renderArchitectureContext: a root route '/' does not scope-match every changed file", () => {
   const ctx: ArchitectureContext = {
     builtAtSha: "abc1234def",
     routes: [{ path: "/" }, { path: "/checkout" }],
@@ -96,7 +96,7 @@ test("buildPrompt sanitizes the diff (defense in depth)", () => {
   assert.match(p, /\[REDACTED\]/);
 });
 
-test("buildPrompt (Slice 6b, model mode): a bare short unquoted assignment is treated as code-shaped, not a secret — narrower than issue mode by design", () => {
+test("buildPrompt (model mode): a bare short unquoted assignment is treated as code-shaped, not a secret — narrower than issue mode by design", () => {
   /* model mode only redacts a quoted
      string literal or a high-entropy (>=12 chars, mixed-case, has-digit) bare token. "hunter2" is
      neither (7 chars, no uppercase) — model mode intentionally leaves it alone, trading a weak-secret
@@ -352,7 +352,7 @@ test("buildPrompt injects the exploration brief and tells the generator not to r
   assert.doesNotMatch(buildPrompt(input), /Exploration brief/, "no brief → no brief section (back-compat)");
 });
 
-test("FIX 2: buildExplorerPrompt renders the GUIDANCE (not the empty diff) as the manual exploration objective", () => {
+test("buildExplorerPrompt renders the GUIDANCE (not the empty diff) as the manual exploration objective", () => {
   const p = buildExplorerPrompt({
     ...input,
     mode: "manual",
@@ -380,7 +380,7 @@ test("specFileForFlow produces a safe path under flows/", () => {
   assert.equal(specFileForFlow("   "), "flows/flow.spec.ts");
 });
 
-test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (Q2: workers do NOT navigate)", () => {
+test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (workers do NOT navigate)", () => {
   const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
   const p = buildWorkerPrompt(w);
   assert.match(p, /Write EXACTLY this file: e2e\/flows\/checkout\.spec\.ts/);
@@ -702,7 +702,7 @@ test("3.11(b) fix-pass prompt WITHOUT failureSourced retains browser_navigate in
    renders `c.detail?.slice(0, 500)`, so the contradiction was truncated away exactly when an absent
    selector was found. It is now its OWN un-truncated section, threaded via input.selectorContradictions.
  */
-test("W1: buildPrompt renders the selector contradiction in FULL even when the case detail is long", () => {
+test("buildPrompt renders the selector contradiction in FULL even when the case detail is long", () => {
   const longDetail = "Error: expect(locator).toBeVisible() failed\n" + "x".repeat(900); /* > 500 chars → detail is sliced */
   const contradiction =
     'row: "Bob Smith DISTINCTIVE-MARKER-9f3a" is NOT in the captured failure-point tree. Present roles: button, link, heading, table';
@@ -730,7 +730,7 @@ test("W1: buildPrompt renders the selector contradiction in FULL even when the c
   assert.ok(contradictionIdx < fixBlockIdx, "contradictions come before the fix-cases block");
 });
 
-test("W1: buildPrompt renders MULTIPLE contradictions, each as its own bullet", () => {
+test("buildPrompt renders MULTIPLE contradictions, each as its own bullet", () => {
   const cs = [
     'textbox: "Owner name" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)',
     'columnheader: "Name" is NOT in the captured failure-point tree. Present roles: cell, row',
@@ -746,7 +746,7 @@ test("W1: buildPrompt renders MULTIPLE contradictions, each as its own bullet", 
   assert.match(p, /matches MULTIPLE nodes/);
 });
 
-test("W1: buildPrompt omits the contradiction section when none are provided", () => {
+test("buildPrompt omits the contradiction section when none are provided", () => {
   const p = buildPrompt({
     ...input,
     failureSourced: true,
@@ -1132,12 +1132,12 @@ test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — o
    section when executionResult is present, and omits it when absent.
  */
 
-test("T8 R1: renderExecutionResult is exported from opencode-client", () => {
+test("renderExecutionResult is exported from opencode-client", () => {
   /* The function must exist and be callable as a named export. */
   assert.strictEqual(typeof renderExecutionResult, "function");
 });
 
-test("T8 R2: renderExecutionResult returns a non-empty string with the authoritative heading", () => {
+test("renderExecutionResult returns a non-empty string with the authoritative heading", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [{ name: "login test", httpStatus: 500, finalUrl: "https://app.example.com/login" }],
@@ -1147,7 +1147,7 @@ test("T8 R2: renderExecutionResult returns a non-empty string with the authorita
   assert.match(result, /authoritative/i, "heading must be marked as authoritative");
 });
 
-test("T8 R3: renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
+test("renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [
@@ -1161,7 +1161,7 @@ test("T8 R3: renderExecutionResult sanitizes finalUrl (strips token query param)
   assert.doesNotMatch(result, /ghp_AAAA/, "finalUrl token must be redacted before reaching the reviewer");
 });
 
-test("T8 R4: renderExecutionResult total output is bounded at 4000 chars", () => {
+test("renderExecutionResult total output is bounded at 4000 chars", () => {
   const cases = Array.from({ length: 20 }, (_, i) => ({
     name: `test ${i}`,
     detail: "x".repeat(1000),
@@ -1172,7 +1172,7 @@ test("T8 R4: renderExecutionResult total output is bounded at 4000 chars", () =>
   assert.ok(result.length <= 4000, `total output must be <= 4000 chars, got ${result.length}`);
 });
 
-test("T8 R5: renderExecutionResult caps per-case detail at 500 chars", () => {
+test("renderExecutionResult caps per-case detail at 500 chars", () => {
   const longDetail = "z".repeat(1000);
   const result = renderExecutionResult({
     verdict: "fail",
@@ -1186,7 +1186,7 @@ test("T8 R5: renderExecutionResult caps per-case detail at 500 chars", () => {
   );
 });
 
-test("T8 R6: buildReviewerPrompt omits execution-result section when executionResult is absent", () => {
+test("buildReviewerPrompt omits execution-result section when executionResult is absent", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-no-execresult-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -1198,7 +1198,7 @@ test("T8 R6: buildReviewerPrompt omits execution-result section when executionRe
   }
 });
 
-test("T8 R7: buildReviewerPrompt injects execution-result section when executionResult is present", () => {
+test("buildReviewerPrompt injects execution-result section when executionResult is present", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-execresult-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -1215,7 +1215,7 @@ test("T8 R7: buildReviewerPrompt injects execution-result section when execution
   }
 });
 
-test("T8 R8: buildReviewerPrompt execution-result section is VOLATILE (precedes output contract)", () => {
+test("buildReviewerPrompt execution-result section is VOLATILE (precedes output contract)", () => {
   /* The execution-result section is VOLATILE evidence — it must appear BEFORE the
      CRITICAL-recap output contract so the contract is always last (as the assembler guarantees).
    */

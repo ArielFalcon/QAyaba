@@ -266,7 +266,7 @@ test("publish() prefers decision.e2eChanged (dynamic) over ctx.e2eChanged (stati
    supplied; PR creation ALWAYS targets ctx.repo (the primary repo), never the trigger repo. ──────
  */
 
-test("F3: publish() routes Issue creation to decision.issueRepo (the triggering service repo), not ctx.repo (the primary)", async () => {
+test("publish() routes Issue creation to decision.issueRepo (the triggering service repo), not ctx.repo (the primary)", async () => {
   const decide = new PublishDecisionService();
   let issueRepoSeen: string | undefined;
   const issue = { open: async (repo: string) => { issueRepoSeen = repo; return { url: "https://github.com/org/orders-svc/issues/9", number: 9 }; } };
@@ -282,7 +282,7 @@ test("F3: publish() routes Issue creation to decision.issueRepo (the triggering 
   assert.equal(issueRepoSeen, "org/orders-svc", "the Issue must open in the TRIGGERING service repo, not ctx.repo");
 });
 
-test("F3: publish() still targets ctx.repo for a PR even when issueRepo is supplied (PR never targets the trigger repo)", async () => {
+test("publish() still targets ctx.repo for a PR even when issueRepo is supplied (PR never targets the trigger repo)", async () => {
   const decide = new PublishDecisionService();
   let prRepoSeen: string | undefined;
   const pr = { openWithAutoMerge: async (repo: string) => { prRepoSeen = repo; return { url: "https://github.com/org/app/pull/1", number: 1 }; } };
@@ -299,7 +299,7 @@ test("F3: publish() still targets ctx.repo for a PR even when issueRepo is suppl
   assert.equal(prRepoSeen, "org/app", "PR creation must always target ctx.repo (the primary repo), never the trigger repo, even when issueRepo is present");
 });
 
-test("F3: publish() falls back to ctx.repo for an Issue when issueRepo is absent (ordinary monorepo run)", async () => {
+test("publish() falls back to ctx.repo for an Issue when issueRepo is absent (ordinary monorepo run)", async () => {
   const decide = new PublishDecisionService();
   let issueRepoSeen: string | undefined;
   const issue = { open: async (repo: string) => { issueRepoSeen = repo; return { url: "https://github.com/org/app/issues/2", number: 2 }; } };
@@ -323,7 +323,7 @@ test("F3: publish() falls back to ctx.repo for an Issue when issueRepo is absent
    the body through this adapter. The Issue body never contains raw log text, and the footer points
    at the run artifacts instead.
  */
-test("F4 (Slice 4 update): publish() never embeds raw execution logs in the Issue body — logs live in the run artifacts", async () => {
+test("publish() never embeds raw execution logs in the Issue body — logs live in the run artifacts", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/3", number: 3 }; } };
@@ -341,7 +341,7 @@ test("F4 (Slice 4 update): publish() never embeds raw execution logs in the Issu
   assert.match(bodySeen, /Full trace \+ logs in the run artifacts/, "the body must point at the run artifacts instead of embedding logs");
 });
 
-test("F4: publish() applies the injected sanitize() to each failing case's name and detail", async () => {
+test("publish() applies the injected sanitize() to each failing case's name and detail", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/4", number: 4 }; } };
@@ -394,7 +394,7 @@ test("PROD-BLOCKER: publish() invokes vcsWrite BEFORE pr.openWithAutoMerge on th
    must never be silent — this bridge threads vcsWrite.publish()'s `revertedDenylisted` straight
    through to its own caller (RunQaUseCase), so it can be merged into gateSignals.confinement.
  */
-test("FIX 3: publish() surfaces vcsWrite's revertedDenylisted on the 'pr' route", async () => {
+test("publish() surfaces vcsWrite's revertedDenylisted on the 'pr' route", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
@@ -409,7 +409,7 @@ test("FIX 3: publish() surfaces vcsWrite's revertedDenylisted on the 'pr' route"
   assert.deepEqual(result.revertedDenylisted, ["Dockerfile"], "a reverted denylisted path must be surfaced to the caller, not swallowed at this bridge");
 });
 
-test("FIX 3: publish() omits revertedDenylisted when vcsWrite reports none (never fabricated)", async () => {
+test("publish() omits revertedDenylisted when vcsWrite reports none (never fabricated)", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
@@ -549,7 +549,7 @@ test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is a
    sanitizer must fail LOUDLY at construction time, never silently publish unsanitized Issue/PR
    bodies.
  */
-test("WS5.4b: constructor THROWS when sanitize is omitted (fail-closed, not identity default)", () => {
+test("constructor THROWS when sanitize is omitted (fail-closed, not identity default)", () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
@@ -570,7 +570,7 @@ test("WS5.4b: constructor THROWS when sanitize is omitted (fail-closed, not iden
    collaborator — a composition that forgets to wire the real renderIssue/renderPrBody must throw
    loudly at construction time, never silently fall back to a raw-log embed.
  */
-test("Slice 4: constructor THROWS when render is omitted (fail-closed, no raw-log fallback)", () => {
+test("constructor THROWS when render is omitted (fail-closed, no raw-log fallback)", () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
@@ -592,7 +592,7 @@ test("Slice 4: constructor THROWS when render is omitted (fail-closed, no raw-lo
    carries no logs field, see F4's own Slice-4-update test above). Re-targeted at a field the render
    functions DO carry through unchanged with an identity sanitizer: a failing case's own name.
  */
-test("WS5.4b: an explicitly-injected identity sanitize is still a VALID, deliberate choice", async () => {
+test("an explicitly-injected identity sanitize is still a VALID, deliberate choice", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/5", number: 5 }; } };
@@ -656,7 +656,7 @@ test("shadow fidelity: a PASS run's shadow preview still logs the would-be PR", 
    injected sanitizer the logs/case fields already use. ──────────────────────────────────────────
  */
 
-test("WS3.1: publish() renders an 'Engine adjudication' section in the Issue body when adjudication is present", async () => {
+test("publish() renders an 'Engine adjudication' section in the Issue body when adjudication is present", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/6", number: 6 }; } };
@@ -680,7 +680,7 @@ test("WS3.1: publish() renders an 'Engine adjudication' section in the Issue bod
   assert.match(bodySeen, /App defect detected: backend returned a 5xx server error \(status 503\)/);
 });
 
-test("WS3.1: publish() omits the 'Engine adjudication' section entirely when adjudication is absent (backward-compat)", async () => {
+test("publish() omits the 'Engine adjudication' section entirely when adjudication is absent (backward-compat)", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/7", number: 7 }; } };
@@ -696,7 +696,7 @@ test("WS3.1: publish() omits the 'Engine adjudication' section entirely when adj
   assert.ok(!bodySeen.includes("Engine adjudication"), `no adjudication was supplied, so the section must be entirely absent — got: ${bodySeen}`);
 });
 
-test("WS3.1: publish() words a low-confidence adjudication as an engine guess (hint), not a firm diagnosis", async () => {
+test("publish() words a low-confidence adjudication as an engine guess (hint), not a firm diagnosis", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/8", number: 8 }; } };
@@ -717,7 +717,7 @@ test("WS3.1: publish() words a low-confidence adjudication as an engine guess (h
   assert.match(bodySeen, /Engine adjudication \(low confidence — treat as a hint\)/, `expected the low-confidence hedge wording — got: ${bodySeen}`);
 });
 
-test("WS3.1: publish() sanitizes the adjudication reason through the SAME injected sanitizer as logs/cases", async () => {
+test("publish() sanitizes the adjudication reason through the SAME injected sanitizer as logs/cases", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/9", number: 9 }; } };
@@ -814,7 +814,7 @@ test("reviewer-outage note: publish() sanitizes reviewerNote through the SAME in
    pinned at the render-publication.ts unit level; these tests pin the ADAPTER'S OWN threading).
  */
 
-test("Slice 4: publish() threads tested/isCode/parentRunId into the PR body render", async () => {
+test("publish() threads tested/isCode/parentRunId into the PR body render", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/pull/1", number: 1 }; } };
@@ -843,7 +843,7 @@ test("Slice 4: publish() threads tested/isCode/parentRunId into the PR body rend
   assert.match(bodySeen, /Continuation of run-deadbeef/);
 });
 
-test("Slice 4: publish() threads tested into the Issue body render", async () => {
+test("publish() threads tested into the Issue body render", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const issue = { open: async (_repo: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/issues/13", number: 13 }; } };
@@ -865,7 +865,7 @@ test("Slice 4: publish() threads tested into the Issue body render", async () =>
   assert.match(bodySeen, /\*\*Checkout\*\*/);
 });
 
-test("Slice 4: publish() with no tested/isCode/parentRunId supplied still renders a complete PR body (backward-compat, isCode defaults to e2e wording)", async () => {
+test("publish() with no tested/isCode/parentRunId supplied still renders a complete PR body (backward-compat, isCode defaults to e2e wording)", async () => {
   const decide = new PublishDecisionService();
   let bodySeen = "";
   const pr = { openWithAutoMerge: async (_repo: string, _branch: string, _title: string, body: string) => { bodySeen = body; return { url: "https://github.com/org/app/pull/2", number: 2 }; } };

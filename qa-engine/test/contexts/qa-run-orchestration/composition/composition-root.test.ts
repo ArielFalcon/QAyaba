@@ -1215,7 +1215,7 @@ test("buildProduction(rewritten) runs without preExecGroundingCollaborators (abs
 
 /* The gate must actually fire through composition, not just receive a call: a duplicate
    page-rooted selector must produce preExecAmbiguityCatches > 0. */
-test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in the captured route trips the W1 pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
+test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
   /* A REAL specDir (mirrorDir/e2eRelDir) — the adapter under test resolves its own paths off disk
      (the "adapter resolves its own paths" precedent SetupPort/ExecutionPort/ReviewDomGroundingPort
      already use), so this is exercised against real fs, not a readSpecSource passthrough.

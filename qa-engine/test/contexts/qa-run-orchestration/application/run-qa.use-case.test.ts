@@ -239,7 +239,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT
   assert.match(correctiveCall!.enrichment!.selectorContradictions![0]!, /MULTIPLE/);
 });
 
-test("RunQaUseCase: PreExecGroundingPort wired — a PERSISTING ambiguity after the corrective regen holds the run invalid (W2 deterministic block)", async () => {
+test("RunQaUseCase: PreExecGroundingPort wired — a PERSISTING ambiguity after the corrective regen holds the run invalid", async () => {
   const { ports } = stubPorts({
     /* The stub generation port never actually rewrites specs to resolve the ambiguity (the corrective
        regen is a no-op from the gate's point of view) — capture() keeps reporting the SAME
@@ -834,7 +834,7 @@ test("RunQaUseCase — cross-repo (needsReview:false): review() is NEVER called"
    nothing new on a pass. `generating` is the classify action, never a hardcoded true.
  */
 
-test("WS7.2 characterization: a regression commit that PASSES the existing suite publishes NOTHING (pass/none), never calls generate() or review()", async () => {
+test("characterization: a regression commit that PASSES the existing suite publishes NOTHING (pass/none), never calls generate() or review()", async () => {
   let generateCallCount = 0;
   let reviewCallCount = 0;
   let executeCallCount = 0;
@@ -858,7 +858,7 @@ test("WS7.2 characterization: a regression commit that PASSES the existing suite
   assert.equal(publishCallCount, 0, "sideEffect:'none' must never dispatch to the publish port");
 });
 
-test("WS7.2 characterization: a regression commit whose EXISTING suite FAILS still opens an Issue (fail/issue), FixLoop never regenerates (generating:false)", async () => {
+test("characterization: a regression commit whose EXISTING suite FAILS still opens an Issue (fail/issue), FixLoop never regenerates (generating:false)", async () => {
   let generateCallCount = 0;
   let executeCallCount = 0;
   const { ports } = stubPorts({
@@ -876,7 +876,7 @@ test("WS7.2 characterization: a regression commit whose EXISTING suite FAILS sti
   assert.equal(out.decision.sideEffect, "issue", "a red existing suite still surfaces — the normal fail/Issue machinery, unchanged");
 });
 
-test("WS7.2 characterization: reviewerApproved persists as undefined (never a fabricated true) for a passing regression run", async () => {
+test("characterization: reviewerApproved persists as undefined (never a fabricated true) for a passing regression run", async () => {
   const { ports } = stubPorts({
     classify: async () => ({ action: "regression", reason: "type=refactor", diff: "" }),
     execute: async () => ({ verdict: "pass", cases: [{ name: "existing-suite-flow", status: "pass" as const }], logs: "" }),
@@ -888,7 +888,7 @@ test("WS7.2 characterization: reviewerApproved persists as undefined (never a fa
   assert.equal(out.gateSignals.reviewerApproved, undefined, "legacy persists reviewerApproved as null for a regression run (result stays unset) — this use-case's equivalent is undefined, never the synthetic generate() stand-in's approved:true");
 });
 
-test("WS7.2 characterization: a generate-typed commit (unchanged) still calls generate() normally — regression's own gate does not leak into other actions", async () => {
+test("characterization: a generate-typed commit (unchanged) still calls generate() normally — regression's own gate does not leak into other actions", async () => {
   let generateCallCount = 0;
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "diff --git a/src/x.ts b/src/x.ts\n+if (x) return 1;\n" }),
@@ -905,7 +905,7 @@ test("WS7.2 characterization: a generate-typed commit (unchanged) still calls ge
    half is pinned in src/server/runner.test.ts).
  */
 
-test("WS7.1: input.baseSha is forwarded to classify() as {baseSha}, absent -> classify() called with no opts (single-commit, unchanged)", async () => {
+test("input.baseSha is forwarded to classify() as {baseSha}, absent -> classify() called with no opts (single-commit, unchanged)", async () => {
   const seenOpts: unknown[] = [];
   const { ports } = stubPorts({
     classify: async (_sha, opts) => { seenOpts.push(opts); return { action: "generate", reason: "type=feat", diff: "" }; },
@@ -919,7 +919,7 @@ test("WS7.1: input.baseSha is forwarded to classify() as {baseSha}, absent -> cl
   assert.deepEqual(seenOpts[1], { baseSha: Sha.of("bad00001") }, "input.baseSha must be forwarded verbatim as classify()'s opts.baseSha");
 });
 
-test("WS7.4: classification.reason + contradiction:true reach baseEnrichment when the classifier escalated", async () => {
+test("classification.reason + contradiction:true reach baseEnrichment when the classifier escalated", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({
     classify: async () => ({
@@ -944,7 +944,7 @@ test("WS7.4: classification.reason + contradiction:true reach baseEnrichment whe
   }
 });
 
-test("WS7.4: contradiction key is ABSENT (never a fabricated false) when the classifier did not escalate", async () => {
+test("contradiction key is ABSENT (never a fabricated false) when the classifier did not escalate", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({
     classify: async () => ({ action: "generate", reason: "type=feat", diff: "diff --git a/src/x.ts b/src/x.ts\n+if (x) return 1;\n" }),
@@ -1044,7 +1044,7 @@ test("RunQaUseCase — infra-error: execute() is NEVER called (DEV unhealthy bef
    live container. These tests pin the note end-to-end for each silent terminal that fix closed. ──
  */
 
-test("NOTE CHAIN: entry deploy-gate failure surfaces the InfraError message as the note", async () => {
+test("entry deploy-gate failure surfaces the InfraError message as the note", async () => {
   const { ports } = stubPorts({
     waitUntilServing: async () => ({ ok: false, error: new Error("DEV did not serve sha abc1234 within 5000ms (versionUrl=https://example.com/version)") }),
   });
@@ -1059,7 +1059,7 @@ test("NOTE CHAIN: entry deploy-gate failure surfaces the InfraError message as t
   );
 });
 
-test("NOTE CHAIN: mid-run health pre-flight failure surfaces a note (and is persisted)", async () => {
+test("mid-run health pre-flight failure surfaces a note (and is persisted)", async () => {
   let waitUntilServingCall = 0;
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
@@ -1079,7 +1079,7 @@ test("NOTE CHAIN: mid-run health pre-flight failure surfaces a note (and is pers
   assert.equal(saved?.note, out.note, "the persisted RunOutcome must carry the SAME note as the returned RunQaResult — the note must survive the mapping chain out to the run record");
 });
 
-test("NOTE CHAIN: static-gate 'invalid' terminal surfaces the validation errors as the note", async () => {
+test("static-gate 'invalid' terminal surfaces the validation errors as the note", async () => {
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout", "[tsc] Type 'string' is not assignable to type 'number'."] }),
   });
@@ -1191,7 +1191,7 @@ test("dynamic diff: a non-diff mode (e.g. complete) never calls classify(), so g
 });
 
 
-test("FIX A: reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=false, not true", async () => {
+test("reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApproved=false, not true", async () => {
   /* review() returns parsed:false (a parse miss) with approved:false on the raw payload too, so a
      fail-OPEN bug (parsed:false -> treat as approved:true) is masked unless approved itself is
      false — this reproduces the reviewer-outage shape (approved:false, parsed:false), so a correct
@@ -1213,7 +1213,7 @@ test("FIX A: reviewer parse-miss (parsed:false) must FAIL CLOSED — reviewerApp
   assert.equal(out.decision.sideEffect, "issue", "a reviewer parse-miss must fail CLOSED (issue), not silently approve (pr)");
 });
 
-test("FIX B: coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when the signal is fail", async () => {
+test("coveragePolicyMode:\"signal\" (the default) NEVER blocks publish even when the signal is fail", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
     measure: async () => ({ status: "fail", ratio: 0.2 }),
@@ -1237,7 +1237,7 @@ test("FIX B: coveragePolicyMode:\"signal\" (the default) NEVER blocks publish ev
    `${runId}-coverage-regen` namespace (Constraint 2's dump-attribution requirement).
  */
 
-test("P2c: enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (issue)", async () => {
+test("enforce mode — first measure fails, regen fires, second measure ALSO fails — blocksPublish stays true (issue)", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -1256,7 +1256,7 @@ test("P2c: enforce mode — first measure fails, regen fires, second measure ALS
   assert.equal(measureCallCount, 2, "enforce+fail must regenerate exactly once, re-measuring exactly twice total (never a third)");
 });
 
-test("P2c: enforce mode — first measure fails, regen fires, second measure PASSES — blocksPublish unblocks (pr)", async () => {
+test("enforce mode — first measure fails, regen fires, second measure PASSES — blocksPublish unblocks (pr)", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -1280,7 +1280,7 @@ test("P2c: enforce mode — first measure fails, regen fires, second measure PAS
   assert.equal(measureCallCount, 2);
 });
 
-test("P2c: enforce mode — regen's second measure resolves unknown — blocksPublish stays false (the keystone invariant survives regen)", async () => {
+test("enforce mode — regen's second measure resolves unknown — blocksPublish stays false (the keystone invariant survives regen)", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -1303,7 +1303,7 @@ test("P2c: enforce mode — regen's second measure resolves unknown — blocksPu
   assert.equal(measureCallCount, 2);
 });
 
-test("P2c: enforce mode — the regen's generate() throws — KEEPS the first measurement's blocksPublish (never fabricated)", async () => {
+test("enforce mode — the regen's generate() throws — KEEPS the first measurement's blocksPublish (never fabricated)", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -1328,7 +1328,7 @@ test("P2c: enforce mode — the regen's generate() throws — KEEPS the first me
   );
 });
 
-test("P2c: enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
+test("enforce mode — the regen produces ZERO specs — KEEPS the first measurement's blocksPublish, only ONE measure() call", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -1352,7 +1352,7 @@ test("P2c: enforce mode — the regen produces ZERO specs — KEEPS the first me
   assert.equal(measureCallCount, 1, "zero regen specs must NOT trigger a second measure() call");
 });
 
-test("P2c: signal mode — first measure fails, NO regen fires, NO second measure() call", async () => {
+test("signal mode — first measure fails, NO regen fires, NO second measure() call", async () => {
   let measureCallCount = 0;
   let genCallCount = 0;
   const { ports } = stubPorts({
@@ -1374,7 +1374,7 @@ test("P2c: signal mode — first measure fails, NO regen fires, NO second measur
   assert.equal(genCallCount, 1, "signal mode's regen branch must not call generate() a second time");
 });
 
-test("P2c: the regen's execute() AND its re-measure() both use the ${runId}-coverage-regen namespace (GATE FIX: measure-side dump attribution)", async () => {
+test("the regen's execute() AND its re-measure() both use the ${runId}-coverage-regen namespace (GATE FIX: measure-side dump attribution)", async () => {
   const capturedExecuteNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
   let measureCallCount = 0;
@@ -1419,7 +1419,7 @@ test("P2c: the regen's execute() AND its re-measure() both use the ${runId}-cove
   assert.equal(capturedMeasureNamespaces[1], "p2c-regen-namespace-attribution-coverage-regen", "the regen's re-measure() must override the namespace to the SAME ${runId}-coverage-regen namespace its own execute() wrote dumps under — otherwise signal2/blocksPublish are measured against STALE (first-run) coverage data");
 });
 
-test("FIX C: context mode NEVER calls execute() (context.json is not a Playwright spec)", async () => {
+test("context mode NEVER calls execute() (context.json is not a Playwright spec)", async () => {
   let executeCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
@@ -1432,7 +1432,7 @@ test("FIX C: context mode NEVER calls execute() (context.json is not a Playwrigh
   assert.equal(executeCallCount, 0, "context mode must never invoke ExecutionPort.execute — context.json is not a Playwright spec");
 });
 
-test("FIX D: a diff-mode fail retry computes coverageWillMeasure per the legacy formula and threads it into the FixLoop", async () => {
+test("a diff-mode fail retry computes coverageWillMeasure per the legacy formula and threads it into the FixLoop", async () => {
   /* The use-case's ExecutionPort accepts an ExecutionOpts bag (see
      ports/index.ts) and the fixLoopExecution closure below DOES thread FixLoopExecuteInput.specFiles
      through to it (see "filtered-retry threads specFiles" tests further down in this
@@ -1471,7 +1471,7 @@ test("FIX D: a diff-mode fail retry computes coverageWillMeasure per the legacy 
   );
 });
 
-test("FIX D: coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop (matches the legacy's covPolicy.mode!=='off' conjunct)", async () => {
+test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixLoop (matches the legacy's covPolicy.mode!=='off' conjunct)", async () => {
   const originalRun = FixLoop.prototype.run;
   let capturedCoverageWillMeasure: boolean | undefined;
   FixLoop.prototype.run = async function (input: Parameters<typeof originalRun>[0]) {
@@ -1499,7 +1499,7 @@ test("FIX D: coveragePolicyMode:\"off\" threads coverageWillMeasure:false into t
    infra-error -> persistOutcome save YES, foldRunLearning NO
  */
 
-test("FIX E: agent no-op skip calls runHistory.save() but NOT learning.fold()", async () => {
+test("agent no-op skip calls runHistory.save() but NOT learning.fold()", async () => {
   let saveCallCount = 0;
   let foldCallCount = 0;
   const { ports } = stubPorts({ generate: async () => ({ specs: [], approved: true }) });
@@ -1514,7 +1514,7 @@ test("FIX E: agent no-op skip calls runHistory.save() but NOT learning.fold()", 
   assert.equal(foldCallCount, 0, "agent no-op skip must NEVER call learning.fold() (the legacy never calls foldRunLearning for this source)");
 });
 
-test("FIX E: classify-skip does NOT call runHistory.save() or learning.fold() (distinct from the agent no-op skip source)", async () => {
+test("classify-skip does NOT call runHistory.save() or learning.fold() (distinct from the agent no-op skip source)", async () => {
   let saveCallCount = 0;
   let foldCallCount = 0;
   const { ports } = stubPorts({ classify: async () => ({ action: "skip", reason: "docs-only commit", diff: "" }) });
@@ -1529,7 +1529,7 @@ test("FIX E: classify-skip does NOT call runHistory.save() or learning.fold() (d
   assert.equal(foldCallCount, 0, "classify-skip must NOT call learning.fold()");
 });
 
-test("FIX E: invalid calls BOTH runHistory.save() AND learning.fold()", async () => {
+test("invalid calls BOTH runHistory.save() AND learning.fold()", async () => {
   let saveCallCount = 0;
   let foldCallCount = 0;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
@@ -1552,7 +1552,7 @@ test("FIX E: invalid calls BOTH runHistory.save() AND learning.fold()", async ()
    threads FixLoopGenerateResult.specSources back into the FixLoop.
  */
 
-test("P3: mainline fold — app_defect (via an attributed 5xx) suppresses learning.fold(); ledger untouched", async () => {
+test("mainline fold — app_defect (via an attributed 5xx) suppresses learning.fold(); ledger untouched", async () => {
   let foldCallCount = 0;
   let savedAdjudicationClass: string | undefined;
   const { ports } = stubPorts({
@@ -1577,7 +1577,7 @@ test("P3: mainline fold — app_defect (via an attributed 5xx) suppresses learni
   assert.equal(foldCallCount, 0, "learning.fold() must NOT be called when the mainline outcome's adjudication.class is app_defect");
 });
 
-test("P3: mainline fold — generated_test_defect (the default fallthrough) still folds; ledger updated", async () => {
+test("mainline fold — generated_test_defect (the default fallthrough) still folds; ledger updated", async () => {
   let foldCallCount = 0;
   let savedAdjudicationClass: string | undefined;
   const { ports } = stubPorts({
@@ -1602,7 +1602,7 @@ test("P3: mainline fold — generated_test_defect (the default fallthrough) stil
   assert.equal(foldCallCount, 1, "learning.fold() must still be called when adjudication.class is generated_test_defect (only app_defect suppresses)");
 });
 
-test("P3: a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined and still folds", async () => {
+test("a run whose FixLoop never invoked the adjudicator (passed first try) persists adjudication:undefined and still folds", async () => {
   let foldCallCount = 0;
   let savedOutcome: { adjudication?: { class: string } } | undefined;
   const { ports } = stubPorts();
@@ -1617,7 +1617,7 @@ test("P3: a run whose FixLoop never invoked the adjudicator (passed first try) p
   assert.equal(foldCallCount, 1, "a clean pass with no adjudication must still fold (unaffected by the P3 guard)");
 });
 
-test("P3: terminal-invalid fold site carries the SAME app_defect guard (structurally a no-op today — no FixLoop runs before a static-gate invalid)", async () => {
+test("terminal-invalid fold site carries the SAME app_defect guard (structurally a no-op today — no FixLoop runs before a static-gate invalid)", async () => {
   let foldCallCount = 0;
   let savedAdjudication: unknown;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
@@ -1637,7 +1637,7 @@ test("P3: terminal-invalid fold site carries the SAME app_defect guard (structur
    adjudicate() decision point; absent on a clean first-try pass.
  */
 
-test("WS3.1: a failing run whose FixLoop produced an adjudicator verdict publishes with `adjudication` populated", async () => {
+test("a failing run whose FixLoop produced an adjudicator verdict publishes with `adjudication` populated", async () => {
   let publishedAdjudication: { class: string; confidence: string; reason: string } | undefined;
   const { ports } = stubPorts({
     /* Every execute() call (initial + every FixLoop retry) fails with a case carrying an attributed
@@ -1664,7 +1664,7 @@ test("WS3.1: a failing run whose FixLoop produced an adjudicator verdict publish
   assert.match(publishedAdjudication?.reason ?? "", /5xx/);
 });
 
-test("WS3.1: a run without a FixLoop adjudicator verdict (clean first-try pass) publishes without the `adjudication` field", async () => {
+test("a run without a FixLoop adjudicator verdict (clean first-try pass) publishes without the `adjudication` field", async () => {
   let publishedDecision: { adjudication?: unknown } | undefined;
   const { ports } = stubPorts();
   ports.publication.publish = async (decision) => {
@@ -1929,7 +1929,7 @@ test("reflector-rewire: static-gate invalid (errorClass=E-STATIC) — learning.f
    terminalResult/mainline exit), each computing its own detectArchetype from the SAME
    classificationDiff in scope at that exit.
  */
-test("WS1.5: static-gate invalid with a form-shaped diff threads a real (non-null) archetype into the reflector", async () => {
+test("static-gate invalid with a form-shaped diff threads a real (non-null) archetype into the reflector", async () => {
   let capturedInput: ReflectionInput | undefined;
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -1955,7 +1955,7 @@ test("WS1.5: static-gate invalid with a form-shaped diff threads a real (non-nul
    domain event" slot) so the cost is visible without inventing a new RunStep/event type.
  */
 
-test("WS6.3: reflect() duration is measured and emitted via observer.onEvent({type:'log.line'}) on a qualifying failure run (static-gate invalid)", async () => {
+test("reflect() duration is measured and emitted via observer.onEvent({type:'log.line'}) on a qualifying failure run (static-gate invalid)", async () => {
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
   const reflector = makeFakeReflector(() => {});
   const { observer, events } = fakeObserver();
@@ -1971,7 +1971,7 @@ test("WS6.3: reflect() duration is measured and emitted via observer.onEvent({ty
   assert.match(reflectLine!.text, /\d+ ?ms/, "the reflect() call's own duration (in ms) must be visible in the telemetry line");
 });
 
-test("WS6.3: reflect() duration telemetry is NOT emitted when the reflect gate suppresses the call (flaky verdict)", async () => {
+test("reflect() duration telemetry is NOT emitted when the reflect gate suppresses the call (flaky verdict)", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
   });
@@ -1992,7 +1992,7 @@ test("WS6.3: reflect() duration telemetry is NOT emitted when the reflect gate s
    minted an unfalsifiable candidate rule. The fold gate is UNCHANGED (fold-on-green is the designed
    promotion signal) — only reflect must stop firing on a genuinely healthy run.
  */
-test("WS1.2: a clean green run (errorClass:null) — learning.fold() IS called (fold gate unchanged), reflector.reflect() is NOT called (no qualifying failure to reflect on)", async () => {
+test("a clean green run (errorClass:null) — learning.fold() IS called (fold gate unchanged), reflector.reflect() is NOT called (no qualifying failure to reflect on)", async () => {
   let foldCallCount = 0;
   let reflectCallCount = 0;
   const { ports } = stubPorts(); /* default execute() => clean pass, no coverage config => coverageRatio stays null */
@@ -2008,7 +2008,7 @@ test("WS1.2: a clean green run (errorClass:null) — learning.fold() IS called (
   assert.equal(reflectCallCount, 0, "reflector.reflect() must NOT be called on a clean pass — there is no qualifying failure (errorClass is null) for the reflector to distill a rule from");
 });
 
-test("WS1.2 regression pin: a fail run with a real errorClass (E-EXEC-FAIL) still reflects — the new null-errorClass guard does not suppress genuine failures", async () => {
+test("regression pin: a fail run with a real errorClass (E-EXEC-FAIL) still reflects — the new null-errorClass guard does not suppress genuine failures", async () => {
   let foldCallCount = 0;
   let reflectCallCount = 0;
   let capturedInput: ReflectionInput | undefined;
@@ -2034,7 +2034,7 @@ test("WS1.2 regression pin: a fail run with a real errorClass (E-EXEC-FAIL) stil
    must NOT collaterally kill this genuinely-teachable path: a pass whose test failed to exercise
    the changed lines is exactly the kind of signal the reflector should learn from.
  */
-test("WS1.4(a): a pass run WITH a coverage gap (errorClass E-COVERAGE-GAP) still fires reflector.reflect() — the WS1.2 null-guard must not suppress this genuine teaching path", async () => {
+test("a pass run WITH a coverage gap (errorClass E-COVERAGE-GAP) still fires reflector.reflect() — the null-errorClass guard must not suppress this genuine teaching path", async () => {
   let foldCallCount = 0;
   let reflectCallCount = 0;
   let capturedInput: ReflectionInput | undefined;
@@ -2163,7 +2163,7 @@ test("process-audit: fail run with a real errorClass (E-EXEC-FAIL, MAINLINE fold
   assert.equal(capturedOutcome?.errorClass, "E-EXEC-FAIL");
 });
 
-test("process-audit: a clean green run (errorClass:null) — learning.fold() IS called, processAudit.audit() is NOT called (same WS1.2 null-guard reflect shares)", async () => {
+test("process-audit: a clean green run (errorClass:null) — learning.fold() IS called, processAudit.audit() is NOT called (the same null-errorClass guard reflect uses)", async () => {
   let foldCallCount = 0;
   let auditCallCount = 0;
   const { ports } = stubPorts(); /* default execute() => clean pass, coverageRatio stays null */
@@ -2299,7 +2299,7 @@ test("SETUP: aborting during setup() (signal fires inside the collaborator) stop
    carry (never hardcoded to null/dropped).
  */
 
-test("FIX 1: reviewerApproved is copied into the persisted gateSignals (not dropped after being used as a decide() input)", async () => {
+test("reviewerApproved is copied into the persisted gateSignals (not dropped after being used as a decide() input)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     review: async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true }),
@@ -2313,7 +2313,7 @@ test("FIX 1: reviewerApproved is copied into the persisted gateSignals (not drop
   assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be threaded into the persisted gateSignals, matching src/pipeline.ts:1114's persistOutcome call");
 });
 
-test("FIX 1: reviewerApproved reflects a reviewer REJECTION (false), not silently omitted", async () => {
+test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitted", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2328,7 +2328,7 @@ test("FIX 1: reviewerApproved reflects a reviewer REJECTION (false), not silentl
   assert.equal(saved!.gateSignals.reviewerApproved, false, "a reviewer rejection must persist reviewerApproved:false, not true or undefined");
 });
 
-test("FIX 2: a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 convention — context mode never calls saveOutcome on a clean pass)", async () => {
+test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 convention — context mode never calls saveOutcome on a clean pass)", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
@@ -2342,7 +2342,7 @@ test("FIX 2: a CLEAN context-mode pass does NOT persist (matches the legacy's Fl
   assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting (src/pipeline.ts:1422-1438)");
 });
 
-test("Batch F: a clean context-mode pass invokes contextMapCapture.capture() with the run's specDir/app/sha, in BOTH shadow and non-shadow modes", async () => {
+test("a clean context-mode pass invokes contextMapCapture.capture() with the run's specDir/app/sha, in BOTH shadow and non-shadow modes", async () => {
   const captured: Array<{ specDir: string; app: string; sha: string }> = [];
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
@@ -2390,7 +2390,7 @@ test("a throwing map capture does not change a clean context-mode pass's verdict
   assert.equal(published, 1);
 });
 
-test("Batch F: contextMapCapture is absent by default — no-op, no behavior change on a clean context-mode pass", async () => {
+test("contextMapCapture is absent by default — no-op, no behavior change on a clean context-mode pass", async () => {
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
   });
@@ -2401,7 +2401,7 @@ test("Batch F: contextMapCapture is absent by default — no-op, no behavior cha
   assert.equal(out.decision.verdict, "pass");
 });
 
-test("Batch F: contextMapCapture is NOT invoked on a non-context mode's clean pass — capture is mode-gated to context only", async () => {
+test("contextMapCapture is NOT invoked on a non-context mode's clean pass — capture is mode-gated to context only", async () => {
   let captureCallCount = 0;
   const { ports } = stubPorts({
     contextMapCapture: { capture: async () => { captureCallCount++; } },
@@ -2414,7 +2414,7 @@ test("Batch F: contextMapCapture is NOT invoked on a non-context mode's clean pa
   assert.equal(captureCallCount, 0, "a diff-mode (non-context) pass must never invoke contextMapCapture — it is scoped to isContextCleanPass only");
 });
 
-test("Batch F: contextMapCapture is NOT invoked on a context-mode INVALID result — capture only fires on a clean (verdict pass) context run", async () => {
+test("contextMapCapture is NOT invoked on a context-mode INVALID result — capture only fires on a clean (verdict pass) context run", async () => {
   let captureCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "tried" }),
@@ -2429,7 +2429,7 @@ test("Batch F: contextMapCapture is NOT invoked on a context-mode INVALID result
   assert.equal(captureCallCount, 0, "an invalid context-mode result must never invoke contextMapCapture — only a clean pass reached a validated, publishable map");
 });
 
-test("FIX 2: a context-mode INVALID result does NOT persist (SUPERSEDES the original assumption below — corrected per bug-register Entry 12's direct-reading root-cause, see the 'FIX 2 (D.7 batch 2)' test for the full writeup)", async () => {
+test("a context-mode INVALID result is not saved to run history", async () => {
   /* A context-mode static-gate failure files an Issue then returns WITHOUT ever calling
      persistOutcome — the SAME no-persist convention as the clean context pass, not the generic
      static-gate invalid path.
@@ -2448,7 +2448,7 @@ test("FIX 2: a context-mode INVALID result does NOT persist (SUPERSEDES the orig
   assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT persist — matches src/pipeline.ts:1377-1404's buildContextMap invalid branch, which files an Issue but never calls persistOutcome");
 });
 
-test("FIX 3: valueScore flows from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded null)", async () => {
+test("valueScore flows from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded null)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2463,7 +2463,7 @@ test("FIX 3: valueScore flows from ObjectiveSignalPort.measure() into the persis
   assert.equal(saved!.gateSignals.valueScore, 0.85, "valueScore must be threaded from ObjectiveSignalPort.measure() into the persisted gateSignals, matching src/pipeline.ts:3267's persistOutcome(..., valueScore, ...)");
 });
 
-test("FIX 3: an absent valueScore from ObjectiveSignalPort.measure() persists null, never a fabricated 0", async () => {
+test("an absent valueScore from ObjectiveSignalPort.measure() persists null, never a fabricated 0", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2478,7 +2478,7 @@ test("FIX 3: an absent valueScore from ObjectiveSignalPort.measure() persists nu
   assert.equal(saved!.gateSignals.valueScore, null, "an unwired/absent valueScore must persist as null, never a fabricated 0 or undefined");
 });
 
-test("O3: mutantCount/killedCount flow from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded 0 downstream)", async () => {
+test("mutantCount/killedCount flow from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded 0 downstream)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2494,7 +2494,7 @@ test("O3: mutantCount/killedCount flow from ObjectiveSignalPort.measure() into t
   assert.equal(saved!.gateSignals.killedCount, 17, "the oracle's real killedCount must be threaded into the persisted gateSignals");
 });
 
-test("O3: an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
+test("an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2510,7 +2510,7 @@ test("O3: an absent mutantCount/killedCount from ObjectiveSignalPort.measure() p
   assert.equal(saved!.gateSignals.killedCount, undefined, "an unwired/absent killedCount must stay absent, never a fabricated 0");
 });
 
-test("FIX 4: errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not hardcoded null", async () => {
+test("errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not hardcoded null", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
@@ -2526,7 +2526,7 @@ test("FIX 4: errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not
   assert.equal(saved!.errorClass, "E-EXEC-FAIL", "a fail verdict must derive errorClass:E-EXEC-FAIL via the re-ported labeler taxonomy, matching src/qa/learning/taxonomy.ts's errorClassFromVerdict");
 });
 
-test("FIX 4: errorClass is E-STATIC on an invalid verdict", async () => {
+test("errorClass is E-STATIC on an invalid verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2538,7 +2538,7 @@ test("FIX 4: errorClass is E-STATIC on an invalid verdict", async () => {
   assert.equal(saved!.errorClass, "E-STATIC", "an invalid verdict must derive errorClass:E-STATIC");
 });
 
-test("FIX 4: errorClass is E-INFRA on an infra-error verdict", async () => {
+test("errorClass is E-INFRA on an infra-error verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   let waitUntilServingCall = 0;
   const { ports } = stubPorts({
@@ -2556,7 +2556,7 @@ test("FIX 4: errorClass is E-INFRA on an infra-error verdict", async () => {
   assert.equal(saved!.errorClass, "E-INFRA", "a mid-run infra-error verdict must derive errorClass:E-INFRA");
 });
 
-test("FIX 4: errorClass is E-FLAKY on a flaky verdict", async () => {
+test("errorClass is E-FLAKY on a flaky verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
@@ -2570,7 +2570,7 @@ test("FIX 4: errorClass is E-FLAKY on a flaky verdict", async () => {
   assert.equal(saved!.errorClass, "E-FLAKY", "a flaky verdict must derive errorClass:E-FLAKY");
 });
 
-test("FIX 4: errorClass is E-COVERAGE-GAP on a green run with a below-threshold coverageRatio", async () => {
+test("errorClass is E-COVERAGE-GAP on a green run with a below-threshold coverageRatio", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2589,7 +2589,7 @@ test("FIX 4: errorClass is E-COVERAGE-GAP on a green run with a below-threshold 
   assert.equal(saved!.errorClass, "E-COVERAGE-GAP", "a green run with coverageRatio below the default minRatio (0.7) must derive errorClass:E-COVERAGE-GAP");
 });
 
-test("FIX 4: errorClass is null on a clean green pass (healthy runs teach nothing, never a fabricated class)", async () => {
+test("errorClass is null on a clean green pass (healthy runs teach nothing, never a fabricated class)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2607,7 +2607,7 @@ test("FIX 4: errorClass is null on a clean green pass (healthy runs teach nothin
    context-mode invalid must NOT persist, and the static-fix loop runs in the validate phase.
  */
 
-test("FIX 1 (D.7 batch 2): reviewerApproved is sourced from GENERATION's own approved flag when review never genuinely runs (verdict !== 'pass')", async () => {
+test("reviewerApproved is sourced from GENERATION's own approved flag when review never genuinely runs (verdict !== 'pass')", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   let reviewCallCount = 0;
   const { ports } = stubPorts({
@@ -2626,7 +2626,7 @@ test("FIX 1 (D.7 batch 2): reviewerApproved is sourced from GENERATION's own app
   assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be sourced from GENERATION's own approved flag (needsReview gated, verdict-independent) — matching src/pipeline.ts:1114's persistOutcome call, which reads whatever AgentResult reviewGenerated returned unchanged when deps.review was never wired");
 });
 
-test("FIX 1 (D.7 batch 2): reviewerApproved reflects generation's OWN rejection (false) on a non-pass verdict, not a fabricated true", async () => {
+test("reviewerApproved reflects generation's OWN rejection (false) on a non-pass verdict, not a fabricated true", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "invalid" as never, cases: [], logs: "" }), /* unused; validate() blocks first */
@@ -2643,7 +2643,7 @@ test("FIX 1 (D.7 batch 2): reviewerApproved reflects generation's OWN rejection 
   assert.equal(saved!.gateSignals.reviewerApproved, false, "a generation result with approved:false must persist reviewerApproved:false on a non-pass verdict, never a fabricated true");
 });
 
-test("FIX 1 (D.7 batch 2): reviewerApproved is ABSENT (not fabricated) when needsReview is false, regardless of verdict", async () => {
+test("reviewerApproved is ABSENT (not fabricated) when needsReview is false, regardless of verdict", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
@@ -2662,7 +2662,7 @@ test("FIX 1 (D.7 batch 2): reviewerApproved is ABSENT (not fabricated) when need
 /* These tests pin field threading only (the fields reach publish()). Provenance of the values
    is owned by publication-port.adapter.test.ts. */
 
-test("FIX 5: publish() is called with the reviewerApproved field threaded (not dropped) on the 'pr' side effect", async () => {
+test("publish() is called with the reviewerApproved field threaded (not dropped) on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2678,7 +2678,7 @@ test("FIX 5: publish() is called with the reviewerApproved field threaded (not d
   assert.equal(publishedDecision!.reviewerApproved, true, "publish() must receive a threaded reviewerApproved field (undefined here would mean the call site dropped it)");
 });
 
-test("FIX 5: publish() is called with the coverageBlocks field threaded (not dropped) under signal-mode coverage", async () => {
+test("publish() is called with the coverageBlocks field threaded (not dropped) under signal-mode coverage", async () => {
   let publishedDecision: { verdict: string; reviewerApproved?: boolean; coverageBlocks?: boolean } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2737,7 +2737,7 @@ test("PROD-BLOCKER: publish() is called with sha threaded from input.sha on the 
   assert.equal(publishedDecision!.sha, "def5678", "publish() must receive this run's REAL sha, not a dropped/undefined value");
 });
 
-test("FIX 1 (D.7 batch 2): reviewerApproved on a genuine pass+review call still reflects the INDEPENDENT reviewer's verdict, not generation's", async () => {
+test("reviewerApproved on a genuine pass+review call still reflects the INDEPENDENT reviewer's verdict, not generation's", async () => {
   /* from generation — on a genuine pass verdict with needsReview:true, the independent REVIEW
      phase's own approved/rejected verdict must win, even when it disagrees with generation's.
    */
@@ -2756,7 +2756,7 @@ test("FIX 1 (D.7 batch 2): reviewerApproved on a genuine pass+review call still 
   assert.equal(saved!.gateSignals.reviewerApproved, false, "on a genuine pass+review call, the INDEPENDENT reviewer's verdict must be persisted, not generation's own self-approval");
 });
 
-test("FIX 2 (D.7 batch 2): a context-mode INVALID result does NOT persist (matches the legacy's buildContextMap invalid branch, which files an Issue but never calls persistOutcome)", async () => {
+test("a context-mode INVALID result neither saves run history nor folds learning", async () => {
   /* context-mode invalid-context.json branch calls issueOrShadow() then returns resultOf(ns,
      "invalid", ...) WITHOUT ever calling persistOutcome — a DIFFERENT "invalid" than the generic
      static-gate invalid terminalResult covers (this is validateContextFn's own context-specific
@@ -2782,7 +2782,7 @@ test("FIX 2 (D.7 batch 2): a context-mode INVALID result does NOT persist (match
   assert.equal(foldCallCount, 0, "a context-mode invalid must NOT call learning.fold() either — the legacy's early return never reaches foldRunLearning at all");
 });
 
-test("FIX 2 (D.7 batch 2): a GENERIC (non-context-mode) invalid still persists exactly as before (guards against FIX 2's widened no-persist exemption over-firing)", async () => {
+test("a GENERIC (non-context-mode) invalid is still saved to run history exactly once", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
   ports.runHistory.save = async () => { saveCallCount++; };
@@ -2794,7 +2794,7 @@ test("FIX 2 (D.7 batch 2): a GENERIC (non-context-mode) invalid still persists e
   assert.equal(saveCallCount, 1, "a diff-mode (non-context) invalid must still call runHistory.save() exactly once — the context-mode no-persist exemption must be scoped to mode==='context' only, never leak into other modes");
 });
 
-test("FIX 3 (D.7 batch 2): a failing static gate is repaired by regenerating with the validation errors, then re-validated (the static-fix loop), instead of dying invalid on the first miss", async () => {
+test("a failing static gate is repaired by regenerating with the validation errors, then re-validated (the static-fix loop), instead of dying invalid on the first miss", async () => {
   /* on a repairable static-gate failure, regenerate with the validation errors fed back
      (baseGenInput({ reviewCorrections: [...] })) and re-validate, bounded by MAX_STATIC_FIX_ROUNDS
      (=2). A single trivial error recovers on the FIRST repair round (this scenario mirrors
@@ -2822,7 +2822,7 @@ test("FIX 3 (D.7 batch 2): a failing static gate is repaired by regenerating wit
   assert.equal(out.gateSignals.retries, 1, "matches the legacy static-repair loop's own retries++ per repair round (src/pipeline.ts:2265) — 1 repair round consumed");
 });
 
-test("FIX 3 (D.7 batch 2): the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static gate that never recovers still resolves to invalid, not an infinite loop", async () => {
+test("the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static gate that never recovers still resolves to invalid, not an infinite loop", async () => {
   let validateCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -2838,7 +2838,7 @@ test("FIX 3 (D.7 batch 2): the static-fix loop is bounded by MAX_STATIC_FIX_ROUN
   assert.equal(generateCallCount, 1 + 2, "exactly 2 repair regenerations on top of the initial generate() call — bounded, not unbounded");
 });
 
-test("FIX 3 (D.7 batch 2): the static-fix loop is SKIPPED entirely when generation produced zero specs (nothing to repair)", async () => {
+test("the static-fix loop is SKIPPED entirely when generation produced zero specs (nothing to repair)", async () => {
   let validateCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -2944,7 +2944,7 @@ test("run() aborted mid-repair inside the static-fix loop stops before consuming
   assert.ok(validateCallCount <= 2, `the static-fix loop must stop re-validating once the signal aborts — expected at most 2 validate() calls, got ${validateCallCount}`);
 });
 
-test("FIX E: infra-error calls runHistory.save() but NOT learning.fold()", async () => {
+test("infra-error calls runHistory.save() but NOT learning.fold()", async () => {
   let saveCallCount = 0;
   let foldCallCount = 0;
   /* Both this use-case's entry gate AND its mid-run pre-flight derive from the SAME
@@ -3475,7 +3475,7 @@ test("FixLoop filtered-retry: coverageWillMeasure:true (diff mode + coveragePoli
    input.triggerRepo.
  */
 
-test("F1: publish() is called for an 'issue' side effect (fail verdict, onFailure:'github-issue') — previously ONLY 'pr' ever called publish()", async () => {
+test("publish() is called for an 'issue' side effect (fail verdict, onFailure:'github-issue') — previously ONLY 'pr' ever called publish()", async () => {
   let publishCallCount = 0;
   let publishedDecision: { verdict: string; issueRepo?: string } | undefined;
   const { ports } = stubPorts({
@@ -3497,7 +3497,7 @@ test("F1: publish() is called for an 'issue' side effect (fail verdict, onFailur
   assert.equal(out.note, "issue: https://github.com/org/app/issues/1", "the publish outcome must thread into RunQaResult.note");
 });
 
-test("F1: publish() is called for a 'quarantine' side effect (flaky verdict) — previously ONLY 'pr' ever called publish()", async () => {
+test("publish() is called for a 'quarantine' side effect (flaky verdict) — previously ONLY 'pr' ever called publish()", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }),
@@ -3512,7 +3512,7 @@ test("F1: publish() is called for a 'quarantine' side effect (flaky verdict) —
   assert.equal(publishCallCount, 1, "a flaky verdict must dispatch to publish() so the quarantine outcome genuinely surfaces (CLAUDE.md: 'flaky never surfaced its quarantine outcome' before F1)");
 });
 
-test("F2: onFailure:'none' + fail verdict resolves to sideEffect:'none' and publish() is NEVER called (reconciles PublishDecisionService's missing onFailure guard)", async () => {
+test("onFailure:'none' + fail verdict resolves to sideEffect:'none' and publish() is NEVER called (reconciles PublishDecisionService's missing onFailure guard)", async () => {
   /* PublishDecisionService (workspace-and-publication) has NO onFailure guard of its own — it would
      unconditionally return "issue" for a fail/invalid verdict if it were ever reached. F2's
      reconciliation: RunDecisionService's own onFailure guard resolves this case to sideEffect:"none"
@@ -3535,7 +3535,7 @@ test("F2: onFailure:'none' + fail verdict resolves to sideEffect:'none' and publ
   assert.equal(publishCallCount, 0, "an onFailure-suppressed decision ('none') must NEVER reach the publish port — no Issue must open");
 });
 
-test("F3: a triggerRepo run threads issueRepo into publish() so the Issue routes to the triggering service repo, not the primary", async () => {
+test("a triggerRepo run threads issueRepo into publish() so the Issue routes to the triggering service repo, not the primary", async () => {
   let publishedDecision: { verdict: string; issueRepo?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
@@ -3553,7 +3553,7 @@ test("F3: a triggerRepo run threads issueRepo into publish() so the Issue routes
   assert.equal(publishedDecision!.issueRepo, "org/orders-svc", "publish() must receive issueRepo from input.triggerRepo so PublicationPortAdapter can route the Issue to the triggering repo, not the primary (mirrors legacy's issueRepo = triggerService ? triggerService.repo : app.repo, src/pipeline.ts:1021)");
 });
 
-test("F3: an ordinary (non-cross-repo) run omits issueRepo entirely — the adapter falls back to its own static ctx.repo", async () => {
+test("an ordinary (non-cross-repo) run omits issueRepo entirely — the adapter falls back to its own static ctx.repo", async () => {
   let publishedDecision: { verdict: string; issueRepo?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
@@ -3568,7 +3568,7 @@ test("F3: an ordinary (non-cross-repo) run omits issueRepo entirely — the adap
   assert.equal(publishedDecision!.issueRepo, undefined, "an ordinary run (no input.triggerRepo) must NOT fabricate an issueRepo — absent lets the adapter fall back to its own static ctx.repo");
 });
 
-test("W3 FIX 1: an invalid verdict with onFailure:'github-issue' dispatches publish() exactly once with sideEffect 'issue'", async () => {
+test("an invalid verdict with onFailure:'github-issue' dispatches publish() exactly once with sideEffect 'issue'", async () => {
   let publishCallCount = 0;
   let publishedDecision: { verdict: string; issueRepo?: string } | undefined;
   const { ports } = stubPorts({
@@ -3595,7 +3595,7 @@ test("W3 FIX 1: an invalid verdict with onFailure:'github-issue' dispatches publ
   assert.ok(out.note?.includes("issue: https://github.com/org/app/issues/42"), `the publish outcome must thread into RunQaResult.note — got: ${out.note}`);
 });
 
-test("W3 FIX 1: an invalid verdict with onFailure:'none' resolves to sideEffect 'none' and publish() is NEVER called", async () => {
+test("an invalid verdict with onFailure:'none' resolves to sideEffect 'none' and publish() is NEVER called", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -3610,7 +3610,7 @@ test("W3 FIX 1: an invalid verdict with onFailure:'none' resolves to sideEffect 
   assert.equal(publishCallCount, 0, "an onFailure-suppressed invalid decision must NEVER reach the publish port");
 });
 
-test("W3 FIX 1: a shadow-mode invalid verdict dispatches publish() so the shadow-log line is genuinely emitted (shadow-log routing)", async () => {
+test("a shadow-mode invalid verdict dispatches publish() so the shadow-log line is genuinely emitted (shadow-log routing)", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
@@ -3626,7 +3626,7 @@ test("W3 FIX 1: a shadow-mode invalid verdict dispatches publish() so the shadow
   assert.ok(out.note?.includes("shadow: shadow mode — side effects replaced with logs"), `got: ${out.note}`);
 });
 
-test("W3 FIX 1: an infra-error verdict resolves to sideEffect 'none' via decide() itself — publish() is NEVER called, and no special-casing is needed", async () => {
+test("an infra-error verdict resolves to sideEffect 'none' via decide() itself — publish() is NEVER called, and no special-casing is needed", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     waitUntilServing: async () => err(new Error("DEV did not respond")),
@@ -3641,7 +3641,7 @@ test("W3 FIX 1: an infra-error verdict resolves to sideEffect 'none' via decide(
   assert.equal(publishCallCount, 0, "an infra-error terminal must NEVER dispatch to publish()");
 });
 
-test("W3 FIX 1: the publish outcome is APPENDED to an existing diagnostic note (e.g. the static-gate's validation-errors note), never clobbered", async () => {
+test("the publish outcome is APPENDED to an existing diagnostic note (e.g. the static-gate's validation-errors note), never clobbered", async () => {
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout", "[tsc] Type 'string' is not assignable to type 'number'."] }),
   });
@@ -3660,7 +3660,7 @@ test("W3 FIX 1: the publish outcome is APPENDED to an existing diagnostic note (
    onFailure:"none".
  */
 
-test("W3 FIX 2: a context-mode invalid dispatches publish() when onFailure:'github-issue' (still skips persistence per FIX 2's existing no-persist convention)", async () => {
+test("a context-mode invalid dispatches publish() when onFailure:'github-issue' (and, like every context-mode invalid, is not saved to run history)", async () => {
   let publishCallCount = 0;
   let saveCallCount = 0;
   const { ports } = stubPorts({
@@ -3678,7 +3678,7 @@ test("W3 FIX 2: a context-mode invalid dispatches publish() when onFailure:'gith
   assert.equal(saveCallCount, 0, "context-mode invalid must still NOT persist — publish dispatch and persistence are orthogonal (FIX 2's skipPersist convention is unaffected by FIX 1's publish dispatch)");
 });
 
-test("W3 FIX 2: a context-mode invalid does NOT dispatch publish() when onFailure:'none' — a DELIBERATE divergence from legacy's unconditional issueOrShadow bypass", async () => {
+test("a context-mode invalid does NOT dispatch publish() when onFailure:'none' — a DELIBERATE divergence from legacy's unconditional issueOrShadow bypass", async () => {
   let publishCallCount = 0;
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "tried" }),
@@ -3698,7 +3698,7 @@ test("W3 FIX 2: a context-mode invalid does NOT dispatch publish() when onFailur
    every retry must not regenerate with the SAME contextless prompt as the initial attempt.
  */
 
-test("W2-F2: the FixLoop's regenerate() call forwards fixCases into generate()'s enrichment", async () => {
+test("the FixLoop's regenerate() call forwards fixCases into generate()'s enrichment", async () => {
   const capturedFixCases: unknown[] = [];
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const, detail: "timed out waiting for selector" }], logs: "x" }),
@@ -3719,7 +3719,7 @@ test("W2-F2: the FixLoop's regenerate() call forwards fixCases into generate()'s
   assert.deepEqual(withFixCases[0], [{ name: "login", status: "fail", detail: "timed out waiting for selector" }]);
 });
 
-test("W2-F2: the FixLoop's regenerate() call forwards selectorContradictions when Lever-2 finds any", async () => {
+test("the FixLoop's regenerate() call forwards selectorContradictions when Lever-2 finds any", async () => {
   /* Lever-2 only produces contradictions when a failed case carries a failureDom (buildFailureDomLines)
      AND the prior round's spec source references a selector absent from that tree. Wiring a full
      Lever-2 scenario is fix-loop-characterization.test.ts's own job; this test's scope is narrower:
@@ -3762,7 +3762,7 @@ test("W2-F2: the FixLoop's regenerate() call forwards selectorContradictions whe
   }
 });
 
-test("W2-F2: the FixLoop's regenerate() call forwards domSnapshot when Lever-2 supplies a failure-point capture", async () => {
+test("the FixLoop's regenerate() call forwards domSnapshot when Lever-2 supplies a failure-point capture", async () => {
   const capturedDomSnapshots: (string | undefined)[] = [];
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail" as const, cases: [{ name: "login", status: "fail" as const, detail: "err" }], logs: "x" }),
@@ -3788,7 +3788,7 @@ test("W2-F2: the FixLoop's regenerate() call forwards domSnapshot when Lever-2 s
    closed WITHOUT burning a round.
  */
 
-test("W2-F3: a reviewer rejection with blocking corrections triggers regeneration with reviewCorrections threaded", async () => {
+test("a reviewer rejection with blocking corrections triggers regeneration with reviewCorrections threaded", async () => {
   let reviewCallCount = 0;
   const capturedReviewCorrections: (readonly string[] | undefined)[] = [];
   const { ports } = stubPorts({
@@ -3816,7 +3816,7 @@ test("W2-F3: a reviewer rejection with blocking corrections triggers regeneratio
   assert.equal(out.decision.sideEffect, "pr", "once corrections are resolved on round 1, the run must publish");
 });
 
-test("W2-F3: corrections resolved on the regenerated round -> reviewerApproved:true -> publish", async () => {
+test("corrections resolved on the regenerated round -> reviewerApproved:true -> publish", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
@@ -3841,7 +3841,7 @@ test("W2-F3: corrections resolved on the regenerated round -> reviewerApproved:t
   assert.equal(out.decision.sideEffect, "pr");
 });
 
-test("W2-F3: corrections persist through the legacy's bound (2 rounds) -> terminal rejection (issue, not pr)", async () => {
+test("corrections persist through the legacy's bound (2 rounds) -> terminal rejection (issue, not pr)", async () => {
   let reviewCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -3874,7 +3874,7 @@ test("W2-F3: corrections persist through the legacy's bound (2 rounds) -> termin
    prompt's "reviewer corrections" section never rendered. ─────────────────────────────────────
  */
 
-test("WS1.5: a terminal reviewer rejection threads its corrections into gateSignals.reviewerCorrections and derives the tagged errorClass", async () => {
+test("a terminal reviewer rejection threads its corrections into gateSignals.reviewerCorrections and derives the tagged errorClass", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
   });
@@ -3899,7 +3899,7 @@ test("WS1.5: a terminal reviewer rejection threads its corrections into gateSign
   );
 });
 
-test("WS1.5: an APPROVED review (no rejection) still persists gateSignals.reviewerCorrections as [] — never fabricated", async () => {
+test("an APPROVED review (no rejection) still persists gateSignals.reviewerCorrections as [] — never fabricated", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
   });
@@ -3919,7 +3919,7 @@ test("WS1.5: an APPROVED review (no rejection) still persists gateSignals.review
    a learning/errorClass signal: threading them would derive e.g. E-FRAGILE-SELECTOR on a PASSING,
    satisfies the reflect gate) and minting a mislabeled candidate rule from a healthy pass.
  */
-test("WS1.5 BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — errorClass stays null, reflect() does NOT fire, persisted reviewerCorrections is []", async () => {
+test("BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) — errorClass stays null, reflect() does NOT fire, persisted reviewerCorrections is []", async () => {
   let reflectCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
@@ -3941,7 +3941,7 @@ test("WS1.5 BOUNDARY: approved with ADVISORY-ONLY corrections (blockingCount 0) 
   assert.equal(reflectCallCount, 0, "reflect() must NOT fire on an approved green — the WS1.2 reflect-on-green closure must survive advisory notes");
 });
 
-test("WS1.5: a rejection resolved by convergence (round 1 APPROVES, even with an advisory note) persists gateSignals.reviewerCorrections as [] — approval clears, rejection threads", async () => {
+test("a rejection resolved by convergence (round 1 APPROVES, even with an advisory note) persists gateSignals.reviewerCorrections as [] — approval clears, rejection threads", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
@@ -3971,7 +3971,7 @@ test("WS1.5: a rejection resolved by convergence (round 1 APPROVES, even with an
   assert.equal(out.errorClass, null, "an ultimately-approved pass must not inherit an errorClass from either round's corrections");
 });
 
-test("WS1.5: reviewer-rejection reaches the reflector with the real (non-null) errorClass — the reflect gate no longer suppresses it as an unfalsifiable green", async () => {
+test("reviewer-rejection reaches the reflector with the real (non-null) errorClass — the reflect gate no longer suppresses it as an unfalsifiable green", async () => {
   let capturedInput: ReflectionInput | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
@@ -3988,7 +3988,7 @@ test("WS1.5: reviewer-rejection reaches the reflector with the real (non-null) e
   assert.deepEqual(capturedInput?.gateSignals.reviewerCorrections, ["[wrong-objective] tests login, commit changed checkout"]);
 });
 
-test("W2-F3: parsed:false (a parse miss) fails closed WITHOUT burning a regeneration round", async () => {
+test("parsed:false (a parse miss) fails closed WITHOUT burning a regeneration round", async () => {
   let reviewCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -4009,7 +4009,7 @@ test("W2-F3: parsed:false (a parse miss) fails closed WITHOUT burning a regenera
   assert.equal(out.decision.sideEffect, "issue", "a parse-miss must fail closed to an Issue, never a PR");
 });
 
-test("W2-F3: a regeneration that produces zero specs mid-loop is a lost cause — terminal rejection, no further review", async () => {
+test("a regeneration that produces zero specs mid-loop is a lost cause — terminal rejection, no further review", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" }),
@@ -4041,7 +4041,7 @@ test("W2-F3: a regeneration that produces zero specs mid-loop is a lost cause �
    round, never twice for the same round). ──────────────────────────────────────────────────────────
  */
 
-test("W2-F4: exactly ONE reviewer session (review() call) fires for a clean pass — no double review", async () => {
+test("exactly ONE reviewer session (review() call) fires for a clean pass — no double review", async () => {
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass" as const, cases: [], logs: "" }),
@@ -4055,7 +4055,7 @@ test("W2-F4: exactly ONE reviewer session (review() call) fires for a clean pass
   assert.equal(reviewCallCount, 1, "the orchestrated path must perform EXACTLY ONE reviewer session per round — a second, internal reviewer session firing on top of this one is the audit-flagged defect");
 });
 
-test("W2-F4: no-op skip (approved + zero specs) still works — needsReview:true generation self-approval is preserved", async () => {
+test("no-op skip (approved + zero specs) still works — needsReview:true generation self-approval is preserved", async () => {
   /* CLAUDE.md invariant: "Honor the agent's no-op decision — approved + zero specs is a valid
      skipped, never invalid." This must hold regardless of the F4 composition-root fix (which only
      changes GenerationPortAdapter's ctx.needsReview, not this use-case's OWN generation stub
@@ -4070,7 +4070,7 @@ test("W2-F4: no-op skip (approved + zero specs) still works — needsReview:true
   assert.equal(out.decision.sideEffect, "none");
 });
 
-test("W2-F5: classify() surfaces intent, and diff-mode generate() receives it via enrichment", async () => {
+test("classify() surfaces intent, and diff-mode generate() receives it via enrichment", async () => {
   const capturedIntents: unknown[] = [];
   const theIntent = { type: "feat", breaking: false, message: "add checkout flow", changedFiles: ["src/checkout.ts"] };
   const { ports } = stubPorts({
@@ -4090,7 +4090,7 @@ test("W2-F5: classify() surfaces intent, and diff-mode generate() receives it vi
   }
 });
 
-test("W2-F5: a non-diff mode never calls classify(), so generate() receives no intent (undefined, never fabricated)", async () => {
+test("a non-diff mode never calls classify(), so generate() receives no intent (undefined, never fabricated)", async () => {
   let classifyCallCount = 0;
   const capturedIntents: unknown[] = [];
   const { ports } = stubPorts({
@@ -4128,7 +4128,7 @@ const makeRetrievedRule = (trigger: string, overrides: Partial<RetrievedRule> = 
   confidence: overrides.confidence ?? "high",
 });
 
-test("W3 F2: learning.retrieve(sha) is called before the first generate(), and its result reaches generate()'s enrichment.learnedRules", async () => {
+test("learning.retrieve(sha) is called before the first generate(), and its result reaches generate()'s enrichment.learnedRules", async () => {
   let retrieveCalledWithSha: string | undefined;
   const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
   const rules = [makeRetrievedRule("selector absent"), makeRetrievedRule("use role+name")];
@@ -4150,7 +4150,7 @@ test("W3 F2: learning.retrieve(sha) is called before the first generate(), and i
   }
 });
 
-test("W3 F2: retrieved rules also reach review()'s enrichment.learnedRules", async () => {
+test("retrieved rules also reach review()'s enrichment.learnedRules", async () => {
   const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
   const rules = [makeRetrievedRule("never invent a test-id")];
   const { ports } = stubPorts({
@@ -4168,7 +4168,7 @@ test("W3 F2: retrieved rules also reach review()'s enrichment.learnedRules", asy
   assert.deepEqual(capturedLearnedRules[0], rules);
 });
 
-test("W3 F2: an empty retrieve() result omits enrichment.learnedRules entirely (never a fabricated empty marker)", async () => {
+test("an empty retrieve() result omits enrichment.learnedRules entirely (never a fabricated empty marker)", async () => {
   const capturedLearnedRules: (readonly RetrievedRule[] | undefined)[] = [];
   const { ports } = stubPorts({ retrieve: async () => [] });
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
@@ -4184,7 +4184,7 @@ test("W3 F2: an empty retrieve() result omits enrichment.learnedRules entirely (
   }
 });
 
-test("W3 F2: a retrieve() failure does not abort the run — generation still proceeds ungrounded", async () => {
+test("a retrieve() failure does not abort the run — generation still proceeds ungrounded", async () => {
   const { ports } = stubPorts({
     retrieve: async () => { throw new Error("learning store unavailable"); },
   });
@@ -4195,7 +4195,7 @@ test("W3 F2: a retrieve() failure does not abort the run — generation still pr
   assert.equal(out.decision.verdict, "pass", "a retrieval failure must be swallowed, not propagated as a run failure");
 });
 
-test("WS1.1: the retrieved rule IDS (not trigger text) reach the persisted RunOutcome.rulesRetrieved on the mainline exit", async () => {
+test("the retrieved rule IDS (not trigger text) reach the persisted RunOutcome.rulesRetrieved on the mainline exit", async () => {
   let savedRulesRetrieved: string[] | undefined;
   const rule = makeRetrievedRule("fabricated-testid-guard", { id: "rule-id-001" });
   const { ports } = stubPorts({ retrieve: async () => [rule] });
@@ -4207,7 +4207,7 @@ test("WS1.1: the retrieved rule IDS (not trigger text) reach the persisted RunOu
   assert.deepEqual(savedRulesRetrieved, ["rule-id-001"], "the persisted rulesRetrieved must carry the rule's ID (the fold-attribution key), not its trigger text");
 });
 
-test("WS1.1: the returned RunQaResult also carries rulesRetrieved as IDS (RewrittenOrchestratorAdapter's own read-back path)", async () => {
+test("the returned RunQaResult also carries rulesRetrieved as IDS (RewrittenOrchestratorAdapter's own read-back path)", async () => {
   const ruleA = makeRetrievedRule("rule-a-trigger-text", { id: "rule-a-id" });
   const ruleB = makeRetrievedRule("rule-b-trigger-text", { id: "rule-b-id" });
   const { ports } = stubPorts({ retrieve: async () => [ruleA, ruleB] });
@@ -4228,7 +4228,7 @@ test("WS1.1: the returned RunQaResult also carries rulesRetrieved as IDS (Rewrit
    terminalResult("invalid", ...) call sites (static-gate invalid, mid-run health-preflight
    infra-error) are POST-retrieval and now thread the real ids through.
  */
-test("WS1.6: an invalid-verdict run that HAD retrieved rules persists a terminal outcome whose rulesRetrieved carries the ids, and learning.fold() receives it (suppression matrix: invalid folds AND reflects, unchanged)", async () => {
+test("an invalid-verdict run that HAD retrieved rules persists a terminal outcome whose rulesRetrieved carries the ids, and learning.fold() receives it (suppression matrix: invalid folds AND reflects, unchanged)", async () => {
   let savedRulesRetrieved: string[] | undefined;
   let foldedRulesRetrieved: string[] | undefined;
   let foldCallCount = 0;
@@ -4262,7 +4262,7 @@ test("WS1.6: an invalid-verdict run that HAD retrieved rules persists a terminal
    this point in the current flow and is deliberately left unwired (never invented) — see the
    commit body.
  */
-test("R4: learning.retrieve(sha, relevance) receives archetypes detected from the classified diff's structural shape", async () => {
+test("learning.retrieve(sha, relevance) receives archetypes detected from the classified diff's structural shape", async () => {
   let capturedRelevance: RelevanceBias | undefined;
   const { ports } = stubPorts({
     classify: async () => ({
@@ -4284,7 +4284,7 @@ test("R4: learning.retrieve(sha, relevance) receives archetypes detected from th
   );
 });
 
-test("R4: a generic diff (no structural pattern detected) omits the relevance argument entirely — no fabricated empty bias", async () => {
+test("a generic diff (no structural pattern detected) omits the relevance argument entirely — no fabricated empty bias", async () => {
   let retrieveCallCount = 0;
   let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
   const { ports } = stubPorts({
@@ -4298,7 +4298,7 @@ test("R4: a generic diff (no structural pattern detected) omits the relevance ar
   assert.equal(capturedRelevance, undefined, "the default stub classify() returns an empty diff — no structural pattern to bias with, so relevance must stay undefined, not a fabricated {}");
 });
 
-test("R4: outside diff mode (no classification, no diff available) retrieve() receives no relevance bias — never invented from nothing", async () => {
+test("outside diff mode (no classification, no diff available) retrieve() receives no relevance bias — never invented from nothing", async () => {
   let capturedRelevance: RelevanceBias | undefined = { errorClass: "should-not-survive" };
   const { ports } = stubPorts({
     retrieve: async (_sha, relevance) => { capturedRelevance = relevance; return []; },
@@ -4385,7 +4385,7 @@ test("outside diff mode the folded outcome carries no diff shapes, so the fold c
   assert.deepEqual(creditedByFold(foldedOutcomes[0]!), ["form-rule", "untagged-rule"]);
 });
 
-test("WS1.6 regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
+test("regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({
     classify: async () => ({ action: "skip", reason: "docs-only change", diff: "" }),
@@ -4487,7 +4487,7 @@ test("Slice B: an early-exit terminal (static-gate invalid) never reaches the ma
    RunOutcome mirrors them — RunHistoryPort.save receives the SAME cases/logs the caller sees.
  */
 
-test("W3 F3: a passing run's RunQaResult.cases mirrors ExecutionPort.execute()'s real cases, not an empty array", async () => {
+test("a passing run's RunQaResult.cases mirrors ExecutionPort.execute()'s real cases, not an empty array", async () => {
   const realCases = [{ name: "checkout flow", status: "pass" as const }];
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: realCases, logs: "1 passed" }),
@@ -4500,7 +4500,7 @@ test("W3 F3: a passing run's RunQaResult.cases mirrors ExecutionPort.execute()'s
   assert.equal(out.logs, "1 passed");
 });
 
-test("W3 F3: the persisted RunOutcome carries the SAME cases/logs as the returned RunQaResult (adapter parity)", async () => {
+test("the persisted RunOutcome carries the SAME cases/logs as the returned RunQaResult (adapter parity)", async () => {
   const realCases = [{ name: "login flow", status: "pass" as const }];
   let savedOutcome: { cases?: unknown[]; logs?: string } | undefined;
   const { ports } = stubPorts({
@@ -4515,7 +4515,7 @@ test("W3 F3: the persisted RunOutcome carries the SAME cases/logs as the returne
   assert.equal(savedOutcome?.logs, out.logs);
 });
 
-test("W3 F3: an early-exit terminal (invalid) carries cases:[] and no logs — nothing was ever executed", async () => {
+test("an early-exit terminal (invalid) carries cases:[] and no logs — nothing was ever executed", async () => {
   const { ports } = stubPorts({
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
   });
@@ -4533,7 +4533,7 @@ test("W3 F3: an early-exit terminal (invalid) carries cases:[] and no logs — n
    placeholder is `[]` — the per-call arg is what supplies a real value.
  */
 
-test("F2: measure() receives the run's own passing case names as baselineCases (mirrors legacy's post-execution src/pipeline.ts:731 formula)", async () => {
+test("measure() receives the run's own passing case names as baselineCases (mirrors legacy's post-execution src/pipeline.ts:731 formula)", async () => {
   const passingCases = [
     { name: "login flow", status: "pass" as const },
     { name: "checkout flow", status: "pass" as const },
@@ -4555,7 +4555,7 @@ test("F2: measure() receives the run's own passing case names as baselineCases (
   assert.equal(out.gateSignals.valueScore, 0.75, "the oracle's real score must survive to the returned RunQaResult");
 });
 
-test("F2: measure() excludes non-passing case names from baselineCases (a flaky-then-pass run's own flaky case is not a 'clean baseline' case)", async () => {
+test("measure() excludes non-passing case names from baselineCases (a flaky-then-pass run's own flaky case is not a 'clean baseline' case)", async () => {
   /* A verdict of "pass" can still carry non-"pass" cases in its list (e.g. a flaky case that
      eventually passed on retry is recorded with status:"flaky", not "pass" — CaseStatus union).
    */
@@ -4578,7 +4578,7 @@ test("F2: measure() excludes non-passing case names from baselineCases (a flaky-
   assert.deepEqual(capturedBaselineCases, ["login flow"], "only genuinely-passing cases belong in the baseline, matching the legacy's own status==='pass' filter exactly");
 });
 
-test("F2: a non-pass verdict never calls measure() at all — no baselineCases question arises (measure is gated on run.verdict==='pass')", async () => {
+test("a non-pass verdict never calls measure() at all — no baselineCases question arises (measure is gated on run.verdict==='pass')", async () => {
   let measureCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
@@ -4734,7 +4734,7 @@ test("executedRed: DIRECT logic pin — reproduces the override's own condition 
 
 /* .ground()'s new third arg, so the adapter can derive deterministic [CHANGED] markers from it. ── */
 
-test("WS5.3: a diff-mode run threads classificationDiff into preGenerationGrounding.ground()'s third arg", async () => {
+test("a diff-mode run threads classificationDiff into preGenerationGrounding.ground()'s third arg", async () => {
   let capturedDiff: string | undefined;
   const REAL_DIFF = "diff --git a/src/checkout.ts b/src/checkout.ts\n+export function pay() {}\n";
   const { ports } = stubPorts({
@@ -4748,7 +4748,7 @@ test("WS5.3: a diff-mode run threads classificationDiff into preGenerationGround
   assert.equal(capturedDiff, REAL_DIFF, "ground() must receive the SAME real diff classify() derived, not a placeholder");
 });
 
-test("WS5.3: a non-diff mode run leaves ground()'s diff arg absent (classificationDiff never populated outside diff mode)", async () => {
+test("a non-diff mode run leaves ground()'s diff arg absent (classificationDiff never populated outside diff mode)", async () => {
   let capturedDiff: string | undefined = "sentinel-never-overwritten";
   let groundCalled = false;
   const { ports } = stubPorts({
@@ -4904,7 +4904,7 @@ test("4b.5: a non-diff mode run (classificationIntent never populated) still cal
    render (the BlastRadius files belong to that service).
  */
 
-test("WS7.5: structuralSignal.render() IS called when input.triggerRepo is set (graph is classify-source scoped)", async () => {
+test("structuralSignal.render() IS called when input.triggerRepo is set (graph is classify-source scoped)", async () => {
   let renderCallCount = 0;
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
@@ -4917,7 +4917,7 @@ test("WS7.5: structuralSignal.render() IS called when input.triggerRepo is set (
   assert.equal(renderCallCount, 1, "a cross-repo run must query the classify-source graph, not skip the signal");
 });
 
-test("WS7.5: baseEnrichment carries staticSignal on a cross-repo run when structuralSignal is wired", async () => {
+test("baseEnrichment carries staticSignal on a cross-repo run when structuralSignal is wired", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
@@ -4942,7 +4942,7 @@ test("WS7.5: baseEnrichment carries staticSignal on a cross-repo run when struct
    structuralSignal's BlastRadius, which genuinely needs diff mode's classificationIntent.changedFiles.
  */
 
-test("S2.5(1): a present serviceLinks port is called exactly once before the first generate(), and non-empty links reach baseEnrichment.serviceLinks", async () => {
+test("a present serviceLinks port is called exactly once before the first generate(), and non-empty links reach baseEnrichment.serviceLinks", async () => {
   let resolveCallCount = 0;
   const capturedServiceLinks: (readonly unknown[] | undefined)[] = [];
   const { ports } = stubPorts({});
@@ -4971,7 +4971,7 @@ test("S2.5(1): a present serviceLinks port is called exactly once before the fir
   }
 });
 
-test("S2.5(2): a present serviceLinks port is invoked exactly once EVEN in a non-diff generation mode (ADR-7: app-static, not diff-gated)", async () => {
+test("a present serviceLinks port is invoked exactly once EVEN in a non-diff generation mode (ADR-7: app-static, not diff-gated)", async () => {
   let resolveCallCount = 0;
   const { ports } = stubPorts({
     classify: async () => { throw new Error("classify() must never be called outside diff mode"); },
@@ -4986,7 +4986,7 @@ test("S2.5(2): a present serviceLinks port is invoked exactly once EVEN in a non
   assert.equal(resolveCallCount, 1, "resolve() must be invoked once in complete/exhaustive/manual modes too — service links are app-static per SHA, not diff-derived (ADR-7), unlike structuralSignal's diff-only gate");
 });
 
-test("S2.5(3): an ABSENT serviceLinks port leaves baseEnrichment with NO serviceLinks/contractDrift key at all (byte-identical to today)", async () => {
+test("an ABSENT serviceLinks port leaves baseEnrichment with NO serviceLinks/contractDrift key at all (byte-identical to today)", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
@@ -5004,7 +5004,7 @@ test("S2.5(3): an ABSENT serviceLinks port leaves baseEnrichment with NO service
   }
 });
 
-test("S2.5(4): a present serviceLinks port that resolves to empty links+drift leaves baseEnrichment with NO key either (matches structuralSignal's own empty-render precedent)", async () => {
+test("a present serviceLinks port that resolves to empty links+drift leaves baseEnrichment with NO key either (matches structuralSignal's own empty-render precedent)", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [], drift: [] }) };
@@ -5022,7 +5022,7 @@ test("S2.5(4): a present serviceLinks port that resolves to empty links+drift le
   }
 });
 
-test("S2.5(5): a throwing serviceLinks port degrades to NO serviceLinks/contractDrift key, never aborts the run (best-effort, mirrors structuralSignal's own fail-open posture)", async () => {
+test("a throwing serviceLinks port degrades to NO serviceLinks/contractDrift key, never aborts the run (best-effort, mirrors structuralSignal's own fail-open posture)", async () => {
   const { ports } = stubPorts({});
   const serviceLinks: ServiceLinksPort = { resolve: async () => { throw new Error("mirror registry unreachable"); } };
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
@@ -5041,7 +5041,7 @@ test("S2.5(5): a throwing serviceLinks port degrades to NO serviceLinks/contract
   }
 });
 
-test("S2.5(6): non-empty links + empty drift populates ONLY baseEnrichment.serviceLinks — contractDrift stays independently absent (not forced to [])", async () => {
+test("non-empty links + empty drift populates ONLY baseEnrichment.serviceLinks — contractDrift stays independently absent (not forced to [])", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const link = {
@@ -5066,7 +5066,7 @@ test("S2.5(6): non-empty links + empty drift populates ONLY baseEnrichment.servi
   }
 });
 
-test("S2.5(7) (Scenario H baseline): a clean green run's verdict/sideEffect is unaffected by the serviceLinks wiring being absent", async () => {
+test("a clean green run's verdict/sideEffect is unaffected by the serviceLinks wiring being absent", async () => {
   const { ports } = stubPorts({});
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -5106,7 +5106,7 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
   };
 }
 
-test("S2.8(1) anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationPortAdapter — a recording ServiceLinksPort's non-empty links reach the generation port's OpencodeRunInput.serviceLinks", async () => {
+test("anti-inert: RunQaUseCase.run() end-to-end through the REAL GenerationPortAdapter — a recording ServiceLinksPort's non-empty links reach the generation port's OpencodeRunInput.serviceLinks", async () => {
   const captured: { input?: OpencodeRunInput } = {};
   const generationPorts = fakeGenerationPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
@@ -5142,7 +5142,7 @@ test("S2.8(1) anti-inert: RunQaUseCase.run() end-to-end through the REAL Generat
   assert.notEqual(out.decision.verdict, "infra-error");
 });
 
-test("S2.8(2) anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL GenerationPortAdapter's OpencodeRunInput carries NO serviceLinks key at all", async () => {
+test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL GenerationPortAdapter's OpencodeRunInput carries NO serviceLinks key at all", async () => {
   const captured: { input?: OpencodeRunInput } = {};
   const generationPorts = fakeGenerationPortsForAntiInert(captured);
   const generateTestsUseCase = new GenerateTestsUseCase(generationPorts);
@@ -5278,7 +5278,7 @@ test("C-R7: anti-inert integration proof — a recording CrossRepoImpactPort fak
 
 const ABSENT_BUTTON_SPEC_SOURCE = `await page.getByRole("button", { name: "Submit" }).click();`;
 
-test("WS4 4.1: initialSpecSources threads from the initial generation into FixLoopInput, arming round-0's Lever-2 check", async () => {
+test("initialSpecSources threads from the initial generation into FixLoopInput, arming round-0's Lever-2 check", async () => {
   const capturedEnrichments: Array<{ selectorContradictions?: readonly string[]; fixCases?: readonly unknown[] }> = [];
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -5321,7 +5321,7 @@ test("WS4 4.1: initialSpecSources threads from the initial generation into FixLo
 
 const CLEAN_HEADING_SPEC_SOURCE = `await page.getByRole("heading", { name: "Owners" }).click();`;
 
-test("WS4 4.1: the fix-loop generation closure's returned specSources re-arms the NEXT round's Lever-2 check", async () => {
+test("the fix-loop generation closure's returned specSources re-arms the NEXT round's Lever-2 check", async () => {
   const capturedEnrichments: Array<{ selectorContradictions?: readonly string[] }> = [];
   let generateCallCount = 0;
   let executeCallCount = 0;
@@ -5368,7 +5368,7 @@ test("WS4 4.1: the fix-loop generation closure's returned specSources re-arms th
   assert.match(roundWithContradiction!.selectorContradictions![0]!, /button.*Submit.*NOT in the captured failure-point tree/);
 });
 
-test("WS4 4.1: failureDomSnapshot threads the initial run's failure-point DOM into the FixLoop's regen prompt", async () => {
+test("failureDomSnapshot threads the initial run's failure-point DOM into the FixLoop's regen prompt", async () => {
   const capturedDomSnapshots: (string | undefined)[] = [];
   const { ports } = stubPorts({
     execute: async () => ({
@@ -5396,7 +5396,7 @@ test("WS4 4.1: failureDomSnapshot threads the initial run's failure-point DOM in
    tsc/eslint already knew. The aggregate no-ops when revalidate is absent; the use-case must supply it.
  */
 
-test("WS4 4.2: after a fix-round regen, the FixLoop's revalidate hook is invoked against the SAME ValidationPort", async () => {
+test("after a fix-round regen, the FixLoop's revalidate hook is invoked against the SAME ValidationPort", async () => {
   let validateCallCount = 0;
   let executeCallCount = 0;
   const { ports } = stubPorts({
@@ -5423,7 +5423,7 @@ test("WS4 4.2: after a fix-round regen, the FixLoop's revalidate hook is invoked
   assert.ok(validateCallCount > 1, `expected the FixLoop's revalidate hook to call validation.validate() again before the retry-execute, got ${validateCallCount} total validate() call(s)`);
 });
 
-test("WS4 4.2: a failed revalidation short-circuits the retry — execute() is NOT called again, run keeps its original verdict (per the aggregate's own contract)", async () => {
+test("a failed revalidation short-circuits the retry — execute() is NOT called again, run keeps its original verdict (per the aggregate's own contract)", async () => {
   let validateCallCount = 0;
   let executeCallCount = 0;
   const { ports } = stubPorts({
@@ -5452,7 +5452,7 @@ test("WS4 4.2: a failed revalidation short-circuits the retry — execute() is N
    fixCases-shaped enrichment, and ONLY for repair rounds (never the initial generate() call).
  */
 
-test("WS4 4.3: a static-gate repair round threads the validation errors into the regen call as fixCases, bounded", async () => {
+test("a static-gate repair round threads the validation errors into the regen call as fixCases, bounded", async () => {
   const capturedFixCases: Array<readonly { name: string; detail?: string }[] | undefined> = [];
   let validateCallCount = 0;
   let generateCallCount = 0;
@@ -5490,7 +5490,7 @@ test("WS4 4.3: a static-gate repair round threads the validation errors into the
   assert.ok((staticGateCase!.detail?.length ?? 0) <= 4000, "the static-gate error detail must be bounded (~4000 chars cap), never unboundedly long");
 });
 
-test("WS4 4.3: the initial generate() call never carries static-gate fixCases enrichment even when the static-fix loop never engages (clean first pass)", async () => {
+test("the initial generate() call never carries static-gate fixCases enrichment even when the static-fix loop never engages (clean first pass)", async () => {
   const capturedFixCases: unknown[] = [];
   const { ports } = stubPorts({
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
@@ -5676,7 +5676,7 @@ test("confinement wiring: successful results across every enforce() call are MER
    in gateSignals, even though ConfinementPort's OWN reverts are always threaded there. A revert
    surfaced by PublicationPort.publish()'s "pr" route must merge into the SAME accumulator.
  */
-test("confinement wiring: a reverted denylisted path from PublicationPort.publish() (the vcs-write tracked-file guard) is merged into gateSignals.confinement — never silent (FIX 3)", async () => {
+test("confinement wiring: a reverted denylisted path from PublicationPort.publish() (the vcs-write tracked-file guard) is merged into gateSignals.confinement — never silent", async () => {
   const { ports, savedOutcomes } = stubPorts({
     publish: async () => ({ outcome: "pr: https://example.test/pr/1", revertedDenylisted: ["Dockerfile"] }),
   });
@@ -5693,7 +5693,7 @@ test("confinement wiring: a reverted denylisted path from PublicationPort.publis
   );
 });
 
-test("confinement wiring: a reverted denylisted path from publish() MERGES with prior ConfinementPort.enforce() results, never overwrites them (FIX 3)", async () => {
+test("confinement wiring: a reverted denylisted path from publish() MERGES with prior ConfinementPort.enforce() results, never overwrites them", async () => {
   const confinement = makeFakeConfinement(() => ({ strays: 1, dangerous: 0, reverted: ["stray-a.ts"] }));
   const { ports, savedOutcomes } = stubPorts({
     publish: async () => ({ outcome: "pr: https://example.test/pr/1", revertedDenylisted: ["Dockerfile"] }),
@@ -5709,7 +5709,7 @@ test("confinement wiring: a reverted denylisted path from publish() MERGES with 
 
 /* A reverted Dockerfile is a stray but not secret-tier. `dangerous` is only the pre-classified
    secret-path subset (env files, symlink escape). The use-case must not re-derive that check. */
-test("confinement wiring: a reverted NON-secret path (Dockerfile) from publish() counts toward strays but NOT dangerous (FIX E)", async () => {
+test("confinement wiring: a reverted NON-secret path (Dockerfile) from publish() counts toward strays but NOT dangerous", async () => {
   const { ports, savedOutcomes } = stubPorts({
     publish: async () => ({ outcome: "pr: https://example.test/pr/1", revertedDenylisted: ["Dockerfile"], revertedDangerous: [] }),
   });
@@ -5724,7 +5724,7 @@ test("confinement wiring: a reverted NON-secret path (Dockerfile) from publish()
   assert.ok(persisted?.reverted.includes("Dockerfile"));
 });
 
-test("confinement wiring: a reverted secret-tier path (.env) from publish() counts toward BOTH strays and dangerous (FIX E)", async () => {
+test("confinement wiring: a reverted secret-tier path (.env) from publish() counts toward BOTH strays and dangerous", async () => {
   const { ports, savedOutcomes } = stubPorts({
     publish: async () => ({ outcome: "pr: https://example.test/pr/1", revertedDenylisted: [".env"], revertedDangerous: [".env"] }),
   });
@@ -5742,7 +5742,7 @@ test("confinement wiring: a reverted secret-tier path (.env) from publish() coun
 /* revertedDangerous field at all must not crash and must not silently OVER-count dangerous — treated
    as zero genuinely-dangerous reverts (fail-safe: never fabricate a "dangerous" signal from absence).
  */
-test("confinement wiring: a publish() stub with revertedDenylisted but no revertedDangerous field never inflates dangerous (FIX E, back-compat)", async () => {
+test("confinement wiring: a publish() stub with revertedDenylisted but no revertedDangerous field never inflates dangerous (back-compat)", async () => {
   const { ports, savedOutcomes } = stubPorts({
     publish: async () => ({ outcome: "pr: https://example.test/pr/1", revertedDenylisted: ["Dockerfile"] }),
   });
@@ -5803,7 +5803,7 @@ test("confinement wiring: a regression run (generating:false) makes no enforce()
    or fabricates when neither source has anything. ─────────────────────────────────────────────────
  */
 
-test("Slice 4 (task 4.4): tested is sourced from the initial generation's specMetas when the FixLoop never engages (clean first-try pass)", async () => {
+test("tested is sourced from the initial generation's specMetas when the FixLoop never engages (clean first-try pass)", async () => {
   let publishedTested: { flow?: string; objective?: string }[] | undefined;
   const { ports } = stubPorts({
     generate: async () => ({
@@ -5821,7 +5821,7 @@ test("Slice 4 (task 4.4): tested is sourced from the initial generation's specMe
   assert.deepEqual(publishedTested, [{ flow: "Checkout", objective: "user can pay with a saved card" }]);
 });
 
-test("Slice 4 (task 4.4): tested prefers the FixLoop's FINAL regen specMetas once the loop engages and regenerates", async () => {
+test("tested prefers the FixLoop's FINAL regen specMetas once the loop engages and regenerates", async () => {
   let publishedTested: { flow?: string; objective?: string }[] | undefined;
   let executeCalls = 0;
   const { ports } = stubPorts({
@@ -5864,7 +5864,7 @@ test("Slice 4 (task 4.4): tested prefers the FixLoop's FINAL regen specMetas onc
   );
 });
 
-test("Slice 4 (task 4.4): absent specMetas everywhere never throws and publish() receives no tested field", async () => {
+test("absent specMetas everywhere never throws and publish() receives no tested field", async () => {
   let publishedDecisionHadTestedKey = true;
   const { ports } = stubPorts({
     generate: async () => ({ specs: ["checkout.spec.ts"], approved: true }),
@@ -6069,7 +6069,7 @@ test("mirrorGc wiring (rider): a thrown prune() on the classify-skip exit is fau
    never touched. ─────────────────────────────────────────────────────────────────────────────────
  */
 
-test("mirrorGc wiring (batch 3): a post-prepare signal-aborted exit (mid-run, between validate and execute) triggers exactly one prune() with the run's mirrorDir", async () => {
+test("mirrorGc wiring: a post-prepare signal-aborted exit (mid-run, between validate and execute) triggers exactly one prune() with the run's mirrorDir", async () => {
   const controller = new AbortController();
   const { ports } = stubPorts({
     validate: async () => { controller.abort(); return { ok: true, errors: [] }; },
@@ -6089,7 +6089,7 @@ test("mirrorGc wiring (batch 3): a post-prepare signal-aborted exit (mid-run, be
   assert.equal(prunedMirrorDir, "/tmp/qa-golden");
 });
 
-test("mirrorGc wiring (batch 3): a pre-prepare already-aborted signal does NOT prune — the mirror was never touched", async () => {
+test("mirrorGc wiring: a pre-prepare already-aborted signal does NOT prune — the mirror was never touched", async () => {
   const controller = new AbortController();
   controller.abort();
   const { ports } = stubPorts();
@@ -6103,7 +6103,7 @@ test("mirrorGc wiring (batch 3): a pre-prepare already-aborted signal does NOT p
   assert.equal(pruneCallCount, 0, "an already-aborted signal short-circuits BEFORE workspace.prepare() ever runs — nothing to prune");
 });
 
-test("mirrorGc wiring (batch 3): a setup() failure infra-error exit triggers prune() once", async () => {
+test("mirrorGc wiring: a setup() failure infra-error exit triggers prune() once", async () => {
   const { ports } = stubPorts({
     setup: async () => { throw new Error("npm ci in e2e failed (code 1)"); },
   });
@@ -6122,7 +6122,7 @@ test("mirrorGc wiring (batch 3): a setup() failure infra-error exit triggers pru
   assert.equal(prunedMirrorDir, "/tmp/qa-golden");
 });
 
-test("mirrorGc wiring (batch 3): an empty/unparseable generation infra-error exit triggers prune() once", async () => {
+test("mirrorGc wiring: an empty/unparseable generation infra-error exit triggers prune() once", async () => {
   const { ports } = stubPorts({
     generate: async () => ({ specs: [], approved: true, parsed: false }),
   });
@@ -6150,7 +6150,7 @@ test("mirrorGc wiring (batch 3): an empty/unparseable generation infra-error exi
    scenario is a corollary of this, not a separate code path. ──────────────────────────────────────
  */
 
-test("parentRunId (Slice 5): a continuation run threads input.parentRunId into publish()'s decision", async () => {
+test("parentRunId: a continuation run threads input.parentRunId into publish()'s decision", async () => {
   let publishedParentRunId: string | undefined;
   const { ports } = stubPorts({
     publish: async (decision) => {
@@ -6166,7 +6166,7 @@ test("parentRunId (Slice 5): a continuation run threads input.parentRunId into p
   assert.equal(publishedParentRunId, "prior-run-abc123");
 });
 
-test("parentRunId (Slice 5): an ordinary run omits parentRunId from publish()'s decision entirely (never fabricated)", async () => {
+test("parentRunId: an ordinary run omits parentRunId from publish()'s decision entirely (never fabricated)", async () => {
   let publishedDecisionHadParentRunIdKey = true;
   const { ports } = stubPorts({
     publish: async (decision) => {
@@ -6182,7 +6182,7 @@ test("parentRunId (Slice 5): an ordinary run omits parentRunId from publish()'s 
   assert.equal(publishedDecisionHadParentRunIdKey, false, "no /continue source exists this run, so parentRunId must be entirely omitted — never a fabricated empty string");
 });
 
-test("parentRunId (Slice 5): an enforce-mode coverage-regen never fabricates its own parentRunId — the final publish() still reflects only the ORIGINAL run's input.parentRunId", async () => {
+test("parentRunId: an enforce-mode coverage-regen never fabricates its own parentRunId — the final publish() still reflects only the ORIGINAL run's input.parentRunId", async () => {
   let measureCallCount = 0;
   let publishedParentRunId: string | undefined;
   const { ports } = stubPorts({
@@ -6215,7 +6215,7 @@ test("parentRunId (Slice 5): an enforce-mode coverage-regen never fabricates its
    adapter already honours opts.namespace — but the use-case FixLoopExecutionPort closure was
    dropping it, so every retry reused the first-run test-data namespace (PetClinic cardinality).
  */
-test("P0-1: FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.namespace", async () => {
+test("FixLoop retry execute() forwards the per-attempt retryNs as ExecutionOpts.namespace", async () => {
   const capturedNamespaces: (string | undefined)[] = [];
   const capturedMeasureNamespaces: (string | undefined)[] = [];
   let executeCalls = 0;
@@ -6244,7 +6244,7 @@ test("P0-1: FixLoop retry execute() forwards the per-attempt retryNs as Executio
   assert.equal(capturedMeasureNamespaces[0], "retry-ns-p0-1-r1", "post-FixLoop measure must read coverage dumps from the winning retry namespace, not the first-run prefix");
 });
 
-test("P0-5: wall-clock ceiling skips FixLoop regeneration without aborting the first generate", async () => {
+test("wall-clock ceiling skips FixLoop regeneration without aborting the first generate", async () => {
   let generateCalls = 0;
   let executeCalls = 0;
   const { ports } = stubPorts({

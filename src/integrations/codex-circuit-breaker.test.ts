@@ -17,7 +17,7 @@ function setup() {
   resetCodexCircuit();
 }
 
-describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
+describe("codex circuit breaker state machine", () => {
   test("checkCodexCircuit does NOT throw when circuit is closed (healthy baseline)", () => {
     setup();
     assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must not throw when closed");
@@ -35,7 +35,7 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     );
   });
 
-  test("circuit does NOT open after fewer than THRESHOLD failures (AC2.6.1)", () => {
+  test("circuit does NOT open after fewer than THRESHOLD failures", () => {
     setup();
     /* Record 4 failures (threshold is 5) — must not open */
     for (let i = 0; i < 4; i++) {
@@ -44,7 +44,7 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must not open on fewer than 5 failures");
   });
 
-  test("open circuit rejects further calls with cooldown message (AC2.6.1)", () => {
+  test("open circuit rejects further calls with cooldown message", () => {
     setup();
     for (let i = 0; i < 5; i++) {
       recordCodexCircuitFailure("primary");
@@ -82,7 +82,7 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
   /* J1: codex-circuit-breaker.ts used to be a single set of module-level counters shared by
      every agent role on the Codex runtime — a run-away reviewer would trip the SAME breaker a
      healthy primary relies on. State must be keyed per role, mirroring the OpenCode breaker. */
-  test("J1: tripping one role's circuit does not block a different role", () => {
+  test("tripping one role's circuit does not block a different role", () => {
     setup();
     for (let i = 0; i < 5; i++) recordCodexCircuitFailure("reviewer");
     assert.throws(() => checkCodexCircuit("reviewer"), /Codex circuit breaker is OPEN/i);
@@ -90,7 +90,7 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     resetCodexCircuit();
   });
 
-  test("J1: a success on one role does not reset a different role's failure streak", () => {
+  test("a success on one role does not reset a different role's failure streak", () => {
     setup();
     recordCodexCircuitFailure("primary");
     recordCodexCircuitFailure("primary");
@@ -142,8 +142,8 @@ import {
 } from "../agent-runtime/codex-strategy";
 import type { AgentModelInfo, AgentProviderHealth } from "../agent-runtime/types";
 
-describe("CodexRuntimeStrategy circuit breaker wiring (T-P2-6 / AC2.6.1)", () => {
-  test("open codex circuit rejects prompt without calling the transport (AC2.6.1)", async () => {
+describe("CodexRuntimeStrategy circuit breaker wiring", () => {
+  test("open codex circuit rejects prompt without calling the transport", async () => {
     resetCodexCircuit();
 
     for (let i = 0; i < 5; i++) {

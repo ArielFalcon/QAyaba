@@ -265,7 +265,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. JD-C3: `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
+/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
 const GROUNDING_UNCOVERED_ESCAPE =
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
   `browser_navigate that specific route before writing its selectors — never guess them.`;
@@ -466,7 +466,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
     : "";
 
-  /* VOLATILE: Lever-2 deterministic selector contradictions (W1). Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
+  /* VOLATILE: Lever-2 deterministic selector contradictions. Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
   const selectorContradictionsContent =
     input.selectorContradictions?.length && isGenerationMode
       ? [
@@ -1078,7 +1078,7 @@ function buildTask(input: OpencodeRunInput): string {
           `the code actually changes, not just what the message promises.`,
           ``,
         ]),
-    /* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction above, this explains a decision already made, not evidence that may have shed). F2 fix (adversarial review, LOW): classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot at :687/:1083/:1743). The previous call omitted the mode arg, defaulting to the aggressive "issue" (Issue-bound) policy: it failed safe (over-redacted) but contradicted this very comment. `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
+    /* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction above, this explains a decision already made, not evidence that may have shed). classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot). `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
     ...(input.classificationReason
       ? [
           `## Classifier note`,
@@ -1096,7 +1096,7 @@ function buildTask(input: OpencodeRunInput): string {
     `backend behaviour and vice-versa. If the map is missing or stale, note the`,
     `limitation explicitly in your verdict note.`,
     ``,
-    /* JD-C1: the first pass scopes the blast radius (serena + page exploration). A RE-generation pass already has that grounding distilled above and is governed by the regen-discipline section — re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let the agent justify re-exploring. So the scope-budget orientation lines are first-pass only. */
+    /* The first pass scopes the blast radius (serena + page exploration). A RE-generation pass already has that grounding distilled above and is governed by the regen-discipline section — re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let the agent justify re-exploring. So the scope-budget orientation lines are first-pass only. */
     ...(isReGen
       ? [
           `## Scope (re-generation pass)`,
@@ -1330,7 +1330,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     return raw;
   })();
 
-  /* VOLATILE: runtime execution evidence — D4/D5 injection. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
+  /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
   const executionResultContent = input.executionResult ?? "";
 
   return assemble([

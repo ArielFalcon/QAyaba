@@ -217,7 +217,7 @@ test("e2e target: a TRACKED, agent-modified e2e/fixtures/creds.env is never publ
 
 /* A reverted tamper must be returned so the caller can thread it into gateSignals. */
 
-test("code target: publish() surfaces revertedDenylisted when the tracked-file guard reverts a tamper (FIX 3)", async () => {
+test("code target: publish() surfaces revertedDenylisted when the tracked-file guard reverts a tamper", async () => {
   const originalDockerfile = "FROM node:24\n";
   const repo = mkdtempSync(join(tmpdir(), "qa-publish-revert-surface-"));
   try {
@@ -290,7 +290,7 @@ test("e2e target (negative): e2e/Dockerfile, e2e/.github/workflows/x.yml and e2e
 
 /* ── code target ────────────────────────────────────────────────────────────────────────────────── */
 
-test("code target: workflow/Dockerfile/compose/gitattributes/gitmodules are never staged (code-denylist mirror, D2)", async () => {
+test("code target: workflow/Dockerfile/compose/gitattributes/gitmodules are never staged (code-denylist mirror)", async () => {
   const repo = initRepo();
   try {
     writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
@@ -563,7 +563,7 @@ for (const { path: denyPath, original, tampered } of DENYLIST_TRACKED_MODIFY_CAS
    publishContext, whose CONTEXT_ADD = ["e2e/.qa/context.json"] stages ONLY that one file.
  */
 
-test("context target: a context-mode publish stages ONLY e2e/.qa/context.json, never e2e specs or seed fixtures (Slice 7.2 fix)", async () => {
+test("context target: a context-mode publish stages ONLY e2e/.qa/context.json, never e2e specs or seed fixtures", async () => {
   const repo = initRepo();
   try {
     writeFile(repo, "e2e/.qa/context.json", '{"routes":[]}\n'); /* the ONLY file a context-mode publish should ever stage */

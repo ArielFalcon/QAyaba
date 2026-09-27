@@ -101,7 +101,7 @@ test("EventStreamManager defers opening a stream until the sink is set", () => {
    downstream ever listens to at the transport level, so the underlying SSE HTTP connection is
    never actually torn down.
  */
-test("C6: the default stream path forwards the per-directory AbortSignal into RawEventStreamOpener.open so detach can tear the connection down", () => {
+test("the default stream path forwards the per-directory AbortSignal into RawEventStreamOpener.open so detach can tear the connection down", () => {
   const openCalls: Array<{ directory: string; signal: AbortSignal | undefined }> = [];
   setRawEventStreamOpener({
     open: async (directory, signal) => {

@@ -36,7 +36,7 @@ test("the OpenAPI document exposes app onboarding verbs for codegen clients", ()
   assert.ok(repos.get, "missing GET /api/v1/repos");
 });
 
-test("the OpenAPI document exposes the boundary-onboarding endpoints and their schemas (Slice 5a)", () => {
+test("the OpenAPI document exposes the boundary-onboarding endpoints and their schemas", () => {
   const doc = buildOpenApiDocument() as Doc;
   for (const p of [
     "/api/v1/apps/{name}/boundaries/propose",

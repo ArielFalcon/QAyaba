@@ -99,7 +99,7 @@ export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Pr
 
   /** Resolves one repo's mirror, tagging any failure with the repo that actually failed — a
    *  Promise.all across front + every service repo would otherwise report the wrong name when a
-   *  service (not the primary) is the one missing on disk (spec C3: name the SPECIFIC repo). */
+   *  service (not the primary) is the one missing on disk (name the SPECIFIC repo). */
   async function resolveRepoRef(repo: string): Promise<RepoRef> {
     try {
       return { repo, mirrorDir: await deps.mirrorDir(repo) };

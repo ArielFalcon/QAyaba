@@ -380,7 +380,7 @@ test("blocks(): enforce+pass -> false", () => {
 });
 
 /* P0-5: coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
-test("P0-5: measure() with policy.mode off skips collector and oracle", async () => {
+test("measure() with policy.mode off skips collector and oracle", async () => {
   let collectCalls = 0;
   let oracleCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });

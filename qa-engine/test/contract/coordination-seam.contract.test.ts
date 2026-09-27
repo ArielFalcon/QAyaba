@@ -59,7 +59,7 @@ test("AgentCapability is lead | sidekick-standard | sidekick-escalated — not r
   assert.equal(isAgentCapability("worker"), false);
 });
 
-test("CoordinationDecision.action is the Fase 1 assignment union — not OrchestrationDecision verbs", () => {
+test("CoordinationDecision.action is the assignment union — not OrchestrationDecision verbs", () => {
   assert.deepEqual(
     [...COORDINATION_ACTIONS],
     ["direct", "delegate", "retry", "escalate", "takeover", "abort"],
@@ -139,7 +139,7 @@ test("CoordinationBudget holds the run CycleBudget and WallClockBudget intact �
   assert.equal(ctx.budgets.wallClock.budgetMs, 4_000);
 });
 
-test("Fase 5 wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {
+test("wires coordination only into RunQaUseCase — generation/FixLoop/AgentRuntime stay free of the seam", () => {
   const forbidden = [
     "src/contexts/generation/application/generate-tests.use-case.ts",
     "src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",

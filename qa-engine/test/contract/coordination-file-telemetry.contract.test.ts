@@ -79,7 +79,7 @@ test("the ledger is bounded — oldest entries rotate out of memory AND the file
    re-triggered a full synchronous file rewrite (writeFileSync + renameSync). Trimming down to a
    lower watermark (ROTATE_TO_EVENTS) means the next (MAX_LEDGER_EVENTS - ROTATE_TO_EVENTS) records
    grow the ledger organically (plain appendFileSync) without another full rewrite. */
-test("J2: after crossing the cap, the next records within the slack window do not re-rewrite the file", () => {
+test("after crossing the cap, the next records within the slack window do not re-rewrite the file", () => {
   const dir = mkdtempSync(join(tmpdir(), "coord-tel-slack-"));
   const path = join(dir, "coordination-events.jsonl");
   let rewriteCount = 0;

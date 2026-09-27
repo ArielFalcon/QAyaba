@@ -41,7 +41,7 @@ test("dual mode requires both provider keys and at least two visible providers",
   assert.match(validateAgentRuntimeConfig(cfg, { opencode: true, codex: false }).errors.join("\n"), /CODEX_API_KEY/);
 });
 
-test("dual mode: reviewer defaults to the primary's COMPLEMENT, not a hardcoded codex (CFG-04)", () => {
+test("dual mode: reviewer defaults to the primary's COMPLEMENT, not a hardcoded codex", () => {
   const keys = { OPENCODE_API_KEY: "ok", CODEX_API_KEY: "ck" };
   /* primary=codex with no explicit reviewer provider → reviewer must be opencode (independent
      judgment), NOT codex again (the old hardcoded fallback collapsed both roles onto codex).
@@ -99,7 +99,7 @@ test("dual mode: the default config still validates ok (reviewer != primary by d
   assert.equal(result.ok, true, `default dual-mode config must validate ok; errors: ${result.errors.join("; ")}`);
 });
 
-test("single mode: reviewer.model === primary.model fails validation, naming both role/model pairs (CFG-05)", () => {
+test("single mode: reviewer.model === primary.model fails validation, naming both role/model pairs", () => {
   const cfg = {
     ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key" }),
     assignments: {
@@ -116,7 +116,7 @@ test("single mode: reviewer.model === primary.model fails validation, naming bot
   assert.match(joined, /opencode-go\/deepseek-v4-pro/, "the error must name the colliding model");
 });
 
-test("dual mode: reviewer.model === primary.model fails validation, naming both role/model pairs (CFG-05)", () => {
+test("dual mode: reviewer.model === primary.model fails validation, naming both role/model pairs", () => {
   const cfg = {
     ...defaultAgentRuntimeConfig({ OPENCODE_API_KEY: "opencode-go-key", CODEX_API_KEY: "codex-key" }),
     mode: "dual" as const,

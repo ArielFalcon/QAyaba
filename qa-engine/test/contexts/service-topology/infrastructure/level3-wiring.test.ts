@@ -19,13 +19,13 @@ import type { ManifestEntry } from "@contexts/generation/application/ports/index
    The stub must return a path (not throw) for any repo.
  */
 
-test("L3.1: StubMirrorRegistryAdapter implements MirrorRegistryPort and resolves any repo", async () => {
+test("StubMirrorRegistryAdapter implements MirrorRegistryPort and resolves any repo", async () => {
   const stub: MirrorRegistryPort = new StubMirrorRegistryAdapter();
   const path = await stub.mirrorDir("ArielFalcon/ms-name-orders");
   assert.ok(typeof path === "string" && path.length > 0, `expected a non-empty string, got "${path}"`);
 });
 
-test("L3.1: StubMirrorRegistryAdapter returns a consistent path for the same repo", async () => {
+test("StubMirrorRegistryAdapter returns a consistent path for the same repo", async () => {
   const stub: MirrorRegistryPort = new StubMirrorRegistryAdapter();
   const a = await stub.mirrorDir("org/repo");
   const b = await stub.mirrorDir("org/repo");
@@ -36,7 +36,7 @@ test("L3.1: StubMirrorRegistryAdapter returns a consistent path for the same rep
    The field must be optional (no existing tests break) and accept ServiceLink[].
  */
 
-test("L3.2: OpencodeRunInput accepts serviceLinks as an optional field", () => {
+test("OpencodeRunInput accepts serviceLinks as an optional field", () => {
   const link: ServiceLink = {
     from: { repo: "front/webapp", file: "src/api.ts", symbol: "listOrders" },
     to: { repo: "back/api", file: "openapi.yaml", symbol: "listOrders" },
@@ -64,7 +64,7 @@ test("L3.2: OpencodeRunInput accepts serviceLinks as an optional field", () => {
   assert.equal(input.serviceLinks?.[0]?.contractRef, "listOrders");
 });
 
-test("L3.2: OpencodeRunInput without serviceLinks is still valid (optional field)", () => {
+test("OpencodeRunInput without serviceLinks is still valid (optional field)", () => {
   const input: OpencodeRunInput = {
     repo: "org/demo",
     sha: "abc",
@@ -128,7 +128,7 @@ function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefine
   };
 }
 
-test("L3.3: GenerateTestsUseCase propagates serviceLinks to renderMain intact when present", async () => {
+test("GenerateTestsUseCase propagates serviceLinks to renderMain intact when present", async () => {
   const capturedInput: { value: OpencodeRunInput | undefined } = { value: undefined };
   const ports = makeGenerationPorts(capturedInput);
   const useCase = new GenerateTestsUseCase(ports);
@@ -162,7 +162,7 @@ test("L3.3: GenerateTestsUseCase propagates serviceLinks to renderMain intact wh
   );
 });
 
-test("L3.3: GenerateTestsUseCase passes serviceLinks as absent to renderMain when not provided", async () => {
+test("GenerateTestsUseCase passes serviceLinks as absent to renderMain when not provided", async () => {
   const capturedInput: { value: OpencodeRunInput | undefined } = { value: undefined };
   const ports = makeGenerationPorts(capturedInput);
   const useCase = new GenerateTestsUseCase(ports);

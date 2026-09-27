@@ -516,7 +516,7 @@ test("sub-decision (e): bestRunSoFar guard is SKIPPED when realBugDetected fired
    nav count (result?.reexploreNavigations ?? 0) is read at the next round's gate. Without this
    field populated, the thrash-stop is unreachable and the loop spends an extra retry.
  */
-test("FIX F1: reexploreNavigations thrash-stop — a heavy re-exploration round downgrades Signal B to no-progress (break-needs-human)", async () => {
+test("reexploreNavigations thrash-stop — a heavy re-exploration round downgrades Signal B to no-progress (break-needs-human)", async () => {
   let executeCallCount = 0;
   let generateCallCount = 0;
   const execution: FixLoopExecutionPort = {
@@ -576,7 +576,7 @@ test("FIX F1: reexploreNavigations thrash-stop — a heavy re-exploration round 
 /* A mid-retry infra-error (DEV dies after a filtered retry-execute) is a discarded-run verdict
    and must carry zero cases, matching every other infra-error assignment site in this aggregate.
  */
-test("FIX F2: mid-retry infra-error (DEV dies after a filtered retry-execute) discards cases, matching legacy resultOf's cases:[] contract", async () => {
+test("mid-retry infra-error (DEV dies after a filtered retry-execute) discards cases, matching legacy resultOf's cases:[] contract", async () => {
   let executeCallCount = 0;
   let devHealthyCallCount = 0;
   const execution: FixLoopExecutionPort = {
@@ -632,7 +632,7 @@ test("FIX F2: mid-retry infra-error (DEV dies after a filtered retry-execute) di
    generation adapter can enforce the budget check at the generate() call boundary, rather than the
    fix-loop re-implementing budget logic it structurally does not own.
  */
-test("FIX F4: the regen call threads cycleBudget/wallClockBudget to the GenerationPort, matching WHERE the legacy checks (inside generateOnce, not the fix-loop block)", async () => {
+test("the regen call threads cycleBudget/wallClockBudget to the GenerationPort, matching WHERE the legacy checks (inside generateOnce, not the fix-loop block)", async () => {
   const receivedGenerateInputs: Array<{ cycleBudget?: CycleBudget; wallClockBudget?: WallClockBudget }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),
@@ -673,7 +673,7 @@ test("FIX F4: the regen call threads cycleBudget/wallClockBudget to the Generati
    engaged, since the loop's own final regen is the freshest "what was tested" evidence.
  */
 
-test("Slice 4: lastSpecMetas reflects the FINAL regen round's own specMetas once the loop fixes the run and exits", async () => {
+test("lastSpecMetas reflects the FINAL regen round's own specMetas once the loop fixes the run and exits", async () => {
   const execution: FixLoopExecutionPort = {
     execute: async () => ({ verdict: "pass" as const, cases: [{ name: "checkout", status: "pass" as const }] }),
   };
@@ -708,7 +708,7 @@ test("Slice 4: lastSpecMetas reflects the FINAL regen round's own specMetas once
   assert.deepEqual(result.lastSpecMetas, [{ flow: "Checkout", objective: "user can pay with a saved card" }]);
 });
 
-test("Slice 4: lastSpecMetas is undefined when the loop never regenerated (already passing on entry)", async () => {
+test("lastSpecMetas is undefined when the loop never regenerated (already passing on entry)", async () => {
   const execution: FixLoopExecutionPort = {
     execute: async () => {
       throw new Error("execute must not be called — the loop condition is false from the start (verdict already pass)");

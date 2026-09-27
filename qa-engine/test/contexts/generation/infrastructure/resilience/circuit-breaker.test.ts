@@ -29,7 +29,7 @@ test("a success before the threshold resets the failure streak", () => {
    qa-reflector success would reset a qa-generator's genuinely-accumulating failure streak. State
    must be keyed per role.
  */
-test("C7: tripping one role's circuit does not block a different role", () => {
+test("tripping one role's circuit does not block a different role", () => {
   resetCircuit();
   for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
   assert.throws(() => checkCircuit("qa-generator"), /circuit breaker is OPEN/);
@@ -37,7 +37,7 @@ test("C7: tripping one role's circuit does not block a different role", () => {
   resetCircuit();
 });
 
-test("C7: a success on one role does not reset a different role's failure streak", () => {
+test("a success on one role does not reset a different role's failure streak", () => {
   resetCircuit();
   recordCircuitFailure("qa-generator");
   recordCircuitFailure("qa-generator");

@@ -95,8 +95,8 @@ function makeSuccessSpawnFn(jsonlOutput: string): SpawnFn {
   return (() => makeSuccessChild(jsonlOutput)) as unknown as SpawnFn;
 }
 
-describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
-  it("auth / out-of-credits stderr → AgentUnavailableError INCONCLUSIVE (AC1.2.1)", () => {
+describe("codexErrorToInfra", () => {
+  it("auth / out-of-credits stderr → AgentUnavailableError INCONCLUSIVE", () => {
     const cases: string[] = [
       "Error: 401 Unauthorized",
       "Error: 403 Forbidden",
@@ -115,7 +115,7 @@ describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
     }
   });
 
-  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE (AC1.2.2)", () => {
+  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE", () => {
     const cases: string[] = [
       "Codex prompt: timed out after 30000ms",
       "timed out after 60000ms",
@@ -127,26 +127,26 @@ describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
     }
   });
 
-  it("non-zero exit with non-infra stderr is NOT coerced to infra-error (AC1.2.4)", () => {
+  it("non-zero exit with non-infra stderr is NOT coerced to infra-error", () => {
     /* A test legitimately fails — this must not be swallowed into infra-error. */
     const err = codexErrorToInfra(new Error("codex exec exited 1: Test assertion failed: expected 200 got 404"));
     assert.ok(!(err instanceof AgentUnavailableError), "Non-infra failure must not become AgentUnavailableError");
     assert.equal(err, null, "codexErrorToInfra must return null for non-infra errors");
   });
 
-  it("rate-limited (429) stderr → AgentUnavailableError (infra) (AC1.2.1)", () => {
+  it("rate-limited (429) stderr → AgentUnavailableError (infra)", () => {
     const err = codexErrorToInfra(new Error("codex exec exited 1: 429 Too Many Requests"));
     assert.ok(err instanceof AgentUnavailableError);
     assert.ok(err.message.includes("INCONCLUSIVE (infrastructure)"));
   });
 
-  it("non-Error / null input returns null (AC1.2.4 guard)", () => {
+  it("non-Error / null input returns null", () => {
     const err = codexErrorToInfra(null as unknown as Error);
     assert.equal(err, null);
   });
 });
 
-describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1-2)", () => {
+describe("CodexRuntimeStrategy.openSession textOnly forwarding", () => {
   function makeCapturingTransport(): { transport: CodexHeadlessTransport; captures: Array<{ text: string }> } {
     const captures: Array<{ text: string }> = [];
     const transport: CodexHeadlessTransport = {
@@ -170,7 +170,7 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
     return { transport, captures };
   }
 
-  it("textOnly: true → reasoning wrappers stripped from output (AC1.3.1)", async () => {
+  it("textOnly: true → reasoning wrappers stripped from output", async () => {
     const { transport } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -192,7 +192,7 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
     await session.dispose();
   });
 
-  it("textOnly omitted → output returned as-is, no stripping (AC1.3.2)", async () => {
+  it("textOnly omitted → output returned as-is, no stripping", async () => {
     const { transport } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -211,7 +211,7 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
   });
 });
 
-describe("CodexRuntimeStrategy.startEventStream (T-P1-4 / AC1.4.3)", () => {
+describe("CodexRuntimeStrategy.startEventStream", () => {
   it("startEventStream is defined on CodexRuntimeStrategy", () => {
     const strategy = new CodexRuntimeStrategy({
       env: {},
@@ -229,8 +229,8 @@ describe("CodexRuntimeStrategy.startEventStream (T-P1-4 / AC1.4.3)", () => {
    classified by codexErrorToInfra as infra-error.
  */
 
-describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
-  it("SIGTERM is sent and a timeout error is rejected when the deadline elapses (AC2.3.1)", async () => {
+describe("CodexExecTransport timeout/SIGTERM path", () => {
+  it("SIGTERM is sent and a timeout error is rejected when the deadline elapses", async () => {
     const { spawnFn, killSpy } = makeHangingSpawnFn();
     const transport = new CodexExecTransport(
       { CODEX_API_KEY: "test" },
@@ -278,7 +278,7 @@ describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
     );
   });
 
-  it("resolves normally when the process completes before the deadline (AC2.3.2)", async () => {
+  it("resolves normally when the process completes before the deadline", async () => {
     const jsonl = JSON.stringify({ msg: "all tests passed" });
     const spawnFn = makeSuccessSpawnFn(jsonl);
     const transport = new CodexExecTransport(
@@ -322,7 +322,7 @@ describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
    agentTimeout("diff")), imported directly to avoid the two providers drifting apart.
    ---------------------------------------------------------------------------
  */
-describe("CodexRuntimeStrategy — default per-role deadline (WS9.3)", () => {
+describe("CodexRuntimeStrategy — default per-role deadline", () => {
   /* Tiny env-overridden budgets so these tests exercise the REAL default-selection code path
      (env override, same as OpenCode's OPENCODE_REVIEWER_TIMEOUT_MS pattern) without waiting out
      the real 5-6 minute production defaults.
@@ -454,7 +454,7 @@ describe("CodexRuntimeStrategy — default per-role deadline (WS9.3)", () => {
    branch, not the "qa-maintainer" fallthrough.
  */
 
-describe("rolePromptName (Slice 1 — proposer role)", () => {
+describe("rolePromptName (proposer role)", () => {
   it("routes proposer to qa-proposer via an explicit branch, not the qa-maintainer fallthrough", () => {
     assert.equal(rolePromptName("proposer"), "qa-proposer");
     assert.notEqual(
@@ -465,8 +465,8 @@ describe("rolePromptName (Slice 1 — proposer role)", () => {
   });
 });
 
-describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
-  it("returns the LAST message from multi-line JSONL (AC2.1.1)", () => {
+describe("extractCodexLastMessage", () => {
+  it("returns the LAST message from multi-line JSONL", () => {
     const jsonl = [
       JSON.stringify({ msg: "first message" }),
       JSON.stringify({ msg: "second message" }),
@@ -476,7 +476,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "last message", "Must return the LAST non-empty message, not the first");
   });
 
-  it("tolerates interleaved non-JSON/stderr lines and still returns trailing message (AC2.1.2)", () => {
+  it("tolerates interleaved non-JSON/stderr lines and still returns trailing message", () => {
     const jsonl = [
       "Spawning codex exec...",
       JSON.stringify({ msg: "setup done" }),
@@ -488,7 +488,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "test result: all passed");
   });
 
-  it("returns empty string for empty/whitespace-only input (AC2.1.3)", () => {
+  it("returns empty string for empty/whitespace-only input", () => {
     assert.equal(extractCodexLastMessage(""), "");
     assert.equal(extractCodexLastMessage("   \n  \n  "), "");
   });
@@ -530,7 +530,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
      fall back to the true last message (preserving all plain-text/chat behavior above).
    */
 
-  it("WS9.4(a): a generator verdict block followed by a trailing remark is still recovered", () => {
+  it("a generator verdict block followed by a trailing remark is still recovered", () => {
     const verdictJson = JSON.stringify({ specs: ["login.spec.ts"], note: "covers the new login flow" });
     const jsonl = [
       JSON.stringify({ msg: verdictJson }),
@@ -543,7 +543,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     );
   });
 
-  it("WS9.4(a): a reviewer verdict block followed by a trailing remark is still recovered", () => {
+  it("a reviewer verdict block followed by a trailing remark is still recovered", () => {
     const verdictJson = JSON.stringify({ approved: true, rationale: "looks good", corrections: [] });
     const jsonl = [
       JSON.stringify({ msg: verdictJson }),
@@ -556,7 +556,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     );
   });
 
-  it("WS9.4(a): when NO message contains a verdict, falls back to the true last message (unchanged behavior)", () => {
+  it("when NO message contains a verdict, falls back to the true last message (unchanged behavior)", () => {
     const jsonl = [
       JSON.stringify({ msg: "exploring the codebase" }),
       JSON.stringify({ msg: "still no verdict, just chatting" }),
@@ -565,7 +565,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "still no verdict, just chatting");
   });
 
-  it("WS9.4(a): a verdict embedded mid-message (not the whole message) is still detected", () => {
+  it("a verdict embedded mid-message (not the whole message) is still detected", () => {
     /* The agent's closing message is prose THEN a JSON block, not a bare JSON string — the
        detection must find the verdict block WITHIN the message text, not require the whole
        message to be pure JSON.
@@ -579,7 +579,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.ok(result.includes("checkout.spec.ts"), `must recover the message embedding the verdict. Got: ${result}`);
   });
 
-  it("WS9.4(a): TWO verdict-bearing messages (draft then final) — the LAST one wins", () => {
+  it("TWO verdict-bearing messages (draft then final) — the LAST one wins", () => {
     /* An agent may emit a draft verdict, keep working, and emit a corrected final verdict.
        The reverse scan must return the LAST verdict-bearing message, never resurrect the draft.
      */
@@ -595,7 +595,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.ok(!result.includes("draft.spec.ts"), `the draft verdict must not be resurrected. Got: ${result}`);
   });
 
-  it.skip("[REAL-BOUNDARY] validates against real codex --json fixture (requires T-P1-0 image run)", () => {
+  it.skip("[REAL-BOUNDARY] validates against real codex --json fixture (requires the image-gated capture-codex-jsonl smoke run)", () => {
     /* Validates extractCodexLastMessage against the REAL `codex exec --json` JSONL output
        shape captured by agents/smoke/capture-codex-jsonl.smoke.mjs. IMAGE-GATED: the fixture at
        src/agent-runtime/__fixtures__/codex-exec-json.jsonl is produced in the built agents image
@@ -616,8 +616,8 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
    and update this test to assert the real usage fields. The false assertion going red is
    intentional — it forces the wiring, not just flipping the flag.
  */
-describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
-  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated (AC3.3.1)", () => {
+describe("onUsage honesty", () => {
+  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated", () => {
     /* Honest assertion: codex exec does not yet expose token usage. When a captured fixture
        proves usage is available, this test goes red until onUsage is wired.
      */
@@ -630,7 +630,7 @@ describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
     );
   });
 
-  it("AgentTurnEvent token fields are null — no fabricated data emitted (AC3.3.1)", async () => {
+  it("AgentTurnEvent token fields are null — no fabricated data emitted", async () => {
     /* Assert that token fields in the turn event are null (not fabricated) when using the codex path. */
     const capturedTurns: Array<{ tokensInput: unknown; tokensOutput: unknown; cost: unknown }> = [];
 
@@ -675,7 +675,7 @@ describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
     );
   });
 
-  it("openSession does not silently drop an onUsage callback when it is passed — asymmetry is explicit (AC3.3.1)", async () => {
+  it("openSession does not silently drop an onUsage callback when it is passed — asymmetry is explicit", async () => {
     /* OpenCodeRuntimeStrategy accepts onUsage and forwards it to deps.open.
        CodexRuntimeStrategy does NOT accept onUsage in its openSession signature — this is the
        declared asymmetry. This test documents that:
@@ -713,7 +713,7 @@ describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
    dangling reference on Codex (nothing ships agent/skills/ into a codex turn).
    ---------------------------------------------------------------------------
  */
-describe("CodexRuntimeStrategy — skill inlining into the role preamble (WS9.2)", () => {
+describe("CodexRuntimeStrategy — skill inlining into the role preamble", () => {
   /* Real repo promptRoot (this test file lives at src/agent-runtime/ → two levels up to repo root,
      then into agent/ — the same provider-neutral tree withCodexRolePreamble reads from).
    */

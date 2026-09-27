@@ -60,7 +60,7 @@ const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listApp
 
 const redactionPort = new RedactionPortAdapter();
 /*
- * Durable backing (OBS-01) lives in createDurableRunEventStore, shared with the CLI so every
+ * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
  * maintainer hot-swap's process.exit) and eviction from the in-memory ring.
  */
@@ -297,7 +297,7 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
   lines.push(`# TYPE qayaba_open_sessions gauge`);
   lines.push(`qayaba_open_sessions ${openSessions}`);
   /*
-   * Completed runs by verdict (OBS-05) — the metric an operator alerts on (fail/invalid/
+   * Completed runs by verdict — the metric an operator alerts on (fail/invalid/
    * infra-error rate shift). Sourced from the durable runs table, never a wrong-when-restarted
    * in-memory counter. Always emit the known verdict labels so a 0 is explicit (no missing series).
    */
@@ -398,7 +398,7 @@ function authorized(req: IncomingMessage): boolean {
 const ASSISTANT_CWD = "/tmp";
 
 /*
- * Server-side app onboarding/deletion deps (F5): the orchestrator owns the GitHub
+ * Server-side app onboarding/deletion deps: the orchestrator owns the GitHub
  * token, the config dir and the mirror cache, so the TUI never touches them directly.
  */
 const appAdminDeps: AppAdminDeps = {
@@ -569,7 +569,7 @@ const apiDeps: ApiDeps = {
   listRecords,
   currentRun,
   intelligence: loadIntelligenceView,
-  /* Read-only stored FE<->BE architecture map (Batch F). null (no row yet) -> the route 404s. */
+  /* Read-only stored FE<->BE architecture map. null (no row yet) -> the route 404s. */
   contextMap: (app) => {
     const stored = loadContextMap(app);
     if (!stored) return null;

@@ -48,7 +48,7 @@ test("fold() swallows a failure — off-path by contract, never gates publish", 
   await assert.doesNotReject(() => adapter.fold(outcome));
 });
 
-test("retrieve() delegates to LearningRepositoryPort.topRules and returns the FULL structured rule (W3 F1)", async () => {
+test("retrieve() delegates to LearningRepositoryPort.topRules and returns the FULL structured rule", async () => {
   const rule: LearningRule = {
     id: "r1", trigger: "selector absent", action: "use role+name", errorClass: "E-EXEC-FAIL",
     archetype: null, status: "active", confidence: "high", usageCount: 3, outcomeCount: 3,
@@ -80,7 +80,7 @@ test("retrieve() delegates to LearningRepositoryPort.topRules and returns the FU
    it is the row's PRIMARY KEY used for outcome-fold attribution, distinct from `trigger` (the
    prompt-facing text).
  */
-test("retrieve() includes the repository row's real id in each RetrievedRule (WS1.1 fold-attribution fix)", async () => {
+test("retrieve() includes the repository row's real id in each RetrievedRule", async () => {
   const rule: LearningRule = {
     id: "rule-id-distinct-from-trigger", trigger: "selector absent", action: "use role+name",
     errorClass: "E-EXEC-FAIL", archetype: null, status: "active", confidence: "high",

@@ -191,7 +191,7 @@ test("buildContextPack degrades gracefully when DOM capture throws", async () =>
   assert.equal(result.domBytes, 0, "DOM bytes must be 0 when capture throws");
 });
 
-test("FIX 7: buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
+test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
   const largeLines = Array.from({ length: 2000 }, (_, i) => `button: Button ${i}`);
   const largeDom = largeLines.join("\n");
   const result = await buildContextPack(

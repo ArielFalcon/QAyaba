@@ -346,7 +346,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         note: run.note || undefined,
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
-         * by name and recomputes both columns from the cases table on every streamed case (A18).
+         * by name and recomputes both columns from the cases table on every streamed case.
          * Writing them again from the in-memory run.cases gave two writers for one derived value
          * that could silently disagree with the table they are supposed to summarize.
          */

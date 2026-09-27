@@ -121,7 +121,7 @@ const opencode = new OpenCodeRuntimeStrategy({ env: {} });
 const codex = new CodexRuntimeStrategy({ env: {} });
 const strategies: AgentRuntimeStrategy[] = [opencode, codex];
 
-describe("contract-parity guard (T-P3-1 / C3.1)", () => {
+describe("contract-parity guard", () => {
   for (const capability of OBSERVABLE_CONTRACT) {
     it(`both strategies expose capability: ${capability.name} (or asymmetry is declared)`, () => {
       for (const strategy of strategies) {
@@ -145,7 +145,7 @@ describe("contract-parity guard (T-P3-1 / C3.1)", () => {
     });
   }
 
-  it("AC3.1.2 — a capability present on one strategy but absent on the other (and not in ALLOWED_ASYMMETRIES) fails the guard", () => {
+  it("a capability present on one strategy but absent on the other (and not in ALLOWED_ASYMMETRIES) fails the guard", () => {
     /* Simulate: a hypothetical new capability added only to opencode, not in allowlist.
        The probe returns true for opencode, false for codex, with no allowlist entry.
      */

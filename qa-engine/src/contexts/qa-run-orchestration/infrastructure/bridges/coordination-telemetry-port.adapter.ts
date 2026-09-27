@@ -5,9 +5,9 @@
  * application/ (fs I/O is an infrastructure concern) — this is the ONLY place coordination
  * telemetry touches the filesystem.
  *
- * Bounded growth (O6): once the in-memory event count exceeds MAX_LEDGER_EVENTS, the sink is
+ * Bounded growth: once the in-memory event count exceeds MAX_LEDGER_EVENTS, the sink is
  * rotated — rewritten to hold only the most recent ROTATE_TO_EVENTS entries (a lower watermark,
- * not the cap itself). Trimming to a watermark WITH SLACK below the cap (J2) means rotation's
+ * not the cap itself). Trimming to a watermark WITH SLACK below the cap means rotation's
  * synchronous full-ledger rewrite (writeFileSync + renameSync) fires only once per
  * (MAX_LEDGER_EVENTS - ROTATE_TO_EVENTS) records, instead of on every single record() once the
  * cap is crossed — a long-lived process's ledger file (and therefore the cost of reloading it on
@@ -24,7 +24,7 @@ import {
 /** Retention cap: max events kept in memory AND on disk. See this file's header. */
 export const MAX_LEDGER_EVENTS = 5000;
 
-/** Rotation watermark (J2): once MAX_LEDGER_EVENTS is crossed, trim down to this lower target
+/** Rotation watermark: once MAX_LEDGER_EVENTS is crossed, trim down to this lower target
  * (80% of the cap) instead of back to the cap itself, so the next (MAX_LEDGER_EVENTS -
  * ROTATE_TO_EVENTS) records grow the ledger via plain appends before another full rewrite is
  * needed. See this file's header. */
@@ -110,7 +110,7 @@ export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPo
 
   /* Retention cap: once the in-memory count (which mirrors what has been appended) exceeds the
      cap, rewrite the file down to only the most recent ROTATE_TO_EVENTS entries — a lower
-     watermark WITH SLACK below MAX_LEDGER_EVENTS (J2), so this full rewrite fires only once per
+     watermark WITH SLACK below MAX_LEDGER_EVENTS, so this full rewrite fires only once per
      slack window instead of on every record() past the cap. Written to a temp file and renamed
      into place so a crash mid-write never leaves a truncated ledger. A rotation failure is logged
      (never silent) but never breaks the run — telemetry stays observational. */

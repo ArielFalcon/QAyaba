@@ -110,7 +110,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       config = next;
 
       /*
-       * D-4c-6 follow-up (live-reconfiguration split-brain): re-derive the runtime role→model map
+       * Live reconfiguration must not split-brain: re-derive the runtime role→model map
        * from the NEW live config and re-inject it into the qa-engine catalog seam — the SAME
        * derivation the boot path (`opencode-client.ts`'s module load, via `configFromEnv()`) uses,
        * via the shared `runtimeRoleModelsFromConfig` helper. Without this, `roleWindowBytes` keeps

@@ -28,8 +28,8 @@ export interface RouteRecon {
   component?: string;  /* the component/page it renders */
   domLandmarks?: string[];  /* HINTS only — NOT verified selectors (see module header) */
   /*
-   * DEPRECATED (vestigial after F3): nothing PRODUCES `true` anymore — the explorer never navigates and
-   * the planner's Lever-3 route-verification step was removed — and grounding no longer reads it
+   * DEPRECATED (vestigial): nothing PRODUCES `true` anymore — the explorer never navigates and
+   * the planner has no route-verification step — and grounding no longer reads it
    * (captureDomByRoute renders all candidate routes, soft-404-guarded). Retained only so the schema /
    * parser / older briefs stay backward-compatible; do not add new logic that branches on it.
    */
@@ -184,8 +184,8 @@ export function coerceExplorationBrief(raw: unknown): ExplorationBrief | null {
  * Renders a brief as the prompt section the test-writer receives. Sanitizes every field (the brief
  * is agent-produced from attacker-influenceable repo content — prompt-injection / secret-exfil
  * defense) and is BOUNDED so a huge brief cannot blow the token budget, exactly like
- * renderArchitectureContext. Leads with the selector-fidelity guard (decision D).
- * D3 fix: when `suppressFeBe` is true the FE↔BE links section is omitted because a Context Pack
+ * renderArchitectureContext. Leads with the selector-fidelity guard.
+ * When `suppressFeBe` is true the FE↔BE links section is omitted because a Context Pack
  * is already present in the prompt — the pack already carries FE↔BE, so rendering it a second time
  * from the brief wastes budget and forces earlier shedding of other signal.
  */

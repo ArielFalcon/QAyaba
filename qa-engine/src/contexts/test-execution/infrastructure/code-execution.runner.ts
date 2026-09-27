@@ -61,7 +61,7 @@ export function detectCodeProject(repoDir: string, deps: DetectDeps = realDetect
         ? "yarn"
         : "npm";
     const pkg = deps.readJson(at("package.json")) ?? {};
-    /* `--ignore-scripts`: the watched repo is UNTRUSTED code running in the orchestrator. A package.json install lifecycle (preinstall/postinstall/prepare) is arbitrary code execution — the cheapest RCE vector. Skipping it closes that vector (SEC-01). Fail-safe: a repo that genuinely needs a build script will fail its test command → infra-error (inconclusive), never a false pass. (Only the code-mode UNTRUSTED install; the e2e seed install is the orchestrator's own trusted fixtures and keeps its scripts.) */
+    /* `--ignore-scripts`: the watched repo is UNTRUSTED code running in the orchestrator. A package.json install lifecycle (preinstall/postinstall/prepare) is arbitrary code execution — the cheapest RCE vector. Skipping it closes that vector. Fail-safe: a repo that genuinely needs a build script will fail its test command → infra-error (inconclusive), never a false pass. (Only the code-mode UNTRUSTED install; the e2e seed install is the orchestrator's own trusted fixtures and keeps its scripts.) */
     const install: Command =
       pm === "npm"
         ? { cmd: "npm", args: [deps.exists(at("package-lock.json")) ? "ci" : "install", "--ignore-scripts"] }

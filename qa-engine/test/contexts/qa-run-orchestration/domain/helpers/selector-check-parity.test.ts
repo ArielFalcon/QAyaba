@@ -83,7 +83,7 @@ test("PARITY: checkSpecSelectors matches legacy — per-tree (never fused): pres
   });
 });
 
-test("PARITY: checkSpecSelectors matches legacy — a commented-out selector is not extracted (W5)", () => {
+test("PARITY: checkSpecSelectors matches legacy — a commented-out selector is not extracted", () => {
   const specs = [
     `// await page.getByRole("button", { name: "Ghost" }).click();\nawait page.getByRole("button", { name: "Real" }).click();`,
   ];
@@ -133,7 +133,7 @@ test("PARITY: checkSpecSelectors matches legacy — custom treeLabel threads int
   });
 });
 
-test("PARITY: checkSpecSelectors matches legacy — (present) structural marker never name-matches (W2)", () => {
+test("PARITY: checkSpecSelectors matches legacy — (present) structural marker never name-matches", () => {
   const specs = [`await page.getByRole("row", { name: "Present" }).click();`];
   const trees = [["row: (present)"]];
   assert.deepEqual(checkSpecSelectors(specs, trees), {
@@ -266,7 +266,7 @@ test("PARITY: unscopedMultipleContradictions matches legacy — no non-extractab
    inputs (all non-empty), confirming the canonical module now suppresses those MULTIPLEs.
  */
 
-test("DECLARED divergence (Plan 7-R B5.1): .first() suppresses a MULTIPLE the legacy still surfaces", () => {
+test("DECLARED divergence: .first() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").first().click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
   const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
@@ -275,7 +275,7 @@ test("DECLARED divergence (Plan 7-R B5.1): .first() suppresses a MULTIPLE the le
   assert.deepEqual(rewritten, [], ".first() disambiguates — no contradiction should surface");
 });
 
-test("DECLARED divergence (Plan 7-R B5.1): .nth() suppresses a MULTIPLE the legacy still surfaces", () => {
+test("DECLARED divergence: .nth() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").nth(1).click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
   const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
@@ -283,7 +283,7 @@ test("DECLARED divergence (Plan 7-R B5.1): .nth() suppresses a MULTIPLE the lega
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
-test("DECLARED divergence (Plan 7-R B5.1): .filter() suppresses a MULTIPLE the legacy still surfaces", () => {
+test("DECLARED divergence: .filter() suppresses a MULTIPLE the legacy still surfaces", () => {
   const specs = [`await page.getByRole("row").filter({ hasText: "Edit" }).click();`];
   const trees = [["row: (present)", "row: (present)", "row: (present)"]];
   const legacyResult = ["row: matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)"];
@@ -291,7 +291,7 @@ test("DECLARED divergence (Plan 7-R B5.1): .filter() suppresses a MULTIPLE the l
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
-test("DECLARED divergence (Plan 7-R B5.1): role-chained scoping (table.getByRole(...)) suppresses a MULTIPLE", () => {
+test("DECLARED divergence: role-chained scoping (table.getByRole(...)) suppresses a MULTIPLE", () => {
   const specs = [`await page.getByRole("table").getByRole("row", { name: "x" }).click();`];
   const trees = [["table: (present)", "row: x", "row: x"]];
   const legacyResult = [`row: "x" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)`];
@@ -299,7 +299,7 @@ test("DECLARED divergence (Plan 7-R B5.1): role-chained scoping (table.getByRole
   assert.deepEqual(unscopedMultipleContradictions(specs, trees), []);
 });
 
-test("B5.1: page-rooted suppression applies UNCONDITIONALLY (no anyNonExtractable gate) — a real ambiguity with NO non-extractable locator anywhere still surfaces", () => {
+test("page-rooted suppression applies UNCONDITIONALLY (no anyNonExtractable gate) — a real ambiguity with NO non-extractable locator anywhere still surfaces", () => {
   /* Regression guard for the OTHER B5.1 fix ("page-rooted suppression applies unconditionally, not
      gated on anyNonExtractable"): a spec with ZERO non-extractable locators must still surface a
      genuine page-rooted MULTIPLE (this must NOT start returning [] just because the idiom-aware

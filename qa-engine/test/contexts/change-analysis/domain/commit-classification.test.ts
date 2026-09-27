@@ -31,7 +31,7 @@ test("breaking change always generates", () => {
   assert.equal(classifyCommit("chore!: drop v1", srcDiff(["return;"])).action, "generate");
 });
 
-test("WS7.3(a): a .html template diff with added logic escalates a skip-typed commit to generate", () => {
+test("a .html template diff with added logic escalates a skip-typed commit to generate", () => {
   const d = [
     "diff --git a/src/index.html b/src/index.html", "--- a/src/index.html", "+++ b/src/index.html",
     "@@ -1,1 +1,2 @@", " <html>", "+<script>if (loggedIn) redirect();</script>",
@@ -41,7 +41,7 @@ test("WS7.3(a): a .html template diff with added logic escalates a skip-typed co
   assert.equal(c.contradiction, true);
 });
 
-test("WS7.3(a): a .astro template diff with added logic escalates a skip-typed commit to generate", () => {
+test("a .astro template diff with added logic escalates a skip-typed commit to generate", () => {
   const d = [
     "diff --git a/src/pages/index.astro b/src/pages/index.astro", "--- a/src/pages/index.astro", "+++ b/src/pages/index.astro",
     "@@ -1,1 +1,2 @@", " ---", "+if (isAdmin) { return Astro.redirect('/admin'); }",
@@ -52,13 +52,13 @@ test("WS7.3(a): a .astro template diff with added logic escalates a skip-typed c
 
 /* Removal-heavy skip-typed commits escalate to REGRESSION (not generate). */
 
-test("WS7.3(b): a chore commit that REMOVES logic escalates to regression, not generate", () => {
+test("a chore commit that REMOVES logic escalates to regression, not generate", () => {
   const c = classifyCommit("chore: cleanup dead code", removalDiff(["if (legacyFlag) doOldThing();"]));
   assert.equal(c.action, "regression");
   assert.equal(c.contradiction, true);
 });
 
-test("WS7.3(b): a pure relocation (removed logic line re-added elsewhere) does NOT escalate", () => {
+test("a pure relocation (removed logic line re-added elsewhere) does NOT escalate", () => {
   const relocated = [
     "diff --git a/src/svc.ts b/src/svc.ts", "--- a/src/svc.ts", "+++ b/src/svc.ts",
     "@@ -1,3 +1,3 @@", " export class S {", "-  if (x) return 1;", "+  if (x) return 1;", " }",
@@ -67,12 +67,12 @@ test("WS7.3(b): a pure relocation (removed logic line re-added elsewhere) does N
   assert.equal(c.action, "skip", "a relocated line is not genuinely removed logic");
 });
 
-test("WS7.3(b): a regression-typed commit (refactor) with removed logic stays regression (untouched by this escalation)", () => {
+test("a regression-typed commit (refactor) with removed logic stays regression (untouched by this escalation)", () => {
   const c = classifyCommit("refactor: drop dead branch", removalDiff(["if (deadFlag) noop();"]));
   assert.equal(c.action, "regression");
 });
 
-test("WS7.3(c): a Flyway-style migration file escalates a chore commit to regression", () => {
+test("a Flyway-style migration file escalates a chore commit to regression", () => {
   const d = [
     "diff --git a/db/migration/V2__add_column.sql b/db/migration/V2__add_column.sql",
     "--- /dev/null", "+++ b/db/migration/V2__add_column.sql",
@@ -83,7 +83,7 @@ test("WS7.3(c): a Flyway-style migration file escalates a chore commit to regres
   assert.equal(c.contradiction, true);
 });
 
-test("WS7.3(c): a numeric-sequence migration filename also escalates", () => {
+test("a numeric-sequence migration filename also escalates", () => {
   const d = [
     "diff --git a/migrations/003_drop_legacy_table.sql b/migrations/003_drop_legacy_table.sql",
     "--- /dev/null", "+++ b/migrations/003_drop_legacy_table.sql",
@@ -92,7 +92,7 @@ test("WS7.3(c): a numeric-sequence migration filename also escalates", () => {
   assert.equal(classifyCommit("build: migration", d).action, "regression");
 });
 
-test("WS7.3(c): an unrelated .sql file OUTSIDE a migration path/naming convention does NOT escalate", () => {
+test("an unrelated .sql file OUTSIDE a migration path/naming convention does NOT escalate", () => {
   const d = [
     "diff --git a/scripts/adhoc-report.sql b/scripts/adhoc-report.sql",
     "--- a/scripts/adhoc-report.sql", "+++ b/scripts/adhoc-report.sql",

@@ -31,7 +31,7 @@ test("rank: at DESC tiebreak when status and successRate are identical (3rd SQL 
   assert.deepEqual(ranked.map((r) => r.trigger), ["newer", "older"]);
 });
 
-test("rank: ties broken deterministically by id ascending, regardless of input order (regression: R2)", () => {
+test("rank: ties broken deterministically by id ascending, regardless of input order", () => {
   /* Mirrors the deleted shell's selectForRetrieval determinism test: when status, successRate
      (+ bias) AND `at` are all tied, the final tiebreak must be a stable total order (rule id),
      not whatever order Array.sort's stability happens to preserve from the INPUT array. */
@@ -101,7 +101,7 @@ test("topRules: matching BOTH errorClass and archetype stacks the bias additivel
   assert.deepEqual(top.map((r) => r.trigger), ["double-match", "single-match"]);
 });
 
-test("topRules: relevance bias is a tie-breaker, NOT an override — a proven rule beats a mere relevance match (regression: R1)", () => {
+test("topRules: relevance bias is a tie-breaker, NOT an override — a proven rule beats a mere relevance match", () => {
   /* Mirrors the deleted shell test (retrieval-archetype.test.ts) "earned success still outranks
      a mere archetype match": a 0.9 successRate rule with no relevance match must still beat a
      0.5 successRate rule that matches, because a single +3 bias cannot overcome an 0.4 gap once
@@ -124,7 +124,7 @@ test("topRules: relevance bias never overrides the status (active) priority — 
   assert.deepEqual(top.map((r) => r.trigger), ["active-irrelevant", "candidate-relevant"], "status is a separate, higher-priority sort key — bias only breaks ties within the same status");
 });
 
-test("topRules: breaks ties deterministically by id (same result regardless of input order) (regression: R2)", () => {
+test("topRules: breaks ties deterministically by id (same result regardless of input order)", () => {
   /* Mirrors the deleted shell's "selectForRetrieval determinism" test exactly. */
   const mk = (id: string): LearningRule => ruleWithMeta("active", 0.6, id, "E-FALSE-POSITIVE", null);
   const forward = svc.topRules([mk("c"), mk("a"), mk("b")], 2);
@@ -139,7 +139,7 @@ test("topRules: breaks ties deterministically by id (same result regardless of i
    positions are reserved for the FRESHEST not-yet-picked candidates, replacing (never appending
    past) the tail of the ranked result.
  */
-test("topRules: exploration floor reserves a slot for the freshest excluded candidate without growing past limit (regression: R3)", () => {
+test("topRules: exploration floor reserves a slot for the freshest excluded candidate without growing past limit", () => {
   const rules = [
     ruleWithMeta("active", 0.9, "a1", "E-X", null, "2026-01-01T00:00:00.000Z"),
     ruleWithMeta("active", 0.9, "a2", "E-X", null, "2026-01-01T00:00:00.000Z"),
@@ -158,7 +158,7 @@ test("topRules: exploration floor reserves a slot for the freshest excluded cand
   );
 });
 
-test("topRules: exploration floor is capped at EXPLORATION_SLOTS even with many excluded candidates (regression: R3)", () => {
+test("topRules: exploration floor is capped at EXPLORATION_SLOTS even with many excluded candidates", () => {
   const rules = [
     ruleWithMeta("active", 0.9, "a1", "E-X", null),
     ruleWithMeta("active", 0.9, "a2", "E-X", null),
@@ -171,14 +171,14 @@ test("topRules: exploration floor is capped at EXPLORATION_SLOTS even with many 
   assert.equal(top.length, 4);
 });
 
-test("topRules: no candidates present -> exploration never fires, plain truncation applies (regression: R3 edge case)", () => {
+test("topRules: no candidates present -> exploration never fires, plain truncation applies", () => {
   const rules = Array.from({ length: 6 }, (_, i) => ruleWithMeta("active", 0.9 - i * 0.01, `a${i}`, "E-X", null));
   const top = svc.topRules(rules, 3);
   assert.equal(top.length, 3);
   assert.deepEqual(top.map((r) => r.trigger), ["a0", "a1", "a2"], "highest successRate actives win, no exploration substitution when there are no candidates");
 });
 
-test("topRules: fewer eligible rules than the limit -> no truncation, exploration never fires (regression: R3 edge case)", () => {
+test("topRules: fewer eligible rules than the limit -> no truncation, exploration never fires", () => {
   const rules = [
     ruleWithMeta("active", 0.9, "a1", "E-X", null),
     ruleWithMeta("candidate", 0.2, "c1", "E-X", null),
@@ -191,7 +191,7 @@ test("topRules: fewer eligible rules than the limit -> no truncation, exploratio
    a NEGATIVE start (e.g. limit=1, slots=2 -> -1). Array.prototype.splice treats a negative start
    as counting from the end, so instead of replacing the tail it deleted fewer elements than it
    inserted and the result grew past `limit`. slots must be clamped to `limit` too. */
-test("topRules: limit smaller than EXPLORATION_SLOTS never grows the result past limit (J4)", () => {
+test("topRules: limit smaller than EXPLORATION_SLOTS never grows the result past limit", () => {
   const rules = [
     ruleWithMeta("active", 0.9, "a1", "E-X", null),
     ruleWithMeta("candidate", 0.5, "c-old", "E-X", null, "2026-01-01T00:00:00.000Z"),

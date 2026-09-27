@@ -178,7 +178,7 @@ test("recordRuleOutcome accumulates a running mean and earns promotion (never ov
   assert.equal(r!.status, "active"); /* promotion earned from objective outcomes */
 });
 
-test("recordRuleOutcome does NOT promote on good outcomes alone when none are oracle-scored (WS1.4(b))", () => {
+test("recordRuleOutcome does NOT promote on good outcomes alone when none are oracle-scored", () => {
   const app = "hist-learn-no-oracle";
   upsertLearningRule({ id: "lr-no-oracle", app, trigger: "t", action: "a", errorClass: "E-FALSE-POSITIVE", source: "run-x" });
   recordRuleOutcome("lr-no-oracle", 0.8);
@@ -620,7 +620,7 @@ test("Phase 0 A.1: agent_turns table migrates idempotently on an existing DB (co
    ts in datetime() so both operands are SQLite's canonical form. This self-contained test pins the
    cutoff to a known instant and reproduces the boundary skew + proves the fixed predicate is correct.
  */
-test("FIX 3: agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts, unlike a raw compare", () => {
+test("agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts, unlike a raw compare", () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE agent_turns (id INTEGER PRIMARY KEY, ts TEXT NOT NULL)");
 

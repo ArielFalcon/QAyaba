@@ -60,7 +60,7 @@ test("resolveLinks: matched call produces a ServiceLink with correct operationId
    node_modules too, producing spurious links/drift/unresolved entries sourced from a dependency,
    not the app's own code.
  */
-test("JD-FIX4: a call-site inside node_modules is NOT extracted, while a normal src call-site still is", async () => {
+test("a call-site inside node_modules is NOT extracted, while a normal src call-site still is", async () => {
   const nodeModulesFrontend: RepoRef = {
     repo: "ArielFalcon/name-webapp",
     mirrorDir: join(FIXTURES, "frontend-node-modules-skip"),
@@ -191,7 +191,7 @@ const rxjsFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-rxjs"),
 };
 
-test("L2-rxjs: from.symbol for getAllRestaurants() is 'getAllRestaurants', NOT 'catchError' or 'switchMap'", async () => {
+test("rxjs pipe: from.symbol for getAllRestaurants() is 'getAllRestaurants', NOT 'catchError' or 'switchMap'", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([rxjsBackend], rxjsFront);
   const link = result.links.find(
@@ -205,7 +205,7 @@ test("L2-rxjs: from.symbol for getAllRestaurants() is 'getAllRestaurants', NOT '
   );
 });
 
-test("L2-rxjs: from.symbol for createNewDailyMenu() is 'createNewDailyMenu', NOT 'toString'", async () => {
+test("rxjs pipe: from.symbol for createNewDailyMenu() is 'createNewDailyMenu', NOT 'toString'", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([rxjsBackend], rxjsFront);
   const link = result.links.find(
@@ -219,7 +219,7 @@ test("L2-rxjs: from.symbol for createNewDailyMenu() is 'createNewDailyMenu', NOT
   );
 });
 
-test("L2-rxjs: from.symbol for findNearbyPlaces() is 'findNearbyPlaces', NOT 'catchError'", async () => {
+test("rxjs pipe: from.symbol for findNearbyPlaces() is 'findNearbyPlaces', NOT 'catchError'", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([rxjsBackend], rxjsFront);
   const link = result.links.find(
@@ -236,7 +236,7 @@ test("L2-rxjs: from.symbol for findNearbyPlaces() is 'findNearbyPlaces', NOT 'ca
 /* The existing fixture has two named methods (listOrders, getOrderById).
    from.symbol should be the enclosing method/function name, NOT the raw path arg.
  */
-test("L2: from.symbol on a link is the enclosing method name, not the raw path arg", async () => {
+test("from.symbol on a link is the enclosing method name, not the raw path arg", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([backendRepo], frontendRepo);
   /* listOrders() calls this.rest.get(`${BASE_PATH}/orders`) → should link to listOrders operationId
@@ -253,7 +253,7 @@ test("L2: from.symbol on a link is the enclosing method name, not the raw path a
   );
 });
 
-test("L2: from.symbol for a second method in the same file is its own enclosing method name", async () => {
+test("from.symbol for a second method in the same file is its own enclosing method name", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([backendRepo], frontendRepo);
   /* getOrderById() calls this.rest.get(`${BASE_PATH}/orders/abc123`) → should link to getOrderById op */
@@ -291,7 +291,7 @@ const mixedParamFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-mixed-param"),
 };
 
-test("L1.1: mixed-param template (BASE+methodParam) match yields reduced confidence, not 1.0", async () => {
+test("mixed-param template (BASE+methodParam) match yields reduced confidence, not 1.0", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([mixedParamBackend], mixedParamFront);
   /* The getOrderDynamic call: `${BASE}/orders/${methodParam}` → name-orders-api/orders/{p}
@@ -307,7 +307,7 @@ test("L1.1: mixed-param template (BASE+methodParam) match yields reduced confide
   );
 });
 
-test("L1.1: fully-literal match (no {p} segments) keeps confidence 1.0", async () => {
+test("fully-literal match (no {p} segments) keeps confidence 1.0", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([mixedParamBackend], mixedParamFront);
   const literalLink = result.links.find(
@@ -334,7 +334,7 @@ const leadingSlashFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-leading-slash"),
 };
 
-test("L1.2: SERVICE_PREFIX_RE accepts service names with digits (e.g. auth-v2)", async () => {
+test("SERVICE_PREFIX_RE accepts service names with digits (e.g. auth-v2)", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([authV2Backend], authV2Front);
   /* name-auth-v2-api/login → should classify against auth-v2 service
@@ -344,7 +344,7 @@ test("L1.2: SERVICE_PREFIX_RE accepts service names with digits (e.g. auth-v2)",
   assert.ok(hasClassified, "name-auth-v2-api/login should be classified (not land in unresolved)");
 });
 
-test("L1.2: SERVICE_PREFIX_RE accepts optional leading slash on the path", async () => {
+test("SERVICE_PREFIX_RE accepts optional leading slash on the path", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([mixedParamBackend], leadingSlashFront);
   /* /name-orders-api/orders (leading slash) → should classify as orders service, not unresolved */
@@ -365,7 +365,7 @@ const multiDriftFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-multi-drift"),
 };
 
-test("L1.3: two front files calling the same undeclared endpoint produce two drift entries", async () => {
+test("two front files calling the same undeclared endpoint produce two drift entries", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([mixedParamBackend], multiDriftFront);
   /* alpha.api.ts and beta.api.ts both call POST name-orders-api/orders (undeclared in contract)
@@ -418,7 +418,7 @@ const repeatedConstFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-repeated-const"),
 };
 
-test("R2-F2: repeated const reference in template literal resolves both occurrences (no {p})", async () => {
+test("repeated const reference in template literal resolves both occurrences (no {p})", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   /* API = 'name-orders-api', template is `${API}/${API}` → should be 'name-orders-api/name-orders-api'.
      With the bug the second ${API} becomes {p}, giving 'name-orders-api/{p}' which is different.
@@ -439,7 +439,7 @@ test("R2-F2: repeated const reference in template literal resolves both occurren
   assert.equal(inUnresolved, false, "a repeated-const template is resolvable and must not land in unresolved");
 });
 
-test("R2-F1: from.symbol for top-level const arrow 'listOrders' is 'listOrders', not null/rawArg", async () => {
+test("from.symbol for top-level const arrow 'listOrders' is 'listOrders', not null/rawArg", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   const result = await resolver.resolveLinks([backendRepo], constArrowFront);
   /* listOrders const arrow calls this.rest.get(`${BASE}/orders`)
@@ -460,7 +460,7 @@ test("R2-F1: from.symbol for top-level const arrow 'listOrders' is 'listOrders',
    SERVICE_PREFIX_RE matches with service="x", resource="" — service "x" not in known repos → external.
    No structural match is attempted → no false link.
  */
-test("L1.5: string-concat path arg lands in external bucket (not a false link, no structural match)", async () => {
+test("string-concat path arg lands in external bucket (not a false link, no structural match)", async () => {
   const resolver = new OpenApiHttpResolver(NNAME_PROFILE);
   /* Use only the orders backend — "x" is not a known service, so it goes to external. */
   const result = await resolver.resolveLinks([mixedParamBackend], concatFront);
@@ -486,7 +486,7 @@ test("L1.5: string-concat path arg lands in external bucket (not a false link, n
    surface when tree-sitter is unavailable in the environment.
  */
 
-test("R2-F7: extractEnclosingMethodFallback returns method name before call-site", () => {
+test("extractEnclosingMethodFallback returns method name before call-site", () => {
   const text = [
     "class OrdersApi {",
     "  listOrders() {",
@@ -499,7 +499,7 @@ test("R2-F7: extractEnclosingMethodFallback returns method name before call-site
   assert.equal(name, "listOrders", `expected 'listOrders', got '${name}'`);
 });
 
-test("R2-F7: extractEnclosingMethodFallback returns null on bare top-level code (no enclosing method)", () => {
+test("extractEnclosingMethodFallback returns null on bare top-level code (no enclosing method)", () => {
   const text = "this.rest.get('/name-orders-api/orders');";
   const callIndex = 0;
   const name = extractEnclosingMethodFallback(text, callIndex);
@@ -507,13 +507,13 @@ test("R2-F7: extractEnclosingMethodFallback returns null on bare top-level code 
   assert.equal(name, null, `expected null for bare top-level code, got '${name}'`);
 });
 
-test("R2-F7: extractEnclosingMethodFallback never throws on empty input", () => {
+test("extractEnclosingMethodFallback never throws on empty input", () => {
   assert.doesNotThrow(() => {
     extractEnclosingMethodFallback("", 0);
   });
 });
 
-test("R2-F7: extractEnclosingMethodFallback never throws when matchIndex exceeds text length", () => {
+test("extractEnclosingMethodFallback never throws when matchIndex exceeds text length", () => {
   assert.doesNotThrow(() => {
     extractEnclosingMethodFallback("short text", 9999);
   });

@@ -260,7 +260,7 @@ test("commit() logs loudly AND returns the reverted denylisted paths when a tamp
    a `.env` tamper (denylisted AND dangerous) in ONE commit through the real adapter + real git, and
    pins that revertedDangerous is the proper SUBSET, not an alias for revertedDenylisted.
  */
-test("real git fixture: revertedDangerous is the real isDangerousPath SUBSET of revertedDenylisted, not an alias (Judge B's mutation reproduction)", async () => {
+test("real git fixture: revertedDangerous is the real isDangerousPath SUBSET of revertedDenylisted, not an alias", async () => {
   const repo = initRepo();
   try {
     writeFileSync(join(repo, "Dockerfile"), "FROM node:24\n");

@@ -57,7 +57,7 @@ test("toIntelligenceView projects the curriculum's evidence counters", () => {
   assert.deepEqual({ evaluated: untouched.evaluated, credited: untouched.credited }, { evaluated: 0, credited: 0 });
 });
 
-test("O3: toIntelligenceView passes through a null (unmeasured) mutantCount/killedCount, never coercing to 0", () => {
+test("toIntelligenceView passes through a null (unmeasured) mutantCount/killedCount, never coercing to 0", () => {
   const scorecard = {
     app: "qayaba", updatedAt: "2026-01-02",
     entries: [

@@ -558,7 +558,7 @@ test("ensurePlaywrightEnvKeys: a stock config whose login setup project is alway
    the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
  */
 
-test("C1: FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
+test("FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
   assert.doesNotMatch(FAILURE_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
   /* And it MUST pull its deps via dynamic import() instead. */
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:fs"\)/);
@@ -566,7 +566,7 @@ test("C1: FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
 });
 
-test("C1: the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
+test("the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-esm-"));
   try {
     const moduleSrc =
@@ -637,7 +637,7 @@ test("C1: the afterEach body, run as a real ES module, writes a dump (no Referen
   }
 });
 
-test("C1/D2: httpStatus is absent when no ≥500 response was observed", async () => {
+test("httpStatus is absent when no ≥500 response was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-no5xx-"));
   try {
     const moduleSrc =
@@ -680,7 +680,7 @@ test("C1/D2: httpStatus is absent when no ≥500 response was observed", async (
   }
 });
 
-test("C1/D2: httpStatus is absent when only a background ping/beacon 500 was observed", async () => {
+test("httpStatus is absent when only a background ping/beacon 500 was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-bgping-"));
   try {
     const moduleSrc =
@@ -723,7 +723,7 @@ test("C1/D2: httpStatus is absent when only a background ping/beacon 500 was obs
   }
 });
 
-test("C1/D2: httpStatus is absent when only a cross-origin 500 was observed", async () => {
+test("httpStatus is absent when only a cross-origin 500 was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-xorigin-"));
   try {
     const moduleSrc =
@@ -766,7 +766,7 @@ test("C1/D2: httpStatus is absent when only a cross-origin 500 was observed", as
   }
 });
 
-test("C1/D2: errorResponses resets between tests — reused page does not cross-attribute", async () => {
+test("errorResponses resets between tests — reused page does not cross-attribute", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-reset-"));
   try {
     const moduleSrc =
@@ -814,7 +814,7 @@ test("C1/D2: errorResponses resets between tests — reused page does not cross-
   }
 });
 
-test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dump, no throw)", async () => {
+test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dump, no throw)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-noop-"));
   try {
     const moduleSrc =
@@ -849,7 +849,7 @@ test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no
    tests catch a future edit that updates one twin but not the other.
  */
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -860,7 +860,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains test.before
   assert.ok(block.includes("test.beforeEach"), "fixtures.ts qa-failure-capture block must contain test.beforeEach");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('response'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('response'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -869,7 +869,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('re
   assert.ok(block.includes("page.on('response'"), "fixtures.ts qa-failure-capture block must contain page.on('response'");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains errorResponses", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains errorResponses", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -878,7 +878,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains errorRespon
   assert.ok(block.includes("errorResponses"), "fixtures.ts qa-failure-capture block must contain errorResponses");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -887,7 +887,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", 
   assert.ok(block.includes("finalUrl"), "fixtures.ts qa-failure-capture block must contain finalUrl");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -901,7 +901,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains httpStatus"
    setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
  */
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -910,7 +910,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains p
   assert.ok(block.includes("page.on('console'"), "fixtures.ts qa-failure-capture block must contain page.on('console'");
 });
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('pageerror'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('pageerror'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -919,7 +919,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains p
   assert.ok(block.includes("page.on('pageerror'"), "fixtures.ts qa-failure-capture block must contain page.on('pageerror'");
 });
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -928,7 +928,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains r
   assert.ok(block.includes("runtimeErrors"), "fixtures.ts qa-failure-capture block must contain runtimeErrors");
 });
 
-test("Feature B: setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
+test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('console'"), "FAILURE_CAPTURE_BLOCK must register a console listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('pageerror'"), "FAILURE_CAPTURE_BLOCK must register a pageerror listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("runtimeErrors"), "FAILURE_CAPTURE_BLOCK must carry runtimeErrors");
@@ -1026,7 +1026,7 @@ test("the seed fixtures.ts carries exactly the capture block that is appended in
    callbacks against a fake page that emits console/pageerror events, and assert the dump.
  */
 
-test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
+test("dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-"));
   try {
     const moduleSrc =
@@ -1086,7 +1086,7 @@ test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('erro
   }
 });
 
-test("C1/Feature B: runtimeErrors is reset between tests — reused page does not cross-attribute", async () => {
+test("runtimeErrors is reset between tests — reused page does not cross-attribute", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-reset-"));
   try {
     const moduleSrc =
@@ -1134,7 +1134,7 @@ test("C1/Feature B: runtimeErrors is reset between tests — reused page does no
   }
 });
 
-test("C1/Feature B: the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, even with console/pageerror listeners active", async () => {
+test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, even with console/pageerror listeners active", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-noop-"));
   try {
     const moduleSrc =

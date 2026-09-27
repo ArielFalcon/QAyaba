@@ -181,7 +181,7 @@ test("Phase 4 (e): approve-when-resolved — zero blocking in round 2 approves e
   assert.equal(v.approved, true);
 });
 
-test("FIX 4: a [false-positive] correction self-labeled 'advisory' is counted as BLOCKING", () => {
+test("a [false-positive] correction self-labeled 'advisory' is counted as BLOCKING", () => {
   /* The gameable hole: a model downgrades a grave finding to "advisory" so the severity gate would
      let it publish. The grave class tag overrides the self-assigned severity → blockingCount >= 1.
    */
@@ -197,7 +197,7 @@ test("FIX 4: a [false-positive] correction self-labeled 'advisory' is counted as
   assert.equal(v.blockingCount, 1, "a grave [false-positive] tag must be blocking even if self-labeled advisory");
 });
 
-test("FIX 4: [wrong-objective] and [no-cleanup] self-labeled advisory also count as blocking", () => {
+test("[wrong-objective] and [no-cleanup] self-labeled advisory also count as blocking", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "wrong target + leaks data",
@@ -210,7 +210,7 @@ test("FIX 4: [wrong-objective] and [no-cleanup] self-labeled advisory also count
   assert.equal(v.blockingCount, 2, "both grave tags are forced blocking");
 });
 
-test("FIX 4: a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory severity", () => {
+test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory severity", () => {
   /* Only the grave classes are forced; the recoverable fragile-selector stays advisory when labeled so. */
   const json = JSON.stringify({
     approved: true,
@@ -225,7 +225,7 @@ test("FIX 4: a NON-grave tag ([fragile-selector]) keeps its self-assigned adviso
 
 /* ── FIX A: per-entry correction tolerance — one malformed element must NOT nuke the array ───── */
 
-test("FIX A: a malformed correction element degrades to BLOCKING (fails closed), valid sibling kept", () => {
+test("a malformed correction element degrades to BLOCKING (fails closed), valid sibling kept", () => {
   /* The fail-OPEN hole: an array-level `.catch([])` collapsed the WHOLE corrections array to [] when
      any single element was malformed. Combined with the severity gate (blockingCount===0), a verdict
      carrying one BLOCKING correction + one unparseable element yielded blockingCount=0 → the gate
@@ -251,7 +251,7 @@ test("FIX A: a malformed correction element degrades to BLOCKING (fails closed),
   assert.ok(v.blockingCount > 0, "fail-CLOSED: a malformed entry must keep blockingCount > 0");
 });
 
-test("FIX A: a non-array corrections field still falls back to [] (orthogonal advisory-slip tolerance)", () => {
+test("a non-array corrections field still falls back to [] (orthogonal advisory-slip tolerance)", () => {
   /* The per-entry change must NOT regress the separate guarantee that a wholly mis-shaped corrections
      field (a stray string, not an array) is a tolerable advisory slip — it must never false-block a
      genuine approval. This is the existing "tolerates malformed corrections" contract, re-pinned.

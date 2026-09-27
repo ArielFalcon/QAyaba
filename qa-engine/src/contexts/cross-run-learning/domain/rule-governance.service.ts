@@ -65,7 +65,7 @@ export class RuleGovernanceService {
      * turnover never stalls. Only replace when `picked` is actually FULL — splicing past the end
      * would append and grow the result beyond `limit`.
      *
-     * J4: slots must also be clamped to `limit` itself. Without it, limit < EXPLORATION_SLOTS (e.g.
+     * Slots must also be clamped to `limit` itself. Without it, limit < EXPLORATION_SLOTS (e.g.
      * limit=1) made `limit - slots` negative; Array.prototype.splice treats a negative start as
      * counting from the END, so it deleted fewer elements than it inserted and `picked` grew past
      * `limit`.

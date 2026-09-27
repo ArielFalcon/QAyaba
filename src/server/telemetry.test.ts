@@ -148,7 +148,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
   /* the PLANNER turn (role qa-generator, objective "(planner)") is a plan-only pass that never
      carries a Context Pack. Counting it deflated groundingPresence. It must be EXCLUDED.
    */
-  it("FIX 6: a planner turn does NOT count against grounding presence", () => {
+  it("a planner turn does NOT count against grounding presence", () => {
     const app = uniqueApp("tel-grnd-planner");
     const runId = `run-tel-grnd-planner-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
@@ -169,7 +169,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
     assert.equal(analysis.groundingPresence, 1, "planner turn must be excluded → 1/1 write turn grounded");
   });
 
-  it("FIX 6: a run that is ONLY a planner turn yields null grounding (no real write turns to measure)", () => {
+  it("a run that is ONLY a planner turn yields null grounding (no real write turns to measure)", () => {
     const app = uniqueApp("tel-grnd-planneronly");
     const runId = `run-tel-grnd-planneronly-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));

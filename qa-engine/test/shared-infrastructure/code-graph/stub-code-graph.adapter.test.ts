@@ -7,21 +7,21 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import type { LocalSymbolRef } from "@kernel/code/index.ts";
 
-test("syncTo with no opts resolves to an inert zero-node ok result (A1)", async () => {
+test("syncTo with no opts resolves to an inert zero-node ok result", async () => {
   const adapter = new StubCodeGraphAdapter();
   const result = await adapter.syncTo("/mirrors/org/repo", ["src/a.ts", "src/b.ts"]);
   assert.equal(isOk(result), true);
   assert.deepEqual(result, { ok: true, value: { nodeCount: 0 } });
 });
 
-test("syncTo with { semantic: true } resolves to the same inert shape (A2)", async () => {
+test("syncTo with { semantic: true } resolves to the same inert shape", async () => {
   const adapter = new StubCodeGraphAdapter();
   const result = await adapter.syncTo("/mirrors/org/repo", [], { semantic: true });
   assert.equal(isOk(result), true);
   assert.deepEqual(result, { ok: true, value: { nodeCount: 0 } });
 });
 
-test("impactedSymbols resolves to an empty ok array (A3)", async () => {
+test("impactedSymbols resolves to an empty ok array", async () => {
   const adapter = new StubCodeGraphAdapter();
   const changed = BlastRadius.of(Sha.of("abc123d"), ["src/foo.ts"]);
   const result = await adapter.impactedSymbols("/mirrors/org/repo", changed, { depth: 3 });
@@ -29,14 +29,14 @@ test("impactedSymbols resolves to an empty ok array (A3)", async () => {
   assert.deepEqual(result, { ok: true, value: [] });
 });
 
-test("coChangeCoupling resolves to an empty ok array (A4)", async () => {
+test("coChangeCoupling resolves to an empty ok array", async () => {
   const adapter = new StubCodeGraphAdapter();
   const result = await adapter.coChangeCoupling("/mirrors/org/repo", ["src/a.ts", "src/b.ts"]);
   assert.equal(isOk(result), true);
   assert.deepEqual(result, { ok: true, value: [] });
 });
 
-test("callersOf resolves to an empty ok array with positional depth and no opts (A5)", async () => {
+test("callersOf resolves to an empty ok array with positional depth and no opts", async () => {
   const adapter = new StubCodeGraphAdapter();
   const symbol: LocalSymbolRef = { file: "src/foo.ts", symbol: "doThing" };
   const result = await adapter.callersOf("/mirrors/org/repo", symbol, 3);
@@ -44,7 +44,7 @@ test("callersOf resolves to an empty ok array with positional depth and no opts 
   assert.deepEqual(result, { ok: true, value: [] });
 });
 
-test("existingCoverage resolves to an empty ok array, not an error (A6, locks R9)", async () => {
+test("existingCoverage resolves to an empty ok array, not an error", async () => {
   const adapter = new StubCodeGraphAdapter();
   const changed = BlastRadius.of(Sha.of("abc123d"), ["src/foo.ts"]);
   const result = await adapter.existingCoverage("/mirrors/org/repo", changed);
@@ -52,7 +52,7 @@ test("existingCoverage resolves to an empty ok array, not an error (A6, locks R9
   assert.deepEqual(result, { ok: true, value: [] });
 });
 
-test("structurallyRelated resolves to an empty ok array with and without minJaccard (A7)", async () => {
+test("structurallyRelated resolves to an empty ok array with and without minJaccard", async () => {
   const adapter = new StubCodeGraphAdapter();
   const symbols: LocalSymbolRef[] = [{ file: "src/foo.ts", symbol: "doThing" }];
 
@@ -65,7 +65,7 @@ test("structurallyRelated resolves to an empty ok array with and without minJacc
   assert.deepEqual(withFloor, { ok: true, value: [] });
 });
 
-test("no method throws or rejects across all six call shapes (A8)", async () => {
+test("no method throws or rejects across all six call shapes", async () => {
   const adapter = new StubCodeGraphAdapter();
   const changed = BlastRadius.of(Sha.of("abc123d"), ["src/foo.ts"]);
   const symbol: LocalSymbolRef = { file: "src/foo.ts", symbol: "doThing" };

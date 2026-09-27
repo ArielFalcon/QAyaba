@@ -95,7 +95,7 @@ export interface ApiDeps {
   intelligence?: (app: string) => z.infer<typeof IntelligenceViewSchema>;
   /*
    * Read-only FE<->BE architecture map (context.json) persisted from the app's last successful
-   * mode:context run (Batch F). Absent ⇒ the route returns 501; null ⇒ 404 (no stored map yet).
+   * mode:context run. Absent ⇒ the route returns 501; null ⇒ 404 (no stored map yet).
    */
   contextMap?: (app: string) => z.infer<typeof ContextMapViewSchema> | null;
   /*
@@ -123,7 +123,7 @@ export interface ApiDeps {
    * `cases` optionally narrows to specific failed case names; omitted → all failed.
    */
   continueRun?: (parentId: string, cases: string[] | undefined, guidance?: string) => string;
-  /* App onboarding/deletion (F5). Absent ⇒ the corresponding routes return 501. */
+  /* App onboarding/deletion. Absent ⇒ the corresponding routes return 501. */
   createApp?: (input: AdminCreateAppInput) => Promise<CreateAppResult>;
   updateApp?: (input: AdminUpdateAppInput) => Promise<CreateAppResult>;
   deleteApp?: (name: string, purge: boolean) => { removed: string[] };
@@ -1343,8 +1343,8 @@ async function handleProposeBoundaries(req: IncomingMessage, res: ServerResponse
   /*
    * propose() rejects the mutex SYNCHRONOUSLY (a plain {ok:false} object, not a promise) — see
    * onboarding-job.ts's own contract. Only that synchronous shape can be inspected here; an
-   * ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget,
-   * spec E1) — any error surfacing later only shows up on the next status() poll.
+   * ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget)
+   * — any error surfacing later only shows up on the next status() poll.
    */
   const result = deps.boundaries.propose(name, parsed.data);
   if (!(result instanceof Promise) && !result.ok) {

@@ -111,7 +111,7 @@ test("otherMessages() throws on non-zero exitCode — never returns a silent emp
 /* otherMessages() must reach a `feat:` commit on the merged branch (second parent). A first-parent
    range `baseSha..sha^` would drop that commit; the merge head itself must not appear.
  */
-test("F1 REAL merge commit: otherMessages() reaches the merged-branch commit (second-parent ancestry), and drops the merge head itself", async () => {
+test("REAL merge commit: otherMessages() reaches the merged-branch commit (second-parent ancestry), and drops the merge head itself", async () => {
   const repo = mkdtempSync(join(tmpdir(), "qa-mergetest-"));
   try {
     const git = (...args: string[]): string =>

@@ -267,7 +267,7 @@ export async function captureDomForRoutes(
   }
 }
 
-/** Capture the live a11y tree for explicit routes, returned PER ROUTE (route → formatted block) so the fan-out can ground EACH objective with ONLY its own routes' DOM, not one shared blob. The whole set is rendered ONCE (a route shared by two objectives is not re-rendered) and split by route. Routes are taken from each brief's code-derived `routes[]` — the real router paths — so this does NOT key on the planner's `verified` flag (the planner no longer navigates to set it; see the F1/F3 seam). Best-effort: no routes / no baseUrl / a failed render → empty map, and each objective then degrades independently (an objective whose routes are absent from the map routes to the strong agent). Soft-404 / SPA-shell guard: a hash-routed SPA (e.g. That is NOT route-specific grounding — injecting it would teach a worker shell selectors as if they were the route's. We drop a node set ONLY when it is shared by a MAJORITY of the rendered routes (the signature of a real shell served for every path): `count >= 2 AND count > routes/2`. This avoids the false-positive of dropping two genuinely-distinct pages that merely share interactive chrome (their pair is not a majority of a >=4-route set), and a single unique route is never dropped (count 1). */
+/** Capture the live a11y tree for explicit routes, returned PER ROUTE (route → formatted block) so the fan-out can ground EACH objective with ONLY its own routes' DOM, not one shared blob. The whole set is rendered ONCE (a route shared by two objectives is not re-rendered) and split by route. Routes are taken from each brief's code-derived `routes[]` — the real router paths — so this does NOT key on the planner's `verified` flag (the planner does not navigate, so it never sets it). Best-effort: no routes / no baseUrl / a failed render → empty map, and each objective then degrades independently (an objective whose routes are absent from the map routes to the strong agent). Soft-404 / SPA-shell guard: a hash-routed SPA (e.g. That is NOT route-specific grounding — injecting it would teach a worker shell selectors as if they were the route's. We drop a node set ONLY when it is shared by a MAJORITY of the rendered routes (the signature of a real shell served for every path): `count >= 2 AND count > routes/2`. This avoids the false-positive of dropping two genuinely-distinct pages that merely share interactive chrome (their pair is not a majority of a >=4-route set), and a single unique route is never dropped (count 1). */
 export async function captureDomByRoute(
   routes: string[],
   input: { e2eDir: string; baseUrl?: string; changedElements?: ChangedElement[]; testIdAttribute?: string },
@@ -556,10 +556,9 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 
 /*
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. REQUIRED (J5): authDir used to be
- * optional with a silent fallback to e2eDir (the agent-visible mirror) — an omitted override at any
- * composition seam would silently put auth material back where the (read-only) agent can read it.
- * There is no safe default, so a caller that forgets it is a TypeScript compile error, and — mirroring
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED: a fallback to e2eDir (the
+ * agent-visible mirror) would silently put auth material where the (read-only) agent can read it
+ * whenever a composition seam omitted the override. There is no safe default, so a caller that forgets it is a TypeScript compile error, and — mirroring
  * the same fail-closed constructor-guard pattern already established for PublicationPortAdapter
  * (publication-port.adapter.test.ts) — a caller that bypasses the type system still gets an
  * immediate, loud throw here, never a silent e2eDir default.
@@ -620,10 +619,10 @@ export function createCaptureDomDeps(authDir: string): CaptureDomDeps {
 }
 
 /**
- * J5: an INERT placeholder for the three composition seams (pre-exec/review-dom grounding bridges,
+ * An INERT placeholder for the three composition seams (pre-exec/review-dom grounding bridges,
  * the context-pack default deps) that fall back to this when no captureDomDeps collaborator is
- * configured at all. It never touches the filesystem or spawns a process — unlike the pre-J5
- * default, it does NOT silently derive credential paths from e2eDir. If it is ever actually invoked
+ * configured at all. It never touches the filesystem or spawns a process and never derives
+ * credential paths from e2eDir. If it is ever actually invoked
  * (every real production wiring always overrides it with createCaptureDomDeps(authDir) instead — see
  * rewritten-engine-factory.ts), it fails loudly (CLAUDE.md: never swallow — surface integration
  * errors loudly) rather than silently degrading to an insecure default.

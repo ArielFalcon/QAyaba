@@ -77,7 +77,7 @@ export interface RouteRecon {
   path: string;
   component?: string;
   domLandmarks?: string[];
-  verified: boolean; /* DEPRECATED (vestigial after F3); retained for backward-compat, never branched on */
+  verified: boolean; /* DEPRECATED (vestigial: the planner never navigates); retained for backward-compat, never branched on */
 }
 export interface ExplorationBrief {
   builtForSha: string;

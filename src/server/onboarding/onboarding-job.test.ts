@@ -470,7 +470,7 @@ function buildIndexedDeps(overrides: Partial<OnboardingJobDeps> = {}) {
   });
 }
 
-test("S1.1: successful confirm() writes boundaries THEN transitions indexing->done with indexProgress populated, one entry per repo in order", async () => {
+test("successful confirm() writes boundaries THEN transitions indexing->done with indexProgress populated, one entry per repo in order", async () => {
   const indexed: string[] = [];
   const job = createOnboardingJob(buildIndexedDeps({
     indexRepo: async (repo: string, _mirrorDir: string): Promise<RepoIndexOutcome> => {
@@ -495,7 +495,7 @@ test("S1.1: successful confirm() writes boundaries THEN transitions indexing->do
   ]);
 });
 
-test("S1.2: fail-open — indexRepo rejects for one repo, records failed, continues to the next, phase still ends done/winner, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+test("fail-open — indexRepo rejects for one repo, records failed, continues to the next, phase still ends done/winner, and the failure is logged once (redacted) instead of swallowed silently", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
@@ -530,7 +530,7 @@ test("S1.2: fail-open — indexRepo rejects for one repo, records failed, contin
   }
 });
 
-test("S1.3: a never-resolving indexRepo is bounded by indexTimeoutMs, degrades that repo to failed, and the phase continues", async () => {
+test("a never-resolving indexRepo is bounded by indexTimeoutMs, degrades that repo to failed, and the phase continues", async () => {
   const job = createOnboardingJob(buildIndexedDeps({
     ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
     indexTimeoutMs: 20,
@@ -558,7 +558,7 @@ test("S1.3: a never-resolving indexRepo is bounded by indexTimeoutMs, degrades t
   assert.equal(byRepo.get("ArielFalcon/svc-fast")?.status, "ok", "the phase continues past a timed-out repo");
 });
 
-test("S1.4: a job with NO indexRepo dep behaves byte-identical to today — confirm() stays synchronous, no indexing phase, no indexProgress", async () => {
+test("a job with NO indexRepo dep behaves byte-identical to today — confirm() stays synchronous, no indexing phase, no indexProgress", async () => {
   let written: { path: string; content: string } | undefined;
   const job = createOnboardingJob(buildDeps({
     readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
@@ -575,7 +575,7 @@ test("S1.4: a job with NO indexRepo dep behaves byte-identical to today — conf
   assert.equal(status.indexProgress, undefined);
 });
 
-test("S1.5: isActive() (the mutex) is true DURING indexing and false only once indexing completes", async () => {
+test("isActive() (the mutex) is true DURING indexing and false only once indexing completes", async () => {
   let resolveIndex!: (o: RepoIndexOutcome) => void;
   const job = createOnboardingJob(buildIndexedDeps({
     indexRepo: (repo: string) => new Promise<RepoIndexOutcome>((resolve) => { resolveIndex = resolve; void repo; }),
@@ -667,7 +667,7 @@ function buildMappedDeps(overrides: Partial<OnboardingJobDeps> = {}): Onboarding
   });
 }
 
-test("M1: confirm() indexes then maps then done — outcome stays winner, mappingProgress carries the run", async () => {
+test("confirm() indexes then maps then done — outcome stays winner, mappingProgress carries the run", async () => {
   const job = createOnboardingJob(buildMappedDeps());
   await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: ["ArielFalcon/ms-name-orders"] });
 
@@ -708,7 +708,7 @@ test("M2: after indexing the next observed state is mapping, never a premature d
   await job.settled();
 });
 
-test("M3: isCodeApp true skips mapping — enqueue is never called, phase ends done after indexing", async () => {
+test("isCodeApp true skips mapping — enqueue is never called, phase ends done after indexing", async () => {
   let enqueued = 0;
   const job = createOnboardingJob(buildMappedDeps({
     isCodeApp: () => true,
@@ -723,7 +723,7 @@ test("M3: isCodeApp true skips mapping — enqueue is never called, phase ends d
   assert.equal(job.status().mappingProgress, undefined);
 });
 
-test("M4: enqueueContextRun throws — fail-open done/winner with error, never failed, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+test("enqueueContextRun throws — fail-open done/winner with error, never failed, and the failure is logged once (redacted) instead of swallowed silently", async () => {
   const originalWarn = console.warn;
   const logged: string[] = [];
   console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
@@ -747,7 +747,7 @@ test("M4: enqueueContextRun throws — fail-open done/winner with error, never f
   }
 });
 
-test("M5: propose() is rejected while mapping is in flight", async () => {
+test("propose() is rejected while mapping is in flight", async () => {
   let resolveEnqueue!: (id: string) => void;
   const job = createOnboardingJob(buildMappedDeps({
     enqueueContextRun: () => new Promise<string>((resolve) => { resolveEnqueue = resolve; }),
@@ -767,7 +767,7 @@ test("M5: propose() is rejected while mapping is in flight", async () => {
   await job.settled();
 });
 
-test("M6: no-profile propose maps then done/no-profile — never a premature done", async () => {
+test("no-profile propose maps then done/no-profile — never a premature done", async () => {
   let resolveEnqueue!: (id: string) => void;
   const job = createOnboardingJob(buildMappedDeps({
     buildProposer: () => noWinnerProposer(),
@@ -793,7 +793,7 @@ test("M6: no-profile propose maps then done/no-profile — never a premature don
   assert.equal(status.mappingProgress?.runId, "run_map_1");
 });
 
-test("M7: a job with enqueueContextRun but no indexRepo still maps after confirm", async () => {
+test("a job with enqueueContextRun but no indexRepo still maps after confirm", async () => {
   const job = createOnboardingJob(buildDeps({
     readConfig: () => 'name: "nname"\nrepo: "org/nname"\n',
     writeConfig: () => {},
@@ -810,7 +810,7 @@ test("M7: a job with enqueueContextRun but no indexRepo still maps after confirm
   assert.equal(job.status().indexProgress, undefined);
 });
 
-test("M8: enqueue returns empty string (shutdown) — skip mapping, done/winner, no error", async () => {
+test("enqueue returns empty string (shutdown) — skip mapping, done/winner, no error", async () => {
   const job = createOnboardingJob(buildMappedDeps({
     enqueueContextRun: () => "",
   }));
@@ -824,7 +824,7 @@ test("M8: enqueue returns empty string (shutdown) — skip mapping, done/winner,
   assert.equal(status.error, undefined, "empty enqueue is a skip, not a fail-open warning");
 });
 
-test("M9: isCodeApp throw skips mapping (fail-open skip), enqueue never called", async () => {
+test("isCodeApp throw skips mapping (fail-open skip), enqueue never called", async () => {
   let enqueued = 0;
   const job = createOnboardingJob(buildMappedDeps({
     isCodeApp: () => { throw new Error("config unreadable"); },
@@ -840,7 +840,7 @@ test("M9: isCodeApp throw skips mapping (fail-open skip), enqueue never called",
   assert.equal(job.status().mappingProgress, undefined);
 });
 
-test("M10: getContextRun missing after enqueue — fail-open done/winner with error, never failed", async () => {
+test("getContextRun missing after enqueue — fail-open done/winner with error, never failed", async () => {
   const job = createOnboardingJob(buildMappedDeps({
     getContextRun: undefined,
   }));
@@ -854,7 +854,7 @@ test("M10: getContextRun missing after enqueue — fail-open done/winner with er
   assert.match(status.error ?? "", /architecture map status unavailable/);
 });
 
-test("M11: poll exceeding mappingTimeoutMs — fail-open done/winner with error, run left running", async () => {
+test("poll exceeding mappingTimeoutMs — fail-open done/winner with error, run left running", async () => {
   const job = createOnboardingJob(buildMappedDeps({
     mappingPollMs: 5,
     mappingTimeoutMs: 20,
@@ -871,7 +871,7 @@ test("M11: poll exceeding mappingTimeoutMs — fail-open done/winner with error,
   assert.equal(status.mappingProgress?.runId, "run_map_1");
 });
 
-test("M12: map completing with verdict fail is still successful onboarding — verdict in mappingProgress, not error", async () => {
+test("map completing with verdict fail is still successful onboarding — verdict in mappingProgress, not error", async () => {
   const job = createOnboardingJob(buildMappedDeps({
     getContextRun: () => ({ runId: "run_map_1", status: "done", step: "decide", verdict: "fail" }),
   }));
