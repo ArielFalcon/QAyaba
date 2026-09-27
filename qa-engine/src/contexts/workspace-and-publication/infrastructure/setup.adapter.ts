@@ -11,6 +11,9 @@ export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do 
 
 export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
 
+/* First line of every auth.setup.ts seed revision; the agent drops it when it rewrites the login for the app. */
+export const AUTH_SETUP_SEED_MARKER = "/* qa-auth-setup-seed */";
+
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
 
 export const FAILURE_CAPTURE_BLOCK = `
@@ -230,12 +233,20 @@ export class SetupAdapter {
     this.deps.fs.append(path, src.endsWith("\n") || src.length === 0 ? `${line}\n` : `\n${line}\n`);
   }
 
-  /** Copies the seed login setup only when the repo does not have one yet. An app-owned auth.setup.ts is left as-is. */
+  /**
+   * Copies the current login seed when the repo has none, and replaces a stock copy (seed marker
+   * still on its first line) left by an earlier seed revision. An app-owned auth.setup.ts — the
+   * agent drops the marker when it rewrites the login — is left as-is.
+   */
   ensureAuthSetup(e2eDir: string): void {
-    const dest = join(e2eDir, "auth.setup.ts");
-    if (this.deps.fs.exists(dest)) return;
     const src = join(this.deps.seedDir, "auth.setup.ts");
     if (!this.deps.fs.exists(src)) return;
+    const dest = join(e2eDir, "auth.setup.ts");
+    if (this.deps.fs.exists(dest)) {
+      const existing = this.deps.fs.read(dest);
+      if (!existing.startsWith(AUTH_SETUP_SEED_MARKER)) return;
+      if (existing === this.deps.fs.read(src)) return;
+    }
     this.deps.fs.cp(src, dest);
   }
 

@@ -12,6 +12,7 @@ import {
   FAILURE_CAPTURE_MARKER,
   FAILURE_CAPTURE_BLOCK,
   PLAYWRIGHT_CONFIG_SEED_MARKER,
+  AUTH_SETUP_SEED_MARKER,
   type SetupAdapterFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
@@ -426,6 +427,50 @@ test("ensurePlaywrightEnvKeys: idempotent — running twice on a repaired repo c
     const afterSecond = readFileSync(configPath, "utf8");
 
     assert.equal(afterSecond, afterFirst, "second run must be a no-op (idempotent)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* auth.setup.ts carries a first-line seed marker until the agent rewrites it for the app (the
+   authoring skill tells it to drop the marker then). A stock copy from an earlier seed revision must
+   follow the current seed — an older one saved the session under the agent-visible mirror. */
+test("ensureAuthSetup replaces a stock auth.setup.ts from an earlier seed revision with the current seed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-stock-"));
+  try {
+    const earlierSeed = `${AUTH_SETUP_SEED_MARKER}\nimport { test as setup } from "@playwright/test";\nconst authFile = ".auth/user.json";\nsetup("authenticate", async ({ page }) => { await page.context().storageState({ path: authFile }); });\n`;
+    writeFileSync(join(dir, "auth.setup.ts"), earlierSeed);
+
+    realAdapter().ensureAuthSetup(dir);
+
+    const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), currentSeed);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup never overwrites an app-owned auth.setup.ts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-owned-"));
+  try {
+    const appOwned = `import { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => { await page.goto("/sso"); });\n`;
+    writeFileSync(join(dir, "auth.setup.ts"), appOwned);
+
+    realAdapter().ensureAuthSetup(dir);
+
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), appOwned);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup gives a repo without auth.setup.ts the current seed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-missing-"));
+  try {
+    realAdapter().ensureAuthSetup(dir);
+
+    const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), currentSeed);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
