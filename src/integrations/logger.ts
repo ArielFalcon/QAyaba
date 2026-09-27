@@ -1,10 +1,11 @@
 import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
 import { join } from "node:path";
+import { qayabaDataDir } from "../paths";
 import { finished } from "node:stream/promises";
 
 /* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
-const LOG_DIR = process.env.QAYABA_LOG_DIR ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "logs");
+const LOG_DIR = process.env.QAYABA_LOG_DIR ?? join(qayabaDataDir(), "logs");
 const MAX_LOG_FILES = 5;
 const MAX_LOG_BYTES = 50 * 1024 * 1024;
 /* A file of unknown or unreachable owner written this recently may still be some process's active file. */

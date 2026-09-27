@@ -5,10 +5,11 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { qayabaRoot } from "../paths";
 import { parse } from "yaml";
 import { AppConfigSchema, type ValidatedAppConfig } from "./schemas";
 
-const ROOT = process.env.QAYABA_ROOT ?? process.cwd();
+const ROOT = qayabaRoot();
 
 export interface AppConfig extends ValidatedAppConfig {}
 

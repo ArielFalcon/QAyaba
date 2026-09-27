@@ -4,6 +4,7 @@
 
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
+import { qayabaRoot } from "./paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, chmodSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
@@ -53,7 +54,7 @@ import { RedactionPortAdapter } from "./orchestrator/sanitizer";
 import { resolvePort, describeListenAddress, listenErrorHint } from "./server/port";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
-const ROOT = process.env.QAYABA_ROOT ?? process.cwd();
+const ROOT = qayabaRoot();
 const TOKEN_FILE = join(ROOT, "config", ".api_token");
 
 const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listAppConfigs });

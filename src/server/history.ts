@@ -10,6 +10,7 @@
 
 import Database from "better-sqlite3";
 import { dirname, join } from "node:path";
+import { qayabaDataDir } from "../paths";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, PLANNER_OBJECTIVE } from "../types";
@@ -84,7 +85,7 @@ function ensureDb(): void {
   if (initialized) return;
 
   const dbPath =
-    process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+    process.env.HISTORY_DB_PATH ?? join(qayabaDataDir(), "qayaba.db");
   /* Only the directory the database lives in: a HISTORY_DB_PATH elsewhere leaves the root's data dir alone. */
   mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -1242,7 +1243,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
 export async function backupDatabase(): Promise<{ backedUp: boolean; path?: string; error?: string }> {
   if (!initialized) return { backedUp: false, error: "db not initialized" };
-  const backupDir = join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "backups");
+  const backupDir = join(qayabaDataDir(), "backups");
   try {
     mkdirSync(backupDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");

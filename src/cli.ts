@@ -16,6 +16,7 @@
 
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
+import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunResult } from "./server/run-delegate";
@@ -68,7 +69,7 @@ async function localServiceIsRunning(): Promise<boolean> {
 function discoverApiToken(): string | undefined {
   if (process.env.QA_API_TOKEN) return process.env.QA_API_TOKEN;
   try {
-    const root = process.env.QAYABA_ROOT ?? process.cwd();
+    const root = qayabaRoot();
     const token = readFileSync(join(root, "config", ".api_token"), "utf8").trim();
     return token || undefined;
   } catch {

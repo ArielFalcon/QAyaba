@@ -5,6 +5,7 @@
  */
 
 import { join } from "node:path";
+import { qayabaDataDir, qayabaRoot } from "../paths";
 import { readFile } from "node:fs/promises";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -129,7 +130,7 @@ import { expandEnv } from "../orchestrator/config-loader";
 export function resolveCoordinationTelemetryPath(): string {
   return (
     process.env.COORDINATION_TELEMETRY_PATH?.trim() ||
-    join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "coordination-events.jsonl")
+    join(qayabaDataDir(), "coordination-events.jsonl")
   );
 }
 
@@ -296,7 +297,7 @@ export function buildSetupAdapter(): SetupAdapter {
   return new SetupAdapter({
     fs: nodeFsDeps,
     runner: new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() }),
-    seedDir: join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "e2e"),
+    seedDir: join(qayabaRoot(), "config", "e2e"),
   });
 }
 
@@ -497,8 +498,8 @@ function requestContextHeal(
  * QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container. Removed with the
  * app on a purge.
  */
-export function appAuthDir(qayabaRoot: string, appName: string): string {
-  return join(qayabaRoot, "data", "auth", appName);
+export function appAuthDir(root: string, appName: string): string {
+  return join(root, "data", "auth", appName);
 }
 
 export function buildRewrittenCompositionConfig(
@@ -547,9 +548,9 @@ export function buildRewrittenCompositionConfig(
    * every execute/DOM-capture spawn reads them back from: an orchestrator-only directory, never
    * the watched-repo mirror.
    */
-  const qayabaRoot = process.env.QAYABA_ROOT ?? process.cwd();
-  const dataDir = join(qayabaRoot, "data");
-  const authDir = appAuthDir(qayabaRoot, app.name);
+  const root = qayabaRoot();
+  const dataDir = qayabaDataDir();
+  const authDir = appAuthDir(root, app.name);
 
 
   const triggerService =
@@ -884,7 +885,7 @@ export function buildRewrittenCompositionConfig(
             mirrorRoot,  /* the SAME local already computed above (deps.mirrorRoot ?? workdirRoot()) */
             services: app.services.map((s) => ({ repo: s.repo })),
             boundaryProfiles: new YamlBoundaryProfileAdapter((name) =>
-              expandEnv(readFileSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "apps", `${name}.yaml`), "utf8"))),
+              expandEnv(readFileSync(join(qayabaRoot(), "config", "apps", `${name}.yaml`), "utf8"))),
           },
         }
       : {}),
@@ -898,7 +899,7 @@ export function buildRewrittenCompositionConfig(
       ? {
           authSession: new AuthSessionAdapter({
             env: process.env,
-            readSeedAuthSetup: () => readFileSync(join(qayabaRoot, "config", "e2e", "auth.setup.ts"), "utf8"),
+            readSeedAuthSetup: () => readFileSync(join(root, "config", "e2e", "auth.setup.ts"), "utf8"),
             authDir,
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({
