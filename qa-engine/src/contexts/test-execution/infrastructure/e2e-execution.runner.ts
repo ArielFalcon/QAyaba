@@ -377,16 +377,26 @@ export interface E2eCleanupDeps {
 
 /**
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. Absent falls back to dir
- * (pre-S2 behavior; harmless when no auth material exists there — existsSync just reads false).
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED (J6, mirrors J5's
+ * createCaptureDomDeps fix): authDir used to be optional with a silent fallback to `dir` (the
+ * watched-repo mirror, agent-visible) — an omitted override would silently put auth material back
+ * where the read-only agent can read it. There is no safe default, so a caller that forgets it is a
+ * TypeScript compile error, and — mirroring the same fail-closed constructor-guard pattern already
+ * established for PublicationPortAdapter and createCaptureDomDeps — a caller that bypasses the type
+ * system still gets an immediate, loud throw here, never a silent `dir` default.
  */
-export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new ProcessKillAdapter(), authDir?: string): E2eCleanupDeps {
+export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new ProcessKillAdapter(), authDir: string): E2eCleanupDeps {
+  if (!authDir) {
+    throw new Error(
+      "[qa] createDefaultE2eCleanupDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under the e2e dir, the agent-visible mirror).",
+    );
+  }
   return {
     runCleanup: ({ dir, baseUrl, namespace, testIdAttribute, signal, timeoutMs }) =>
       new Promise((resolve) => {
         const child = spawn("npx", ["playwright", "test", "cleanup.spec.ts", "--reporter=line"], {
           cwd: dir,
-          env: authSessionEnv(authDir ?? dir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) }),
+          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) }),
           detached: true,
         });
         let settled = false;
@@ -445,15 +455,26 @@ export function playwrightArgs(reporterPath: string, project?: string, specFiles
 
 /**
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. Absent falls back to dir
- * (pre-S2 behavior; harmless when no auth material exists there — existsSync just reads false).
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED (J6, mirrors J5's
+ * createCaptureDomDeps fix): authDir used to be optional with a silent fallback to `dir` (the
+ * watched-repo mirror, agent-visible) — an omitted override would silently put auth material back
+ * where the read-only agent can read it. There is no safe default, so a caller that forgets it is a
+ * TypeScript compile error, and — mirroring the same fail-closed constructor-guard pattern already
+ * established for PublicationPortAdapter and createCaptureDomDeps — a caller that bypasses the type
+ * system still gets an immediate, loud throw here, never a silent `dir` default. Moved ahead of the
+ * optional actionTimeoutMs so a required parameter never follows an optional one.
  */
 export function createDefaultE2eExecuteDeps(
   processKill: ProcessKillPort = new ProcessKillAdapter(),
   defaultTimeoutMs: number = DEFAULT_E2E_TIMEOUT_MS,
+  authDir: string,
   actionTimeoutMs?: string,
-  authDir?: string,
 ): E2eExecuteDeps {
+  if (!authDir) {
+    throw new Error(
+      "[qa] createDefaultE2eExecuteDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under the e2e dir, the agent-visible mirror).",
+    );
+  }
   return {
     defaultTimeoutMs,
     runSuite: ({ dir, baseUrl, namespace, testIdAttribute, faultInject, project, specFiles, signal, timeoutMs, onEvent, failureCaptureDir }) =>
@@ -466,7 +487,7 @@ export function createDefaultE2eExecuteDeps(
         const child = spawn("npx", playwrightArgs(reporterPath, project, specFiles), {
           cwd: dir,
           /* Agent-written specs are untrusted code: scrub orchestrator secrets, keep DEV_* creds. QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-          env: authSessionEnv(authDir ?? dir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) }),
+          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) }),
           detached: true,
         });
 

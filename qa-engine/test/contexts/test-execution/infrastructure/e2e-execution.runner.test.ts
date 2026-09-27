@@ -24,6 +24,8 @@ import {
   matchFailureDumps,
   segmentsAreTail,
   readFailureDumps,
+  createDefaultE2eCleanupDeps,
+  createDefaultE2eExecuteDeps,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -849,4 +851,33 @@ test("Feature B: readFailureDumps parses runtimeErrors defensively (garbage/malf
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ── J6: authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──
+   Both createDefaultE2eCleanupDeps and createDefaultE2eExecuteDeps used to accept an OPTIONAL
+   authDir and fall back to `dir` (the watched-repo mirror, agent-visible) when omitted — the same
+   vulnerability J5 removed from dom-snapshot.ts's createCaptureDomDeps. authDir is now required: a
+   real TypeScript caller that forgets it gets a compile error, and — mirroring the same fail-closed
+   guard idiom used in J5/PublicationPortAdapter — a caller that bypasses the type system still gets
+   an immediate, loud throw instead of a silent fallback to `dir`.
+ */
+
+test("J6: createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createDefaultE2eCleanupDeps(),
+    /authDir/i,
+    "createDefaultE2eCleanupDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+  );
+});
+
+test("J6: createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createDefaultE2eExecuteDeps(),
+    /authDir/i,
+    "createDefaultE2eExecuteDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+  );
 });
