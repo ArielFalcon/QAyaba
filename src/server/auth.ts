@@ -144,6 +144,28 @@ export function localWebLoginAllowed(
 }
 
 /*
+ * The same-origin web console's login (GET /api/auth/local): a short-lived session for
+ * LOCAL_CONSOLE_PRINCIPAL, never the machine token, minted only when localWebLoginAllowed accepts
+ * the TCP peer and the Host header; null otherwise. `env` is read on every request, so a live
+ * change to QA_WEB_AUTO_LOGIN or the allowlist applies to the next login.
+ */
+export function createLocalConsoleLogin(
+  env: { QA_WEB_AUTO_LOGIN?: string; QA_WEB_LOGIN_HOST_ALLOWLIST?: string },
+  signingSecret: string,
+  ttlSeconds: number,
+): (remoteAddress: string, host: string | undefined) => { token: string; username: string; expiresAt: string } | null {
+  return (remoteAddress, host) => {
+    if (!localWebLoginAllowed({ remoteAddress, host }, env)) return null;
+    const now = Date.now();
+    return {
+      token: issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, ttlSeconds, now),
+      username: LOCAL_CONSOLE_PRINCIPAL,
+      expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
+    };
+  };
+}
+
+/*
  * Pre-auth control-plane surface. Login MUST be public (it is how a client with no
  * token yet obtains one). /auth/local is public too — the handler itself refuses
  * untrusted callers with 404, so the gate does not have to know about docker IPs.

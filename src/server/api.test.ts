@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, ApiDeps } from "./api";
+import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
 import { RunRecord, RunOutcome } from "../types";
@@ -1032,23 +1033,31 @@ test("GET /api/auth/local returns 404 when the dep refuses (not trusted)", async
   assert.equal(res.status, 404);
 });
 
-/* Batch S / S3: the Host header must reach localLogin so it can add the DNS-rebinding check
-   (isLoopbackHost) on top of the existing remote-address/flag check — a request whose Host names
-   an attacker's domain must be refused even though the TCP peer is loopback. */
-test("GET /api/auth/local passes the request Host header through to localLogin", async () => {
+/* The local console login through the API with the production login policy: a loopback TCP peer
+   is trusted only when the request's Host header also names a loopback host. A DNS-rebinding page
+   reaches the orchestrator from 127.0.0.1 while its Host still names the attacker's domain. */
+const LOCAL_LOGIN_SECRET = "local-login-test-secret";
+
+async function localLoginFromLoopbackPeer(host: string): Promise<{ status: number; body: string }> {
+  const req = mkReq("GET", "/api/v1/auth/local", undefined, { host });
+  req.socket = { remoteAddress: "127.0.0.1" };
   const res = mkRes();
-  let capturedHost: string | undefined;
-  await handleApi(
-    mkReq("GET", "/api/v1/auth/local", undefined, { host: "evil.example:458" }),
-    res,
-    deps({
-      localLogin: (_remoteAddress, host) => {
-        capturedHost = host;
-        return null;
-      },
-    }),
-  );
-  assert.equal(capturedHost, "evil.example:458");
+  await handleApi(req, res, deps({ localLogin: createLocalConsoleLogin({}, LOCAL_LOGIN_SECRET, 3600) }));
+  return { status: res.status, body: res.body };
+}
+
+test("GET /api/auth/local mints a console session for a loopback peer asking with a loopback Host", async () => {
+  const { status, body } = await localLoginFromLoopbackPeer("localhost:458");
+
+  assert.equal(status, 200);
+  assert.equal(validateSession(JSON.parse(body).token, LOCAL_LOGIN_SECRET), LOCAL_CONSOLE_PRINCIPAL);
+});
+
+test("GET /api/auth/local refuses a loopback peer asking with a foreign Host (DNS rebinding)", async () => {
+  const { status, body } = await localLoginFromLoopbackPeer("evil.example:458");
+
+  assert.equal(status, 404);
+  assert.equal(body.includes("token"), false);
 });
 
 test("GET /api/auth/local returns 404 when the dep is not wired", async () => {

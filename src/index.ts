@@ -13,7 +13,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps } from "./server/api";
-import { authorizeBearer, issueSession, localWebLoginAllowed, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
+import { authorizeBearer, createLocalConsoleLogin, issueSession, isPublicControlPlaneRoute } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { loadIntelligenceView } from "./server/intelligence-view";
@@ -663,20 +663,8 @@ const apiDeps: ApiDeps = {
     const token = issueSession(username, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
     return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
   },
-  /*
-   * Same-origin web console: mint a short-lived session (never the machine token) only when
-   * localWebLoginAllowed says so (peer/flag AND loopback-or-allowlisted Host — see auth.ts).
-   */
-  localLogin: (remoteAddress, host) => {
-    if (!localWebLoginAllowed({ remoteAddress, host }, process.env)) return null;
-    const now = Date.now();
-    const token = issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
-    return {
-      token,
-      username: LOCAL_CONSOLE_PRINCIPAL,
-      expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString(),
-    };
-  },
+  /* Same-origin web console: a short-lived session only for a trusted peer AND Host (see auth.ts). */
+  localLogin: createLocalConsoleLogin(process.env, signingSecret, AUTH_SESSION_TTL_SECONDS),
   agentRuntime,
   /*
    * Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
