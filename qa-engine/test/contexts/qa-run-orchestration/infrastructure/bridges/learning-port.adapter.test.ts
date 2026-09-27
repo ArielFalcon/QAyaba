@@ -238,7 +238,7 @@ test("retrieve() drops the lowest-ranked (tail) rules until the rendered prompt 
   ];
   const repo: LearningRepositoryPort = {
     save: async () => {},
-    topRules: async () => rules,
+    topRules: async (_app, _sha, limit) => rules.slice(0, limit),
     applyOutcome: async () => {},
   };
   /* Budget fits exactly the first rule's rendered section, not all three — derived from the SAME
@@ -262,7 +262,7 @@ test("retrieve() calls incrementUsage with EXACTLY the budget-fitted set, never 
   let incrementedIds: readonly string[] | undefined;
   const repo: LearningRepositoryPort = {
     save: async () => {},
-    topRules: async () => rules,
+    topRules: async (_app, _sha, limit) => rules.slice(0, limit),
     applyOutcome: async () => {},
     incrementUsage: async (ids) => { incrementedIds = ids; },
   };
@@ -274,6 +274,35 @@ test("retrieve() calls incrementUsage with EXACTLY the budget-fitted set, never 
   await adapter.retrieve(Sha.of("abc1234"));
 
   assert.deepEqual(incrementedIds, ["r1"], "usage must be recorded on exactly what the generator will see — never a rule truncated out of the render");
+});
+
+/* A repository that returns more rules than asked must not keep the budget fit re-asking forever.
+   The fake is fused: past a generous bound it throws, so a fit that never converges fails this test
+   instead of hanging the file (an async loop over resolved promises never lets a timer fire). */
+test("retrieve() fits the budget and stops even when the repository ignores the requested limit", async () => {
+  const rules: LearningRule[] = [
+    makeRule("r1", "trigger one padded to a realistic length for a rule description", "action one padded to a realistic length for a rule fix"),
+    makeRule("r2", "trigger two padded to a realistic length for a rule description", "action two padded to a realistic length for a rule fix"),
+    makeRule("r3", "trigger three padded to a realistic length for a rule description", "action three padded to a realistic length for a rule fix"),
+  ];
+  let asked = 0;
+  const repo: LearningRepositoryPort = {
+    save: async () => {},
+    topRules: async () => {
+      asked += 1;
+      if (asked > 100) throw new Error("retrieve() kept re-asking the repository without converging");
+      return rules;
+    },
+    applyOutcome: async () => {},
+  };
+  const oneRuleBudget = renderLearnedRules([
+    { id: "r1", trigger: rules[0]!.trigger, action: rules[0]!.action, errorClass: rules[0]!.errorClass, status: "active", confidence: "high" },
+  ]).length;
+  const adapter = new LearningPortAdapter(repo, "app", 20, undefined, undefined, oneRuleBudget);
+
+  const result = await adapter.retrieve(Sha.of("abc1234"));
+
+  assert.deepEqual(result.map((r) => r.id), ["r1"]);
 });
 
 test("retrieve() with a generously large budget returns every retrieved rule unchanged (no truncation when it already fits)", async () => {
