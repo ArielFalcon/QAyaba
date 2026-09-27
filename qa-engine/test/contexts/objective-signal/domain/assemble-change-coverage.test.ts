@@ -87,6 +87,54 @@ test("parseDiffHunks: a plain unified diff (no git header, unprefixed paths, tim
   assert.deepEqual(lines(parseDiffHunks(diff)), { "src/lib/cart.ts": [2] });
 });
 
+test("parseDiffHunks: each file of a multi-file plain unified diff keeps its own added lines", () => {
+  const diff = [
+    "--- src/a.ts\t2026-01-01 10:00:00.000000000 +0000",
+    "+++ src/a.ts\t2026-01-02 11:30:00.000000000 +0000",
+    "@@ -1,3 +1,3 @@",
+    " keep1",
+    "+added2",
+    " keep3",
+    "-removed",
+    "--- src/b.ts\t2026-01-01 10:00:00.000000000 +0000",
+    "+++ src/b.ts\t2026-01-02 11:30:00.000000000 +0000",
+    "@@ -4 +4,2 @@",
+    " keep4",
+    "+added5",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "src/a.ts": [2], "src/b.ts": [5] });
+});
+
+test("parseDiffHunks: a hunk whose counts are omitted holds one line per side, then the next file header opens", () => {
+  const diff = ["--- a.ts", "+++ a.ts", "@@ -1 +1 @@", "-old", "+new", "--- b.ts", "+++ b.ts", "@@ -1,1 +1,2 @@", " keep", "+added"].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [1], "b.ts": [2] });
+});
+
+test("parseDiffHunks: a deleted file in a plain unified diff does not swallow the next file's added lines", () => {
+  const diff = ["--- gone.ts", "+++ /dev/null", "@@ -1,2 +0,0 @@", "-x", "-y", "--- b.ts", "+++ b.ts", "@@ -0,0 +1 @@", "+added"].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "b.ts": [1] });
+});
+
+test("parseDiffHunks: a 'diff --git' line starts the next file even after a hunk cut short of its declared count", () => {
+  const diff = [
+    "diff --git a/a.ts b/a.ts",
+    "+++ b/a.ts",
+    "@@ -1,5 +1,6 @@",
+    " keep1",
+    "+added2",
+    "diff --git a/b.ts b/b.ts",
+    "+++ b/b.ts",
+    "@@ -0,0 +1 @@",
+    "+added1",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [2], "b.ts": [1] });
+});
+
+test("parseDiffHunks: inside a hunk, a removed '-- ' line and an added '++ ' line are content, not a file header", () => {
+  const diff = ["--- q.sql", "+++ q.sql", "@@ -1,2 +1,2 @@", " select 1;", "--- old note", "+++ new note"].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "q.sql": [2] });
+});
+
 test("parseDiffHunks: a CRLF-terminated diff names the file without the carriage return", () => {
   const diff = ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,1 +1,2 @@", " keep", "+added"].join("\r\n");
   assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [2] });
