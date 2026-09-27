@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, localWebLoginAllowed, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
+import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, localWebLoginAllowed, createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
 
 const secret = "test-signing-secret";
 
@@ -172,6 +172,18 @@ test("local web login: an allowlisted Host is admitted, entries trimmed and empt
   assert.equal(localWebLoginAllowed({ remoteAddress: "172.17.0.1", host: "console.lan" }, env), true);
   assert.equal(localWebLoginAllowed({ remoteAddress: "172.17.0.1", host: "other.lan" }, env), false);
   assert.equal(localWebLoginAllowed({ remoteAddress: "172.17.0.1", host: ":458" }, env), false, "an empty hostname never matches an empty allowlist entry");
+});
+
+test("local web login: the session reports the expiry its own token enforces, ttlSeconds after minting", () => {
+  const ttlSeconds = 600;
+  const before = Date.now();
+  const login = createLocalConsoleLogin({}, "local-secret", ttlSeconds)("127.0.0.1", "localhost:458");
+  const after = Date.now();
+  assert.ok(login, "a loopback peer with a loopback Host gets a session");
+  const expiresAt = Date.parse(login.expiresAt);
+  assert.ok(expiresAt >= before + ttlSeconds * 1000 && expiresAt <= after + ttlSeconds * 1000, `expiresAt ${login.expiresAt} is not ttlSeconds after minting`);
+  assert.equal(validateSession(login.token, "local-secret", expiresAt - 1000), LOCAL_CONSOLE_PRINCIPAL);
+  assert.equal(validateSession(login.token, "local-secret", expiresAt + 1000), null);
 });
 
 test("isPublicControlPlaneRoute includes the local-console bootstrap and the existing pre-auth surface", () => {
