@@ -8,7 +8,7 @@
 
 import type { RunMode } from "@kernel/run-mode.ts";
 import { isLikelyRealBug, classifyFailure } from "./helpers/progress-gate.ts";
-import { PLAYWRIGHT_INFRA_RE } from "./helpers/playwright-infra.ts";
+import { PLAYWRIGHT_INFRA_RE } from "@contexts/test-execution/domain/playwright-infra.ts";
 
 /* Closed adjudicator enums. */
 

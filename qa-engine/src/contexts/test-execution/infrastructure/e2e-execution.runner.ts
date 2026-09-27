@@ -13,7 +13,7 @@ import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.
 import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
-import { PLAYWRIGHT_INFRA_RE } from "@contexts/qa-run-orchestration/domain/helpers/playwright-infra.ts";
+import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -83,7 +83,7 @@ export function streamStatusToCase(status: string): CaseStatus | null {
 }
 
 /*
- * Single owner: qa-run-orchestration/domain/helpers/playwright-infra.ts. Runner-infra
+ * Pattern owner: test-execution/domain/playwright-infra.ts. Runner-infra
  * reclassification runs HERE, upstream of both of runE2E's production callers
  * (E2eExecutionStrategy and the fault-injection oracle's own re-run) — see the call site below.
  */
