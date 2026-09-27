@@ -41,11 +41,15 @@ services:
       # raised to 600s (10min) here so a slow-but-progressing exploration is not killed mid-flight.
       OPENCODE_PLANNER_TIMEOUT_MS: ${OPENCODE_PLANNER_TIMEOUT_MS:-600000}
       # Same-origin web console: mint a short-lived session so the operator does not paste
-      # QA_API_TOKEN. Off in production compose (published :8080 would otherwise be an open
+      # QA_API_TOKEN. Off in production compose (a published orchestrator port would otherwise be an open
       # control plane). Override here for local `docker compose up`. Set false to force login.
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
     volumes:
       - ./src:/app/src
+      # Live src imports qa-engine via tsconfig paths. The image copy goes stale
+      # the moment src/ changes, and a recreate then fails to resolve @contexts/*.
+      - ./qa-engine:/app/qa-engine
+      - ./tsconfig.json:/app/tsconfig.json
       - ./package.json:/app/package.json
       - ./package-lock.json:/app/package-lock.json
       # Local test target (config/apps/jhipster-store.yaml): the orchestrator clones this read-only
