@@ -2,18 +2,20 @@
 // `e2e/` folder the first time; from then on the repo owns it and the agent
 // maintains it.
 //
-// A repo's copy is replaced with the current seed only while it is byte-for-byte a
-// shipped revision of this file (the setup adapter keeps their sha256 list; add this
-// file's hash there whenever it changes). Any edit makes the copy the repo's own: it
-// is never overwritten, and a missing env-passthrough key is reported instead.
+// qa-playwright-config-seed (system-owned marker: do not remove this comment).
+// setup.ts's ensurePlaywrightEnvKeys keys off this exact literal to recognize an
+// already-onboarded repo's e2e/playwright.config.ts as an unmodified copy of THIS
+// seed version, so it can safely replace the whole file to backfill new env-passthrough
+// keys (actionTimeout, testIdAttribute, ...). If the repo has edited this file, the
+// marker (or the byte-identical match) will no longer hold and the repair is skipped —
+// the repo owns its e2e/ after first PR; a customized config is never overwritten.
 //
 // The orchestrator injects via env: PW_BASE_URL (DEV) and PW_NAMESPACE.
 // Two credential layers (do not confuse them):
 //   - DEV_ENV_USER/PASS  → HTTP Basic Auth that protects the WHOLE DEV
 //     environment (the browser's native user/password dialog). Goes in httpCredentials.
-//   - DEV_TEST_USER/PASS → the APP login (a form). The setup project writes
-//     storageState; PW_STORAGE_STATE points the desktop project at that file.
-//   - PW_CLIENT_CERT_PATH / DEV_CLIENT_CERT_PASS → software PKCS#12 (mTLS).
+//   - DEV_TEST_USER/PASS → the APP login via Keycloak (a form). Goes in the
+//     `authenticate` fixture (see fixtures.ts), NOT here.
 
 import { defineConfig, devices } from "@playwright/test";
 
@@ -52,14 +54,6 @@ export default defineConfig({
           origin: appOrigin,
         }
       : undefined,
-    storageState: process.env.PW_STORAGE_STATE,
-    clientCertificates: process.env.PW_CLIENT_CERT_PATH
-      ? [{
-          origin: appOrigin,
-          pfxPath: process.env.PW_CLIENT_CERT_PATH,
-          passphrase: process.env.DEV_CLIENT_CERT_PASS ?? "",
-        }]
-      : undefined,
     // Deterministic default geolocation (the app places the user on a map). Tests
     // that need another location use setLocation() (see fixtures.ts).
     permissions: ["geolocation"],
@@ -70,27 +64,7 @@ export default defineConfig({
   },
   // Grounding (DOM capture / selector catalog) is desktop-only today — a mobile
   // project would execute ungrounded. Re-add per-project grounding before restoring mobile.
-  // Playwright's guide sets dependencies: ["setup"] so the suite logs in itself.
-  // This harness does not: the orchestrator runs the setup project (PW_AUTH_SETUP=1,
-  // --project=setup) before grounding and again before execute. A suite run passes no
-  // --project and runs every project defined here, so the setup project exists only
-  // for that login run — otherwise every suite run would log in again and the setup
-  // test would count as a case.
   projects: [
-    ...(process.env.PW_AUTH_SETUP
-      ? [{
-          name: "setup",
-          testMatch: "**/*.setup.ts",
-          /* A retried login is not a stable session. The suite's retries stay on desktop. */
-          retries: 0,
-          /* Clean context while creating the session, even if PW_STORAGE_STATE is set. */
-          use: { storageState: { cookies: [], origins: [] } },
-        }]
-      : []),
-    {
-      name: "desktop",
-      testIgnore: "**/*.setup.ts",
-      use: { ...devices["Desktop Chrome"] },
-    },
+    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
   ],
 });

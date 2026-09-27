@@ -9,12 +9,26 @@ export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
 
 export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do not edit) >>>";
 
-export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
+/*
+ * sha256 of every playwright.config.ts seed revision shipped into watched repos, the current one
+ * included. A repo copy that byte-matches one is stock and follows the current seed; any other copy
+ * is the repo's own. Add the new hash whenever config/e2e/playwright.config.ts changes.
+ */
+const PLAYWRIGHT_CONFIG_SEED_REVISIONS: ReadonlySet<string> = new Set([
+  "c59f2f5ca105b676c11538ee7a70bd624ca34c5a56d025cbcbe16e3b6d0ab8f6",
+  "6ee7f15fd63364d4626877075c3782a425f1e29e22fa14a1709ca87aaaeb64be",
+  "d665eb1d95e06d917b9ffbce2486f07b1ee12f5f73dc98400393cf6ca621d7ca",
+  "35254a3ed113dd097aec01997cd864545fd2c222227f0841a3264c9978ae779a",
+]);
 
 /* First line of every auth.setup.ts seed revision; the agent drops it when it rewrites the login for the app. */
 export const AUTH_SETUP_SEED_MARKER = "/* qa-auth-setup-seed */";
 
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
 
 export const FAILURE_CAPTURE_BLOCK = `
 // >>> qa-failure-capture (system-owned: do not edit) >>>
@@ -250,22 +264,33 @@ export class SetupAdapter {
     this.deps.fs.cp(src, dest);
   }
 
+  /**
+   * Replaces a stock e2e/playwright.config.ts (byte-for-byte a shipped seed revision) with the
+   * current seed. Any other config is the repo's own and is never overwritten; one that lacks a
+   * managed env-passthrough key gets a warning naming it.
+   */
   ensurePlaywrightEnvKeys(e2eDir: string): void {
     const path = join(e2eDir, "playwright.config.ts");
     if (!this.deps.fs.exists(path)) return;
     const src = this.deps.fs.read(path);
-    const hasAllManagedKeys = PLAYWRIGHT_CONFIG_MANAGED_KEYS.every((key) => src.includes(key));
-    if (hasAllManagedKeys) return;
-    if (!src.includes(PLAYWRIGHT_CONFIG_SEED_MARKER)) {
-      const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
-      console.warn(
-        `[qa] ${path} is missing managed env-passthrough key(s) [${missing.join(", ")}] but carries no ` +
-          `seed ownership marker — the config has been customized (or predates the marker), so it will ` +
-          `NOT be overwritten. Add the missing key(s) manually if this repo wants them.`,
-      );
+    if (PLAYWRIGHT_CONFIG_SEED_REVISIONS.has(sha256(src))) {
+      this.followSeed("playwright.config.ts", path, src);
       return;
     }
-    this.deps.fs.cp(join(this.deps.seedDir, "playwright.config.ts"), path);
+    const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
+    if (missing.length === 0) return;
+    console.warn(
+      `[qa] ${path} is missing managed env-passthrough key(s) [${missing.join(", ")}] and is not a ` +
+        `shipped seed revision — the repo owns it, so it will NOT be overwritten. Add the missing ` +
+        `key(s) manually if this repo wants them.`,
+    );
+  }
+
+  /* Copies the current seed `name` over the stock copy at `dest` unless it already is the current seed. */
+  private followSeed(name: string, dest: string, stockCopy: string): void {
+    const seed = join(this.deps.seedDir, name);
+    if (!this.deps.fs.exists(seed) || this.deps.fs.read(seed) === stockCopy) return;
+    this.deps.fs.cp(seed, dest);
   }
 
   private getLockHash(e2eDir: string): string | null {

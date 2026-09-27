@@ -12,7 +12,6 @@ import {
   nodeFsDeps,
   FAILURE_CAPTURE_MARKER,
   FAILURE_CAPTURE_BLOCK,
-  PLAYWRIGHT_CONFIG_SEED_MARKER,
   AUTH_SETUP_SEED_MARKER,
   type SetupAdapterFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
@@ -329,13 +328,9 @@ test("setup() calls ensureFailureCapture after ensureSpecDir", async () => {
   assert.ok(seq.includes("install"), "setup() must complete through install");
 });
 
-/* Repos onboarded before actionTimeout/testIdAttribute were added to the seed's playwright.config.ts
-   never receive them (bootstrap only runs once, on first onboard). This repairs already-onboarded
-   repos: if the repo's e2e/playwright.config.ts is a recognizable, unmodified copy of an OLDER seed
-   version (carries the seed's ownership marker) AND is missing the managed env-passthrough keys,
-   replace the whole file with the CURRENT seed (env-passthrough only — never bakes concrete values).
-   A customized config (marker absent) is left untouched with a loud warning naming the missing keys —
-   the repo owns its e2e/ after first PR.
+/* A repo's e2e/playwright.config.ts follows the current seed only while it is byte-for-byte a shipped
+   seed revision (stock). Any edit makes it the repo's own: it is never overwritten, and a missing
+   managed env-passthrough key is reported instead.
  */
 
 test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFailureCapture, before the install-current check", async () => {
@@ -360,76 +355,73 @@ test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFai
   assert.ok(seq.indexOf("ensurePlaywrightEnvKeys") < seq.indexOf("install"), "ensurePlaywrightEnvKeys must run before install");
 });
 
-test("ensurePlaywrightEnvKeys: seed-owned config missing the managed keys is repaired (replaced with current seed)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-"));
+const SEED_REVISIONS_DIR = fileURLToPath(new URL("./__fixtures__/seed-revisions", import.meta.url));
+
+/* The exact bytes of a seed file as an earlier revision shipped it into watched repos. */
+function shippedRevision(name: string): string {
+  return readFileSync(join(SEED_REVISIONS_DIR, name), "utf8");
+}
+
+/* Runs `ensure` on a temp e2e dir holding `name` with `body`; returns the file afterwards. */
+function afterEnsure(name: string, body: string, ensure: (adapter: SetupAdapter, dir: string) => void, seedDir = REAL_SEED_DIR): string {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-seed-owned-"));
   try {
-    const configPath = join(dir, "playwright.config.ts");
-    /* An older seed copy: carries the ownership marker but predates actionTimeout/testIdAttribute. */
-    const oldSeed = `// Base Playwright config — harness SEED (Filter A).\n// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig, devices } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL },\n  projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],\n});\n`;
-    writeFileSync(configPath, oldSeed);
-    assert.ok(!oldSeed.includes("actionTimeout"), "test precondition: old seed must lack actionTimeout");
-    assert.ok(!oldSeed.includes("testIdAttribute"), "test precondition: old seed must lack testIdAttribute");
-
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.match(after, /actionTimeout: Number\(process\.env\.PW_ACTION_TIMEOUT_MS/, "repaired config must gain actionTimeout (env-passthrough)");
-    assert.match(after, /testIdAttribute: process\.env\.PW_TEST_ID_ATTRIBUTE/, "repaired config must gain testIdAttribute (env-passthrough)");
-    /* Must be the byte-identical current seed (no baked concrete values — reads process.env at runtime). */
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
-    assert.equal(after, currentSeed, "repaired config must be byte-identical to the current seed");
+    writeFileSync(join(dir, name), body);
+    ensure(realAdapter(seedDir), dir);
+    return readFileSync(join(dir, name), "utf8");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}
 
-test("ensurePlaywrightEnvKeys: customized config (no ownership marker) is NOT touched, even if missing the keys", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-custom-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    const customConfig = `import { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL, timeout: 5000 },\n});\n`;
-    writeFileSync(configPath, customConfig);
+const ensureConfig = (adapter: SetupAdapter, dir: string): void => adapter.ensurePlaywrightEnvKeys(dir);
 
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.equal(after, customConfig, "a config without the ownership marker must be left byte-identical (repo owns its e2e/ after first PR)");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+test("ensurePlaywrightEnvKeys replaces every earlier shipped seed revision with the current seed", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  for (const revision of ["playwright.config.rev1.txt", "playwright.config.rev2.txt", "playwright.config.rev3.txt"]) {
+    assert.equal(afterEnsure("playwright.config.ts", shippedRevision(revision), ensureConfig), currentSeed, `${revision} is stock`);
   }
 });
 
-test("ensurePlaywrightEnvKeys: a config that already has both managed keys is left untouched (idempotent no-op), marker or not", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-current-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
-    writeFileSync(configPath, currentSeed);
+test("ensurePlaywrightEnvKeys never overwrites a shipped seed revision the repo customized", () => {
+  const customized = shippedRevision("playwright.config.rev2.txt").replace("  retries: 2,", "  retries: 2,\n  expect: { timeout: 15_000 },");
+  assert.notEqual(customized, shippedRevision("playwright.config.rev2.txt"), "test precondition: the customization applied");
 
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.equal(after, currentSeed, "a config that already has the managed keys must not be rewritten");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  assert.equal(afterEnsure("playwright.config.ts", customized, ensureConfig), customized);
 });
 
-test("ensurePlaywrightEnvKeys: idempotent — running twice on a repaired repo changes nothing the second time", () => {
+test("ensurePlaywrightEnvKeys: a config that is no seed revision is NOT touched, even if missing the keys", () => {
+  const customConfig = `import { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL, timeout: 5000 },\n});\n`;
+  assert.equal(afterEnsure("playwright.config.ts", customConfig, ensureConfig), customConfig);
+});
+
+test("ensurePlaywrightEnvKeys leaves the current seed as it is, and a replaced copy stays put on the next run", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  assert.equal(afterEnsure("playwright.config.ts", currentSeed, ensureConfig), currentSeed);
+
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-idem-"));
   try {
     const configPath = join(dir, "playwright.config.ts");
-    const oldSeed = `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig } from "@playwright/test";\nexport default defineConfig({ testDir: "." });\n`;
-    writeFileSync(configPath, oldSeed);
-
+    writeFileSync(configPath, shippedRevision("playwright.config.rev1.txt"));
     realAdapter().ensurePlaywrightEnvKeys(dir);
     const afterFirst = readFileSync(configPath, "utf8");
     realAdapter().ensurePlaywrightEnvKeys(dir);
-    const afterSecond = readFileSync(configPath, "utf8");
-
-    assert.equal(afterSecond, afterFirst, "second run must be a no-op (idempotent)");
+    assert.equal(readFileSync(configPath, "utf8"), afterFirst);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The seed that ships today is itself a revision repos hold once the seed changes again. */
+test("ensurePlaywrightEnvKeys moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-seed-"));
+  try {
+    const nextSeed = `${shipped}// the next seed revision\n`;
+    writeFileSync(join(nextSeedDir, "playwright.config.ts"), nextSeed);
+    assert.equal(afterEnsure("playwright.config.ts", shipped, ensureConfig, nextSeedDir), nextSeed);
+  } finally {
+    rmSync(nextSeedDir, { recursive: true, force: true });
   }
 });
 
@@ -505,47 +497,6 @@ test("ensurePlaywrightEnvKeys: missing playwright.config.ts is a no-op (new onbo
     assert.ok(!existsSync(join(dir, "playwright.config.ts")), "test precondition: config must not exist");
     assert.doesNotThrow(() => realAdapter().ensurePlaywrightEnvKeys(dir));
     assert.ok(!existsSync(join(dir, "playwright.config.ts")), "ensurePlaywrightEnvKeys must not create the file");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("ensurePlaywrightEnvKeys: a config missing only one of the two managed keys (marker present) is still repaired", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-partial-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    /* Has testIdAttribute already (e.g. hand-added) but not actionTimeout — still repaired, since the
-       repair replaces the whole file wholesale once the marker recognizes it as seed-owned.
-     */
-    const partialSeed = `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { testIdAttribute: process.env.PW_TEST_ID_ATTRIBUTE ?? "data-testid" },\n});\n`;
-    writeFileSync(configPath, partialSeed);
-
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.match(after, /actionTimeout: Number\(process\.env\.PW_ACTION_TIMEOUT_MS/, "repaired config must gain actionTimeout");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-/* A suite run passes no --project, so a stock copy whose setup project is always defined would run
-   the login as a suite case. Such a copy carries every older env-passthrough key, so only the
-   setup-project gating tells it apart from the current seed. */
-test("ensurePlaywrightEnvKeys: a stock config whose login setup project is always defined is replaced with the current seed", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-setup-project-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    const ungatedSeed =
-      `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig, devices } from "@playwright/test";\nexport default defineConfig({\n` +
-      `  use: {\n    actionTimeout: Number(process.env.PW_ACTION_TIMEOUT_MS ?? 8000),\n    testIdAttribute: process.env.PW_TEST_ID_ATTRIBUTE ?? "data-testid",\n    storageState: process.env.PW_STORAGE_STATE,\n  },\n` +
-      `  projects: [\n    { name: "setup", testMatch: "**/*.setup.ts" },\n    { name: "desktop", testIgnore: "**/*.setup.ts", use: { ...devices["Desktop Chrome"] } },\n  ],\n});\n`;
-    writeFileSync(configPath, ungatedSeed);
-
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
-    assert.equal(readFileSync(configPath, "utf8"), currentSeed, "the stock copy must be replaced with the current seed");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

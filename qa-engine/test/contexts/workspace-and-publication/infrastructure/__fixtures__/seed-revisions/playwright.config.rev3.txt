@@ -2,10 +2,13 @@
 // `e2e/` folder the first time; from then on the repo owns it and the agent
 // maintains it.
 //
-// A repo's copy is replaced with the current seed only while it is byte-for-byte a
-// shipped revision of this file (the setup adapter keeps their sha256 list; add this
-// file's hash there whenever it changes). Any edit makes the copy the repo's own: it
-// is never overwritten, and a missing env-passthrough key is reported instead.
+// qa-playwright-config-seed (system-owned marker: do not remove this comment).
+// setup.ts's ensurePlaywrightEnvKeys keys off this exact literal to recognize an
+// already-onboarded repo's e2e/playwright.config.ts as an unmodified copy of THIS
+// seed version, so it can safely replace the whole file to backfill new env-passthrough
+// keys (actionTimeout, testIdAttribute, ...). If the repo has edited this file, the
+// marker (or the byte-identical match) will no longer hold and the repair is skipped —
+// the repo owns its e2e/ after first PR; a customized config is never overwritten.
 //
 // The orchestrator injects via env: PW_BASE_URL (DEV) and PW_NAMESPACE.
 // Two credential layers (do not confuse them):
