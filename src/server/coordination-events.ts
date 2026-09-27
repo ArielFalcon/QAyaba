@@ -1,15 +1,35 @@
 /*
  * Coordination telemetry reader + aggregator. Pure functions (no I/O in the two
  * exported builders) — the orchestrator wires the REAL ledger file path at the call
- * site, unit-tested with fixture strings. The JSONL tail is the single source: the
- * InMemory store inside qa-engine holds the same records in-process, but only the
- * file survives process restarts, so the dashboard reads the file.
+ * site, unit-tested with fixture strings. The JSONL tail is the single source: qa-engine's own
+ * FileCoordinationTelemetryAdapter holds the same records in-process, but only the file survives
+ * process restarts, so the dashboard reads the file.
  */
-import { readFileSync } from "node:fs";
+import { openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./rewritten-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
 
 const KINDS = new Set(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]);
+
+export interface CoordinationLedgerFsDeps {
+  readonly openSync: typeof openSync;
+  readonly fstatSync: typeof fstatSync;
+  readonly readSync: typeof readSync;
+  readonly closeSync: typeof closeSync;
+}
+
+export const defaultCoordinationLedgerFsDeps: CoordinationLedgerFsDeps = {
+  openSync,
+  fstatSync,
+  readSync,
+  closeSync,
+};
+
+/* Initial tail-read window; grows by TAIL_GROWTH_FACTOR each retry until enough matching events are
+   found or the file start is reached. 16KB comfortably covers a poll's default/typical limit
+   (200, clamped to 1000) worth of small JSONL lines on the first read. */
+const INITIAL_TAIL_BYTES = 16 * 1024;
+const TAIL_GROWTH_FACTOR = 8;
 
 export interface CoordinationEventsFilter {
   readonly runId?: string;
@@ -119,9 +139,16 @@ export function toCoordinationSignals(events: readonly CoordinationEvent[]): Coo
       .filter((e) => e.kind === "escalation" && typeof e.escalations === "number")
       .map((e) => `${e.runId}:${e.escalations}`),
   );
-  const failures = delegationEvents.filter(
-    (e) => typeof e.reason === "string" && /status=failed|violat|outside scope|claimed/i.test(e.reason),
-  ).length;
+  /*
+   * A delegation contract failure is read from the typed failureClass field (set by
+   * classifyDelegationFailure in qa-engine — "failed" | "blocked" | "claimed-files-missing"), never
+   * guessed from the free-text `reason` prose. The prose only ever reads "sidekick status=<X>" and
+   * a regex over it could never distinguish, say, a pushback-blocked delegation from a completed one
+   * whose claimed files never verified on disk — both would print "completed"/"blocked" without the
+   * substrings the old regex looked for. A ledger line recorded before failureClass existed simply
+   * has no opinion (undefined) and is not counted — lenient degradation on old data, not a hazard.
+   */
+  const failures = delegationEvents.filter((e) => typeof e.failureClass === "string").length;
   const timed = delegationEvents.filter((e) => typeof e.durationMs === "number");
   const totalRuns = runIds.size;
   const delegateRuns = delegateRunIds.size;
@@ -150,14 +177,60 @@ function round4(n: number): number {
  * composition writes to) and returns the filtered view. A missing file (fresh install, or
  * coordination did not record anything yet) is an empty ledger — never an error.
  */
-export function readCoordinationLedger(filter: CoordinationEventsFilter = {}, path: string = resolveCoordinationTelemetryPath()): CoordinationEventsView {
-  let raw = "";
+export function readCoordinationLedger(
+  filter: CoordinationEventsFilter = {},
+  path: string = resolveCoordinationTelemetryPath(),
+  fsDeps: CoordinationLedgerFsDeps = defaultCoordinationLedgerFsDeps,
+): CoordinationEventsView {
   try {
-    raw = readFileSync(path, "utf8");
-  } catch {
-    return { events: [], truncated: false };
+    return readLedgerTail(path, filter, fsDeps);
+  } catch (err) {
+    if (isEnoent(err)) return { events: [], truncated: false };  /* absent file on first boot — normal cold start, not an error */
+    console.error(`[qa] coordination ledger read failed (path=${path}): ${err instanceof Error ? err.message : String(err)}`);
+    throw err;  /* surface integration errors loudly — never fabricate an empty ledger over a real fault */
   }
-  return parseCoordinationLedger(raw, filter);
+}
+
+function isEnoent(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+/*
+ * Reads a bounded window from the END of the ledger file, growing it until either enough matching
+ * events are found (parseCoordinationLedger reports truncated=true — i.e. we already hold at least
+ * `limit` of the most recent matches) or the file start is reached (nothing left to grow into). This
+ * avoids the earlier readFileSync-the-whole-file-every-poll cost: a live /api/signals poll with the
+ * default/typical limit reads a small tail chunk, not the entire (potentially large) historical file.
+ * Correctness matches a full-file parse exactly in both stopping cases — see the two returns below.
+ */
+function readLedgerTail(
+  path: string,
+  filter: CoordinationEventsFilter,
+  fs: CoordinationLedgerFsDeps,
+): { events: CoordinationEvent[]; truncated: boolean } {
+  const fd = fs.openSync(path, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    let bytesToRead = Math.min(size, INITIAL_TAIL_BYTES);
+    for (;;) {
+      const position = size - bytesToRead;
+      const buffer = Buffer.alloc(bytesToRead);
+      if (bytesToRead > 0) fs.readSync(fd, buffer, 0, bytesToRead, position);
+      /* A chunk that doesn't start at byte 0 may open mid-line; drop that partial first line — a
+         wider re-read on the next growth pass will pick it up whole, from further back. */
+      const text = position > 0 ? dropPartialFirstLine(buffer.toString("utf8")) : buffer.toString("utf8");
+      const parsed = parseCoordinationLedger(text, filter);
+      if (parsed.truncated || position === 0) return parsed;
+      bytesToRead = Math.min(size, bytesToRead * TAIL_GROWTH_FACTOR);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function dropPartialFirstLine(text: string): string {
+  const idx = text.indexOf("\n");
+  return idx === -1 ? "" : text.slice(idx + 1);
 }
 
 /* Convenience alias for the api-deps wiring: bounded tail (limit clamps inside the reader). */

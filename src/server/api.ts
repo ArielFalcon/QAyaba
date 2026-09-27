@@ -683,7 +683,12 @@ function handleSignals(res: ServerResponse, deps: ApiDeps): boolean {
     json(res, 501, { error: "signals is not available" });
     return true;
   }
-  contractJson(res, 200, SignalsViewSchema, deps.signals());
+  try {
+    contractJson(res, 200, SignalsViewSchema, deps.signals());
+  } catch (err) {
+    /* A ledger read failure (e.g. permission error) is a real fault, not an empty-fleet view — surface it loudly instead of hanging the request or fabricating zeros. */
+    json(res, 500, { error: `signals query failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
   return true;
 }
 
@@ -692,7 +697,11 @@ function handleCoordinationEvents(res: ServerResponse, deps: ApiDeps, runId: str
     json(res, 501, { error: "coordinationEvents is not available" });
     return true;
   }
-  contractJson(res, 200, CoordinationEventsViewSchema, deps.coordinationEvents({ runId, limit }));
+  try {
+    contractJson(res, 200, CoordinationEventsViewSchema, deps.coordinationEvents({ runId, limit }));
+  } catch (err) {
+    json(res, 500, { error: `coordination-events query failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
   return true;
 }
 

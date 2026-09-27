@@ -138,6 +138,28 @@ test("GET /api/signals returns the fleet integrity view, or 501 when not wired",
   assert.equal(view.coverage.measured, false);
 });
 
+test("GET /api/signals returns 500 (not a hang or a fabricated empty view) when the ledger read throws a real I/O error", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/signals"), res, deps({
+    signals: () => {
+      throw new Error("EACCES: permission denied, open 'data/coordination-events.jsonl'");
+    },
+  }));
+  assert.equal(res.status, 500);
+  assert.match(JSON.parse(res.body).error, /permission denied/);
+});
+
+test("GET /api/coordination-events returns 500 when the ledger read throws a real I/O error", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/coordination-events"), res, deps({
+    coordinationEvents: () => {
+      throw new Error("EACCES: permission denied");
+    },
+  }));
+  assert.equal(res.status, 500);
+  assert.match(JSON.parse(res.body).error, /permission denied/);
+});
+
 test("GET /api/apps/:name/trends and /api/apps/:name/report return 501 when not wired", async () => {
   const t = mkRes();
   await handleApi(mkReq("GET", "/api/v1/apps/demo/trends"), t, deps());
