@@ -57,6 +57,16 @@ test("an async write into the tracked tree rejects instead of landing", async ()
   }
 });
 
+test("a test cannot write under the running service's data directory", () => {
+  const probe = join(repoRoot, "data", `.write-guard-probe-${process.pid}.db`);
+  try {
+    assert.throws(() => writeFileSync(probe, ""), refusal);
+    assert.equal(existsSync(probe), false);
+  } finally {
+    removeIfPresent(probe);
+  }
+});
+
 test("writes under the OS temp directory are unaffected", () => {
   const dir = mkdtempSync(join(tmpdir(), "write-guard-"));
   try {

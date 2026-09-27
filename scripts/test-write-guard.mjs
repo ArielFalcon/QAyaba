@@ -13,8 +13,11 @@ import { syncBuiltinESMExports } from "node:module";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/* Untracked runtime directories under the repo root that the code under test may still create. */
-const RUNTIME_DIRS = new Set(["data", "node_modules"]);
+/* Untracked directories under the repo root that the code under test may still write: installed
+   dependencies only. data/ holds the running service's history, logs, telemetry and login material, so
+   a test points those locations at os.tmpdir() instead (test-setup.mjs does it for the history
+   database and the logs). */
+const RUNTIME_DIRS = new Set(["node_modules"]);
 
 const WRITE_OPEN_BITS =
   fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_APPEND;

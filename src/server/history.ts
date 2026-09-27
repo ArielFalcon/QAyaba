@@ -9,7 +9,7 @@
  */
 
 import Database from "better-sqlite3";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, PLANNER_OBJECTIVE } from "../types";
@@ -85,7 +85,8 @@ function ensureDb(): void {
 
   const dbPath =
     process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
-  mkdirSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "data"), { recursive: true });
+  /* Only the directory the database lives in: a HISTORY_DB_PATH elsewhere leaves the root's data dir alone. */
+  mkdirSync(dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");

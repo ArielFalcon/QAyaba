@@ -391,6 +391,19 @@ docker compose up --build
 ```
 
 <details>
+<summary>Where the orchestrator keeps its data</summary>
+
+The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qa-data` volume in `docker-compose.yml`) unless a location is overridden:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `QAYABA_ROOT` | the working directory | Root the orchestrator resolves `config/` and `data/` against. |
+| `HISTORY_DB_PATH` | `<QAYABA_ROOT>/data/qayaba.db` | SQLite run history and learning ledger. Its directory is created on first use. The daily backup still goes to `<QAYABA_ROOT>/data/backups/`. |
+| `QAYABA_LOG_DIR` | `<QAYABA_ROOT>/data/logs` | Structured JSON log files, rotated by size and pruned by count. |
+
+</details>
+
+<details>
 <summary>Trigger a run via webhook</summary>
 
 ```bash
