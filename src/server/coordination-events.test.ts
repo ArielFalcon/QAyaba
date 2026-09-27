@@ -97,47 +97,35 @@ test("readCoordinationLedger: reads only a bounded tail, not the whole file, for
   }
 });
 
-/* J3: readLedgerTail's growth loop used to stop ONLY on truncated (matched.length > limit) or
-   position === 0. When a runId filter's own run has FEWER events than `limit`, `truncated` never
-   becomes true, so a poll for that run's (few, recent) events walked the loop all the way back to
-   the start of the file on EVERY call — even though the run's events were all captured in the
-   first small chunk. Because the orchestrator runs one QA run at a time (sequential queue), a
-   single run's events form a contiguous block in the ledger, so once a growth pass finds no NEW
-   matches for the filter and the window already extends earlier than the run's own earliest event,
-   further growth cannot find more — the read must stop there. */
-test("readCoordinationLedger: a runId filter with few, recent events reads only a bounded tail (J3)", () => {
+/* J3b: --allow-concurrent (src/cli.ts) lets a standalone CLI run share the SAME ledger file with
+   the long-lived service (both resolve resolveCoordinationTelemetryPath to the same path), so one
+   run's events are NOT guaranteed to be contiguous — a foreign process can append a large block of
+   its own events in between two of this run's events. A runId-scoped read must match a full-file
+   parse exactly regardless of interleaving; it must never assume contiguity to stop early. */
+test("readCoordinationLedger: a runId filter reads a run's events exactly, even when interleaved with another process's events (J3b)", () => {
   const dir = mkdtemp();
   try {
     const path = join(dir, "coordination-events.jsonl");
     const lines: string[] = [];
-    /* Many unrelated older events from other runs. */
+    /* The target run's OWN early event, appended first. */
+    lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 1 }));
+    /* A large foreign block from a CONCURRENT process (e.g. --allow-concurrent) interleaved in
+       between — this run's events are no longer a contiguous block in the ledger. */
     for (let i = 0; i < 3000; i++) {
-      lines.push(JSON.stringify({ runId: `other-${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i }));
+      lines.push(JSON.stringify({ runId: `other-${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i + 2 }));
     }
-    /* The target run's own (few) events, appended contiguously and recently — sequential queue
-       means one run's events are never interleaved with another run's. */
-    lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 3001 }));
-    lines.push(JSON.stringify({ runId: "target", kind: "delegation", reason: "sidekick status=completed", delegationId: "d1", attempt: 1, durationMs: 500, at: 3002 }));
-    lines.push(JSON.stringify({ runId: "target", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", at: 3003 }));
-    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
-    const fullSize = statSync(path).size;
+    /* The target run's remaining events, appended later. */
+    lines.push(JSON.stringify({ runId: "target", kind: "delegation", reason: "sidekick status=completed", delegationId: "d1", attempt: 1, durationMs: 500, at: 4002 }));
+    lines.push(JSON.stringify({ runId: "target", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", at: 4003 }));
+    const text = `${lines.join("\n")}\n`;
+    writeFileSync(path, text, "utf8");
 
-    let bytesRead = 0;
-    const countingFs = {
-      openSync,
-      fstatSync,
-      readSync: ((fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number) => {
-        bytesRead += length;
-        return readSync(fd, buffer as Buffer, offset, length, position);
-      }) as typeof readSync,
-      closeSync,
-    };
-    /* limit (default 200) is far larger than this run's 3 events, so `truncated` never fires. */
-    const view = readCoordinationLedger({ runId: "target" }, path, countingFs);
-    assert.equal(view.events.length, 3, "must find exactly the target run's own events");
-    assert.equal(view.events.at(-1)?.runId, "target");
-    assert.ok(bytesRead > 0, "the injected byte-range reader must actually be exercised");
-    assert.ok(bytesRead < fullSize / 10, `expected a bounded tail read (<${Math.round(fullSize / 10)}B), got ${bytesRead}B out of a ${fullSize}B file`);
+    const fullParse = parseCoordinationLedger(text, { runId: "target" });
+    assert.equal(fullParse.events.length, 3, "sanity: a full-file parse must see all 3 of the target run's events");
+
+    const view = readCoordinationLedger({ runId: "target" }, path);
+    assert.deepEqual(view.events, fullParse.events, "a runId-filtered read must match a full-file parse exactly, even when interleaved with another process's events");
+    assert.equal(view.truncated, fullParse.truncated);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

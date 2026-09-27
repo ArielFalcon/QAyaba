@@ -9,7 +9,10 @@
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
  * concurrently with a service run — breaking the "one run at a time against DEV" invariant.
  * We therefore refuse to start when the local service answers its health probe, unless the
- * operator explicitly accepts the risk with --allow-concurrent.
+ * operator explicitly accepts the risk with --allow-concurrent. Both processes also resolve
+ * the SAME coordination telemetry ledger path (resolveCoordinationTelemetryPath) — running
+ * with --allow-concurrent means their reads and rotation may interleave on that shared file,
+ * not just on the DEV target.
  */
 
 import { fileURLToPath } from "node:url";
