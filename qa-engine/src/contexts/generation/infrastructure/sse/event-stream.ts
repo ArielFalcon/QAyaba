@@ -19,9 +19,13 @@ export interface RawEventStreamOpener {
 
 let rawOpener: RawEventStreamOpener | undefined;
 
-/** Called once by the composition root before any run attaches a session. A stream attempted before this is wired throws — never a silent no-op. */
-export function setRawEventStreamOpener(opener: RawEventStreamOpener): void {
+/** Called once by the composition root before any run attaches a session. A stream attempted before this is wired throws — never a silent no-op. Returns a function that restores the previously wired opener, for callers that swap it temporarily. */
+export function setRawEventStreamOpener(opener: RawEventStreamOpener): () => void {
+  const previous = rawOpener;
   rawOpener = opener;
+  return () => {
+    rawOpener = previous;
+  };
 }
 
 export const activityRouter = new ActivityRouter();

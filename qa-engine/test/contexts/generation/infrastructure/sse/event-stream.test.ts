@@ -94,7 +94,7 @@ test("EventStreamManager defers opening a stream until the sink is set", () => {
   assert.deepEqual(opened, ["/m/a"]); /* opened once the sink arrives */
 });
 
-/* C6: the default (non-injected) stream path — EventStreamManager -> defaultOpenStream ->
+/* The default (non-injected) stream path — EventStreamManager -> defaultOpenStream ->
    startEventStreamWithReconnect -> startScopedEventStream -> RawEventStreamOpener.open — must
    forward the per-directory AbortSignal into open() itself, not just check `signal?.aborted`
    between already-buffered events. Without this, detach()/closeAll() abort a signal nothing
@@ -103,7 +103,7 @@ test("EventStreamManager defers opening a stream until the sink is set", () => {
  */
 test("the default stream path forwards the per-directory AbortSignal into RawEventStreamOpener.open so detach can tear the connection down", () => {
   const openCalls: Array<{ directory: string; signal: AbortSignal | undefined }> = [];
-  setRawEventStreamOpener({
+  const restoreOpener = setRawEventStreamOpener({
     open: async (directory, signal) => {
       openCalls.push({ directory, signal });
       return undefined; /* no stream — startScopedEventStream logs a warning and returns cleanly */
@@ -126,8 +126,26 @@ test("the default stream path forwards the per-directory AbortSignal into RawEve
     assert.equal(openCalls[0]!.signal!.aborted, false);
   } finally {
     mgr.detach("s1");
+    restoreOpener();
   }
   assert.equal(openCalls[0]!.signal!.aborted, true, "detach must abort the SAME signal instance that was forwarded to open()");
+});
+
+test("restoring a swapped opener puts the previously wired one back", () => {
+  const opened: string[] = [];
+  const restoreWired = setRawEventStreamOpener({ open: async () => { opened.push("wired"); return undefined; } });
+  const restoreSwap = setRawEventStreamOpener({ open: async () => { opened.push("swap"); return undefined; } });
+  restoreSwap();
+
+  const mgr = new EventStreamManager();
+  mgr.setSink(() => {});
+  mgr.attach("s-restore", "/m/restore-dir");
+  try {
+    assert.deepEqual(opened, ["wired"]);
+  } finally {
+    mgr.detach("s-restore");
+    restoreWired();
+  }
 });
 
 test("EventStreamManager closes every directory stream on shutdown and ignores later attaches", () => {
