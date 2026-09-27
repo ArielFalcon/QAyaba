@@ -293,6 +293,7 @@ window.QayabaConsole = (function () {
     turns(id) { return ep.turns(id); },
   };
 
+  const QUALITY_VERDICTS = ['pass', 'fail', 'flaky', 'invalid'];
   function logGlyph(level) { return level === 'error' ? '✗' : level === 'warn' ? '~' : level === 'ok' ? '✓' : '›'; }
 
   /* Report templates are a UI preset (which blocks/schedule a report offers), not measured
@@ -375,15 +376,18 @@ window.QayabaConsole = (function () {
     const allRuns = [];
     Object.keys(raw.runsByApp).forEach((a) => (raw.runsByApp[a] || []).forEach((r) => allRuns.push(r)));
     const weekRuns = allRuns.filter((r) => (Date.parse(r.at) || 0) >= Date.now() - 7 * 86400000);
-    const finishedRuns = weekRuns.filter((r) => ['pass', 'fail', 'flaky', 'infra-error'].indexOf(r.verdict) >= 0);
+    /* Same rule as the control API's signals view (src/server/signals-view.ts): the rate is taken
+       over runs that produced a QUALITY verdict (pass/fail/flaky/invalid). skipped (a clean no-op)
+       and infra-error (the environment, not the code) are left out. */
+    const qualityRuns = weekRuns.filter((r) => QUALITY_VERDICTS.indexOf(r.verdict) >= 0);
     const stats = {
       runs7d: weekRuns.length,
-      passRate: finishedRuns.length ? weekRuns.filter((r) => r.verdict === 'pass').length / finishedRuns.length : null,
+      passRate: qualityRuns.length ? qualityRuns.filter((r) => r.verdict === 'pass').length / qualityRuns.length : null,
       specsAdded: weekRuns.reduce((s, r) => s + (r.specs || []).length, 0),
       openIssues: null,
       watching: raw.apps.length,
     };
-    const VERDICTS = ['pass', 'fail', 'flaky', 'infra-error', 'skipped'];
+    const VERDICTS = ['pass', 'fail', 'flaky', 'invalid', 'infra-error', 'skipped'];
     const verdictMix = VERDICTS.map((v) => ({ v: v, n: weekRuns.filter((r) => (r.verdict || 'running') === v).length })).filter((x) => x.n > 0);
     /* Reports: the first app whose /report returns insights replaces the mock exec blocks —
        headline/detail/weight come from the contract; viz renders honestly (see console.js).
