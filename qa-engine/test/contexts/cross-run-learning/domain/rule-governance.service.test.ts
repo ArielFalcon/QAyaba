@@ -58,33 +58,49 @@ test("topRules: without a relevance bias, behaves EXACTLY as before (pure SQL-OR
   assert.deepEqual(top.map((r) => r.trigger).sort(), ["a", "b"]);
 });
 
-test("topRules: an errorClass match biases a lower-successRate rule above a non-matching higher one", () => {
+test("topRules: an errorClass match biases a lower-successRate rule above a near-tied non-matching one", () => {
   const rules = [
     ruleWithMeta("active", 0.5, "matches-error-class", "E-EXEC-FAIL", null),
     ruleWithMeta("active", 0.6, "no-match", "E-FLAKY", null),
   ];
   const top = svc.topRules(rules, 5, { errorClass: "E-EXEC-FAIL" });
-  /* matches-error-class: 0.5 + 3 = 3.5; no-match: 0.6 + 0 = 0.6 -> matches-error-class wins. */
+  /* successRate is scaled x10 (matches the shell's original weighting) so relevance only
+     breaks NEAR-ties: matches-error-class: 0.5*10 + 3 = 8; no-match: 0.6*10 + 0 = 6 -> wins. */
   assert.deepEqual(top.map((r) => r.trigger), ["matches-error-class", "no-match"]);
 });
 
-test("topRules: an archetype match biases a lower-successRate rule above a non-matching higher one", () => {
+test("topRules: an archetype match biases a lower-successRate rule above a near-tied non-matching one", () => {
   const rules = [
     ruleWithMeta("active", 0.5, "matches-archetype", "E-X", "form"),
     ruleWithMeta("active", 0.6, "no-match", "E-X", "api-call"),
   ];
   const top = svc.topRules(rules, 5, { archetypes: ["form"] });
+  /* matches-archetype: 0.5*10 + 3 = 8; no-match: 0.6*10 + 0 = 6 -> matches-archetype wins. */
   assert.deepEqual(top.map((r) => r.trigger), ["matches-archetype", "no-match"]);
 });
 
-test("topRules: matching BOTH errorClass and archetype stacks the bias additively (+3 +3 = +6)", () => {
+test("topRules: matching BOTH errorClass and archetype stacks the bias additively (+3 +3 = +6) within a near-tie", () => {
   const rules = [
-    ruleWithMeta("active", 0.1, "double-match", "E-EXEC-FAIL", "form"),
+    ruleWithMeta("active", 0.55, "double-match", "E-EXEC-FAIL", "form"),
     ruleWithMeta("active", 0.6, "single-match", "E-EXEC-FAIL", "api-call"),
   ];
   const top = svc.topRules(rules, 5, { errorClass: "E-EXEC-FAIL", archetypes: ["form"] });
-  /* double-match: 0.1 + 3 + 3 = 6.1; single-match: 0.6 + 3 = 3.6 -> double-match wins. */
+  /* double-match: 0.55*10 + 3 + 3 = 11.5; single-match: 0.6*10 + 3 = 9 -> double-match wins. */
   assert.deepEqual(top.map((r) => r.trigger), ["double-match", "single-match"]);
+});
+
+test("topRules: relevance bias is a tie-breaker, NOT an override — a proven rule beats a mere relevance match (regression: R1)", () => {
+  /* Mirrors the deleted shell test (retrieval-archetype.test.ts) "earned success still outranks
+     a mere archetype match": a 0.9 successRate rule with no relevance match must still beat a
+     0.5 successRate rule that matches, because a single +3 bias cannot overcome an 0.4 gap once
+     successRate is scaled x10 (9 vs 5+3=8). Before this fix successRate was NOT scaled, so a
+     flat +3 on a [0,1] rate let the weaker, merely-relevant rule win (0.5+3=3.5 > 0.9). */
+  const rules = [
+    ruleWithMeta("active", 0.9, "proven", "E-X", "api-call"),
+    ruleWithMeta("active", 0.5, "matches-only", "E-X", "form"),
+  ];
+  const top = svc.topRules(rules, 5, { archetypes: ["form"] });
+  assert.deepEqual(top.map((r) => r.trigger), ["proven", "matches-only"]);
 });
 
 test("topRules: relevance bias never overrides the status (active) priority — exploit still beats explore", () => {
