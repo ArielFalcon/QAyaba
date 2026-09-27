@@ -1,4 +1,15 @@
-/* DECISION (verified before writing this module, not assumed): src/orchestrator/sanitizer.ts ALREADY ships a real, dedicated capDiff(diff, maxChars?) — a diff-aware, per-file-section capper, genuinely distinct from capText's flat prose truncation: - capDiff splits the diff into per-file sections (`diff --git a/... b/...` boundaries), relevance- orders them (high-relevance changed source FIRST; lockfiles/generated/snapshot/binary/build- artifact/map/changelog files LAST — LOW_RELEVANCE_PATTERNS), keeps WHOLE sections until the budget is spent, and replaces the rest with a named list of omitted files (never truncates a hunk mid-line). A degenerate single-oversized-file overflow hard-slices that one section. Wiring the real capText into the capText slot AND the real capDiff into the capDiff slot is a faithful port of two ALREADY-DISTINCT real functions — not a fabrication. */
+/*
+ * Prompt-budget capping for the two shapes a generator/reviewer prompt carries: a diff (capDiff)
+ * and free-form prose like a commit body (capText) — genuinely distinct truncation strategies, not
+ * two names for the same thing. capDiff splits the diff into per-file sections (`diff --git a/...
+ * b/...` boundaries), relevance-orders them (high-relevance changed source FIRST; lockfiles/
+ * generated/snapshot/binary/build-artifact/map/changelog files LAST — LOW_RELEVANCE_PATTERNS),
+ * keeps WHOLE sections until the budget is spent, and replaces the rest with a named list of
+ * omitted files (never truncates a hunk mid-line). A degenerate single-oversized-file overflow
+ * hard-slices that one section. capText is flat prose truncation with no file-awareness.
+ * capDiff is qa-engine-native: src/orchestrator/sanitizer.ts's own copy was deleted once this
+ * became the sole production source (zero remaining callers there — see its test file's own note).
+ */
 
 export const MAX_PROMPT_DIFF_CHARS = 50_000;
 
