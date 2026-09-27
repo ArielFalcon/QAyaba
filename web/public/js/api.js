@@ -57,10 +57,19 @@ window.QayabaConsole = (function () {
     if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
     window.location.hash = '#login';
   }
-  function httpError(message, status) {
+  /* err.status is the HTTP status; err.reason the server's own explanation ({error} body), when
+     it sent one — what an operator should read when an action is refused. */
+  function httpError(message, status, reason) {
     const err = new Error(message);
     err.status = status;
+    if (reason) err.reason = reason;
     return err;
+  }
+  function serverReason(r) {
+    return r.text().then(
+      (text) => { try { const body = JSON.parse(text); return body && typeof body.error === 'string' ? body.error : null; } catch (e) { return null; } },
+      () => null,
+    );
   }
   function req(method, path, body) {
     return fetch(API + path, {
@@ -73,7 +82,7 @@ window.QayabaConsole = (function () {
         authLost();
         throw httpError('Authentication required', 401);
       }
-      if (!r.ok) throw httpError(method + ' ' + path + ' → ' + r.status, r.status);
+      if (!r.ok) return serverReason(r).then((reason) => { throw httpError(method + ' ' + path + ' → ' + r.status, r.status, reason); });
       return r.status === 204 ? null : r.json();
     });
   }
@@ -457,6 +466,8 @@ window.QayabaConsole = (function () {
       message: r.note || r.step || '', author: '', time: relTime(r.at), _at: Date.parse(r.at) || 0,
       mins: mapRunElapsed(r.stepStartedAt || r.startedAt || r.at), _step: r.step || '',
       specs: (r.specs || []).length, reviewer: '—', decision: r.note || '',
+      /* A continuation re-runs the FAILED cases of a finished run — the server refuses anything else. */
+      canContinue: r.status === 'done' && (r.cases || []).some((c) => c.status === 'fail'),
       branch: r.ref || 'DEV', duration: '', coverage: '—', oracle: '—',
       stages: pipelineStageStates(r.step), cases: cases, step: r.step || '',
       changed: [], newSpecs: (r.specs || []).map((s) => ({ file: s.name, status: r.verdict, n: 1 })),

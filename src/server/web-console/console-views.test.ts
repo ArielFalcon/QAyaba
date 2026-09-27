@@ -87,3 +87,46 @@ test("opening the live run keeps a single stream to it when its lazy reads arriv
 
   assert.equal(h.requestsTo("/api/v1/runs/run-live/events").length, 1);
 });
+
+/* The run-detail "Re-run" continues a run by re-running its FAILED cases; the server refuses a
+   run without any (409), so the console must only offer it where it can succeed. */
+test("re-run is offered for a finished run with failed cases, and not for a run without any", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [
+        runRecord("run-failed", { verdict: "fail", cases: [{ name: "checkout", status: "fail", detail: "boom" }] }),
+        runRecord("run-green", { verdict: "pass", cases: [{ name: "login", status: "pass" }] }),
+        runRecord("run-flaky", { verdict: "flaky", cases: [{ name: "search", status: "flaky" }] }),
+      ],
+    }),
+  });
+
+  h.click("open-run", "run-failed");
+  assert.match(h.text(), /Re-run/);
+  for (const id of ["run-green", "run-flaky"]) {
+    h.click("open-run", id);
+    assert.doesNotMatch(h.text(), /Re-run/, `${id} has no failed case to re-run`);
+  }
+});
+
+test("a refused re-run tells the operator the server's reason", async () => {
+  const reason = "run run-failed is not finished yet (status: running)";
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [runRecord("run-failed", { verdict: "fail", cases: [{ name: "checkout", status: "fail" }] })],
+      extra: (req) => (req.method === "POST" && req.path === "/api/v1/runs/run-failed/continue" ? { status: 409, json: { error: reason } } : undefined),
+    }),
+  });
+
+  h.click("open-run", "run-failed");
+  h.click("rerun", "run-failed");
+  await h.advance(100);
+
+  assert.ok(h.toastText().includes(reason), `toast: ${h.toastText()}`);
+});

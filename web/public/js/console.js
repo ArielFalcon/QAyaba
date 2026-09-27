@@ -521,7 +521,8 @@
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(run.app) + ' · ' + esc(run.branch) + ' · ' + esc(run.mode) + '</span></div>' +
       '<h2 style="' + sty({ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(run.message) + '</h2>' +
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">by ' + esc(run.author) + ' · ' + esc(run.time) + ' · ' + esc(run.duration) + '</span></div>' +
-      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) + Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run', action: 'rerun', id: run.id }) + '</div></div>';
+      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) +
+      (run.canContinue ? Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run failed cases', action: 'rerun', id: run.id }) : '') + '</div></div>';
     const specs = run.newSpecs.length === 0
       ? '<span style="font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint)">no specs written — valid no-op</span>'
       : '<div style="display:flex;flex-direction:column">' + run.newSpecs.map((s, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
@@ -1674,7 +1675,7 @@ function loadRunExtras(id) {
         if (!newId) { showToast('continuation queued'); return; }
         showToast('queued continuation of ' + id.slice(-6) + ' · run ' + newId.slice(-6));
         loadAndRender().then(() => queueVerdictWatch(newId));
-      }).catch(() => { showToast('could not queue the continuation'); });
+      }).catch((err) => { showToast('could not queue the continuation' + (err && err.reason ? ': ' + err.reason : '')); });
     }
     else if (action === 'toast-run') {
       state.toast = null; renderOverlays();

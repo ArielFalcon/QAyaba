@@ -158,7 +158,7 @@ window.QayabaMockData = (function () {
     {
       id: 'r-1840', app: 'checkout-api', sha: 'a1b2c3d', verdict: 'fail', mode: 'diff',
       message: 'fix(cart): reject negative quantities', author: 'devon',
-      time: '22m ago', specs: 2, reviewer: 'approved', decision: 'Issue #91',
+      time: '22m ago', specs: 2, reviewer: 'approved', decision: 'Issue #91', canContinue: true,
       branch: 'DEV', duration: '1m 47s', coverage: 'covered', oracle: '—',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'fail'], ['decide', 'done']],
       changed: ['src/cart/CartController.java', 'src/cart/CartService.java'],
