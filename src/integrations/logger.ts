@@ -4,9 +4,13 @@ import { finished } from "node:stream/promises";
 
 /* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
-const LOG_DIR = join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "logs");
+const LOG_DIR = process.env.QAYABA_LOG_DIR ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "logs");
 const MAX_LOG_FILES = 5;
 const MAX_LOG_BYTES = 50 * 1024 * 1024;
+/* A file of unknown or unreachable owner written this recently may still be some process's active file. */
+const RECENT_WRITE_GRACE_MS = 60 * 60 * 1000;
+/* app-<timestamp>-p<pid>.log; files from before the owner pid was recorded have no -p<pid>. */
+const LOG_FILE_RE = /^app-.+?(?:-p(\d+))?\.log$/;
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -16,6 +20,9 @@ export interface JsonLoggerOptions {
   /* The active file rotates before a write would take it past this size; a single larger line gets a file of its own. */
   maxBytes?: number;
   now?: () => Date;
+  /* Recorded in each file name so other processes sharing the directory can tell whose file it is. */
+  pid?: number;
+  isProcessAlive?: (pid: number) => boolean;
 }
 
 export interface JsonLogger {
@@ -30,11 +37,23 @@ export interface JsonLogger {
   close(): Promise<void>;
 }
 
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    /* EPERM: the process exists but belongs to another user. */
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 export function createJsonLogger({
   dir,
   maxFiles,
   maxBytes = MAX_LOG_BYTES,
   now = () => new Date(),
+  pid = process.pid,
+  isProcessAlive = processIsAlive,
 }: JsonLoggerOptions): JsonLogger {
   let stream: WriteStream | null = null;
   /* Counted in memory: the stream flushes asynchronously, so a stat of the file lags what was written. */
@@ -44,7 +63,7 @@ export function createJsonLogger({
   function openStream(): WriteStream {
     mkdirSync(dir, { recursive: true });
     const timestamp = now().toISOString().replace(/[:.]/g, "-");
-    const file = `app-${timestamp}.log`;
+    const file = `app-${timestamp}-p${pid}.log`;
     const opened = createWriteStream(join(dir, file), { flags: "a" });
     opened.on("error", (err) => {
       console.error("[logger] write failed:", err.message);
@@ -83,15 +102,31 @@ export function createJsonLogger({
     draining.add(done);
   }
 
-  /* The active file is excluded and counted as one of maxFiles: it opens asynchronously, so it may
-     not be on disk yet, and it must never be pruned out from under the live stream. */
+  /*
+   * The active file is excluded and counted as one of maxFiles: it opens asynchronously, so it may
+   * not be on disk yet, and it must never be pruned out from under the live stream. The directory
+   * is shared with other processes, so a file over the cap is removed only when no live process
+   * can still be writing it: this logger's own retired files, or files whose owner has exited and
+   * that nothing has written to recently. Kept files still count against the cap.
+   */
   function pruneOldLogs(activeFile: string): void {
     try {
       const files = readdirSync(dir)
-        .filter((f) => f !== activeFile && f.startsWith("app-") && f.endsWith(".log"))
-        .map((f) => ({ path: join(dir, f), mtime: statSync(join(dir, f)).mtime }))
-        .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-      for (const old of files.slice(Math.max(0, maxFiles - 1))) unlinkSync(old.path);
+        .map((name) => ({ name, match: LOG_FILE_RE.exec(name) }))
+        .filter(({ name, match }) => name !== activeFile && match !== null)
+        .map(({ name, match }) => ({
+          path: join(dir, name),
+          owner: match?.[1] !== undefined ? Number(match[1]) : undefined,
+          mtimeMs: statSync(join(dir, name)).mtimeMs,
+        }))
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+      const wallClockMs = Date.now();
+      for (const old of files.slice(Math.max(0, maxFiles - 1))) {
+        const ours = old.owner === pid;
+        const ownerLive = !ours && old.owner !== undefined && isProcessAlive(old.owner);
+        const recentlyWritten = wallClockMs - old.mtimeMs < RECENT_WRITE_GRACE_MS;
+        if (ours || (!ownerLive && !recentlyWritten)) unlinkSync(old.path);
+      }
     } catch {
       /* ignore pruning errors */
     }

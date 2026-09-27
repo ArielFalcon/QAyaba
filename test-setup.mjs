@@ -20,9 +20,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installTrackedTreeWriteGuard } from "./scripts/test-write-guard.mjs";
 
-if (!process.env.HISTORY_DB_PATH) {
+// The JSON logger gets the same treatment through QAYABA_LOG_DIR: a test that logs must never write
+// into, or prune, the running service's data/logs.
+if (!process.env.HISTORY_DB_PATH || !process.env.QAYABA_LOG_DIR) {
   const dir = mkdtempSync(join(tmpdir(), "qayaba-test-"));
-  process.env.HISTORY_DB_PATH = join(dir, "history.db");
+  process.env.HISTORY_DB_PATH ??= join(dir, "history.db");
+  process.env.QAYABA_LOG_DIR ??= join(dir, "logs");
   process.on("exit", () => {
     try {
       rmSync(dir, { recursive: true, force: true });

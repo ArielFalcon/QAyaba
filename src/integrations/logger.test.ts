@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createJsonLogger } from "./logger";
+import { createJsonLogger, logJson } from "./logger";
 
 function tempLogDir(): string {
   return mkdtempSync(join(tmpdir(), "logger-test-"));
@@ -14,8 +14,8 @@ function appLogs(dir: string): string[] {
 }
 
 /* Advances one second per call so every rotated file gets a distinct timestamped name. */
-function steppingClock(): () => Date {
-  let ms = Date.UTC(2026, 0, 1);
+function steppingClock(startMs = Date.UTC(2026, 0, 1)): () => Date {
+  let ms = startMs;
   return () => new Date((ms += 1000));
 }
 
@@ -54,10 +54,16 @@ test("opening a log file prunes older app logs down to maxFiles, counting the ac
   }
 });
 
+function ageLogFile(path: string): void {
+  const long = new Date(Date.UTC(2020, 0, 1));
+  utimesSync(path, long, long);
+}
+
 test("maxFiles below 1 keeps only the active log file instead of hanging", async () => {
   const dir = tempLogDir();
   try {
     writeFileSync(join(dir, "app-2020-01-01T00-00-00-000Z.log"), "{}\n");
+    ageLogFile(join(dir, "app-2020-01-01T00-00-00-000Z.log"));
 
     const logger = createJsonLogger({ dir, maxFiles: 0 });
     logger.logJson("info", "hello", undefined, false);
@@ -155,4 +161,83 @@ test("a failed rotation keeps logging to the current file instead of throwing", 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+/* Several processes share one log directory (the service, a manual `npm run qa`, the test suite).
+   A logger only ever prunes files no live process can still be writing. */
+test("a log file another live process is writing is never pruned, however long ago it last wrote", async () => {
+  const dir = tempLogDir();
+  const livePids = new Set([4101]);
+  const isProcessAlive = (pid: number): boolean => livePids.has(pid);
+  try {
+    const service = createJsonLogger({ dir, maxFiles: 2, pid: 4101, isProcessAlive, now: steppingClock() });
+    service.logJson("info", "service boot", undefined, false);
+    await waitFor(() => appLogs(dir).length === 1);
+    const serviceFile = appLogs(dir)[0]!;
+    ageLogFile(join(dir, serviceFile)); /* the service has been idle for a long time */
+
+    for (let i = 0; i < 4; i++) {
+      const other = createJsonLogger({ dir, maxFiles: 2, pid: 5200 + i, isProcessAlive, now: steppingClock(Date.UTC(2026, 0, 2 + i)) });
+      other.logJson("info", `other process ${i}`, undefined, false);
+      await other.close();
+    }
+
+    assert.ok(appLogs(dir).includes(serviceFile), "the live service's active file must survive");
+    service.logJson("info", "service keeps logging", undefined, false);
+    await service.close();
+    assert.match(readFileSync(join(dir, serviceFile), "utf8"), /service keeps logging/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a recently written log file of unknown owner is never pruned", async () => {
+  const dir = tempLogDir();
+  try {
+    const recent = "app-2026-01-01T00-00-00-000Z.log"; /* no owner in the name; mtime is now */
+    writeFileSync(join(dir, recent), "{}\n");
+
+    const logger = createJsonLogger({ dir, maxFiles: 1, pid: 6001, isProcessAlive: () => false });
+    logger.logJson("info", "hello", undefined, false);
+    await logger.close();
+
+    assert.ok(appLogs(dir).includes(recent), "a file written moments ago may still be in use");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("stale log files of processes that are gone are pruned down to maxFiles", async () => {
+  const dir = tempLogDir();
+  try {
+    const stale = [1, 2, 3, 4].map((day) => {
+      const name = `app-2020-01-0${day}T00-00-00-000Z-p${7000 + day}.log`;
+      writeFileSync(join(dir, name), "{}\n");
+      const mtime = new Date(Date.UTC(2020, 0, day));
+      utimesSync(join(dir, name), mtime, mtime);
+      return name;
+    });
+
+    const logger = createJsonLogger({ dir, maxFiles: 2, pid: 6002, isProcessAlive: () => false });
+    logger.logJson("info", "hello", undefined, false);
+    await logger.close();
+
+    const remaining = appLogs(dir);
+    assert.equal(remaining.length, 2);
+    assert.ok(remaining.includes(stale[3]!), "the newest stale file is kept");
+    for (const gone of stale.slice(0, 3)) assert.equal(remaining.includes(gone), false, `${gone} must be pruned`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The suite's preload points the default logger at a per-process temp directory, the way it does the
+   history DB — a test must never write into (or prune) the real service's data/logs. */
+test("under the test preload the default logger writes outside the repository", async () => {
+  const dir = process.env.QAYABA_LOG_DIR;
+  assert.ok(dir, "the test preload must set QAYABA_LOG_DIR");
+  const repoRoot = join(import.meta.dirname, "..", "..");
+  assert.equal(dir.startsWith(repoRoot), false, `${dir} must not be inside the repository`);
+  logJson("info", "isolation probe", undefined, false);
+  await waitFor(() => existsSync(dir) && appLogs(dir).length > 0);
 });
