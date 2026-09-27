@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -105,7 +106,7 @@ func loadSavedCmd() tea.Cmd {
 	return func() tea.Msg {
 		host := store.LoadLastHost()
 		if host == "" {
-			host = defaultConnectHost
+			host = envConnectHost()
 		}
 		if token := store.LoadToken(host); token != "" {
 			return savedLoadedMsg{host: host, token: token, source: "saved for " + host}
@@ -113,6 +114,15 @@ func loadSavedCmd() tea.Cmd {
 		token, source := store.DiscoverToken()
 		return savedLoadedMsg{host: host, token: token, source: source}
 	}
+}
+
+/* envConnectHost is where a first-time console points: $QA_HOST (the same variable the CLI
+   subcommands honor, e.g. a container reaching the orchestrator by service name), else the default. */
+func envConnectHost() string {
+	if h := strings.TrimSpace(os.Getenv("QA_HOST")); h != "" {
+		return h
+	}
+	return defaultConnectHost
 }
 
 func (m connectModel) Update(msg tea.Msg) (connectModel, tea.Cmd) {

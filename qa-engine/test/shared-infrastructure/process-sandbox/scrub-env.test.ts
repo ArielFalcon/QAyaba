@@ -101,3 +101,39 @@ test("scrubEnv preserves prefix-family language vars (npm_config_*, CARGO_*, LC_
     for (const k of added) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
 });
+
+function withEnv(vars: Record<string, string>, body: () => void): void {
+  const saved: Partial<Record<string, string>> = {};
+  for (const k of Object.keys(vars)) { saved[k] = process.env[k]; process.env[k] = vars[k]; }
+  try {
+    body();
+  } finally {
+    for (const k of Object.keys(vars)) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+}
+
+test("corporate network plumbing (proxy + CA) reaches untrusted installs", () => {
+  withEnv(
+    {
+      HTTPS_PROXY: "http://proxy.corp:8080",
+      no_proxy: "localhost,.corp",
+      NODE_EXTRA_CA_CERTS: "/etc/ssl/certs/ca-certificates.crt",
+      SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt",
+    },
+    () => {
+      const env = scrubEnv();
+      assert.equal(env.HTTPS_PROXY, "http://proxy.corp:8080");
+      assert.equal(env.no_proxy, "localhost,.corp");
+      assert.equal(env.NODE_EXTRA_CA_CERTS, "/etc/ssl/certs/ca-certificates.crt");
+      assert.equal(env.SSL_CERT_FILE, "/etc/ssl/certs/ca-certificates.crt");
+    },
+  );
+});
+
+test("a proxy URL that embeds credentials never reaches untrusted code", () => {
+  withEnv({ HTTPS_PROXY: "http://svc-user:S3cret@proxy.corp:8080", http_proxy: "http://svc-user:S3cret@proxy.corp:8080" }, () => {
+    const env = scrubEnv();
+    assert.equal(env.HTTPS_PROXY, undefined);
+    assert.equal(env.http_proxy, undefined);
+  });
+});

@@ -1,0 +1,3 @@
+# Optional Maven settings.xml (Artifactory mirror) for the Java language server. Never committed.
+*
+!.gitignore

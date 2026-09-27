@@ -1,0 +1,27 @@
+# Build-context rules for slim/Dockerfile (BuildKit reads <Dockerfile>.dockerignore beside it).
+# Unlike the root .dockerignore, client/ is INCLUDED: the image builds the terminal console.
+node_modules/
+**/node_modules/
+.git/
+.qa-store/
+*.db
+*.sqlite
+.mirrors/
+data/
+qa-engine/.tsbuild/
+
+# Secrets never enter the image.
+.env
+.env.*
+!.env.example
+slim/.env
+.api_token
+config/.api_token
+*.pem
+*.key
+
+# Local outputs.
+slim/exports/
+slim/maven/
+.omo/
+.DS_Store

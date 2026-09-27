@@ -1,0 +1,5 @@
+# Downloaded artifacts are placed here by hand; only the checksum list is versioned.
+*
+!.gitignore
+!SHA256SUMS
+!README.md

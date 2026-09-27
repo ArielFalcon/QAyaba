@@ -1,0 +1,29 @@
+{
+  "provider": {
+    "corp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Corporate LLM gateway",
+      "options": {
+        "baseURL": "https://llm-gateway.example.internal/v1",
+        "apiKey": "{env:OPENCODE_API_KEY}"
+      },
+      "models": {
+        "coder-large": { "name": "Coder large", "limit": { "context": 200000, "output": 16384 } },
+        "reviewer-large": { "name": "Reviewer large", "limit": { "context": 200000, "output": 16384 } },
+        "fast-small": { "name": "Fast small", "limit": { "context": 128000, "output": 8192 } }
+      }
+    }
+  },
+  "agent": {
+    "qa-generator": { "model": "corp/coder-large" },
+    "qa-reviewer": { "model": "corp/reviewer-large" },
+    "qa-assistant": { "model": "corp/fast-small" },
+    "qa-reflector": { "model": "corp/fast-small" },
+    "qa-worker": { "model": "corp/coder-large" },
+    "qa-worker-code": { "model": "corp/coder-large" },
+    "qa-explorer": { "model": "corp/fast-small" },
+    "qa-proposer": { "model": "corp/coder-large" },
+    "qa-sidekick": { "model": "corp/coder-large" },
+    "qa-maintainer": { "model": "corp/coder-large" }
+  }
+}

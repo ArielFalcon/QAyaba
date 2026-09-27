@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentMode, AgentProvider, AgentRuntimeConfig, AgentProviderHealth, RoleAssignment } from "./types";
 
 export interface KeyPresence {
@@ -21,13 +23,25 @@ export interface PublicAgentConfig {
   health?: Record<AgentProvider, AgentProviderHealth>;
 }
 
+/* The OpenCode role defaults are the models agents/opencode.json runs for the matching agent (model identities live in agents/, so a provider swap there reaches the runtime assignments too); the literals apply only when that file is unreadable. */
+function opencodeAgentModel(agent: string, fallback: string): string {
+  try {
+    const raw = JSON.parse(readFileSync(join(process.cwd(), "agents", "opencode.json"), "utf8")) as {
+      agent?: Record<string, { model?: unknown }>;
+    };
+    const model = raw.agent?.[agent]?.model;
+    return typeof model === "string" && model.trim() ? model.trim() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 const DEFAULT_MODELS: Record<AgentProvider, Record<keyof AgentRuntimeConfig["assignments"], string>> = {
   opencode: {
-    /* Must match agents/opencode.json qa-generator. */
-    primary: "opencode-go/glm-5.3-flash",
-    /* Must match qa-reviewer and differ from primary — two models guarantee independent judgment. */
-    reviewer: "opencode-go/muse-spark-1.3-contributor",
-    chat: "opencode-go/glm-5.3-flash",
+    primary: opencodeAgentModel("qa-generator", "opencode-go/glm-5.3-flash"),
+    /* qa-reviewer must differ from qa-generator — two models guarantee independent judgment. */
+    reviewer: opencodeAgentModel("qa-reviewer", "opencode-go/muse-spark-1.3-contributor"),
+    chat: opencodeAgentModel("qa-assistant", "opencode-go/glm-5.3-flash"),
   },
   codex: {
     primary: "gpt-5.4",

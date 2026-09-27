@@ -1,0 +1,3 @@
+# Local publication exports (bind-mounted from the orchestrator). Never committed.
+*
+!.gitignore
