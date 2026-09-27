@@ -35,7 +35,7 @@ export class StalledAgentError extends InfraError {
 /* Name fallbacks cover instanceof failing across module/bundle realms. */
 export function isInfraError(err: unknown): boolean {
   if (err instanceof InfraError) return true;
-  if (err instanceof Error && (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError" || err.name === "DeployTimeoutError")) return true;
+  if (err instanceof Error && (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError")) return true;
   if (err instanceof Error && /\brun cancelled by operator\b/i.test(err.message)) return true;
   return false;
 }

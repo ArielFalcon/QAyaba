@@ -16,12 +16,6 @@ test("AgentUnavailableError (provider out of credits / auth) is infrastructure, 
   assert.equal(isInfraError(shaped), true);
 });
 
-test("a DeployTimeoutError-shaped error (matched by name) is infrastructure", () => {
-  const e = new Error("deploy timed out");
-  e.name = "DeployTimeoutError";
-  assert.equal(isInfraError(e), true);
-});
-
 test("an operator cancel is infrastructure (transient, not a code fault)", () => {
   assert.equal(isInfraError(new Error("run cancelled by operator")), true);
 });
