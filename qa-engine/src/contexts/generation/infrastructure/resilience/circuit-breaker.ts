@@ -1,7 +1,8 @@
-/* Circuit breaker state is keyed per agent role (the `agent`/descriptor.role identity every
+/* Circuit breaker state is keyed: one key per agent role (the `agent`/descriptor.role identity every
    caller already threads through AgentDeps.open) so a run-away role (e.g. a stalled qa-reviewer)
    cannot trip the breaker for an unrelated, healthy role (e.g. qa-generator), and a success on one
-   role can never reset another role's genuinely-accumulating failure streak.
+   role can never reset another role's genuinely-accumulating failure streak — plus the provider
+   transport key agent-transport-policy.ts feeds from every transport failure.
  */
 
 interface CircuitState {
@@ -11,7 +12,7 @@ interface CircuitState {
 }
 
 const circuits = new Map<string, CircuitState>();
-const CIRCUIT_THRESHOLD = 5;
+export const CIRCUIT_THRESHOLD = 5;
 const CIRCUIT_COOLDOWN_MS = 60_000;
 
 function stateFor(role: string): CircuitState {
@@ -40,7 +41,7 @@ export function recordCircuitFailure(role: string): void {
   s.lastFailure = Date.now();
   if (s.failures >= CIRCUIT_THRESHOLD) {
     s.open = true;
-    console.warn(`[qa] OpenCode circuit breaker OPENED for role "${role}" after ${s.failures} consecutive failures`);
+    console.warn(`[qa] OpenCode circuit breaker OPENED for "${role}" after ${s.failures} consecutive failures`);
   }
 }
 

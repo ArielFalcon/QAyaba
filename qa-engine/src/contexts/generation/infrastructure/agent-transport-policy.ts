@@ -191,10 +191,34 @@ export interface AgentDepsCollaborators {
   persistTurn?(t: AgentTurnEvent): void;
 }
 
+/*
+ * Circuit breaking runs at two levels, with the same threshold and cooldown:
+ * - Provider level (TRANSPORT_BREAKER_KEY): fed by every raw transport rejection — session
+ *   creation or prompt — whatever role hit it, and reset only by a prompt the transport answers
+ *   (creating a session proves reachability, not that the server can do work). It gates session
+ *   creation and every role's prompts, so an unhealthy agent server fails fast after one threshold
+ *   of failures instead of one threshold per role.
+ * - Role level (descriptor.role ?? agent): fed by that role's prompt outcomes, including model or
+ *   agent faults embedded in an answered response (which never count against the provider), and
+ *   gates only that role's prompts — a run-away role never blocks a healthy one.
+ * The provider key is a sentinel no agent role uses.
+ */
+const TRANSPORT_BREAKER_KEY = "<agent-transport>";
+
+async function countingTransportFailure<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    recordCircuitFailure(TRANSPORT_BREAKER_KEY);
+    throw err;
+  }
+}
+
 export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollaborators): AgentDeps {
   return {
     open: async (agent, cwd, opts) => {
-      const created = await raw.createSession(cwd);
+      checkCircuit(TRANSPORT_BREAKER_KEY);
+      const created = await countingTransportFailure(() => raw.createSession(cwd));
       const id = created.id;
       const entry: SessionEntry = { id, agent, cwd, openedAt: Date.now() };
       sessionRegistry.set(id, entry);
@@ -220,9 +244,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         : undefined;
       const effectiveOnTurn = opts?.onTurn ?? defaultOnTurn;
 
-      /* Circuit-breaker key: the same role identity AgentTurnEvent.role already uses (the
-         descriptor's role when given, else the raw agent id) — a run-away role must never trip
-         the breaker for an unrelated, healthy one. */
+      /* Role-level breaker key: the same role identity AgentTurnEvent.role already uses (the
+         descriptor's role when given, else the raw agent id). */
       const breakerRole = opts?.descriptor?.role ?? agent;
 
       let _round = 0;
@@ -232,13 +255,16 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         prompt: (text, promptOpts) =>
           withTimeout(
             (() => {
+              checkCircuit(TRANSPORT_BREAKER_KEY);
               checkCircuit(breakerRole);
               const thisRound = _round++;
               const runPrompt = (modelOverride?: string) => {
                 const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
-                return raw
-                  .promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) })
+                return countingTransportFailure(() =>
+                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
+                )
                   .then((res) => {
+                    recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
                     if (res.agentError) {
                       throw agentErrorToInfra(res.agentError);
                     }
