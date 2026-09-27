@@ -1,10 +1,6 @@
 /* Map live port outputs to EvidenceRef. Never copy OpencodeRunInput; point at the canonical artifact (source + optional dataRef) with a short summary. Summaries are scrubbed here so lead context, briefs, and telemetry inherit clean text. */
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { scrub } from "./scrub.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
-
-function scrub(text: string): string {
-  return sanitizeText(text).text;
-}
 
 export function evidenceFromChangeAnalysis(input: {
   action: string;

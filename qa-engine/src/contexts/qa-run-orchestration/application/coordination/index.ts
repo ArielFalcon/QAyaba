@@ -53,10 +53,6 @@ export {
   DELEGATION_FAILURE_CLASSES,
   type DelegationFailureClass,
 } from "./delegation-failure-class.ts";
-export {
-  PARALLEL_WORKER_MISSING_FOR_SIDEKICK,
-  PARALLEL_WORKER_REUSABLE_FIELDS,
-} from "./parallel-worker-reuse.ts";
 export { renderSidekickBrief } from "./sidekick-prompt.ts";
 export {
   resolveCapabilityRole,

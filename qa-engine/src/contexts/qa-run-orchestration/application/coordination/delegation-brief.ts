@@ -1,11 +1,7 @@
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { scrub } from "./scrub.ts";
 import type { AcceptanceCriterion } from "./coordination-context.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { SIDEKICK_AUTHORITY, type SidekickAuthority } from "./authority.ts";
-
-function scrub(text: string): string {
-  return sanitizeText(text).text;
-}
 
 export interface DelegationScope {
   readonly readablePaths: readonly string[];

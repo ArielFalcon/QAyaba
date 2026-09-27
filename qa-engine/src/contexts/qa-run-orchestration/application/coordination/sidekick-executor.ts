@@ -1,7 +1,7 @@
 /* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { scrub, scrubStrings } from "./scrub.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import {
@@ -16,14 +16,6 @@ import type { EvidenceRef } from "./evidence-ref.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
 import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
-
-function scrub(text: string): string {
-  return sanitizeText(text).text;
-}
-
-function scrubStrings(values: readonly string[]): string[] {
-  return values.map(scrub);
-}
 
 export function resolveCapabilityRole(capability: AgentCapability): AgentRole {
   if (capability === "lead") return "primary";
