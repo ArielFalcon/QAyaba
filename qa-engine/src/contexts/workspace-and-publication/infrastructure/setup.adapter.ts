@@ -29,13 +29,13 @@ export const FAILURE_CAPTURE_BLOCK = `
 // node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
 // a CommonJS-style synchronous load is not defined in this native-ESM module
 // ("type":"module") and would throw a ReferenceError that the catch would swallow.
-let errorResponses = [];
+let errorResponses: { url: string; status: number; resourceType: string }[] = [];
 // Feature B (app-defect detection): browser console \`error\`-level entries and uncaught \`pageerror\`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
 // page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
 // orchestrator's classifyRuntimeErrors (src/qa/failure-adjudicator.ts) turns this into a diagnostic
 // signal ONLY — it never blocks or masks a real generated-test defect (see that module's doc).
-let runtimeErrors = [];
+let runtimeErrors: { type: string; text: string }[] = [];
 test.beforeEach(async ({ page }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
@@ -90,7 +90,7 @@ test.afterEach(async ({ page }, testInfo) => {
     // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
     // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
     const finalUrl = page.url();
-    let httpStatus = undefined;
+    let httpStatus: number | undefined;
     try {
       let finalUrlOrigin = '';
       try { finalUrlOrigin = new URL(finalUrl).origin; } catch {}
@@ -105,7 +105,7 @@ test.afterEach(async ({ page }, testInfo) => {
           return eOrigin === finalUrlOrigin;                  // same-origin correlation
         } catch { return false; }
       });
-      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1].status; // last survivor
+      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1]!.status; // last survivor
     } catch {}
     // Feature B: dedupe (same type+text pair collapses to one entry — a repeated framework error
     // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
@@ -113,11 +113,11 @@ test.afterEach(async ({ page }, testInfo) => {
     // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full
     // stack). Best-effort: any failure here still lets the rest of the dump (yaml/finalUrl/httpStatus)
     // write normally.
-    let dedupedRuntimeErrors = [];
+    let dedupedRuntimeErrors: { type: string; text: string }[] = [];
     try {
       const RUNTIME_ERRORS_CAP = 15;
       const RUNTIME_ERROR_TEXT_CAP = 200;
-      const seen = new Set();
+      const seen = new Set<string>();
       for (const e of runtimeErrors) {
         const text = e.text.length > RUNTIME_ERROR_TEXT_CAP ? e.text.slice(0, RUNTIME_ERROR_TEXT_CAP) : e.text;
         const key = \`\${e.type} \${text}\`;

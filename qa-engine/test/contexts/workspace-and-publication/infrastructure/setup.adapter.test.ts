@@ -2,7 +2,8 @@
    always-present class methods, not injectable no-ops. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -572,7 +573,7 @@ test("C1: the afterEach body, run as a real ES module, writes a dump (no Referen
       `const test = { beforeEach(fn) { globalThis.__qaBeforeEach = fn; }, afterEach(fn) { globalThis.__qaCapture = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeEach;\nexport const afterEachFn = globalThis.__qaCapture;\n`;
-    const modPath = join(dir, "capture.mjs");
+    const modPath = join(dir, "capture.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     writeFileSync(join(dir, ".keep"), "");
@@ -643,7 +644,7 @@ test("C1/D2: httpStatus is absent when no ≥500 response was observed", async (
       `const test = { beforeEach(fn) { globalThis.__qaBefore_no5xx = fn; }, afterEach(fn) { globalThis.__qaAfter_no5xx = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_no5xx;\nexport const afterEachFn = globalThis.__qaAfter_no5xx;\n`;
-    const modPath = join(dir, "no5xx.mjs");
+    const modPath = join(dir, "no5xx.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -686,7 +687,7 @@ test("C1/D2: httpStatus is absent when only a background ping/beacon 500 was obs
       `const test = { beforeEach(fn) { globalThis.__qaBefore_bgping = fn; }, afterEach(fn) { globalThis.__qaAfter_bgping = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_bgping;\nexport const afterEachFn = globalThis.__qaAfter_bgping;\n`;
-    const modPath = join(dir, "bgping.mjs");
+    const modPath = join(dir, "bgping.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -729,7 +730,7 @@ test("C1/D2: httpStatus is absent when only a cross-origin 500 was observed", as
       `const test = { beforeEach(fn) { globalThis.__qaBefore_xorigin = fn; }, afterEach(fn) { globalThis.__qaAfter_xorigin = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_xorigin;\nexport const afterEachFn = globalThis.__qaAfter_xorigin;\n`;
-    const modPath = join(dir, "xorigin.mjs");
+    const modPath = join(dir, "xorigin.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -772,7 +773,7 @@ test("C1/D2: errorResponses resets between tests — reused page does not cross-
       `const test = { beforeEach(fn) { globalThis.__qaBefore_reset = fn; }, afterEach(fn) { globalThis.__qaAfter_reset = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_reset;\nexport const afterEachFn = globalThis.__qaAfter_reset;\n`;
-    const modPath = join(dir, "reset.mjs");
+    const modPath = join(dir, "reset.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -820,7 +821,7 @@ test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no
       `const test = { beforeEach(fn) { globalThis.__qaBeforeNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureNoop = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeNoop;\nexport const afterEachFn = globalThis.__qaCaptureNoop;\n`;
-    const modPath = join(dir, "capture-noop.mjs");
+    const modPath = join(dir, "capture-noop.mts");
     writeFileSync(modPath, moduleSrc);
     const mod = await import(pathToFileURL(modPath).href);
     const fakePage = {
@@ -938,45 +939,85 @@ test("Feature B: setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('consol
   );
 });
 
-/* ── D2: byte-level twin guard for the shared capture region ────────────────
-   FIX4/Feature B above only assert individual tokens are present in both twins — they would NOT have
-   caught a literal NUL byte silently replacing the space in the runtimeErrors dedup key
-   (`${e.type}\0${text}` in the seed vs `${e.type} ${text}` in FAILURE_CAPTURE_BLOCK), because both
-   strings still contain the same tokens. This test compares the two blocks structurally:
-   config/e2e/fixtures.ts is real strict-mode TypeScript (config/e2e/tsconfig.json has `strict: true`),
-   so its capture block legitimately carries type annotations (`let x: T[] = []`, `new Set<string>()`,
-   the `!` non-null assertion) that FAILURE_CAPTURE_BLOCK — a plain-JS string appended into an
-   arbitrary existing repo's fixtures.ts — deliberately omits. Stripping ONLY those known TS-only
-   annotations from the seed's block must leave it byte-identical to FAILURE_CAPTURE_BLOCK; any other
-   divergence (like the NUL byte) is a real drift and must fail.
- */
-test("D2: config/e2e/fixtures.ts qa-failure-capture block matches FAILURE_CAPTURE_BLOCK byte-for-byte (modulo TS-only type annotations)", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
-  assert.ok(end !== -1, "fixtures.ts must contain the qa-failure-capture end marker");
+/* The capture block is appended into a repo's own fixtures.ts, which the static gate type-checks
+   with the repo's e2e tsconfig — the seed's is strict. A block that does not type-check there turns
+   every run of that repo invalid. Playwright is not installed in this template, so its types are a
+   hand-written stand-in covering exactly the API the block touches; @types/node is the real one. */
+const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string }
+export interface Response { status(): number; url(): string; request(): Request }
+export interface ConsoleMessage { type(): string; text(): string }
+export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
+export interface Page {
+  on(event: "response", listener: (response: Response) => unknown): this;
+  on(event: "console", listener: (message: ConsoleMessage) => unknown): this;
+  on(event: "pageerror", listener: (error: Error) => unknown): this;
+  url(): string;
+  locator(selector: string): Locator;
+}
+export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number }
+export interface TestType<Args> {
+  (title: string, body: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  beforeEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  afterEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  extend<T extends object>(fixtures: object): TestType<Args & T>;
+}
+export declare const test: TestType<{ page: Page }>;
+export declare const expect: (actual: unknown) => { toBe(expected: unknown): void };
+`;
 
+test("a repo fixtures.ts with the capture block appended type-checks under the seed's strict tsconfig", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-capture-tsc-"));
+  try {
+    const repoRoot = join(REAL_SEED_DIR, "..", "..");
+    copyFileSync(join(REAL_SEED_DIR, "tsconfig.json"), join(dir, "tsconfig.json"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    mkdirSync(join(dir, "node_modules", "@types"), { recursive: true });
+    symlinkSync(join(repoRoot, "node_modules", "@types", "node"), join(dir, "node_modules", "@types", "node"), "dir");
+    const playwright = join(dir, "node_modules", "@playwright", "test");
+    mkdirSync(playwright, { recursive: true });
+    writeFileSync(join(playwright, "package.json"), JSON.stringify({ name: "@playwright/test", types: "index.d.ts" }));
+    writeFileSync(join(playwright, "index.d.ts"), PLAYWRIGHT_TYPES_STAND_IN);
+    /* A repo-owned fixtures.ts without the capture marker: the block is appended to it. */
+    writeFileSync(join(dir, "fixtures.ts"), 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n');
+
+    realAdapter().ensureFailureCapture(dir);
+    assert.ok(readFileSync(join(dir, "fixtures.ts"), "utf8").includes(FAILURE_CAPTURE_MARKER), "precondition: the block was appended");
+
+    const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+    let output = "";
+    let exitCode = 0;
+    try {
+      output = execFileSync(process.execPath, [tsc, "-p", join(dir, "tsconfig.json")], { encoding: "utf8" });
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string; stderr?: string };
+      exitCode = e.status ?? 1;
+      output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    }
+    assert.equal(exitCode, 0, `the appended fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The seed's fixtures.ts (new onboards) and FAILURE_CAPTURE_BLOCK (appended into existing repos)
+   are the same capture code: a repo must get identical failure evidence whichever way it received the
+   block. Both are strict TypeScript, so they are compared as-is — a token-presence check would miss a
+   silent change such as a NUL byte in the runtimeErrors dedup key. */
+test("the seed fixtures.ts carries exactly the capture block that is appended into existing repos", () => {
+  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
   const blockStart = content.lastIndexOf("\n", start); /* the newline just before "// >>>" */
   const endMarkerLine = "// <<< qa-failure-capture <<<";
-  const endMarkerIdx = content.lastIndexOf(endMarkerLine, end);
+  const endMarkerIdx = content.indexOf(endMarkerLine, start);
   assert.ok(endMarkerIdx !== -1, "fixtures.ts must contain the full end marker line");
-  const blockEnd = endMarkerIdx + endMarkerLine.length + 1; /* include the trailing newline */
-  const seedBlock = content.slice(blockStart, blockEnd);
-
-  const normalized = seedBlock
-    .replace("errorResponses: { url: string; status: number; resourceType: string }[] = []", "errorResponses = []")
-    .replace("runtimeErrors: { type: string; text: string }[] = []", "runtimeErrors = []")
-    .replace("let httpStatus: number | undefined;", "let httpStatus = undefined;")
-    .replace("survivors[survivors.length - 1]!.status", "survivors[survivors.length - 1].status")
-    .replace("dedupedRuntimeErrors: { type: string; text: string }[] = []", "dedupedRuntimeErrors = []")
-    .replace("new Set<string>()", "new Set()");
+  const seedBlock = content.slice(blockStart, endMarkerIdx + endMarkerLine.length + 1); /* include the trailing newline */
 
   assert.equal(
-    normalized,
+    seedBlock,
     FAILURE_CAPTURE_BLOCK,
-    "config/e2e/fixtures.ts's capture block has drifted from setup.adapter.ts's FAILURE_CAPTURE_BLOCK beyond the known TS-only annotations — the twins must stay in sync (existing repos are only ever updated via the FAILURE_CAPTURE_BLOCK twin, never the seed)",
+    "config/e2e/fixtures.ts's capture block has drifted from setup.adapter.ts's FAILURE_CAPTURE_BLOCK — existing repos only ever receive FAILURE_CAPTURE_BLOCK, so the two must stay identical",
   );
 });
 
@@ -992,7 +1033,7 @@ test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('erro
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rt = fn; }, afterEach(fn) { globalThis.__qaAfter_rt = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rt;\nexport const afterEachFn = globalThis.__qaAfter_rt;\n`;
-    const modPath = join(dir, "runtime.mjs");
+    const modPath = join(dir, "runtime.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -1052,7 +1093,7 @@ test("C1/Feature B: runtimeErrors is reset between tests — reused page does no
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rtreset = fn; }, afterEach(fn) { globalThis.__qaAfter_rtreset = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rtreset;\nexport const afterEachFn = globalThis.__qaAfter_rtreset;\n`;
-    const modPath = join(dir, "runtime-reset.mjs");
+    const modPath = join(dir, "runtime-reset.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -1100,7 +1141,7 @@ test("C1/Feature B: the afterEach body remains a no-op when QA_FAILURE_CAPTURE_D
       `const test = { beforeEach(fn) { globalThis.__qaBeforeRtNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureRtNoop = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeRtNoop;\nexport const afterEachFn = globalThis.__qaCaptureRtNoop;\n`;
-    const modPath = join(dir, "capture-rt-noop.mjs");
+    const modPath = join(dir, "capture-rt-noop.mts");
     writeFileSync(modPath, moduleSrc);
     const mod = await import(pathToFileURL(modPath).href);
     const fakePage = {
