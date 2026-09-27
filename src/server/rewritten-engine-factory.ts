@@ -77,6 +77,7 @@ import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import { parseExplorationBrief } from "../qa/exploration-brief";
 import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
+import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/multi-repo-checkout.adapter";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
 
@@ -618,42 +619,26 @@ export function buildRewrittenCompositionConfig(
       : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, countInjectedFaultInjectionResponses, app.dev?.baseUrl ?? "");
 
   /*
-   * checkout(sha) resolves the real per-run mirrorDir. Same-repo: ensureMirror at the event SHA.
-   * Cross-repo: service mirror to the event sha first (diff/classify source), then primary to
-   * baseBranch HEAD (suite operate-on dir). The agent session is rooted at the primary copy, so
-   * after each service mirror is ensured, stage READ-ONLY context into the primary at the same
-   * deterministic path composition already computed. Clone every declared service every run;
-   * the triggering service stays at the event SHA (not also at branch HEAD). Sibling staging is
-   * contracts-only (no sha).
+   * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's
+   * READ-ONLY context into it (MultiRepoCheckoutAdapter, qa-engine-resident). Mirror ops are
+   * curried here so the adapter never needs to know about MirrorDeps (a src/-only type) —
+   * production always threads the module's own defaultMirrorDeps.
    */
-  const stageDeclaredServices = async (primaryDir: string, skipRepo?: string): Promise<void> => {
-    if (!app.services?.length) return;
-    for (const svc of app.services) {
-      if (skipRepo && svc.repo === skipRepo) continue;
-      const svcDir = await mirror.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main", defaultMirrorDeps);
-      await stage({
-        workingCopyDir: primaryDir,
-        service: { repo: svc.repo, mirrorDir: svcDir, ...(svc.openapi ? { openapi: svc.openapi } : {}) },
-      });
-    }
-  };
-
-  const checkout = async (checkoutSha: Sha): Promise<string> => {
-    if (triggerService) {
-      await mirror.ensureMirror(triggerService.repo, checkoutSha.value, defaultMirrorDeps);
-      const primaryDir = await mirror.ensureMirrorAtBranch(app.repo, app.baseBranch ?? "main", defaultMirrorDeps);
-      await stage({
-        workingCopyDir: primaryDir,
-        service: { repo: triggerService.repo, mirrorDir: vcsDir, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) },
-        sha: checkoutSha.value,
-      });
-      await stageDeclaredServices(primaryDir, triggerService.repo);
-      return primaryDir;
-    }
-    const primaryDir = await mirror.ensureMirror(app.repo, checkoutSha.value, defaultMirrorDeps);
-    await stageDeclaredServices(primaryDir);
-    return primaryDir;
-  };
+  const multiRepoCheckout = new MultiRepoCheckoutAdapter(
+    {
+      primaryRepo: app.repo,
+      baseBranch: app.baseBranch ?? "main",
+      services: app.services ?? [],
+      ...(triggerService ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } } : {}),
+      isCode,
+    },
+    {
+      ensureMirror: (repo, sha) => mirror.ensureMirror(repo, sha, defaultMirrorDeps),
+      ensureMirrorAtBranch: (repo, branch) => mirror.ensureMirrorAtBranch(repo, branch, defaultMirrorDeps),
+      stageServiceContext: (input) => stage(input),
+    },
+  );
+  const checkout = (checkoutSha: Sha): Promise<string> => multiRepoCheckout.checkout(checkoutSha);
 
   
   const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));

@@ -2184,3 +2184,55 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
     { workingCopyDir: dir, repo: "org/payments-svc" },
   ], "trigger is staged with the event sha; siblings are contracts-only");
 });
+
+/* ── A1: service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
+
+test("code target: checkout(sha) never stages declared services (no e2e dir concept for target=code)", async () => {
+  const app: AppConfig = { ...cfg("factory-code-skip-staging"), code: true, dev: undefined, services: [{ repo: "org/orders-svc" }] };
+  const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+  const { stageServiceContext, calls } = spyStageServiceContext();
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
+    "qa-bot-abc1234-run1",
+    { mode: "diff" },
+  );
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(ensureMirrorAtBranchCalls, [], "a code-target run must never mirror declared services");
+  assert.deepEqual(calls, [], "a code-target run must never stage declared services");
+});
+
+test("service staging: declared services are mirrored CONCURRENTLY (Promise.all), not one-at-a-time", async () => {
+  const app: AppConfig = { ...cfg("factory-service-staging-parallel"), services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }] };
+  const { mirror } = spyMirrorDeps();
+  let bStarted = false;
+  let releaseA: () => void = () => {};
+  const aGate = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+  const patchedMirror = {
+    ...mirror,
+    ensureMirrorAtBranch: async (repo: string, branch: string, deps: MirrorDeps) => {
+      if (repo === "org/svc-a") {
+        await aGate; // only resolves once svc-b's call has started — impossible under a sequential await-per-item loop
+      } else if (repo === "org/svc-b") {
+        bStarted = true;
+        releaseA();
+      }
+      return mirror.ensureMirrorAtBranch(repo, branch, deps);
+    },
+  };
+  const { stageServiceContext } = spyStageServiceContext();
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirror: patchedMirror, stageServiceContext },
+    "qa-bot-abc1234-run1",
+    { mode: "diff" },
+  );
+  const outcome = await Promise.race([
+    config.checkout(Sha.of("abc1234567")).then(() => "done" as const),
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 300)),
+  ]);
+  assert.equal(bStarted, true, "svc-b's mirror call must have started");
+  assert.equal(outcome, "done", "checkout must complete promptly — a sequential loop would never reach svc-b while svc-a is still pending, deadlocking this test");
+});
