@@ -468,8 +468,10 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
   });
   const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
-  /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures). */
-  for (let i = 0; i < 5; i++) recordCircuitFailure();
+  /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures),
+     keyed to the SAME role createAgentDeps derives internally (descriptor.role ?? agent — here
+     just the bare "qa-generator" agent id, since no descriptor is passed below). */
+  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
 
   const openSession = await deps.open("qa-generator", "/tmp");
   /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
@@ -495,6 +497,40 @@ test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt
   const out = await closedSession.prompt("do the thing");
   assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
   assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
+});
+
+/* C7: createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
+   qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-generator
+   session, since both funnel through the SAME createAgentDeps/circuit-breaker module.
+ */
+test("createAgentDeps: an OPEN circuit for one agent role does not block a different role (C7)", async () => {
+  resetCircuit();
+  let generatorPromptCalls = 0;
+  const raw = makeRawTransport({
+    promptSession: async (args) => {
+      if (args.agent === "qa-generator") generatorPromptCalls++;
+      return { parts: [{ type: "text", text: "ok" }] };
+    },
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+  /* Trip ONLY qa-reviewer's circuit. */
+  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-reviewer");
+
+  const reviewerSession = await deps.open("qa-reviewer", "/tmp");
+  let reviewerError: unknown;
+  try {
+    await reviewerSession.prompt("review this");
+  } catch (err) {
+    reviewerError = err;
+  }
+  assert.match((reviewerError as Error).message, /circuit breaker is OPEN/, "qa-reviewer's own circuit is open");
+
+  const generatorSession = await deps.open("qa-generator", "/tmp");
+  const out = await generatorSession.prompt("do the thing");
+  assert.equal(out, "ok", "a DIFFERENT role's circuit must stay closed and reach the raw transport");
+  assert.equal(generatorPromptCalls, 1);
+  resetCircuit();
 });
 
 test("createAgentDeps: telemetry assembly — onTurn receives a fully-populated AgentTurnEvent for a run with a runId", async () => {

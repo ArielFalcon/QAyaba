@@ -94,8 +94,10 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     /* Codex must be open */
     assert.throws(() => checkCodexCircuit(), /Codex circuit breaker is OPEN/i);
 
-    /* OpenCode breaker must NOT be open (separate state) */
-    assert.doesNotThrow(() => checkCircuit(), "opencode circuit must remain closed when codex trips");
+    /* OpenCode breaker must NOT be open (separate state). Role is now a required key (C7 —
+       breaker state is per-agent-role); any role name proves this test's actual point, that
+       codex's own failures never touch the opencode module's state at all. */
+    assert.doesNotThrow(() => checkCircuit("qa-generator"), "opencode circuit must remain closed when codex trips");
 
     resetCodexCircuit();
     resetCircuit();

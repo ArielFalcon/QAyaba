@@ -220,6 +220,11 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         : undefined;
       const effectiveOnTurn = opts?.onTurn ?? defaultOnTurn;
 
+      /* Circuit-breaker key: the same role identity AgentTurnEvent.role already uses (the
+         descriptor's role when given, else the raw agent id) — a run-away role must never trip
+         the breaker for an unrelated, healthy one. */
+      const breakerRole = opts?.descriptor?.role ?? agent;
+
       let _round = 0;
 
       return {
@@ -227,7 +232,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         prompt: (text, promptOpts) =>
           withTimeout(
             (() => {
-              checkCircuit();
+              checkCircuit(breakerRole);
               const thisRound = _round++;
               const runPrompt = (modelOverride?: string) => {
                 const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
@@ -237,7 +242,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                     if (res.agentError) {
                       throw agentErrorToInfra(res.agentError);
                     }
-                    recordCircuitSuccess();
+                    recordCircuitSuccess(breakerRole);
                     if (res.tokens) {
                       const snapshot: UsageSnapshot = {
                         input: res.tokens.input ?? 0,
@@ -277,7 +282,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                     return outputRaw;
                   })
                   .catch((err) => {
-                    recordCircuitFailure();
+                    recordCircuitFailure(breakerRole);
                     throw err;
                   });
               };

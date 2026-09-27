@@ -7,19 +7,48 @@ import { checkCircuit, recordCircuitFailure, recordCircuitSuccess, resetCircuit 
 
 test("circuit opens after the threshold of consecutive failures, and resetCircuit clears it", () => {
   resetCircuit();
-  for (let i = 0; i < 5; i++) recordCircuitFailure();
-  assert.throws(() => checkCircuit(), /circuit breaker is OPEN/);
+  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
+  assert.throws(() => checkCircuit("qa-generator"), /circuit breaker is OPEN/);
   resetCircuit();
-  assert.doesNotThrow(() => checkCircuit()); /* the operator-recovery path is unblocked */
+  assert.doesNotThrow(() => checkCircuit("qa-generator")); /* the operator-recovery path is unblocked */
 });
 
 test("a success before the threshold resets the failure streak", () => {
   resetCircuit();
-  recordCircuitFailure();
-  recordCircuitFailure();
-  recordCircuitSuccess();
-  recordCircuitFailure();
-  recordCircuitFailure();
-  assert.doesNotThrow(() => checkCircuit()); /* only 2 consecutive since the success → still closed */
+  recordCircuitFailure("qa-generator");
+  recordCircuitFailure("qa-generator");
+  recordCircuitSuccess("qa-generator");
+  recordCircuitFailure("qa-generator");
+  recordCircuitFailure("qa-generator");
+  assert.doesNotThrow(() => checkCircuit("qa-generator")); /* only 2 consecutive since the success → still closed */
+  resetCircuit();
+});
+
+/* C7: circuit-breaker.ts used to be a single set of module-level counters shared by every agent
+   role — a run-away qa-reviewer would trip the SAME breaker a healthy qa-generator relies on, and a
+   qa-reflector success would reset a qa-generator's genuinely-accumulating failure streak. State
+   must be keyed per role.
+ */
+test("C7: tripping one role's circuit does not block a different role", () => {
+  resetCircuit();
+  for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
+  assert.throws(() => checkCircuit("qa-generator"), /circuit breaker is OPEN/);
+  assert.doesNotThrow(() => checkCircuit("qa-reviewer"), "an unrelated role's circuit must stay closed");
+  resetCircuit();
+});
+
+test("C7: a success on one role does not reset a different role's failure streak", () => {
+  resetCircuit();
+  recordCircuitFailure("qa-generator");
+  recordCircuitFailure("qa-generator");
+  recordCircuitFailure("qa-generator");
+  recordCircuitFailure("qa-generator");
+  recordCircuitSuccess("qa-reviewer"); /* an unrelated role's success */
+  recordCircuitFailure("qa-generator"); /* qa-generator's 5th consecutive failure */
+  assert.throws(
+    () => checkCircuit("qa-generator"),
+    /circuit breaker is OPEN/,
+    "qa-reviewer's success must not have reset qa-generator's own failure streak",
+  );
   resetCircuit();
 });

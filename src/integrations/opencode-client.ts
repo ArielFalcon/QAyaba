@@ -125,8 +125,14 @@ function getFallbackModel(agent: string): string | undefined {
  */
 let sharedClient: Awaited<ReturnType<typeof import("@opencode-ai/sdk").createOpencodeClient>> | undefined;
 
+/* Client-construction faults are not per-agent-role — they gate whether the shared HTTP client to
+   the OpenCode server can be built AT ALL, which affects every role equally. Keyed with a fixed
+   sentinel (never a real agent/role name) so this concern stays isolated from the per-role prompt
+   breaker in agent-transport-policy.ts. */
+const CLIENT_BREAKER_KEY = "opencode-client";
+
 async function getSharedClient() {
-  checkCircuit();
+  checkCircuit(CLIENT_BREAKER_KEY);
   if (sharedClient) return sharedClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
   const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
@@ -137,9 +143,9 @@ async function getSharedClient() {
         ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
         : {}),
     });
-    recordCircuitSuccess();
+    recordCircuitSuccess(CLIENT_BREAKER_KEY);
   } catch (err) {
-    recordCircuitFailure();
+    recordCircuitFailure(CLIENT_BREAKER_KEY);
     throw err;
   }
   return sharedClient;
@@ -154,7 +160,7 @@ async function getSharedClient() {
 let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient> | undefined;
 
 async function getEventClient() {
-  checkCircuit();
+  checkCircuit(CLIENT_BREAKER_KEY);
   if (sharedEventClient) return sharedEventClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
   const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
@@ -165,9 +171,9 @@ async function getEventClient() {
         ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
         : {}),
     });
-    recordCircuitSuccess();
+    recordCircuitSuccess(CLIENT_BREAKER_KEY);
   } catch (err) {
-    recordCircuitFailure();
+    recordCircuitFailure(CLIENT_BREAKER_KEY);
     throw err;
   }
   return sharedEventClient;
