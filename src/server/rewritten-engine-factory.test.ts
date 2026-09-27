@@ -13,6 +13,7 @@ import type { AgentDeps } from "../integrations/opencode-client";
 import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
+import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { Sha } from "@kernel/sha";
 import {
   REVIEWER_TIMEOUT_MS,
@@ -2084,12 +2085,12 @@ test("retrieval: the newest candidates reach the exploration slots when the ledg
     candidateIds.push(id);
     upsertLearningRule({ id, app, trigger: `c${i}`, action: "a", errorClass: "E-EXEC-FAIL", source: "test" });
   }
-  const newestTwo = candidateIds.slice(-2);
+  const newestCandidates = candidateIds.slice(-EXPLORATION_SLOTS);
 
   const top = await new SqliteLearningRepository(historyLearningStore(app)).topRules(app, Sha.of("abc1234"), limit);
 
   const topIds = top.map((r) => r.id);
-  for (const id of newestTwo) assert.ok(topIds.includes(id), `the newest candidate ${id} must be retrievable, got ${JSON.stringify(topIds)}`);
+  for (const id of newestCandidates) assert.ok(topIds.includes(id), `the newest candidate ${id} must be retrievable, got ${JSON.stringify(topIds)}`);
 });
 
 test("retrieval: the best-proven active rules are retrieved when the ledger holds more actives than the ledger window", async () => {
