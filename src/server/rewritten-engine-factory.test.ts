@@ -1661,6 +1661,46 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
   assert.equal((decision as { match: { id: string } }).match.id, deprecatedRuleId, "the match must be the SAME deprecated row, proving listAll (not an empty fallback) drove the decision");
 });
 
+/*
+ * R5: historyLearningStore(appName).selectRules used to back onto listLearningRules(app,
+ * LEARNING_RULE_LEDGER_LIMIT) — a single shared-limit, status-ranked SQL read. With more ACTIVE
+ * rows than that limit, the actives-first ORDER BY could exhaust the limit before a single
+ * CANDIDATE row was even fetched into memory, so RuleGovernanceService.topRules (the single
+ * ranking truth) never got a chance to rank a candidate it never saw — silently defeating its own
+ * EXPLORATION_SLOTS (rule-governance.service.ts) no matter how governance itself ranked things.
+ * This walks the REAL production wiring end to end (the SAME SqliteLearningRepository
+ * buildRewrittenCompositionConfig composes, ~line 644) and proves fresh candidates still reach
+ * topRules' exploration slots even with more than LEARNING_RULE_LEDGER_LIMIT active rows seeded.
+ */
+test("R5: historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-no-starve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
+    upsertLearningRule({
+      id: `active-${app}-${i}`, app, trigger: `trigger ${i}`, action: `action ${i}`,
+      errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active",
+    });
+  }
+  const freshCandidateIds = [`fresh-${app}-1`, `fresh-${app}-2`];
+  for (const id of freshCandidateIds) {
+    upsertLearningRule({ id, app, trigger: id, action: "do the fresh thing", errorClass: "E-EXEC-FAIL", source: "test" });
+  }
+
+  const store = historyLearningStore(app);
+  const repo = new SqliteLearningRepository(store);
+
+  const top = await repo.topRules(app, Sha.of("abc1234"), 20);
+
+  const returnedCandidateIds = top.filter((r) => r.status === "candidate").map((r) => r.id);
+  assert.ok(
+    freshCandidateIds.some((id) => returnedCandidateIds.includes(id)),
+    `expected at least one fresh candidate in topRules' exploration slots, got candidates: ${JSON.stringify(returnedCandidateIds)}`,
+  );
+  assert.equal(top.length, 20, "the caller's own limit must still be respected");
+});
+
 test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "rewritten";

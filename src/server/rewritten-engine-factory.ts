@@ -111,7 +111,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
 import { recordIncident } from "./maintainer";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
@@ -304,8 +304,14 @@ async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: bool
 
 export function historyLearningStore(appName: string): LearningStore {
   return {
+    /*
+     * R5: dedicated governance-path read, NOT listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) —
+     * that shared-limit, actives-first-ranked query could exhaust its LIMIT on active rows alone,
+     * never even fetching a fresh candidate into memory for RuleGovernanceService.topRules (the
+     * single ranking truth) to rank. See listLearningRulesForGovernance's own header in history.ts.
+     */
     selectRules: (app) =>
-      listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT).map((r) => ({
+      listLearningRulesForGovernance(app).map((r) => ({
         id: r.id,
         trigger_text: r.trigger,
         action_text: r.action,

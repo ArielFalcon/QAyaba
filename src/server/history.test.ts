@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum } from "./history";
+import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -245,6 +245,47 @@ test("recordRuleOutcome: a legacy 'pending' row that already carries promotion-w
   assert.ok(r, "rule should still exist");
   assert.equal(r!.outcomeCount, 3, "the backfilled 2 plus this call's 1");
   assert.equal(r!.status, "active", "normalized-then-folded 'pending' row earns promotion through the SAME governance a 'candidate' row would — never masked by the old unconditional pending->candidate override");
+});
+
+/* R5: listRulesStmt (backing listLearningRules, and — until this fix — historyLearningStore
+   (appName).selectRules too) is a SINGLE shared-limit query: ORDER BY (status='active') DESC,
+   success_rate DESC, at DESC LIMIT <n>. With more rows than the limit, actives (which always sort
+   first) can exhaust the limit before a single candidate row is even fetched into memory —
+   RuleGovernanceService (the single ranking truth) never gets a chance to rank what it never saw,
+   defeating its own EXPLORATION_SLOTS. listLearningRulesForGovernance() fixes this by fetching
+   'active' and 'candidate' rows via SEPARATE statements, each bounded by its OWN
+   LEARNING_RULE_LEDGER_LIMIT-sized cap, so a large active set can never crowd fresh candidates out.
+ */
+test("listLearningRulesForGovernance: candidates survive even when active rows alone exceed LEARNING_RULE_LEDGER_LIMIT (no SQL-side starvation before governance ranks anything)", () => {
+  const app = "hist-governance-no-starve";
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 3; i++) {
+    upsertLearningRule({
+      id: `active-${i}`, app, trigger: `t${i}`, action: `a${i}`,
+      errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active",
+    });
+  }
+  upsertLearningRule({ id: "candidate-fresh-1", app, trigger: "fresh1", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+  upsertLearningRule({ id: "candidate-fresh-2", app, trigger: "fresh2", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+
+  const rows = listLearningRulesForGovernance(app);
+
+  const candidateIds = rows.filter((r) => r.status === "candidate").map((r) => r.id);
+  assert.deepEqual(new Set(candidateIds), new Set(["candidate-fresh-1", "candidate-fresh-2"]), "both fresh candidates must be present — a shared LIMIT would have dropped them before this function's caller (governance) ever saw them");
+  const activeCount = rows.filter((r) => r.status === "active").length;
+  assert.equal(activeCount, LEARNING_RULE_LEDGER_LIMIT, "the active partition is independently bounded by its own LEARNING_RULE_LEDGER_LIMIT-sized cap, not starved by (or starving) the candidate partition");
+});
+
+test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same retrievable set as listLearningRules", () => {
+  const app = "hist-governance-status-filter";
+  upsertLearningRule({ id: "gov-active", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active" });
+  upsertLearningRule({ id: "gov-candidate", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+  upsertLearningRule({ id: "gov-deprecated", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "deprecated" });
+
+  const ids = listLearningRulesForGovernance(app).map((r) => r.id);
+
+  assert.ok(ids.includes("gov-active"));
+  assert.ok(ids.includes("gov-candidate"));
+  assert.ok(!ids.includes("gov-deprecated"), "deprecated rows must never reach governance retrieval");
 });
 
 test("createRecord persists triggerRepo and getRecord returns it", () => {
