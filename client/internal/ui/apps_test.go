@@ -475,6 +475,83 @@ func TestBuildUpdateInputOmitsEnvWhenNone(t *testing.T) {
 	}
 }
 
+/* Edit mode's "leave blank to keep stored creds" shortcut must not apply when the user just
+   turned app login ON (there is nothing stored to keep yet) — blank credentials must error
+   and the save must not proceed (no command == no network update sent). */
+func TestEditModeEnablingFormAuthWithBlankUserErrorsAndDoesNotSave(t *testing.T) {
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev"}
+	m := newEditAppModel(nil, app)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	if m.authMode != "form" {
+		t.Fatalf("expected form; got %q", m.authMode)
+	}
+	m, cmd := m.save()
+	if m.err == "" {
+		t.Fatal("expected a validation error for blank app username when enabling app login")
+	}
+	if cmd != nil {
+		t.Fatal("must not send an update when app login was enabled with blank credentials")
+	}
+}
+
+/* Same rule for the certificate layer: switching to mtls with a blank certificate path must
+   error rather than silently keep whatever (unrelated) credentials were stored before. */
+func TestEditModeEnablingMtlsAuthWithBlankCertPathErrorsAndDoesNotSave(t *testing.T) {
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev"}
+	m := newEditAppModel(nil, app)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	m.toggleFormValue() /* form -> mtls */
+	if m.authMode != "mtls" {
+		t.Fatalf("expected mtls; got %q", m.authMode)
+	}
+	m, cmd := m.save()
+	if m.err == "" {
+		t.Fatal("expected a validation error for a blank certificate path when enabling app login")
+	}
+	if cmd != nil {
+		t.Fatal("must not send an update when mtls was enabled with a blank certificate path")
+	}
+}
+
+/* The legitimate path this whole guard must not break: authMode left UNCHANGED from what's
+   stored, with blank fields — that's "keep the secrets already on the server", not "enable
+   with nothing supplied", and must still save without error. */
+func TestEditModeKeepsStoredAuthWhenModeUnchangedAndCredentialsLeftBlank(t *testing.T) {
+	form := contract.AppViewAuthKindForm
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev", AuthKind: &form}
+	m := newEditAppModel(nil, app)
+	if m.authMode != "form" || m.storedAuth != "form" {
+		t.Fatalf("setup: authMode=%q storedAuth=%q", m.authMode, m.storedAuth)
+	}
+	env, err := m.collectedEnv()
+	if err != nil {
+		t.Fatalf("unchanged auth with blank fields must not error; got %v", err)
+	}
+	if env != nil {
+		t.Fatalf("expected nil env (keep stored creds); got %+v", env)
+	}
+}
+
+/* Switching the auth mode must clear the credential inputs' actual VALUES, not just their
+   placeholder text — otherwise a value typed under the old mode silently gets reinterpreted
+   under the new one (e.g. a form username saved as if it were a certificate path). */
+func TestTogglingAuthModeClearsCredentialInputValues(t *testing.T) {
+	m := newOnboardModel(nil)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	m.userInput.SetValue("admin")
+	m.passInput.SetValue("secret")
+	m.toggleFormValue() /* form -> mtls */
+	if m.userInput.Value() != "" || m.passInput.Value() != "" {
+		t.Fatalf("expected credential values cleared on mode change; user=%q pass=%q", m.userInput.Value(), m.passInput.Value())
+	}
+}
+
 /* Regression: on a text field, j/k must be typed, not treated as motion — otherwise words
    containing them (e.g. "joomeco", "webapp") can't be entered. Navigation is tab/arrows only. */
 func TestFormTextFieldAcceptsJAndKAsInput(t *testing.T) {

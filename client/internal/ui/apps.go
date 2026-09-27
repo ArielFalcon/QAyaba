@@ -530,6 +530,11 @@ func (m *appAdminModel) toggleFormValue() {
 		default:
 			m.authMode = "disabled"
 		}
+		/* Clear the actual VALUES, not just the placeholder text — a username typed under
+		   form must never silently get reinterpreted as a certificate path (or vice versa)
+		   just because the mode moved on without the user re-typing anything. */
+		m.userInput.SetValue("")
+		m.passInput.SetValue("")
 		m.applyAuthPlaceholders()
 	}
 }
@@ -603,15 +608,30 @@ func (m appAdminModel) envVars() map[string]string {
 	return out
 }
 
+/* storedAuthMode normalizes storedAuth's zero value ("" — nothing stored, or a kind the
+   server didn't recognize) to "disabled" so it compares directly against authMode's three
+   states in collectedEnv's authChanged check below. */
+func (m appAdminModel) storedAuthMode() string {
+	if m.storedAuth == "" {
+		return "disabled"
+	}
+	return m.storedAuth
+}
+
 func (m appAdminModel) collectedEnv() (map[string]string, error) {
 	if m.target == "code" {
 		return nil, nil
 	}
-	/* An edit with blank fields keeps the secrets already stored. Create must fill them. */
+	/* An edit with blank fields keeps the secrets already stored — but only when the auth
+	   mode itself did not change this session. Turning app login on (or switching its kind)
+	   during an edit has nothing stored to keep, so blank credentials there must error like
+	   create mode does, not silently no-op the change.
+	*/
+	authChanged := m.mode == appAdminEdit && m.authMode != m.storedAuthMode()
 	if m.envBasic && m.mode != appAdminEdit && strings.TrimSpace(m.envUserInput.Value()) == "" {
 		return nil, fmt.Errorf("environment username is required for basic auth")
 	}
-	if m.authMode == "form" && m.mode != appAdminEdit && strings.TrimSpace(m.userInput.Value()) == "" {
+	if m.authMode == "form" && (m.mode != appAdminEdit || authChanged) && strings.TrimSpace(m.userInput.Value()) == "" {
 		return nil, fmt.Errorf("app username is required for form login")
 	}
 	if m.authMode != "mtls" {
@@ -619,7 +639,7 @@ func (m appAdminModel) collectedEnv() (map[string]string, error) {
 	}
 	path := strings.TrimSpace(m.userInput.Value())
 	if path == "" {
-		if m.mode == appAdminEdit {
+		if m.mode == appAdminEdit && !authChanged {
 			return m.envVars(), nil
 		}
 		return nil, fmt.Errorf("certificate path is required")
