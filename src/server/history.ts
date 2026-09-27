@@ -21,6 +21,7 @@ import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 
 const redactionPort = new RedactionPortAdapter();
 
@@ -74,6 +75,8 @@ let loadCurriculumStmt!: Database.Statement;
 let saveCurriculumStmt!: Database.Statement;
 let loadScorecardStmt!: Database.Statement;
 let saveScorecardStmt!: Database.Statement;
+let loadContextMapStmt!: Database.Statement;
+let saveContextMapStmt!: Database.Statement;
 let insertAgentTurnStmt!: Database.Statement;
 let getAgentTurnsStmt!: Database.Statement;
 let initialized = false;
@@ -220,6 +223,19 @@ function ensureDb(): void {
       at TEXT NOT NULL
     );
 
+    -- The FE<->BE architecture map (e2e/.qa/context.json) produced by a successful mode:context
+    -- run, per app (latest wins — not append-only, same as curriculum/scorecard). DB-backed for the
+    -- same reason context_stale is: the mirror's e2e/.qa/context.json is wiped/restored by git
+    -- checkout -f + git clean -fd every run, so a shadow app (which never opens the context.json PR)
+    -- would otherwise lose the map after every run. This table is the engine's source of truth for
+    -- the map regardless of shadow; the repo file (when a non-shadow PR has landed) is only a fallback.
+    CREATE TABLE IF NOT EXISTS context_maps (
+      app TEXT PRIMARY KEY,
+      built_at_sha TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     -- Per-turn telemetry for every agent prompt/response cycle (Phase 0 foundation).
     -- Mirrors the run_events 30-day retention. Token columns are nullable because Codex
     -- runs return no token info. output_text is sanitized before persist (sanitizer.ts).
@@ -325,6 +341,11 @@ function ensureDb(): void {
   saveCurriculumStmt = db.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
   loadScorecardStmt = db.prepare("SELECT data FROM scorecard WHERE app = ?");
   saveScorecardStmt = db.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
+  loadContextMapStmt = db.prepare("SELECT built_at_sha, data, updated_at FROM context_maps WHERE app = ?");
+  saveContextMapStmt = db.prepare(
+    "INSERT INTO context_maps (app, built_at_sha, data, updated_at) VALUES (?, ?, ?, ?) " +
+      "ON CONFLICT(app) DO UPDATE SET built_at_sha = excluded.built_at_sha, data = excluded.data, updated_at = excluded.updated_at",
+  );
 
   /* agent_turns: insert a turn record; retrieve all turns for a run ordered by id. */
   insertAgentTurnStmt = db.prepare(`
@@ -587,6 +608,7 @@ export function deleteAppHistory(app: string): number {
   db.prepare("DELETE FROM learning_rules WHERE app = ?").run(app);
   db.prepare("DELETE FROM curriculum WHERE app = ?").run(app);
   db.prepare("DELETE FROM scorecard WHERE app = ?").run(app);
+  db.prepare("DELETE FROM context_maps WHERE app = ?").run(app);
   return info.changes;
 }
 
@@ -978,6 +1000,45 @@ export function saveScorecardEntry(entry: ScorecardEntry): void {
   ensureDb();
   const sc = updateScorecard(loadScorecard(entry.app), entry);
   saveScorecardStmt.run(sc.app, JSON.stringify(sc), sc.updatedAt);
+}
+
+export interface StoredContextMap {
+  builtAtSha: string;
+  data: ArchitectureContext;
+  updatedAt: string;
+}
+
+/*
+ * Persist the app's FE<->BE architecture map (per-app row; latest wins — not append-only, same as
+ * curriculum/scorecard above). `builtAtSha` is the deterministic run sha the orchestrator captured
+ * this map at, not necessarily identical to `data.builtAtSha` (the agent's own self-reported field
+ * inside the JSON, left untouched) — see ContextMapCapturePortAdapter's caller.
+ */
+export function saveContextMap(app: string, builtAtSha: string, data: ArchitectureContext): void {
+  ensureDb();
+  saveContextMapStmt.run(app, builtAtSha, JSON.stringify(data), new Date().toISOString());
+}
+
+/*
+ * A corrupt row (exists but fails to parse) is logged loudly and treated as "no stored map" —
+ * never crashes a run. Same fault-isolation shape as loadCurriculum, except a context map is
+ * advisory grounding, not a fold input: there is nothing here for a caller to distinguish from
+ * "no row yet" (unlike CURRICULUM_CORRUPT, which guards a fold from clobbering real evidence), so
+ * undefined is the correct, single "no usable stored map" signal for both cases.
+ */
+export function loadContextMap(app: string): StoredContextMap | undefined {
+  ensureDb();
+  const row = loadContextMapStmt.get(app) as { built_at_sha: string; data: string; updated_at: string } | undefined;
+  if (!row) return undefined;
+  try {
+    return { builtAtSha: row.built_at_sha, data: JSON.parse(row.data) as ArchitectureContext, updatedAt: row.updated_at };
+  } catch (err) {
+    logJson("warn", `corrupt context-map row for app '${app}' — treating as no stored map`, {
+      app,
+      error: redactionPort.redactError(err),
+    });
+    return undefined;
+  }
 }
 
 process.on("exit", () => {

@@ -4,13 +4,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum } from "./history";
+import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
 import type { RuleStatus } from "../qa/learning/learning-rule";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 
 test("markContextStale then consumeContextStale is one-shot: first consume true, second false", () => {
   const app = "hist-ctx-stale";
@@ -352,6 +353,60 @@ test("deleteAppHistory removes the app's runs (cascading cases/specs) but not ot
   assert.ok(removed >= 1);
   assert.equal(getRecord(mine.id), undefined);
   assert.ok(getRecord(other.id));
+});
+
+/* ── context_maps (Batch F: persist the FE<->BE architecture map from mode:context runs) ────────── */
+
+test("saveContextMap/loadContextMap round-trip per app; latest save wins; a corrupt row is logged loudly and treated as absent, never crashes", () => {
+  const app = `hist-ctxmap-${Date.now().toString(36)}`;
+  assert.equal(loadContextMap(app), undefined, "no row yet");
+
+  const map1: ArchitectureContext = { builtAtSha: "sha1", routes: [{ path: "/a" }], api: [], feBe: [] };
+  saveContextMap(app, "sha1", map1);
+  const stored1 = loadContextMap(app);
+  assert.ok(stored1, "sanity: the valid row round-trips");
+  assert.equal(stored1!.builtAtSha, "sha1");
+  assert.deepEqual(stored1!.data, map1);
+  assert.equal(typeof stored1!.updatedAt, "string");
+
+  /* Latest save wins (per-app row, not append-only). */
+  const map2: ArchitectureContext = { builtAtSha: "sha2", routes: [], api: [], feBe: [] };
+  saveContextMap(app, "sha2", map2);
+  const stored2 = loadContextMap(app);
+  assert.equal(stored2!.builtAtSha, "sha2");
+  assert.deepEqual(stored2!.data, map2);
+
+  /* Corrupt the row directly (bypassing saveContextMap, which only ever writes valid JSON) — a
+     second connection to the SAME on-disk db (WAL mode allows this), same technique loadCurriculum's
+     own corrupt-row test above uses. */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE context_maps SET data = ? WHERE app = ?").run("{not valid json", app);
+  } finally {
+    raw.close();
+  }
+
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const result = loadContextMap(app);
+    assert.equal(result, undefined, "a corrupt row must degrade to 'no stored map' — never crash a run");
+    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt context-map fault");
+    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("deleteAppHistory also clears the app's stored context map", () => {
+  const app = `hist-ctxmap-del-${Date.now().toString(36)}`;
+  saveContextMap(app, "sha1", { builtAtSha: "sha1", routes: [], api: [], feBe: [] });
+  assert.ok(loadContextMap(app), "sanity: stored before delete");
+  deleteAppHistory(app);
+  assert.equal(loadContextMap(app), undefined, "purge must clear the app's context_maps row too");
 });
 
 /* ── backupDatabase (WAL-safe online backup) ──────────────────────────────────
