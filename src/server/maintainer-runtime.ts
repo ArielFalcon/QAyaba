@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { recordIncident, setMaintainerStatus, getIncidents, updateIncident } from "./maintainer";
 import { parseMaintainerSummary } from "./maintainer-summary";
-import { assessChange, assessRate, parseNumstat, PROTECTED_PATHS, readDeployHistory, recordDeploy } from "./merge-guard";
+import { assessChange, assessRate, DEFAULT_CHANGE_LIMITS, parseNumstat, PROTECTED_PATHS, readDeployHistory, recordDeploy } from "./merge-guard";
 import {
   performSwap,
   confirmSwapHealthy,
@@ -162,7 +162,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           "This fix is AUTO-DEPLOYED: it is hot-swapped into the running service, verified",
           "healthy (the canary), and only then merged to main. So it must be NECESSARY, MINIMAL",
           "and SAFE. Hard constraints (a fix that breaks them is blocked and left for a human):",
-          "  - Keep it small: at most 15 files / 400 changed lines.",
+          `  - Keep it small: at most ${DEFAULT_CHANGE_LIMITS.maxFiles} files / ${DEFAULT_CHANGE_LIMITS.maxLines} changed lines.`,
           "  - Do NOT modify any protected path: the recovery net, the secret and auth boundaries,",
           "    this very gate and the image build. Changing one requires a human. (A trailing /",
           "    is a whole directory; a leading * matches any file with that suffix.)",

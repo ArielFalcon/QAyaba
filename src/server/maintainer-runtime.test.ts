@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createMaintainerRuntime, type MaintainerSideEffects, type MaintainerConfig } from "./maintainer-runtime";
 import { recordIncident, getIncident, getIncidents, getMaintainerStatus } from "./maintainer";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { PROTECTED_PATHS } from "./merge-guard";
+import { DEFAULT_CHANGE_LIMITS, PROTECTED_PATHS } from "./merge-guard";
 
 /* These are the FIRST tests of the self-deploy path — ARCH-01 extracted it from index.ts behind a DI
    factory precisely so the safety-layer SEQUENCING (open PR → justify → kill-switch → scope → rate →
@@ -113,6 +113,19 @@ test("the maintainer agent is told every protected path before it writes a fix",
   for (const path of PROTECTED_PATHS) {
     assert.ok(prompt.includes(path), `the maintainer prompt must name protected path ${path}`);
   }
+});
+
+/* The gate blocks a fix over the change-size limits, so the agent must be told the same limits. */
+test("the maintainer agent is told the change-size limits the gate enforces", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "change-limit prompt case" });
+  let prompt = "";
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), onPrompt: (p) => { prompt = p; } });
+
+  await runtime.triggerMaintainer();
+
+  assert.ok(prompt.includes(`${DEFAULT_CHANGE_LIMITS.maxFiles} files`), "the prompt must state the gate's file limit");
+  assert.ok(prompt.includes(`${DEFAULT_CHANGE_LIMITS.maxLines} changed lines`), "the prompt must state the gate's line limit");
 });
 
 /* THE kill-switch invariant: with SELF_MAINTAINER_AUTOMERGE off, a perfectly fixable incident still
