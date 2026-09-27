@@ -5,10 +5,15 @@
  * ensureMirrorAtBranch the PRIMARY at baseBranch HEAD (the suite workspace), stage the triggering
  * service's own sha-scoped context, then stage every OTHER declared service contracts-only.
  *
- * Declared-service mirrors are ensured CONCURRENTLY (Promise.all) — none depends on another's
- * result. Staging is skipped entirely for the code target: it writes under
- * <mirrorDir>/e2e/.qa/service-context/, a directory a code-target repo (no e2e folder, no FE<->BE
- * mapping concern) has no reason to carry.
+ * Declared-service mirrors are ensured CONCURRENTLY — none depends on another's result. When one
+ * fails, checkout still waits for every sibling to settle before rethrowing the first failure (in
+ * declared order), so no sibling keeps writing into the working copy after the run has moved on.
+ *
+ * Code target: sibling (contracts-only) staging is skipped — the generator writes source-level
+ * tests, not FE<->BE mapped e2e specs, and has no use for sibling contracts. A service-triggered
+ * code run still stages the TRIGGERING service's sha-scoped change context: the generation prompt
+ * points at that directory to show what changed, and code publish excludes
+ * e2e/.qa/service-context/ so it is never committed.
  */
 
 import type { Sha } from "@kernel/sha.ts";
@@ -56,7 +61,7 @@ export class MultiRepoCheckoutAdapter {
   private async stageDeclaredServices(primaryDir: string, skipRepo?: string): Promise<void> {
     if (this.ctx.isCode || this.ctx.services.length === 0) return;
     const targets = this.ctx.services.filter((svc) => !(skipRepo && svc.repo === skipRepo));
-    await Promise.all(
+    const settled = await Promise.allSettled(
       targets.map(async (svc) => {
         const svcDir = await this.deps.ensureMirrorAtBranch(svc.repo, svc.baseBranch ?? "main");
         await this.deps.stageServiceContext({
@@ -65,6 +70,8 @@ export class MultiRepoCheckoutAdapter {
         });
       }),
     );
+    const firstFailure = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (firstFailure) throw firstFailure.reason;
   }
 
   async checkout(checkoutSha: Sha): Promise<string> {

@@ -82,7 +82,7 @@ test("cross-repo checkout: ensures the SERVICE at the event sha, the primary at 
   ], "trigger is staged with the event sha; the sibling is contracts-only (no sha)");
 });
 
-test("code target: declared services are never staged, even when triggerService is set", async () => {
+test("code target, same-repo run: declared services are never mirrored or staged", async () => {
   const deps = spyDeps();
   const adapter = new MultiRepoCheckoutAdapter(
     { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/orders-svc" }], isCode: true },
@@ -93,6 +93,64 @@ test("code target: declared services are never staged, even when triggerService 
 
   assert.deepEqual(deps.ensureMirrorAtBranchCalls, [], "code target must never mirror declared services (no e2e dir concept)");
   assert.deepEqual(deps.stageCalls, []);
+});
+
+test("code target, service-triggered run: stages only the triggering service's change context, never sibling contracts", async () => {
+  const deps = spyDeps();
+  const adapter = new MultiRepoCheckoutAdapter(
+    {
+      primaryRepo: "org/demo",
+      baseBranch: "main",
+      services: [{ repo: "org/orders-svc" }, { repo: "org/payments-svc" }],
+      triggerService: { repo: "org/orders-svc" },
+      isCode: true,
+    },
+    deps,
+  );
+
+  await adapter.checkout(Sha.of("def5678901"));
+
+  const staged = deps.stageCalls.map((c) => ({ repo: c.service.repo, sha: c.sha }));
+  assert.deepEqual(staged, [{ repo: "org/orders-svc", sha: "def5678901" }], "the generator reads the changed service from its staged context; siblings are not staged");
+  assert.equal(
+    deps.ensureMirrorAtBranchCalls.some((c) => c.repo === "org/payments-svc"),
+    false,
+    "a sibling service is not even mirrored for a code target",
+  );
+});
+
+test("a failing service mirror rejects checkout only after every sibling's mirror and staging has settled", async () => {
+  let inFlight = 0;
+  const rejectionSawInFlight: number[] = [];
+  const deps: MultiRepoCheckoutDeps = {
+    ensureMirror: async (repo) => `/mirrors/${repo.replaceAll("/", "__")}`,
+    ensureMirrorAtBranch: async (repo) => {
+      inFlight += 1;
+      if (repo === "org/svc-a") {
+        inFlight -= 1;
+        throw new Error("svc-a clone failed");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return `/mirrors/${repo.replaceAll("/", "__")}`;
+    },
+    stageServiceContext: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+    },
+  };
+  const adapter = new MultiRepoCheckoutAdapter(
+    { primaryRepo: "org/demo", baseBranch: "main", services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }], isCode: false },
+    deps,
+  );
+
+  await assert.rejects(
+    adapter.checkout(Sha.of("abc1234567")).catch((err: unknown) => {
+      rejectionSawInFlight.push(inFlight);
+      throw err;
+    }),
+    /svc-a clone failed/,
+  );
+  assert.deepEqual(rejectionSawInFlight, [0], "no sibling may still be writing into the working copy once the run sees the failure");
 });
 
 test("declared services are mirrored CONCURRENTLY, not one-at-a-time (a sequential loop would deadlock this test)", async () => {
