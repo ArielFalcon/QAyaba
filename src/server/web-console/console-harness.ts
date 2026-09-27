@@ -19,6 +19,8 @@ const JS_DIR = join(import.meta.dirname, "..", "..", "..", "web", "public", "js"
 
 export interface ConsoleRequest {
   method: string;
+  /* The absolute URL's origin, or null for a request to the console's own origin (a relative URL). */
+  origin: string | null;
   path: string;
   headers: Record<string, string>;
   body: unknown;
@@ -122,6 +124,12 @@ export interface ConsoleHarness {
   click(action: string, id?: string): void;
   loginVisible(): boolean;
   toastText(): string;
+  /* The ids of the controls outside the #app root that respond to a click (the login screen's buttons). */
+  loginControls(): string[];
+  pressLogin(id: string): void;
+  typeLogin(id: string, text: string): void;
+  /* The login screen's error line, or "" while it is hidden. */
+  loginError(): string;
 }
 
 export interface LoadOptions {
@@ -214,11 +222,13 @@ export async function loadConsole(opts: LoadOptions): Promise<ConsoleHarness> {
   /* ── scripted fetch ── */
   const fetchStub = async (url: string, init: Record<string, any> = {}): Promise<Response> => {
     const signal = init.signal as AbortSignal | undefined;
+    const absolute = /^https?:\/\//.test(String(url));
     const path = String(url).replace(/^https?:\/\/[^/]+/, "");
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries((init.headers ?? {}) as Record<string, string>)) headers[k.toLowerCase()] = v;
     const req: ConsoleRequest = {
       method: String(init.method ?? "GET").toUpperCase(),
+      origin: absolute ? new URL(String(url)).origin : null,
       path,
       headers,
       body: init.body ? JSON.parse(String(init.body)) : undefined,
@@ -360,5 +370,17 @@ export async function loadConsole(opts: LoadOptions): Promise<ConsoleHarness> {
     },
     loginVisible: () => loginScreen.style.display !== "none",
     toastText: () => visibleText((byId("overlay")._html as string) ?? ""),
+    loginControls: () =>
+      [...elements.values()].filter((el) => el !== root && (el.listeners.click ?? []).length > 0).map((el) => el.id as string),
+    pressLogin(id) {
+      for (const fn of (byId(id).listeners.click ?? []) as Array<(e: unknown) => void>) fn({ target: byId(id) });
+    },
+    typeLogin(id, text) {
+      byId(id).value = text;
+    },
+    loginError: () => {
+      const el = byId("login-error");
+      return el.style.display === "none" ? "" : String(el.textContent ?? "");
+    },
   };
 }

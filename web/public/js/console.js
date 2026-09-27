@@ -1748,85 +1748,12 @@ function loadRunExtras(id) {
     if (loginScreen) loginScreen.style.display = 'grid';
     if (loginBound) return;
     loginBound = true;
-    const btnGithub = document.getElementById('btn-github-login');
+    /* GitHub sign-in is not offered here: its device-flow endpoints do not allow cross-origin
+       browser calls, so it runs from the qayaba terminal client. The browser signs in with a pasted
+       API or session token, or automatically through the loopback auto-login (start()). */
     const btnToken = document.getElementById('btn-token-login');
     const tokenInput = document.getElementById('token-input');
-    const deviceCodeDiv = document.getElementById('github-device-code');
-    const deviceCodeDisplay = document.getElementById('device-code-display');
-    const verificationLink = document.getElementById('verification-link');
-    const loginStatus = document.getElementById('login-status');
     const loginError = document.getElementById('login-error');
-    let pollInterval = null;
-
-    btnGithub.addEventListener('click', async () => {
-      try {
-        loginError.style.display = 'none';
-        loginStatus.textContent = 'Requesting device code...';
-        const versionRes = await fetch('/api/v1/version');
-        const versionData = await versionRes.json();
-        const clientId = versionData.githubClientId;
-        if (!clientId) throw new Error('GitHub OAuth not configured on server');
-        const deviceRes = await fetch('https://github.com/login/device/code', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: clientId, scope: 'repo' })
-        });
-        const deviceData = await deviceRes.json();
-        deviceCodeDisplay.textContent = deviceData.user_code;
-        verificationLink.href = deviceData.verification_uri;
-        deviceCodeDiv.style.display = 'block';
-        loginStatus.textContent = 'Waiting for approval...';
-        const interval = (deviceData.interval || 5) * 1000;
-        const expiresIn = (deviceData.expires_in || 900) * 1000;
-        const startTime = Date.now();
-        pollInterval = setInterval(async () => {
-          if (Date.now() - startTime > expiresIn) {
-            clearInterval(pollInterval);
-            loginStatus.textContent = 'Code expired. Please try again.';
-            return;
-          }
-          try {
-            const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-              method: 'POST',
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                client_id: clientId,
-                device_code: deviceData.device_code,
-                grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-              })
-            });
-            const tokenData = await tokenRes.json();
-            if (tokenData.access_token) {
-              clearInterval(pollInterval);
-              loginStatus.textContent = 'Authenticating...';
-              const loginRes = await fetch('/api/v1/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ githubToken: tokenData.access_token })
-              });
-              if (!loginRes.ok) throw new Error('Backend authentication failed');
-              const loginData = await loginRes.json();
-              sessionStorage.setItem('qayaba_token', loginData.token);
-              loginScreen.style.display = 'none';
-              window.location.reload();
-            } else if (tokenData.error === 'authorization_pending') {
-            } else if (tokenData.error === 'slow_down') {
-              clearInterval(pollInterval);
-              pollInterval = setInterval(arguments.callee, interval * 2);
-            } else {
-              throw new Error(tokenData.error_description || 'Authentication failed');
-            }
-          } catch (err) {
-            clearInterval(pollInterval);
-            loginError.textContent = err.message;
-            loginError.style.display = 'block';
-          }
-        }, interval);
-      } catch (err) {
-        loginError.textContent = err.message;
-        loginError.style.display = 'block';
-      }
-    });
 
     btnToken.addEventListener('click', async () => {
       try {
