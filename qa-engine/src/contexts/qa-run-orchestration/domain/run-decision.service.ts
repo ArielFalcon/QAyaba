@@ -22,7 +22,6 @@ function reportSideEffect(verdict: RunVerdict, onFailure: string, shadow: boolea
   }
   switch (verdict) {
     case "fail":
-      return shadow ? "shadow-log" : "issue";
     case "invalid":
       return shadow ? "shadow-log" : "issue";
     case "infra-error":
@@ -36,6 +35,7 @@ function reportSideEffect(verdict: RunVerdict, onFailure: string, shadow: boolea
 }
 
 export function decide(ev: RunEvidence): RunDecision {
+  // Stryker disable next-line ConditionalExpression,BlockStatement: equivalent — reportSideEffect maps skipped to "none" as well; this branch states the policy
   if (ev.verdict === "skipped") {
     return RunDecision.of("skipped", "none");
   }
