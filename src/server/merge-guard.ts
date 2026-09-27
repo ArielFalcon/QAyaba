@@ -118,7 +118,7 @@ export const PROTECTED_PATHS: string[] = [
 ];
 
 export function isProtectedPath(file: string): boolean {
-  const f = file.replace(/^\.\/*/, "").replace(/\\/g, "/");
+  const f = file.replace(/^\.\//, "").replace(/\\/g, "/");
   return PROTECTED_PATHS.some((p) => {
     if (p.startsWith("*")) return f.endsWith(p.slice(1)); 
     if (p.endsWith("/")) return f.startsWith(p);  /* directory prefix */
@@ -157,7 +157,7 @@ export const NOT_SECURITY_SENSITIVE: string[] = [
 ];
 
 export function isSecuritySensitiveSurface(file: string): boolean {
-  const f = file.replace(/^\.\/*/, "").replace(/\\/g, "/");
+  const f = file.replace(/^\.\//, "").replace(/\\/g, "/");
   return SECURITY_SENSITIVE_SURFACE_ROOTS.some((root) => f.startsWith(root));
 }
 

@@ -14,13 +14,29 @@ export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute"] as const;
 
 export const FAILURE_CAPTURE_BLOCK = `
+// ${FAILURE_CAPTURE_MARKER}
+// Captures the aria snapshot of the page at the failure point, the page's final URL, and the HTTP
+// status of the most-recent correlated 5xx server error, writing them to QA_FAILURE_CAPTURE_DIR so
+// the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
+// and reviewer. Best-effort only: the page may be closed on a nav-crash (try/catch swallows), and the
+// entire block is a no-op when QA_FAILURE_CAPTURE_DIR is unset.
+//
+// SELF-CONTAINED: this exact block is also appended (append-only) into existing repos'
+// fixtures.ts by the orchestrator, so it CANNOT assume any top-level import is present.
+// node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
+// a CommonJS-style synchronous load is not defined in this native-ESM module
+// ("type":"module") and would throw a ReferenceError that the catch would swallow.
 let errorResponses = [];
-/* Browser console error-level entries and uncaught pageerror exceptions for the current test. Reset per-test so a reused page never cross-attributes a prior test. Diagnostic signal only — never blocks or masks a generated-test defect. */
+// Feature B (app-defect detection): browser console \`error\`-level entries and uncaught \`pageerror\`
+// exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
+// page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
+// orchestrator's classifyRuntimeErrors (src/qa/failure-adjudicator.ts) turns this into a diagnostic
+// signal ONLY — it never blocks or masks a real generated-test defect (see that module's doc).
 let runtimeErrors = [];
 test.beforeEach(async ({ page }) => {
-  if (!process.env.QA_FAILURE_CAPTURE_DIR) return;
-  errorResponses = [];
-  runtimeErrors = [];
+  if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
+  errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
+  runtimeErrors = [];                                 // Feature B: same per-test reset discipline
   try {
     page.on('response', (r) => {
       try { const s = r.status(); if (s >= 400) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
@@ -29,7 +45,7 @@ test.beforeEach(async ({ page }) => {
   try {
     page.on('console', (msg) => {
       try {
-        if (msg.type() !== 'error') return;
+        if (msg.type() !== 'error') return; // only error-level; warnings/logs are not runtime evidence
         runtimeErrors.push({ type: 'error', text: msg.text() });
       } catch {}
     });
@@ -42,18 +58,34 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page }, testInfo) => {
   const dir = process.env.QA_FAILURE_CAPTURE_DIR;
-  if (!dir) return;
-  if (testInfo.status === testInfo.expectedStatus) return;
+  if (!dir) return;                                   // degrade to no-op when the orchestrator did not ask
+  if (testInfo.status === testInfo.expectedStatus) return; // only on unexpected status (a real failure)
   try {
     const { writeFileSync } = await import("node:fs");
     const { join, basename } = await import("node:path");
     const { createHash } = await import("node:crypto");
-    const yaml = await page.locator("body").ariaSnapshot();
+    const yaml = await page.locator("body").ariaSnapshot(); // the REAL post-failure page state
+    // title = the describe › test chain (drop the leading project element), MATCHING the stream
+    // reporter's _name. The orchestrator's harvest keys off this: the JSON report's case name is
+    // \`file › describe › test\`, whose trailing segments equal this title's segments.
     const title = testInfo.titlePath.filter(Boolean).slice(1).join(" › ");
     const project = testInfo.project.name;
+    // file = the spec's basename. Two tests with the SAME describe › test chain in DIFFERENT spec
+    // files share a title; the file disambiguates them so neither the dump identity nor the harvest
+    // match attaches the wrong DOM. Stored in the body AND folded into the filename hash below.
     const file = basename(testInfo.file ?? "");
+    // Filename: project + a short hash of file + title + retry. The project keeps two projects
+    // (desktop/mobile) running the same spec from clobbering each other; the (file + title) HASH
+    // (not an 80-char truncation) keeps two long titles sharing an 80-char prefix — or two same-titled
+    // tests in different files — from colliding. The body is authoritative for matching (project/file/
+    // title); the filename only guarantees uniqueness + retry.
     const hash = createHash("sha1").update(\`\${file}/\${title}\`).digest("hex").slice(0, 12);
     const safeProject = project.replace(/[^a-z0-9]+/gi, "-").slice(0, 40);
+    // D1/D2: compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
+    // via the D2 heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
+    // (Path-family intentionally omitted: in a SPA the finalUrl is the UI route (e.g. /orders) while
+    // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
+    // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
     const finalUrl = page.url();
     let httpStatus = undefined;
     try {
@@ -62,16 +94,22 @@ test.afterEach(async ({ page }, testInfo) => {
       const FOREGROUND = new Set(['document', 'fetch', 'xhr']);
       const BACKGROUND = new Set(['ping', 'beacon', 'image', 'stylesheet', 'font', 'media']);
       const survivors = errorResponses.filter((e) => {
-        if (e.status < 500 || e.status > 599) return false;
-        if (BACKGROUND.has(e.resourceType)) return false;
-        if (!FOREGROUND.has(e.resourceType)) return false;
+        if (e.status < 500 || e.status > 599) return false; // 5xx only
+        if (BACKGROUND.has(e.resourceType)) return false;    // exclude background resource types
+        if (!FOREGROUND.has(e.resourceType)) return false;   // keep only foreground interactions
         try {
           const eOrigin = new URL(e.url).origin;
-          return eOrigin === finalUrlOrigin;
+          return eOrigin === finalUrlOrigin;                  // same-origin correlation
         } catch { return false; }
       });
-      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1].status;
+      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1].status; // last survivor
     } catch {}
+    // Feature B: dedupe (same type+text pair collapses to one entry — a repeated framework error
+    // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
+    // (the orchestrator only needs enough to classify, not an exhaustive log), and truncate each
+    // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full
+    // stack). Best-effort: any failure here still lets the rest of the dump (yaml/finalUrl/httpStatus)
+    // write normally.
     let dedupedRuntimeErrors = [];
     try {
       const RUNTIME_ERRORS_CAP = 15;
@@ -92,6 +130,7 @@ test.afterEach(async ({ page }, testInfo) => {
     );
   } catch { /* page may be closed on a nav-crash — best-effort, never fail the run */ }
 });
+// <<< qa-failure-capture <<<
 `;
 
 export interface SetupOptions {
