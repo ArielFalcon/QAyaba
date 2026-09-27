@@ -27,7 +27,7 @@ import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
-import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
+import { createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
@@ -162,26 +162,20 @@ function currentAgentDeps(): AgentDeps {
 
 
 /*
- * R7: forward-declared so enqueueContextHealRun (below) can close over it — the SAME pattern
- * onboarding's own enqueueContextRun already uses to close over `onboardingJob` before it exists
- * (both closures only ever RUN after this module has finished initializing, well after the
- * variable they reference is assigned).
+ * Forward-declared so enqueueContextHealRun (below) can close over it — the same pattern
+ * onboarding's own enqueueContextRun uses to close over `onboardingJob` before it exists (both
+ * closures only ever run after this module has finished initializing).
  */
 let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
 
 /*
- * R7: best-effort context-map rebuild trigger for rewritten-engine-factory.ts's process-audit
- * context-heal (a run that consumes a context_stale flag calls this through
- * RewrittenEngineFactoryDeps.enqueueContextRun). Deliberately separate from onboarding's own
- * enqueueContextRun below (near-identical body) rather than shared: onboarding's version also
- * reports isOnboardingActive, a concern this background heal path has no reason to carry, and the
- * two triggers may reasonably diverge later (e.g. priority/backoff). Fire-and-forget by design — a
- * failure to enqueue must never block the run that triggered it; rewritten-engine-factory.ts
- * already treats every outcome (including a thrown/rejected call) as fail-open.
+ * Context-map rebuild trigger for rewritten-engine-factory.ts's process-audit context heal. The
+ * sha is the triggering run's own sha (never the mirror HEAD, which at composition time is the
+ * previous run's sha — a gated app would wait for a version DEV no longer serves). Returns "" while
+ * draining; the factory then keeps the stale flag armed for the next run.
  */
-const enqueueContextHealRun = async ({ app, mirrorDir }: { app: string; mirrorDir: string }): Promise<string> => {
+const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
   if (shuttingDown) return "";
-  const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
   return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, { runEvents, engineFactory });
 };
 

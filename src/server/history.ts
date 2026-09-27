@@ -863,16 +863,16 @@ export function markContextStale(app: string): void {
   db.prepare("INSERT OR REPLACE INTO context_stale (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
 }
 
-/*
- * Consume the staleness flag: returns true (and CLEARS the flag) when the app was marked stale,
- * false otherwise. One-shot by design — the next generating run reads it once to force a rebuild.
- */
-export function consumeContextStale(app: string): boolean {
+/* Whether the app's architecture map is marked stale. Read-only: the flag stays armed. */
+export function isContextStale(app: string): boolean {
   ensureDb();
-  const row = db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) as { app: string } | undefined;
-  if (!row) return false;
+  return db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) !== undefined;
+}
+
+/* Disarm the staleness flag once a rebuild has actually been accepted by the queue. */
+export function clearContextStale(app: string): void {
+  ensureDb();
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
-  return true;
 }
 
 /*

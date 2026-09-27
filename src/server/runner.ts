@@ -62,7 +62,7 @@ export interface RunnerDeps {
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string },
+    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
@@ -305,7 +305,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         deps.engineFactory(
           appConfig,
           runNamespace,
-          { mode: req.mode, target: req.target, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}) },
+          { mode: req.mode, target: req.target, sha: req.sha, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}) },
           observer,
           previousNamespace,
         ),

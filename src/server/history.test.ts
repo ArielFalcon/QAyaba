@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -13,12 +13,14 @@ import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
 import type { RuleStatus } from "../qa/learning/learning-rule";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 
-test("markContextStale then consumeContextStale is one-shot: first consume true, second false", () => {
+test("a marked context-stale flag stays armed across reads until it is cleared", () => {
   const app = "hist-ctx-stale";
-  assert.equal(consumeContextStale(app), false);
+  assert.equal(isContextStale(app), false);
   markContextStale(app);
-  assert.equal(consumeContextStale(app), true);
-  assert.equal(consumeContextStale(app), false); /* …and cleared (survives only until consumed once) */
+  assert.equal(isContextStale(app), true);
+  assert.equal(isContextStale(app), true, "reading the flag must not disarm it");
+  clearContextStale(app);
+  assert.equal(isContextStale(app), false);
 });
 
 test("createRecord stores an enqueued record findable by id", () => {
