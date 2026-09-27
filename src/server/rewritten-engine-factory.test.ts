@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv } from "./rewritten-engine-factory";
+import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
@@ -196,18 +196,61 @@ test("buildRewrittenCompositionConfig — a stale-marked context map is NOT used
   assert.equal(result, undefined, "a stale-flagged map must never ground generation, even though a stored map exists");
 });
 
-test("buildRewrittenCompositionConfig — a gated app's heal is requested at the run's own sha", () => {
-  const app: AppConfig = { ...cfg(`factory-contextmap-heal-sha-${Date.now().toString(36)}`), dev: { baseUrl: "https://dev", versionUrl: "https://dev/version" } };
+/*
+ * The heal handoff end to end: a queued run reaches the real factory, which requests the rebuild. The
+ * mirror seam fails the checkout at once, so the run ends right after composition with no git or
+ * network work.
+ */
+async function queueRunThroughRealFactory(app: AppConfig, sha: string): Promise<ContextHealRunRequest[]> {
+  const requests: ContextHealRunRequest[] = [];
+  const mirrorRoot = mkdtempSync(join(tmpdir(), "qayaba-heal-funnel-"));
+  const noCheckout = async (): Promise<never> => {
+    throw new Error("no mirror in this test");
+  };
+  try {
+    const queue = new JobQueue();
+    enqueueTrackedRun(
+      queue,
+      { app: app.name, sha, target: "e2e", mode: "diff", source: "manual" },
+      {
+        loadApp: () => app,
+        engineFactory: createRewrittenEngineFactory({
+          getAgentDeps: stubAgentDeps,
+          mirrorRoot,
+          mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout },
+          enqueueContextRun: (input) => {
+            requests.push(input);
+            return "run-heal-1";
+          },
+        }),
+      },
+    );
+    await queue.drain();
+    await flushMicrotasks();
+  } finally {
+    rmSync(mirrorRoot, { recursive: true, force: true });
+  }
+  return requests;
+}
+
+test("a queued run requests its context heal at that run's own sha", async () => {
+  const app = cfg(`factory-contextmap-heal-funnel-${Math.random().toString(36).slice(2)}`);
   markContextStale(app.name);
 
-  const requests: Array<{ app: string; sha: string }> = [];
-  buildRewrittenCompositionConfig(
-    app,
-    { getAgentDeps: stubAgentDeps, enqueueContextRun: (input) => { requests.push(input); return "run-heal-1"; } },
-    "qa-bot-def5678-run2",
-    { mode: "diff", sha: "def5678" },
-  );
-  assert.deepEqual(requests.map((r) => ({ app: r.app, sha: r.sha })), [{ app: app.name, sha: "def5678" }]);
+  const requests = await queueRunThroughRealFactory(app, "def5678");
+
+  assert.deepEqual(requests.map(({ app: name, sha }) => ({ app: name, sha })), [{ app: app.name, sha: "def5678" }]);
+  assert.equal(isContextStale(app.name), false, "the accepted rebuild disarms the flag");
+});
+
+test("a queued run with no sha never requests a context heal and keeps the stale flag armed", async () => {
+  const app = cfg(`factory-contextmap-heal-funnel-nosha-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+
+  const requests = await queueRunThroughRealFactory(app, "");
+
+  assert.deepEqual(requests, []);
+  assert.equal(isContextStale(app.name), true, "the next run that has a sha must retry the heal");
 });
 
 test("buildRewrittenCompositionConfig — an accepted heal disarms the stale flag", async () => {
