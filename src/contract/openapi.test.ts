@@ -63,6 +63,44 @@ test("nested entities are $ref'd, not inlined (codegen-friendly)", () => {
   assert.deepEqual(cases, { type: "array", items: { $ref: "#/components/schemas/QaCase" } });
 });
 
+/* Generalizes the check above: walk every component schema's own properties (one level — this
+   deliberately does not descend into oneOf/anyOf union branches, which legitimately repeat small
+   shapes like {kind, receiver} without warranting a named schema) and fail if the same inlined
+   object shape appears at two or more distinct locations. A structural duplicate is exactly the
+   signal that a schema was defined once (e.g. AppAuthInputSchema) but never added to NAMED_SCHEMAS
+   — codegen clients then get the shape twice instead of one shared, reusable type. */
+test("an inlined object shape reused at multiple locations must be a named, $ref'd schema", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const schemas = doc.components.schemas;
+
+  const isInlineObject = (v: unknown): v is { properties: Record<string, unknown> } =>
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    !("$ref" in (v as Record<string, unknown>)) &&
+    (v as Record<string, unknown>).type === "object" &&
+    typeof (v as Record<string, unknown>).properties === "object";
+
+  const locationsBySignature = new Map<string, string[]>();
+  for (const [schemaName, schema] of Object.entries(schemas)) {
+    for (const [propName, propValue] of Object.entries(schema.properties ?? {})) {
+      if (!isInlineObject(propValue)) continue;
+      const signature = JSON.stringify(propValue);
+      const locations = locationsBySignature.get(signature) ?? [];
+      locations.push(`${schemaName}.${propName}`);
+      locationsBySignature.set(signature, locations);
+    }
+  }
+
+  const duplicates = [...locationsBySignature.values()].filter((locations) => locations.length > 1);
+  assert.deepEqual(
+    duplicates,
+    [],
+    `inlined object shape duplicated at: ${duplicates.map((locations) => locations.join(" & ")).join("; ")} ` +
+      "— register it in NAMED_SCHEMAS so codegen clients share one type",
+  );
+});
+
 test("a real RunRecord shape validates against RunRecordSchema (runtime drift guard)", () => {
   const record = {
     id: "run_1", app: "portfolio", sha: "abc1234", target: "e2e", mode: "diff",

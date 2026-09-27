@@ -2055,6 +2055,34 @@
         ],
         "additionalProperties": false
       },
+      "AppAuthInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "form",
+              "mtls"
+            ]
+          },
+          "usernameEnv": {
+            "type": "string"
+          },
+          "passwordEnv": {
+            "type": "string"
+          },
+          "certEnv": {
+            "type": "string"
+          },
+          "certPassEnv": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      },
       "RepoInfo": {
         "type": "object",
         "properties": {
@@ -2128,32 +2156,11 @@
             }
           },
           "auth": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "form",
-                  "mtls"
-                ]
-              },
-              "usernameEnv": {
-                "type": "string"
-              },
-              "passwordEnv": {
-                "type": "string"
-              },
-              "certEnv": {
-                "type": "string"
-              },
-              "certPassEnv": {
-                "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AppAuthInput"
               }
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
+            ]
           },
           "dryRun": {
             "type": "boolean"
@@ -2208,32 +2215,11 @@
             }
           },
           "auth": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "form",
-                  "mtls"
-                ]
-              },
-              "usernameEnv": {
-                "type": "string"
-              },
-              "passwordEnv": {
-                "type": "string"
-              },
-              "certEnv": {
-                "type": "string"
-              },
-              "certPassEnv": {
-                "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AppAuthInput"
               }
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
+            ]
           },
           "clearAuth": {
             "type": "boolean"

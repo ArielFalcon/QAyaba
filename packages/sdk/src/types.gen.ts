@@ -665,6 +665,14 @@ export interface components {
             openapi?: string;
             versionUrl?: string;
         };
+        AppAuthInput: {
+            /** @enum {string} */
+            kind: "form" | "mtls";
+            usernameEnv?: string;
+            passwordEnv?: string;
+            certEnv?: string;
+            certPassEnv?: string;
+        };
         RepoInfo: {
             name: string;
             fullName: string;
@@ -686,14 +694,7 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
-            auth?: {
-                /** @enum {string} */
-                kind: "form" | "mtls";
-                usernameEnv?: string;
-                passwordEnv?: string;
-                certEnv?: string;
-                certPassEnv?: string;
-            };
+            auth?: components["schemas"]["AppAuthInput"];
             dryRun?: boolean;
             validateOnly?: boolean;
         };
@@ -710,14 +711,7 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
-            auth?: {
-                /** @enum {string} */
-                kind: "form" | "mtls";
-                usernameEnv?: string;
-                passwordEnv?: string;
-                certEnv?: string;
-                certPassEnv?: string;
-            };
+            auth?: components["schemas"]["AppAuthInput"];
             clearAuth?: boolean;
             dryRun?: boolean;
         };

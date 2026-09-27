@@ -381,6 +381,34 @@ func TestMtlsAuthReadsP12AsBase64(t *testing.T) {
 	}
 }
 
+/* AppView.AuthKind is a generated enum pointer (contract.AppViewAuthKind), not a plain
+   *string — newEditAppModel must convert it into the model's plain-string authMode/storedAuth
+   and seed the placeholder text, exactly as it did before the type was named by codegen. */
+func TestNewEditAppModelReadsStoredAuthKindFromAppView(t *testing.T) {
+	form := contract.AppViewAuthKindForm
+	app := contract.AppView{Name: "shop", Repo: "org/shop", AuthKind: &form}
+	m := newEditAppModel(nil, app)
+	if m.authMode != "form" {
+		t.Fatalf("authMode=%q, want form", m.authMode)
+	}
+	if m.storedAuth != "form" {
+		t.Fatalf("storedAuth=%q, want form (so an edit that clears it can detect the change)", m.storedAuth)
+	}
+	if m.userInput.Placeholder != "app user" {
+		t.Fatalf("form placeholders not applied: %q", m.userInput.Placeholder)
+	}
+
+	mtls := contract.AppViewAuthKindMtls
+	app.AuthKind = &mtls
+	m = newEditAppModel(nil, app)
+	if m.authMode != "mtls" {
+		t.Fatalf("authMode=%q, want mtls", m.authMode)
+	}
+	if m.userInput.Placeholder != "path to .p12" {
+		t.Fatalf("mtls placeholder not applied: %q", m.userInput.Placeholder)
+	}
+}
+
 func TestAuthModeCyclesThroughFormAndCertificate(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm

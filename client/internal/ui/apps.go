@@ -144,9 +144,9 @@ func newEditAppModel(client *api.Client, app contract.AppView) appAdminModel {
 	m.versionInput.SetValue(app.VersionUrl)
 	m.prefixInput.SetValue(app.TestDataPrefix)
 	m.formCursor = 1
-	if app.AuthKind != nil && (*app.AuthKind == "form" || *app.AuthKind == "mtls") {
-		m.authMode = *app.AuthKind
-		m.storedAuth = *app.AuthKind
+	if app.AuthKind != nil && (*app.AuthKind == contract.AppViewAuthKindForm || *app.AuthKind == contract.AppViewAuthKindMtls) {
+		m.authMode = string(*app.AuthKind)
+		m.storedAuth = string(*app.AuthKind)
 		m.applyAuthPlaceholders()
 	}
 	m.nameInput.Blur()
@@ -653,11 +653,11 @@ func (m appAdminModel) authDeclaration() *contract.AppAuthInput {
 	case "form":
 		userEnv := prefix + "TEST_USER"
 		passEnv := prefix + "TEST_PASS"
-		return &contract.AppAuthInput{Kind: "form", UsernameEnv: &userEnv, PasswordEnv: &passEnv}
+		return &contract.AppAuthInput{Kind: contract.AppAuthInputKindForm, UsernameEnv: &userEnv, PasswordEnv: &passEnv}
 	case "mtls":
 		certEnv := prefix + "CLIENT_CERT"
 		passEnv := prefix + "CLIENT_CERT_PASS"
-		return &contract.AppAuthInput{Kind: "mtls", CertEnv: &certEnv, CertPassEnv: &passEnv}
+		return &contract.AppAuthInput{Kind: contract.AppAuthInputKindMtls, CertEnv: &certEnv, CertPassEnv: &passEnv}
 	default:
 		return nil
 	}

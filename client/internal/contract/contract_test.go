@@ -267,3 +267,99 @@ func TestOnboardingJobStatusDecodesResolutionSummaryFromServerJSON(t *testing.T)
 		t.Fatalf("external not decoded: got %v want 1", res.External)
 	}
 }
+
+/* SignalsView.Coordination is optional (src/server/coordination-events.ts buildCoordinationSignals):
+   present once a fleet has adopted multi-agent coordination, absent (nil) for one that hasn't.
+   Decoding a real GET /api/v1/signals payload with it present ties the generated pointer-to-anonymous-
+   struct shape to the contract — the same no-drift guarantee as the other decode tests in this file. */
+func TestSignalsViewDecodesCoordinationFromServerJSON(t *testing.T) {
+	const payload = `{
+		"valueOracle":{"measured":true,"avgScore":0.8,"measuredRuns":10,"totalRuns":20},
+		"reviewer":{"passRate":0.9,"runs":20},
+		"coverage":{"measured":true,"avgRatio":0.75,"measuredRuns":10,"totalRuns":20},
+		"coordination":{
+			"measured":true,"totalRuns":20,"delegateRuns":8,
+			"escalationRate":0.25,"contractFailureRate":0.125,"avgDelegationMs":1500
+		}
+	}`
+	var v SignalsView
+	if err := json.Unmarshal([]byte(payload), &v); err != nil {
+		t.Fatalf("decode SignalsView: %v", err)
+	}
+	if v.Coordination == nil {
+		t.Fatalf("coordination not decoded")
+	}
+	co := v.Coordination
+	if !co.Measured || co.TotalRuns != 20 || co.DelegateRuns != 8 {
+		t.Fatalf("coordination header fields: %+v", co)
+	}
+	if co.EscalationRate == nil || *co.EscalationRate != 0.25 {
+		t.Fatalf("escalationRate not decoded: %v", co.EscalationRate)
+	}
+	if co.ContractFailureRate == nil || *co.ContractFailureRate != 0.125 {
+		t.Fatalf("contractFailureRate not decoded: %v", co.ContractFailureRate)
+	}
+	if co.AvgDelegationMs == nil || *co.AvgDelegationMs != 1500 {
+		t.Fatalf("avgDelegationMs not decoded: %v", co.AvgDelegationMs)
+	}
+}
+
+/* A fleet that hasn't adopted coordination yet gets no "coordination" key at all
+   (src/server/coordination-events.ts only adds it when outcomes exist) — Coordination must decode
+   as nil, not a zero-valued struct, so the console can tell "unmeasured" from "no coordination". */
+func TestSignalsViewCoordinationAbsentWhenNotYetAdopted(t *testing.T) {
+	const payload = `{
+		"valueOracle":{"measured":false,"avgScore":null,"measuredRuns":0,"totalRuns":0},
+		"reviewer":{"passRate":null,"runs":0},
+		"coverage":{"measured":false,"avgRatio":null,"measuredRuns":0,"totalRuns":0}
+	}`
+	var v SignalsView
+	if err := json.Unmarshal([]byte(payload), &v); err != nil {
+		t.Fatalf("decode SignalsView: %v", err)
+	}
+	if v.Coordination != nil {
+		t.Fatalf("coordination should be absent, got %+v", v.Coordination)
+	}
+}
+
+/* CoordinationEventsView (GET /api/v1/coordination-events) — the ledger tail the console's
+   coordination panel reads. Exercises the CoordinationEventKind enum plus the wide set of
+   optional fields a "delegation" event carries. */
+func TestCoordinationEventsViewDecodesFromServerJSON(t *testing.T) {
+	const payload = `{
+		"events":[
+			{
+				"runId":"run_1","kind":"delegation","action":"navigate","capability":"browser",
+				"reason":"frontend flow needs a live DOM","durationMs":1500,"delegationId":"d1",
+				"attempt":1,"valueScore":0.82,"coverageRatio":0.6,"at":1731000000000
+			}
+		],
+		"truncated":false
+	}`
+	var v CoordinationEventsView
+	if err := json.Unmarshal([]byte(payload), &v); err != nil {
+		t.Fatalf("decode CoordinationEventsView: %v", err)
+	}
+	if v.Truncated {
+		t.Fatalf("truncated should be false")
+	}
+	if len(v.Events) != 1 {
+		t.Fatalf("want 1 event, got %d", len(v.Events))
+	}
+	e := v.Events[0]
+	if e.RunId != "run_1" || e.Kind != Delegation || e.Reason != "frontend flow needs a live DOM" {
+		t.Fatalf("event header fields: %+v", e)
+	}
+	if e.Action == nil || *e.Action != "navigate" || e.Capability == nil || *e.Capability != "browser" {
+		t.Fatalf("action/capability not decoded: %+v", e)
+	}
+	if e.DelegationId == nil || *e.DelegationId != "d1" || e.Attempt == nil || *e.Attempt != 1 {
+		t.Fatalf("delegationId/attempt not decoded: %+v", e)
+	}
+	if e.ValueScore == nil || *e.ValueScore != 0.82 || e.CoverageRatio == nil || *e.CoverageRatio != 0.6 {
+		t.Fatalf("valueScore/coverageRatio not decoded: %+v", e)
+	}
+	if e.At != 1731000000000 {
+		t.Fatalf("at not decoded: got %v", e.At)
+	}
+}
