@@ -84,7 +84,7 @@ export interface AgentResult {
    * Absent ⇒ treated as 0 (no gating).
    */
   reexploreNavigations?: number;
-  
+
   objectiveCount?: number;
 }
 
@@ -304,11 +304,11 @@ export interface RunOutcome {
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
-    
+
     structuralSignalBytes?: number;
     serviceLinksCount?: number;
     contractDriftCount?: number;
-    
+
     crossRepoImpactedCount?: number;
   };
   rulesRetrieved: string[];

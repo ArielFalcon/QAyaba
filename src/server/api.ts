@@ -129,15 +129,15 @@ export interface ApiDeps {
   deleteApp?: (name: string, purge: boolean) => { removed: string[] };
   listRepos?: (owner: string, page: number) => Promise<{ repos: Array<{ fullName: string; private: boolean; description: string | null }>; hasMore: boolean }>;
   runEvents?: RunEventStore;
-  
+
   boundaries?: {
     propose(app: string, input: z.infer<typeof ProposeBoundariesInputSchema>): { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
     status(app: string): z.infer<typeof OnboardingJobStatusSchema>;
     confirm(app: string): { ok: true } | { ok: false; error: string };
   };
-  
+
   getAgentTurns?: (runId: string) => AgentTurnRecord[];
-  
+
   telemetryAnalysis?: (app: string, windowDays?: number) => TelemetryAnalysis;
   /*
    * Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
@@ -227,7 +227,7 @@ export async function handleApi(
     return handleRunEvents(req, res, deps, eventMatch[1]!);
   }
 
-  
+
   const turnsMatch = path.match(/^\/api\/runs\/([^/]+)\/turns$/);
   if (req.method === "GET" && turnsMatch) {
     return handleRunTurns(res, deps, turnsMatch[1]!);
@@ -287,7 +287,7 @@ export async function handleApi(
     return handleAppTrends(res, deps, trendsMatch[1]!, parseWindow(url.searchParams.get("window")), url.searchParams.get("format"));
   }
 
-  
+
   const telemetryMatch = path.match(/^\/api\/apps\/([^/]+)\/telemetry$/);
   if (req.method === "GET" && telemetryMatch) {
     return handleAppTelemetry(res, deps, telemetryMatch[1]!, parseWindow(url.searchParams.get("window")));

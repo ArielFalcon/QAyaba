@@ -51,7 +51,7 @@ export interface ReviewerVerdict {
   rationale?: string;
   /* Flat list of ALL correction texts (blocking + advisory), for backward-compat logging. */
   corrections: string[];
-  
+
   blockingCount: number;
   valid: boolean;  /* the reviewer JSON satisfied the schema (i.e. `approved` is a clean boolean) */
   parsed: boolean;  /* an object carrying an `approved` field was found at all */
@@ -74,7 +74,7 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
   const r = ReviewerVerdictSchema.safeParse(candidate);
   if (r.success) {
     const corrections = r.data.corrections.map(correctionText);
-    
+
     const blockingCount = r.data.corrections.filter((e) => effectiveSeverity(e) === "blocking").length;
     return {
       approved: r.data.approved,
@@ -86,7 +86,7 @@ export function parseReviewerVerdict(text: string): ReviewerVerdict {
       issues: [],
     };
   }
-  
+
   return { approved: false, corrections: [], blockingCount: 0, valid: false, parsed: true, issues: formatIssues(r.error) };
 }
 

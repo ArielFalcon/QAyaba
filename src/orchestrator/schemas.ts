@@ -137,7 +137,7 @@ export const AppConfigSchema = z
           maxRetries: z.number().int().min(0).max(5).optional(),
         })
         .optional(),
-      
+
       iterationBudget: z.number().int().positive().optional(),
       /*
        * Optional run-level wall-clock ceiling (ms). When the run's total elapsed time exceeds this at
@@ -183,7 +183,7 @@ export const AppConfigSchema = z
       onFailure: z.string().min(1),
     }),
   })
-  
+
   .refine((c) => c.code === true || c.dev !== undefined, {
     error: "dev is required unless code: true (code mode has no web environment)",
     path: ["dev"],

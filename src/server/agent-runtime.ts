@@ -119,7 +119,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
        */
       setRuntimeRoleModels(runtimeRoleModelsFromConfig(config));
 
-      
+
       const restarted = changedProviders(previous, next, apiKeyVars);
       await Promise.all(restarted.map((provider) => restartProvider(provider, apiKeyForProvider(input, provider), runtimeVars)));
 

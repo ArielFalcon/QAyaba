@@ -49,11 +49,11 @@ export function toLegacyRunOutcome(outcome: KernelRunOutcome): LegacyRunOutcome 
       ...(outcome.gateSignals.catalogGateInWindow !== undefined ? { catalogGateInWindow: outcome.gateSignals.catalogGateInWindow } : {}),
       ...(outcome.gateSignals.catalogGateAdvisory !== undefined ? { catalogGateAdvisory: outcome.gateSignals.catalogGateAdvisory } : {}),
       ...(outcome.gateSignals.catalogGateFailClosed !== undefined ? { catalogGateFailClosed: outcome.gateSignals.catalogGateFailClosed } : {}),
-      
+
       ...(outcome.gateSignals.structuralSignalBytes !== undefined ? { structuralSignalBytes: outcome.gateSignals.structuralSignalBytes } : {}),
       ...(outcome.gateSignals.serviceLinksCount !== undefined ? { serviceLinksCount: outcome.gateSignals.serviceLinksCount } : {}),
       ...(outcome.gateSignals.contractDriftCount !== undefined ? { contractDriftCount: outcome.gateSignals.contractDriftCount } : {}),
-      
+
       ...(outcome.gateSignals.crossRepoImpactedCount !== undefined ? { crossRepoImpactedCount: outcome.gateSignals.crossRepoImpactedCount } : {}),
     },
     rulesRetrieved: outcome.rulesRetrieved,

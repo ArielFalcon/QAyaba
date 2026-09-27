@@ -140,7 +140,7 @@ export class LlmProfileProposerAdapter implements ProfileProposerPort {
   constructor(
     private readonly depsFactory: () => Promise<AgentDeps> = defaultAgentDeps,
     private readonly model: string = PROPOSER_MODEL,
-    
+
     private readonly ctx: { app: string; timeoutMs?: number; signal?: AbortSignal },
   ) {}
 

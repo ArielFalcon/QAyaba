@@ -34,7 +34,7 @@ export const PROTECTED_PATHS: string[] = [
   "src/server/maintainer-memory.ts",
 
   "src/orchestrator/sanitizer.ts",
-  
+
   "qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts",
   /*
    * Builds the child env used to prepare an authenticated Playwright session (storageState form
@@ -62,7 +62,7 @@ export const PROTECTED_PATHS: string[] = [
    * is meaningless if this adapter's git calls are weakened.
    */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts",
-  
+
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.ts",
   /*
    * The VcsWritePort/GitHubPrPort/GitHubIssuePort/ShadowPublicationPort interface definitions — an
@@ -120,16 +120,16 @@ export const PROTECTED_PATHS: string[] = [
    * themselves — the single widest-blast-radius file in the whole security surface.
    */
   "src/server/rewritten-engine-factory.ts",
-  
+
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
    * Model-prompt sanitizer twin (diff/commit-body/reviewer-text → model). Must stay in lockstep
    * with src/orchestrator/sanitizer.ts so prompt assembly never imports src/.
    */
   "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-  
+
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts",
-  
+
   "src/server/auth.ts",
   "src/server/github-auth.ts",
   "src/server/webhook.ts",
@@ -139,9 +139,9 @@ export const PROTECTED_PATHS: string[] = [
    * autonomous fix can silently stop routing to them (or route around them) here instead.
    */
   "src/server/api.ts",
-  
+
   "qa-engine/src/contexts/generation/infrastructure/",
-  
+
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
 
   /*
@@ -165,15 +165,15 @@ export const PROTECTED_PATHS: string[] = [
    * rubber stamp with no detectable failure.
    */
   "src/agent-runtime/config.ts",
-  
+
   "*.test.ts",
   "tsconfig.json",
   "src/index.ts",
-  
+
   "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
   "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
-  
+
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
   ".github/",
@@ -223,7 +223,7 @@ export const NOT_SECURITY_SENSITIVE: string[] = [
    * owns the auth-header injection) and carries no credential of its own.
    */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/github-issue.adapter.ts",
-  
+
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/github-pr.adapter.ts",
   /* `git gc --auto` only — no credential, no write-confinement/publish interaction. */
   "qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-gc.adapter.ts",

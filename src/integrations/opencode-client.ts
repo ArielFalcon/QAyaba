@@ -213,7 +213,7 @@ export function getOpenSessionCount(): number {
 
 
 export async function askAssistant(
-  
+
   input: { context: string; question: string; instruction?: string; agent?: string; runId?: string },
   deps: AgentDeps,
   cwd: string,
@@ -248,7 +248,7 @@ export async function askAssistant(
       `- If the context lacks the answer, reply (in the question's language): "No tengo suficiente información para responder eso."`,
     ].join("\n");
   const role = input.agent ?? "qa-assistant";
-  
+
   const session = await deps.open(role, cwd, {
     descriptor: { role, runId: input.runId },
   });

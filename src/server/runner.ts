@@ -58,7 +58,7 @@ export interface RunRequest {
 export interface RunnerDeps {
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
   runEvents?: RunEventStore;
-  
+
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
@@ -67,7 +67,7 @@ export interface RunnerDeps {
     previousNamespace?: string,
   ) => RunPipelinePort;
 
-  
+
   isOnboardingActive?: () => boolean;
   /*
    * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
@@ -153,7 +153,7 @@ async function runViaRewrittenEngine(
   appConfig: AppConfig,
   runEvents: RunEventStore | undefined,
   liveAnnounced?: Map<string, LiveAnnouncedStatus>,
-  
+
   previousNamespace?: string,
 ): Promise<QaRunResult> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
@@ -168,16 +168,16 @@ async function runViaRewrittenEngine(
     ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}),
     ...(previousNamespace ? { previousNamespace } : {}),
     ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : {}),
-    
+
     ...(req.parentRunId ? { parentRunId: req.parentRunId } : {}),
   };
   const outcome = await port.run(input, signal);
-  
+
   const cases = outcome.cases ?? [];
   for (const c of cases) {
     recordCase(runId, c, runEvents, liveAnnounced);
   }
-  
+
   if (outcome.gateSignals.reviewerApproved !== undefined) {
     runEvents?.publish(runId, {
       type: "reviewer.verdict",
@@ -243,7 +243,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       updateRecord(record.id, { status: "running" });
 
-      
+
       const isOnboardingActive = deps.isOnboardingActive ?? (() => false);
       const onboardingPollMs = deps.onboardingPollMs ?? ONBOARDING_POLL_MS;
       const onboardingWaitMaxMs = deps.onboardingWaitMaxMs ?? ONBOARDING_WAIT_MAX_MS;
@@ -283,7 +283,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       if (req.shadow !== undefined) {
         appConfig.qa.shadow = req.shadow;
       }
-      
+
       selectEngine(process.env);
       if (!deps.engineFactory) {
         throw new Error(
@@ -291,7 +291,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
             "Wire src/server/rewritten-engine-factory.ts's createRewrittenEngineFactory(...) at the caller.",
         );
       }
-      
+
       const runNamespace = testDataNamespace(appConfig.qa.testDataPrefix, req.sha, record.id);
       /*
        * Per-run observer so RunQaUseCase.onStep() reaches the same updateRecord + RunEvents.publish
@@ -301,7 +301,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       const liveAnnounced = new Map<string, LiveAnnouncedStatus>();
       const observer = buildRewrittenObserver(record.id, deps.runEvents, liveAnnounced);
       const run: QaRunResult = await runViaRewrittenEngine(
-        
+
         deps.engineFactory(
           appConfig,
           runNamespace,
@@ -321,7 +321,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          */
         previousNamespace,
       );
-      
+
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
         return;
@@ -353,7 +353,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       });
       console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
-      
+
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
         return;

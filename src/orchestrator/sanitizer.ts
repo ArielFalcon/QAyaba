@@ -282,7 +282,7 @@ export class RedactionPortAdapter implements RedactionPort {
     return sanitizeText(stripEnvValues(text, this.env)).text;
   }
 
-  
+
   redactText(text: string): string {
     return this.redact(text);
   }

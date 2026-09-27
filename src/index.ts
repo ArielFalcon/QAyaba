@@ -259,7 +259,7 @@ function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, 
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
-  
+
   return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
 }
 
@@ -574,7 +574,7 @@ const apiDeps: ApiDeps = {
   deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),
   listRepos: (owner, page) => github.listRepos(owner, page),
   runEvents,
-  
+
   boundaries: {
     propose: (name, input) => {
       let app;
@@ -590,9 +590,9 @@ const apiDeps: ApiDeps = {
     status: (name) => onboardingJob.status(name),
     confirm: (name) => onboardingJob.confirm(name),
   },
-  
+
   getAgentTurns: (runId) => getAgentTurns(runId),
-  
+
   telemetryAnalysis: (app, windowDays) => computeTelemetryAnalysis(app, windowDays),
   resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
   getRecord,
@@ -846,7 +846,7 @@ const server = createServer(async (req, res) => {
           return;
         }
         const { repo, sha, mode, guidance, baseSha } = result.payload;
-        
+
         let dispatch: WebhookDispatch[];
         try {
           dispatch = await resolveWebhookDispatch(appCatalog, repo, { mode, guidance, baseSha });

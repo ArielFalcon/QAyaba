@@ -126,7 +126,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
       await ensureMirrorSelf(maintainerWorkDir, mirrorDeps);
       await mirrorDeps.git(["checkout", "-B", branchName], maintainerWorkDir);
 
-      
+
       const session = await deps.open("qa-maintainer", maintainerWorkDir, {
         descriptor: { role: "qa-maintainer" },
       });
@@ -256,7 +256,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         for (const inc of pending) updateIncident(inc.id, { status: "fixed", prUrl: pr.url });
         console.log(`[maintainer] fix PR opened: ${pr.url}`);
 
-        
+
         const leaveForHuman = (why: string, severity: "warn" | "critical" = "warn") => {
           setMaintainerStatus("idle");
           if (severity === "critical") {
@@ -267,19 +267,19 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
         /* Layer 1 — a valid necessity/minimality justification is MANDATORY. */
         if (!summary.justification) return leaveForHuman("fix lacks a valid justification");
-        
+
         if (!cfg.autonomous) return leaveForHuman("autonomous deploy disabled (SELF_MAINTAINER_AUTOMERGE=false)");
 
-        
+
         const numstat = await mirrorDeps.git(["diff", "--numstat", "--no-renames", "origin/main...HEAD"], maintainerWorkDir);
         const scope = assessChange(parseNumstat(numstat));
         if (!scope.ok) return leaveForHuman(scope.reasons.join("; "), "critical");
 
-        
+
         const rate = assessRate(readDeployHistory(DEPLOY_LEDGER), Date.now());
         if (!rate.ok) return leaveForHuman(rate.reasons.join("; "), "critical");
 
-        
+
         const scrubbed = scrubEnv();
         try {
           fx.exec("npm install --no-audit --no-fund", { cwd: maintainerWorkDir, stdio: "inherit", env: scrubbed });
@@ -462,7 +462,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     }, 20_000);
   }
 
-  
+
   async function promote(
     p: { repo: string; prNumber: number; nodeId: string },
     prUrl?: string,
@@ -572,7 +572,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     return true;
   }
 
-  
+
   function recoverRollbackRecord(): void {
     const raw = realMemoryFs.read(ROLLBACK_BRIDGE);
     if (!raw) return;

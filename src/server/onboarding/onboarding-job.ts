@@ -16,7 +16,7 @@ export const ONBOARD_STATE = {
   resolvingMirrors: "resolvingMirrors",
   proposing: "proposing",
   scoring: "scoring",
-  
+
   indexing: "indexing",
   /*
    * Post-confirm (and no-profile) architecture-map phase. NOT terminal and does NOT hold `busy`
@@ -388,7 +388,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       const system: RepoRef[] = req.services.map((repo, i) => ({ repo, mirrorDir: serviceMirrorDirs[i]! }));
       lastRepoRefs = [front, ...system];  /* available to confirm()'s indexing kickoff */
 
-      
+
       status = { ...status, state: ONBOARD_STATE.proposing };
       const controller = new AbortController();
       const proposer = deps.buildProposer({ app: req.app, signal: controller.signal });

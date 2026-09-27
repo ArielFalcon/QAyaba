@@ -308,7 +308,7 @@ function ensureDb(): void {
   listOutcomesStmt = db.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
   getOutcomeStmt = db.prepare("SELECT * FROM run_outcomes WHERE id = ?");
 
-  
+
   upsertRuleStmt = db.prepare(`
     INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, archetype, confidence, usage_count, outcome_count, oracle_outcome_count, success_rate, last_verified, source, status, at)
     VALUES (@id, @app, @trigger, @action, @errorClass, @archetype, @confidence, @usageCount, @outcomeCount, @oracleOutcomeCount, @successRate, @lastVerified, @source, @status, @at)
@@ -520,7 +520,7 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.status !== undefined) add("status", patch.status);
   if (patch.step !== undefined) {
     add("step", patch.step);
-    
+
     const cur = (db.prepare("SELECT step FROM runs WHERE id = ?").get(id) as { step?: string } | undefined)?.step;
     if (cur !== patch.step) add("step_started_at", new Date().toISOString());
   }
@@ -1151,7 +1151,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     turnCount: s.turnCount,
   }));
 
-  
+
   const generatorFirstRounds = turnRows.filter(
     (r) =>
       (r.role as string).includes("generator") &&

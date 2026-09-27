@@ -50,9 +50,9 @@ export interface SwapMarker {
   at: string;
   attempt: number;
   prUrl?: string;
-  
+
   promote?: { repo: string; prNumber: number; nodeId: string };
-  
+
   fix?: { prTitle?: string; changes?: string[]; rootCause?: string };
 }
 

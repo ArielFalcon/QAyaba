@@ -222,19 +222,19 @@ function withPublishGitDecorations(git: GitFn): GitFn {
  */
 export function buildVcsPublish(
   isCode: boolean,
-  
+
   mode: RunMode,
   git: GitFn = realGit,
   writeExcludesFn: (dir: string, patterns: readonly string[]) => void = writeExcludes,
 ): VcsPublishCollaborator {
   const vcs = new VcsWriteAdapter(withPublishGitDecorations(git), writeExcludesFn);
-  
+
   const confinementClassifier = new WriteConfinementService();
   const isContext = mode === "context";
   const addDir = isContext ? CONTEXT_PUBLISH_ADD : isCode ? CODE_PUBLISH_ADD : E2E_PUBLISH_ADD;
   /* Context is staged by exact pathspec — exclude patterns have nothing to filter. */
   const excludes = isContext ? [] : isCode ? CODE_PUBLISH_EXCLUDES : E2E_PUBLISH_EXCLUDES;
-  
+
   const denyModifiedTracked = (path: string) => confinementClassifier.isCodeDenied(path);
   return {
     async publish({ mirrorDir, branch }): Promise<{ changed: boolean; revertedDenylisted?: string[]; revertedDangerous?: string[] }> {
@@ -248,7 +248,7 @@ export function buildVcsPublish(
       if (!changed) return { changed: false };
       await vcs.checkoutBranch(mirrorDir, branch);
       const commitMsg = isContext ? "docs(context): automated QA context map" : isCode ? "test(code): automated QA" : "test(e2e): automated QA";
-      
+
       const { revertedDenylisted, revertedDangerous } = await vcs.commit(mirrorDir, commitMsg, addDir, denyModifiedTracked);
       await vcs.push(mirrorDir, branch);
       return { changed: true, revertedDenylisted, revertedDangerous };
@@ -368,7 +368,7 @@ export function historyLearningStore(appName: string): LearningStore {
         source: rule.source,
       }),
     recordOutcome: (outcome) => {
-      
+
       try {
         const { rulesRetrieved, gateSignals, errorClass } = outcome;
         /* Persist the per-run oracle scorecard even when no rules were retrieved. */
@@ -419,7 +419,7 @@ export function historyLearningStore(appName: string): LearningStore {
          */
       }
     },
-    
+
     incrementUsage: (ids) => incrementRuleUsage([...ids]),
   };
 }
@@ -431,7 +431,7 @@ export interface RewrittenEngineFactoryDeps {
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
   getAgentDeps: () => AgentDeps;
-  
+
   historyFilePath?: string;
   env?: Record<string, string | undefined>;
   mirrorRoot?: string;
@@ -462,7 +462,7 @@ export function buildRewrittenCompositionConfig(
   deps: RewrittenEngineFactoryDeps,
   namespace: string,
   run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string },
-  
+
   observer?: ObserverPort,
 ): CompositionConfig {
   const target: TestTarget = run.target ?? (app.code === true ? "code" : "e2e");
@@ -477,16 +477,16 @@ export function buildRewrittenCompositionConfig(
     );
   }
   const e2eRelDir = "e2e";
-  
+
   const redactionPort = new RedactionPortAdapter();
-  
+
   const e2eDefaultTimeoutMs = e2eTimeoutMs(process.env);
   const pwActionTimeoutMs = process.env.PW_ACTION_TIMEOUT_MS;
-  
+
   const codeSandbox = resolveSandbox(process.env);
-  
+
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
-  
+
   const mirrorRoot = deps.mirrorRoot ?? workdirRoot();
   /*
    * Placeholder static mirrorDir — the real per-run dir is whatever checkout(sha) returns.
@@ -513,7 +513,7 @@ export function buildRewrittenCompositionConfig(
   if (run.triggerRepo && run.triggerRepo !== app.repo && !triggerService) {
     throw new Error(`trigger repo ${run.triggerRepo} is not a declared service of app ${app.name}`);
   }
-  
+
   if (triggerService && run.mode === "context") {
     throw new Error(`context mode cannot be triggered by a service repo (${triggerService.repo}); run it from the primary repo ${app.repo}`);
   }
@@ -549,7 +549,7 @@ export function buildRewrittenCompositionConfig(
   /* Defaults to the real stageServiceContext in production. */
   const stage = deps.stageServiceContext ?? stageServiceContext;
 
-  
+
   const branch = namespace;
 
   const runner = new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() });
@@ -562,7 +562,7 @@ export function buildRewrittenCompositionConfig(
   const vcsDir = triggerService ? join(mirrorRoot, triggerService.repo.replaceAll("/", "__")) : mirrorDir;
   const vcs = new GitMirrorReadAdapter(vcsDir, runner);
 
-  
+
   const structuralSignalsMode = app.qa.structuralSignals?.mode ?? "signal";
   const structuralSignalsOn = structuralSignalsMode !== "off";
 
@@ -599,7 +599,7 @@ export function buildRewrittenCompositionConfig(
     repair,
   });
 
-  
+
   const staticGate = new StaticGateAdapter({
     typecheck: defaultValidateDeps.typecheck,
     lint: defaultValidateDeps.lint,
@@ -610,11 +610,11 @@ export function buildRewrittenCompositionConfig(
   /* Code-target Filter B: compile-feedback before execution. */
   const codeValidate = new CodeValidationStrategy((repoDir, opts) => validateCodeProject(repoDir, defaultCodeValidateDeps, opts));
 
-  
+
   const e2eExecuteDeps: E2eExecuteDeps = { ...createDefaultE2eExecuteDeps(new ProcessKillAdapter(), e2eDefaultTimeoutMs, pwActionTimeoutMs, authDir), recordAudit };
   const e2eCleanupDeps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), authDir);
   const e2e = new E2eExecutionStrategy((specDir, opts) => runE2E(specDir, opts, e2eExecuteDeps));
-  
+
   const codeExecuteDeps = { ...createDefaultCodeExecuteDeps(codeSandbox), recordAudit };
   const codeSetupDeps = createDefaultCodeSetupDeps(codeSandbox);
   const code = new CodeExecutionStrategy((repoDir, opts) => runCodeTests(repoDir, opts, codeExecuteDeps));
@@ -625,7 +625,7 @@ export function buildRewrittenCompositionConfig(
    * service-repo lines, so cross-repo coverage is "unknown" (never blocks publish).
    */
   const rawCollector = makeTargetCoverageCollector({ target, repoDir: mirrorDir, e2eDir, changedFiles: [] });
-  
+
   const collector: typeof rawCollector = isCode
     ? {
         collect: async (specDir, namespace, changedFiles) => {
@@ -634,7 +634,7 @@ export function buildRewrittenCompositionConfig(
         },
       }
     : rawCollector;
-  
+
   const runCorruptedFaultInjection = ({ dir, baseUrl, namespace }: { dir: string; baseUrl: string; namespace: string }) =>
     /*
      * Desktop-only on purpose: the oracle measures assertion strength, not viewport behavior, and
@@ -660,7 +660,7 @@ export function buildRewrittenCompositionConfig(
     }
   };
 
-  
+
   const mutationOracleDeps = { spawn, detectCodeProject, scrubEnv, processKill: new ProcessKillAdapter() };
 
   /*
@@ -697,10 +697,10 @@ export function buildRewrittenCompositionConfig(
   );
   const checkout = (checkoutSha: Sha): Promise<string> => multiRepoCheckout.checkout(checkoutSha);
 
-  
+
   const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));
 
-  
+
   const setupAdapter = buildSetupAdapter();
   /*
    * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
@@ -735,7 +735,7 @@ export function buildRewrittenCompositionConfig(
     e2eRelDir,
     branch,
     target,
-    
+
     mode: run.mode,
     ...(run.guidance ? { guidance: run.guidance } : {}),
     needsReview: app.qa.needsReview,
@@ -772,7 +772,7 @@ export function buildRewrittenCompositionConfig(
     agentTimeoutMs: agentTimeout(run.mode),
     ...(app.qa.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: app.qa.wallClockBudgetMs } : {}),
     ...(app.qa.iterationBudget !== undefined ? { iterationBudget: app.qa.iterationBudget } : {}),
-    
+
     diff: "",
 
     vcs,
@@ -786,16 +786,16 @@ export function buildRewrittenCompositionConfig(
     reviewTimeoutMs: REVIEWER_TIMEOUT_MS,
     validationStrategies: { e2e: staticGate, code: codeValidate },
     executionStrategies: { e2e, code },
-    
+
     setupCollaborators: {
       e2e: (specDir, opts) => setupAdapter.setup(specDir, opts),
       code: (specDir, opts) => setupCodeProject(specDir, codeSetupDeps, opts),
     },
-    
+
     cleanupCollaborators: {
       e2e: (args) => e2eCleanupDeps.runCleanup(args),
     },
-    
+
     /*
      * contextPackDeps.domDeps is ALWAYS overridden (regardless of shouldExplore) so the
      * pre-generation DOM capture reads auth material from the orchestrator-only authDir, never
@@ -839,9 +839,9 @@ export function buildRewrittenCompositionConfig(
      * even on a cross-repo run, so using it would stamp the service SHA onto the frontend graph.
      */
     codeGraphRepoDir: vcsDir,
-    
+
     ...(structuralSignalsOn ? { codebaseMemory: new CodebaseMemoryClient(runner) } : {}),
-    
+
     ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
       ? {
           serviceTopology: {
@@ -854,11 +854,11 @@ export function buildRewrittenCompositionConfig(
           },
         }
       : {}),
-    
+
     ...(structuralSignalsOn && app.services?.length && app.boundaries?.length
       ? { crossRepoImpact: { mirrorRoot, codebaseMemory: new CodebaseMemoryClient(runner), runner } }
       : {}),
-    
+
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
     ...(!isCode && app.dev?.baseUrl
       ? {
@@ -886,11 +886,11 @@ export function buildRewrittenCompositionConfig(
         }
       : {}),
     ...(app.openapi ? { openapi: app.openapi } : {}),
-    
+
     ...(triggerService
       ? { triggerService: { repo: triggerService.repo, mirrorDir: serviceContextDir(mirrorDir, triggerService.repo), ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
       : {}),
-    
+
     ...(run.mode === "context" && app.services?.length
       ? {
           services: app.services.map((svc) => ({
@@ -900,7 +900,7 @@ export function buildRewrittenCompositionConfig(
           })),
         }
       : {}),
-    
+
     ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
     objectiveSignal: { collector, oracle },
     coveragePolicy,
@@ -908,21 +908,21 @@ export function buildRewrittenCompositionConfig(
     assembleChangeCoverage,
     baselineCases: [],
 
-    
+
     githubPr: new GitHubPrAdapter(githubHttpDeps(), app.baseBranch ?? "main"),
     githubIssue: new GitHubIssueAdapter(githubHttpDeps()),
     /* Stage/commit/push generated tests before opening the PR. e2e → e2e/; code → whole tree minus deps. */
     vcsWrite: buildVcsPublish(isCode, run.mode),
-    
+
     confinement: buildConfinement(),
-    
+
     mirrorGc: buildMirrorGc(),
     reviewerApprovedForPublish: true,
     coverageBlocksForPublish: false,
     e2eChangedForPublish: true,
-    
+
     sanitize: (text: string) => redactionPort.redact(text),
-    
+
     containsSecret: (text: string) => redactionPort.containsSecret(text),
 
     checkout,
@@ -948,9 +948,9 @@ export function buildRewrittenCompositionConfig(
       ? (triggerService.deployTimeoutMs ?? 600_000)
       : (app.dev?.deployTimeoutMs ?? 60000),
 
-    
+
     ...(deps.historyFilePath ? { historyFilePath: deps.historyFilePath } : { runHistory: new SqliteRunHistoryAdapter() }),
-    
+
     learningRepo,
     /*
      * This factory is the one module that may import both qa-engine @contexts aliases and root
@@ -962,13 +962,13 @@ export function buildRewrittenCompositionConfig(
     reflectorPort: new ReflectorPortAdapter({
       runtime: runtimeAdapter,
       repo: learningRepo,
-      
+
       backfill: (runId, refl) => updateRunOutcomeReflection(runId, refl as import("../types").StructuredReflection),
       cwd: mirrorDir,
       app: app.name,
       timeoutMs: Number((deps.env ?? process.env).REFLECTOR_TIMEOUT_MS) || REFLECT_TIMEOUT_MS,
     }),
-    
+
     processAudit: new ProcessAuditPortAdapter({
       app: app.name,
       readRecentOutcomes: (a, limit) => listRunOutcomes(a, limit),
