@@ -392,13 +392,13 @@ export function historyLearningStore(appName: string): LearningStore {
          * Attribution: credit only the retrieved rules that could have shaped this run — untagged
          * rules, or rules tagged with one of the diff's structural shapes. A suite-level score says
          * nothing about a rule written for an unrelated kind of change. No known shapes (non-diff
-         * modes) keeps every rule. Rules are looked up directly by id (getLearningRule), never via a
-         * capped bulk list, so ledger size cannot drop a fold; a rule deleted since retrieval
-         * carries no signal. A rule retired after retrieval (human veto, process audit) is skipped
+         * modes) keeps every rule. Rules are looked up directly by id within this app
+         * (getLearningRule), never via a capped bulk list, so ledger size cannot drop a fold; a rule
+         * deleted since retrieval, or another app's id, carries no signal. A rule retired after retrieval (human veto, process audit) is skipped
          * by recordRuleOutcome itself.
          */
         const retrieved = rulesRetrieved
-          .map((id) => getLearningRule(id))
+          .map((id) => getLearningRule(appName, id))
           .filter((rule): rule is NonNullable<typeof rule> => rule !== undefined);
         const attributable = attributableRules(retrieved, { diffArchetypes: outcome.diffArchetypes ?? [] });
 

@@ -69,6 +69,8 @@ let getOutcomeStmt!: Database.Statement;
 let upsertRuleStmt!: Database.Statement;
 let listRulesStmt!: Database.Statement;
 let listRetrievableRulesStmt!: Database.Statement;
+let getRuleStmt!: Database.Statement;
+let getAppRuleStmt!: Database.Statement;
 let listAllRulesStmt!: Database.Statement;
 let incrementRuleUsageStmt!: Database.Statement;
 let loadCurriculumStmt!: Database.Statement;
@@ -341,6 +343,8 @@ function ensureDb(): void {
    * candidate exploration slots), so a cap always hides rules governance would pick.
    */
   listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate')");
+  getRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE id = ?");
+  getAppRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND id = ?");
   listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
   incrementRuleUsageStmt = db.prepare("UPDATE learning_rules SET usage_count = usage_count + 1 WHERE id = ?");
   loadCurriculumStmt = db.prepare("SELECT data, updated_at FROM curriculum WHERE app = ?");
@@ -757,15 +761,15 @@ export function listLearningRules(app: string, limit = 20): LearningRule[] {
 }
 
 /*
- * Direct by-id read, uncapped and unordered — the correct lookup for a fold that already knows
- * the exact rule id (e.g. recordOutcome's prevention path, folding rulesRetrieved). Unlike
+ * Direct by-id read of one app's rule, uncapped and unordered — the correct lookup for a fold that
+ * already knows the exact rule id (e.g. recordOutcome folding rulesRetrieved). Unlike
  * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), a rule ranked outside that shared window
- * still resolves here: unset/null only when the row genuinely does not exist (deleted, or never
- * upserted).
+ * still resolves here. Undefined when the row does not exist (deleted, never upserted) or belongs
+ * to another app.
  */
-export function getLearningRule(id: string): LearningRule | undefined {
+export function getLearningRule(app: string, id: string): LearningRule | undefined {
   ensureDb();
-  const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  const row = getAppRuleStmt.get(app, id) as Record<string, unknown> | undefined;
   return row ? rowToRule(row) : undefined;
 }
 
@@ -815,7 +819,7 @@ export function incrementRuleUsage(ruleIds: string[]): void {
  */
 export function recordRuleOutcome(ruleId: string, score: number, coverageCreditConfirmed: boolean | null = null, isOracleScore = false): void {
   ensureDb();
-  const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(ruleId) as Record<string, unknown> | undefined;
+  const row = getRuleStmt.get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return;
   const current = rowToRule(row);
   if (current.status !== "active" && current.status !== "candidate") return;

@@ -66,8 +66,8 @@ test("a rule an older build stored as 'pending' is listed in the operator ledger
 });
 
 test("rules an older build stored as active or deprecated keep their status once the ledger is opened", () => {
-  assert.equal(getLearningRule(ACTIVE_RULE_ID)?.status, "active");
-  assert.equal(getLearningRule(DEPRECATED_RULE_ID)?.status, "deprecated");
+  assert.equal(getLearningRule(APP, ACTIVE_RULE_ID)?.status, "active");
+  assert.equal(getLearningRule(APP, DEPRECATED_RULE_ID)?.status, "deprecated");
 });
 
 test("a rule an older build stored as deprecated is neither retrieved for generation nor listed in the operator ledger", async () => {

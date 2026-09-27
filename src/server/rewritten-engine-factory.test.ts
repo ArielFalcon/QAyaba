@@ -1916,12 +1916,12 @@ async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
 
   upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
   for (let i = 0; i < 3; i++) fold(`run-earn-${i}`, 0.9);
-  assert.equal(getLearningRule(ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
+  assert.equal(getLearningRule(app, ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
 
   setRuleStatusByHuman(ruleId, "deprecated");
-  const before = getLearningRule(ruleId)!;
+  const before = getLearningRule(app, ruleId)!;
   fold("run-in-flight", gateSignals.valueScore);
-  return { before, after: getLearningRule(ruleId)!, ruleId, fold, setRuleStatusByHuman, getLearningRule };
+  return { before, after: getLearningRule(app, ruleId)!, app, ruleId, fold, setRuleStatusByHuman, getLearningRule };
 }
 
 test("a human veto survives the prevention-path fold of a run that retrieved the rule before the veto", async () => {
@@ -1939,13 +1939,13 @@ test("a human veto survives the oracle-path fold of a run that retrieved the rul
 });
 
 test("a rule a human restores after a veto folds outcomes again", async () => {
-  const { ruleId, fold, setRuleStatusByHuman, getLearningRule } = await vetoedRuleAfterFold({ valueScore: 0.9 });
+  const { app, ruleId, fold, setRuleStatusByHuman, getLearningRule } = await vetoedRuleAfterFold({ valueScore: 0.9 });
 
   setRuleStatusByHuman(ruleId, "active");
-  const restored = getLearningRule(ruleId)!;
+  const restored = getLearningRule(app, ruleId)!;
   fold("run-after-restore", 0.9);
 
-  assert.equal(getLearningRule(ruleId)?.outcomeCount, restored.outcomeCount + 1);
+  assert.equal(getLearningRule(app, ruleId)?.outcomeCount, restored.outcomeCount + 1);
 });
 
 /* A superseded rule is retired like a vetoed one: a run that retrieved it before it was replaced
@@ -1957,7 +1957,7 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
     const app = `factory-learning-superseded-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const ruleId = `rule-superseded-${app}`;
     upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
-    const before = getLearningRule(ruleId)!;
+    const before = getLearningRule(app, ruleId)!;
 
     historyLearningStore(app).recordOutcome({
       runId: `run-in-flight-${path}`, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
@@ -1967,9 +1967,33 @@ for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as cons
       at: new Date().toISOString(),
     } as never);
 
-    const after = getLearningRule(ruleId)!;
+    const after = getLearningRule(app, ruleId)!;
     assert.equal(after.status, "superseded");
     assert.equal(after.outcomeCount, before.outcomeCount);
+  });
+}
+
+/* A store folds only its own app's rules: an outcome naming another app's rule id credits nothing. */
+for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
+  test(`an outcome never folds onto another app's rule on the ${path} path`, async () => {
+    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { upsertLearningRule, listLearningRules } = await import("./history");
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const owner = `factory-learning-owner-${suffix}`;
+    const other = `factory-learning-other-${suffix}`;
+    const ruleId = `rule-owned-${suffix}`;
+    upsertLearningRule({ id: ruleId, app: owner, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+
+    historyLearningStore(other).recordOutcome({
+      runId: `run-other-${path}`, app: other, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+    const owned = listLearningRules(owner, 10).find((r) => r.id === ruleId);
+    assert.equal(owned?.outcomeCount, 0, "another app's run says nothing about this app's rule");
   });
 }
 
@@ -1995,7 +2019,7 @@ async function creditedAfterFold(valueScore: number | null, diffArchetypes: stri
     at: new Date().toISOString(),
   } as never);
 
-  const credited = (id: string) => (getLearningRule(id)?.outcomeCount ?? 0) > 0;
+  const credited = (id: string) => (getLearningRule(app, id)?.outcomeCount ?? 0) > 0;
   return { matching: credited(ids.matching), unrelated: credited(ids.unrelated), untagged: credited(ids.untagged) };
 }
 
