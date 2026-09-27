@@ -287,6 +287,12 @@ describe("attributableRules — context-directed attribution filter (recovered, 
     assert.deepEqual(kept.map((r) => r.id), ["y"]);
   });
 
+  test("a generic-only diff is a known shape: a form-tagged rule is dropped, an untagged one kept", () => {
+    const rules = [mkAttrRule("form", "form"), mkAttrRule("untagged", null)];
+    const kept = attributableRules(rules, { diffArchetypes: ["generic"] });
+    assert.deepEqual(kept.map((r) => r.id), ["untagged"]);
+  });
+
   test("handles multiple matching archetypes", () => {
     const rules = [mkAttrRule("form", "form"), mkAttrRule("api", "api-call"), mkAttrRule("nav", "navigation")];
     const kept = attributableRules(rules, { diffArchetypes: ["form", "navigation"] });

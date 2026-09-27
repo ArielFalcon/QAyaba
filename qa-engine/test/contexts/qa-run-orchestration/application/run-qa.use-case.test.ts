@@ -38,9 +38,10 @@ import type {
    context's own ports barrel — same cross-context import precedent as LearningRepositoryPort
    (composition-root.ts / learning-port.adapter.ts).
  */
-import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { LearningRule, ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { attributableRules } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import { GenerationPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
@@ -4345,7 +4346,35 @@ test("the folded outcome of an invalid run carries the diff's structural shapes"
   assert.ok(foldedOutcomes[0]?.diffArchetypes?.includes("api-call"), `got ${JSON.stringify(foldedOutcomes[0]?.diffArchetypes)}`);
 });
 
-test("outside diff mode the folded outcome carries no diff shapes", async () => {
+/* The retrieved rules the learning fold would credit from a folded outcome, through the fold's own
+   attribution filter: one rule tagged for forms, one untagged. */
+function creditedByFold(outcome: RunOutcome): string[] {
+  const rule = (id: string, archetype: string | null): LearningRule => ({
+    id, trigger: "t", action: "a", errorClass: "E-FRAGILE-SELECTOR", archetype, status: "active", confidence: "low",
+    usageCount: 0, outcomeCount: 0, oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: "2026-01-01T00:00:00.000Z",
+  });
+  const rules = [rule("form-rule", "form"), rule("untagged-rule", null)];
+  return attributableRules(rules, { diffArchetypes: outcome.diffArchetypes ?? [] }).map((r) => r.id);
+}
+
+test("a generic-only diff never lets the fold credit a form-tagged rule; an untagged rule stays credited", async () => {
+  const { ports, foldedOutcomes } = stubPorts({
+    classify: async () => ({
+      action: "generate",
+      reason: "diff touches src/title.ts",
+      diff: "export const pageTitle = 'Owners';",
+      intent: { type: "feat", breaking: false, message: "rename the page title", changedFiles: ["src/title.ts"] },
+    }),
+    retrieve: async () => [makeRetrievedRule("title rule")],
+  });
+
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "generic-diff-attribution" });
+
+  assert.equal(foldedOutcomes.length, 1);
+  assert.deepEqual(creditedByFold(foldedOutcomes[0]!), ["untagged-rule"]);
+});
+
+test("outside diff mode the folded outcome carries no diff shapes, so the fold credits every retrieved rule", async () => {
   const { ports, foldedOutcomes } = stubPorts({
     retrieve: async () => [makeRetrievedRule("any rule")],
   });
@@ -4353,7 +4382,7 @@ test("outside diff mode the folded outcome carries no diff shapes", async () => 
   await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, mode: "complete", runId: "non-diff-fold-no-shapes" });
 
   assert.equal(foldedOutcomes.length, 1);
-  assert.equal(foldedOutcomes[0]!.diffArchetypes, undefined);
+  assert.deepEqual(creditedByFold(foldedOutcomes[0]!), ["form-rule", "untagged-rule"]);
 });
 
 test("WS1.6 regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
