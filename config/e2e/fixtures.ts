@@ -3,12 +3,14 @@
 // data, cleanup and the app's own capabilities (geolocation, mobile/offline,
 // cookies/cache, photo upload).
 //
-// Hybrid model: the skeleton is shared (this file); the app-specific parts (the
-// real Keycloak login selectors, etc.) are filled in by the agent and persisted
-// in git. For the "how" of each capability, see the `playwright-authoring` skill.
+// Hybrid model: the skeleton is shared (this file); the app-specific parts are
+// filled in by the agent and persisted in git. Login is declared by the operator
+// when the app config has an `e2e.auth` block (see `centralLogin` below); otherwise
+// the agent adjusts the default flow. For the "how" of each capability, see the
+// `playwright-authoring` skill.
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // system-owned: do not edit. A V8 coverage entry plus its (best-effort) source map. The
@@ -49,11 +51,106 @@ async function attachSourceMaps(entries: CoverageEntry[]): Promise<void> {
   }
 }
 
+// system-owned: do not edit. Operator-declared login flow, written by the orchestrator from the app
+// config's `e2e.auth` block into .qa/auth.local.json (never committed). URLs and selectors only; the
+// credentials are DEV_TEST_USER / DEV_TEST_PASS.
+interface QaAuthConfig {
+  loginUrl: string; // URL prefix of the central login page (different origin than the app)
+  startPath?: string;
+  trigger?: string;
+  passwordEntry?: string;
+  usernameSelector?: string;
+  passwordSelector?: string;
+  submitSelector?: string;
+  successSelector?: string;
+  redirectTimeoutMs?: number;
+  timeoutMs?: number;
+}
+
+function readAuthConfig(): QaAuthConfig | undefined {
+  try {
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), ".qa", "auth.local.json"), "utf8")) as QaAuthConfig;
+    return typeof cfg.loginUrl === "string" && cfg.loginUrl.length > 0 ? cfg : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const DEFAULT_USERNAME_SELECTOR =
+  'input[name="username"], input#username, input[autocomplete="username"], input[type="email"], input[name="user"], input[name="login"]';
+const DEFAULT_PASSWORD_SELECTOR = 'input[type="password"]';
+const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
+
+// Session reused across tests in the same worker: restoring its cookies lets a still-valid central
+// session bounce straight back to the app instead of posting the form again (fewer logins against
+// the identity provider, no lockout from a long suite).
+let workerSession: Awaited<ReturnType<BrowserContext["storageState"]>> | undefined;
+
+// system-owned: do not edit. Login on a central web with redirect back to the app:
+//   1. open startPath (and click `trigger` if declared);
+//   2. if the browser reaches `loginUrl`, either the form appears (fill it, two-step aware) or a
+//      valid central session redirects straight back;
+//   3. success = back on the app origin (and `successSelector` visible when declared).
+// No client certificate is configured, so an identity provider that offers certificate login with
+// a username/password fallback proceeds to the fallback.
+async function centralLogin(page: Page, cfg: QaAuthConfig, user: string, pass: string): Promise<void> {
+  const timeout = cfg.timeoutMs ?? 30_000;
+  const appOrigin = new URL(process.env.PW_BASE_URL ?? page.url()).origin;
+  const isLogin = (href: string): boolean => href.startsWith(cfg.loginUrl);
+  const backInApp = (url: URL): boolean => url.origin === appOrigin && !isLogin(url.href);
+
+  if (workerSession) await page.context().addCookies(workerSession.cookies);
+  await page.goto(cfg.startPath ?? "/");
+  if (cfg.trigger && !isLogin(page.url())) await page.locator(cfg.trigger).first().click({ timeout });
+
+  // Did the app send us to the central login? With a declared successSelector an already
+  // authenticated app answers at once; otherwise the redirect wait is the only signal.
+  const redirectTimeout = cfg.redirectTimeoutMs ?? 10_000;
+  const reachedLogin = await Promise.any([
+    page.waitForURL((url) => isLogin(url.href), { timeout: redirectTimeout }).then(() => true),
+    ...(cfg.successSelector
+      ? [page.locator(cfg.successSelector).first().waitFor({ state: "visible", timeout: redirectTimeout }).then(() => false)]
+      : []),
+  ]).catch(() => false);
+  if (reachedLogin) {
+    const username = page.locator(cfg.usernameSelector ?? DEFAULT_USERNAME_SELECTOR).first();
+    const password = page.locator(cfg.passwordSelector ?? DEFAULT_PASSWORD_SELECTOR).first();
+    const submit = page.locator(cfg.submitSelector ?? DEFAULT_SUBMIT_SELECTOR).first();
+    if (cfg.passwordEntry) {
+      const entry = page.locator(cfg.passwordEntry).first();
+      await entry.waitFor({ state: "visible", timeout: redirectTimeout }).then(() => entry.click(), () => undefined);
+    }
+    const next = await Promise.race([
+      username.waitFor({ state: "visible", timeout }).then(() => "form" as const),
+      page.waitForURL(backInApp, { timeout }).then(() => "app" as const),
+    ]);
+    if (next === "form") {
+      await username.fill(user);
+      if (!(await password.isVisible())) {
+        await submit.click();
+        await password.waitFor({ state: "visible", timeout });
+      }
+      await password.fill(pass);
+      await submit.click();
+      await page.waitForURL(backInApp, { timeout }).catch(() => {
+        throw new Error(
+          `[qa] authenticate(): the central login did not redirect back to the app (still at ${new URL(page.url()).origin}${new URL(page.url()).pathname}) — check DEV_TEST_USER/PASS and the e2e.auth selectors`,
+        );
+      });
+    }
+  }
+  if (isLogin(page.url())) {
+    throw new Error(`[qa] authenticate(): still on the central login page (${cfg.loginUrl}) — check DEV_TEST_USER/PASS and the e2e.auth selectors`);
+  }
+  if (cfg.successSelector) await page.locator(cfg.successSelector).first().waitFor({ state: "visible", timeout });
+  workerSession = await page.context().storageState();
+}
+
 export interface QaFixtures {
   namespace: string; // PER-ATTEMPT data prefix `qa-bot-<sha>-w<worker>r<retry>` (use to NAME/find created
                      // entities). The run-level BASE is `process.env.PW_NAMESPACE` (no -wXrY) — match by THAT
                      // for cleanup/teardown so all workers' and retries' data is covered.
-  authenticate: () => Promise<void>; // the app's real login (Keycloak)
+  authenticate: () => Promise<void>; // the app's real login (operator-declared central login, else the default flow)
   cleanup: (undo: () => Promise<void>) => void; // registers undo steps (LIFO, automatic)
   // system-owned: do not edit — the orchestrator reads these dumps for change-coverage.
   _coverage: void;
@@ -73,11 +170,11 @@ export const test = base.extend<QaFixtures>({
     await use(`${base}-w${testInfo.workerIndex}r${testInfo.retry}`);
   },
 
-  // App login via Keycloak: pressing login redirects to the Keycloak domain
-  // (outside the app), the username/password are entered, and it returns.
-  // ADJUST the marked selectors to the app's real login. For PUBLIC pages, simply
-  // do not call authenticate(). Recommended optimization (see skill): do it once
-  // and cache storageState.
+  // App login. When the operator declared the flow (.qa/auth.local.json, from the app config's
+  // `e2e.auth`), centralLogin() runs it and this fixture must not be rewritten. Otherwise the
+  // default flow below assumes a login button that redirects to an external identity provider
+  // (Keycloak selectors) and returns: ADJUST the marked selectors to the app's real login. For
+  // PUBLIC pages, simply do not call authenticate().
   authenticate: async ({ page }, use) => {
     await use(async () => {
       const user = process.env.DEV_TEST_USER;
@@ -87,6 +184,11 @@ export const test = base.extend<QaFixtures>({
         // (e.g. PetClinic) needs no auth; throwing here would fail every spec that defensively
         // calls authenticate(). Set DEV_TEST_USER/PASS only if the app actually requires Keycloak login.
         console.warn("[qa] authenticate(): DEV_TEST_USER/PASS not set — app treated as PUBLIC, skipping login.");
+        return;
+      }
+      const declared = readAuthConfig();
+      if (declared) {
+        await centralLogin(page, declared, user, pass);
         return;
       }
       await page.goto("/");
@@ -163,9 +265,14 @@ export const test = base.extend<QaFixtures>({
     async ({ page }, use) => {
       let corrupted = 0;
       if (process.env.QA_FAULT_INJECT === "1") {
+        // The central login's own traffic (token exchange, session checks) is never corrupted:
+        // breaking the login would score as a caught regression the app never had.
+        const auth = readAuthConfig();
+        const loginOrigin = auth ? new URL(auth.loginUrl).origin : undefined;
         await page.route("**", async (route) => {
           const type = route.request().resourceType();
           if (type !== "xhr" && type !== "fetch") return route.continue();
+          if (loginOrigin && new URL(route.request().url()).origin === loginOrigin) return route.continue();
           let res;
           try {
             res = await route.fetch();

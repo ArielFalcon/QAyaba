@@ -66,7 +66,7 @@ function isRedirect(route: string, finalUrl: string | undefined): boolean {
 export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   const captureFailed = snapshot.error !== undefined;
   const emptyRender = !captureFailed && (snapshot.nodes?.length ?? 0) === 0;
-  const redirected = !captureFailed && isRedirect(snapshot.route, snapshot.finalUrl);
+  const redirected = !captureFailed && (snapshot.offOrigin === true || isRedirect(snapshot.route, snapshot.finalUrl));
   /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. */
   const degraded = captureFailed || emptyRender || redirected;
   return {

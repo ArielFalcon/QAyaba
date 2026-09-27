@@ -47,6 +47,7 @@ import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastruct
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
 import type { GitHubHttpDeps } from "@contexts/workspace-and-publication/infrastructure/github-http";
 import { SetupAdapter, nodeFsDeps } from "@contexts/workspace-and-publication/infrastructure/setup.adapter";
+import type { E2eAuthConfig } from "@kernel/e2e-auth";
 import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastructure/vcs-write.adapter";
 import { CONFINEMENT_DENYLIST, WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service";
 import { WriteConfinementAdapter } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter";
@@ -146,7 +147,7 @@ export function roleToAgentName(role: AgentRole): string {
 
 
 const E2E_PUBLISH_ADD = ["e2e"];
-const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/"];
+const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.qa/auth.local.json"];
 const CODE_PUBLISH_ADD = ["."];
 
 const CONTEXT_PUBLISH_ADD = ["e2e/.qa/context.json"];
@@ -310,11 +311,12 @@ export function githubHttpDeps(fetchFn: typeof fetch = fetch): GitHubHttpDeps {
 }
 
 
-export function buildSetupAdapter(): SetupAdapter {
+export function buildSetupAdapter(authConfig?: E2eAuthConfig): SetupAdapter {
   return new SetupAdapter({
     fs: nodeFsDeps,
     runner: new SandboxedBinaryRunnerAdapter({ processKill: new ProcessKillAdapter() }),
     seedDir: join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "e2e"),
+    ...(authConfig ? { authConfig } : {}),
   });
 }
 
@@ -677,7 +679,7 @@ export function buildRewrittenCompositionConfig(
   const learningRepo = new SqliteLearningRepository(historyLearningStore(app.name));
 
   
-  const setupAdapter = buildSetupAdapter();
+  const setupAdapter = buildSetupAdapter(app.e2e?.auth);
   const shouldExplore = app.qa.explorer || (app.services?.length ?? 0) > 0;
 
   return {

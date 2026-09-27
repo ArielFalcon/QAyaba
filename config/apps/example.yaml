@@ -85,6 +85,21 @@ dev:
 #   # test-id hints, and the selector catalog. Defaults to "data-testid".
 #   # jhipster-style apps typically use "data-cy".
 #   testIdAttribute: "data-cy"
+#   # App login on a CENTRAL web (another origin) that redirects back to the app. Declared
+#   # here, it is run identically by the tests' authenticate() fixture, by the DOM capture
+#   # that grounds selectors on authenticated routes, and followed by the agent. Credentials
+#   # come from DEV_TEST_USER / DEV_TEST_PASS (never here). Only loginUrl is required.
+#   auth:
+#     loginUrl: "https://sso.example.internal/"   # URL prefix of the central login page
+#     startPath: "/"                              # app path that starts the flow
+#     # trigger: "text=Iniciar sesión"            # click in the app when "/" does not redirect by itself
+#     # passwordEntry: "text=Usuario y contraseña" # reach the user/password form (e.g. after a certificate step)
+#     # usernameSelector: "#username"             # defaults cover username/email inputs
+#     # passwordSelector: "#password"             # default: input[type=password]
+#     # submitSelector: "#kc-login"               # default: button[type=submit], input[type=submit]
+#     successSelector: "[data-testid=user-menu]"  # visible only when logged in (recommended)
+#     # redirectTimeoutMs: 10000
+#     # timeoutMs: 30000
 
 qa:
   needsReview: true            # the strict reviewer validates the generated E2E tests

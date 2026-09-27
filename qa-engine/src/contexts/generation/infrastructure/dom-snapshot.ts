@@ -1,13 +1,14 @@
 /* Canonical DOM-grounding capture for the independent reviewer. The orchestrator (not the generator — independence holds) renders the routes the spec targets once and inlines real roles + accessible names into the reviewer prompt. Fail-open: a failed or empty render never blocks review. */
 
 import { spawn } from "node:child_process";
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
+import { existsSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
+import { E2E_AUTH_FILE } from "../../../shared-kernel/e2e-auth.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -42,6 +43,8 @@ export interface RouteSnapshot {
   error?: string; /* capture failed for this route (degrade — never blocks review) */
   runtimeErrors?: { type: string; text: string }[];
   finalUrl?: string;
+  /* The route settled on another origin than the app (e.g. a central login): never grounded, whatever its path. */
+  offOrigin?: boolean;
 }
 
 export interface CaptureDomInput {
@@ -454,13 +457,21 @@ export function mergeAttrs(nodes: string[], rawAttrs: RawAttr[]): NodeAttr[] {
 const RENDER_BASE_TIMEOUT_MS = 20_000;
 const RENDER_PER_ROUTE_TIMEOUT_MS = 15_000;
 const RENDER_MAX_TIMEOUT_MS = 200_000;
+/* Extra kill-timer budget when the capture first performs the declared central login. */
+const RENDER_LOGIN_BUDGET_MS = 60_000;
 const renderTimeoutFor = (routeCount: number): number =>
   Math.min(RENDER_BASE_TIMEOUT_MS + Math.max(1, routeCount) * RENDER_PER_ROUTE_TIMEOUT_MS, RENDER_MAX_TIMEOUT_MS);
 
+/* The capture runs the same declared central login as the seed authenticate() fixture (E2E_AUTH_FILE, credentials from DEV_TEST_USER/PASS) before snapshotting, so authenticated routes are grounded on the real page instead of the identity provider's form. A failed login is reported on stderr and the capture proceeds — those routes then degrade exactly as they would without a login. */
 export function buildCaptureScript(playwrightRequirePath = "playwright"): string {
   return `const { chromium } = require(${JSON.stringify(playwrightRequirePath)});
+const fs = require("fs");
+const path = require("path");
 const { baseUrl, routes } = JSON.parse(process.env.PW_CAPTURE_INPUT || "{}");
 const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
+const DEFAULT_USERNAME_SELECTOR = 'input[name="username"], input#username, input[autocomplete="username"], input[type="email"], input[name="user"], input[name="login"]';
+const DEFAULT_PASSWORD_SELECTOR = 'input[type="password"]';
+const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
 (async () => {
   const out = [];
   let browser;
@@ -476,6 +487,11 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
     let currentRouteErrors = [];
     page.on("pageerror", function(err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
     page.on("console", function(msg) { if (msg.type() === "error") currentRouteErrors.push({ type: "console", text: msg.text() }); });
+    const auth = readAuthConfig();
+    if (auth && process.env.DEV_TEST_USER && process.env.DEV_TEST_PASS) {
+      try { await centralLogin(page, auth, process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS); }
+      catch (e) { process.stderr.write("[qa] DOM capture: central login failed (" + String(e && e.message || e).slice(0, 200) + ") — authenticated routes will not be grounded\\n"); }
+    }
     for (const route of routes) {
       currentRouteErrors = [];
       try {
@@ -483,6 +499,8 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
         let settled = false;
         try { await page.waitForLoadState("networkidle", { timeout: 5000 }); settled = true; } catch (_settle) {}
         const finalUrl = page.url();
+        let offOrigin = false;
+        try { offOrigin = new URL(finalUrl).origin !== new URL(baseUrl).origin; } catch (_originErr) {}
         const yaml = await page.locator('body').ariaSnapshot();
         /* After ariaSnapshot(), query interactive/labelled nodes for stable HTML attributes. Chromium-only computedRole/computedName; if it throws, attrs is empty and the run degrades to a11y-only grounding. */
         let rawAttrs = [];
@@ -534,12 +552,55 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
             return Array.from(document.querySelectorAll('[' + a + ']')).map(function(el) { return el.getAttribute(a); }).filter(function(v) { return v; });
           }, testIdAttr);
         } catch(_e) { testIdRawList = []; }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl });
+        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, offOrigin });
       } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors }); }
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
   process.stdout.write(JSON.stringify(out));
-})();`;
+})();
+/* Declarations below are hoisted; they run only after the error listeners are registered. */
+function readAuthConfig() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(process.cwd(), ${JSON.stringify(E2E_AUTH_FILE)}), "utf8"));
+    return cfg && typeof cfg.loginUrl === "string" && cfg.loginUrl.length > 0 ? cfg : null;
+  } catch (_e) { return null; }
+}
+async function centralLogin(page, cfg, user, pass) {
+  const timeout = cfg.timeoutMs || 30000;
+  const redirectTimeout = cfg.redirectTimeoutMs || 10000;
+  const appOrigin = new URL(baseUrl).origin;
+  const isLogin = (href) => href.indexOf(cfg.loginUrl) === 0;
+  const backInApp = (url) => url.origin === appOrigin && !isLogin(url.href);
+  await page.goto(new URL(cfg.startPath || "/", baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: timeout });
+  if (cfg.trigger && !isLogin(page.url())) await page.locator(cfg.trigger).first().click({ timeout: timeout });
+  const signals = [page.waitForURL((url) => isLogin(url.href), { timeout: redirectTimeout }).then(() => true)];
+  if (cfg.successSelector) signals.push(page.locator(cfg.successSelector).first().waitFor({ state: "visible", timeout: redirectTimeout }).then(() => false));
+  const reachedLogin = await Promise.any(signals).catch(() => false);
+  if (reachedLogin) {
+    const username = page.locator(cfg.usernameSelector || DEFAULT_USERNAME_SELECTOR).first();
+    const password = page.locator(cfg.passwordSelector || DEFAULT_PASSWORD_SELECTOR).first();
+    const submit = page.locator(cfg.submitSelector || DEFAULT_SUBMIT_SELECTOR).first();
+    if (cfg.passwordEntry) {
+      const entry = page.locator(cfg.passwordEntry).first();
+      await entry.waitFor({ state: "visible", timeout: redirectTimeout }).then(() => entry.click(), () => undefined);
+    }
+    const next = await Promise.race([
+      username.waitFor({ state: "visible", timeout: timeout }).then(() => "form"),
+      page.waitForURL(backInApp, { timeout: timeout }).then(() => "app"),
+    ]);
+    if (next === "form") {
+      await username.fill(user);
+      if (!(await password.isVisible())) {
+        await submit.click();
+        await password.waitFor({ state: "visible", timeout: timeout });
+      }
+      await password.fill(pass);
+      await submit.click();
+      await page.waitForURL(backInApp, { timeout: timeout });
+    }
+  }
+  if (isLogin(page.url())) throw new Error("still on the central login page");
+}`;
 }
 
 export const defaultCaptureDomDeps: CaptureDomDeps = {
@@ -556,13 +617,14 @@ export const defaultCaptureDomDeps: CaptureDomDeps = {
         env: { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
         detached: true,
       });
-      const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
+      const loginBudget = existsSync(join(e2eDir, E2E_AUTH_FILE)) ? RENDER_LOGIN_BUDGET_MS : 0;
+      const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length) + loginBudget);
       child.stdout.on("data", (d) => (stdout += d.toString()));
       const done = (snaps: RouteSnapshot[]): void => { clearTimeout(timer); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } resolve(snaps); };
       child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
       child.on("close", () => {
         try {
-          const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
+          const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; offOrigin?: boolean }>;
           done(raw.map((r) => {
             if (r.error) {
               const errored: RouteSnapshot = { route: r.route, error: r.error };
@@ -580,6 +642,7 @@ export const defaultCaptureDomDeps: CaptureDomDeps = {
             if (r.settled === true) snap.settled = true;
             if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
             if (r.finalUrl) snap.finalUrl = r.finalUrl;
+            if (r.offOrigin) snap.offOrigin = true;
             return snap;
           }));
         } catch {

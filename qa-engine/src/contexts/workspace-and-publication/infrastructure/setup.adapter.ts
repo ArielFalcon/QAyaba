@@ -1,7 +1,8 @@
 /* E2E project setup: bootstrap the seed if missing, then install deps. This adapter never reads env — seedDir is injected. FAILURE_CAPTURE_BLOCK is data appended into the watched app's fixtures (runs in that app's Playwright process), not code this module executes. */
 import { createHash } from "node:crypto";
-import { existsSync, cpSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, cpSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { E2E_AUTH_FILE, type E2eAuthConfig } from "../../../shared-kernel/e2e-auth.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 
@@ -146,6 +147,7 @@ export interface SetupAdapterFsDeps {
   write(path: string, content: string): void;
   append(path: string, content: string): void;
   mkdir(path: string): void;
+  remove?(path: string): void;
 }
 
 export const nodeFsDeps: SetupAdapterFsDeps = {
@@ -156,12 +158,15 @@ export const nodeFsDeps: SetupAdapterFsDeps = {
   write: writeFileSync,
   append: appendFileSync,
   mkdir: (path) => mkdirSync(path, { recursive: true }),
+  remove: (path) => rmSync(path, { force: true }),
 };
 
 export interface SetupAdapterDeps {
   fs: SetupAdapterFsDeps;
   runner: SandboxedBinaryRunner;
   seedDir: string;
+  /* The app's declared central-login flow, materialized into the working copy each run (absent → any stale copy is removed). */
+  authConfig?: E2eAuthConfig;
 }
 
 export class SetupAdapter {
@@ -172,6 +177,7 @@ export class SetupAdapter {
     this.ensureSpecDir(e2eDir);
     this.ensureFailureCapture(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
+    this.ensureAuthConfig(e2eDir);
     if (this.isInstallCurrent(e2eDir)) {
       console.log("[qa] e2e dependencies up to date; skipping npm ci");
       return;
@@ -231,6 +237,17 @@ export class SetupAdapter {
       return;
     }
     this.deps.fs.cp(join(this.deps.seedDir, "playwright.config.ts"), path);
+  }
+
+  /* Written every run from the app config, so the working copy never carries a stale login declaration; the file is gitignored by the seed and excluded from publication. */
+  ensureAuthConfig(e2eDir: string): void {
+    const path = join(e2eDir, E2E_AUTH_FILE);
+    if (this.deps.authConfig) {
+      this.deps.fs.mkdir(dirname(path));
+      this.deps.fs.write(path, JSON.stringify(this.deps.authConfig, null, 2) + "\n");
+      return;
+    }
+    if (this.deps.fs.exists(path)) this.deps.fs.remove?.(path);
   }
 
   private getLockHash(e2eDir: string): string | null {

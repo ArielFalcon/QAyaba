@@ -169,7 +169,31 @@ export const AppConfigSchema = z
      * Flows into PW_TEST_ID_ATTRIBUTE env, threading through capture and execute spawns.
      * No app-specific names are hardcoded in src/ — the value comes from config only.
      */
-    e2e: z.object({ testIdAttribute: z.string().min(1).optional() }).optional(),
+    e2e: z
+      .object({
+        testIdAttribute: z.string().min(1).optional(),
+        /*
+         * App login on a central web (a different origin) that returns by redirect. URLs and
+         * selectors only; credentials come from DEV_TEST_USER / DEV_TEST_PASS. Materialized into
+         * the working copy as e2e/.qa/auth.local.json for the seed authenticate() fixture, the
+         * DOM capture and the agent (see qa-engine/src/shared-kernel/e2e-auth.ts).
+         */
+        auth: z
+          .object({
+            loginUrl: z.url({ error: "e2e.auth.loginUrl must be a valid URL" }),
+            startPath: z.string().min(1).optional(),
+            trigger: z.string().min(1).optional(),
+            passwordEntry: z.string().min(1).optional(),
+            usernameSelector: z.string().min(1).optional(),
+            passwordSelector: z.string().min(1).optional(),
+            submitSelector: z.string().min(1).optional(),
+            successSelector: z.string().min(1).optional(),
+            redirectTimeoutMs: z.number().int().positive().optional(),
+            timeoutMs: z.number().int().positive().optional(),
+          })
+          .optional(),
+      })
+      .optional(),
     code: z.boolean().optional(),
     /*
      * Stitcher → Generation seam: the app's declared cross-service call conventions
