@@ -593,6 +593,33 @@ test("createAgentDeps: prompt transport failures spread across roles fail every 
   resetCircuit();
 });
 
+test("createAgentDeps: a session opened before the provider breaker trips fails its next prompt fast", async () => {
+  resetCircuit();
+  try {
+    let reviewerPromptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async (args) => {
+        if (args.agent !== "qa-reviewer") throw new Error("socket hang up");
+        reviewerPromptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    const reviewer = await deps.open("qa-reviewer", "/tmp");
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open(`role-${i}`, "/tmp");
+      await rejectionOf(() => session.prompt("do the thing"));
+    }
+
+    const err = await rejectionOf(() => reviewer.prompt("review this"));
+    assert.match(err?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(reviewerPromptCalls, 0, "an already-open session must not reach the transport while the provider breaker is open");
+  } finally {
+    resetCircuit();
+  }
+});
+
 test("createAgentDeps: an answered prompt resets the provider failure streak", async () => {
   resetCircuit();
   let serverDown = true;
