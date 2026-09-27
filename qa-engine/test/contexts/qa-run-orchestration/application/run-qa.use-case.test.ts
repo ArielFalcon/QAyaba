@@ -6739,10 +6739,10 @@ test("auth session failure before generate is infra-error and does not generate"
 
 /* A login that breaks between generation and execute is the same class of failure as DEV going
    down at that point: the run already generated specs, so it is recorded like any other terminal. */
-test("a pre-execute auth failure persists an infra-error outcome and neither executes nor publishes", async () => {
+test("a pre-execute auth failure is only recorded: an infra-error outcome is persisted, never executed, published or folded", async () => {
   let executed = 0;
   let published = 0;
-  const { ports, savedOutcomes } = stubPorts({
+  const { ports, savedOutcomes, foldedOutcomes } = stubPorts({
     execute: async () => { executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
     publish: async () => { published += 1; return { outcome: "pr" }; },
   });
@@ -6766,6 +6766,38 @@ test("a pre-execute auth failure persists an infra-error outcome and neither exe
   assert.equal(savedOutcomes.length, 1);
   assert.equal(savedOutcomes[0]?.verdict, "infra-error");
   assert.match(savedOutcomes[0]?.note ?? "", /login form not found/);
+  assert.deepEqual(foldedOutcomes, []);
+});
+
+test("a pre-execute auth failure reverts writes outside the suite before the run ends", async () => {
+  /* The watched repo's working copy as the confinement fake sees it: enforce() reverts every stray. */
+  const strays = new Set<string>();
+  const confinement: ConfinementPort = {
+    enforce: async () => {
+      const reverted = [...strays];
+      strays.clear();
+      return { strays: reverted.length, dangerous: 0, reverted };
+    },
+  };
+  const { ports } = stubPorts();
+  const useCase = new RunQaUseCase({
+    ...ports,
+    confinement,
+    config: baseConfig,
+    authSession: {
+      prepare: async (req) => {
+        if (req.phase !== "pre-execute") return { unauthored: false };
+        strays.add("src/app/login.component.ts");
+        throw new Error("login form not found");
+      },
+    },
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
+  });
+
+  const out = await useCase.run({ ...baseInput, runId: "auth-session-pre-execute-confinement" });
+
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.deepEqual([...strays], [], "a write made before the failure must not outlive the run");
 });
 
 test("auth session prepare runs before generate and again before execute", async () => {
