@@ -30,7 +30,31 @@ jobs:
           # would validate a DIFFERENT native build than ships, defeating the point of the outer guard.
           node-version: "24"
           cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          # Read from client/go.mod so the Go toolchain version is declared in exactly one place.
+          go-version-file: client/go.mod
       - run: npm ci
       - run: npm run typecheck
       - run: npm run arch:check
+      - run: npm run sdk:typecheck
+      # Catches a src/contract/*.ts (zod) edit that shipped without rerunning
+      # `npm run contract:gen && npm run sdk:gen` — see scripts/check-contract-fresh.ts.
+      - run: npm run contract:check
       - run: npm test
+      - name: client (Go) — vet + test
+        working-directory: client
+        run: |
+          go vet ./...
+          go test ./...
+      # client/internal/contract/types.gen.go is vendored from contract/openapi.json (client/Makefile's
+      # `gen` target). Regenerate into a scratch file with the exact pinned generator command and diff
+      # against the committed file, instead of overwriting it in place, so this step never mutates the
+      # checkout the later steps (or a re-run) would see.
+      - name: client (Go) — contract types freshness
+        working-directory: client
+        run: |
+          tmp="$(mktemp)"
+          go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.1 \
+            -generate types -package contract -o "$tmp" ../contract/openapi.json
+          diff -u internal/contract/types.gen.go "$tmp"
