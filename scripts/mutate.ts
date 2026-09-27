@@ -4,10 +4,15 @@
  * decision logic's line range as `file.ts:start-end` — and the test files that run per mutant, so a
  * run takes minutes, not the whole suite per mutant.
  *
- *   npm run mutate -- <preset>            incremental run (only re-tests mutants whose code/tests changed)
- *   npm run mutate -- <preset> --force    full rebaseline
+ *   npm run mutate -- <preset>                  full run (every mutant against the preset's tests)
+ *   npm run mutate -- <preset> --incremental    re-test only mutants whose source changed
  *   npm run mutate -- --list              the presets
  *   npm run mutate:keystone               the change-coverage keystone preset
+ *
+ * Incremental mode is opt-in: the command runner reports the whole test command as ONE test, so
+ * Stryker cannot see a test-file change and reuses every earlier result — a strengthened test would
+ * leave its survivors stale, and a weakened one would keep its kills. Use it only while editing the
+ * mutated source itself.
  *
  * The Stryker config and the checker's tsconfig are generated under os.tmpdir(); the incremental
  * state and the JSON report live under reports/mutation/ (gitignored), the sandbox under
@@ -200,7 +205,7 @@ export function checkerTsconfigFor(preset: MutationPreset, root: string): object
 export function strykerConfigFor(
   name: string,
   preset: MutationPreset,
-  opts: { tsconfigFile: string; concurrency: number },
+  opts: { tsconfigFile: string; concurrency: number; incremental: boolean },
 ): object {
   return {
     packageManager: "npm",
@@ -210,7 +215,7 @@ export function strykerConfigFor(
     checkers: ["typescript"],
     tsconfigFile: opts.tsconfigFile,
     mutate: [...preset.mutate],
-    incremental: true,
+    incremental: opts.incremental,
     incrementalFile: `${REPORT_DIR}/${name}.incremental.json`,
     reporters: ["clear-text", "progress", "json"],
     jsonReporter: { fileName: `${REPORT_DIR}/${name}.json` },
@@ -235,13 +240,15 @@ export interface MutationSummary {
   timeout: number;
   noCoverage: number;
   compileErrors: number;
+  /* Mutants a `// Stryker disable` directive excludes — documented equivalent mutants. */
+  ignored: number;
   /* (killed + timeout) / (killed + timeout + survived + noCoverage), in percent; null when nothing was valid. */
   score: number | null;
   survivors: string[];
 }
 
 export function summarize(report: { files: Record<string, { mutants: ReportMutant[] }> }): MutationSummary {
-  const count = { Killed: 0, Survived: 0, Timeout: 0, NoCoverage: 0, CompileError: 0 } as Record<string, number>;
+  const count = { Killed: 0, Survived: 0, Timeout: 0, NoCoverage: 0, CompileError: 0, Ignored: 0 } as Record<string, number>;
   const survivors: string[] = [];
   let mutants = 0;
   for (const [file, { mutants: list }] of Object.entries(report.files)) {
@@ -266,6 +273,7 @@ export function summarize(report: { files: Record<string, { mutants: ReportMutan
     timeout,
     noCoverage,
     compileErrors: count.CompileError ?? 0,
+    ignored: count.Ignored ?? 0,
     score: valid === 0 ? null : Math.round(((killed + timeout) / valid) * 10000) / 100,
     survivors,
   };
@@ -273,16 +281,31 @@ export function summarize(report: { files: Record<string, { mutants: ReportMutan
 
 function usage(): string {
   const lines = Object.entries(PRESETS).map(([n, p]) => `  ${n.padEnd(20)} ${p.description}`);
-  return `usage: npm run mutate -- <preset> [--force]\n\npresets:\n${lines.join("\n")}`;
+  return `usage: npm run mutate -- <preset> [--incremental]\n\npresets:\n${lines.join("\n")}`;
+}
+
+export interface RunOptions {
+  list: boolean;
+  preset: string | undefined;
+  /* Off unless asked for: see the incremental note at the top of this file. */
+  incremental: boolean;
+}
+
+export function runOptionsFrom(argv: readonly string[]): RunOptions {
+  return {
+    list: argv.includes("--list"),
+    preset: argv.find((a) => !a.startsWith("--")),
+    incremental: argv.includes("--incremental"),
+  };
 }
 
 function main(argv: string[]): number {
-  const args = argv.filter((a) => !a.startsWith("--"));
-  if (argv.includes("--list")) {
+  const opts = runOptionsFrom(argv);
+  if (opts.list) {
     console.log(usage());
     return 0;
   }
-  const name = args[0];
+  const name = opts.preset;
   const preset = name === undefined ? undefined : PRESETS[name];
   if (name === undefined || preset === undefined) {
     console.error(name === undefined ? usage() : `unknown preset "${name}"\n\n${usage()}`);
@@ -295,16 +318,19 @@ function main(argv: string[]): number {
     writeFileSync(tsconfigFile, JSON.stringify(checkerTsconfigFor(preset, ROOT), null, 2));
     const configFile = join(workDir, "stryker.conf.json");
     const concurrency = Math.max(1, Math.min(8, availableParallelism() - 2));
-    writeFileSync(configFile, JSON.stringify(strykerConfigFor(name, preset, { tsconfigFile, concurrency }), null, 2));
+    writeFileSync(
+      configFile,
+      JSON.stringify(strykerConfigFor(name, preset, { tsconfigFile, concurrency, incremental: opts.incremental }), null, 2),
+    );
 
-    const strykerArgs = ["run", configFile, ...(argv.includes("--force") ? ["--force"] : [])];
+    const strykerArgs = ["run", configFile];
     const run = spawnSync(join(ROOT, "node_modules", ".bin", "stryker"), strykerArgs, { cwd: ROOT, stdio: "inherit" });
     if (run.error) throw run.error;
 
     const reportFile = join(ROOT, REPORT_DIR, `${name}.json`);
     if (existsSync(reportFile)) {
       const s = summarize(JSON.parse(readFileSync(reportFile, "utf8")));
-      console.log(`\nmutate ${name}: ${s.mutants} mutants — killed ${s.killed}, survived ${s.survived}, timeout ${s.timeout}, no-coverage ${s.noCoverage}, compile-error ${s.compileErrors}, score ${s.score ?? "n/a"}%`);
+      console.log(`\nmutate ${name}: ${s.mutants} mutants — killed ${s.killed}, survived ${s.survived}, timeout ${s.timeout}, no-coverage ${s.noCoverage}, compile-error ${s.compileErrors}, ignored ${s.ignored}, score ${s.score ?? "n/a"}%`);
       for (const line of s.survivors) console.log(`  ${line}`);
     }
     return run.status ?? 1;

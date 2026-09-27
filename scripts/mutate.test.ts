@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRESETS, checkerTsconfigFor, sourcePathOf, summarize, testCommandFor, type MutationPreset } from "./mutate.ts";
+import { PRESETS, checkerTsconfigFor, runOptionsFrom, sourcePathOf, summarize, testCommandFor, type MutationPreset } from "./mutate.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -38,6 +38,12 @@ test("a mutant run executes only the preset's own test files, under the tracked-
   assert.match(command, /--test "src\/a\.test\.ts" "src\/b\.test\.ts"$/);
 });
 
+test("a run re-tests every mutant unless incremental mode is asked for (the command runner cannot see test-file changes)", () => {
+  assert.equal(runOptionsFrom(["keystone"]).incremental, false);
+  assert.equal(runOptionsFrom(["keystone", "--incremental"]).incremental, true);
+  assert.equal(runOptionsFrom(["--incremental", "keystone"]).preset, "keystone");
+});
+
 test("the checker type-checks the mutated file without its line range, with the options of its own project", () => {
   const engine = checkerTsconfigFor(
     { description: "x", mutate: ["qa-engine/src/x.ts:10-20"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } },
@@ -54,7 +60,7 @@ test("the checker type-checks the mutated file without its line range, with the 
   assert.equal(shell.extends, "/repo/tsconfig.json");
 });
 
-test("the score counts killed and timed-out mutants over valid ones; compile errors are not valid mutants", () => {
+test("the score counts killed and timed-out mutants over valid ones; compile errors and ignored mutants are not valid", () => {
   const at = (line: number) => ({ start: { line, column: 1 } });
   const s = summarize({
     files: {
@@ -68,12 +74,14 @@ test("the score counts killed and timed-out mutants over valid ones; compile err
           { status: "NoCoverage", mutatorName: "M", location: at(6) },
           { status: "CompileError", mutatorName: "M", location: at(7) },
           { status: "CompileError", mutatorName: "M", location: at(8) },
+          { status: "Ignored", mutatorName: "M", location: at(9) },
         ],
       },
     },
   });
-  assert.equal(s.mutants, 8);
+  assert.equal(s.mutants, 9);
   assert.equal(s.compileErrors, 2);
+  assert.equal(s.ignored, 1);
   assert.equal(s.score, 66.67);
   assert.equal(s.survivors.length, 2);
   assert.match(s.survivors[0]!, /a\.ts:5:1\s+EqualityOperator\s+"a > b"/);
