@@ -27,7 +27,7 @@ import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
-import { enqueueTrackedRun, enqueueContextMapRun, cancelTrackedRun, finalizeInterruptedRuns } from "./server/runner";
+import { enqueueTrackedRun, enqueueContextMapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
 import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
@@ -171,6 +171,15 @@ function currentAgentDeps(): AgentDeps {
 let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
 
 /*
+ * The runner deps every enqueue path shares — the event store, the engine factory and the
+ * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
+ * Built at call time: engineFactory and onboardingJob are assigned later in this module.
+ */
+function runnerDeps(): RunnerDeps {
+  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() };
+}
+
+/*
  * Context-map rebuild trigger for rewritten-engine-factory.ts's process-audit context heal. The
  * sha is the triggering run's own sha (never the mirror HEAD, which at composition time is the
  * previous run's sha — a gated app would wait for a version DEV no longer serves). Returns "" while
@@ -178,7 +187,7 @@ let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
  */
 const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
   if (shuttingDown) return "";
-  return enqueueContextMapRun(queue, app, sha, { runEvents, engineFactory });
+  return enqueueContextMapRun(queue, app, sha, runnerDeps());
 };
 
 engineFactory = createRewrittenEngineFactory({ getAgentDeps: currentAgentDeps, enqueueContextRun: enqueueContextHealRun });
@@ -255,7 +264,7 @@ function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, 
     return "";
   }
 
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, runnerDeps());
 }
 
 /*
@@ -517,7 +526,7 @@ const onboardingJob = createOnboardingJob({
      * durability mechanism — it captures the validated map on every clean context-mode pass
      * regardless of shadow, so the map survives the next mirror wipe without a context.json PR.
      */
-    return enqueueContextMapRun(queue, app, sha, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
+    return enqueueContextMapRun(queue, app, sha, runnerDeps());
   },
   getContextRun: (runId) => {
     const rec = getRecord(runId);
@@ -674,7 +683,7 @@ const apiDeps: ApiDeps = {
        * Honor the active agent runtime (Codex/dual) on continuations, exactly like the
        * webhook path above.
        */
-    }, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
+    }, runnerDeps());
   },
 };
 
