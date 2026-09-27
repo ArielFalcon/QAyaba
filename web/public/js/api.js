@@ -16,6 +16,7 @@
    api.ask(runId, question) → Promise<string|null> (null ⇒ UI uses canned answer)
    api.createRun({app,mode,sha}) → Promise<any>
    api.cancelRun(runId) → Promise<any>
+   QayabaConsole.onAuthRequired(fn) → fn() runs whenever the server answers 401 (session gone)
    See API.md for the full endpoint requirements + field-mapping + gaps.
    ═══════════════════════════════════════════════════════════════════════
  */
@@ -53,9 +54,14 @@ window.QayabaConsole = (function () {
     if (cfg.token) h.Authorization = 'Bearer ' + cfg.token;
     return h;
   }
+  /* A 401 means the operator's session is gone: forget the token (so no later request keeps
+     sending it) and tell whoever shows the login prompt. */
+  const authListeners = [];
+  function onAuthRequired(fn) { authListeners.push(fn); }
   function authLost() {
+    cfg.token = null;
     if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
-    window.location.hash = '#login';
+    authListeners.forEach((fn) => { try { fn(); } catch (e) { /* a listener must not break the caller */ } });
   }
   /* err.status is the HTTP status; err.reason the server's own explanation ({error} body), when
      it sent one — what an operator should read when an action is refused. */
@@ -589,5 +595,5 @@ window.QayabaConsole = (function () {
     if (s < 86400) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago';
   }
 
-  return { config: cfg, api: cfg.mode === 'live' ? live : mock };
+  return { config: cfg, api: cfg.mode === 'live' ? live : mock, onAuthRequired: onAuthRequired };
 })();

@@ -1715,11 +1715,27 @@ function loadRunExtras(id) {
       state.dialogApp = (D.apps && D.apps[0] && D.apps[0].name) || null;
       syncFromUrl();
       render();
-    }).catch(errorScreen);
+    }).catch(function (err) {
+      /* a 401 already brought up the login prompt — the session is gone, not the console */
+      if (err && err.status === 401) return;
+      errorScreen(err);
+    });
   }
 
+  /* The session can expire at any time (a stale stored token at boot, or mid-session on any read
+     or stream): stop following runs and ask the operator to sign in again. */
+  function requireLogin() {
+    Object.keys(verdictWatches).forEach(stopVerdictWatch);
+    teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
+    bindLoginScreen();
+  }
+  if (window.QayabaConsole && window.QayabaConsole.onAuthRequired) window.QayabaConsole.onAuthRequired(requireLogin);
+
+  let loginBound = false;
   function bindLoginScreen() {
     if (loginScreen) loginScreen.style.display = 'grid';
+    if (loginBound) return;
+    loginBound = true;
     const btnGithub = document.getElementById('btn-github-login');
     const btnToken = document.getElementById('btn-token-login');
     const tokenInput = document.getElementById('token-input');

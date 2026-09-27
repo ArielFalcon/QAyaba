@@ -186,3 +186,34 @@ test("the mock console flags its demo data as mock", async () => {
   h.click("nav", "integrity");
   assert.match(h.text(), /mock data/i);
 });
+
+test("a session that expires while the console is open brings up the login prompt", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "expired",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [runRecord("run-live", { status: "running", verdict: undefined, step: "generate" })],
+      running: { id: "run-live", app: "shop" },
+      extra: (req) => (req.path === "/api/v1/runs/run-live/events" ? { status: 401, json: { error: "unauthorized" } } : undefined),
+    }),
+  });
+  assert.equal(h.loginVisible(), false, "the console booted normally");
+
+  h.click("open-run", "run-live");
+  await h.advance(1_000);
+
+  assert.equal(h.loginVisible(), true);
+});
+
+test("a stale stored token at boot brings up the login prompt instead of an error screen", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "stale",
+    routes: (req) => (req.path === "/api/v1/apps" ? { status: 401, json: { error: "unauthorized" } } : controlApi({ apps: [], runs: [] })(req)),
+  });
+  await h.advance(1_000);
+
+  assert.equal(h.loginVisible(), true);
+  assert.doesNotMatch(h.text(), /Could not load the console/);
+});
