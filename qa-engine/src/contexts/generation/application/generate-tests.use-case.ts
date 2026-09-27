@@ -8,7 +8,7 @@ import type {
   PromptBudgetPort,
   ManifestEntry,
 } from "./ports/index.ts";
-import type { OpencodeRunInput } from "./ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "./ports/generation-ports.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -102,15 +102,32 @@ export class GenerateTestsUseCase {
 
     /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. (mirrors reviewIndependently in opencode-client.ts:952-1009) */
     const reviewerRole: AgentRole = "reviewer";
-    const reviewerInput = {
+    /* Ground this FIRST reviewer pass the same way review-port.adapter.ts grounds every regen
+       pass — omitting domSnapshot/learnedRules/guidance-or-objective/intent/baseUrl/target left the
+       first review judging specs with none of the context later rounds get. `intent` is passed
+       through directly (this use case already holds the full CommitIntent, unlike
+       review-port.adapter.ts's narrower ctx/enrichment split, which can only carry the message);
+       `objective` still mirrors review-port.adapter.ts's own guidance-wins-over-intent precedence
+       so the two reviewer-input builders cannot silently diverge on that call. `learnedRules` is
+       forwarded as-is: this use case only has the generator-rendered string (OpencodeRunInput never
+       carries the raw RetrievedRule[] review-port.adapter.ts re-renders for the reviewer), and that
+       is still real signal, not a fabricated one. */
+    const reviewerInput: ReviewInput = {
       diff: input.diff,
       specs: deliverable.specs,
       mirrorDir: input.mirrorDir,
       e2eRelDir: input.e2eRelDir,
       appName: input.appName,
       mode: input.mode,
+      target: input.target,
+      ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+      ...(input.guidance ? { guidance: input.guidance } : {}),
+      ...(input.intent ? { intent: input.intent } : {}),
+      ...(!input.guidance && input.intent?.message ? { objective: input.intent.message } : {}),
+      ...(input.learnedRules ? { learnedRules: input.learnedRules } : {}),
+      ...(input.domSnapshot ? { domSnapshot: input.domSnapshot } : {}),
     };
-    const reviewerAssembled = rendering.renderReviewer(reviewerInput as Parameters<typeof rendering.renderReviewer>[0]);
+    const reviewerAssembled = rendering.renderReviewer(reviewerInput);
     const reviewerSession = await runtime.openSession(reviewerRole, input.mirrorDir, {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       descriptor: { runId: input.runId, role: "qa-reviewer" },

@@ -264,6 +264,131 @@ test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:f
   assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
+/* C2: the FIRST reviewer pass (this file) must ground the review the same way regen passes do
+   (review-port.adapter.ts) — domSnapshot, learnedRules, baseUrl, target and an objective (guidance,
+   or the commit intent's message when no guidance was given) were previously omitted, and the
+   reviewerInput was pushed through an `as Parameters<...>` cast that hid the gap from the compiler.
+ */
+test("C2: first reviewer pass grounds the review (domSnapshot, learnedRules, intent, baseUrl, target, objective from intent.message)", async () => {
+  let capturedReviewerInput: unknown;
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => ({ output: '{"specs":["flows/login.spec.ts"]}' }),
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: (input) => {
+        capturedReviewerInput = input;
+        return { text: "REV_PROMPT", sectionSizes: {} };
+      },
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: {
+      read: async () => [],
+      reconcile: async (_d, e) => [...e] as ManifestEntry[],
+    },
+    budget: {
+      capDiff: (d) => d,
+      capText: (t) => t,
+      budgetForRole: () => 0,
+    },
+  };
+
+  const useCase = new GenerateTestsUseCase(ports);
+  await useCase.generate({
+    repo: "r",
+    sha: "s",
+    diff: "DIFF_TEXT",
+    mirrorDir: "/m",
+    e2eRelDir: "e2e",
+    namespace: "ns",
+    needsReview: true,
+    target: "e2e",
+    mode: "diff",
+    appName: "a",
+    baseUrl: "https://dev.example.test",
+    domSnapshot: "DOM_SNAPSHOT",
+    learnedRules: "RULES_TEXT",
+    intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
+  });
+
+  assert.ok(capturedReviewerInput, "renderReviewer must be called");
+  const ri = capturedReviewerInput as Record<string, unknown>;
+  assert.equal(ri.domSnapshot, "DOM_SNAPSHOT");
+  assert.equal(ri.learnedRules, "RULES_TEXT");
+  assert.equal(ri.baseUrl, "https://dev.example.test");
+  assert.equal(ri.target, "e2e");
+  assert.deepEqual(ri.intent, { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] });
+  assert.equal(ri.objective, "fix the checkout flow", "no guidance -> objective falls back to the commit intent message");
+  assert.equal(ri.guidance, undefined);
+});
+
+test("C2: first reviewer pass — explicit guidance wins over the intent-derived objective (matches review-port.adapter.ts's precedence)", async () => {
+  let capturedReviewerInput: unknown;
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => ({ output: '{"specs":["flows/login.spec.ts"]}' }),
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: (input) => {
+        capturedReviewerInput = input;
+        return { text: "REV_PROMPT", sectionSizes: {} };
+      },
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: {
+      read: async () => [],
+      reconcile: async (_d, e) => [...e] as ManifestEntry[],
+    },
+    budget: {
+      capDiff: (d) => d,
+      capText: (t) => t,
+      budgetForRole: () => 0,
+    },
+  };
+
+  const useCase = new GenerateTestsUseCase(ports);
+  await useCase.generate({
+    repo: "r",
+    sha: "s",
+    diff: "DIFF_TEXT",
+    mirrorDir: "/m",
+    e2eRelDir: "e2e",
+    namespace: "ns",
+    needsReview: true,
+    target: "e2e",
+    mode: "manual",
+    appName: "a",
+    guidance: "test the contact form",
+    intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
+  });
+
+  const ri = capturedReviewerInput as Record<string, unknown>;
+  assert.equal(ri.guidance, "test the contact form");
+  assert.equal(ri.objective, undefined, "explicit guidance must win — objective stays unset");
+});
+
 /* Fail-closed: parse miss without review.
  */
 test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
