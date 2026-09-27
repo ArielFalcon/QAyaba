@@ -13,7 +13,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps } from "./server/api";
-import { authorizeBearer, issueSession, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
+import { authorizeBearer, issueSession, localWebLoginAllowed, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { toIntelligenceView } from "./server/intelligence-view";
@@ -670,20 +670,11 @@ const apiDeps: ApiDeps = {
     return { ok: true, token, username, expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString() };
   },
   /*
-   * Same-origin web console: mint a short-lived session (never the machine token) when the
-   * caller is loopback or QA_WEB_AUTO_LOGIN=true (local docker, where the browser hits the
-   * published port and the container sees a bridge IP) AND the request's Host header is itself
-   * loopback (or explicitly allowlisted via QA_WEB_LOGIN_HOST_ALLOWLIST) — a DNS-rebinding
-   * attacker can make the TCP peer look loopback while the Host header still names their domain.
+   * Same-origin web console: mint a short-lived session (never the machine token) only when
+   * localWebLoginAllowed says so (peer/flag AND loopback-or-allowlisted Host — see auth.ts).
    */
   localLogin: (remoteAddress, host) => {
-    if (!allowLocalWebLogin({ enabled: process.env.QA_WEB_AUTO_LOGIN === "true", remoteAddress })) {
-      return null;
-    }
-    const hostAllowlist = (process.env.QA_WEB_LOGIN_HOST_ALLOWLIST ?? "").split(",").map((h) => h.trim()).filter(Boolean);
-    if (!isLoopbackHost(host, hostAllowlist)) {
-      return null;
-    }
+    if (!localWebLoginAllowed({ remoteAddress, host }, process.env)) return null;
     const now = Date.now();
     const token = issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
     return {
@@ -758,7 +749,7 @@ const server = createServer(async (req, res) => {
     /*
      * Public (pre-auth) surface: liveness, the version handshake, GitHub login, and the
      * same-origin local-console bootstrap. None of these return QA_API_TOKEN. /auth/local
-     * is public at the gate; the handler 404s untrusted callers (see allowLocalWebLogin).
+     * is public at the gate; the handler 404s untrusted callers (see localWebLoginAllowed).
      */
     const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
     if (!isPublic && !authorized(req)) {

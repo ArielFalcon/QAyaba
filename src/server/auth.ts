@@ -107,20 +107,40 @@ export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: str
  * the request's Host header hostname must ALSO be loopback (localhost/127.0.0.1/::1) or an
  * explicitly configured allowlist entry — never just any hostname that happens to resolve here.
  */
-function hostnameFromHostHeader(host: string): string {
-  /* IPv6 literal: "[::1]:458" -> "::1"; "[::1]" -> "::1". */
-  const ipv6 = /^\[([^\]]+)\]/.exec(host);
-  if (ipv6) return (ipv6[1] ?? "").toLowerCase();
-  /* IPv4/hostname with optional port: "localhost:458" -> "localhost". */
-  const idx = host.lastIndexOf(":");
-  return (idx === -1 ? host : host.slice(0, idx)).toLowerCase();
+/*
+ * A Host header is exactly `host [":" port]`: an IPv6 literal in brackets, or a hostname / IPv4
+ * address of letters, digits, dots and hyphens. The whole value must match — a lenient parse
+ * would read "[::1]evil.com" or "localhost:458, evil.example" as loopback. null = malformed.
+ */
+const HOST_HEADER_RE = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9.-]+))(?::[0-9]{1,5})?$/i;
+
+function hostnameFromHostHeader(host: string): string | null {
+  const m = HOST_HEADER_RE.exec(host);
+  if (!m) return null;
+  return (m[1] ?? m[2] ?? "").toLowerCase();
 }
 
 export function isLoopbackHost(host: string | undefined, allowlist: readonly string[] = []): boolean {
   if (!host) return false;
   const hostname = hostnameFromHostHeader(host);
+  if (!hostname) return false;
   if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
   return allowlist.some((h) => h.toLowerCase() === hostname);
+}
+
+/*
+ * The whole local-console login policy (GET /api/auth/local): the caller gets in when
+ * QA_WEB_AUTO_LOGIN is exactly "true" or the TCP peer is loopback (allowLocalWebLogin), AND the
+ * request's Host header names a loopback host or a QA_WEB_LOGIN_HOST_ALLOWLIST entry
+ * (comma-separated) — the DNS-rebinding check.
+ */
+export function localWebLoginAllowed(
+  request: { remoteAddress?: string; host?: string },
+  env: { QA_WEB_AUTO_LOGIN?: string; QA_WEB_LOGIN_HOST_ALLOWLIST?: string },
+): boolean {
+  if (!allowLocalWebLogin({ enabled: env.QA_WEB_AUTO_LOGIN === "true", remoteAddress: request.remoteAddress })) return false;
+  const allowlist = (env.QA_WEB_LOGIN_HOST_ALLOWLIST ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  return isLoopbackHost(request.host, allowlist);
 }
 
 /*
