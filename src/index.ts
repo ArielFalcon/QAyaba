@@ -27,7 +27,7 @@ import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
-import { enqueueTrackedRun, cancelTrackedRun, finalizeInterruptedRuns } from "./server/runner";
+import { enqueueTrackedRun, enqueueContextMapRun, cancelTrackedRun, finalizeInterruptedRuns } from "./server/runner";
 import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
@@ -178,7 +178,7 @@ let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
  */
 const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
   if (shuttingDown) return "";
-  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, { runEvents, engineFactory });
+  return enqueueContextMapRun(queue, app, sha, { runEvents, engineFactory });
 };
 
 engineFactory = createRewrittenEngineFactory({ getAgentDeps: currentAgentDeps, enqueueContextRun: enqueueContextHealRun });
@@ -513,18 +513,11 @@ const onboardingJob = createOnboardingJob({
     if (shuttingDown) return "";
     const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
     /*
-     * No shadow override: this run honors the app's own qa.shadow, same as any other enqueue path
-     * (req.shadow is left absent, so runner.ts falls through to the YAML value unchanged). The
-     * SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's
+     * The SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's
      * durability mechanism — it captures the validated map on every clean context-mode pass
-     * regardless of shadow, so the map survives the next mirror wipe without a context.json PR. Never pass triggerRepo — context mode cannot be
-     * driven from a service repo.
+     * regardless of shadow, so the map survives the next mirror wipe without a context.json PR.
      */
-    return enqueueTrackedRun(
-      queue,
-      { app, sha, target: "e2e", mode: "context", source: "manual" },
-      { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() },
-    );
+    return enqueueContextMapRun(queue, app, sha, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
   },
   getContextRun: (runId) => {
     const rec = getRecord(runId);

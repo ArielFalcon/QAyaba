@@ -196,6 +196,15 @@ async function runViaRewrittenEngine(
 }
 
 /*
+ * A context-map run (the FE<->BE architecture map rebuild): an e2e run in context mode at an
+ * explicit sha, from a manual source, under the app's own qa.shadow. Never given a triggerRepo —
+ * context mode cannot be driven from a service repo.
+ */
+export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, deps);
+}
+
+/*
  * Creates the tracked RunRecord and enqueues the pipeline on the shared queue.
  * Returns the record id immediately (the run executes asynchronously, one at a time).
  */

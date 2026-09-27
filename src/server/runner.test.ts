@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import {
   enqueueTrackedRun,
+  enqueueContextMapRun,
   cancelTrackedRun,
   ONBOARDING_WAIT_MAX_MS,
   ONBOARDING_MIRROR_CEILING_MS,
@@ -84,6 +85,21 @@ test("engineFactory supplied — routes to port.run", async () => {
   assert.equal(calls[0]?.mode, "diff");
   assert.equal(calls[0]?.target, "e2e");
   assert.equal(calls[0]?.source, "manual");
+});
+
+test("a context-map run is an e2e context-mode run at the given sha, from a manual source, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueContextMapRun(queue, "runner-context-map", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(run?.app, "runner-context-map");
+  assert.equal(run?.sha.value, "c0ffee1");
+  assert.equal(run?.mode, "context");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.triggerRepo, undefined, "context mode cannot be driven from a service repo");
 });
 
 test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through the rewritten engineFactory (accepted-but-ignored)", async () => {
