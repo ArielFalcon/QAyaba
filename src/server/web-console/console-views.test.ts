@@ -130,3 +130,59 @@ test("a refused re-run tells the operator the server's reason", async () => {
 
   assert.ok(h.toastText().includes(reason), `toast: ${h.toastText()}`);
 });
+
+/* Report insights from each app's GET /apps/:name/report, as the contract serves them. */
+function appReport(app: string, titles: string[]) {
+  return {
+    app, generatedAt: new Date().toISOString(), window: { current: 5, previous: 3 }, headline: `${app} report`,
+    insights: titles.map((title, i) => ({
+      id: `metric-${i}`, title, intent: "single-value", chart: "gauge", value: 0.5, unit: "ratio", delta: null,
+      multiplier: null, direction: "flat", goodWhen: "up", score: 0.9 - i / 10,
+    })),
+  };
+}
+
+/* The rendered report blocks, one text chunk per ranked insight ("#1 …", "#2 …"). */
+function reportBlocks(text: string): string[] {
+  return text.split(/(?=#\d+ )/).slice(1);
+}
+
+test("live report insights from every app are shown, each attributed to its app", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop"), appView("blog")],
+      runs: [],
+      extra: (req) => {
+        if (req.path === "/api/v1/apps/shop/report") return { status: 200, json: appReport("shop", ["Checkout coverage fell"]) };
+        if (req.path === "/api/v1/apps/blog/report") return { status: 200, json: appReport("blog", ["Comment flow is flaky"]) };
+        return undefined;
+      },
+    }),
+  });
+
+  h.click("nav", "reports");
+  const blocks = reportBlocks(h.text());
+
+  const shop = blocks.find((b) => b.includes("Checkout coverage fell"));
+  const blog = blocks.find((b) => b.includes("Comment flow is flaky"));
+  assert.ok(shop && /\bshop\b/.test(shop), `shop's insight names its app: ${shop}`);
+  assert.ok(blog && /\bblog\b/.test(blog), `blog's insight names its app: ${blog}`);
+});
+
+test("live views never claim to show mock data", async () => {
+  const h = await loadConsole({ withConsole: true, token: "t", routes: controlApi({ apps: [appView("shop")], runs: [] }) });
+
+  for (const section of ["overview", "runs", "integrity", "learning", "reports"]) {
+    h.click("nav", section);
+    assert.doesNotMatch(h.text(), /mock data/i, `${section} is live data`);
+  }
+});
+
+test("the mock console flags its demo data as mock", async () => {
+  const h = await loadConsole({ withConsole: true, mode: "mock", routes: controlApi({ apps: [], runs: [] }) });
+
+  h.click("nav", "integrity");
+  assert.match(h.text(), /mock data/i);
+});

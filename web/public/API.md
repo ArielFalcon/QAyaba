@@ -117,7 +117,7 @@ contract schema names are in (parens).
 ### Reports
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| Insight blocks (ranked) | `reports.insights: [{metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ wired — the console replaces the mock exec blocks with the first app whose `/report` returns insights (`shape`←`chart`, `headline`←`title`, `weight`←`score`); viz renders an honest icon (no invented series). Templates stay client-side presets. |
+| Insight blocks (ranked) | `reports.insights: [{app,metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ wired — the console ranks every app's `/report` insights together, each block naming its app (`shape`←`chart`, `headline`←`title`, `weight`←`score`); viz renders an honest icon (no invented series). Templates stay client-side presets. |
 | Templates | `reports.templates: [{id,name,desc,blocks,schedule,channel}]` | — | ✗ new (or keep client-side presets). |
 | Generate / schedule / export | actions | — | ✗ new (future POST). |
 

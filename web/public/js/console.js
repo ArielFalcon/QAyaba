@@ -41,8 +41,13 @@
     const app = (D.apps || []).find(function (a) { return a.name === r.app; });
     return (app && app.repo) || r.app || '';
   }
-  function DevBadge() {
-    return '<div class="dev-badge"><span class="dev-badge__tag">In development</span><span class="dev-badge__note">· mock data · backend pending</span></div>';
+  function DevBadge(note) {
+    return '<div class="dev-badge"><span class="dev-badge__tag">In development</span><span class="dev-badge__note">· ' + esc(note) + '</span></div>';
+  }
+  /* Only the mock console shows demo data; a live view renders what the API returned (or an
+     honest "not available"), so it never carries the mock-data flag. */
+  function MockDataBadge() {
+    return CFG.mode === 'live' ? '' : DevBadge('mock data · backend pending');
   }
   const apiOf = () => (window.QayabaConsole && window.QayabaConsole.api) || null;
   /* Asset URLs resolved relative to THIS script, so the dashboard works whether it
@@ -1066,7 +1071,7 @@
       '<div style="width:100%;height:4px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + (blocks ? 'var(--ink-900)' : 'var(--bone-400)') + '"></div></div></div></div>';
   }
   function viewIntegrity() {
-    const devBadge = DevBadge();
+    const devBadge = MockDataBadge();
     const na = 'not available from the API';
     const it = D.integrity, pct = (x) => (x == null ? 'n/a' : (x * 100).toFixed(1) + '%');
     const ptsDelta = (v, prev) => (v == null || prev == null) ? '' : pctPts(v, prev) + ' pts';
@@ -1094,7 +1099,7 @@
   }
 
   function viewLearning() {
-    const devBadge = DevBadge();
+    const devBadge = MockDataBadge();
     const flywheel = D.flywheel, ledger = D.ledger;
     const confTone = { high: { c: 'var(--pass-600)', bg: 'var(--pass-100)' }, med: { c: 'var(--flaky-600)', bg: 'var(--flaky-100)' }, low: { c: 'var(--ink-500)', bg: 'var(--bone-200)' } };
     const STATUS = [['active', 'var(--pass-600)'], ['candidate', 'var(--ember-600)'], ['deprecated', 'var(--flaky-600)'], ['superseded', 'var(--ink-500)']];
@@ -1163,7 +1168,7 @@
     return '<div style="' + sty({ display: 'flex', gap: 16, padding: '16px 18px', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', alignItems: 'center' }) + '">' +
       '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;align-items:center;gap:8px">' +
       '<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-faint)">#' + rank + '</span>' +
-      '<span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600);display:inline-flex;align-items:center;gap:4px">' + I(shapeIcon[ins.shape], 11) + esc(ins.metric) + '</span>' +
+      '<span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600);display:inline-flex;align-items:center;gap:4px">' + I(shapeIcon[ins.shape], 11) + (ins.app ? esc(ins.app) + ' · ' : '') + esc(ins.metric) + '</span>' +
       '<span style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--text-faint)">weight<span style="width:44px;height:5px;background:var(--surface-sunken);border-radius:999px;overflow:hidden;display:inline-block"><span style="display:block;width:' + (ins.weight * 100) + '%;height:100%;background:var(--ember-500)"></span></span></span></div>' +
       '<span style="font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:-0.015em;color:var(--text-strong)">' + esc(ins.headline) + '</span>' +
       '<span style="font-size:12.5px;color:var(--text-muted);line-height:1.45">' + esc(ins.detail) + '</span></div>' +
@@ -1211,9 +1216,11 @@
       '<div style="display:flex;gap:7px">' + ['slack', 'email', 'teams'].map((c) => '<span style="flex:1;text-align:center;padding:7px 0;border-radius:var(--radius-sm);border:1px solid var(--bone-300);font-family:var(--font-mono);font-size:11px;color:var(--text-body)">' + c + '</span>').join('') + '</div>' +
       Button({ variant: 'primary', block: true, leadingIcon: 'sparkles', label: 'Generate report' }) +
       '<div style="display:flex;gap:8px">' + Button({ variant: 'secondary', size: 'sm', block: true, leadingIcon: 'image', label: 'Poster' }) + Button({ variant: 'ghost', size: 'sm', block: true, leadingIcon: 'download', label: 'CSV · JSON' }) + '</div></div>' });
-    return '<div class="page-with-rail">' + DevBadge() +
+    /* The template builder and delivery rail are presets with no endpoint behind them yet (API.md §6). */
+    const railBadge = CFG.mode === 'live' ? DevBadge('report builder and delivery are not wired to the API yet') : '';
+    return '<div class="page-with-rail">' + MockDataBadge() +
       '<div class="page-with-rail__grid">' + main +
-      '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + builder + delivery + '</div></div></div>';
+      '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + railBadge + builder + delivery + '</div></div></div>';
   }
 
   const NAV = [

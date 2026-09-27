@@ -398,16 +398,17 @@ window.QayabaConsole = (function () {
     };
     const VERDICTS = ['pass', 'fail', 'flaky', 'invalid', 'infra-error', 'skipped'];
     const verdictMix = VERDICTS.map((v) => ({ v: v, n: weekRuns.filter((r) => (r.verdict || 'running') === v).length })).filter((x) => x.n > 0);
-    /* Reports: the first app whose /report returns insights replaces the mock exec blocks —
-       headline/detail/weight come from the contract; viz renders honestly (see console.js).
-       Templates stay client-side presets (API.md §6: "✗ new (or keep client-side presets)").
+    /* Reports: every app's /report insights, each attributed to its app (the console ranks them
+       together by weight) — headline/detail/weight come from the contract; viz renders honestly
+       (see console.js). Templates stay client-side presets (API.md §6: "✗ new (or keep client-side presets)").
     */
-    let liveInsights = null;
-    Object.keys(raw.reportsByApp || {}).some((a) => {
+    const liveInsights = [];
+    Object.keys(raw.reportsByApp || {}).forEach((a) => {
       const rv = raw.reportsByApp[a];
-      if (!rv || !rv.insights || !rv.insights.length) return false;
-      liveInsights = rv.insights.map((ins) => ({
+      if (!rv || !rv.insights) return;
+      rv.insights.forEach((ins) => liveInsights.push({
         real: true,
+        app: a,
         metric: ins.id,
         shape: ins.chart === 'gauge' ? 'gauge'
           : (ins.chart === 'ranked-bars' || ins.chart === 'paired-bars' || ins.chart === 'stacked-bar' || ins.chart === 'donut') ? 'bars'
@@ -419,9 +420,8 @@ window.QayabaConsole = (function () {
             + (ins.delta == null ? '' : ' (' + (ins.delta > 0 ? '+' : '') + (Math.round(ins.delta * 1000) / 1000) + ')')),
         weight: ins.score == null ? 0 : ins.score,
       }));
-      return true;
     });
-    const reports = { templates: REPORT_TEMPLATES, insights: liveInsights || [] };
+    const reports = { templates: REPORT_TEMPLATES, insights: liveInsights };
     return {
       models: raw.agentConfig && raw.agentConfig.assignments ? {
         generator: raw.agentConfig.assignments.primary.model,
@@ -447,7 +447,7 @@ window.QayabaConsole = (function () {
       engram: [],            /* TODO(server): per-app episodic memory (API.md §5) */
       ledger: mapLedger(raw.intelByApp) || { rules: [], archetypes: [], audit: [] },
       integrity: emptyIntegrity(), /* TODO(server): suite-health/trust rollup — no endpoint yet (API.md §6) */
-      reports: reports,         /* insights from /apps/:name/report (first app with data); templates are client-side presets, never simulated data (API.md §6) */
+      reports: reports,         /* insights from every app's /apps/:name/report; templates are client-side presets, never simulated data (API.md §6) */
       modes: [], rules: [], trend: { passRate: [], specs: [] }, /* unused by the current UI; kept honestly empty rather than the mock fleet trend */
     };
   }

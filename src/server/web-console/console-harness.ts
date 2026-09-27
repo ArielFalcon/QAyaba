@@ -311,7 +311,13 @@ export async function loadConsole(opts: LoadOptions): Promise<ConsoleHarness> {
   });
   window.window = window;
 
-  const scripts = opts.withConsole ? ["format.js", "api.js", "console.js"] : ["format.js", "api.js"];
+  /* index.html's order; the mock dataset only matters to the mock adapter. */
+  const scripts = [
+    ...(opts.mode === "mock" ? ["data.mock.js"] : []),
+    "format.js",
+    "api.js",
+    ...(opts.withConsole ? ["console.js"] : []),
+  ];
   for (const file of scripts) runInContext(readFileSync(join(JS_DIR, file), "utf8"), ctx, { filename: file });
 
   const settle = async (): Promise<void> => {
