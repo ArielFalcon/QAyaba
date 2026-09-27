@@ -63,7 +63,12 @@ export function capDiff(diff: string, maxChars: number = MAX_PROMPT_DIFF_CHARS):
     const firstFile = highRelevance[0] ?? lowRelevance[0] ?? fileSections[0]!;
     kept.push(firstFile.slice(0, maxChars));
     const name = extractDiffFilePath(firstFile);
-    omitted.splice(omitted.indexOf(name), 1);
+    const idx = omitted.indexOf(name);
+    /* indexOf returns -1 when this section's name couldn't be found in `omitted` (e.g. its header
+       is malformed enough that extractDiffFilePath can't match it here even though the main loop's
+       looser fallback regex found A name for it there). `splice(-1, 1)` would otherwise delete the
+       LAST unrelated entry instead of doing nothing — silently un-reporting a genuine omission. */
+    if (idx !== -1) omitted.splice(idx, 1);
   }
   return (
     kept.join("") +
