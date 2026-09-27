@@ -4,7 +4,7 @@ import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcs
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord, saveContextMap } from "./history";
+import { getRecord, saveContextMap, markContextStale, consumeContextStale } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
@@ -152,6 +152,92 @@ test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMa
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
   assert.equal(result, undefined, "no stored map and no real file on disk -> undefined, never throws");
+});
+
+/*
+ * R7: markContextStale (process-audit context-heal, ~line 946) had NO read-side caller —
+ * consumeContextStale was written, tested in isolation (history.test.ts), and never consumed in
+ * production, so a map the audit already judged wrong kept grounding generation forever. Recovered
+ * intent (git log -S consumeContextStale, the deleted legacy pipeline.ts pre-1228ea7): the next
+ * generating run must consume the one-shot flag, skip the (known-bad) stored/disk map for THAT run,
+ * and trigger a rebuild — adapted here to Batch F's architecture: a fire-and-forget `mode: context`
+ * enqueue (the same funnel onboarding's enqueueContextRun already uses) rather than the deleted
+ * inline buildContextMap(false) agent call. Gated like the legacy `!isCode && generating &&
+ * !triggerService` block (mode!=="context" stands in for "!isCode's own generating run", since
+ * `generating` itself is a post-classification run-qa.use-case.ts concept unavailable here).
+ */
+test("R7: buildRewrittenCompositionConfig — a stale-marked context map is NOT used for grounding (stored map skipped even though present)", () => {
+  const app = cfg(`factory-contextmap-stale-${Date.now().toString(36)}`);
+  const map: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
+  saveContextMap(app.name, "sha-old", map);
+  markContextStale(app.name);
+
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.equal(result, undefined, "a stale-flagged map must never ground generation, even though a stored map exists");
+});
+
+test("R7: buildRewrittenCompositionConfig — consuming the stale flag is one-shot (cleared after the first qualifying build)", () => {
+  const app = cfg(`factory-contextmap-stale-oneshot-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(consumeContextStale(app.name), false, "the flag must already be cleared by the composition build above — one-shot, not re-armed");
+});
+
+test("R7: buildRewrittenCompositionConfig — a stale flag fires a best-effort context-map rebuild enqueue", () => {
+  const app = cfg(`factory-contextmap-stale-enqueue-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  const calls: Array<{ app: string; mirrorDir: string }> = [];
+  buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, enqueueContextRun: async (input) => { calls.push(input); return "run-heal-1"; } },
+    "qa-bot-abc1234-run1",
+    { mode: "diff" },
+  );
+  assert.equal(calls.length, 1, "a stale flag must trigger exactly one rebuild enqueue");
+  assert.equal(calls[0]?.app, app.name);
+  assert.ok(calls[0]?.mirrorDir, "mirrorDir must be forwarded so the enqueue can resolve HEAD");
+});
+
+test("R7: buildRewrittenCompositionConfig — a rebuild-enqueue failure is fault-isolated (never throws, never blocks the current run)", () => {
+  const app = cfg(`factory-contextmap-stale-enqueue-fail-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  assert.doesNotThrow(() => {
+    const config = buildRewrittenCompositionConfig(
+      app,
+      { getAgentDeps: stubAgentDeps, enqueueContextRun: async () => { throw new Error("queue exploded"); } },
+      "qa-bot-abc1234-run1",
+      { mode: "diff" },
+    );
+    assert.ok(config.groundingCollaborators, "composition must still complete even when the heal enqueue fails");
+  }, "a failure to enqueue the rebuild must never block or fail the current run's own composition");
+});
+
+test("R7: buildRewrittenCompositionConfig — a code-mode app never consumes the stale flag (context maps are e2e-only)", () => {
+  const app: AppConfig = { ...cfg(`factory-contextmap-stale-code-${Date.now().toString(36)}`), code: true, dev: undefined };
+  markContextStale(app.name);
+
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", target: "code" });
+  assert.equal(consumeContextStale(app.name), true, "a code-target run must never consume the flag — it stays armed for the next real e2e generating run");
+});
+
+test("R7: buildRewrittenCompositionConfig — a mode:context run never consumes its own stale flag (it is the rebuild, not a consumer)", () => {
+  const app = cfg(`factory-contextmap-stale-context-mode-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "context" });
+  assert.equal(consumeContextStale(app.name), true, "a context-mode run must never consume its own heal flag");
+});
+
+test("R7: buildRewrittenCompositionConfig — a cross-repo (triggerRepo) run never consumes the stale flag (mirrors the legacy !triggerService gate)", () => {
+  const app: AppConfig = { ...cfg(`factory-contextmap-stale-crossrepo-${Date.now().toString(36)}`), services: [{ repo: "org/service" }] };
+  markContextStale(app.name);
+
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/service" });
+  assert.equal(consumeContextStale(app.name), true, "a cross-repo-triggered run must leave the flag for a genuine primary-repo run to pick up");
 });
 
 /* GenerateTestsUseCase.GenerationPorts.repair must be wired so a malformed verdict gets one

@@ -113,7 +113,8 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, consumeContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import type { ContextMapRunRequest } from "./onboarding/onboarding-job";
 import { recordIncident } from "./maintainer";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
@@ -437,6 +438,18 @@ export interface RewrittenEngineFactoryDeps {
   };
   /* Test seam: inject a spy/no-op for service-context staging instead of real disk/git. */
   stageServiceContext?: typeof stageServiceContext;
+  /*
+   * R7: the process-audit context-heal's REBUILD side. When a run consumes a context_stale flag
+   * (see the groundingCollaborators wiring below), this fires a best-effort `mode: context` run
+   * through the SAME funnel onboarding's own enqueueContextRun uses (src/index.ts) — deliberately
+   * NOT the deleted legacy pipeline.ts's inline buildContextMap(false) agent call, which has no
+   * equivalent in this architecture now that Batch F made the SQLite context_maps table (not a
+   * per-run in-memory map) the engine's source of truth. Absent dependency, or a rejected/thrown
+   * call, → the flag still clears (consumeContextStale is one-shot by design) and the map simply
+   * stays stale until the next audit heal or a manual context run — a failure to enqueue must
+   * never block or fail the run that triggered it.
+   */
+  enqueueContextRun?: (input: ContextMapRunRequest) => string | Promise<string>;
 }
 
 
@@ -500,6 +513,30 @@ export function buildRewrittenCompositionConfig(
   if (triggerService && run.mode === "context") {
     throw new Error(`context mode cannot be triggered by a service repo (${triggerService.repo}); run it from the primary repo ${app.repo}`);
   }
+
+  /*
+   * R7: consume the process-audit's context_stale flag (markContextStale, in processAudit's
+   * invalidateContext below) for the run that will actually ground on it. Gated like the deleted
+   * legacy pipeline.ts's `!isCode && generating && !triggerService` bootstrap block: `!isCode`
+   * (context maps are e2e-only), `run.mode !== "context"` stands in for that block's `generating`
+   * gate (a context-mode run IS the rebuild, never a consumer of its own heal flag — `generating`
+   * itself is a post-classification run-qa.use-case.ts concept, not available at composition time),
+   * and `!triggerService` (a cross-repo run's diff/classify comes from the service mirror, not the
+   * primary — it must never be the one to consume a primary-app heal). consumeContextStale is
+   * one-shot (read+delete) by design, so this must run exactly once per qualifying composition.
+   */
+  const contextStale = !isCode && run.mode !== "context" && !triggerService && consumeContextStale(app.name);
+  if (contextStale) {
+    console.log(`[qa] context map for ${app.name} was marked stale by the process audit — skipping the stored/disk map this run and enqueuing a rebuild.`);
+    try {
+      Promise.resolve(deps.enqueueContextRun?.({ app: app.name, mirrorDir })).catch((err: unknown) => {
+        console.warn(`[qa] WARNING: could not enqueue the context-map rebuild for ${app.name} (non-blocking; the map stays stale until the next audit heal or a manual context run): ${err instanceof Error ? err.message : String(err)}`);
+      });
+    } catch (err) {
+      console.warn(`[qa] WARNING: could not enqueue the context-map rebuild for ${app.name} (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /*
    * deps.mirror is a test seam only. Production checkout always uses defaultMirrorDeps
    * (workdirRoot()). deps.mirrorRoot overrides the path, not the git collaborator.
@@ -772,8 +809,12 @@ export function buildRewrittenCompositionConfig(
        * Batch F: the DB (history.ts's context_maps table) is the engine's source of truth for the
        * FE<->BE architecture map — it survives regardless of shadow. The repo file on disk is only a
        * fallback (e.g. before any context run has ever completed for this app, or a fresh clone).
+       * R7: a `contextStale` flag consumed above means the process audit already judged the stored
+       * (and any repo-file) map wrong — this run must ground ungrounded rather than reuse it; the
+       * rebuild enqueued above (or a manual context run) is what clears the map for the NEXT run.
        */
       loadContextMap: (specDir: string) => {
+        if (contextStale) return undefined;
         const stored = loadStoredContextMap(app.name);
         if (stored) return stored.data;
         return loadContextMapFromDisk(specDir);
