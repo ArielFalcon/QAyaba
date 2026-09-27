@@ -377,7 +377,7 @@ window.QayabaConsole = (function () {
     const statusVerdict = !r.verdict && r.status === 'running' ? 'running' : r.verdict;
     const cases = (r.cases || []).map((c) => ({
       name: c.name,
-      s: c.status === 'pass' ? 'pass' : c.status === 'running' ? 'running' : (c.status || '').toLowerCase() === 'flaky' ? 'fail' : 'fail',
+      s: c.status === 'pass' ? 'pass' : c.status === 'running' ? 'running' : 'fail',
       ms: c.durationMs,
     }));
     return {

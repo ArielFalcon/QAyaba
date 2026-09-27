@@ -13,34 +13,12 @@
   const refreshIcons = () => { try { window.lucide && lucide.createIcons(); } catch (e) {} };
   const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const CFG = (window.QayabaConsole && window.QayabaConsole.config) || { mode: 'mock', landingUrl: '/' };
-  const F = window.QayabaFormat || {
-    fixed: function (n, d, e) { return (typeof n === 'number' && isFinite(n)) ? n.toFixed(d) : (e || 'n/a'); },
-    multiplierLabel: function (c, p) { return (!p || typeof c !== 'number') ? 'n/a' : '×' + (c / p).toFixed(1); },
-    uniqueAbbrevs: function (shas, min) { return (shas || []).map(function (s) { return String(s || '').slice(0, min || 7); }); },
-    shortRepo: function (repo) {
-      var s = String(repo == null ? '' : repo);
-      var i = Math.max(s.lastIndexOf('/'), s.lastIndexOf(':'));
-      return i >= 0 ? s.slice(i + 1).replace(/\.git$/, '') : s;
-    },
-    renderMarkdown: function (md) { return String(md == null ? '' : md).replace(/[&<>]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]; }); },
-    pickChatAnswer: function (o) { return { text: o.apiAnswer || o.canned, kind: o.apiAnswer ? 'assistant' : 'canned' }; },
-    triggerExtras: function (mode) {
-      return { sha: mode === 'diff', delta: mode === 'diff', guidance: mode === 'manual' };
-    },
-    clampDiffCommits: function (n) {
-      var v = parseInt(String(n), 10);
-      if (!isFinite(v) || v < 1) return 1;
-      return v > 20 ? 20 : v;
-    },
-    triggerPayload: function (input) {
-      var extras = { sha: input.mode === 'diff', delta: input.mode === 'diff', guidance: input.mode === 'manual' };
-      var body = { app: input.app, mode: input.mode };
-      if (extras.sha && input.sha) body.sha = input.sha;
-      if (extras.delta && input.commits > 1) body.commits = input.commits;
-      if (extras.guidance && input.guidance) body.guidance = String(input.guidance).trim();
-      return body;
-    },
-  };
+  /* console.js is a thin render layer over format.js's pure helpers — no local fallback copy.
+     A missing format.js must fail loudly here (index.html loads it before console.js) rather
+     than silently running a drifted duplicate of fixed/multiplierLabel/etc.
+   */
+  if (!window.QayabaFormat) throw new Error('console.js requires format.js (window.QayabaFormat) to be loaded first');
+  const F = window.QayabaFormat;
   function liveRun() { return D && D.running ? D.running : null; }
   function refreshShaAbbrevs() {
     if (!D) return;
@@ -326,13 +304,13 @@
   const EYEBROW = (t) => '<span class="pa-eyebrow">' + esc(t) + '</span>';
 
   /* state lives at module scope so views + interactive mounts share it */
-var state = {
-section: 'overview', runId: null, appName: null,
-dialog: false, dialogApp: null, dialogMode: 'diff', dialogCommits: 1,
-toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
-repTpl: 'exec', repView: 'blocks',
-runExtras: null,
-};
+  var state = {
+    section: 'overview', runId: null, appName: null,
+    dialog: false, dialogApp: null, dialogMode: 'diff', dialogCommits: 1,
+    toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
+    repTpl: 'exec', repView: 'blocks',
+    runExtras: null,
+  };
   var teardown = [];
   var LIVE = null;
   var toastTimer = 0;
@@ -1521,19 +1499,19 @@ runExtras: null,
     state.appSel = { a: 0, b: Math.max(0, h.length - 1) };
     state.appTab = 'runs';
   }
-function syncFromUrl() {
-const params = new URLSearchParams(location.search);
-const run = params.get('run'), app = params.get('app');
-const hash = (location.hash || '').replace('#', '');
-state.runId = null; state.appName = null;
-if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) {
-state.runId = run; state.section = 'runs';
-/* Deep-link enters without openRun — still fetch the lazy run extras (report + turns). */
-loadRunExtras(run);
-}
-else if (app && D.apps.some((a) => a.name === app)) { state.appName = app; state.section = 'overview'; initAppSel(app); }
-else state.section = TITLES[hash] ? hash : 'overview';
-}
+  function syncFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const run = params.get('run'), app = params.get('app');
+    const hash = (location.hash || '').replace('#', '');
+    state.runId = null; state.appName = null;
+    if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) {
+      state.runId = run; state.section = 'runs';
+      /* Deep-link enters without openRun — still fetch the lazy run extras (report + turns). */
+      loadRunExtras(run);
+    }
+    else if (app && D.apps.some((a) => a.name === app)) { state.appName = app; state.section = 'overview'; initAppSel(app); }
+    else state.section = TITLES[hash] ? hash : 'overview';
+  }
   function go(section) { state.section = section; state.runId = null; state.appName = null; history.pushState({ section: section }, '', '#' + section); render(); }
   function openRun(id) { state.runId = id; state.appName = null; state.section = 'runs'; history.pushState({ run: id }, '', '?run=' + encodeURIComponent(id)); render(); loadRunExtras(id); }
 /* Lazy per-run reads (GET /runs/{id}/report + /runs/{id}/turns) — fetched once per open,
