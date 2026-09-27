@@ -9,8 +9,9 @@
 #   ./slim/qayaba.sh onboard <app> <repo> [service-repo ...]
 #                                           clone + index every repo and propose the stitcher boundaries
 #   ./slim/qayaba.sh onboard-status <app>   | onboard-confirm <app>
-#   ./slim/qayaba.sh run <app> <sha> [mode] [--guidance "..."]
-#                                           one QA run (mode: diff | context | complete | exhaustive | manual)
+#   ./slim/qayaba.sh run <app> <sha|branch> [mode] [--guidance "..."]
+#                                           enqueue one e2e run on the server's sequential queue
+#                                           (mode: diff | context | complete | exhaustive | manual)
 #   ./slim/qayaba.sh tui                    terminal console (in a container)
 #   ./slim/qayaba.sh tui-install            copy the native macOS console binary to slim/bin/qayaba
 #   ./slim/qayaba.sh exports [app]          list exported publications (patch + MR/Issue bodies)
@@ -120,10 +121,23 @@ case "$cmd" in
   onboard-status) api GET "/api/apps/${1:?app}/boundaries/propose/status" ;;
   onboard-confirm) api POST "/api/apps/${1:?app}/boundaries/confirm" '{"confirm":true}' ;;
   run)
-    [ $# -ge 2 ] || die "usage: run <app> <sha> [mode] [--guidance \"...\"]"
-    app="$1"; sha="$2"; shift 2; mode="diff"
+    [ $# -ge 2 ] || die "usage: run <app> <sha|branch> [mode] [--guidance \"...\"]"
+    app="$1"; ref="$2"; shift 2; mode="diff"; guidance=""
     if [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; then mode="$1"; shift; fi
-    "${COMPOSE[@]}" exec orchestrator npm run qa -- --app "$app" --sha "$sha" --mode "$mode" "$@" ;;
+    if [ "${1:-}" = "--guidance" ]; then guidance="${2:-}"; fi
+    # Enqueued through the API (the server's single sequential queue), so it never overlaps another
+    # run and shows live in the TUI and the web console. The JSON is built inside the container.
+    "${COMPOSE[@]}" exec -T -e RUN_APP="$app" -e RUN_REF="$ref" -e RUN_MODE="$mode" -e RUN_GUIDANCE="$guidance" \
+      -e QA_TOKEN="$(api_token)" orchestrator node -e '
+        const b = { app: process.env.RUN_APP, target: "e2e", mode: process.env.RUN_MODE };
+        const ref = process.env.RUN_REF;
+        if (/^[0-9a-f]{7,40}$/i.test(ref)) b.sha = ref; else b.ref = ref;
+        if (process.env.RUN_GUIDANCE) b.guidance = process.env.RUN_GUIDANCE;
+        fetch("http://localhost:8080/api/runs", {
+          method: "POST",
+          headers: { authorization: "Bearer " + process.env.QA_TOKEN, "content-type": "application/json" },
+          body: JSON.stringify(b),
+        }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });' ;;
   tui) "${COMPOSE[@]}" run --rm tui ;;
   tui-install)
     arch="$(uname -m)"; [ "$arch" = "arm64" ] || arch="amd64"

@@ -242,6 +242,23 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
   data; Serena index and working copies are regenerable caches.
 - **Onboarding a watched app is `config/apps/<app>.yaml` + `.env` only.** Copy
   `config/apps/example.yaml`. `${VARS}` in the YAML expand from the environment.
+- **Central login (`e2e.auth`).** An app whose login lives on a central web (another
+  origin, redirect back) declares it in its YAML. Setup materializes it as
+  `e2e/.qa/auth.local.json` (gitignored, never published) and the seed
+  `authenticate()`, the DOM capture and the agent all run that same flow
+  (`qa-engine/src/shared-kernel/e2e-auth.ts`). Credentials stay in `DEV_TEST_*`.
+
+### Deployment profiles (`QAYABA_PROFILE`)
+
+`src/server/deployment-profile.ts` gates only PERIPHERAL effectors — never decision
+logic. `full` (default): GitHub PR/Issue publication, self-maintenance, GitHub login.
+`slim`: the publish decision is exported to disk by
+`LocalExportPublicationAdapter` (patch + MR/Issue bodies), no self-maintainer, no
+GitHub login. An unknown value fails boot. `slim/` packages the hermetic,
+single-image deployment for restricted networks (all downloads at build time from
+configurable mirrors, checksum-verified; nothing installed at run time); see
+`slim/README.md` and `docs/plans/slim-poc-entorno-restringido.md`. Git auth derives
+from `GIT_REMOTE_BASE` (`GIT_TOKEN`), so any git host (GitLab) works for clone/fetch.
 
 ## Invariants — do not break these
 
@@ -280,8 +297,8 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
 
 - **No build step.** `tsx` runs TS at runtime and is a devDependency — install ALL
   deps in Docker (not `--omit=dev`).
-- **Pin exact versions on the execution path.** Playwright is pinned to `1.50.0`
-  to match the browsers in the `playwright:v1.50.0` base image; a floating `^`
+- **Pin exact versions on the execution path.** Playwright is pinned to `1.60.0`
+  to match the browsers in the `playwright:v1.60.0` base image; a floating `^`
   breaks execution. Don't loosen it.
 - **`.env` comments go on their own line.** `docker compose` `env_file` does NOT
   strip an inline `# comment` — it becomes part of the value (this once made an

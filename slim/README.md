@@ -74,7 +74,7 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 ## Ejecutar
 
 ```bash
-./slim/qayaba.sh run <app> <sha>                                   # diff: el blast radius de un commit
+./slim/qayaba.sh run <app> <sha|rama>                               # diff: el blast radius de un commit (se encola)
 ./slim/qayaba.sh run <app> <sha> manual --guidance "el alta de pedidos"
 ./slim/qayaba.sh tui                                                # consola de terminal
 open http://localhost:8080/app                                      # consola web

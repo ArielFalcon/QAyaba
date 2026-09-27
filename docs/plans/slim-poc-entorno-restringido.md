@@ -1,757 +1,418 @@
-# QAyaba Slim — Plan técnico de una POC E2E en entorno restringido
+# QAyaba Slim — POC E2E en un entorno restringido
 
 | | |
 |---|---|
-| **Estado** | Planificación. **Ningún cambio de código aplicado.** Los fragmentos de código de este documento son diseño, no implementación. |
+| **Estado** | **Implementado** en esta rama y verificado (ver §12). Pendiente solo la ejecución en el entorno del banco. |
 | **Rama** | `claude/qayaba-restricted-env-poc-hytgtl` |
-| **Alcance** | `target: e2e` únicamente (Playwright contra DEV). Un solo runtime de agente (OpenCode). SCM: GitLab. |
+| **Alcance** | `target: e2e` (Playwright contra DEV). Un solo runtime de agente (OpenCode). SCM: GitLab. |
+| **Entorno objetivo** | MacBook M4 con 16 GB, sin sudo; Docker; Artifactory; proxy con inspección TLS; LLM configurable; DEV con login central (mTLS opcional y usuario/contraseña). |
+| **Runbook operativo** | [`slim/README.md`](../../slim/README.md) |
 | **Fecha** | 2026-09-27 |
 
 ---
 
 ## Índice
 
-0. [Resumen ejecutivo](#0-resumen-ejecutivo)
-1. [Contexto, restricciones y supuestos](#1-contexto-restricciones-y-supuestos)
-2. [Diagnóstico: por qué falla hoy](#2-diagnóstico-por-qué-falla-hoy)
+0. [Resumen](#0-resumen)
+1. [Contexto y requisitos](#1-contexto-y-requisitos)
+2. [Diagnóstico: por qué fallaba](#2-diagnóstico-por-qué-fallaba)
 3. [Criterio de recorte: núcleo vs. periferia](#3-criterio-de-recorte-núcleo-vs-periferia)
-4. [Arquitectura objetivo](#4-arquitectura-objetivo)
-5. [Adquisición hermética en build-time](#5-adquisición-hermética-en-build-time)
+4. [Arquitectura](#4-arquitectura)
+5. [Build hermético](#5-build-hermético)
 6. [Red dentro de los contenedores](#6-red-dentro-de-los-contenedores)
-7. [OpenCode hermético y proveedor LLM](#7-opencode-hermético-y-proveedor-llm)
-8. [GitLab](#8-gitlab)
-9. [Cambios de código planificados (no implementados)](#9-cambios-de-código-planificados-no-implementados)
-10. [Entregables de empaquetado](#10-entregables-de-empaquetado)
-11. [Runbook de la POC](#11-runbook-de-la-poc)
-12. [Fases y criterios de salida](#12-fases-y-criterios-de-salida)
-13. [Riesgos y mitigaciones](#13-riesgos-y-mitigaciones)
-14. [Preguntas abiertas](#14-preguntas-abiertas)
-- [Apéndice A — Script de preflight](#apéndice-a--script-de-preflight)
-- [Apéndice B — Referencias al código](#apéndice-b--referencias-al-código)
+7. [OpenCode y el proveedor LLM](#7-opencode-y-el-proveedor-llm)
+8. [GitLab y publicación local](#8-gitlab-y-publicación-local)
+9. [Login central con redirección](#9-login-central-con-redirección)
+10. [Consolas: TUI y web](#10-consolas-tui-y-web)
+11. [Cambios de código](#11-cambios-de-código)
+12. [Verificación realizada](#12-verificación-realizada)
+13. [Riesgos, límites y siguientes pasos](#13-riesgos-límites-y-siguientes-pasos)
+- [Apéndice — Referencias al código](#apéndice--referencias-al-código)
 
 ---
 
-## 0. Resumen ejecutivo
+## 0. Resumen
 
-QAyaba falla en el entorno del banco por un motivo **estructural**, no por un bug puntual: descarga
-artefactos de Internet no solo al construir las imágenes, sino también **durante la ejecución**:
-- Serena instala *language servers*.
-- OpenCode pide catálogos, plugins y LSPs.
-- `npx` resuelve paquetes.
-- El `npm install` del seed `e2e/` pierde el proxy y la CA por el filtrado de entorno.
+QAyaba fallaba en el entorno del banco por un motivo **estructural**: descargaba cosas de Internet no
+solo al construir las imágenes, sino también **al ejecutarse**. La más probable, el fallo observado:
+Serena hace `npm install` de su *language server* de TypeScript la primera vez que abre un proyecto.
+A eso se sumaban OpenCode (catálogo, plugins, LSPs), `npx`, un `npm install` que perdía el proxy y la CA
+por el filtrado de entorno, y unos DNS públicos fijados en el compose.
 
-Además, el compose fija resolvers DNS públicos.
+La versión **slim** (`slim/`) resuelve esto con cuatro decisiones:
 
-La versión **Slim** se apoya en tres decisiones:
-
-1. **Hermeticidad.** Todo artefacto se obtiene en *build-time* desde fuentes internas: registro Docker,
-   mirror npm, mirror PyPI si existe, y una carpeta `vendor/` con sumas SHA-256. En *runtime* el tráfico de
-   salida se limita a cuatro destinos: proveedor LLM, GitLab, DEV y mirror npm.
-2. **Recortar la periferia, nunca el núcleo.** Se conservan íntegros todos los mecanismos que alimentan una
-   decisión: el pipeline de `RunQaUseCase`, el stitcher FE↔BE / BE↔BE, el grafo de código, el mapa
-   `context.json`, la cobertura de cambio, el *grounding*, el revisor independiente y el aprendizaje entre
-   ejecuciones. Se eliminan los componentes que solo actúan **después** de decidir o **fuera** del run:
-   publicación en GitHub, auto-mantenimiento, login OAuth, Codex y las toolchains del modo `code`.
-3. **Publicación local.** La decisión (PR / Issue / cuarentena / no-op) se calcula exactamente igual. Su
-   efecto se materializa como una **exportación a disco** (parche + cuerpo del MR/Issue) que una persona
-   sube a GitLab. Esto endurece además la frontera de seguridad del proyecto: nada escribe
+1. **Hermeticidad.** Toda adquisición ocurre en el *build*, desde fuentes configurables (los remotos de
+   Artifactory). Lo que solo existe en GitHub o eclipse.org se toma de `slim/vendor/` o de un mirror, y
+   siempre se verifica por SHA-256. En ejecución no se instala nada.
+2. **Recortar la periferia, nunca el núcleo.** Se conserva todo lo que alimenta una decisión: el pipeline
+   completo, el stitcher FE↔BE/BE↔BE, el grafo de código, `context.json`, la cobertura de cambio, el
+   *grounding*, el revisor independiente, Serena, engram y el aprendizaje. Se retira lo que actúa
+   después de decidir: publicación remota, auto-mantenimiento y login con GitHub.
+3. **Publicación local.** La decisión (PR/Issue/cuarentena/no-op) se calcula igual, pero su efecto es una
+   exportación a disco (parche + cuerpo del MR/Issue) que una persona sube a GitLab. Nada escribe
    automáticamente en los repos del banco.
+4. **Una imagen, dos servicios.** Una sola cadena de construcción: CA, mirrors y versiones fijadas.
 
-Empaquetado resultante: **una única imagen con dos roles** (orquestador y agentes), un `compose`
-autocontenido y una carpeta `vendor/` verificable. Nada del camino actual (`Dockerfile`,
-`agents/Dockerfile`, `docker-compose.yml`) se modifica: el perfil Slim vive en ficheros nuevos.
+Además, como requisito general (no solo de slim), QAyaba soporta ahora un **login en una web central
+con redirección** declarado por configuración, y lo usan por igual los tests, la captura de DOM y el agente.
 
 ---
 
-## 1. Contexto, restricciones y supuestos
-
-### 1.1 Entorno conocido
+## 1. Contexto y requisitos
 
 | Aspecto | Situación |
 |---|---|
-| Máquina | macOS corporativo, **sin sudo**; aplicaciones vía tienda interna |
-| Contenedores | Docker disponible |
-| Paquetes | Mirror **privado de npm** |
-| Agente | OpenCode disponible; API key configurable |
-| SCM | **GitLab** (no GitHub) |
-| Entrada de código | **ZIP descargado desde GitHub** (sin historial `.git`) |
-| Fallos observados | (a) librerías npm que descargan binarios (resuelto compilando en local); (b) una instalación en caliente dentro de un contenedor (sin resolver) |
+| Máquina | MacBook M4, 16 GB, sin sudo; apps de una tienda interna |
+| Contenedores | Docker |
+| Paquetes | Artifactory (npm confirmado; el resto de remotos se configuran por URL) |
+| LLM | Configurable desde el propio Mac (OpenCode Go/Zen o un proveedor propio) |
+| SCM | GitLab |
+| Entrada del código | ZIP descargado de GitHub (sin `.git`; la imagen ya se construía sin `.git`) |
+| DEV | Login en una web central (otro origen). Pide certificado de cliente (mTLS, con Touch ID); si se cancela, ofrece usuario y contraseña. La redirección de ida y vuelta debe funcionar |
+| Consolas | TUI imprescindible, consola web preferible |
 
-### 1.2 Supuestos a confirmar en la Fase 0
+**Principio rector — hermeticidad.** Un artefacto es hermético cuando todo lo que necesita se obtiene en
+*build-time*, desde fuentes fijadas y verificables. Es la condición para funcionar en una red restringida
+y también la forma concreta de la prioridad del proyecto (*stable, reliable, deterministic*): una descarga
+en ejecución es una entrada no fijada.
 
-| Id | Supuesto | Qué cambia si es falso |
-|---|---|---|
-| S1 | Mac Apple Silicon → imágenes `linux/arm64` | Con Intel, `amd64`; el inventario de binarios cambia de arquitectura |
-| S2 | Proxy corporativo con **inspección TLS** | Sin inspección, sobra la CA corporativa |
-| S3 | El mirror npm es Artifactory/Nexus; se desconoce si proxifica Docker, apt o PyPI | Define la ruta de construcción (§5.3) |
-| S4 | El navegador del Mac puede descargar ficheros de GitHub (así llega el ZIP) | Si no, `vendor/` debe venir por otra vía (§5.3, ruta C) |
-| S5 | DEV es accesible desde el Mac y desde un contenedor | Sin acceso no hay E2E |
-| S6 | El proyecto objetivo es Angular + Spring (TS + Java) | Define qué *language servers* de Serena se aprovisionan |
-
-### 1.3 Principio rector: hermeticidad
-
-Un artefacto es **hermético** cuando todo lo que necesita se adquiere en *build-time*, desde fuentes
-fijadas y verificables. En *runtime* no instala nada. La hermeticidad es la condición para funcionar
-en un entorno restringido y a la vez la forma concreta de la prioridad del propio proyecto:
-*stable, reliable, deterministic*. Una descarga en runtime es, por definición, una entrada no
-fijada: puede cambiar o desaparecer entre dos ejecuciones.
-
-**Egress permitido en runtime (lista cerrada):**
-
-| Destino | Quién | Para qué |
-|---|---|---|
-| Proveedor LLM (OpenCode Go o gateway interno) | `agents` | Sesiones de los agentes |
-| GitLab (HTTPS) | `orchestrator` | `clone`/`fetch` de solo lectura |
-| DEV (web + API a través del navegador) | ambos | Ejecución de specs (orquestador) y exploración con Playwright MCP (agentes) |
-| Mirror npm | `orchestrator` | `npm ci` del proyecto `e2e/` del repo vigilado |
-
-Cualquier otra conexión saliente en runtime es un **defecto** del empaquetado.
+**Egress permitido en ejecución (lista cerrada):** proveedor LLM (solo `agents`), GitLab (solo el
+orquestador, lectura), DEV (ambos: el orquestador ejecuta los specs y el agente explora con el MCP de
+Playwright) y el mirror npm (el `npm ci` del proyecto `e2e/` del repo vigilado).
 
 ---
 
-## 2. Diagnóstico: por qué falla hoy
+## 2. Diagnóstico: por qué fallaba
 
-### 2.1 Adquisición en *runtime* (la causa del fallo observado)
+### 2.1 Descargas en tiempo de ejecución
 
-| # | Contenedor | Mecanismo | Evidencia en el repo | Efecto en el banco |
-|---|---|---|---|---|
-| R1 | `agents` | **Serena** instala su propio *language server* de TypeScript (`npm install` en su directorio de recursos) y, para Java, descarga JDTLS (VSIX de `github.com`) y Gradle (`services.gradle.org`) la primera vez que abre un proyecto | `agents/opencode.json` → MCP `serena`. El comentario de `agents/Dockerfile` da por hecho que el LS global evita la descarga, pero Serena no usa el global | **El sospechoso nº 1** de la “instalación interna” que falló |
-| R2 | ambos | `dns: [1.1.1.1, 8.8.8.8]` fijado | `docker-compose.yml` (ambos servicios) | El DNS público suele estar bloqueado y **no resuelve nombres internos** (GitLab, mirror, DEV) |
-| R3 | `orchestrator` | Paso *Setup*: `npm install` del seed `config/e2e/` (sin lockfile) ejecutado con entorno filtrado | `setup.adapter.ts` → `scrubEnv({ extraAllowed: /^DEV_/ })`. `scrub-env.ts` **descarta** `HTTPS_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE` y `NPM_CONFIG_REGISTRY` (en mayúsculas); solo sobrevive `npm_config_*` en minúsculas. En Docker corre además como usuario `sandbox` (`HOME=/home/sandbox`), que no ve el `.npmrc` de root | Aunque se configure el mirror por entorno, ese `npm` no lo ve |
-| R4 | `agents` | Playwright MCP se lanza con `npx @playwright/mcp`. El MCP 0.0.76 usa `playwright 1.61.0-alpha`, pero el Chromium de la imagen lo instaló otro `npx playwright` | `agents/opencode.json`, `agents/agent-supervisor.mjs`, `agents/Dockerfile` | `npx` puede consultar el registro; si la revisión de Chromium no cuadra, habrá un intento de descarga del navegador |
-| R5 | `agents` | OpenCode: catálogo `models.dev`, auto-actualización, *plugins* por defecto y descarga de LSPs al abrir ficheros `.java`/`.ts` | Flags de OpenCode (§7.1) | Egress bloqueado, arranques lentos o fallidos |
+| # | Dónde | Mecanismo | Solución slim |
+|---|---|---|---|
+| R1 | `agents` | Serena instala su LS de TypeScript con `npm install` en `~/.serena/language_servers/static/TypeScriptLanguageServer` y, para Java, descarga el VSIX de `vscode-java` y Gradle desde GitHub y `services.gradle.org` | Calentamiento en el build (TS) y modo *upstream JDTLS* (Java): §5.3 |
+| R2 | ambos | `dns: [1.1.1.1, 8.8.8.8]` fijado: sin DNS interno | El compose slim no fija DNS |
+| R3 | `orchestrator` | `npm install` del seed con un entorno filtrado que descartaba `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS` y `NPM_CONFIG_REGISTRY`, ejecutado como otro usuario | npmrc **global** (registro + CA) y paso de las variables de red por `scrubEnv` (§6) |
+| R4 | `agents` | `npx @playwright/mcp` y un Chromium de otra revisión | Binario global `playwright-mcp` con `--executable-path` al Chromium de la imagen |
+| R5 | `agents` | OpenCode: catálogo `models.dev`, auto-actualización, plugins por defecto, LSPs | `OPENCODE_DISABLE_*` en la imagen (§7) |
 
-### 2.2 Adquisición en *build-time* (bloquea `docker build` fuera de Internet abierto)
+### 2.2 Descargas en el build (antes)
 
-| Imagen | Descarga | Origen |
-|---|---|---|
-| orquestador | Node 24 vía `curl … | bash` | `deb.nodesource.com` |
-| orquestador | JDK, Maven, Gradle, Rust, Python, build-essential | apt (Ubuntu) |
-| orquestador | Go 1.26.4 | `dl.google.com` |
-| orquestador | `difft`, `ast-grep`, `codebase-memory-mcp` | GitHub Releases |
-| orquestador | `lizard` | PyPI |
-| orquestador | `better-sqlite3` (binario precompilado) → si falla, `node-gyp` descarga las cabeceras de Node | GitHub Releases → `nodejs.org` |
-| agentes | `uv` | `astral.sh` |
-| agentes | Python 3.11 gestionado por `uv` | GitHub (python-build-standalone) |
-| agentes | Serena `git+https://github.com/oraios/serena@v1.5.3` | GitHub + PyPI |
-| agentes | Chromium + dependencias de sistema (`playwright install --with-deps`) | CDN de Playwright + apt |
-| agentes | `engram` **solo `linux_amd64`** (fijado en la URL) | GitHub Releases |
+NodeSource, JDK, Maven, Gradle, Rust, Go, `difft`, `ast-grep`, `codebase-memory-mcp`, `lizard`, `uv`, Python
+gestionado desde GitHub, Serena desde `git+https://github.com`, Chromium desde la CDN de Playwright y engram
+(solo `amd64`). Slim reduce esto a lo indispensable (§5.2).
 
-### 2.3 Otros acoplamientos relevantes
+### 2.3 Regresiones previas encontradas y corregidas
 
-- **Autenticación git solo para GitHub**: `GIT_REMOTE_BASE` ya es configurable, pero `authHeaderArgs()` solo
-  reescribe URLs de `https://github.com/` con `GITHUB_TOKEN` (`src/integrations/repo-mirror.ts`).
-- **Publicación solo en GitHub**: los adaptadores de PR/Issue hablan con `api.github.com`
-  (`qa-engine/.../workspace-and-publication/infrastructure/github-*.ts`).
-- **Auto-mantenimiento** (`maintainer-runtime.ts`): abre PRs sobre el propio QAyaba en GitHub y hace *hot-swap*.
-- **Login de la consola** vía OAuth de GitHub (`github-auth.ts`).
+El commit de limpieza de comentarios (`0cd32f5`) había roto dos cosas del camino real. Se corrigieron en
+esta rama (commit `884d6d9`):
+
+- Eliminó la línea marcador de `FAILURE_CAPTURE_BLOCK`. `ensureFailureCapture` volvía a añadir el bloque
+  en cada ejecución a los `fixtures.ts` sin marcador; las declaraciones `let` duplicadas hacían fallar el
+  *static gate* y el run quedaba `invalid`.
+- Cambió la regex de `merge-guard` de `/^\.\//` a `/^\.\/*/`, que quitaba el punto de `.github/` y
+  dejaba esas rutas fuera de la protección.
 
 ---
 
 ## 3. Criterio de recorte: núcleo vs. periferia
 
-**Definición operativa.** Un componente es **núcleo** si su salida influye en algo de esta lista:
-(a) las entradas del agente (contexto, herramientas, *grounding*); (b) cualquier paso del pipeline
-anterior a *Decide*; (c) la propia decisión. Es **periferia** si solo consume la decisión ya tomada o
-actúa fuera del run. El núcleo se conserva **sin modificar su lógica**. La periferia se elimina o se
-desactiva.
+**Definición operativa.** Un componente es **núcleo** si su salida influye en las entradas del agente, en
+algún paso anterior a *Decide* o en la propia decisión. Es **periferia** si solo consume la decisión o
+actúa fuera del run.
 
 ### 3.1 Núcleo conservado
 
-| Mecanismo | Dónde vive | Dependencia externa | En Slim |
+| Mecanismo | Estado en slim |
+|---|---|
+| Pipeline de `RunQaUseCase`: gate, clasificación, setup, generación, *static gate*, *health*, ejecución, cobertura de cambio, decisión | Intacto |
+| Stitcher FE↔BE / BE↔BE (`service-topology/`, tree-sitter WASM) | Intacto |
+| Grafo de código (`codebase-memory-mcp`): nivel `IMPACTED_SYMBOL` del stitcher, señal estructural, blast radius. Sin él, el stitcher caería a `CONTRACT_FILE` sin avisar | Incluido (verificado) |
+| Onboarding por *job*: clona los mirrors de **todos** los servicios, indexa y propone `boundaries:`. Es el único camino que clona los servicios | Incluido (`qayaba.sh onboard`) |
+| Mapa `context.json` (modo `context`) → *context pack* | Incluido; persiste vía MR (§8) |
+| *Grounding*: captura de DOM, catálogo de selectores, *pre-exec grounding* | Intacto, y ahora con login (§9) |
+| Oráculo de valor e2e (inyección de fallos) | Intacto; ahora no corrompe el tráfico del login |
+| Agentes: generator, reviewer, explorer, reflector, worker, proposer, sidekick, assistant | Intactos |
+| MCP Serena (explorer, generator, worker, sidekick y **proposer** del stitcher) | Incluido, con LS aprovisionados en build |
+| MCP engram, MCP Playwright | Incluidos |
+| Aprendizaje (fold + `qa-reflector`), historial SQLite | Intactos |
+
+### 3.2 Periferia retirada (perfil `QAYABA_PROFILE=slim`)
+
+| Componente | Cómo |
+|---|---|
+| Publicación en GitHub (PR, auto-merge, Issues) | Sustituida por exportación local (misma decisión) |
+| Auto-mantenimiento (`qa-maintainer`, *hot-swap*) | No se dispara; los incidentes se siguen registrando |
+| Login OAuth de GitHub | No se ofrece; consola con token local |
+| Codex, toolchains del modo `code`, `difft`/`ast-grep`/`lizard` | No se instalan (los tres últimos no se invocan en el código) |
+
+### 3.3 Riesgos de calidad que dependen del entorno, no del recorte
+
+| Riesgo | Efecto | Mitigación |
+|---|---|---|
+| DEV sin *source maps* | Cobertura de cambio `unknown` (nunca bloquea, pero se pierde la señal objetiva) | Publicar *source maps* (aunque sean *hidden*) en DEV |
+| Mismo modelo para generador y revisor | Se pierde la independencia | Modelos distintos en el override (§7) |
+| Sin `settings.xml` de Maven | JDTLS no resuelve dependencias externas (navega igual por el código del repo) | `slim/maven/settings.xml` |
+
+---
+
+## 4. Arquitectura
+
+```
+                    ┌──────────────────────────── Mac (Docker) ─────────────────────────────┐
+  navegador/TUI ───►│ orchestrator (imagen qayaba-slim)        127.0.0.1:8080 (solo loopback)│
+                    │  API · consola web /app · cola secuencial · RunQaUseCase               │
+                    │  git (lectura) · npm ci e2e · Playwright + Chromium · codebase-memory  │
+                    │  SQLite · exportación local → slim/exports/                            │
+                    │        │ HTTP :4096 / :4097                                             │
+                    │        ▼                                                               │
+                    │ agents (MISMA imagen)                                                  │
+                    │  supervisor → opencode serve · MCP: Serena(+LS TS/Java) · engram ·     │
+                    │  playwright-mcp (Chromium de la imagen)                                │
+                    │ tui (misma imagen, bajo demanda) → orchestrator:8080                   │
+                    └──────┬───────────────┬────────────────┬──────────────┬─────────────────┘
+                        GitLab           DEV / SSO        LLM          mirror npm
+```
+
+**Una imagen, dos roles.** Una sola cadena de CA, mirrors y versiones. La frontera de seguridad no depende
+de la imagen, sino del entorno inyectado por servicio: `agents` **no recibe** el token de GitLab ni el
+de la API (el agente sigue siendo de solo lectura sobre los repos vigilados).
+
+**Recursos para 16 GB.** Límites por defecto de 3 GB para el orquestador y 5 GB para `agents`, con JDTLS
+a 1,5 GB de heap. Docker Desktop debe tener ≥ 9 GB; todo es ajustable en `slim/.env`.
+
+---
+
+## 5. Build hermético
+
+### 5.1 Fuentes (todas configurables en `slim/.env`)
+
+| Fuente | Variable | Qué sirve |
+|---|---|---|
+| Registro Docker | `PW_IMAGE`, `NODE_IMAGE`, `GO_IMAGE` | Imágenes base |
+| npm | `NPM_REGISTRY` | Dependencias, OpenCode, Playwright MCP, LS de TypeScript (y el `npm ci` en ejecución) |
+| PyPI | `PIP_INDEX_URL` | Serena (`serena-agent==1.5.3`) |
+| Go | `GOPROXY`, `GOSUMDB` | Módulos de la TUI |
+| apt Ubuntu | `APT_MIRROR` (amd64), `APT_PORTS_MIRROR` (arm64) | `python3`, `python3-venv`, `openjdk-21-jdk-headless` |
+| Maven | `MAVEN_REPO` | Lombok |
+| Genéricos | `GITHUB_RELEASES_BASE`, `JDTLS_BASE_URL` | `codebase-memory-mcp`, engram, JDTLS (o `slim/vendor/`) |
+
+### 5.2 Inventario (BOM)
+
+| Artefacto | Versión | Fuente | Verificación |
 |---|---|---|---|
-| Pipeline completo de `RunQaUseCase`: gate, clasificación, setup, generación, *static gate* (tsc + ESLint + `playwright --list`), *health pre-flight*, ejecución, cobertura de cambio, decisión | `qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts` | Node, git, Playwright | ✅ Intacto |
-| **Stitcher FE↔BE / BE↔BE** (`boundaries:` con transportes `http`, `event` y `http-backend`; resolvers OpenAPI; tree-sitter WASM) | `qa-engine/src/contexts/service-topology/` | `web-tree-sitter`, `tree-sitter-wasms` (npm) | ✅ Intacto |
-| **Grafo de código** (codebase-memory): nivel `IMPACTED_SYMBOL` del impacto entre repos, señal estructural y blast radius | `shared-infrastructure/code-graph/`, `resolve-cross-repo-impact.use-case.ts`, `structural-signal-port.adapter.ts` | Binario `codebase-memory-mcp` v0.8.1 | ✅ Se conserva (vendorizado). **Sin él, el stitcher cae al nivel `CONTRACT_FILE` sin avisar** |
-| **Mapa de arquitectura** `e2e/.qa/context.json` (modo `context`) → *context pack* | `pre-generation-grounding-port.adapter.ts`, `context-pack.ts` | — | ✅ Se conserva. Requiere persistencia (ver §8.3) |
-| **Onboarding del stitcher** (*job*: clona los mirrors de servicios, indexa, `qa-proposer` propone `boundaries:`) | `src/server/onboarding/onboarding-job.ts` | git, codebase-memory, LLM | ✅ Se conserva. **Es el único camino que clona los mirrors de servicios.** Sin ellos el stitcher se degrada sin error |
-| *Grounding*: captura de DOM / catálogo de selectores / *pre-exec grounding* | `dom-snapshot.ts`, `pre-exec-grounding.service.ts` | Playwright del `e2e/node_modules` + Chromium de la imagen | ✅ Intacto |
-| Cobertura de cambio (V8 del navegador + *source maps*) | `objective-signal/` | Ninguna herramienta externa; necesita *source maps* en DEV | ✅ Intacto (`signal` por defecto) |
-| Oráculo de valor e2e (inyección de fallos en respuestas) | `fault-injection-oracle.adapter.ts` | — | ✅ Intacto (desactivado por defecto en shadow; configurable) |
-| Decisión de publicación | `PublishDecisionService` | — | ✅ **Intacta**; solo cambia el *efector* (§8.3) |
-| Agentes: `qa-generator`, `qa-reviewer`, `qa-explorer`, `qa-reflector`, `qa-worker`, `qa-proposer`, `qa-sidekick`, `qa-assistant` | `agents/opencode.json`, `agents/agent/*.md` | Proveedor LLM | ✅ Intactos |
-| MCP **Serena** (navegación semántica; lo usan explorer, generator, worker, sidekick y **proposer**) | `agents/opencode.json` | Python ≥ 3.11, `uv`, *language servers* | ✅ Se conserva, **aprovisionado en build** (§5.4) |
-| MCP **engram** (memoria episódica entre ejecuciones) | `agents/opencode.json` | Binario Go | ✅ Se conserva (vendorizado, arquitectura correcta) |
-| MCP **Playwright** (exploración en vivo de DEV) | `agents/opencode.json` | `@playwright/mcp` + Chromium | ✅ Se conserva (binario global, Chromium de la imagen) |
-| Aprendizaje: *learning fold*, `qa-reflector`, historial SQLite | `cross-run-learning/`, `src/server/history.ts` | `better-sqlite3` (nativo) | ✅ Intacto (compilado en build) |
-| Saneado de datos salientes, *sandbox* de privilegios | `sanitizer.ts`, `sanitize-text.ts`, `process-sandbox/` | — | ✅ Intacto |
-| Consola web `/app` + API con token | `web/public` (estático, sin build), `src/server/api.ts` | — | ✅ Se conserva (login por token, sin OAuth) |
+| Playwright (base: Node 24, git, Chromium + libs) | `v1.60.0-noble` | Registro | Versión fijada |
+| Node (etapa de compilación) | `24-bookworm` | Registro | — |
+| Dependencias del orquestador | `package-lock.json` | npm | Lockfile; `better-sqlite3` **compilado** (sin binario de GitHub ni cabeceras de nodejs.org) |
+| `opencode-ai` / `@playwright/mcp` | 1.17.7 / 0.0.76 | npm | Versiones exactas |
+| Serena | 1.5.3 | PyPI | Versión exacta |
+| LS TypeScript de Serena | typescript 5.9.3 + typescript-language-server 5.1.3 (fijados por Serena) | npm (calentamiento en build) | Comprobado en build |
+| JDTLS | 1.58.0-202604151538 | eclipse.org o `vendor/` | SHA-256 |
+| Lombok | 1.18.38 | Maven o `vendor/` | SHA-256 |
+| JDK | 21 (Ubuntu) | apt | — |
+| `codebase-memory-mcp` | 0.8.1 (`linux-amd64`/`linux-arm64`) | GitHub o `vendor/` | SHA-256 |
+| engram | 1.16.1 (`linux_amd64`/`linux_arm64`) | GitHub o `vendor/` | SHA-256 |
+| TUI | módulo `client/` | Go | `go.sum` |
 
-### 3.2 Periferia eliminada o desactivada
+Las sumas SHA-256 de `slim/vendor/SHA256SUMS` se calcularon descargando cada fichero de su origen oficial.
 
-| Componente | Por qué es periferia | Cómo se retira |
-|---|---|---|
-| Publicación en GitHub (PR, *auto-merge*, Issues) | Consume la decisión; no la produce | Se sustituye el efector por la **exportación local** (C2). El `qa.shadow` actual solo registra en log y perdería los artefactos |
-| Auto-mantenimiento (`qa-maintainer`, `merge-guard`, *hot-swap*, `self-update`, *rollback*) | Repara QAyaba, no testea la app | Interruptor de perfil (C1/C5). `boot-guard.mjs` se queda: es inocuo sin marcador |
-| Login OAuth de GitHub | Autenticación de operadores | `GITHUB_OAUTH_CLIENT_ID` vacío. Consola con `QA_API_TOKEN` / `QA_WEB_AUTO_LOGIN` |
-| Runtime **Codex** | Runtime alternativo; OpenCode cubre todos los roles | `AGENT_RUNTIME_MODE=single`, `AGENT_SINGLE_PROVIDER=opencode`; `@openai/codex` no se instala |
-| Toolchains del modo `code`: Go, Rust/Cargo, Maven, Gradle, pip, JDK en el orquestador; oráculo Stryker | Solo se usan con `target: code` | No se instalan. Stryker queda como dependencia npm inerte |
-| `difft`, `ast-grep`, `lizard` | **No se invocan en ningún punto del código** (verificado: solo aparecen como tipo literal en `static-signal.ts`) | No se instalan. Pérdida de calidad: nula |
-| `docker-compose.override.yml` (montajes de desarrollo) | Desarrollo local | El compose Slim es autocontenido |
-| Listado de repos de GitHub en la consola | Asistente de alta | La app se da de alta por YAML + API de onboarding |
+### 5.3 Serena sin descargas en ejecución
 
-### 3.3 Garantía de no regresión y riesgos de calidad residuales
+- **TypeScript.** Serena no usa el LS global: instala el suyo con `npm install` la primera vez. El build
+  ejecuta `serena project index` sobre un proyecto mínimo, con el npmrc apuntando al mirror; el LS queda
+  congelado en la imagen. Si aun así hiciera falta otro LS basado en npm, el mirror está configurado y
+  también funcionaría en ejecución.
+- **Java.** Se usa el modo *upstream JDTLS* que Serena documenta para redes restringidas: `jdtls_path`
+  (JDTLS instalado) + `lombok_path` + `java_home` (JDK 21). Así no descarga el VSIX ni Gradle. El build lo
+  prueba indexando un proyecto Java mínimo.
+- La configuración global de Serena (`~/.serena/serena_config.yml`) se genera en el build: modo upstream,
+  `jdtls_xmx`, sin dashboard.
 
-Ningún elemento de §3.2 escribe en el estado que lee el pipeline antes de *Decide*. Por construcción,
-las decisiones de Slim son las mismas que en el perfil completo con las mismas entradas. Quedan riesgos
-de calidad que **no vienen del recorte, sino del entorno**, y que conviene gestionar explícitamente:
+### 5.4 Arquitectura de CPU
 
-| Riesgo | Mecanismo afectado | Mitigación |
-|---|---|---|
-| DEV sin *source maps* | La cobertura de cambio pasa a `unknown`: nunca bloquea, pero se pierde la señal objetiva (la *keystone*) | Publicar *source maps* (aunque sean *hidden*) en DEV |
-| Modelos desconocidos para `model-window-catalog.ts` | Presupuesto de prompt por defecto de **32k tokens** → recorte del contexto | C7 (§9) |
-| Mismo modelo para generador y revisor | Se pierde la independencia del juicio | Dos familias de modelo distintas (§7.3) |
-| Mirrors de servicios ausentes | El stitcher se degrada sin error | Onboarding por *job* (§11, paso 7) |
-| `context.json` no persistido | El *context pack* se reduce a blast radius + DOM | MR manual del export del modo `context` (§8.3) |
-| Serena sin LS de Java | Navegación peor en el backend | Aprovisionar JDTLS en build (§5.4) |
-
----
-
-## 4. Arquitectura objetivo
-
-### 4.1 Diagrama
-
-```
-                    ┌────────────────────── Mac (Docker) ───────────────────────┐
-                    │                                                           │
-  operador ──HTTP──►│  orchestrator (imagen qayaba-slim, rol "orchestrator")    │
-  127.0.0.1:8080    │   · webhook/API/consola · cola secuencial · RunQaUseCase  │
-                    │   · git (solo lectura) · npm ci e2e · Playwright + Chromium│
-                    │   · codebase-memory · SQLite · export local                │
-                    │        │ HTTP :4096/:4097                                  │
-                    │        ▼                                                   │
-                    │  agents (MISMA imagen, rol "agents")                       │
-                    │   · supervisor → opencode serve                            │
-                    │   · MCP: Serena(+LS) · engram · playwright-mcp(+Chromium)  │
-                    │                                                           │
-                    │  volúmenes: mirrors (compartido) · data · codebase-memory │
-                    │             serena · engram · opencode                     │
-                    └───────┬──────────────┬───────────────┬──────────┬─────────┘
-                            │              │               │          │
-                         GitLab          DEV          Proveedor LLM  Mirror npm
-                      (clone/fetch)  (navegador)      (solo agents) (solo npm ci)
-```
-
-### 4.2 Una imagen, dos roles
-
-Hoy hay dos imágenes con bases distintas (`playwright:noble` y `node:24-bookworm`) y dos cadenas de
-adquisición. Slim construye **una sola imagen** y la ejecuta como dos servicios con distinto
-`command`. Justificación:
-
-- **Menor superficie de adquisición.** Una sola cadena de base, CA, npm y *vendor*. Las dos imágenes
-  necesitaban de todas formas Node, Chromium y git.
-- **La frontera de seguridad no depende de la imagen, sino del entorno.** Los secretos se inyectan en
-  runtime por servicio: `agents` **no recibe** el token de GitLab ni `QA_API_TOKEN`. Esa es la
-  separación que exige el invariante “el agente es de solo lectura”, y se mantiene.
-- **Coste**: la imagen es algo mayor (~3–4 GB). Asumible para una POC.
-
----
-
-## 5. Adquisición hermética en build-time
-
-### 5.1 Fuentes permitidas (orden de preferencia)
-
-1. **Registro Docker** interno o proxy (Artifactory/Nexus/Harbor/GitLab Registry) para las imágenes base.
-2. **Mirror npm** para todo paquete npm (incluye los binarios de plataforma de `esbuild` y `opencode-ai`,
-   que llegan como `optionalDependencies` desde el propio registro).
-3. **Mirror PyPI**, si existe, para las dependencias de Serena.
-4. **`vendor/`**: artefactos de GitHub Releases descargados **a mano con el navegador**, verificados por
-   `SHA256SUMS` y copiados a la imagen con `COPY`. Nunca `curl` en el Dockerfile.
-
-### 5.2 Inventario de artefactos (BOM)
-
-| # | Artefacto | Versión (fijada) | Uso | Fuente actual | Fuente Slim |
-|---|---|---|---|---|---|
-| A1 | `mcr.microsoft.com/playwright` | `v1.60.0-noble` | Base: Chromium + librerías de sistema | MCR | Registro Docker |
-| A2 | `node` | `24-bookworm` | Donante de Node 24 (+ npm + cabeceras) y etapa de compilación | Docker Hub | Registro Docker |
-| A3 | Dependencias npm de la raíz (`package-lock.json`) | lock | Orquestador (`tsx`, `better-sqlite3`, `undici`, `zod`, `yaml`, tree-sitter…) | npmjs | Mirror npm |
-| A4 | `better-sqlite3` | 12.10.1 | Historial SQLite (nativo) | Prebuilt de GitHub | **Compilado** en la etapa A2 (`build_from_source` + `nodedir`) |
-| A5 | Seed `config/e2e` (`@playwright/test` 1.60.0, eslint, typescript…) | seed | `npm ci` por run en el `e2e/` del repo | npmjs | Mirror npm (en runtime, egress permitido) |
-| A6 | `opencode-ai` | 1.17.7 | Runtime de agentes | npmjs | Mirror npm |
-| A7 | `@playwright/mcp` | 0.0.76 | MCP de navegador (bin `playwright-mcp`) | npmjs | Mirror npm |
-| A8 | Chromium | el de A1 | Navegador del MCP y de la ejecución | CDN de Playwright | **Reutilizado de A1** (`--executable-path`) |
-| A9 | `codebase-memory-mcp` | v0.8.1 `linux-<arch>` | Grafo de código | GitHub Releases | `vendor/` |
-| A10 | `engram` | 1.16.1 `linux_<arch>` | Memoria del agente | GitHub Releases (solo amd64) | `vendor/` (arquitectura correcta) |
-| A11 | `uv` | fijar versión | Instalación de Serena | `astral.sh` | `vendor/` (binario de GitHub Releases) o PyPI |
-| A12 | Python ≥ 3.11 | fijar | Runtime de Serena | GitHub vía uv | `vendor/` (python-build-standalone) **o** paquete del sistema (§5.3) |
-| A13 | Serena | v1.5.3 | MCP de navegación | `git+https://github.com/...` | `vendor/` (ZIP del *tag*) + dependencias de PyPI |
-| A14 | LS TypeScript para Serena | el que fije Serena v1.5.3 | Navegación TS/Angular | npm en runtime | **Build** (calentamiento con mirror npm) |
-| A15 | JDTLS (VSIX `vscode-java`) + Gradle para Serena | los que fije Serena v1.5.3 | Navegación Java/Spring | GitHub + `services.gradle.org` en runtime | `vendor/` + colocación en build (§5.4) |
-| A16 | CA corporativa | — | Confianza TLS | — | Exportada del llavero de macOS (§6.2) |
-
-### 5.3 Rutas de construcción (se elige en la Fase 0)
-
-```
-¿Hay mirror PyPI?
- ├─ Sí ─► ¿Hay mirror apt (Ubuntu/Debian)?
- │         ├─ Sí ─► RUTA A: python3 del sistema vía apt; Serena desde su ZIP + PyPI.
- │         └─ No ─► RUTA B: Python gestionado por uv desde vendor/; Serena desde su ZIP + PyPI.
- └─ No ─► ¿Se pueden vendorizar wheels (descargados fuera) con aprobación?
-           ├─ Sí ─► RUTA B': como B, con wheels locales (`--find-links vendor/wheels`, `--no-index`).
-           └─ No ─► BLOQUEO de Serena: escalar. Quitar Serena degrada la calidad (explorer,
-                    generator, proposer), así que NO es una opción silenciosa del plan.
-
-Alternativa transversal — RUTA C: construir la imagen en GitLab CI del banco (los runners suelen
-tener acceso a los mirrors, a veces también a un "generic remote" de GitHub Releases) y publicarla en
-un registro interno. El Mac solo hace `docker pull`. Es la vía institucional y la preferible a medio plazo.
-```
-
-### 5.4 Serena: aprovisionamiento de *language servers* en build
-
-Serena **no usa** los *language servers* globales: gestiona los suyos en un directorio de recursos
-propio y los instala la primera vez que un proyecto los necesita. Para el LS de TypeScript ejecuta
-`npm install` de `typescript` y `typescript-language-server`. Para Java descarga el VSIX de
-`vscode-java` (con JRE, JDTLS y Lombok) y una distribución de Gradle, **solo desde una lista blanca de
-hosts** (`github.com`, `*.githubusercontent.com`, `services.gradle.org`). Por eso no basta con apuntar a
-un mirror: hay que **precolocarlos**.
-
-Plan:
-1. **TypeScript (con mirror npm).** Paso de *calentamiento* en build: crear un proyecto mínimo con un
-   `.ts` y arrancar Serena contra él una vez, con el npmrc global apuntando al mirror. Serena instala el
-   LS en su directorio de recursos y la imagen lo congela.
-2. **Java (sin salida a GitHub).** Descargar con el navegador el VSIX de la plataforma
-   (`linux-arm64` o `linux-x64`) y el ZIP de Gradle en las versiones exactas que fija Serena v1.5.3
-   (`src/solidlsp/language_servers/eclipse_jdtls.py`). En build, extraerlos con la estructura que Serena
-   espera, para que al arrancar los encuentre y no descargue nada. **La estructura exacta se verifica en
-   la Fase 0 contra el código de v1.5.3**, porque cambia entre versiones (usa subdirectorios versionados).
-3. **Persistencia.** El directorio de recursos de Serena vive en la imagen, **no** en un volumen: un
-   volumen vacío taparía lo aprovisionado en build.
-4. **Verificación.** Prueba de hermeticidad (§12, F1): comparar el árbol de ficheros del directorio de
-   recursos antes y después de un run. Debe ser idéntico.
-
-### 5.5 Arquitectura de CPU
-
-Todo el inventario existe para `arm64` y `amd64`: Playwright y Node son multi-arquitectura; codebase-memory
-publica `linux-amd64`/`linux-arm64`; el VSIX de Java existe para `linux-arm64`/`linux-x64`; OpenCode trae
-binarios por plataforma. **Excepción conocida**: el `agents/Dockerfile` actual fija `engram …linux_amd64`.
-En Slim, el nombre del artefacto se deriva de `TARGETARCH`. Que exista el asset `linux_arm64` de engram
-1.16.1 se verifica en la Fase 0; si no existe, las alternativas son compilarlo con un proxy de módulos Go
-o construir la imagen en `amd64` y ejecutarla con Rosetta en Docker Desktop (más lento).
-
-### 5.6 Esqueleto del Dockerfile (diseño, no implementado)
-
-```dockerfile
-# slim/Dockerfile — imagen única, dos roles (orchestrator | agents). DISEÑO DE PLANIFICACIÓN.
-# Invariante: toda adquisición ocurre AQUÍ, desde fuentes internas; el runtime no instala nada.
-# (Dockerfile no admite comentarios al final de una instrucción: van siempre en su propia línea.)
-# Imágenes base: se sobrescriben con --build-arg para apuntar al registro/proxy interno.
-ARG PW_IMAGE=mcr.microsoft.com/playwright:v1.60.0-noble
-ARG NODE_IMAGE=node:24-bookworm
-
-# ── Etapa 1: dependencias Node (imagen con gcc/make/python3 para compilar nativos) ──────────
-FROM ${NODE_IMAGE} AS deps
-COPY slim/certs/corp-ca.pem /usr/local/share/ca-certificates/corp-ca.crt
-RUN update-ca-certificates
-ARG NPM_REGISTRY
-# npmrc GLOBAL (/usr/local/etc/npmrc): lo lee cualquier npm, con cualquier HOME y entorno filtrado
-RUN npm config set --location=global registry "$NPM_REGISTRY" \
- && npm config set --location=global cafile /etc/ssl/certs/ca-certificates.crt
-# better-sqlite3: compilar contra las cabeceras locales (ni prebuilt de GitHub, ni cabeceras de nodejs.org)
-ENV npm_config_build_from_source=true npm_config_nodedir=/usr/local
-WORKDIR /app
-COPY package.json package-lock.json ./
-COPY packages ./packages
-COPY web/package.json ./web/package.json
-# Lock exacto; se instalan también las devDependencies (tsx ejecuta el TypeScript en runtime)
-RUN npm ci
-
-# ── Etapa 2: imagen final ──────────────────────────────────────────────────────────────────
-FROM ${PW_IMAGE}
-ARG TARGETARCH
-# Node 24 + npm + cabeceras + npmrc global, copiados de la etapa 1 (sin NodeSource ni `curl | bash`)
-COPY --from=deps /usr/local/ /usr/local/
-COPY slim/certs/corp-ca.pem /usr/local/share/ca-certificates/corp-ca.crt
-RUN update-ca-certificates
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
-
-# Binarios de GitHub descargados a mano: se verifican ANTES de usarlos (integridad de la cadena)
-COPY slim/vendor/ /opt/vendor/
-RUN cd /opt/vendor && sha256sum -c SHA256SUMS \
- && tar -C /usr/local/bin -xzf "codebase-memory-mcp-linux-${TARGETARCH}.tar.gz" codebase-memory-mcp \
- && tar -C /usr/local/bin -xzf "engram_1.16.1_linux_${TARGETARCH}.tar.gz" engram
-
-# Agentes: versiones exactas (convención del repo); sin Codex
-RUN npm install -g opencode-ai@1.17.7 @playwright/mcp@0.0.76
-# El MCP reutiliza el Chromium de la imagen base: cero descargas de navegador
-RUN ln -s "$(ls -d /ms-playwright/chromium-*/chrome-linux*/chrome | head -1)" /usr/local/bin/pw-chromium
-
-# Serena + language servers: bloque según la ruta A/B/B' (§5.3) y aprovisionamiento (§5.4)
-# ...
-
-# Orquestador: usuario sin privilegios para el código no confiable (invariante de sandbox)
-RUN useradd --create-home --uid 1002 --shell /usr/sbin/nologin sandbox
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-COPY agents/agent-supervisor.mjs /usr/local/bin/agent-supervisor.mjs
-```
-
-Puntos a verificar en la Fase 0: si la imagen A1 trae `git` (necesario en runtime para los clones) y
-`python3`. Si no trae `git`, hacen falta apt (ruta A) o una base alternativa. El ZIP de GitHub no trae
-`.git`, pero no afecta: la imagen actual ya se construye sin `.git` (`.dockerignore`).
+Todo el inventario existe para `arm64` y `amd64`; el build elige el binario con `TARGETARCH`. En un M4 se
+construye y ejecuta `linux/arm64` de forma nativa. Se verificó que engram publica `linux_arm64` (la imagen
+anterior lo fijaba a `amd64`).
 
 ---
 
 ## 6. Red dentro de los contenedores
 
-### 6.1 DNS
-El compose Slim **no declara `dns:`**. Los contenedores usan el DNS embebido de Docker, que reenvía al
-resolver del host (VPN / *split DNS*). Así se resuelven GitLab, el mirror y DEV.
-
-### 6.2 CA corporativa (inspección TLS)
-- Exportación sin sudo: `security find-certificate -a -p /Library/Keychains/System.keychain > slim/certs/corp-ca.pem`
-  (leer el llavero del sistema no requiere privilegios). Conviene filtrar solo las raíces corporativas.
-- En la imagen: `update-ca-certificates` (lo usan git, curl y OpenSSL), `NODE_EXTRA_CA_CERTS` (Node y el
-  runtime de OpenCode), `cafile` en el npmrc global (npm, incluido el que corre con entorno filtrado)
-  y `UV_NATIVE_TLS=true` / `SSL_CERT_FILE` para uv y Python.
-
-### 6.3 Proxy
-- Preferible a nivel de usuario (sin sudo) en `~/.docker/config.json` → `"proxies": { "default": { … } }`.
-  El CLI de Docker lo inyecta en `build` y en `run`.
-- `NO_PROXY` debe incluir los hosts internos (GitLab, DEV, mirror) y los nombres de servicio del compose
-  (`agents`, `orchestrator`, `localhost`).
-- Si el proxy exige credenciales en la URL, estas pasan a ser **secretos**: ver C4.
-
-### 6.4 npm: por qué configuración **global**
-El `npm ci` del `e2e/` corre como usuario `sandbox`, con `HOME` propio y entorno filtrado por `scrubEnv`.
-Un `.npmrc` de usuario o variables en mayúsculas no le llegan. El npmrc **global** (`/usr/local/etc/npmrc`)
-se lee siempre, sea cual sea el usuario y el entorno. Así la POC no necesita tocar código (C4 queda como
-opcional).
+- **DNS.** Sin `dns:` fijado: los contenedores usan el DNS del host/VPN.
+- **CA corporativa.** `./slim/qayaba.sh export-ca` exporta el llavero del sistema de macOS (sin sudo) a
+  `slim/certs/corporate-ca.crt`. El build la instala para apt, git, curl, npm/Node (`cafile` +
+  `NODE_EXTRA_CA_CERTS`), pip (`PIP_CERT`), Python (`SSL_CERT_FILE`), Go y Java.
+- **Proxy.** Docker Desktop lo inyecta desde `~/.docker/config.json` (nivel usuario, sin sudo). El compose
+  añade a `NO_PROXY` los nombres de servicio y `EXTRA_NO_PROXY` para los dominios internos.
+- **npm con entorno filtrado.** El `npm ci` del e2e corre como usuario `sandbox` con el entorno filtrado.
+  El npmrc **global** (registro + `cafile`) se lee igualmente. Además, `scrubEnv` deja pasar ya
+  `HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS` y `SSL_CERT_*`, **salvo** un proxy con credenciales
+  en la URL (sería un secreto al alcance de código no confiable).
 
 ---
 
-## 7. OpenCode hermético y proveedor LLM
+## 7. OpenCode y el proveedor LLM
 
-### 7.1 Flags de entorno (servicio `agents`)
+- **Flags** (en la imagen): `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_AUTOUPDATE`,
+  `OPENCODE_DISABLE_LSP_DOWNLOAD`, `OPENCODE_DISABLE_DEFAULT_PLUGINS`.
+- **Configuración efectiva** (`slim/opencode-config.mjs`, generada en el build a partir de
+  `agents/opencode.json`):
+  - `playwright-mcp` global con `--executable-path` al Chromium de la imagen;
+  - sin auto-actualización;
+  - Serena y engram intactos;
+  - fusión final con `slim/opencode.override.json` (opcional).
+- **Una sola fuente de verdad para los modelos.** Ambos roles leen el mismo `opencode.json` efectivo:
+  - el orquestador dimensiona los prompts con el `limit.context` declarado por el proveedor;
+  - los modelos de generador, revisor y chat salen de sus agentes;
+  - el *proposer* del stitcher usa el modelo de `qa-proposer`.
 
-| Variable | Efecto |
-|---|---|
-| `OPENCODE_DISABLE_MODELS_FETCH=true` | No descarga el catálogo de `models.dev`; usa el embebido (o `OPENCODE_MODELS_PATH` con un JSON local) |
-| `OPENCODE_DISABLE_AUTOUPDATE=true` | Sin comprobación ni descarga de actualizaciones |
-| `OPENCODE_DISABLE_LSP_DOWNLOAD=true` | OpenCode no descarga LSPs al abrir `.java`/`.ts` (la navegación semántica la aporta Serena) |
-| `OPENCODE_DISABLE_DEFAULT_PLUGINS=true` | No instala en caliente los *plugins* por defecto |
-
-Estas variables se han verificado en el código fuente **actual** de OpenCode. **En la Fase 0 se verifica
-que existen en la versión fijada 1.17.7** (p. ej. `strings "$(command -v opencode)" | grep OPENCODE_DISABLE`).
-
-### 7.2 Overlay de configuración (sin editar `agents/opencode.json`)
-
-```js
-// slim/make-opencode-config.mjs — DISEÑO: deriva la config Slim de la real (mismos agentes y prompts)
-import { readFileSync, writeFileSync } from "node:fs";
-const c = JSON.parse(readFileSync("agents/opencode.json", "utf8"));
-// Serena y engram SE CONSERVAN: alimentan explorer/generator/proposer (núcleo, §3.1)
-c.mcp.playwright.command = [
-  "playwright-mcp",                          // bin global instalado en build: sin npx ni resolución de registro
-  ...c.mcp.playwright.command.slice(2),      // conserva --browser/--headless/timeouts originales
-  "--executable-path", "/usr/local/bin/pw-chromium", // Chromium de la imagen base: sin descarga
-];
-c.autoupdate = false;
-// Opción B de proveedor (§7.3): reescribir el "model" de cada agente al gateway corporativo
-writeFileSync("slim/opencode.slim.json", JSON.stringify(c, null, 2));
-```
-
-El fichero resultante se monta **en los dos servicios**:
-- En `agents`, sobre `/root/.config/opencode/opencode.json`.
-- En `orchestrator`, sobre `/app/agents/opencode.json`, porque `model-window-catalog.ts` lee ese fichero
-  para calcular el presupuesto de prompt por rol. Si difieren, el orquestador calcularía con modelos que
-  no son los reales.
-
-### 7.3 Proveedor LLM
-
-| Opción | Requisitos | Consecuencias |
-|---|---|---|
-| **A. OpenCode Go/Zen** (actual, `opencode-go/*`) | Egress a `opencode.ai` y aprobación de cumplimiento para enviar código y diffs | Sin cambios de modelos |
-| **B. Gateway corporativo** (Azure OpenAI, Bedrock, LiteLLM interno…) | Proveedor *custom* en `opencode.json` (compatible con OpenAI: `baseURL` + modelos con su `limit.context`) | (1) Reescribir `model` en **cada** agente, en `AGENT_*_MODEL` y en el modelo del *proposer* del stitcher (fijado en código, C7). (2) Registrar sus ventanas de contexto (C7): si no, el motor usa el valor por defecto de 32k tokens y **recorta el contexto**. (3) Generador y revisor en **familias distintas**. (4) Verificar que el paquete del proveedor viene incluido en OpenCode y no se instala en runtime |
-
-**Cumplimiento.** El prompt que llega al LLM incluye diff, código y *snapshots* del DOM de DEV. El saneado
-existente (`sanitize-text.ts`) redacta secretos, pero **no anonimiza código**. Enviar código del banco a un
-proveedor es una decisión de cumplimiento, previa a cualquier trabajo técnico.
+  Cambiar de proveedor es editar **un** fichero y reconstruir.
+- **Proveedor propio.** Declaralo en el override (hay un ejemplo compatible con OpenAI en
+  `slim/opencode.override.example.json`), pon su clave en `OPENCODE_API_KEY` y referénciala como
+  `{env:OPENCODE_API_KEY}`: el supervisor solo arranca OpenCode con esa variable definida. Generador y
+  revisor deben usar **modelos distintos**.
 
 ---
 
-## 8. GitLab
+## 8. GitLab y publicación local
 
-### 8.1 Clonado
-- `GIT_REMOTE_BASE=https://gitlab.<banco>` ya funciona para formar la URL (`<base>/<ruta>.git`).
-- Los **subgrupos** están soportados: `repo: "grupo/subgrupo/proyecto"` → mirror `grupo__subgrupo__proyecto`.
-- **Autenticación**: requiere C3 (hoy solo se reescribe `github.com`). Token mínimo: *Project/Group Access
-  Token* con `read_repository` (o *Deploy Token*). El token nunca se escribe en `.git/config`; eso lo
-  garantiza el mecanismo transitorio `-c url.<…>.insteadOf` que ya existe.
-- **Limitación conocida**: el `git fetch origin` de refresco en `resolve-cross-repo-impact.use-case.ts` se
-  lanza sin credenciales. Es *best-effort* y, si falla, usa el mirror que haya en disco. Se revisa en C3.
+- **Clonado.** `GIT_REMOTE_BASE` + `GIT_TOKEN`. La autenticación se deriva del host configurado (usuario
+  `oauth2` fuera de github.com, configurable con `GIT_TOKEN_USER`) mediante una reescritura
+  `-c url.<…>.insteadOf` transitoria: el token nunca queda en `.git/config`. Admite subgrupos
+  (`grupo/subgrupo/proyecto`). El token se oculta en los logs (`glpat-…`) y se bloquea para el código
+  no confiable.
+- **Validación de repos** (alta desde la consola): fuera de github.com se usa `git ls-remote --symref`
+  con la misma credencial; no depende de ninguna API.
+- **Disparo.** CLI (`qayaba.sh run`). Más adelante, un job post-deploy de GitLab CI puede enviar el payload
+  genérico `{repo, sha}` firmado con HMAC; `webhook.ts` ya lo acepta.
+- **Publicación local.** Con `QAYABA_PROFILE=slim`, un único `LocalExportPublicationAdapter` sirve las
+  cuatro facetas: escritura git, PR, Issue y vista previa en shadow. Escribe en
+  `slim/exports/<app>/<run>/`:
+  - `files/`;
+  - `changes.patch` (aplicable con `git apply --index`);
+  - `MR.md`, con la rama sugerida, la rama destino, los pasos y la descripción;
+  - `ISSUE.md`;
+  - `export.json`.
 
-### 8.2 Disparo
-- **POC**: CLI dentro del contenedor (`npm run qa -- --app … --sha …`). No hace falta webhook.
-- **Después de la POC**: un *job* de GitLab CI **posterior al despliegue en DEV** que haga `curl` con el
-  payload genérico `{ "repo": "$CI_PROJECT_PATH", "sha": "$CI_COMMIT_SHA" }` y firma HMAC
-  (`x-hub-signature-256`, calculable con `openssl dgst -sha256 -hmac`). Ese payload ya lo acepta
-  `src/server/webhook.ts`. Es semánticamente mejor que un webhook de *push*, porque el motor debe correr
-  **después** del despliegue. El webhook nativo de GitLab (`X-Gitlab-Token`, `project.path_with_namespace`)
-  es opcional (C8).
-
-### 8.3 Publicación: exportación local
-- El efector nuevo (C2) escribe en `data/exports/<app>/<runId>/`:
-  - `decision.json`: veredicto, decisión, motivo y cobertura.
-  - `MR.md` / `ISSUE.md`: el mismo cuerpo que se renderizaría para GitHub, ya saneado.
-  - `e2e.patch`: diff binario de `e2e/`, incluidos ficheros nuevos, aplicable con `git apply`.
-  - `files/`: copia de los specs, `manifest.json` y `context.json`.
-- **Persistencia entre ejecuciones.** Cada run hace `git clean -fd` del mirror, así que lo generado y no
-  subido se pierde. En Slim, **la fuente de verdad sigue siendo git**: una persona abre un MR con el
-  parche exportado, y el run siguiente parte de lo fusionado. Esto aplica también al `context.json` del
-  onboarding, que el *job* publica forzando `shadow:false` (con C1, ese camino también exporta).
-- **Después de la POC**: MR automático con *push options* de GitLab
-  (`git push -o merge_request.create -o merge_request.merge_when_pipeline_succeeds`), sin API; o un
-  adaptador de API (C8).
-
-### 8.4 Credenciales (mínimo privilegio)
-
-| Credencial | Dónde | Permiso | ¿Llega al contenedor `agents`? |
-|---|---|---|---|
-| Token GitLab | `orchestrator` | `read_repository` | **No** |
-| `QA_API_TOKEN` | `orchestrator` | Consola/API | **No** |
-| Clave LLM | `agents` | Inferencia | Sí (solo aquí) |
-| Credenciales de DEV (`DEV_*`) | ambos | Login de la app | Sí (necesarias para explorar) |
+  La decisión no cambia. La fuente de verdad sigue siendo git: tras fusionar el MR, la siguiente
+  ejecución parte de la suite actualizada. Esto aplica también al `context.json` del onboarding.
 
 ---
 
-## 9. Cambios de código planificados (no implementados)
+## 9. Login central con redirección
 
-Todos respetan los invariantes de `CLAUDE.md`:
-- Nada específico de una app en `src/`: el perfil es de **despliegue**, no de app.
-- El agente sigue siendo de solo lectura.
-- La cola sigue siendo secuencial.
-- Los errores de integración se muestran, no se silencian.
-- Todo dato saliente se sanea.
-
-Puerta de calidad de cada cambio: `npm test` + `npm run typecheck` en verde y tests nuevos con
-`node:test`.
-
-| Id | Cambio | Ubicación | Diseño | Tests |
-|---|---|---|---|---|
-| **C1** | Perfil de despliegue `QAYABA_PROFILE=slim` | `src/server/rewritten-engine-factory.ts` (composition root), `src/index.ts` | En la raíz de composición: los *slots* de publicación (PR, Issue, *shadow*, *vcsWrite*) se cablean a C2; no se crea el *maintainer runtime*; se deshabilitan las rutas OAuth. **No se toca ningún servicio de dominio.** | Tests de cableado en `rewritten-engine-factory.test.ts` |
-| **C2** | `LocalExportPublicationAdapter` | `qa-engine/src/contexts/workspace-and-publication/infrastructure/local-export.adapter.ts` | Implementa los puertos que ya consume `PublicationPortAdapter`. Escribe la estructura de §8.3. Reutiliza `render*`, `sanitize` y `containsSecret`. El git lo ejecuta el orquestador (diff con *intent-to-add*), nunca el agente | Unit con fs falso; contrato de puerto |
-| **C3** | Autenticación git derivada de `GIT_REMOTE_BASE` | `src/integrations/repo-mirror.ts` | Host y protocolo desde `GIT_REMOTE_BASE`; token desde `GIT_TOKEN` (con `GITHUB_TOKEN` como alternativa); usuario `x-access-token` en github.com y `oauth2` en otros hosts (configurable). Se añaden `GIT_TOKEN`/`GITLAB_TOKEN` a `BLOCKED_ENV_PREFIX` de `scrub-env.ts` y el patrón `glpat-` al sanitizador | Casos en `repo-mirror.test.ts`, `scrub-env` y sanitizador |
-| **C4** *(opcional)* | Paso de variables de red por `scrubEnv` | `qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts` | Permitir `HTTP(S)_PROXY`, `NO_PROXY` (y minúsculas), `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`/`SSL_CERT_DIR`. **Contrapartida**: una URL de proxy con credenciales es un secreto que vería el código no confiable. Para la POC basta el npmrc global (§6.4) | Tests de allowlist |
-| **C5** | Interruptor del auto-mantenimiento | `src/index.ts`, `src/server/maintainer-runtime.ts` | Con perfil `slim`, los incidentes se registran pero no se dispara `triggerMaintainer` | Unit |
-| **C6** | Onboarding sin publicación remota | `src/index.ts` (`enqueueContextRun`) | Se cubre con C1: el `shadow:false` forzado cae en el exportador local. Solo hace falta verificarlo con un test | Test de integración del cableado |
-| **C7** *(solo con la opción B de proveedor)* | Modelos corporativos | `qa-engine/.../prompt-builders/model-window-catalog.ts`, `src/server/onboarding/llm-profile-proposer.adapter.ts` | (1) Ventanas: mínimo, añadir entradas. Mejor, leer `limit.context` de la definición del proveedor en `agents/opencode.json`, para que las identidades de modelo sigan viviendo solo en `agents/`. `normalizeModelName` hoy solo quita el prefijo `opencode-go/`. (2) `PROPOSER_MODEL` (el modelo del *proposer* del stitcher) está fijado a `opencode-go/glm-5.3-flash`: debe ser configurable. Los modelos por rol de `src/agent-runtime/config.ts` ya se sobrescriben con `AGENT_*_MODEL` | Unit |
-| **C8** *(después de la POC)* | GitLab nativo | `src/server/webhook.ts`; adaptadores MR/Issue en `workspace-and-publication` | Webhook con `X-Gitlab-Token` y `project.path_with_namespace`/`checkout_sha`; MR (`merge_when_pipeline_succeeds`) e Issue por API o *push options* | Unit + contrato |
-
-**Explícitamente fuera de alcance:** cualquier cambio en `PublishDecisionService`, `DecideCoverageService`,
-el stitcher (`service-topology/`), el clasificador, el *static gate* o los prompts.
-
----
-
-## 10. Entregables de empaquetado
-
-Ficheros **nuevos**; los existentes no se tocan:
-
-```
-slim/
-├── README.md                    # runbook (§11) en versión operativa
-├── Dockerfile                   # imagen única (§5.6)
-├── compose.yml                  # autocontenido: dos servicios, misma imagen, sin dns:, puertos en 127.0.0.1
-├── .env.example                 # variables Slim (ver abajo)
-├── make-opencode-config.mjs     # genera opencode.slim.json (§7.2)
-├── preflight.sh                 # sondas de entorno (Apéndice A)
-├── certs/                       # corp-ca.pem (NO se versiona)
-└── vendor/
-    ├── MANIFEST.md              # qué descargar, de qué URL exacta, para qué arquitectura
-    └── SHA256SUMS               # sumas esperadas (se verifican en build)
-```
-
-Variables del `.env` Slim (diseño):
-
-```bash
-# ── Orquestador ──
-QAYABA_PROFILE=slim                      # C1: exportación local, sin maintainer ni OAuth
-GIT_REMOTE_BASE=https://gitlab.banco.local
-GIT_TOKEN=                               # read_repository; nunca llega a "agents"
-QA_WEB_AUTO_LOGIN=true                   # consola local sin OAuth (puerto solo en 127.0.0.1)
-NPM_REGISTRY=https://artifactory.banco.local/api/npm/npm-remote/
-# ── Agentes ──
-AGENT_RUNTIME_MODE=single
-AGENT_SINGLE_PROVIDER=opencode
-OPENCODE_API_KEY=                        # u opciones del proveedor corporativo (§7.3)
-# ── DEV ──
-DEV_ENV_USER=
-DEV_ENV_PASS=
-DEV_TEST_USER=
-DEV_TEST_PASS=
-```
-
-Fragmento del compose (diseño):
+Requisito general, no solo de slim. La app declara su login en `config/apps/<app>.yaml`:
 
 ```yaml
-# slim/compose.yml — DISEÑO. Autocontenido: no hereda docker-compose.yml ni su override.
-name: qayaba-slim
-services:
-  orchestrator:
-    image: qayaba-slim:poc
-    build: { context: .., dockerfile: slim/Dockerfile, args: { NPM_REGISTRY: "${NPM_REGISTRY}" } }
-    command: ["npm", "run", "start"]
-    # sin "dns:" → resolver del host/VPN
-    # healthcheck, depends_on (agents healthy), stop_grace_period y límites: como en docker-compose.yml
-    ports: ["127.0.0.1:8080:8080"]            # solo loopback: nunca expuesto a la red del banco
-    environment:
-      QAYABA_PROFILE: slim
-      QA_WEB_AUTO_LOGIN: "true"               # consola local sin OAuth (seguro solo por el bind a 127.0.0.1)
-      OPENCODE_SERVE_URL: http://agents:4096
-      AGENT_SUPERVISOR_URL: http://agents:4097
-      MIRROR_DIR: /app/.mirrors
-      CBM_CACHE_DIR: /app/.codebase-memory
-      CODE_SANDBOX_UID: "1002"
-      GIT_REMOTE_BASE: ${GIT_REMOTE_BASE}
-      GIT_TOKEN: ${GIT_TOKEN}
-    volumes:
-      - ../config:/app/config
-      - ./opencode.slim.json:/app/agents/opencode.json:ro   # mismo modelo efectivo que "agents" (§7.2)
-      - mirrors:/app/.mirrors
-      - qa-data:/app/data                                   # historial + exports/
-      - codebase-memory:/app/.codebase-memory
-  agents:
-    image: qayaba-slim:poc                    # MISMA imagen, otro rol
-    command: ["node", "/usr/local/bin/agent-supervisor.mjs"]
-    environment:
-      OPENCODE_API_KEY: ${OPENCODE_API_KEY}   # NUNCA GIT_TOKEN ni QA_API_TOKEN aquí
-      OPENCODE_DISABLE_MODELS_FETCH: "true"
-      OPENCODE_DISABLE_AUTOUPDATE: "true"
-      OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
-      OPENCODE_DISABLE_DEFAULT_PLUGINS: "true"
-      # … MIRROR_DIR, ENGRAM_DATA_DIR, AGENT_*, DEV_* como en docker-compose.yml
-    volumes:
-      - ../agents:/root/.config/opencode:ro
-      - ./opencode.slim.json:/root/.config/opencode/opencode.json:ro
-      - ../agent:/root/.config/agent:ro
-      - mirrors:/app/.mirrors
-      - engram-data:/data
-      - opencode-data:/root/.local/share/opencode
-volumes: { mirrors: {}, qa-data: {}, codebase-memory: {}, engram-data: {}, opencode-data: {} }
+e2e:
+  auth:
+    loginUrl: "https://sso.banco.internal/"      # prefijo de la página de login central (otro origen)
+    passwordEntry: "text=Usuario y contraseña"   # si antes ofrece login con certificado
+    successSelector: "[data-testid=user-menu]"   # visible solo con sesión (recomendado)
 ```
 
----
+El *Setup* lo materializa en el *working copy* como `e2e/.qa/auth.local.json`, ignorado por git y
+excluido de la publicación. Todos los consumidores ejecutan el mismo flujo:
 
-## 11. Runbook de la POC
+| Consumidor | Comportamiento |
+|---|---|
+| `authenticate()` del seed | Detecta la redirección por URL (sin `networkidle`, que el lint del seed rechaza). Admite formulario en dos pasos. Si la sesión central sigue válida, vuelve directamente a la app. Hace un login por *worker*, reutilizado por cookies (menos logins contra el IdP, sin bloqueos por repetición). Si no se vuelve a la app, falla con un error claro |
+| Captura de DOM (*grounding*) | Inicia sesión tras registrar sus *listeners* de error, así que las rutas autenticadas se anclan en la página real. Una captura que termina en otro origen se marca como degradada aunque la ruta coincida |
+| Oráculo de inyección de fallos | Nunca corrompe el tráfico del origen del login |
+| Agente | La skill `playwright-authoring/auth.md` le indica llamar a `authenticate()` y seguir el mismo flujo al explorar DEV |
 
-| Paso | Acción | Resultado esperado |
-|---|---|---|
-| 0 | Ejecutar `slim/preflight.sh` (Apéndice A) | Informe de DNS, proxy, TLS y alcance → elección de ruta (§5.3) |
-| 1 | Descargar el ZIP **de la rama**: `https://github.com/ArielFalcon/QAyaba/archive/refs/heads/<rama>.zip` | Código Slim en el Mac |
-| 2 | Descargar con el navegador los artefactos de `slim/vendor/MANIFEST.md`; `shasum -a 256 -c SHA256SUMS` | `vendor/` íntegro |
-| 3 | Exportar la CA (§6.2) a `slim/certs/corp-ca.pem` | Confianza TLS |
-| 4 | Rellenar `slim/.env` y `config/apps/<app>.yaml` (`repo: grupo/proyecto`, `services:`, `dev.baseUrl`, sin `versionUrl` si no hay endpoint, `changeCoverage.mode: signal`) | Configuración |
-| 5 | `node slim/make-opencode-config.mjs` y `docker compose -f slim/compose.yml build` | Imagen `qayaba-slim:poc` |
-| 6 | `docker compose -f slim/compose.yml up -d` | Ambos servicios *healthy*; en los logs no aparece ninguna instalación |
-| 7 | **Onboarding por job** (API con `Authorization: Bearer $(cat config/.api_token)`, o desde la consola): `POST /api/apps/<app>/boundaries/propose` con `{ "repo": "...", "services": [...] }` → consultar `.../propose/status` → revisar → `POST .../boundaries/confirm` `{ "confirm": true }` | Mirrors de **todos** los repos clonados e indexados; `boundaries:` escritas; *run* de contexto → export con `context.json` |
-| 8 | MR manual en GitLab con el `context.json` exportado | El mapa FE↔BE queda en git |
-| 9 | `docker compose -f slim/compose.yml exec orchestrator npm run qa -- --app <app> --sha <sha>` sobre 2–3 commits reales | Veredictos, specs y exports |
-| 10 | Revisar la consola (`http://127.0.0.1:8080/app`) y `data/exports/…`; MR manual de los specs aprobados | Demostración |
-
-**Métricas a presentar:** veredicto por run, nº de specs y su aprobación por el revisor, ratio de
-cobertura de cambio (o `unknown` y por qué), enlaces del stitcher detectados, tiempo por run y coste
-en tokens.
+**mTLS.** El navegador automatizado no tiene certificado de cliente. Con un IdP que pide certificado de
+forma opcional, Chromium continúa sin él y el IdP muestra usuario y contraseña; esto se verificó contra
+un servidor HTTPS con `requestCert`. Si el IdP **exige** certificado sin alternativa, hace falta un
+usuario técnico con contraseña en DEV.
 
 ---
 
-## 12. Fases y criterios de salida
+## 10. Consolas: TUI y web
 
-| Fase | Contenido | Criterio de salida (verificable) |
-|---|---|---|
-| **F0 Descubrimiento** | Preflight; respuestas a §14; verificar: flags de OpenCode 1.17.7, estructura de LS de Serena v1.5.3, contenido de la imagen A1 (`git`, `python3`), asset arm64 de engram | BOM (§5.2) con **fuente confirmada para cada fila** y ruta elegida |
-| **F1 Empaquetado** (sin código de `src/`) | `slim/*` completo | `build` correcto en el Mac con egress restringido; `up` *healthy*; **prueba de hermeticidad**: los árboles de `~/.serena`, caché de OpenCode y npm no cambian tras un run |
-| **F2 Código mínimo** | C1, C2, C3, C5 (+C7 si se usa la opción B de proveedor) | `npm test` y `npm run typecheck` en verde; tests nuevos por cambio |
-| **F3 Ejecución POC** | Runbook §11 | ≥ 1 run completo por cada veredicto relevante; exportación generada; cero descargas en runtime |
-| **F4 Después de la POC** | C8 (MR/Issue/webhook GitLab), ruta C (GitLab CI + registro), elevar `changeCoverage` a `enforce` donde se lo gane | Según alcance acordado |
-
----
-
-## 13. Riesgos y mitigaciones
-
-| Id | Riesgo | Prob. | Impacto | Mitigación |
-|---|---|---|---|---|
-| K1 | Cumplimiento no aprueba enviar código al LLM | Media | **Bloqueante** | Gateway interno aprobado; acotar la POC a un repo no crítico |
-| K2 | DEV con SSO/MFA | Media | Alto | Usuario técnico sin MFA en DEV o *bypass* de DEV |
-| K3 | DEV sin *source maps* | Alta | Medio (cobertura `unknown`) | *Hidden source maps* en DEV |
-| K4 | Recursos: los límites suman 10 GB de RAM | Media | Alto (OOM) | Ajustar la memoria de Docker Desktop y los límites del compose |
-| K5 | Docker Desktop gestionado por IT | Media | Medio | Proxy en `~/.docker/config.json` (nivel usuario) |
-| K6 | La estructura de LS de Serena difiere de lo previsto | Media | Medio | Fijar v1.5.3; verificar en F0; prueba de hermeticidad |
-| K7 | La política impide vendorizar binarios de GitHub | Media | Alto | Aprobación explícita o ruta C (CI + *generic remote*) |
-| K8 | Incompatibilidad del MCP (Playwright 1.61-alpha) con Chromium 1.60 | Baja | Medio | Fallback: instalar el navegador del MCP en build desde un mirror (`PLAYWRIGHT_DOWNLOAD_HOST`) |
-| K9 | Falta el asset arm64 de engram | Baja | Bajo | Compilarlo con un proxy Go, o imagen amd64 con Rosetta |
-| K10 | Modelos del gateway sin ventana registrada | Alta (opción B de proveedor) | Medio | C7 |
-| K11 | Los contenedores no llegan a DEV/GitLab por la VPN | Media | **Bloqueante** | `NO_PROXY`, DNS del host; sondas del preflight |
+- **Web** (`http://localhost:8080/app`): estática, sin build; auto-login local (`QA_WEB_AUTO_LOGIN`),
+  seguro porque el puerto solo escucha en loopback.
+- **TUI**: la imagen compila la consola Go para Linux y para macOS (arm64/amd64).
+  - `qayaba.sh tui` la ejecuta en un contenedor que llega al orquestador por nombre de servicio y
+    descubre el token en `config/.api_token`.
+  - `qayaba.sh tui-install` copia el binario nativo para el Mac.
+  - Se corrigió un hueco general: la pantalla de conexión ignoraba `QA_HOST`.
 
 ---
 
-## 14. Preguntas abiertas
+## 11. Cambios de código
 
-Cada pregunta indica la fase a la que bloquea.
+| Id | Cambio | Ubicación principal | Estado |
+|---|---|---|---|
+| C1 | Perfil de despliegue `QAYABA_PROFILE` (`full` \| `slim`; un valor desconocido detiene el arranque) | `src/server/deployment-profile.ts`, composición, `src/index.ts` | Hecho |
+| C2 | Exportación local de la publicación (cuatro facetas) | `qa-engine/.../local-export-publication.adapter.ts` | Hecho |
+| C3 | Git independiente del host: auth por `GIT_REMOTE_BASE`, `ls-remote` para validar, redacción/bloqueo de tokens GitLab | `src/integrations/repo-mirror.ts`, `sanitizer.ts`, `sanitize-text.ts`, `scrub-env.ts` | Hecho |
+| C4 | Variables de proxy y CA hacia instalaciones no confiables (sin credenciales) | `scrub-env.ts` | Hecho |
+| C5 | Auto-mantenimiento y login GitHub gobernados por el perfil | `src/index.ts` | Hecho |
+| C7 | Modelos desde `agents/`: ventana de contexto declarada por el proveedor, modelo del *proposer* y *defaults* de rol | `model-window-catalog.ts`, `llm-profile-proposer.adapter.ts`, `agent-runtime/config.ts` | Hecho |
+| L1 | Login central declarativo (`e2e.auth`) | `schemas.ts`, `shared-kernel/e2e-auth.ts`, `setup.adapter.ts`, `dom-snapshot.ts`, `route-catalog.ts`, `config/e2e/fixtures.ts`, skills | Hecho |
+| T1 | La TUI respeta `QA_HOST` | `client/internal/ui/connect.go` | Hecho |
+| F1 | Regresiones del commit de comentarios | `setup.adapter.ts`, `merge-guard.ts` | Hecho |
+| C8 | GitLab nativo (MR/Issue automáticos, webhook con `X-Gitlab-Token`) | — | Después de la POC |
 
-1. **(F0)** Mac Apple Silicon o Intel; RAM total.
-2. **(F0)** Docker Desktop / Rancher / Colima / Podman; `docker compose version`; ¿puedes cambiar proxy y recursos?
-3. **(F0)** El mirror: ¿Artifactory, Nexus u otro? ¿Proxifica Docker, apt, PyPI o GitHub Releases (*generic remote*)?
-4. **(F0)** ¿Hay registro Docker interno con permiso de *push*/*pull* (incluido el Container Registry de GitLab)?
-5. **(F0)** ¿Inspección TLS? (lo responde el preflight)
-6. **(F0, bloqueante)** Proveedor LLM permitido y aprobación de cumplimiento para enviar código y diffs.
-7. **(F1)** Stack del proyecto objetivo (¿Angular + Spring?), repos implicados (front + microservicios) y cómo se comunican (HTTP/eventos), para configurar `boundaries:`.
-8. **(F3, bloqueante)** Acceso a DEV desde un contenedor; mecanismo de login (formulario, SSO, MFA).
-9. **(F1)** GitLab: ¿self-managed (versión) o gitlab.com?; ¿HTTPS o solo SSH?; ¿se pueden crear *Access Tokens* `read_repository`?
-10. **(F0)** Política: ¿se permite introducir binarios descargados de GitHub (vendorizados y con checksums) o imágenes construidas fuera?
-11. **(F4)** ¿GitLab CI con *runners* capaces de construir imágenes (Kaniko/dind)?
-12. **(F3)** ¿DEV sirve *source maps*?
-
----
-
-## Apéndice A — Script de preflight
-
-Contenido previsto de `slim/preflight.sh`. No requiere sudo y solo usa imágenes que ya estén en el registro.
-
-```bash
-#!/usr/bin/env bash
-# slim/preflight.sh — DISEÑO. Mide qué permite el entorno ANTES de construir nada.
-set -u
-IMG=${IMG:-node:24-bookworm}            # cualquier imagen con curl/openssl ya disponible
-# URLs internas: exportarlas antes de ejecutar (MIRROR_URL=https://… GITLAB_URL=… DEV_URL=… ./preflight.sh)
-HOSTS=("${MIRROR_URL:-}" "${GITLAB_URL:-}" "${DEV_URL:-}" "https://opencode.ai" "https://github.com" \
-       "https://pypi.org" "https://registry.npmjs.org")
-
-echo "== Docker =="; docker version --format '{{.Server.Arch}} {{.Server.Version}}'; docker compose version
-echo "== Proxy del CLI de Docker =="; grep -A6 '"proxies"' ~/.docker/config.json 2>/dev/null || echo "sin proxies"
-
-docker run --rm -e HOSTS="${HOSTS[*]}" "$IMG" sh -c '
-  echo "== Proxy visto dentro del contenedor =="; env | grep -i _proxy || echo "ninguno"
-  echo "== Alcance (código HTTP; 000 = bloqueado/DNS) =="
-  for u in $HOSTS; do printf "%-45s " "$u"; curl -sS -o /dev/null -m 10 -w "%{http_code}\n" "$u" 2>/dev/null || echo FALLA; done
-  echo "== Inspección TLS (emisor del certificado de registry.npmjs.org) =="
-  echo | openssl s_client -connect registry.npmjs.org:443 -servername registry.npmjs.org 2>/dev/null \
-    | openssl x509 -noout -issuer 2>/dev/null || echo "no alcanzable"
-'
-echo "== Contenido de la imagen base de Playwright (si ya está en el registro) =="
-docker run --rm mcr.microsoft.com/playwright:v1.60.0-noble sh -c 'node -v; git --version; python3 --version' 2>&1
-```
-
-**Interpretación:**
-- Si el emisor TLS es el proxy del banco (Zscaler, Netskope…), la CA es obligatoria.
-- `github.com` en 000 y el navegador descargando igualmente → confirma la ruta *vendor*.
-- `pypi.org` en 000 sin mirror PyPI → rutas B' o C.
+Ningún cambio toca `PublishDecisionService`, `DecideCoverageService`, el stitcher, el clasificador, el
+*static gate* ni los prompts de generación. Los ficheros nuevos que deciden escrituras (el exportador y el
+perfil) se añadieron a `PROTECTED_PATHS`.
 
 ---
 
-## Apéndice B — Referencias al código
+## 12. Verificación realizada
+
+El sandbox de desarrollo sale a Internet por un **proxy que re-termina TLS con su propia CA**, un análogo
+fiel de la red del banco. Su CA hizo el papel de la corporativa.
+
+| Prueba | Resultado |
+|---|---|
+| `npm test` | 3979 tests, 0 fallos (incluye los nuevos del perfil, el exportador, git/GitLab, modelos, login y `slim/`) |
+| `npm run typecheck` / `npm run arch:check` | Limpios (qa-engine no importa `src/`) |
+| Tests Go de la TUI (Go 1.26) | En verde |
+| `docker build` de `slim/Dockerfile` detrás del proxy TLS | Correcto; cada artefacto verificado por SHA-256. Un 429 de Maven Central se resolvió con la vía `vendor/` (`lombok … verified (from slim/vendor)`) |
+| Arranque del stack **sin red** en ejecución | `orchestrator` y `agents` *healthy*, `[profile: slim]` |
+| MCP de OpenCode sin red | `{"serena":"connected","engram":"connected","playwright":"connected"}` |
+| `qayaba.sh check` | OpenCode, Serena, engram, playwright-mcp, Chromium, LS de TS y Java, codebase-memory y `better-sqlite3` presentes |
+| API / consola web / login GitHub | `/app` 200; onboarding responde; login GitHub: *not configured* |
+| TUI en contenedor (pseudo-terminal) | Conecta sola con el token descubierto y muestra el panel |
+| `npm` como `sandbox` con entorno vacío | Usa registro y CA del npmrc global a través del proxy |
+| Seed e2e **dentro de la imagen** | `npm install` + tsc + ESLint correctos; tests de login central en verde con el Chromium de la imagen |
+| Login central contra un IdP simulado (otro origen) | Redirección de ida y vuelta, botón de certificado → usuario/contraseña, login en dos pasos, sesión reutilizada (sin segundo POST), error claro con credenciales malas |
+| IdP HTTPS con mTLS opcional | Chromium sin certificado → formulario → vuelta a la app |
+| Captura de DOM con login | Rutas autenticadas capturadas en la app; sin login quedan degradadas |
+
+**No verificable aquí:** un run completo contra el GitLab, el LLM y el DEV reales del banco.
+
+---
+
+## 13. Riesgos, límites y siguientes pasos
+
+| Riesgo | Mitigación |
+|---|---|
+| Cumplimiento del envío de código al LLM | Usar el proveedor aprobado vía override |
+| IdP que exige certificado sin alternativa | Usuario técnico con contraseña en DEV |
+| Remotos de Artifactory que falten | `slim/vendor/` para lo que no sea paquete; el `preflight` dice qué hay |
+| Memoria en 16 GB | Límites ajustables y `JDTLS_XMX` |
+| Tamaño de imagen (~6 GB) | Asumible en POC; a medio plazo, construir en GitLab CI y publicar en un registro interno |
+| `npm` avisa de que `nodedir`/`build-from-source` como variables de entorno dejarán de funcionar en su próxima versión mayor | Fijado a la versión de npm de Node 24; revisar al subir de mayor |
+
+**Siguientes pasos:**
+1. POC en el Mac según `slim/README.md`.
+2. MR/Issues nativos de GitLab (C8) y disparo desde GitLab CI.
+3. Construir la imagen en GitLab CI y publicarla en un registro interno.
+4. Pasar `changeCoverage` a `enforce` donde se lo gane.
+
+---
+
+## Apéndice — Referencias al código
 
 | Tema | Fichero |
 |---|---|
-| Orquestación completa | `qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts` |
-| Raíz de composición (perfil C1) | `src/server/rewritten-engine-factory.ts`, `qa-engine/src/contexts/qa-run-orchestration/composition/composition-root.ts` |
-| Publicación y decisión | `qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts`, `…/workspace-and-publication/infrastructure/shadow-log.adapter.ts` |
-| Mirrors y auth git | `src/integrations/repo-mirror.ts`, `…/workspace-and-publication/infrastructure/mirror-provision.adapter.ts` |
-| Filtrado de entorno | `qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts`, `sandbox.ts` |
-| Setup del `e2e/` | `qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts` |
-| Stitcher | `qa-engine/src/contexts/service-topology/` |
-| Impacto entre repos + grafo | `…/service-topology/application/resolve-cross-repo-impact.use-case.ts`, `qa-engine/src/shared-infrastructure/code-graph/` |
-| Onboarding | `src/server/onboarding/onboarding-job.ts`, `src/index.ts` (`indexRepoForOnboarding`, `enqueueContextRun`), rutas `/api/apps/:name/boundaries/*` en `src/server/api.ts` |
-| Ventanas de modelo | `qa-engine/src/contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts` |
-| Webhook | `src/server/webhook.ts` |
-| Auto-mantenimiento | `src/server/maintainer-runtime.ts`, `src/server/self-update.ts`, `boot-guard.mjs` |
-| Imágenes y compose actuales | `Dockerfile`, `agents/Dockerfile`, `docker-compose.yml`, `agents/opencode.json`, `agents/agent-supervisor.mjs` |
+| Empaquetado slim | `slim/Dockerfile`, `slim/compose.yml`, `slim/qayaba.sh`, `slim/opencode-config.mjs`, `slim/fetch-artifact.sh`, `slim/vendor/SHA256SUMS` |
+| Perfil y efectores | `src/server/deployment-profile.ts`, `src/server/rewritten-engine-factory.ts` (`buildPublicationEffectors`), `qa-engine/.../composition/composition-root.ts` (`shadowPublication`) |
+| Exportación local | `qa-engine/src/contexts/workspace-and-publication/infrastructure/local-export-publication.adapter.ts` |
+| Git/GitLab | `src/integrations/repo-mirror.ts` (`authHeaderArgs`, `gitRemoteBase`, `getRepoInfoViaGit`) |
+| Entorno de procesos no confiables | `qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts` |
+| Modelos | `qa-engine/.../prompt-builders/model-window-catalog.ts`, `src/agent-runtime/config.ts`, `src/server/onboarding/llm-profile-proposer.adapter.ts` |
+| Login central | `qa-engine/src/shared-kernel/e2e-auth.ts`, `config/e2e/fixtures.ts`, `qa-engine/.../generation/infrastructure/dom-snapshot.ts`, `route-catalog.ts`, `agents/skill/playwright-authoring/auth.md` |
+| Orquestación | `qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts` |
