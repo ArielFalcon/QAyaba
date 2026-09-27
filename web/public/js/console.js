@@ -204,7 +204,8 @@
     if (!data || data.length === 0) return '<svg width="140" height="36" viewBox="0 0 140 36"></svg>';
     const w = o.w || 140, h = o.h || 36, color = o.color || 'var(--ember-500)', area = o.area !== false, pad = o.pad || 3, responsive = !!o.responsive;
     const min = Math.min.apply(null, data), max = Math.max.apply(null, data), span = (max - min) || 1, n = data.length;
-    const x = (i) => pad + (i * (w - pad * 2)) / (n - 1);
+    /* A single-point series divides by n-1=0 → x=NaN → broken <polyline>. Center it instead. */
+    const x = (i) => pad + (n > 1 ? (i * (w - pad * 2)) / (n - 1) : (w - pad * 2) / 2);
     const y = (v) => pad + (h - pad * 2) * (1 - (v - min) / span);
     const pts = data.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
     const areaPts = pad + ',' + (h - pad) + ' ' + pts + ' ' + (w - pad) + ',' + (h - pad);
@@ -757,6 +758,9 @@
   }
   function healthChart(history, ai, bi) {
     const g = hcGeom(history), n = g.n;
+    /* Live mode has no per-run history endpoint yet (API.md §5) — apps absent from the mock
+       arrive here with an empty history; render the empty state instead of crashing on pts[0]. */
+    if (!n) return '<div style="height:' + HC.H + 'px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no per-run history yet — checkpoints appear as runs complete</div>';
     const pts = history.map((h, i) => ({ x: g.xPct(i), yv: (g.topPx(h.health) / HC.H) * 100, h: h, i: i }));
     const line = pts.map((p, k) => (k ? 'L' : 'M') + p.x.toFixed(2) + ' ' + p.yv.toFixed(2)).join(' ');
     const area = 'M ' + pts[0].x.toFixed(2) + ' 100 ' + pts.map((p) => 'L ' + p.x.toFixed(2) + ' ' + p.yv.toFixed(2)).join(' ') + ' L ' + pts[n - 1].x.toFixed(2) + ' 100 Z';
