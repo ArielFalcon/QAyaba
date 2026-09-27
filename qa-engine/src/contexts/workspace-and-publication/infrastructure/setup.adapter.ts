@@ -21,8 +21,11 @@ const PLAYWRIGHT_CONFIG_SEED_REVISIONS: ReadonlySet<string> = new Set([
   "35254a3ed113dd097aec01997cd864545fd2c222227f0841a3264c9978ae779a",
 ]);
 
-/* First line of every auth.setup.ts seed revision; the agent drops it when it rewrites the login for the app. */
-export const AUTH_SETUP_SEED_MARKER = "/* qa-auth-setup-seed */";
+/* sha256 of every auth.setup.ts seed revision shipped into watched repos, the current one included — same policy as the config above. */
+const AUTH_SETUP_SEED_REVISIONS: ReadonlySet<string> = new Set([
+  "f0026e081894e535c2c08506bb3b73d4023425313e4887917dd7ba368b1dcaa5",
+  "ca23fb2c283f97093a8c7f98693e051e9f6cd11d8db53ee495833d1883cfc749",
+]);
 
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
 
@@ -248,20 +251,19 @@ export class SetupAdapter {
   }
 
   /**
-   * Copies the current login seed when the repo has none, and replaces a stock copy (seed marker
-   * still on its first line) left by an earlier seed revision. An app-owned auth.setup.ts — the
-   * agent drops the marker when it rewrites the login — is left as-is.
+   * Copies the current login seed when the repo has none, and replaces a stock copy (byte-for-byte a
+   * shipped seed revision). A login rewritten for the app is the repo's own and is left as-is.
    */
   ensureAuthSetup(e2eDir: string): void {
     const src = join(this.deps.seedDir, "auth.setup.ts");
     if (!this.deps.fs.exists(src)) return;
     const dest = join(e2eDir, "auth.setup.ts");
-    if (this.deps.fs.exists(dest)) {
-      const existing = this.deps.fs.read(dest);
-      if (!existing.startsWith(AUTH_SETUP_SEED_MARKER)) return;
-      if (existing === this.deps.fs.read(src)) return;
+    if (!this.deps.fs.exists(dest)) {
+      this.deps.fs.cp(src, dest);
+      return;
     }
-    this.deps.fs.cp(src, dest);
+    const existing = this.deps.fs.read(dest);
+    if (AUTH_SETUP_SEED_REVISIONS.has(sha256(existing))) this.followSeed("auth.setup.ts", dest, existing);
   }
 
   /**

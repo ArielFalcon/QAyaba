@@ -12,7 +12,6 @@ import {
   nodeFsDeps,
   FAILURE_CAPTURE_MARKER,
   FAILURE_CAPTURE_BLOCK,
-  AUTH_SETUP_SEED_MARKER,
   type SetupAdapterFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
@@ -425,21 +424,30 @@ test("ensurePlaywrightEnvKeys moves a copy of the shipped seed on to the next se
   }
 });
 
-/* auth.setup.ts carries a first-line seed marker until the agent rewrites it for the app (the
-   authoring skill tells it to drop the marker then). A stock copy from an earlier seed revision must
-   follow the current seed — an older one saved the session under the agent-visible mirror. */
+/* auth.setup.ts follows the current seed only while it is byte-for-byte a shipped seed revision — an
+   earlier one saved the session under the agent-visible mirror. A login rewritten for the app is its
+   own, whether or not it kept the seed marker. */
+const ensureAuth = (adapter: SetupAdapter, dir: string): void => adapter.ensureAuthSetup(dir);
+
 test("ensureAuthSetup replaces a stock auth.setup.ts from an earlier seed revision with the current seed", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-stock-"));
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  assert.equal(afterEnsure("auth.setup.ts", shippedRevision("auth.setup.rev1.txt"), ensureAuth), currentSeed);
+});
+
+test("ensureAuthSetup never overwrites a login rewritten for the app that kept the seed marker", () => {
+  const appLogin = `/* qa-auth-setup-seed */\nimport { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => {\n  await page.goto("/sso");\n  await page.getByRole("button", { name: "Continue with SSO" }).click();\n  await page.context().storageState({ path: process.env.PW_STORAGE_STATE ?? ".auth/user.json" });\n});\n`;
+  assert.equal(afterEnsure("auth.setup.ts", appLogin, ensureAuth), appLogin);
+});
+
+test("ensureAuthSetup moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-auth-seed-"));
   try {
-    const earlierSeed = `${AUTH_SETUP_SEED_MARKER}\nimport { test as setup } from "@playwright/test";\nconst authFile = ".auth/user.json";\nsetup("authenticate", async ({ page }) => { await page.context().storageState({ path: authFile }); });\n`;
-    writeFileSync(join(dir, "auth.setup.ts"), earlierSeed);
-
-    realAdapter().ensureAuthSetup(dir);
-
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
-    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), currentSeed);
+    const nextSeed = `${shipped}/* the next seed revision */\n`;
+    writeFileSync(join(nextSeedDir, "auth.setup.ts"), nextSeed);
+    assert.equal(afterEnsure("auth.setup.ts", shipped, ensureAuth, nextSeedDir), nextSeed);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(nextSeedDir, { recursive: true, force: true });
   }
 });
 
