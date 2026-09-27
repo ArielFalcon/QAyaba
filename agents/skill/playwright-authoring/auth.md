@@ -37,6 +37,17 @@ field is hidden — cookies are often set on the redirect — and only then call
 Session storage is not included; if this app keeps the session there, save and
 restore it in `auth.setup.ts`.
 
+Keep the seed's session path when you rewrite it: save to
+`process.env.PW_STORAGE_STATE`, which the orchestrator sets to a directory
+outside the repository and reads the session from. A rewrite that saves anywhere
+else fails the run before the tests execute.
+
+```ts
+const authFile = process.env.PW_STORAGE_STATE ?? ".auth/user.json";
+// … fill the form, wait for the password field to be hidden …
+await page.context().storageState({ path: authFile });
+```
+
 A software client certificate (mTLS) is applied by the orchestrator before the
 browser opens. There is no selector for it.
 

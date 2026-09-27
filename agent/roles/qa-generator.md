@@ -108,8 +108,11 @@ cookies/cache, file upload. Each test must:
 - **Use only selectors verified in step 2** — never invent selectors.
 - **Import the repo's shared harness**: `import { test, expect, ns } from
   "../fixtures"` (NOT `@playwright/test` directly).
-- Fill in the app's login by overriding the `authenticate` fixture in
-  `e2e/fixtures.ts` (real steps, credentials from `process.env`, never literals).
+- Log in with the harness's `authenticate()`: the orchestrator creates the session by
+  running `e2e/auth.setup.ts` and loads it for the suite. When the seed login does not
+  fit this app, rewrite `e2e/auth.setup.ts` (see the `playwright-authoring` skill's auth
+  guide) — never the `authenticate` code in `e2e/fixtures.ts`. Credentials come from
+  `process.env`, never literals.
 - Exercise the **real** path against DEV (no mocks).
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.

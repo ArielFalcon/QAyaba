@@ -37,3 +37,21 @@ test("qa-sidekick: both copies state frozen authority and the git-write ban", ()
   assertBothContain("qa-sidekick", "frozen authority flags printed in the brief");
   assertBothContain("qa-sidekick", "never perform git writes");
 });
+
+test("qa-generator: both copies send the app login to auth.setup.ts, never to a fixtures.ts override", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-generator"))) {
+    assert.match(text, /auth\.setup\.ts/, `${copy} copy must point the app login at e2e/auth.setup.ts`);
+    assert.doesNotMatch(text, /overrid\w*[^.]*`?authenticate`? fixture/i, `${copy} copy must not ask for an authenticate override`);
+  }
+});
+
+/* The two skill copies are kept byte-identical by src/agent-runtime/prompt-sync.test.ts; this pins
+   what the auth guide must tell the agent. The orchestrator reads the session only from
+   process.env.PW_STORAGE_STATE, and a rewrite that saves anywhere else fails the run before
+   execution, so the guide must name that path. */
+test("playwright-authoring auth guide: both runtimes' copies say a rewritten login saves to PW_STORAGE_STATE", () => {
+  for (const copy of [join("agent", "skills"), join("agents", "skill")]) {
+    const guide = readFileSync(join(ROOT, copy, "playwright-authoring", "auth.md"), "utf8");
+    assert.match(guide, /process\.env\.PW_STORAGE_STATE/, `${copy}/playwright-authoring/auth.md`);
+  }
+});
