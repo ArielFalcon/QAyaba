@@ -381,6 +381,31 @@ test("runE2E rejects a project name outside the allowlist (arg-injection surface
   assert.equal(started, false);
 });
 
+/* The repo owns its playwright.config.ts: its projects may be named anything and a suite run must
+   execute all of them unless the caller explicitly configures one. The argv is the one the real
+   runner spawns, built from what runE2E hands to runSuite. */
+async function suiteArgv(opts: { project?: string }): Promise<string[]> {
+  let argv: string[] = [];
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      argv = playwrightArgs("/tmp/rep.cjs", args.project, args.specFiles);
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-projects", ...opts }, deps);
+  return argv;
+}
+
+test("a suite run with no configured project selects no Playwright project, so every project in the repo config runs", async () => {
+  const argv = await suiteArgv({});
+  assert.equal(argv.some((a) => a.startsWith("--project")), false, `no --project flag expected, got ${JSON.stringify(argv)}`);
+});
+
+test("a suite run with a configured project selects exactly that project", async () => {
+  const argv = await suiteArgv({ project: "chromium-tablet" });
+  assert.deepEqual(argv.filter((a) => a.startsWith("--project")), ["--project=chromium-tablet"]);
+});
+
 test("playwrightArgs appends --project only when set, and validates it", () => {
   assert.deepEqual(playwrightArgs("/tmp/rep.cjs"), ["playwright", "test", "--reporter=/tmp/rep.cjs,json"]);
   assert.deepEqual(

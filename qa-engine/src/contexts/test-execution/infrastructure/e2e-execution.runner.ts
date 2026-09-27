@@ -173,8 +173,8 @@ export async function runE2E(
     baseUrl: opts.baseUrl,
     namespace: opts.namespace,
     faultInject: opts.faultInject,
-    /* Default to the desktop project so auth.setup.ts (the setup project) is not a suite case. The orchestrator runs that project itself. */
-    project: opts.project ?? "desktop",
+    /* No project unless one is configured: the repo owns its playwright.config.ts, so every project it defines runs. The seed keeps its login setup project out of a suite run itself (it is defined only under PW_AUTH_SETUP). */
+    project: opts.project,
     testIdAttribute: opts.testIdAttribute,
     specFiles: opts.specFiles,
     signal: opts.signal,

@@ -74,18 +74,22 @@ export default defineConfig({
   // Grounding (DOM capture / selector catalog) is desktop-only today — a mobile
   // project would execute ungrounded. Re-add per-project grounding before restoring mobile.
   // Playwright's guide sets dependencies: ["setup"] so the suite logs in itself.
-  // This harness does not: the orchestrator runs the setup project before grounding
-  // and again before execute. Desktop must not depend on setup, or every suite run
-  // would log in again and the setup test would count as a case.
+  // This harness does not: the orchestrator runs the setup project (PW_AUTH_SETUP=1,
+  // --project=setup) before grounding and again before execute. A suite run passes no
+  // --project and runs every project defined here, so the setup project exists only
+  // for that login run — otherwise every suite run would log in again and the setup
+  // test would count as a case.
   projects: [
-    {
-      name: "setup",
-      testMatch: "**/*.setup.ts",
-      /* A retried login is not a stable session. The suite's retries stay on desktop. */
-      retries: 0,
-      /* Clean context while creating the session, even if PW_STORAGE_STATE is set. */
-      use: { storageState: { cookies: [], origins: [] } },
-    },
+    ...(process.env.PW_AUTH_SETUP
+      ? [{
+          name: "setup",
+          testMatch: "**/*.setup.ts",
+          /* A retried login is not a stable session. The suite's retries stay on desktop. */
+          retries: 0,
+          /* Clean context while creating the session, even if PW_STORAGE_STATE is set. */
+          use: { storageState: { cookies: [], origins: [] } },
+        }]
+      : []),
     {
       name: "desktop",
       testIgnore: "**/*.setup.ts",

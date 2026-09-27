@@ -83,6 +83,9 @@ export class AuthSessionAdapter implements AuthSessionPort {
       /* Tells the setup project (auth.setup.ts) to write storageState here — outside the mirror —
          instead of its relative, mirror-local ".auth/user.json" fallback. */
       PW_STORAGE_STATE: storageStatePath,
+      /* The seed config defines its setup project only for this login run; a suite run passes no
+         --project and must not execute the login as a case. */
+      PW_AUTH_SETUP: "1",
     };
     if (this.deps.env.DEV_ENV_USER) {
       childEnv.DEV_ENV_USER = this.deps.env.DEV_ENV_USER;

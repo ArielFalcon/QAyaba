@@ -11,7 +11,7 @@ export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do 
 
 export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
 
-const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState"] as const;
+const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
 
 export const FAILURE_CAPTURE_BLOCK = `
 // >>> qa-failure-capture (system-owned: do not edit) >>>

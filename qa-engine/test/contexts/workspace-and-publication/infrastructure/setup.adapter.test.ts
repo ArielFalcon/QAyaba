@@ -483,6 +483,28 @@ test("ensurePlaywrightEnvKeys: a config missing only one of the two managed keys
   }
 });
 
+/* A suite run passes no --project, so a stock copy whose setup project is always defined would run
+   the login as a suite case. Such a copy carries every older env-passthrough key, so only the
+   setup-project gating tells it apart from the current seed. */
+test("ensurePlaywrightEnvKeys: a stock config whose login setup project is always defined is replaced with the current seed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-setup-project-"));
+  try {
+    const configPath = join(dir, "playwright.config.ts");
+    const ungatedSeed =
+      `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig, devices } from "@playwright/test";\nexport default defineConfig({\n` +
+      `  use: {\n    actionTimeout: Number(process.env.PW_ACTION_TIMEOUT_MS ?? 8000),\n    testIdAttribute: process.env.PW_TEST_ID_ATTRIBUTE ?? "data-testid",\n    storageState: process.env.PW_STORAGE_STATE,\n  },\n` +
+      `  projects: [\n    { name: "setup", testMatch: "**/*.setup.ts" },\n    { name: "desktop", testIgnore: "**/*.setup.ts", use: { ...devices["Desktop Chrome"] } },\n  ],\n});\n`;
+    writeFileSync(configPath, ungatedSeed);
+
+    realAdapter().ensurePlaywrightEnvKeys(dir);
+
+    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+    assert.equal(readFileSync(configPath, "utf8"), currentSeed, "the stock copy must be replaced with the current seed");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* ── C1: the failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
    config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
    afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
