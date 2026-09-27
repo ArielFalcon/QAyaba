@@ -68,7 +68,7 @@ export function applyOutcome(
   };
 }
 
-/** Context-directed attribution: fold an oracle outcome only onto rules that COULD have influenced it, so a global suite-quality score is not smeared across genuinely-irrelevant rules. Fail-open on two levels: (1) with no known diff archetypes, keep every rule; (2) PER RULE, an untagged rule (no archetype) carries no signal to discriminate on, so it is kept — only a rule whose archetype is PRESENT and does NOT match the diff is dropped as noise. Pure and deterministic. */
+/** Context-directed attribution: fold a run's outcome (oracle score or prevention credit) only onto rules that COULD have influenced it, so a suite-level signal is not smeared across genuinely-irrelevant rules. Fail-open on two levels: (1) with no known diff archetypes, keep every rule; (2) PER RULE, an untagged rule (no archetype) carries no signal to discriminate on, so it is kept — only a rule whose archetype is PRESENT and does NOT match the diff is dropped as noise. Pure and deterministic. */
 export function attributableRules(rules: LearningRule[], ctx: { diffArchetypes: string[] }): LearningRule[] {
   if (ctx.diffArchetypes.length === 0) return rules;
   const shapes = new Set(ctx.diffArchetypes);

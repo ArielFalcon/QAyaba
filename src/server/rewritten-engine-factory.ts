@@ -116,7 +116,7 @@ import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-ru
 import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, consumeContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import type { ContextMapRunRequest } from "./onboarding/onboarding-job";
 import { recordIncident } from "./maintainer";
-import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
+import { attributableRules, preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
 import { ProcessAuditPortAdapter } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter";
 import { CurriculumPortAdapter } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
@@ -388,25 +388,33 @@ export function historyLearningStore(appName: string): LearningStore {
         const { valueScore, coverageRatio } = gateSignals;
         const coverageMeasured = coverageRatio !== null;
         const coverageCreditConfirmed = coverageMeasured ? coverageRatio > 0 : null;
+        /*
+         * Attribution: credit only the retrieved rules that could have shaped this run — untagged
+         * rules, or rules tagged with one of the diff's structural shapes. A suite-level score says
+         * nothing about a rule written for an unrelated kind of change. No known shapes (non-diff
+         * modes) keeps every rule. Rules are looked up directly by id (getLearningRule), never via a
+         * capped bulk list, so ledger size cannot drop a fold; a rule deleted since retrieval
+         * carries no signal. A rule retired after retrieval (human veto, process audit) is skipped
+         * by recordRuleOutcome itself.
+         */
+        const retrieved = rulesRetrieved
+          .map((id) => getLearningRule(id))
+          .filter((rule): rule is NonNullable<typeof rule> => rule !== undefined);
+        const attributable = attributableRules(retrieved, { diffArchetypes: outcome.diffArchetypes ?? [] });
 
         if (valueScore !== null) {
           /* Oracle path: isOracleScore=true so candidate→active requires this evidence. */
-          for (const id of rulesRetrieved) {
-            recordRuleOutcome(id, valueScore, coverageCreditConfirmed, true);
+          for (const rule of attributable) {
+            recordRuleOutcome(rule.id, valueScore, coverageCreditConfirmed, true);
           }
         } else {
           /*
            * Prevention path: no oracle score — derived credit must not advance oracleOutcomeCount
-           * or by itself promote candidate → active. Each retrieved rule is looked up directly by
-           * id (getLearningRule), never via a capped bulk list, so ledger size cannot drop a fold.
-           * A rule retired after retrieval (human veto, process audit) is skipped by
-           * recordRuleOutcome itself, the same guard the oracle path relies on.
+           * or by itself promote candidate → active.
            */
-          for (const id of rulesRetrieved) {
-            const rule = getLearningRule(id);
-            if (!rule) continue; /* deleted between retrieval and fold — no signal */
+          for (const rule of attributable) {
             const score = preventionOutcome(rule.errorClass, errorClass);
-            if (score !== null) recordRuleOutcome(id, score, coverageCreditConfirmed);
+            if (score !== null) recordRuleOutcome(rule.id, score, coverageCreditConfirmed);
           }
         }
       } catch {

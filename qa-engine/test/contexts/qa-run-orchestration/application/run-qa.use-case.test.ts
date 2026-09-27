@@ -4277,6 +4277,53 @@ test("R4: outside diff mode (no classification, no diff available) retrieve() re
   assert.equal(capturedRelevance, undefined, "complete/exhaustive/manual modes never classify, so there is no diff to derive archetypes from — relevance must stay undefined, not invented");
 });
 
+/* The learning fold credits only the retrieved rules attributable to the run diff's structural
+   shapes, so every folded outcome must carry those shapes — derived from the classified diff, on
+   the mainline and on the invalid exit alike. Outside diff mode there is no diff to read, so the
+   outcome carries none and the fold keeps every retrieved rule attributable. */
+const loginDiffClassification: ChangeAnalysisPort["classify"] = async () => ({
+  action: "generate",
+  reason: "diff touches src/login.ts",
+  diff: "await fetch('/api/login');",
+  intent: { type: "feat", breaking: false, message: "add login call", changedFiles: ["src/login.ts"] },
+});
+
+test("the folded outcome of a diff run carries the diff's structural shapes", async () => {
+  const { ports, foldedOutcomes } = stubPorts({
+    classify: loginDiffClassification,
+    retrieve: async () => [makeRetrievedRule("login rule")],
+  });
+
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "fold-carries-diff-shapes" });
+
+  assert.equal(foldedOutcomes.length, 1);
+  assert.ok(foldedOutcomes[0]!.diffArchetypes?.includes("api-call"), `got ${JSON.stringify(foldedOutcomes[0]!.diffArchetypes)}`);
+});
+
+test("the folded outcome of an invalid run carries the diff's structural shapes", async () => {
+  const { ports, foldedOutcomes } = stubPorts({
+    classify: loginDiffClassification,
+    retrieve: async () => [makeRetrievedRule("login rule")],
+    validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
+  });
+
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "invalid-fold-carries-diff-shapes" });
+
+  assert.equal(out.decision.verdict, "invalid");
+  assert.ok(foldedOutcomes[0]?.diffArchetypes?.includes("api-call"), `got ${JSON.stringify(foldedOutcomes[0]?.diffArchetypes)}`);
+});
+
+test("outside diff mode the folded outcome carries no diff shapes", async () => {
+  const { ports, foldedOutcomes } = stubPorts({
+    retrieve: async () => [makeRetrievedRule("any rule")],
+  });
+
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, mode: "complete", runId: "non-diff-fold-no-shapes" });
+
+  assert.equal(foldedOutcomes.length, 1);
+  assert.equal(foldedOutcomes[0]!.diffArchetypes, undefined);
+});
+
 test("WS1.6 regression pin: a pre-retrieval exit (classify-skip) still persists nothing — rulesRetrieved threading never reaches an exit that fires before retrieve() runs", async () => {
   let saveCallCount = 0;
   const { ports } = stubPorts({

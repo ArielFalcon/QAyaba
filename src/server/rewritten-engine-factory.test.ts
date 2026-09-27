@@ -1803,6 +1803,54 @@ test("a rule a human restores after a veto folds outcomes again", async () => {
   assert.equal(getLearningRule(ruleId)?.outcomeCount, restored.outcomeCount + 1);
 });
 
+/* Attribution: a run's outcome only says something about the rules that could have shaped it. The
+   fold credits a retrieved rule only when its archetype matches one of the run diff's structural
+   shapes; an untagged rule always qualifies, and a run with no diff shapes credits every retrieved
+   rule. Walks the real production store against the real SQLite ledger. */
+async function creditedAfterFold(valueScore: number | null, diffArchetypes: string[] | undefined) {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, getLearningRule } = await import("./history");
+  const app = `factory-learning-attribution-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ids = { matching: `rule-form-${app}`, unrelated: `rule-list-${app}`, untagged: `rule-untagged-${app}` };
+  upsertLearningRule({ id: ids.matching, app, trigger: "form submit", action: "assert the saved row", errorClass: "E-FRAGILE-SELECTOR", archetype: "form", source: "test" });
+  upsertLearningRule({ id: ids.unrelated, app, trigger: "list paging", action: "assert the next page", errorClass: "E-FRAGILE-SELECTOR", archetype: "data-list", source: "test" });
+  upsertLearningRule({ id: ids.untagged, app, trigger: "any change", action: "scope to a test id", errorClass: "E-FRAGILE-SELECTOR", archetype: null, source: "test" });
+
+  historyLearningStore(app).recordOutcome({
+    runId: "run-attribution", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: Object.values(ids),
+    ...(diffArchetypes ? { diffArchetypes } : {}),
+    at: new Date().toISOString(),
+  } as never);
+
+  const credited = (id: string) => (getLearningRule(id)?.outcomeCount ?? 0) > 0;
+  return { matching: credited(ids.matching), unrelated: credited(ids.unrelated), untagged: credited(ids.untagged) };
+}
+
+test("the oracle fold credits rules attributable to the diff's shapes and never a rule tagged with an unrelated archetype", async () => {
+  const credited = await creditedAfterFold(0.8, ["form"]);
+
+  assert.equal(credited.matching, true);
+  assert.equal(credited.untagged, true);
+  assert.equal(credited.unrelated, false);
+});
+
+test("the prevention fold credits rules attributable to the diff's shapes and never a rule tagged with an unrelated archetype", async () => {
+  const credited = await creditedAfterFold(null, ["form"]);
+
+  assert.equal(credited.matching, true);
+  assert.equal(credited.untagged, true);
+  assert.equal(credited.unrelated, false);
+});
+
+test("a run whose diff shapes are unknown credits every retrieved rule", async () => {
+  const credited = await creditedAfterFold(0.8, undefined);
+
+  assert.deepEqual(credited, { matching: true, unrelated: true, untagged: true });
+});
+
 /* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
    so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
    set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule

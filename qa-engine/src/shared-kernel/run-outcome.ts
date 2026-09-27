@@ -43,6 +43,8 @@ export interface RunOutcome {
     crossRepoImpactedCount?: number;
   };
   rulesRetrieved: string[];
+  /* Structural pattern kinds of the run's diff (detectStructuralPatterns, "generic" included). The learning fold credits a retrieved rule only when it is attributable to them — untagged, or tagged with one of these kinds. Absent when the run had no diff to read (non-diff modes): every retrieved rule then stays attributable. Fold input only; the run_outcomes row does not store it. */
+  diffArchetypes?: string[];
   /* Real type is cross-run-learning's StructuredReflection; unknown for the same layering reason. */
   reflection?: unknown;
   /* Human-readable terminal reason. Absent means no diagnostic was captured — never a fabricated empty string. */

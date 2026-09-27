@@ -561,11 +561,15 @@ export class RunQaUseCase {
      * errorClass" — that signal has no equivalent source today and is deliberately left unwired
      * rather than invented.
      */
-    const retrievalArchetypes = classificationDiff
-      ? detectStructuralPatterns(classificationDiff, classificationIntent?.changedFiles ?? [])
-          .map((p) => p.kind)
-          .filter((k) => k !== "generic")
-      : [];
+    /*
+     * The diff's structural shapes, read once: they bias retrieval (specific shapes only) and ride
+     * on every folded outcome so the fold credits only the retrieved rules attributable to them.
+     * Undefined outside diff mode — no diff, no shape, never fabricated.
+     */
+    const diffArchetypes = classificationDiff
+      ? detectStructuralPatterns(classificationDiff, classificationIntent?.changedFiles ?? []).map((p) => p.kind)
+      : undefined;
+    const retrievalArchetypes = (diffArchetypes ?? []).filter((k) => k !== "generic");
     const retrievalRelevance: RelevanceBias | undefined =
       retrievalArchetypes.length > 0 ? { archetypes: retrievalArchetypes } : undefined;
     let retrievedRules: RetrievedRule[] = [];
@@ -1084,6 +1088,7 @@ export class RunQaUseCase {
         staticGateNote,
         { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
         retrievedRuleIds,
+        diffArchetypes,
         detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
         confinementAcc,
         resolveTested(),
@@ -1134,6 +1139,7 @@ export class RunQaUseCase {
          * infra-error never folds or reflects.
          */
         retrievedRuleIds,
+        diffArchetypes,
         detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
         confinementAcc,
         resolveTested(),
@@ -1900,6 +1906,7 @@ export class RunQaUseCase {
         ...(publishOutcome !== undefined ? { note: publishOutcome } : {}),
         /* Rule ids on the mainline persist only. Other exits omit them. */
         ...(retrievedRuleIds.length ? { rulesRetrieved: retrievedRuleIds } : {}),
+        ...(diffArchetypes ? { diffArchetypes } : {}),
         /* Real pre-exec counters, not a hardcoded 0. */
         preExecAmbiguityCatches,
         deterministicSelectorBlocks,
@@ -2095,6 +2102,7 @@ export class RunQaUseCase {
       killedCount?: number;
       note?: string;
       rulesRetrieved?: string[];
+      diffArchetypes?: string[];
       preExecAmbiguityCatches?: number;
       deterministicSelectorBlocks?: number;
       catalogGateInWindow?: number;
@@ -2154,6 +2162,7 @@ export class RunQaUseCase {
         ...(extra?.confinement !== undefined ? { confinement: extra.confinement } : {}),
       },
       rulesRetrieved: extra?.rulesRetrieved ?? [],
+      ...(extra?.diffArchetypes !== undefined ? { diffArchetypes: extra.diffArchetypes } : {}),
       ...(extra?.note !== undefined ? { note: extra.note } : {}),
       at: new Date().toISOString(),
       /* Persist the same cases + logs the returned result carries. Non-execute callers pass []. */
@@ -2285,6 +2294,8 @@ export class RunQaUseCase {
     } = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 },
     /* Both call sites fire after retrieve(); ids are real, defaulting to []. */
     rulesRetrieved: string[] = [],
+    /* The diff's structural shapes the fold attributes rulesRetrieved against; undefined when there is no diff. */
+    diffArchetypes: string[] | undefined = undefined,
     /* Diff-derived archetype; null when there is no diff — never fabricated. */
     archetype: string | null = null,
     /* Merged confinement from the caller's enforce immediately before this helper. Undefined if never ran. */
@@ -2339,6 +2350,7 @@ export class RunQaUseCase {
         ...groundingSignals,
         /* Empty retrieved ids omit the override; non-empty reach persist so the terminal fold can attribute. */
         ...(rulesRetrieved.length ? { rulesRetrieved } : {}),
+        ...(diffArchetypes ? { diffArchetypes } : {}),
         ...(confinement !== undefined ? { confinement } : {}),
       });
       await this.deps.runHistory.save(terminalOutcome);
