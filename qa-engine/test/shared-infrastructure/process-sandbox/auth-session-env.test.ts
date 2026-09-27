@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { authSessionEnv } from "../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 /* NOTE: 3 leading ../ from qa-engine/test/shared-infrastructure/process-sandbox/ to qa-engine/src/ */
 
-/* Batch S / S2: auth material must live in an orchestrator-only authDir, never under the
+/* Auth material must live in an orchestrator-only authDir, never under the
    watched-repo mirror the agent can read. These tests prove authSessionEnv reads ONLY from the
    authDir it is given and never derives a path from (or falls back to) a mirror/specDir.
  */

@@ -172,11 +172,11 @@ describe("prompt-sync drift guard", () => {
       const content = readFile(rel);
       assert.ok(
         content.includes("Code-mode review (target: code)"),
-        `${rel} is missing the "## Code-mode review (target: code)" section (WS2.4 anti-mock rubric).`,
+        `${rel} is missing the "## Code-mode review (target: code)" section (the anti-mock rubric).`,
       );
       assert.ok(
         /mock/i.test(content) && /unit under test/i.test(content),
-        `${rel} must reject tests that mock the unit under test (WS2.4 anti-mock rubric wording).`,
+        `${rel} must reject tests that mock the unit under test (the anti-mock rubric wording).`,
       );
     }
   });
@@ -187,7 +187,7 @@ describe("prompt-sync drift guard", () => {
       assert.ok(
         /ledger-bypassing/i.test(content) && /learned habit/i.test(content),
         `${rel} must reject a spec comment citing engram/memory as the source of a test-authoring ` +
-          `habit (WS1.7: the governed ledger, not engram, owns test-authoring rules).`,
+          `habit (the governed ledger, not engram, owns test-authoring rules).`,
       );
       assert.ok(
         /engram/i.test(content),
@@ -201,15 +201,15 @@ describe("prompt-sync drift guard", () => {
       const content = readFile(rel);
       assert.ok(
         /operational context/i.test(content),
-        `${rel} must scope engram to operational context (WS1.7).`,
+        `${rel} must scope engram to operational context.`,
       );
       assert.ok(
         /never.{0,20}test-authoring rules|test-authoring rules.{0,20}never/is.test(content) || /NEVER for test-authoring rules/i.test(content),
-        `${rel} must explicitly forbid test-authoring rules in engram (WS1.7).`,
+        `${rel} must explicitly forbid test-authoring rules in engram.`,
       );
       assert.ok(
         /governed learning ledger/i.test(content),
-        `${rel} must point test-authoring rules at the governed learning ledger instead (WS1.7).`,
+        `${rel} must point test-authoring rules at the governed learning ledger instead.`,
       );
     }
   });
@@ -219,11 +219,11 @@ describe("prompt-sync drift guard", () => {
       const content = readFile(rel);
       assert.ok(
         /Never save a test-authoring rule/i.test(content),
-        `${rel} must forbid saving test-authoring rules to engram (WS1.7).`,
+        `${rel} must forbid saving test-authoring rules to engram.`,
       );
       assert.ok(
         /governed learning ledger/i.test(content),
-        `${rel} must point to the governed learning ledger as the exclusive owner of test-authoring rules (WS1.7).`,
+        `${rel} must point to the governed learning ledger as the exclusive owner of test-authoring rules.`,
       );
     }
   });
@@ -282,7 +282,7 @@ describe("prompt-sync drift guard", () => {
       "prompt-sync DRIFT: agent/roles/qa-generator.md is missing the anti-hang/no-op section. " +
         'Port the "Stop when the spec is written — then emit the verdict" section from ' +
         "agents/agent/qa-generator.md. This section prevents the generator from over-working " +
-        "past the closing verdict (AC1.1.2).",
+        "past the closing verdict.",
     );
   });
 
@@ -414,12 +414,12 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     const content = readFile("agents/skill/test-value-review/SKILL.md");
     assert.ok(
       /mock/i.test(content) && /unit under test/i.test(content),
-      "test-value-review/SKILL.md must reject tests that mock the unit under test (WS2.4 anti-mock rubric), " +
+      "test-value-review/SKILL.md must reject tests that mock the unit under test (the anti-mock rubric), " +
         "for code-mode reviews.",
     );
     assert.ok(
       /duplicate/i.test(content) && /implementation/i.test(content),
-      "test-value-review/SKILL.md must reject tests that duplicate the implementation as the expectation (WS2.4).",
+      "test-value-review/SKILL.md must reject tests that duplicate the implementation as the expectation.",
     );
   });
 

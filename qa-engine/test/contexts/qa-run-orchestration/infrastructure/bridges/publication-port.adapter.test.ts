@@ -91,7 +91,7 @@ test("publish() routes to GitHubIssueAdapter when the decision resolves to 'issu
    to publish, loudly.
  */
 
-test("publish() 'issue' route: containsSecret absent (not wired) never blocks — today's pre-Slice-6 behavior unchanged", async () => {
+test("publish() 'issue' route: containsSecret absent (not wired) never blocks", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();
   const issue = fakeIssue();
@@ -262,7 +262,7 @@ test("publish() prefers decision.e2eChanged (dynamic) over ctx.e2eChanged (stati
   assert.match(result.outcome, /noop/, "a dynamic e2eChanged:false must override the static ctx default (green with no e2e changes publishes nothing)");
 });
 
-/* ── F3 (CRITICAL, cross-repo Issue routing) — Issue creation routes to decision.issueRepo when
+/* ── Cross-repo Issue routing (CRITICAL) — Issue creation routes to decision.issueRepo when
    supplied; PR creation ALWAYS targets ctx.repo (the primary repo), never the trigger repo. ──────
  */
 
@@ -587,10 +587,8 @@ test("constructor THROWS when render is omitted (fail-closed, no raw-log fallbac
   );
 });
 
-/* the OLD version of this test proved identity-sanitize
-   passthrough via raw `logs` text reaching the body — that channel no longer exists (renderIssue
-   carries no logs field, see F4's own Slice-4-update test above). Re-targeted at a field the render
-   functions DO carry through unchanged with an identity sanitizer: a failing case's own name.
+/* renderIssue carries no raw `logs` field, so identity-sanitize passthrough is proven on a field
+   the render functions DO carry through unchanged with an identity sanitizer: a failing case's own name.
  */
 test("an explicitly-injected identity sanitize is still a VALID, deliberate choice", async () => {
   const decide = new PublishDecisionService();

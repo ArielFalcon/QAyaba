@@ -52,7 +52,7 @@ test("capDiff FIX (2nd known bug): a genuinely single-file diff over budget now 
   assert.ok(out.length >= 100, "the output now carries real (truncated) diff content, not just the marker text");
 });
 
-/* C5: the degenerate-fallback re-add computes `name = extractDiffFilePath(firstFile)` and does
+/* The degenerate-fallback re-add computes `name = extractDiffFilePath(firstFile)` and does
    `omitted.splice(omitted.indexOf(name), 1)` with NO bounds check. When the oversized first file's
    header is malformed enough that extractDiffFilePath can't find its "b/" path (it returns ""),
    `indexOf("")` is -1 (an empty string is never a real omitted filename) and `splice(-1, 1)` deletes

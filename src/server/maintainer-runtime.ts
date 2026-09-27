@@ -305,7 +305,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
         /*
          * All gates green → CANARY DEPLOY. Never kill an in-flight QA run: drain the queue first.
-         * Stop ACCEPTING new runs BEFORE draining (SELF-07): otherwise a webhook arriving in the
+         * Stop ACCEPTING new runs BEFORE draining: otherwise a webhook arriving in the
          * window between drain() and process.exit() would start a run that then races performSwap's
          * src/ rewrite (reading a half-swapped tree) or gets SIGKILLed mid-flight on exit.
          */
@@ -385,7 +385,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     const marker = fx.realSwapFs.readMarker(join(dataDir, SWAP_MARKER_FILE));
     if (!marker) {
       /*
-       * No swap pending — but a promote may have been mid-poll when a prior boot died (SELF-03):
+       * No swap pending — but a promote may have been mid-poll when a prior boot died:
        * re-drive it so the merge/bookkeeping is not silently lost. Cleared on any terminal outcome.
        */
       const pending = readPendingPromote(dataDir);
@@ -446,7 +446,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        * Then PROMOTE: merge the PR so main adopts the now-proven fix. Promotion is gated by the
        * OUTER GUARD (the required CI check on main) and is best-effort — the running service
        * already has the fix, so a promotion failure never rolls it back, only flags a human.
-       * Record the in-flight promote durably (SELF-03) so a crash during the up-to-10-min poll
+       * Record the in-flight promote durably so a crash during the up-to-10-min poll
        * re-drives it on the next boot instead of dropping it; clear it on any terminal outcome.
        */
       if (marker.promote) {

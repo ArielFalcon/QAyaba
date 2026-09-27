@@ -60,7 +60,7 @@ function turn(runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTur
   };
 }
 
-describe("Phase 8: computeTelemetryAnalysis — empty app returns zero-state", () => {
+describe("computeTelemetryAnalysis — empty app returns zero-state", () => {
   it("returns zero runCount and null aggregates when no turns exist for the app", () => {
     const app = uniqueApp("tel-empty");
     const analysis = computeTelemetryAnalysis(app);
@@ -75,7 +75,7 @@ describe("Phase 8: computeTelemetryAnalysis — empty app returns zero-state", (
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — per-role prompt size aggregates", () => {
+describe("computeTelemetryAnalysis — per-role prompt size aggregates", () => {
   it("computes medianPromptBytes and turnCount per role", () => {
     const app = uniqueApp("tel-role");
     const runId = `run-tel-role-${Date.now()}`;
@@ -98,7 +98,7 @@ describe("Phase 8: computeTelemetryAnalysis — per-role prompt size aggregates"
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — cache hit rate", () => {
+describe("computeTelemetryAnalysis — cache hit rate", () => {
   it("computes median cache hit rate (cacheRead/tokensInput) per role", () => {
     const app = uniqueApp("tel-cache");
     const runId = `run-tel-cache-${Date.now()}`;
@@ -126,7 +126,7 @@ describe("Phase 8: computeTelemetryAnalysis — cache hit rate", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
+describe("computeTelemetryAnalysis — grounding presence", () => {
   it("detects Context Pack presence in first-round generator turns", () => {
     const app = uniqueApp("tel-grnd");
     const runId = `run-tel-grnd-${Date.now()}`;
@@ -182,7 +182,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — repair fraction", () => {
+describe("computeTelemetryAnalysis — repair fraction", () => {
   it("repair fraction = (isRepair turns) / (all turns)", () => {
     const app = uniqueApp("tel-repair");
     const runId = `run-tel-repair-${Date.now()}`;
@@ -197,7 +197,7 @@ describe("Phase 8: computeTelemetryAnalysis — repair fraction", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — reviewer convergence approveRate", () => {
+describe("computeTelemetryAnalysis — reviewer convergence approveRate", () => {
   it("approveRate = fraction of runs with pass/skipped verdict", () => {
     const app = uniqueApp("tel-conv");
     const run1 = `run-conv-pass-${Date.now()}`;
@@ -211,7 +211,7 @@ describe("Phase 8: computeTelemetryAnalysis — reviewer convergence approveRate
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — turns per run and wall-clock", () => {
+describe("computeTelemetryAnalysis — turns per run and wall-clock", () => {
   it("median turns per run matches expected count", () => {
     const app = uniqueApp("tel-turns");
     const runId = `run-tel-turns-${Date.now()}`;
@@ -240,7 +240,7 @@ describe("Phase 8: computeTelemetryAnalysis — turns per run and wall-clock", (
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — windowDays filtering", () => {
+describe("computeTelemetryAnalysis — windowDays filtering", () => {
   it("windowDays=1 excludes turns older than 1 day", () => {
     const app = uniqueApp("tel-win");
     const oldRunId = `run-old-${Date.now()}`;

@@ -65,22 +65,22 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.ok(config.vcs, "vcs collaborator must be wired");
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
-  assert.ok(config.validationStrategies.code, "code validation (compile gate, WS2.2 full-flow remediation) collaborator must be wired");
+  assert.ok(config.validationStrategies.code, "code validation (compile gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");
   assert.ok(config.executionStrategies.code, "code execution strategy must be wired");
   assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired (CLAUDE.md run-flow step 3 — missing before this fix)");
   assert.ok(config.setupCollaborators?.code, "SetupPort code collaborator must be wired");
-  assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired (W4 follow-up, a9e7dfb) for an e2e app");
-  assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired (W4 follow-up, a9e7dfb) for an e2e app");
+  assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired for an e2e app");
+  assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.objectiveSignal.collector, "coverage collector must be wired");
   assert.ok(config.objectiveSignal.oracle, "value oracle must be wired");
   assert.ok(config.githubPr, "githubPr collaborator must be wired (production path, not buildShadow)");
   assert.ok(config.githubIssue, "githubIssue collaborator must be wired");
   assert.ok(config.vcsWrite, "PROD-BLOCKER fix: vcsWrite collaborator must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
   assert.equal(typeof config.checkout, "function");
-  assert.ok(config.confinement, "sdd/migration-remediation Slice 3: ConfinementPort collaborator must be wired");
+  assert.ok(config.confinement, "ConfinementPort collaborator must be wired");
   assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
-  assert.ok(config.processAudit, "sdd/migration-remediation Slice 5: ProcessAuditPort collaborator must be wired");
+  assert.ok(config.processAudit, "ProcessAuditPort collaborator must be wired");
 });
 
 /* The login seed (config/e2e/auth.setup.ts) matters only when a form login has to tell a stock
@@ -152,7 +152,7 @@ test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the histo
   assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
 });
 
-/* ── Batch F: context-map capture + DB-first grounding — wired UNCONDITIONALLY, same rationale as
+/* ── context-map capture + DB-first grounding — wired UNCONDITIONALLY, same rationale as
    curriculumPort above: contextMapCapture is off-path (never gates a verdict/publish/coverage
    decision), and groundingCollaborators.loadContextMap only ever WIDENS today's disk-only fallback
    (it still calls loadContextMapFromDisk when no stored map exists), so there is no risk surface a
@@ -524,7 +524,7 @@ test("multi-repo: explorer:undefined (not configured) + empty services[] stays o
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
 });
 
 test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
@@ -532,7 +532,7 @@ test("multi-repo: explorer:undefined (not configured) + undefined services stays
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
 });
 
 test("explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
@@ -540,14 +540,14 @@ test("explorer:false explicitly wins over services.length>0 — an explicit fals
   const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
 });
 
 test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; Batch F DB-first context-map lookup)");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
@@ -944,7 +944,7 @@ test("the value oracle scores a suite whose Playwright config has no desktop pro
   }
 });
 
-/* P0-2: AppConfig.qa.valueOracle was schema-only — the factory always constructed
+/* AppConfig.qa.valueOracle was schema-only — the factory always constructed
    FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
    valueOracle:"off" still fault-injected on every green run.
  */
@@ -1027,7 +1027,7 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
   assert.equal(configRun2.branch, "qa-bot-abc1234-runB");
 });
 
-/* ── F5 (HIGH) — GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
+/* ── GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
    (github-pr.adapter.ts); this factory previously never passed app.baseBranch at all, so every
    app with a non-"main" default branch silently targeted the wrong PR base branch. Verified via
    structural introspection of the constructed GitHubPrAdapter's own private `base` field — the
@@ -1638,7 +1638,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
   const r2 = rows.find((r) => r.id === ruleId2);
   assert.equal(r1?.outcomeCount, 1, "rule 1 must fold exactly once");
   assert.equal(r1?.successRate, 0.8, "rule 1's successRate must equal the folded valueScore (first outcome)");
-  assert.equal(r1?.oracleOutcomeCount, 1, "WS1.4(b): the oracle path (valueScore !== null) must advance oracleOutcomeCount");
+  assert.equal(r1?.oracleOutcomeCount, 1, "the oracle path (valueScore !== null) must advance oracleOutcomeCount");
   assert.equal(r2?.outcomeCount, 1, "rule 2 must fold independently of rule 1");
   assert.equal(r2?.successRate, 0.8);
   assert.equal(r2?.oracleOutcomeCount, 1);
@@ -1669,7 +1669,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
      before the fix, and outcome_count would stay 0 (the assertion below would fail loudly).
    */
   const ruleId = `rule-ws1-1-${app}`;
-  const ruleTrigger = "selector absent — WS1.1 trigger text, NEVER the fold key";
+  const ruleTrigger = "selector absent — trigger text, NEVER the fold key";
 
   const store = historyLearningStore(app);
   store.upsert({
@@ -1687,7 +1687,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   const retrievedRules = await adapter.retrieve(Sha.of("abc1234567"));
 
   assert.equal(retrievedRules.length, 1, "the upserted rule must be retrievable");
-  assert.equal(retrievedRules[0]?.id, ruleId, "retrieve() must surface the real row id (the WS1.1 fix)");
+  assert.equal(retrievedRules[0]?.id, ruleId, "retrieve() must surface the real row id");
   assert.equal(retrievedRules[0]?.trigger, ruleTrigger, "retrieve() must ALSO still surface the prompt-facing trigger text (untouched by this fix)");
 
   /* Derive rulesRetrieved the SAME way run-qa.use-case.ts does post-fix: `retrievedRules.map(r => r.id)`
@@ -1697,7 +1697,7 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
   assert.deepEqual(rulesRetrieved, [ruleId], "the derived rulesRetrieved must carry ids, not trigger text");
 
   const outcome = {
-    runId: "run-ws1-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    runId: "run-rule-fold-advances", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: 0.75, reviewerCorrections: [], flaky: false, retries: 0 },
     rulesRetrieved,
@@ -1712,9 +1712,9 @@ test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rules
 
   const rows = listLearningRules(app, 10);
   const folded = rows.find((r) => r.id === ruleId);
-  assert.equal(folded?.outcomeCount, 1, "outcome_count must ADVANCE from 0 to 1 — this is the exact governance-fold edge WS1.1 fixes; before the fix this stayed frozen at 0 with no error");
+  assert.equal(folded?.outcomeCount, 1, "outcome_count must ADVANCE from 0 to 1 — this is the governance-fold edge that would otherwise stay frozen at 0 with no error");
   assert.equal(folded?.successRate, 0.75, "successRate must equal the folded valueScore (first outcome)");
-  assert.equal(folded?.oracleOutcomeCount, 1, "WS1.4(b): the oracle path (gateSignals.valueScore !== null) must advance oracle_outcome_count");
+  assert.equal(folded?.oracleOutcomeCount, 1, "the oracle path (gateSignals.valueScore !== null) must advance oracle_outcome_count");
 });
 
 test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is a safe no-op", async () => {
@@ -1845,16 +1845,16 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
   const noisy = rows.find((r) => r.id === noisyRuleId);
   assert.equal(held?.outcomeCount, 1, "held rule must fold via the prevention path (weak positive)");
   assert.equal(held?.successRate, 0.6, "PREVENTION_HELD_SCORE for a clean run");
-  assert.equal(held?.oracleOutcomeCount, 0, "WS1.4(b): the prevention path must NEVER advance oracle_outcome_count");
+  assert.equal(held?.oracleOutcomeCount, 0, "the prevention path must NEVER advance oracle_outcome_count");
   assert.equal(failed?.outcomeCount, 1, "unrelated rule on a clean run also holds (weak positive)");
-  assert.equal(failed?.oracleOutcomeCount, 0, "WS1.4(b): prevention path — no oracle evidence");
+  assert.equal(failed?.oracleOutcomeCount, 0, "prevention path — no oracle evidence");
   assert.equal(noisy?.outcomeCount, 0, "a rule NOT in rulesRetrieved must never fold");
 });
 
 /*
- * R6: the prevention-path fold used to look up retrieved rules via
+ * The prevention-path fold used to look up retrieved rules via
  * listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT) — the SAME shared-limit, status-ranked,
- * actives-first read R5 (above) pins as starvation-prone. A rule retrieved earlier in the run but
+ * actives-first read the selectRules test below pins as starvation-prone. A rule retrieved earlier in the run but
  * ranked outside that bulk window at fold time was silently treated as "deprecated between
  * retrieval and fold" (the old comment's own words) even though it still exists — no signal, no
  * error, just a dropped fold. This walks the REAL production wiring (historyLearningStore ->
@@ -2097,7 +2097,7 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
   const repo = new SqliteLearningRepository(store);
 
   const existing = await repo.listAll(app, 200);
-  assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the exact seam Task 2 wires live");
+  assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the seam the dedup check reads");
   assert.equal(existing.find((r) => r.id === deprecatedRuleId)?.status, "deprecated", "the row's real status must survive the round-trip");
 
   /* Run the SAME distill decision the reflector's save path runs (reflector-port.adapter.ts's
@@ -2110,12 +2110,12 @@ test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepo
   });
   const decision = decideDistill(capped, existing);
 
-  assert.equal(decision.decision, "skip-duplicate", "WS1.3 anti-respawn dedup: a normalized duplicate of a DEPRECATED rule must be skipped, not saved as a fresh candidate");
+  assert.equal(decision.decision, "skip-duplicate", "anti-respawn dedup: a normalized duplicate of a DEPRECATED rule must be skipped, not saved as a fresh candidate");
   assert.equal((decision as { match: { id: string } }).match.id, deprecatedRuleId, "the match must be the SAME deprecated row, proving listAll (not an empty fallback) drove the decision");
 });
 
 /*
- * R5: historyLearningStore(appName).selectRules used to back onto listLearningRules(app,
+ * historyLearningStore(appName).selectRules used to back onto listLearningRules(app,
  * LEARNING_RULE_LEDGER_LIMIT) — a single shared-limit, status-ranked SQL read. With more ACTIVE
  * rows than that limit, the actives-first ORDER BY could exhaust the limit before a single
  * CANDIDATE row was even fetched into memory, so RuleGovernanceService.topRules (the single
@@ -2732,7 +2732,7 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
   ], "trigger is staged with the event sha; siblings are contracts-only");
 });
 
-/* ── A1: service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
+/* ── Service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
 
 test("code target: checkout(sha) never stages declared services (no e2e dir concept for target=code)", async () => {
   const app: AppConfig = { ...cfg("factory-code-skip-staging"), code: true, dev: undefined, services: [{ repo: "org/orders-svc" }] };

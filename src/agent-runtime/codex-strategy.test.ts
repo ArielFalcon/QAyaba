@@ -624,7 +624,7 @@ describe("onUsage honesty", () => {
     assert.equal(
       CODEX_USAGE_AVAILABLE,
       false,
-      "CODEX_USAGE_AVAILABLE must be false until the T-P1-0 image-gated fixture confirms " +
+      "CODEX_USAGE_AVAILABLE must be false until an image-gated fixture confirms " +
         "codex exec --json exposes token usage fields. Do NOT set this to true without wiring " +
         "the actual usage parsing and onUsage callback in openSession.",
     );

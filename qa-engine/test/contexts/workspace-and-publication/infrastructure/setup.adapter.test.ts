@@ -20,7 +20,7 @@ import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } f
 
 /* 5 levels up from this file to the repo root (qa-engine/test/contexts/workspace-and-publication/
    infrastructure/ -> qa-engine/test/contexts/ -> qa-engine/test/ -> qa-engine/ -> repo root) —
-   verified empirically against the real config/e2e/ tree before writing this file (rider 3).
+   verified empirically against the real config/e2e/ tree before writing this file.
  */
 const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
 
@@ -242,14 +242,14 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.ok(after.startsWith(existingContent), "existing content was modified (not append-only)");
     assert.equal(after.slice(0, existingContent.length), existingContent);
     /* retry) and the new body fields — guarding that setup.adapter.ts's FAILURE_CAPTURE_BLOCK stays
-       in sync with the fixture. C1: the block must be ESM-safe — dynamic import(), never require().
+       in sync with the fixture. The block must be ESM-safe — dynamic import(), never require().
      */
     assert.match(after, /testInfo\.project\.name/, "the injected block must record the project name");
-    assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename (W1)");
+    assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors (Feature B)");
-    /* C1: ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors");
+    /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
   } finally {
@@ -551,7 +551,7 @@ test("ensurePlaywrightEnvKeys: a stock config whose login setup project is alway
   }
 });
 
-/* ── C1: the failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
+/* ── The failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
    config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
    afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
    surrounding try/catch → NO dump file → Lever-1's primary grounding path was DEAD. These tests prove
@@ -625,7 +625,7 @@ test("the afterEach body, run as a real ES module, writes a dump (no ReferenceEr
     assert.equal(dumps.length, 1, `exactly one dump must be written, got ${JSON.stringify(dumps)}`);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
     assert.equal(body.project, "desktop");
-    assert.equal(body.file, "owners.spec.ts", "W1: the dump body must carry the spec file basename");
+    assert.equal(body.file, "owners.spec.ts", "the dump body must carry the spec file basename");
     assert.equal(body.title, "owner registration › create owner", "title is titlePath without the leading project element");
     assert.equal(body.retry, 0);
     assert.match(body.yaml, /button "Submit"/, "the dump must carry the post-failure aria YAML");
@@ -717,7 +717,7 @@ test("httpStatus is absent when only a background ping/beacon 500 was observed",
 
     const dumps = readdirSync(captureDir);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
-    assert.equal(body.httpStatus, undefined, "background ping 500 must be excluded by D2 heuristic — httpStatus must be absent");
+    assert.equal(body.httpStatus, undefined, "background ping 500 must be excluded by the background-request heuristic — httpStatus must be absent");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -760,7 +760,7 @@ test("httpStatus is absent when only a cross-origin 500 was observed", async () 
 
     const dumps = readdirSync(captureDir);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
-    assert.equal(body.httpStatus, undefined, "cross-origin 500 must be excluded by D2 same-origin gate — httpStatus must be absent");
+    assert.equal(body.httpStatus, undefined, "cross-origin 500 must be excluded by the same-origin gate — httpStatus must be absent");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -843,8 +843,8 @@ test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dum
   }
 });
 
-/* ── FIX 4: byte-twin token guard for config/e2e/fixtures.ts ─────────────────
-   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above (C1 block). Nothing
+/* ── Byte-twin token guard for config/e2e/fixtures.ts ─────────────────
+   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above. Nothing
    asserted that config/e2e/fixtures.ts's qa-failure-capture block stays in sync. These token-presence
    tests catch a future edit that updates one twin but not the other.
  */
@@ -896,7 +896,7 @@ test("config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () =
   assert.ok(block.includes("httpStatus"), "fixtures.ts qa-failure-capture block must contain httpStatus");
 });
 
-/* ── Feature B: byte-twin token guard — runtimeErrors capture ──────────────────
+/* ── Byte-twin token guard — runtimeErrors capture ──────────────────
    Same FIX4 pattern: catches a future edit that updates the fixtures.ts seed but not the
    setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
  */
@@ -1021,8 +1021,8 @@ test("the seed fixtures.ts carries exactly the capture block that is appended in
   );
 });
 
-/* ── C1: the afterEach body, run as a real ES module, dumps runtimeErrors (Feature B) ─────────
-   Same harness as the D1/D2 C1 tests above: run the block's beforeEach/afterEach as genuine ESM
+/* ── The afterEach body, run as a real ES module, dumps runtimeErrors ─────────
+   Same harness as the ESM tests above: run the block's beforeEach/afterEach as genuine ESM
    callbacks against a fake page that emits console/pageerror events, and assert the dump.
  */
 

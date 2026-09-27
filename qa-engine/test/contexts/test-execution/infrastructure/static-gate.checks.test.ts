@@ -1,5 +1,5 @@
 /* Behavioral tests for the static gate (e2e checks + code-mode compile gate + manifest-entry
-   validation). The "B2 RED"/"B2 GREEN" tests below exercise the real, non-stubbed zero-assertion
+   validation). The zero-assertion tests below exercise the real, non-stubbed zero-assertion
    scan (checkZeroAssertionSpecs is baked into validateSpecs itself, never injectable) against
    real temp-dir fixtures — a no-op validateAll wiring that would pass every stub test must not
    pass a real one.

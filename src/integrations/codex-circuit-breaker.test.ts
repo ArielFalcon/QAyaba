@@ -1,5 +1,5 @@
 /* Unit tests for the Codex circuit breaker. Mirrors the OpenCode breaker tests but for the
-   Codex-specific breaker. State is keyed per agent role (J1 — mirrors
+   Codex-specific breaker. State is keyed per agent role (mirrors
    qa-engine/.../resilience/circuit-breaker.ts); resetCodexCircuit() with no argument resets
    every role's state at once.
  */
@@ -79,7 +79,7 @@ describe("codex circuit breaker state machine", () => {
     assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must be closed after resetCodexCircuit()");
   });
 
-  /* J1: codex-circuit-breaker.ts used to be a single set of module-level counters shared by
+  /* codex-circuit-breaker.ts used to be a single set of module-level counters shared by
      every agent role on the Codex runtime — a run-away reviewer would trip the SAME breaker a
      healthy primary relies on. State must be keyed per role, mirroring the OpenCode breaker. */
   test("tripping one role's circuit does not block a different role", () => {

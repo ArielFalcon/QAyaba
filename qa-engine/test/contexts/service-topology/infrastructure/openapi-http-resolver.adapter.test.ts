@@ -55,7 +55,7 @@ test("resolveLinks: matched call produces a ServiceLink with correct operationId
   assert.equal(link.source, "openapi-http");
 });
 
-/* ---- JD FIX 4: walk() must SKIP vendor/build directories (node_modules, .git, dist, build,
+/* ---- walk() must SKIP vendor/build directories (node_modules, .git, dist, build,
    target, .next, .cache) — an unbounded recursive walk previously extracted call-sites from
    node_modules too, producing spurious links/drift/unresolved entries sourced from a dependency,
    not the app's own code.
@@ -119,7 +119,7 @@ test("resolveLinks: when backend OpenAPI file is missing, returns empty result w
   /* drift/external/unresolved may still come from the frontend egress that couldn't be matched */
 });
 
-/* ---- Fix 1: resolveArg uses indexOf (first closing quote), not lastIndexOf ----
+/* ---- resolveArg uses indexOf (first closing quote), not lastIndexOf ----
    A quoted arg followed by options object: `'name-x-api/p', { auth: 'client' }`.
    CALL_RE stops at the first comma so the captured group is `'name-x-api/p'` (no trailing chars).
    But defensive correctness: if the quote were trimmed, lastIndexOf returns -1 and drops the last char.
@@ -178,7 +178,7 @@ test("findOp: /orders/abc123 resolves to param op getOrderById (not the literal 
    ==========================================
  */
 
-/* L2-rxjs: methods with RxJS pipe() chains.
+/* Methods with RxJS pipe() chains.
    The backward-scan heuristic picks up operators from inside .pipe() —
    tree-sitter AST walk must stop at the enclosing method_definition.
  */
@@ -273,7 +273,7 @@ test("from.symbol for a second method in the same file is its own enclosing meth
    ==========================================
  */
 
-/* ---- L1.1: {p} partial-resolution → reduced confidence ----
+/* ---- {p} partial-resolution → reduced confidence ----
    A template literal `${BASE}/orders/${methodParam}` where BASE is a const (resolved)
    and methodParam is a method argument (unresolved → {p}).
    The resolved path is "name-orders-api/orders/{p}".
@@ -317,7 +317,7 @@ test("fully-literal match (no {p} segments) keeps confidence 1.0", async () => {
   assert.equal(literalLink.confidence, 1.0, "fully-literal match must be confidence 1.0");
 });
 
-/* ---- L1.2: SERVICE_PREFIX_RE accepts digits and optional leading slash ----
+/* ---- SERVICE_PREFIX_RE accepts digits and optional leading slash ----
    name-auth-v2-api/login → service "auth-v2" (has digit in name)
    /name-orders-api/orders → leading slash (optional)
  */
@@ -354,7 +354,7 @@ test("SERVICE_PREFIX_RE accepts optional leading slash on the path", async () =>
   assert.ok(link, "expected link to listOrders from /name-orders-api/orders with leading slash");
 });
 
-/* ---- L1.3: dedup loses from.file — two files calling the same undeclared endpoint ----
+/* ---- dedup keeps from.file — two files calling the same undeclared endpoint ----
    Two front files (alpha.api.ts, beta.api.ts) both call POST name-orders-api/orders.
    POST /orders is NOT in the backend contract → two drift entries.
    The composite drift dedup key MUST include from.file so both entries survive even when
@@ -384,7 +384,7 @@ test("two front files calling the same undeclared endpoint produce two drift ent
   assert.notEqual(files[0], files[1], "the two drift entries must have different from.file values");
 });
 
-/* ---- L1.5: string-concat path arg → unresolved, not drift ----
+/* ---- string-concat path arg → unresolved, not drift ----
    'name-x-api/' + v + '/p' is a binary concatenation expression.
    resolveArg sees a bare identifier or a non-quoted non-template arg.
    It cannot resolve it statically → should land in unresolved, NOT drift.
@@ -395,7 +395,7 @@ const concatFront: RepoRef = {
 };
 
 
-/* ---- R2-F1: walkUpToMethod — top-level const arrow not handled ----
+/* ---- walkUpToMethod handles a top-level const arrow ----
    `export const listOrders = () => this.rest.get(...)` — tree-sitter AST:
    lexical_declaration → variable_declarator[identifier "listOrders", arrow_function]
    arrow_function has no name child. The identifier lives in the sibling variable_declarator.
@@ -406,7 +406,7 @@ const constArrowFront: RepoRef = {
   mirrorDir: join(FIXTURES, "frontend-const-arrow"),
 };
 
-/* ---- R2-F2: resolveVal `seen` Set shared across sibling substitutions ----
+/* ---- resolveVal keeps a separate `seen` Set per sibling substitution ----
    `${API}/${API}` where API = 'name-orders-api'.
    Bug: first ${API} adds 'API' to `seen`; second ${API} hits the guard and substitutes {p}.
    Fix: in resolveArg, pass a fresh new Set() per top-level resolveVal call so siblings don't
@@ -454,7 +454,7 @@ test("from.symbol for top-level const arrow 'listOrders' is 'listOrders', not nu
   );
 });
 
-/* ---- L1.5 (renamed): string-concat path arg → external bucket, no false link ----
+/* ---- string-concat path arg → external bucket, no false link ----
    'name-x-api/' + v + '/p' — CALL_RE captures the concatenation expression.
    resolveArg sees first char is `'` → extracts quoted prefix up to first closing `'` → "name-x-api/".
    SERVICE_PREFIX_RE matches with service="x", resource="" — service "x" not in known repos → external.
@@ -479,7 +479,7 @@ test("string-concat path arg lands in external bucket (not a false link, no stru
 });
 
 /* ==========================================
-   R2-F7: Isolated fallback unit tests (extractEnclosingMethodFallback)
+   Isolated fallback unit tests (extractEnclosingMethodFallback)
    ==========================================
    These tests verify the backward-scan fallback WITHOUT tree-sitter — no WASM load, no fixtures,
    pure function call. Guards against regressions in the fallback path that would otherwise only

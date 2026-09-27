@@ -106,22 +106,22 @@ test("PARITY: assertNoSecretLeak does not throw on clean redacted text, identica
    quote. Pin the exact behavior identically in both twins so a future drift between the two
    regexes is caught here.
  */
-test("PARITY: round-4 leak fix — embedded quote in a bare value does not leak the tail, identically", () => {
+test("PARITY: an embedded quote in a bare value does not leak the tail, identically", () => {
   const input = 'token=abc"def';
   assert.deepEqual(ported(input), legacy(input));
 });
 
-test("PARITY: round-4 leak fix — GITHUB_TOKEN with an embedded quote does not leak the tail, identically", () => {
+test("PARITY: GITHUB_TOKEN with an embedded quote does not leak the tail, identically", () => {
   const input = 'GITHUB_TOKEN=ghp_abc"XYZ123';
   assert.deepEqual(ported(input), legacy(input));
 });
 
-test("PARITY: round-4 leak fix — prose keyword false-match does not let an escaped-quote secret ship unredacted, identically", () => {
+test("PARITY: a prose keyword false-match does not let an escaped-quote secret ship unredacted, identically", () => {
   const input = 'leaked secret: password="mySecretPass\\"WithQuote" end';
   assert.deepEqual(ported(input), legacy(input));
 });
 
-test("PARITY: round-2 balanced-quote case (Token: refresh) still holds after the round-4 fix, identically", () => {
+test("PARITY: a balanced-quote name holding a keyword (Token: refresh) is handled identically", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   assert.deepEqual(ported(input), legacy(input));
 });

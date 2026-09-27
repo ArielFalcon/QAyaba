@@ -76,7 +76,7 @@ test("a rule with a REAL errorClass still earns held credit (PREVENTION_HELD_SCO
   assert.equal(rule.outcomeCount, 3, "a real-class rule DOES accrue prevention credit on clean runs — this is the designed, non-circular promotion signal");
   assert.equal(rule.successRate, 0.6, "held credit plateaus at PREVENTION_HELD_SCORE (0.6) — capped at medium confidence, never high");
   assert.equal(rule.oracleOutcomeCount, 0, "prevention-path folds must NEVER advance oracleOutcomeCount — foldPreventionOutcome never sets isOracleScore");
-  assert.equal(rule.status, "candidate", "WS1.4(b): three clean prevention-only runs must NOT promote — zero objective evidence was ever folded in");
+  assert.equal(rule.status, "candidate", "three clean prevention-only runs must NOT promote — zero objective evidence was ever folded in");
   assert.equal(rule.confidence, "medium", "confidence is derived from successRate/outcomeCount alone and is unaffected by the promotion gate");
 });
 

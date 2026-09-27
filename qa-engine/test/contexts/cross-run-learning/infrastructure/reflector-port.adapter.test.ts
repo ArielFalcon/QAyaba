@@ -351,7 +351,7 @@ test("reflect() on a reviewer-rejection input derives errorClass deterministical
   );
 });
 
-/* C4: with no reviewerCorrections, the gate-computed `input.errorClass` — never the LLM's own
+/* With no reviewerCorrections, the gate-computed `input.errorClass` — never the LLM's own
    echoed `reflection.errorClass` — must persist. The prompt tells the model "do NOT change it",
    but a disobedient/mangled echo must not silently corrupt the learning ledger; the deterministic
    gate signal is the only trustworthy source here, exactly as it already is on the
@@ -453,7 +453,7 @@ test("ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved as can
    */
   assert.equal(savedRule?.status, "candidate", "ANTI-GOODHART: a corrections-derived rule must start candidate, never active");
   assert.equal(savedRule?.confidence, "low", "ANTI-GOODHART: a corrections-derived rule must start low confidence");
-  assert.equal(savedRule?.oracleOutcomeCount, 0, "ANTI-GOODHART: zero oracle evidence at authorship time — promotion still requires WS1.4b's oracle-scored-outcome gate to fire on a LATER run, never at distillation time");
+  assert.equal(savedRule?.oracleOutcomeCount, 0, "ANTI-GOODHART: zero oracle evidence at authorship time — promotion still requires the oracle-scored-outcome gate to fire on a LATER run, never at distillation time");
   assert.equal(Object.prototype.hasOwnProperty.call(savedRule, "initialStatus"), false, "ANTI-GOODHART: no initialStatus-shaped field is threaded, exactly as ADR-3 requires for every reflector-authored rule");
 });
 

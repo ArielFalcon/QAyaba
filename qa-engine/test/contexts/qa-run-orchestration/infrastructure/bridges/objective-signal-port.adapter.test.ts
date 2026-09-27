@@ -68,7 +68,7 @@ test("measure() returns unknown+null when an assembler IS injected but diff is a
   assert.equal(result.ratio, null);
 });
 
-test("measure() short-circuits the collector's IO entirely when no assembly will happen (judgment-day: legacy keeps collection INSIDE the gated block)", async () => {
+test("measure() short-circuits the collector's IO entirely when no assembly will happen (legacy keeps collection INSIDE the gated block)", async () => {
   let collectCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();
@@ -379,7 +379,7 @@ test("blocks(): enforce+pass -> false", () => {
   assert.equal(adapter.blocks("pass"), false, "a pass status must never block");
 });
 
-/* P0-5: coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
+/* coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
 test("measure() with policy.mode off skips collector and oracle", async () => {
   let collectCalls = 0;
   let oracleCalls = 0;

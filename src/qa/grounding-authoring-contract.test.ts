@@ -16,7 +16,7 @@ const AUTHORING_PROMPTS = [
 ];
 
 for (const file of AUTHORING_PROMPTS) {
-  test(`Pillar 3: ${file} carries no fabrication license`, () => {
+  test(`${file} carries no fabrication license`, () => {
     const src = readFileSync(file, "utf8");
     assert.ok(
       !/derive them from the code/i.test(src),
@@ -28,7 +28,7 @@ for (const file of AUTHORING_PROMPTS) {
     );
   });
 
-  test(`Pillar 3: ${file} forbids constructing a test-id from source`, () => {
+  test(`${file} forbids constructing a test-id from source`, () => {
     const src = readFileSync(file, "utf8");
     assert.ok(
       /never construct a test-id/i.test(src),

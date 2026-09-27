@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
  */
 import { resolveSandbox, sandboxSpawnOptions } from "../../../src/shared-infrastructure/process-sandbox/sandbox.ts";
 
-/* §21 sandbox identity resolver — privilege-drop applies ONLY in the root-on-Linux container with
+/* Sandbox identity resolver — privilege-drop applies ONLY in the root-on-Linux container with
    the baked-in user; everywhere else it must degrade to "no sandbox" so local runs are unaffected.
  */
 test("resolveSandbox applies only as root on Linux with an existing home; degrades safely otherwise", () => {

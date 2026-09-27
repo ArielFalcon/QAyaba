@@ -12,7 +12,7 @@ export const SWAP_MARKER_FILE = "pending-swap.json";
 export const MAX_BOOT_ATTEMPTS = 3;
 
 /*
- * Durable record of a promote that is IN FLIGHT (SELF-03). confirmSwapAfterBoot clears the swap
+ * Durable record of a promote that is IN FLIGHT. confirmSwapAfterBoot clears the swap
  * marker BEFORE the (up-to-10-min) promote poll, so a crash during the poll would otherwise lose
  * the promote entirely. This record, written before the poll and cleared after a terminal outcome,
  * is re-driven on the next boot. Kept separate from the swap marker so it can survive the marker

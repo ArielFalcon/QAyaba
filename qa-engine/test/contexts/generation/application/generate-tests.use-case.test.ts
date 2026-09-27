@@ -17,7 +17,7 @@ import {
    reconcile manifest. A parse miss without review is fail-closed (empty specs, no phantom names).
  */
 
-test("B.3.1: renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
+test("renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
   const calls: string[] = [];
   const ports: GenerationPorts = {
     runtime: {
@@ -130,7 +130,7 @@ test("code target skips manifest reconciliation entirely (legacy opencode-client
   assert.deepEqual(out.specs, ["src/foo.test.ts"]);
 });
 
-test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
+test("fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
   const promptTexts: string[] = [];
   let sessionPromptCount = 0;
 
@@ -204,7 +204,7 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
   assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "repaired specs in result");
 });
 
-test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
+test("reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
   const promptTexts: string[] = [];
   let reviewCallCount = 0;
 
@@ -365,7 +365,7 @@ test("first reviewer pass: the reviewer prompt names the commit's change type", 
 
 /* Fail-closed: parse miss without review.
  */
-test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
+test("parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
   const ports: GenerationPorts = {
     runtime: {
       openSession: async () => ({
@@ -418,7 +418,7 @@ test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", a
    reconcile still fires (so an empty entries array can prune/no-op per the port's own contract),
    but with nothing to upsert.
  */
-test("B.3.5: manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
+test("manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
     runtime: {

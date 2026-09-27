@@ -10,7 +10,7 @@ import { detectCodeProject, DEFAULT_CODE_MODE_TIMEOUT_MS, type CodeProject } fro
 export interface CodeSetupDeps {
   detect(repoDir: string): CodeProject;
   install(project: CodeProject, repoDir: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
-  /* Hands the working copy to the unprivileged sandbox user BEFORE any untrusted spawn (§21). Runs for every code-mode run — including the null-install ecosystems (Maven/Gradle/Rust) whose first untrusted spawn is the test itself — so it must execute before the install-null early return. */
+  /* Hands the working copy to the unprivileged sandbox user BEFORE any untrusted spawn. Runs for every code-mode run — including the null-install ecosystems (Maven/Gradle/Rust) whose first untrusted spawn is the test itself — so it must execute before the install-null early return. */
   prepareWorkdir?(repoDir: string): void;
 }
 

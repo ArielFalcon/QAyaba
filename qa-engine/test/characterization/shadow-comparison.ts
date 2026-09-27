@@ -1,5 +1,5 @@
 /* test/characterization/shadow-comparison.ts
-   Reuses runOutcomeEquivalent (§10), the SAME behavioral projection the golden-parity net uses, and
+   Reuses runOutcomeEquivalent, the SAME behavioral projection the golden-parity net uses, and
    renders a human-readable report line. shadow:true means NEITHER engine fires a real PR/Issue (both
    route to the shadow-log — side-effects.ts), so the equivalence proof is on the persisted RunOutcome
    only. When the operator's probe (F.2) recorded a concrete SideEffect per engine, it is passed in and

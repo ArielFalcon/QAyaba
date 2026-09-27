@@ -359,7 +359,7 @@ test("code target: .env* files remain excluded (regression guard — unrelated t
    a denylisted file that is ALREADY TRACKED (every real Dockerfile/.github/workflows/* in a watched
    repo IS tracked) and gets agent-MODIFIED is invisible to CODE_PUBLISH_EXCLUDES/.git/info/exclude.
    The only other guard was the runtime WriteConfinementAdapter.enforce() call, which RunQaUseCase
-   wraps in a documented FAIL-OPEN try/catch (D-P0b) — if it throws for any reason (e.g. an
+   wraps in a documented FAIL-OPEN try/catch — if it throws for any reason (e.g. an
    unrecognized git path-quoting escape sequence), the tampered tracked file survives to this
    publish step untouched and CODE_PUBLISH_ADD=["."] stages/commits it into the watched repo's PR.
    This is a SECOND, independent, deterministic guard at commit time — it does not depend on
@@ -525,7 +525,7 @@ const DENYLIST_TRACKED_MODIFY_CASES: { path: string; original: string; tampered:
 ];
 
 for (const { path: denyPath, original, tampered } of DENYLIST_TRACKED_MODIFY_CASES) {
-  test(`code target: TRACKED, agent-modified '${denyPath}' is reverted (whole-denylist table, judgment-day round 2)`, async () => {
+  test(`code target: TRACKED, agent-modified '${denyPath}' is reverted (whole-denylist table)`, async () => {
     const repo = mkdtempSync(join(tmpdir(), "qa-publish-tracked-table-"));
     try {
       const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };

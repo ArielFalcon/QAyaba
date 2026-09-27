@@ -92,7 +92,7 @@ function renderSnippet(lines: readonly string[]): string {
 
 /** Runs the onboarding loop end to end and returns the process exit code. Every dependency is
  *  injected via `deps` — this function itself never imports a concrete adapter, so tests can
- *  drive it entirely with fakes (spec C's exit-code contract, design §D composition). */
+ *  drive it entirely with fakes (including the exit-code contract). */
 export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Promise<number> {
   const args = parseCliArgs(argv, deps);
   if (args === null) return EXIT.USAGE_ERROR;

@@ -105,7 +105,7 @@ test("CompositeServiceBoundaryResolver deduplicates identical unresolved entries
    ==========================================
  */
 
-/* ---- L1.3: composite drift dedup must include from.file ----
+/* ---- composite drift dedup must include from.file ----
    When two resolvers independently surface drift from different files (same verb+path but different
    from.file), the composite must NOT collapse them to one entry (from.file distinguishes them).
  */
@@ -160,7 +160,7 @@ test("drift dedup includes from.symbol (two methods same file, same endpoint →
   );
 });
 
-/* ---- L1.4: composite sync-throw — a resolver that throws synchronously must be isolated ----
+/* ---- composite sync-throw — a resolver that throws synchronously must be isolated ----
    resolveWithTimeout currently passes the Promise from resolver.resolveLinks(...) to .then().
    If resolver.resolveLinks throws SYNCHRONOUSLY (before returning a Promise), the .then() is
    never reached and the synchronous throw propagates through Promise.all, breaking all resolvers.

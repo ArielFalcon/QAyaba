@@ -92,7 +92,7 @@ test("EventResolver.resolveLinks: exactly two links are produced from the fixtur
   );
 });
 
-/* ---- JD FIX 4 (mirrored from openapi-http-resolver.adapter.test.ts): walk() must SKIP
+/* ---- As in openapi-http-resolver.adapter.test.ts, walk() must SKIP
    vendor/build directories (node_modules, .git, dist, build, target, .next, .cache). The
    service-a fixture pool has a poison listener under node_modules/ (EvilFooCreatedListenerNats)
    that would otherwise resolve into a SECOND FooCreatedEvent link.

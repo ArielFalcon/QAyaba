@@ -1,5 +1,5 @@
 /* Guards against the OpenCode (agents/agent/) and Codex (agent/roles/) prompt copies drifting
-   out of parity again — see D2 in the 2026-09-27 remediation backlog. This does not require
+   out of parity. This does not require
    the two files to be byte-identical (each provider's prompt is worded for its own runtime);
    it only pins that a short list of load-bearing guard sentences survive in BOTH copies for
    the roles that have drifted before. */

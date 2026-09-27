@@ -151,7 +151,7 @@ test("ManifestEntrySchema accepts a well-formed entry", () => {
   assert.equal(ManifestEntrySchema.safeParse(manifestEntry).success, true);
 });
 
-test("ManifestEntrySchema rejects empty targets / empty objective — write uses the read invariant (Phase 3.1)", () => {
+test("ManifestEntrySchema rejects empty targets / empty objective — write uses the read invariant", () => {
   /* Write uses the same schema as read — a bad entry is dropped rather than corrupting the manifest. */
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, targets: [] }).success, false);
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, objective: "" }).success, false);
@@ -269,7 +269,7 @@ test("boundaries[]: code:true app with NO boundaries[] still parses (empty/absen
   assert.equal(cfg.boundaries, undefined);
 });
 
-/* P0-2: YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
+/* YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
 test("resolveValueOraclePolicy: an explicit valueOracle wins over shadow", () => {
   assert.equal(resolveValueOraclePolicy({ valueOracle: "signal", shadow: true }), "signal");
   assert.equal(resolveValueOraclePolicy({ valueOracle: "off", shadow: false }), "off");

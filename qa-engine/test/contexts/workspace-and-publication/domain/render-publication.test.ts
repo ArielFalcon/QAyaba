@@ -57,7 +57,7 @@ test("renderIssue: an invalid verdict renders the static-gate headline", () => {
   assert.match(body, /the generated tests could not be validated \(static gate\)/);
 });
 
-/* ── Existing engine-adjudication + reviewer-unavailable sections — KEPT (binding rider) ────────── */
+/* ── Existing engine-adjudication + reviewer-unavailable sections — KEPT ────────── */
 
 test("renderIssue: renders an 'Engine adjudication' section when adjudication is present", () => {
   const body = renderIssue({

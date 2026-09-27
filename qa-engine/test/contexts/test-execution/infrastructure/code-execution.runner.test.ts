@@ -144,7 +144,7 @@ test("scopeForChangedFiles: node is NOT mislabeled as scoped — per-module RUN 
   assert.match(r.note, /not yet supported|whole repo/i);
 });
 
-/* ── G1: scope by the agent's git writes when there is no input diff (manual/complete) ───────────── */
+/* ── Scope by the agent's git writes when there is no input diff (manual/complete) ───────────── */
 test("parsePorcelain: extracts modified, added and untracked paths (rename → new path)", () => {
   const out = [
     " M src/foo.ts",

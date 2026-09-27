@@ -1,4 +1,4 @@
-/* Batch S / S3: docker-compose.yml previously published the orchestrator's port on ALL
+/* docker-compose.yml previously published the orchestrator's port on ALL
    interfaces ("${PORT:-458}:${PORT:-458}" — Docker's default publish address is 0.0.0.0), while
    the tracked, auto-loaded docker-compose.override.yml defaults QA_WEB_AUTO_LOGIN=true. Combined,
    a plain `docker compose up` exposed the control-plane's auto-login bootstrap to the whole host

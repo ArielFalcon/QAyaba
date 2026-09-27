@@ -113,7 +113,7 @@ test("parseAriaSnapshot: quoted-name node emits role: name", () => {
   assert.ok(!lines.some((l) => l.startsWith("generic:")), "generic is not in keep-set");
 });
 
-/* T1: an accessible name containing an escaped double-quote (PW renders `say "hi"` as
+/* An accessible name containing an escaped double-quote (PW renders `say "hi"` as
    `button "say \"hi\""`) must be captured WHOLE and unescaped — the old `"([^"]*)"` matcher
    truncated at the first `\"`, losing the rest of the name (and breaking the selector check).
  */
@@ -144,7 +144,7 @@ test("parseAriaSnapshot: content-role inline value (listitem, text) is the name"
   assert.ok(lines.includes("text: Some inline text"), "text inline value");
 });
 
-/* S2: a NON-content kept role with a bare `: value` (e.g. `- heading: Some Text`) used to fall
+/* A NON-content kept role with a bare `: value` (e.g. `- heading: Some Text`) used to fall
    through every branch and emit nothing (→ []). Any kept role's inline value IS its name now.
  */
 test("parseAriaSnapshot: a non-content role with a bare ': value' uses the value as the name", () => {
@@ -428,7 +428,7 @@ test("formatDomSnapshot surfaces a per-route capture failure instead of hiding i
   assert.match(out, /route \/x: \(could not capture — timeout\)/);
 });
 
-/* Fix 2 (audit leak 5) sub-case 5: a degraded-but-not-`error` route (empty nodes, classified
+/* A degraded-but-not-`error` route (empty nodes, classified
    runtimeErrors, or a redirect) must ALSO surface a warning line instead of a silent bare header —
    same spirit as the `error` case above, extended to the new degrade reasons from buildRouteCatalog.
  */
@@ -480,7 +480,7 @@ test("formatDomSnapshot keeps table/list roles past the node cap (a present tabl
   assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the table */
 });
 
-/* S1: a Bootstrap role="presentation" table COLLAPSES to `- text:` nodes with NO columnheader — that
+/* A Bootstrap role="presentation" table COLLAPSES to `- text:` nodes with NO columnheader — that
    `text:` line IS the collapse signal the feature surfaces (it tells the author "no columnheader
    here"). `text` was in the parse keep-set but NOT in PRIORITY_ROLES, so capDomLines could truncate it
    away behind a wall of nav links — destroying the very signal. `text` is now a priority role.
@@ -502,7 +502,7 @@ test("formatDomSnapshot keeps text: collapse nodes past the node cap (they sort 
   assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the text signal */
 });
 
-/* ── captureDomByRoute: per-objective grounding split + soft-404 guard (F1) ───── */
+/* ── captureDomByRoute: per-objective grounding split + soft-404 guard ───── */
 test("normalizeRoutes trims, drops absolute/interpolated URLs, and dedupes", () => {
   assert.deepEqual(
     normalizeRoutes([" /a ", "/a", "https://x.com/y", "/p/${id}", "/b"]),
@@ -598,7 +598,7 @@ test("captureRouteTrees is best-effort: no routes / no baseUrl / render throws /
   assert.deepEqual(await captureRouteTrees({ e2eDir: "/m", baseUrl: "http://dev", specContents: [`page.goto("/a"); page.goto("/b")`] }, errored), [], "errored + empty-nodes(-and-no-testIds) excluded");
 });
 
-/* JD fix: a page built entirely from role-less test-id elements (<div data-cy=x> with no ARIA role) has
+/* A page built entirely from role-less test-id elements (<div data-cy=x> with no ARIA role) has
    EMPTY nodes[] but a populated testIds index — exactly what the role-independent capture exists to add
    value on. It must NOT be dropped by the nodes-only filter, or the catalog gate goes blind to it.
  */
@@ -736,7 +736,7 @@ test("formatDomSnapshot: unmatched node → line unchanged even when changed is 
   assert.equal(aboutWith, aboutWithout, "unmatched node line is byte-identical");
 });
 
-/* RED tests: the text fallback MUST NOT fire on substring-of-word matches.
+/* The text fallback MUST NOT fire on substring-of-word matches.
    These fail against the current impl ("test" matches "test-submission" via .includes).
    The stable-attr path (testId/id/name/href) is UNCHANGED and must still work as before.
  */
@@ -1231,7 +1231,7 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
   assert.ok(msg.includes("DEGRADED") || msg.includes("WARNING"), "attributed as a degraded-capture event");
 });
 
-/* ── Fix 1 (audit leak 4): authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
+/* ── Authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
    The render child spawns a separate Node process that does chromium.launch() + newContext(). A
    comment claimed scrubEnv(/^DEV_/) passes DEV_ENV_USER/PASS through to the child so gated routes
    render authenticated — but the child script never read those env vars into newContext(). Auth-gated
@@ -1304,13 +1304,13 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
   assert.equal(withoutFields.finalUrl, undefined);
 });
 
-/* ── J5: authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
+/* ── authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
    createCaptureDomDeps(authDir) used to accept an OPTIONAL authDir and fall back to e2eDir when
    omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
    grounding bridges, the context-pack default deps) would silently put auth material back into the
    agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
    it gets a compile error, and — mirroring the same fail-closed constructor-guard pattern already
-   established for PublicationPortAdapter (publication-port.adapter.test.ts, WS5.4b/Slice 4) — a
+   established for PublicationPortAdapter (publication-port.adapter.test.ts) — a
    caller that bypasses the type system also gets an immediate, loud throw, never a silent e2eDir
    default. The exported "no captureDomDeps configured at all" placeholder (defaultCaptureDomDeps,
    consumed by the three seams above) is likewise inert: it never touches e2eDir, and fails loudly

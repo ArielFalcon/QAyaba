@@ -44,19 +44,19 @@ test("no decide/verdict/gate/publish source file references structuralSignalByte
     for (const field of STRUCTURAL_SIGNAL_TELEMETRY_FIELDS) {
       assert.ok(
         !content.includes(field),
-        `${relPath} references '${field}' — this field is persist-only telemetry (design §2/ADR-B) and must NEVER be read by a decide/verdict/gate/publish path`,
+        `${relPath} references '${field}' — this field is persist-only telemetry and must NEVER be read by a decide/verdict/gate/publish path`,
       );
     }
   }
 });
 
-test("no decide/verdict/gate/publish source file references crossRepoImpact/impactedLinks/crossRepoImpactedCount — advisory-only, fail-open, never a decision input (Slice C, C-R8)", () => {
+test("no decide/verdict/gate/publish source file references crossRepoImpact/impactedLinks/crossRepoImpactedCount — advisory-only, fail-open, never a decision input", () => {
   for (const relPath of DECISION_PATH_FILES) {
     const content = readFileSync(join(qaEngineRoot, relPath), "utf8");
     for (const field of CROSS_REPO_IMPACT_FIELDS) {
       assert.ok(
         !content.includes(field),
-        `${relPath} references '${field}' — CrossRepoImpactPort's composition is advisory-only (design §3/spec "Zero verdict/gate/publish coupling") and must NEVER be read by a decide/verdict/gate/publish path`,
+        `${relPath} references '${field}' — CrossRepoImpactPort's composition is advisory-only (zero verdict/gate/publish coupling) and must NEVER be read by a decide/verdict/gate/publish path`,
       );
     }
   }

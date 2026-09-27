@@ -159,8 +159,8 @@ test("assemble: an overflow='summarize' section over budget is truncated with a 
 });
 
 test("assemble: scaffold and verbatim sections coexist without modification", () => {
-  /* The assembler itself does NOT translate content (P4 is about the assembler tagging
-     sections, not transforming them). The test asserts the language tag is respected:
+  /* The assembler itself does NOT translate content (the assembler tags
+     sections, it does not transform them). The test asserts the language tag is respected:
      verbatim sections reach the output byte-for-byte (beyond cap), scaffold sections do too.
    */
   const verbatimContent = "Contenido de usuario: comprobar el formulario de registro";
@@ -344,7 +344,7 @@ test("assemble: overflow budget sheds the lowest-priority volatile section first
   assert.ok(!("low-pri-vol" in sectionSizes), "shed section must be absent from sectionSizes");
 
   /* The surviving sections + task + rules keep the total within budget.
-     D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion.
+     A shed-notice is appended after the budget check and is excluded from the budget assertion.
    */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
@@ -382,7 +382,7 @@ test("assemble: budget enforcement sheds volatile before semi-stable before task
   assert.ok(!("dom"  in sectionSizes), "shed volatile must be absent from sectionSizes");
   assert.ok(!("arch" in sectionSizes), "shed semi-stable must be absent from sectionSizes");
 
-  /* D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion. */
+  /* A shed-notice is appended after the budget check and is excluded from the budget assertion. */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
 });
@@ -410,7 +410,7 @@ test("under a tight budget the Context Pack survives and the diff (TASK band) is
   assert.ok("context-pack" in sectionSizes, "pack must remain in sectionSizes");
   assert.ok(!text.includes(diffContent), "the diff (TASK band, recoverable via git show) must be shed FIRST");
   assert.ok(!("task" in sectionSizes), "the shed diff/task must be absent from sectionSizes");
-  /* D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion. */
+  /* A shed-notice is appended after the budget check and is excluded from the budget assertion. */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
 });
@@ -559,13 +559,13 @@ test("assemble: global budget shedding does not affect sectionSizes for survivin
   assert.ok(!("shed" in sectionSizes), "shed section must be absent from sectionSizes");
 });
 
-/* ── D1+D2: budget-shed notice injected into assembled output ─────────────────
+/* ── budget-shed notice injected into assembled output ─────────────────
    When the global budget enforcement drops one or more sections, a small notice is appended to
    the assembled text naming the dropped section ids so the agent knows to explore them directly.
    Regression contract: when NOTHING is dropped, output is unchanged (no notice, no empty header).
  */
 
-/* D1+D2-1: a forced over-budget drop produces the notice naming the dropped section id. */
+/* A forced over-budget drop produces the notice naming the dropped section id. */
 test("a forced budget-drop injects a notice naming the dropped section id", () => {
   const SURVIVE = "SURVIVE_MARKER";
   const sections = [
@@ -587,7 +587,7 @@ test("a forced budget-drop injects a notice naming the dropped section id", () =
   assert.ok(text.includes(SURVIVE), "surviving content must still be present");
 });
 
-/* D1+D2-2: the notice must always survive — it must remain even when the budget is very tight.
+/* The notice must always survive — it must remain even when the budget is very tight.
    We verify it is present alongside the stable-prefix (which is the last to shed).
  */
 test("the shed notice survives even under extreme budget pressure", () => {
@@ -608,7 +608,7 @@ test("the shed notice survives even under extreme budget pressure", () => {
   assert.ok(hasNotice, "shed notice must be present under extreme budget pressure");
 });
 
-/* D1+D2-3 (regression): when NOTHING is dropped, the output is unchanged — no notice, no empty header. */
+/* When NOTHING is dropped, the output is unchanged — no notice, no empty header. */
 test("no shed notice when nothing is dropped (regression: output unchanged)", () => {
   const content = "A".repeat(50);
   const sections = [
@@ -626,7 +626,7 @@ test("no shed notice when nothing is dropped (regression: output unchanged)", ()
   assert.ok(text.includes(content), "non-shed content must appear");
 });
 
-/* D1+D2-4 (regression): without a budgetBytes option (Phase-1 behaviour), the notice must never appear. */
+/* Without a budgetBytes option, the notice must never appear. */
 test("no shed notice without budgetBytes option (phase-1 behaviour unchanged)", () => {
   const sections = [
     section("task", "task", "TASK_CONTENT"),

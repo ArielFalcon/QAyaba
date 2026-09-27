@@ -85,7 +85,7 @@ test("otherMessages() shells git log over the FULL baseSha..sha range (NOT sha^)
   const messages = await adapter.otherMessages(Sha.of("deadbee1"), { baseSha: Sha.of("bad00001") });
   assert.deepEqual(messages, ["feat: add x\n\nbody line"], "the head commit's own message is dropped; the merged-branch commit survives");
   assert.equal(seen!.command, "git");
-  assert.ok(seen!.args.includes("bad00001..deadbee1"), "F1 fix: the range must be the FULL baseSha..sha (traverses BOTH merge parents), never baseSha..sha^ (first-parent only)");
+  assert.ok(seen!.args.includes("bad00001..deadbee1"), "the range must be the FULL baseSha..sha (traverses BOTH merge parents), never baseSha..sha^ (first-parent only)");
   assert.ok(!seen!.args.some((a) => a.endsWith("^")), "must NOT use the first-parent-only sha^ form — that silently drops merged-branch commits");
 });
 

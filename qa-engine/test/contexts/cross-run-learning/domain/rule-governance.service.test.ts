@@ -133,7 +133,7 @@ test("topRules: breaks ties deterministically by id (same result regardless of i
   assert.deepEqual(forward.map((r) => r.id), ["a", "b"]);
 });
 
-/* R3: exploration slots. Restored from the deleted shell (selectForRetrieval): once active rules
+/* Exploration slots. Restored from the deleted shell (selectForRetrieval): once active rules
    fill the retrieval limit, candidates would otherwise never be retrieved again, so they could
    never accumulate the outcomes that earn (or deny) promotion. The last EXPLORATION_SLOTS
    positions are reserved for the FRESHEST not-yet-picked candidates, replacing (never appending
@@ -187,7 +187,7 @@ test("topRules: fewer eligible rules than the limit -> no truncation, exploratio
   assert.deepEqual(top.map((r) => r.trigger).sort(), ["a1", "c1"]);
 });
 
-/* J4: with limit < EXPLORATION_SLOTS, `picked.splice(limit - slots, slots, ...)` used to compute
+/* With limit < EXPLORATION_SLOTS, `picked.splice(limit - slots, slots, ...)` used to compute
    a NEGATIVE start (e.g. limit=1, slots=2 -> -1). Array.prototype.splice treats a negative start
    as counting from the end, so instead of replacing the tail it deleted fewer elements than it
    inserted and the result grew past `limit`. slots must be clamped to `limit` too. */

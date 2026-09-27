@@ -14,7 +14,7 @@ const rows = [
   { id: "r2", trigger_text: "t2", action_text: "a2", error_class: "E-Y", archetype: null, status: "active", confidence: "high", usage_count: 2, outcome_count: 5, success_rate: 0.5, last_verified: null, source: "oracle", at: "2026-01-02T00:00:00.000Z" },
 ];
 
-test("maps a legacy 'pending' row to 'candidate' before typing (§11 back-compat)", async () => {
+test("maps a legacy 'pending' row to 'candidate' before typing (back-compat)", async () => {
   const repo = new SqliteLearningRepository({ selectRules: () => rows, upsert: () => {}, recordOutcome: () => {} });
   const top = await repo.topRules("test-app", Sha.of("abcdef1"), 10);
   const t1 = top.find((r) => r.trigger === "t1");
@@ -89,7 +89,7 @@ test("applyOutcome delegates to store.recordOutcome exactly once with the outcom
 /* topRules() forwards the optional relevance bias verbatim to RuleGovernanceService — pinned
    here so the port-boundary forwarding cannot silently drop it. successRates are a NEAR-tie
    (0.55 vs 0.6): RuleGovernanceService scales successRate x10 before adding the bias, so a
-   relevance match only flips a close call, never a wide gap (R1).
+   relevance match only flips a close call, never a wide gap.
  */
 test("topRules forwards an optional relevance bias to RuleGovernanceService", async () => {
   const relevantRow = { id: "rel", trigger_text: "rel", action_text: "a", error_class: "E-EXEC-FAIL", archetype: null, status: "active", confidence: "low", usage_count: 0, outcome_count: 0, success_rate: 0.55, last_verified: null, source: "oracle", at: "2026-01-01T00:00:00.000Z" };

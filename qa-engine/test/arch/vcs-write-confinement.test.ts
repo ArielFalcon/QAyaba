@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
-/* The security gate (§8 R4): assert NO context module other than workspace-and-publication imports
+/* The security gate: assert NO context module other than workspace-and-publication imports
    the VCS write seam. The rule is now inverted — it covers ALL contexts/* except the write owner,
    so new contexts added in future plans are secure by default without a whitelist update.
    Runs depcruise with the dedicated config and fails on any violation. Must be green BEFORE any

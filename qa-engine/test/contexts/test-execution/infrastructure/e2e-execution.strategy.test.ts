@@ -24,7 +24,7 @@ test("delegates to runE2E with the mapped opts and returns the verdict/cases/log
 });
 
 /*
- * O11: runner-infra reclassification has a SINGLE owner now — e2e-execution.runner.ts's own
+ * Runner-infra reclassification has a SINGLE owner — e2e-execution.runner.ts's own
  * allFailuresAreRunnerInfra, which runs inside the real runE2E before this strategy ever sees a
  * verdict (both of runE2E's production callers — this strategy AND the fault-injection oracle's
  * runCorruptedFaultInjection re-run — depend on that SAME upstream reclassification; the strategy
@@ -79,7 +79,7 @@ test("threads all optional ExecutionRequest fields (project, onCase, onRunning, 
   assert.equal((capturedOpts as Opts).faultInject, true, "faultInject must be threaded");
 });
 
-/* A3: testIdAttribute must reach the runner opts — apps declare their test-id convention in config
+/* testIdAttribute must reach the runner opts — apps declare their test-id convention in config
    (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
    validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
    was never set and getByTestId silently resolved the default data-testid on non-default apps.

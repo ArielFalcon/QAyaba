@@ -4,7 +4,7 @@
  * API-addressable entity per run. This is what makes "the control API is the single
  * contract" actually true: nothing may start a pipeline that bypasses the sequential
  * queue (which would run concurrent QA against DEV) or the run history (which would be
- * invisible to the TUI/continue/chat). See docs/interactive-layer.md §3.1.
+ * invisible to the TUI/continue/chat).
  */
 
 import { JobQueue } from "./queue";

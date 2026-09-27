@@ -222,7 +222,7 @@ test("buildProduction omits processAudit entirely when cfg.processAudit is absen
   assert.equal(outcome.verdict, "pass");
 });
 
-/* Batch F: root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
+/* Root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
    black-box style as reflectorPort/processAudit above. A clean context-mode pass (mode:"context",
    verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──
  */
@@ -363,7 +363,7 @@ test("buildProduction(rewritten) selects the real DeployGatePortAdapter when ver
   assert.equal(outcome.verdict, "pass");
 });
 
-/* A3: testIdAttribute must flow from CompositionConfig into the ExecutionPortAdapter's static
+/* testIdAttribute must flow from CompositionConfig into the ExecutionPortAdapter's static
    context so PW_TEST_ID_ATTRIBUTE reaches the verdictual Playwright run. NO defaulting logic here —
    undefined flows through; the seed playwright.config.ts already defaults to data-testid.
  */
@@ -1165,7 +1165,7 @@ test("buildProduction(rewritten) wires preExecGrounding into the run when target
       runId: "composition-root-preexec-grounding-wired",
     });
 
-    assert.equal(captureCalled, true, "the injected captureRouteTrees collaborator must have run (W1's pre-exec grounding check)");
+    assert.equal(captureCalled, true, "the injected captureRouteTrees collaborator must have run (the pre-exec grounding check)");
     assert.equal(outcome.verdict, "pass");
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
@@ -1269,14 +1269,14 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
     const preExecAmbiguityCatches = outcome.gateSignals.preExecAmbiguityCatches ?? 0;
     assert.ok(
       preExecAmbiguityCatches > 0,
-      `expected the W1 pre-exec ambiguity gate to fire (preExecAmbiguityCatches > 0), got ${preExecAmbiguityCatches}`,
+      `expected the pre-exec ambiguity gate to fire (preExecAmbiguityCatches > 0), got ${preExecAmbiguityCatches}`,
     );
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
   }
 });
 
-/* ── T2: per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ──────────────── */
+/* ── per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ──────────────── */
 
 function memoryIndexStatus(): IndexStatusPort & { shas: Map<string, string> } {
   const shas = new Map<string, string>();

@@ -2,7 +2,6 @@
    OnboardingJob is the server-side, in-memory single-job state machine that composes the LLM
    proposer adapter + the REAL OnboardingService (qa-engine) with server-side mirror provisioning,
    a runner-busy guard, an env-guard, and a round-budget timeout with AbortSignal cancellation.
-   Design delta §C is the authoritative HOW; spec-delta group E is the WHAT.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -92,7 +91,7 @@ function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDep
   };
 }
 
-/* ── State machine + status DTO (spec E1, E2, E6) ──────────────────────────────── */
+/* ── State machine + status DTO ──────────────────────────────── */
 
 test("ONBOARD_STATE is a const-object, not a raw string union (typescript SKILL convention)", () => {
   assert.deepEqual(
@@ -149,7 +148,7 @@ test("propose(): the mutex-accept decision is synchronous — a caller does not 
   const slowProposer = stubProposer(() => new Promise<BoundaryProfile[]>((resolve) => { resolveProposer = resolve; }));
   const job = createOnboardingJob(buildDeps({ buildProposer: () => slowProposer }));
 
-  /* The 202-fire-and-forget contract (spec E1) lives at the HTTP handler layer (5a.8): the handler
+  /* The 202-fire-and-forget contract lives at the HTTP handler layer: the handler
      calls propose() and responds 202 WITHOUT awaiting its returned promise. Here we only prove the
      accept/reject decision (job.propose(...).then(...) is not required before the caller can move
      on) — kickoff's SETTLEMENT is allowed to wait for the round; NOT awaiting it is the point.
@@ -194,7 +193,7 @@ test("a slow/hanging mirror provisioning trips ONBOARD_MIRROR_TIMEOUT_MS and lan
   assert.match(status.error ?? "", /resolving mirrors timed out/);
 });
 
-/* ── One-job mutex (spec E4 case 1) ────────────────────────────────────────────── */
+/* ── One-job mutex ────────────────────────────────────────────── */
 
 test("starting a second propose while a job is non-terminal returns a 409-shaped rejection; mutex released in finally", async () => {
   /* Round 1 (the "first" propose below) is held open until resolveFirstRound fires; every
@@ -231,7 +230,7 @@ test("starting a second propose while a job is non-terminal returns a 409-shaped
   await job.settled();
 });
 
-/* ── Runner-busy fail-fast guard fires BEFORE resolvingMirrors (spec E4 case 2) ── */
+/* ── Runner-busy fail-fast guard fires BEFORE resolvingMirrors ── */
 
 test("runner-busy guard fires before resolvingMirrors: job fails fast and ensureMirrorAtBranch is NEVER called", async () => {
   let mirrorCalls = 0;
@@ -251,7 +250,7 @@ test("runner-busy guard fires before resolvingMirrors: job fails fast and ensure
   assert.match(status.error ?? "", /runner busy, retry later/);
 });
 
-/* ── Env-guard short-circuit, both branches (spec E5) ──────────────────────────── */
+/* ── Env-guard short-circuit, both branches ──────────────────────────── */
 
 test("missing OPENCODE_API_KEY short-circuits to failed BEFORE resolvingMirrors starts", async () => {
   let mirrorCalls = 0;
@@ -281,7 +280,7 @@ test("missing qa-proposer agent on the target server short-circuits to a distinc
   assert.match(status.error ?? "", /qa-proposer agent/);
 });
 
-/* ── Round-budget timeout + AbortSignal cancellation (session-leak fix, spec E5) ─ */
+/* ── Round-budget timeout + AbortSignal cancellation (no leaked session) ─ */
 
 test("a proposer that never resolves trips ONBOARD_JOB_TIMEOUT_MS -> failed, AND the AbortController's signal reached the proposer ctx", async () => {
   let capturedSignal: AbortSignal | undefined;
@@ -301,7 +300,7 @@ test("a proposer that never resolves trips ONBOARD_JOB_TIMEOUT_MS -> failed, AND
   assert.equal(capturedSignal?.aborted, true, "the AbortController must have fired on timeout");
 });
 
-/* ── No-winner outcome (spec E8) ────────────────────────────────────────────────── */
+/* ── No-winner outcome ────────────────────────────────────────────────── */
 
 test("a budget-exhausted no-winner run lands done with outcome no-profile and resolvedProfile absent", async () => {
   const job = createOnboardingJob(buildDeps({ buildProposer: () => noWinnerProposer() }));
@@ -313,7 +312,7 @@ test("a budget-exhausted no-winner run lands done with outcome no-profile and re
   assert.equal(status.resolvedProfile, undefined);
 });
 
-/* ── Confirm against non-winner (spec E3, E8) ──────────────────────────────────── */
+/* ── Confirm against non-winner ──────────────────────────────────── */
 
 test("confirm against a non-winner (no-profile) job is rejected; no write attempted", async () => {
   let writeCalls = 0;
@@ -365,7 +364,7 @@ test("confirm against a winner writes the config via the injected writeConfig wi
   assert.ok(written!.content.includes("name-{service}-api"));
 });
 
-/* ── Propose is read-only end-to-end (spec E3, E-MUST) ─────────────────────────── */
+/* ── Propose is read-only end-to-end ─────────────────────────── */
 
 test("propose() never calls writeConfig at any point in the propose->poll lifecycle", async () => {
   let writeCalls = 0;
@@ -375,7 +374,7 @@ test("propose() never calls writeConfig at any point in the propose->poll lifecy
   assert.equal(writeCalls, 0, "propose must never write — only an explicit confirm() does");
 });
 
-/* ── Status DTO round-trip (spec E6) ───────────────────────────────────────────── */
+/* ── Status DTO round-trip ───────────────────────────────────────────── */
 
 test("status() returns an OnboardingJobStatus-shaped object for every state, including outcome once terminal", async () => {
   const job = createOnboardingJob(buildDeps());
@@ -587,7 +586,7 @@ test("isActive() (the mutex) is true DURING indexing and false only once indexin
   assert.equal(result.ok, true);
   await new Promise((r) => setImmediate(r)); /* let the fire-and-forget runIndexing() re-acquire the mutex */
 
-  assert.equal(job.isActive(), true, "the mutex must be re-held while indexing runs (§2.6 torn-index rationale)");
+  assert.equal(job.isActive(), true, "the mutex must be re-held while indexing runs (torn-index rationale)");
   resolveIndex({ repo: "ArielFalcon/nname-gateway", status: "ok", nodeCount: 1 });
   await job.settled();
   assert.equal(job.isActive(), false, "the mutex is released again once indexing's finally clears it");
@@ -683,7 +682,7 @@ test("confirm() indexes then maps then done — outcome stays winner, mappingPro
   assert.equal(status.indexProgress?.length, 2, "indexing still populated when mapping follows");
 });
 
-test("M2: after indexing the next observed state is mapping, never a premature done", async () => {
+test("after indexing the next observed state is mapping, never a premature done", async () => {
   let resolveIndex!: (o: RepoIndexOutcome) => void;
   let resolveEnqueue!: (id: string) => void;
   const job = createOnboardingJob(buildMappedDeps({

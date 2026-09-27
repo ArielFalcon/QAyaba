@@ -239,7 +239,7 @@ function ensureDb(): void {
       updated_at TEXT NOT NULL
     );
 
-    -- Per-turn telemetry for every agent prompt/response cycle (Phase 0 foundation).
+    -- Per-turn telemetry for every agent prompt/response cycle.
     -- Mirrors the run_events 30-day retention. Token columns are nullable because Codex
     -- runs return no token info. output_text is sanitized before persist (sanitizer.ts).
     CREATE TABLE IF NOT EXISTS agent_turns (

@@ -445,11 +445,11 @@ test("SECURITY: a secret quoted in a priorCorrection is redacted before reaching
   assert.match(text, /\[REDACTED\]/, "the redaction placeholder must appear in its place");
 });
 
-/* ── C1: fix-cases evidence rendering (httpStatus/finalUrl/runtimeErrors) ─────
-   The FixLoop already carries runtime evidence on each failing QaCase (A2), but the fix-cases
-   prompt sections rendered only `name` + `detail`, discarding the strongest signal available for
+/* ── fix-cases evidence rendering (httpStatus/finalUrl/runtimeErrors) ─────
+   The FixLoop already carries runtime evidence on each failing QaCase; the fix-cases
+   prompt sections must render more than `name` + `detail`, discarding the strongest signal available for
    telling an app defect (5xx, console error) apart from a test defect. Both render sites — the
-   initial fixContent in buildPromptAssembled/buildPrompt and the RE-3 buildFollowupPrompt — must
+   initial fixContent in buildPromptAssembled/buildPrompt and buildFollowupPrompt — must
    surface it.
  */
 
@@ -528,7 +528,7 @@ function padTo(s: string, bytes: number): string {
 /* ── Seam e — acceptance-criterion appears BEFORE diff in diff mode ───────────────────────── */
 
 /* 1.2: in buildPrompt diff mode, criterion must appear before the diff block. */
-test("seam-e: criterion precedes diff block in diff mode (buildPrompt)", () => {
+test("criterion precedes diff block in diff mode (buildPrompt)", () => {
   const text = buildPrompt(mkInput());
   const iCriterion = text.indexOf("commit to this BEFORE writing");
   const iDiff = text.indexOf("```diff");
@@ -545,7 +545,7 @@ test("seam-e: criterion precedes diff block in diff mode (buildPrompt)", () => {
    Also asserts that under shed pressure (using assemble directly), diff (shedAs semi-stable, band 2)
    sheds BEFORE task (band 3).
  */
-test("seam-a: diff is a dedicated section (shedAs semi-stable) and sheds before task under budget pressure", () => {
+test("diff is a dedicated section (shedAs semi-stable) and sheds before task under budget pressure", () => {
   /* Part 1: When diff fits within budget, sectionSizes must have a "diff" key separate from "task". */
   const result = buildPromptAssembled(mkInput({
     diff: "diff --git a/src/foo.ts\n+export function foo() {}",
@@ -582,7 +582,7 @@ test("seam-a: diff is a dedicated section (shedAs semi-stable) and sheds before 
    → context-pack (critical-recap, band 4). Budget forces both learned-rules AND diff to shed while
    the pack survives — proving the invariant under enforcement, not just by construction.
  */
-test("seam-a + regression: critical-recap context-pack sheds LAST — survives when diff AND learned-rules are shed", () => {
+test("critical-recap context-pack sheds LAST — survives when diff AND learned-rules are shed", () => {
   const PACK_MARKER = "PACK_MARKER_CONTENT";
   const DIFF_MARKER = "DIFF_SECTION_MARKER";
   const LEARNED_MARKER = "LEARNED_RULES_MARKER";
@@ -615,7 +615,7 @@ test("seam-a + regression: critical-recap context-pack sheds LAST — survives w
   );
 });
 
-test("seam-b: existingSpecFiles renders manifest section in diff mode", () => {
+test("existingSpecFiles renders manifest section in diff mode", () => {
   const text = buildPrompt(mkInput({ existingSpecFiles: ["e2e/flows/login.spec.ts", "e2e/flows/checkout.spec.ts"] }));
   assert.ok(
     text.includes("e2e/flows/login.spec.ts") && text.includes("e2e/flows/checkout.spec.ts"),
@@ -627,7 +627,7 @@ test("seam-b: existingSpecFiles renders manifest section in diff mode", () => {
   );
 });
 
-test("seam-b: empty existingSpecFiles produces no manifest section", () => {
+test("empty existingSpecFiles produces no manifest section", () => {
   const text = buildPrompt(mkInput({ existingSpecFiles: [] }));
   assert.ok(
     !text.includes("existing-suite-manifest"),
@@ -635,7 +635,7 @@ test("seam-b: empty existingSpecFiles produces no manifest section", () => {
   );
 });
 
-test("seam-b: absent existingSpecFiles produces no manifest section (backward-compat)", () => {
+test("absent existingSpecFiles produces no manifest section (backward-compat)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("existing-suite-manifest"),
@@ -643,7 +643,7 @@ test("seam-b: absent existingSpecFiles produces no manifest section (backward-co
   );
 });
 
-test("seam-c: FE↔BE appears at most twice when contextPack is present", () => {
+test("FE↔BE appears at most twice when contextPack is present", () => {
   const contextMap = {
     builtAtSha: "abc1234",
     routes: [{ path: "/checkout", component: "CheckoutComponent" }],
@@ -659,7 +659,7 @@ test("seam-c: FE↔BE appears at most twice when contextPack is present", () => 
   );
 });
 
-test("seam-c: full FE↔BE rendered when contextPack is absent (non-regression)", () => {
+test("full FE↔BE rendered when contextPack is absent (non-regression)", () => {
   const contextMap = {
     builtAtSha: "abc1234",
     routes: [{ path: "/checkout", component: "CheckoutComponent" }],
@@ -673,7 +673,7 @@ test("seam-c: full FE↔BE rendered when contextPack is absent (non-regression)"
   );
 });
 
-/* D3-1: when BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
+/* When BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
    must appear at most ONCE in the assembled prompt (from the pack, not the brief).
  */
 test("FE↔BE links appear only once when both contextBrief (with feBe) and contextPack are present", () => {
@@ -694,7 +694,7 @@ test("FE↔BE links appear only once when both contextBrief (with feBe) and cont
   );
 });
 
-/* D3-2 (non-regression): when only contextBrief is present (no contextPack), the brief's
+/* When only contextBrief is present (no contextPack), the brief's
    FE↔BE section must still render normally — suppression must NOT apply.
  */
 test("FE↔BE links in contextBrief render normally when contextPack is absent", () => {
@@ -712,7 +712,7 @@ test("FE↔BE links in contextBrief render normally when contextPack is absent",
   );
 });
 
-/* D3-3: when contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack. */
+/* When contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack. */
 test("no FE↔BE section in brief when brief.feBe is absent — no change with or without contextPack", () => {
   const contextBrief = {
     builtForSha: "abc1234",
@@ -730,8 +730,8 @@ test("no FE↔BE section in brief when brief.feBe is absent — no change with o
    After seam d, learned-rules priority is p2 in buildPromptAssembled.
    Use caAssemble to verify the shed order invariant directly.
  */
-test("seam-d: learned-rules (p2) sheds AFTER reviewer-corrections (p4) and coverage-gap (p5) in shed order", () => {
-  /* With seam-d priority p2: volatile shed order is coverage-gap(5) → reviewer-corrections(4) →
+test("learned-rules (p2) sheds AFTER reviewer-corrections (p4) and coverage-gap (p5) in shed order", () => {
+  /* With learned-rules at priority p2: volatile shed order is coverage-gap(5) → reviewer-corrections(4) →
      fix-cases(3) → learned-rules(2) → dom(1). So learned-rules (p2) sheds LAST among these.
      We verify: with a budget that forces shedding of coverage-gap (p5) only, learned-rules and
      reviewer-corrections both survive; with more shedding, reviewer-corrections (p4) goes before learned-rules.
@@ -774,7 +774,7 @@ test("seam-d: learned-rules (p2) sheds AFTER reviewer-corrections (p4) and cover
    With both at p2 (after seam d), the stable sort orders shed candidates by declaration order:
    plan-arch-map is declared FIRST in the array → shed FIRST. plan-lessons SURVIVES.
  */
-test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2, declared first) is shed", () => {
+test("plan-lessons (p2) survives budget pressure when plan-arch-map (p2, declared first) is shed", () => {
   const LESSONS_MARKER = "PLAN_LESSONS_MARKER";
   const ARCH_MAP_MARKER = "PLAN_ARCH_MAP_MARKER";
 
@@ -786,7 +786,7 @@ test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2,
 
   const result = caAssemble([
     caSection("plan-arch-map", "semi-stable", padded(ARCH_MAP_MARKER), { priority: 2 }),
-    caSection("plan-lessons", "semi-stable", padded(LESSONS_MARKER), { priority: 2 }), /* seam-d target: p2 (tied with arch-map) */
+    caSection("plan-lessons", "semi-stable", padded(LESSONS_MARKER), { priority: 2 }), /* p2, tied with arch-map */
   ], { budgetBytes: budget });
 
   /* Both p2 → stable sort keeps declaration order → plan-arch-map sheds first → plan-lessons survives. */
@@ -800,7 +800,7 @@ test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2,
   );
 });
 
-/* ── Seam-d PINNING TESTS: pin REAL production priority scalars (FIX 2 regression guard) ────────── */
+/* ── Priority pinning: pin REAL production priority scalars ────────── */
 
 /* Generator path: buildPromptAssembled with large learnedRules + coverageGap content so the role
    budget (192k for kimi-k2.7-code) forces shedding. coverage-gap is rendered with
@@ -808,7 +808,7 @@ test("seam-d: plan-lessons (p2) survives budget pressure when plan-arch-map (p2,
    regen). Under budget pressure, learned-rules (still p2) sheds instead — proving the shedAs
    promotion took effect, not merely that learned-rules kept its own priority.
  */
-test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives budget pressure that sheds learned-rules (p2)", () => {
+test("coverage-gap (shedAs critical-recap) survives budget pressure that sheds learned-rules (p2)", () => {
   const LEARNED_MARKER = "PINNING_LEARNED_RULES_MARKER";
   const GAP_MARKER = "PINNING_COVERAGE_GAP_MARKER";
 
@@ -830,7 +830,7 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
 
   assert.ok(
     result.text.includes(GAP_MARKER),
-    `coverage-gap (shedAs critical-recap, WS5.2) must survive budget pressure — it is the entire payload ` +
+    `coverage-gap (shedAs critical-recap) must survive budget pressure — it is the entire payload ` +
     `of its own regen turn. sectionSizes: ${JSON.stringify(result.sectionSizes)}`,
   );
   assert.ok(
@@ -841,17 +841,16 @@ test("seam-d PINNING (post-WS5.2): coverage-gap (shedAs critical-recap) survives
   );
 });
 
-/* ── A3: selector-priority rule in the STABLE band ────────────────────────────────────────────────
+/* ── selector-priority rule in the STABLE band ────────────────────────────────────────────────
    Goal: the selector-priority guidance (prefer getByTestId > getByRole > getByLabel/getByText >
    scoped locator) must appear in the STABLE band of the generated prompt so it fires even when
    DOM capture failed (i.e. when no domSnapshot is present). The rule must be present REGARDLESS
    of whether a domSnapshot is included.
    Idempotency: when a domSnapshot IS present, the rule should appear exactly once in the stable
    band (not duplicated in the DOM snapshot section, which already carries its own selector guidance).
-   These tests are RED until A3 is implemented (the stable-band rule does not exist yet).
  */
 
-/* A3-1: selector-priority rule is present in the prompt when NO domSnapshot is injected.
+/* selector-priority rule is present in the prompt when NO domSnapshot is injected.
    Currently the priority guidance only lives in the volatile DOM snapshot section, so this FAILS.
  */
 test("selector-priority rule is present in the stable band even when no domSnapshot is injected", () => {
@@ -864,7 +863,7 @@ test("selector-priority rule is present in the stable band even when no domSnaps
   );
 });
 
-/* A3-2: selector-priority rule is present in the prompt when a domSnapshot IS injected.
+/* selector-priority rule is present in the prompt when a domSnapshot IS injected.
    The rule must appear in the stable band (fired regardless), and the DOM snapshot section
    may also carry its own guidance — but neither should be absent when the other is present.
  */
@@ -876,7 +875,7 @@ test("selector-priority rule is present in the stable band when a domSnapshot IS
   );
 });
 
-/* A3-3: the stable-band selector-priority rule does NOT duplicate the DOM snapshot section's guidance.
+/* The stable-band selector-priority rule does NOT duplicate the DOM snapshot section's guidance.
    When a domSnapshot is present, the priority mention in the stable band must be present but
    the full DOM grounding section is separate. We check there is no exact verbatim duplication of
    the stable rule. (Idempotency guard.)
@@ -895,7 +894,7 @@ test("selector-priority rule appears no more than twice across the prompt (idemp
   );
 });
 
-/* C1-1: when diffArchetypes are present in the input, the prompt must contain
+/* When diffArchetypes are present in the input, the prompt must contain
    the one-line "Change shape (deterministic):" hint.
  */
 test("diffArchetypes line appears in the prompt when archetypes are present", () => {
@@ -914,7 +913,7 @@ test("diffArchetypes line appears in the prompt when archetypes are present", ()
   );
 });
 
-/* C1-2: when diffArchetypes are absent, NO empty header must appear. */
+/* When diffArchetypes are absent, NO empty header must appear. */
 test("no diffArchetypes line when archetypes are absent", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
@@ -923,7 +922,7 @@ test("no diffArchetypes line when archetypes are absent", () => {
   );
 });
 
-/* C1-3: when diffArchetypes is an empty array, NO empty header must appear. */
+/* When diffArchetypes is an empty array, NO empty header must appear. */
 test("no diffArchetypes line when archetypes array is empty", () => {
   const text = buildPrompt(mkInput({ diffArchetypes: [] }));
   assert.ok(
@@ -1022,7 +1021,7 @@ test("duplicate exemplar matches across multiple patterns are deduped by name (n
    diff cappedDiffText already reads) when the caller supplies none — no new qa-engine plumbing.
  */
 
-test("rider: a diff matching a structural archetype re-enters the generation prompt (structuralPatterns derived from the diff, never explicitly supplied)", () => {
+test("a diff matching a structural archetype re-enters the generation prompt (structuralPatterns derived from the diff, never explicitly supplied)", () => {
   const text = buildPrompt(mkInput({
     diff: [
       "diff --git a/src/api.ts b/src/api.ts",
@@ -1047,7 +1046,7 @@ test("rider: a diff matching a structural archetype re-enters the generation pro
   );
 });
 
-test("rider: a shape-less diff derives only the generic pattern — no exemplar section (never fabricated)", () => {
+test("a shape-less diff derives only the generic pattern — no exemplar section (never fabricated)", () => {
   const text = buildPrompt(mkInput());
   assert.ok(
     !text.includes("## Skill exemplars for the detected structural patterns"),
@@ -1055,7 +1054,7 @@ test("rider: a shape-less diff derives only the generic pattern — no exemplar 
   );
 });
 
-test("rider: an explicitly-supplied structuralPatterns still wins over derivation from the diff", () => {
+test("an explicitly-supplied structuralPatterns still wins over derivation from the diff", () => {
   /* The diff here would derive an api-call pattern if it were consulted; the explicit
      structuralPatterns (form) must win instead — proves the derivation is a FALLBACK, not an override.
    */
@@ -1067,7 +1066,7 @@ test("rider: an explicitly-supplied structuralPatterns still wins over derivatio
   assert.ok(!text.includes("API error handling"), "the diff-derived api-call pattern must NOT also render when structuralPatterns was explicitly supplied");
 });
 
-/* ── Curriculum wiring (D3/D4): a supplied, curriculum-ranked exemplar list ───────────────────────
+/* ── Curriculum wiring: a supplied, curriculum-ranked exemplar list ───────────────────────
    input.skillExemplars is CurriculumPort.select()'s output: the same catalog entries, already
    deduped, already ordered by this app's evidence, and already capped. It REPLACES the local
    derivation above, and prompts.ts must render it verbatim — re-sorting here would decouple "what
@@ -1126,7 +1125,7 @@ test("the diff embedded in the generator prompt uses 'model' mode — an auth-sh
   }));
   assert.ok(
     text.includes("secret: string"),
-    "model-mode sanitization must leave an ordinary type annotation intact in the diff sent to the model (WS5.4a's own stated intent, previously unwired for the diff itself)",
+    "model-mode sanitization must leave an ordinary type annotation intact in the diff sent to the model",
   );
 });
 
@@ -1194,7 +1193,7 @@ test("file-aware redaction: a headerless diff fixture (no 'diff --git' at all) k
   assert.match(text, /hunter2/, "with no file header to key a mode off, the whole text must still fall back to model mode (prior behavior, unchanged)");
 });
 
-/* C2-1: a code-mode generation input WITH staticSignal renders the static-signal section. */
+/* A code-mode generation input WITH staticSignal renders the static-signal section. */
 test("code-mode with staticSignal renders the static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code", staticSignal: "## Static signal\n\nsymbol: Foo.bar" }));
   assert.ok(
@@ -1203,7 +1202,7 @@ test("code-mode with staticSignal renders the static-signal section", () => {
   );
 });
 
-/* C2-2: a code-mode generation input WITHOUT staticSignal must NOT add an empty section. */
+/* A code-mode generation input WITHOUT staticSignal must NOT add an empty section. */
 test("code-mode without staticSignal emits no static-signal section", () => {
   const text = buildPrompt(mkInput({ target: "code" }));
   assert.ok(
@@ -1212,7 +1211,7 @@ test("code-mode without staticSignal emits no static-signal section", () => {
   );
 });
 
-/* C2-3 (regression): the e2e path must be byte-identical when nothing changes — staticSignal present
+/* The e2e path must be byte-identical when nothing changes — staticSignal present
    must still render in e2e mode (non-regression).
  */
 test("regression: e2e-mode with staticSignal still renders static-signal section", () => {

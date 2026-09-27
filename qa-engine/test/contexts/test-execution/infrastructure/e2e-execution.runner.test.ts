@@ -348,7 +348,7 @@ test("runE2E passes project, signal and timeoutMs through to the runner deps", a
   assert.equal(seen.timeoutMs, 5_000);
 });
 
-/* A3: testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
+/* testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
    (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
    validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
    was never set and getByTestId silently resolved the default data-testid on non-default apps.
@@ -634,7 +634,7 @@ test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) ma
   assert.equal(matchFailureDumps(projectFirst, wrongFile), null, "a dump for a different file must not match");
 });
 
-/* C1 single-project: the SAME helper must keep working when the suite IS run with --project (file leads,
+/* Single project: the SAME helper must keep working when the suite IS run with --project (file leads,
    no project segment) — the case name is `owners.spec.ts › Owners › add owner`. file === caseSegs[0] here.
  */
 test("matchFailureDumps: single-project case name (file leads) still matches the file dump", () => {
@@ -688,8 +688,8 @@ test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.sp
   assert.ok(args.includes("flows/login.spec.ts"), `subdirectory spec should be allowed: ${args.join(" ")}`);
 });
 
-/* ── T5: Harvest fold — finalUrl + httpStatus onto QaCase (D1) ─────────────────
-   RED test (T5): the harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
+/* ── Harvest fold — finalUrl + httpStatus onto QaCase ─────────────────
+   The harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
    object that today receives failureDom. Asserts the carry-through, the absent-warned path being
    unchanged (failureDom's WARNING is still the only loud one), and best-effort absence.
  */
@@ -730,7 +730,7 @@ test("harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", a
   const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
   const failed = run.cases.find((c) => c.status === "fail");
   assert.ok(failed, "the failing case must be present");
-  /* T5 assertion: the harvest must carry finalUrl and httpStatus on the SAME object. */
+  /* The harvest must carry finalUrl and httpStatus on the SAME object. */
   assert.equal((failed as QaCase).httpStatus, 500, "harvest must fold dump.httpStatus onto the QaCase");
   assert.equal((failed as QaCase).finalUrl, "http://localhost:3000/owners/new", "harvest must fold dump.finalUrl onto the QaCase");
 });
@@ -776,9 +776,9 @@ test("harvest leaves httpStatus/finalUrl absent when dump has neither (absent-wa
   assert.equal(newWarnings.length, 0, `must NOT emit new warnings for absent httpStatus/finalUrl: ${JSON.stringify(newWarnings)}`);
 });
 
-/* ── Feature B: Harvest fold — runtimeErrors onto QaCase ───────────────────────
-   RED test: the harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
-   receives failureDom/httpStatus/finalUrl (D1/D2 precedent). Mirrors T5 exactly.
+/* ── Harvest fold — runtimeErrors onto QaCase ───────────────────────
+   The harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
+   receives failureDom/httpStatus/finalUrl. Mirrors the finalUrl/httpStatus harvest test exactly.
  */
 
 test("harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
@@ -878,12 +878,12 @@ test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entri
   }
 });
 
-/* ── J6: authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──
+/* ── authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──
    Both createDefaultE2eCleanupDeps and createDefaultE2eExecuteDeps used to accept an OPTIONAL
    authDir and fall back to `dir` (the watched-repo mirror, agent-visible) when omitted — the same
-   vulnerability J5 removed from dom-snapshot.ts's createCaptureDomDeps. authDir is now required: a
+   vulnerability dom-snapshot.ts's createCaptureDomDeps no longer has. authDir is now required: a
    real TypeScript caller that forgets it gets a compile error, and — mirroring the same fail-closed
-   guard idiom used in J5/PublicationPortAdapter — a caller that bypasses the type system still gets
+   guard idiom used in createCaptureDomDeps/PublicationPortAdapter — a caller that bypasses the type system still gets
    an immediate, loud throw instead of a silent fallback to `dir`.
  */
 

@@ -118,10 +118,10 @@ function makeAdapter(opts: {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R1: mirror-freshness fetch fires BEFORE the diff/blastRadius read (design C.4 step 1.5).
+   Mirror-freshness fetch fires BEFORE the diff/blastRadius read.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () => {
+describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
   test("git fetch origin is invoked (via the shared runner + scrubEnv) BEFORE blastRadius reads the diff", async () => {
     const order: string[] = [];
     const runner = new RecordingRunner();
@@ -150,10 +150,10 @@ describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () =
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R2: tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
+   Tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
+describe("CrossRepoImpactPortAdapter — tiered matching", () => {
   test("a diff touching the OpenAPI contract file produces a tier-1 (contract-file) match", async () => {
     const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/resources/api-definition.yaml"]);
     const vcs = new FakeVcs(blast);
@@ -216,10 +216,10 @@ describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R3: every fail-open branch.
+   Every fail-open branch.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
+describe("CrossRepoImpactPortAdapter — fail-open branches", () => {
   test("an absent mirror dir (existsSync false) degrades to null", async () => {
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: "/mirrors/does-not-exist-on-disk" }),
@@ -331,10 +331,10 @@ describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R4: the cheap pre-filter (FIX-6) — zero collaborator calls when no link matches the trigger repo.
+   The cheap pre-filter — zero collaborator calls when no link matches the trigger repo.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
+describe("CrossRepoImpactPortAdapter — cheap pre-filter", () => {
   test("when no resolvedLinks entry has to.repo === triggerRepo, resolve() returns null WITHOUT calling mirrors/VCS/code-graph at all", async () => {
     let mirrorDirCalls = 0;
     const countingMirrors: MirrorRegistryPort = {

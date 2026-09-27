@@ -1170,7 +1170,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
   assert.equal(body.length, 2, "both turns must be returned");
   assert.equal(body[0].role, "qa-generator");
   assert.equal(body[1].role, "qa-reviewer");
-  /* Phase 0b keystone: the reviewer turn must carry a non-null run_id */
+  /* The reviewer turn must carry a non-null run_id */
   assert.equal(body[1].runId, "r1", "reviewer turn must have the parent run's runId");
 });
 

@@ -149,7 +149,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts"), true);
 });
 
-/* Batch S / S2: the adapter that actually WRITES auth material (storageState/client.p12/cert.pass)
+/* The adapter that actually WRITES auth material (storageState/client.p12/cert.pass)
    and the port contract that shapes it — an unreviewed edit here could silently redirect writes
    back into the agent-visible mirror, or drop a field a caller relies on to keep material out of
    it. Protected the same way as scrub-env.ts / auth-session-env.ts.
@@ -174,7 +174,7 @@ test("isProtectedPath flags the control-plane auth boundary", () => {
   assert.equal(isProtectedPath("src/server/webhook.ts"), true);
 });
 
-/* Batch S / S4: api.ts is the REST control-plane router that decides which auth handlers are even
+/* api.ts is the REST control-plane router that decides which auth handlers are even
    reachable (it routes POST /api/auth/login and GET /api/auth/local to auth.ts/github-auth.ts) —
    auth.ts/github-auth.ts/webhook.ts were protected but the router deciding whether their guards run
    at all was not; an autonomous edit here could silently stop calling them, or route around them,
@@ -187,7 +187,7 @@ test("isProtectedPath flags the control-plane router that decides auth-handler r
 /* These four sequence the autonomous-deploy gates themselves (the SELF_MAINTAINER_AUTOMERGE
    kill-switch, assessChange/assessRate, performSwap/rollback, and the mandatory justification
    fields) — an autonomous fix that rewrites maintainer-runtime.ts could silently skip its own
-   gates without ever touching merge-guard.ts, boot-guard.mjs or self-update.ts (Batch S / S1).
+   gates without ever touching merge-guard.ts, boot-guard.mjs or self-update.ts.
  */
 test("isProtectedPath flags the maintainer runtime that sequences the autonomous-deploy gates", () => {
   assert.equal(isProtectedPath("src/server/maintainer-runtime.ts"), true);

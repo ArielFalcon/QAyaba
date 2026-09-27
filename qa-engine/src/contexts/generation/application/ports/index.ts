@@ -36,13 +36,13 @@ export interface PromptRenderingPort {
   specFileForFlow(flow: string): string;
 }
 
-/** e2e: real grounding; code-mode: NullDomGroundingAdapter returns an empty context (§3 hard limit). */
+/** e2e: real grounding; code-mode: NullDomGroundingAdapter returns an empty context (code mode has no browser). */
 export interface DomGrounding { aria: string; routes: string[]; }
 export interface DomGroundingPort {
   ground(objective: Objective): Promise<DomGrounding>;
 }
 
-/** capDiff/capText prompt-budget capping — a generation concern, NOT redaction (§5.3(8)). budgetForRole resolves the per-role byte budget (model → window → bytes) from the catalog; the adapter FORWARDS roleWindowBytes(role) — the port carries no threshold, the catalog owns it. */
+/** capDiff/capText prompt-budget capping — a generation concern, NOT redaction. budgetForRole resolves the per-role byte budget (model → window → bytes) from the catalog; the adapter FORWARDS roleWindowBytes(role) — the port carries no threshold, the catalog owns it. */
 export interface PromptBudgetPort {
   capDiff(diff: string): string;
   capText(text: string): string;

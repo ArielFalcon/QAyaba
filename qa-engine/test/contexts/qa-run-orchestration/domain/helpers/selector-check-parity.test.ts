@@ -179,8 +179,7 @@ test("PARITY: ProposedSelector shape round-trips through both copies identically
   assert.deepEqual(sel, { kind: "role", role: "button", name: "Submit", exact: true });
 });
 
-/* B0's header explicitly deferred these as "addendum G2's SEPARATE, out-of-scope concern" — B5
-   closes that gap: pre-exec-grounding.service.ts (B5.2) needs extractCatalogSelectors/
+/* pre-exec-grounding.service.ts needs extractCatalogSelectors/
    confidentWindowEnd/extractTestIdSelectorsWithIndex/firstGotoRoute + unscopedMultipleContradictions
    living in the SAME canonical module as checkSpecSelectors (composing route-catalog/catalog-gate
    would otherwise force a second, parallel port of these four functions).
@@ -300,7 +299,7 @@ test("DECLARED divergence: role-chained scoping (table.getByRole(...)) suppresse
 });
 
 test("page-rooted suppression applies UNCONDITIONALLY (no anyNonExtractable gate) — a real ambiguity with NO non-extractable locator anywhere still surfaces", () => {
-  /* Regression guard for the OTHER B5.1 fix ("page-rooted suppression applies unconditionally, not
+  /* Regression guard for the page-rooted suppression rule ("page-rooted suppression applies unconditionally, not
      gated on anyNonExtractable"): a spec with ZERO non-extractable locators must still surface a
      genuine page-rooted MULTIPLE (this must NOT start returning [] just because the idiom-aware
      suppression logic now always runs the per-selector path instead of the anyNonExtractable fast path).

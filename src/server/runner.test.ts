@@ -499,7 +499,7 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.baseSha into port.run
     await queue.drain();
     assert.equal(getRecord(id)!.verdict, "pass");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run — this is the exact seam WS7.1 restores");
+    assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
@@ -546,7 +546,7 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.parentRunId into port
     await queue.drain();
     assert.equal(getRecord(id)!.verdict, "pass");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run — this is the exact seam Slice 5 restores");
+    assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;

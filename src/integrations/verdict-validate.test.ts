@@ -100,7 +100,7 @@ test("parseReviewerVerdict takes the LAST verdict object", () => {
   assert.equal(v.approved, false);
 });
 
-test("Phase 4 (a): advisory-only verdict — blockingCount is zero, gate passes", () => {
+test("advisory-only verdict — blockingCount is zero, gate passes", () => {
   /* A verdict with advisory corrections only must yield blockingCount=0 so the caller's
      severity gate approves (advisory corrections are non-fatal notes, not regeneration triggers).
    */
@@ -119,7 +119,7 @@ test("Phase 4 (a): advisory-only verdict — blockingCount is zero, gate passes"
   assert.equal(v.corrections.length, 2, "both advisory corrections surfaced as strings");
 });
 
-test("Phase 4 (b): blocking correction — blockingCount is non-zero, gate fails", () => {
+test("blocking correction — blockingCount is non-zero, gate fails", () => {
   /* A verdict with at least one blocking correction must yield blockingCount>=1. */
   const json = JSON.stringify({
     approved: false,
@@ -135,7 +135,7 @@ test("Phase 4 (b): blocking correction — blockingCount is non-zero, gate fails
   assert.equal(v.corrections.length, 2, "both corrections in the flat list");
 });
 
-test("Phase 4 (c): missing severity field defaults to blocking (fail-closed backward compat)", () => {
+test("missing severity field defaults to blocking (fail-closed backward compat)", () => {
   /* A plain-string correction (no severity field) must be treated as blocking so older
      reviewer outputs do not accidentally pass the gate with unclassified corrections.
    */
@@ -150,7 +150,7 @@ test("Phase 4 (c): missing severity field defaults to blocking (fail-closed back
   assert.equal(v.corrections[0], "[other] some.spec.ts: a correction without a severity field");
 });
 
-test("Phase 4 (c2): mixed structured and plain-string corrections — plain strings count as blocking", () => {
+test("mixed structured and plain-string corrections — plain strings count as blocking", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "mixed format",
@@ -164,7 +164,7 @@ test("Phase 4 (c2): mixed structured and plain-string corrections — plain stri
   assert.equal(v.corrections.length, 2);
 });
 
-test("Phase 4 (e): approve-when-resolved — zero blocking in round 2 approves even with advisories", () => {
+test("approve-when-resolved — zero blocking in round 2 approves even with advisories", () => {
   /* Simulates the round-2 verdict after the generator resolved the blocking correction:
      the remaining advisory nit must NOT prevent approval.
    */

@@ -173,7 +173,7 @@ test("ResolutionSummarySchema rejects a BoundaryEdgeSummary entry with an invali
   }));
 });
 
-test("ResolutionSummarySchema rejects a payload missing drift (Slice A hardening: drift is required, mirroring unresolved/external)", () => {
+test("ResolutionSummarySchema rejects a payload missing drift (drift is required, mirroring unresolved/external)", () => {
   assert.throws(() => ResolutionSummarySchema.parse({
     edges: [],
     unresolved: 0,

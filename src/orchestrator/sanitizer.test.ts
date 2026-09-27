@@ -51,7 +51,7 @@ test("issue mode (explicit): identical to default — aggressive public-surface 
    selectorContradiction line quoting a UI element's accessible name. Kept in lockstep with this
    file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
  */
-test("BUGFIX: a secret-shaped match immediately followed by a closing quote does not swallow that quote", () => {
+test("a secret-shaped match immediately followed by a closing quote does not swallow that quote", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/, "the secret-shaped value must still be redacted");
@@ -62,21 +62,21 @@ test("BUGFIX: a secret-shaped match immediately followed by a closing quote does
   );
 });
 
-test("BUGFIX: generic-credential does not swallow a trailing closing quote either", () => {
+test("generic-credential does not swallow a trailing closing quote either", () => {
   const input = 'the log says "credential: abc123" was rejected';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
   assert.match(out, /"\[REDACTED\]" was rejected/, `got: ${JSON.stringify(out)}`);
 });
 
-test("BUGFIX: env-credential does not swallow a trailing closing quote either", () => {
+test("env-credential does not swallow a trailing closing quote either", () => {
   const input = 'the config had "GITHUB_TOKEN: abc123" set';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
   assert.match(out, /"\[REDACTED\]" set/, `got: ${JSON.stringify(out)}`);
 });
 
-test("BUGFIX: bearer-token does not swallow a trailing closing quote either", () => {
+test("bearer-token does not swallow a trailing closing quote either", () => {
   const input = 'header dump: "Authorization: Bearer abc123xyz" logged';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
@@ -87,21 +87,21 @@ test("BUGFIX: bearer-token does not swallow a trailing closing quote either", ()
    unredacted. A secret value with an embedded quote must not leak that tail. Keep in lockstep with
    this file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
  */
-test("BUGFIX (round 4): a secret value with an embedded quote does not leak its tail", () => {
+test("a secret value with an embedded quote does not leak its tail", () => {
   const input = 'token=abc"def';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /def/, `the tail after the embedded quote must not leak — got: ${JSON.stringify(out)}`);
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("BUGFIX (round 4): GITHUB_TOKEN with an embedded quote does not leak its tail", () => {
+test("GITHUB_TOKEN with an embedded quote does not leak its tail", () => {
   const input = 'GITHUB_TOKEN=ghp_abc"XYZ123';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /XYZ123/, `the tail after the embedded quote must not leak — got: ${JSON.stringify(out)}`);
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("BUGFIX (round 4): a prose keyword false-match does not let a quoted secret with an escaped inner quote ship unredacted", () => {
+test("a prose keyword false-match does not let a quoted secret with an escaped inner quote ship unredacted", () => {
   const input = 'leaked secret: password="mySecretPass\\"WithQuote" end';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /mySecretPass/, `got: ${JSON.stringify(out)}`);
@@ -114,7 +114,7 @@ test("BUGFIX (round 4): a prose keyword false-match does not let a quoted secret
    branch can consume the full value past the escaped inner quotes. Reverting that branch to the
    naive `"[^"]*"` leaks `quoted\" value" end`; no other test reaches this code path.
  */
-test("BUGFIX (round 4): escape-aware quoted branch — a quoted value with internal spaces and escaped quotes is fully redacted", () => {
+test("escape-aware quoted branch — a quoted value with internal spaces and escaped quotes is fully redacted", () => {
   const input = 'password="my \\"quoted\\" value" end';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /quoted/, `the escaped-quote interior must not leak — got: ${JSON.stringify(out)}`);

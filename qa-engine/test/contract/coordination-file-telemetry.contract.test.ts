@@ -61,7 +61,7 @@ test("the ledger is bounded — oldest entries rotate out of memory AND the file
   for (let i = 0; i < MAX_LEDGER_EVENTS + overflow; i++) {
     adapter.record(event({ runId: `r${i}`, at: i }));
   }
-  /* J2: rotation trims down to the lower ROTATE_TO_EVENTS watermark (not exactly the cap), and it
+  /* Rotation trims down to the lower ROTATE_TO_EVENTS watermark (not exactly the cap), and it
      triggers the instant the cap is crossed (consuming 1 of the overflow), so the ledger settles
      at ROTATE_TO_EVENTS + (overflow - 1) once that single rotation has fired. */
   const expected = ROTATE_TO_EVENTS + (overflow - 1);
@@ -75,7 +75,7 @@ test("the ledger is bounded — oldest entries rotate out of memory AND the file
   assert.equal(reloaded.events.length, expected, "a fresh boot must reload the bounded (not unbounded) file");
 });
 
-/* J2: rotateIfOverCap used to trim to exactly MAX_LEDGER_EVENTS, so every record() past the cap
+/* rotateIfOverCap used to trim to exactly MAX_LEDGER_EVENTS, so every record() past the cap
    re-triggered a full synchronous file rewrite (writeFileSync + renameSync). Trimming down to a
    lower watermark (ROTATE_TO_EVENTS) means the next (MAX_LEDGER_EVENTS - ROTATE_TO_EVENTS) records
    grow the ledger organically (plain appendFileSync) without another full rewrite. */

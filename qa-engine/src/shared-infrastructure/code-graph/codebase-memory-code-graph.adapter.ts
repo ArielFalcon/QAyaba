@@ -1,4 +1,4 @@
-/* Placement: shared-infrastructure/ because this port has no single owning bounded context (phases 3/4 both spawn the same binary, precedent #947). RunQaUseCase calls this on the per-run indexing phase when lastIndexedSha differs from the run SHA (both IndexStatusPort and CodeGraphPort must be wired). GROUNDING DEVIATION FROM DESIGN §3.1 LITERAL QUERY TEXT (discovered during 4a fixture-capture against the real codebase-memory-mcp v0.8.1 binary): a `WHERE` clause placed immediately after an `OPTIONAL MATCH` clause causes the CLI to silently fall back to a degenerate default projection (columns become a.name/a.qualified_name/a.label only) instead of executing the intended filter or erroring loudly. Verified reproducible with a minimal isolated probe. WORKAROUND (permitted by the design's own client-side-filter fallback clause in §3.0/§3.1: "where a hop can't express it, filter CLIENT-SIDE in parse()"): the confidence floor on any OPTIONAL MATCH hop is NOT expressed in a trailing Cypher WHERE — the confidence column is returned as a plain RETURN value and filtered client-side in parse(). The floor on the FIRST (non-optional) hop, attached to the anchor MATCH's own WHERE, executes correctly and is used as written. `coChangeCoupling` uses `f.file_path`/`g.file_path`. - FILE_CHANGES_WITH is stored DIRECTED, exactly one row per pair (not two directed rows). A directed-only match anchored on the "changed" side alone would silently drop any pair where the changed file is stored as the edge's TARGET — the match MUST be UNDIRECTED `(f)-[r:FILE_CHANGES_WITH]-(g)`, deduped by the coupled (non-anchor) file. Confirmed response shape (2a's captured fixture pattern, mirrored here): row-oriented, all-string cells — `{ columns: string[], rows: string[][], total: number }`. */
+/* Placement: shared-infrastructure/ because this port has no single owning bounded context (more than one bounded context spawns the same binary). RunQaUseCase calls this on the per-run indexing phase when lastIndexedSha differs from the run SHA (both IndexStatusPort and CodeGraphPort must be wired). OPTIONAL MATCH FILTERING (verified against the real codebase-memory-mcp v0.8.1 binary): a `WHERE` clause placed immediately after an `OPTIONAL MATCH` clause causes the CLI to silently fall back to a degenerate default projection (columns become a.name/a.qualified_name/a.label only) instead of executing the intended filter or erroring loudly. Verified reproducible with a minimal isolated probe. WORKAROUND (where a hop can't express it, filter CLIENT-SIDE in parse()): the confidence floor on any OPTIONAL MATCH hop is NOT expressed in a trailing Cypher WHERE — the confidence column is returned as a plain RETURN value and filtered client-side in parse(). The floor on the FIRST (non-optional) hop, attached to the anchor MATCH's own WHERE, executes correctly and is used as written. `coChangeCoupling` uses `f.file_path`/`g.file_path`. - FILE_CHANGES_WITH is stored DIRECTED, exactly one row per pair (not two directed rows). A directed-only match anchored on the "changed" side alone would silently drop any pair where the changed file is stored as the edge's TARGET — the match MUST be UNDIRECTED `(f)-[r:FILE_CHANGES_WITH]-(g)`, deduped by the coupled (non-anchor) file. Confirmed response shape (the sibling adapter's captured fixture pattern, mirrored here): row-oriented, all-string cells — `{ columns: string[], rows: string[][], total: number }`. */
 import { ok, err, type Result } from "../../shared-kernel/result.ts";
 import type { BlastRadius } from "../../shared-kernel/blast-radius.ts";
 import type { CodeGraphPort } from "../../shared-kernel/ports/code-graph.port.ts";
@@ -18,7 +18,7 @@ const DEFAULT_MIN_CONFIDENCE = 0.55;
 
 const MAX_HOP_DEPTH = 3;
 
-/* --------------------------------------------------------------------------------------------- §3.0 — SAFE literal inlining. Net-new: the sibling adapter inlines a CONSTANT query, this one inlines UNTRUSTED-SHAPED dynamic values (changed file paths, symbol names) into a literal Cypher string. Any value containing a control character or newline is DROPPED (never injected, never escaped-and-kept) — a per-value degrade, never a query-corruption risk. --------------------------------------------------------------------------------------------- */
+/* --------------------------------------------------------------------------------------------- SAFE literal inlining. The sibling adapter inlines a CONSTANT query, this one inlines UNTRUSTED-SHAPED dynamic values (changed file paths, symbol names) into a literal Cypher string. Any value containing a control character or newline is DROPPED (never injected, never escaped-and-kept) — a per-value degrade, never a query-corruption risk. --------------------------------------------------------------------------------------------- */
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHAR_OR_NEWLINE = /[\x00-\x1f\x7f]/;
@@ -320,7 +320,7 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
     return ok(mapCoChangeRows(parsed.value, new Set(files)));
   }
 
-  /** Real per design §3.3: inbound CALLS anchored on `symbol.file` + `symbol.symbol` (both via
+  /** Inbound CALLS anchored on `symbol.file` + `symbol.symbol` (both via
    *  inlineLiteral), explicit unrolled hops to the clamped positional depth, confidence floor
    *  primarily in the anchor's own WHERE + client-side re-check for every hop. */
   async callersOf(
@@ -347,8 +347,7 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
     return ok(mapCallerRows(parsed.value, symbol, clampedDepth, minConfidence));
   }
 
-  /** OUT OF SCOPE for this entire change (spec §2 non-requirements, Scenario K): the spike proved
-   *  zero TESTS/TESTS_FILE/COVERS edges exist. Stays inert — never promoted to real graph data. */
+  /** Not graph-backed: the index holds zero TESTS/TESTS_FILE/COVERS edges. Stays inert — never promoted to real graph data. */
   async existingCoverage(
     _repoDir: string,
     _changed: BlastRadius,
@@ -356,7 +355,7 @@ export class CodebaseMemoryCodeGraphAdapter implements CodeGraphPort {
     return ok([]);
   }
 
-  /** OUT OF SCOPE for this entire change (spec §2 non-requirements, Scenario K). */
+  /** Not graph-backed; stays inert — never promoted to real graph data. */
   async structurallyRelated(
     _repoDir: string,
     _symbols: LocalSymbolRef[],

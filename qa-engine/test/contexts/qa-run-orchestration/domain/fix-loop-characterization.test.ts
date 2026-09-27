@@ -4,7 +4,7 @@ import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "
 import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 
-/* CHARACTERIZATION: drives the FixLoop through the fail-issue golden's stub semantics
+/* Drives the FixLoop through the fail-issue golden's stub semantics
    (test/characterization/goldens/fail-issue.json) and asserts retries:1 + final verdict=fail.
    invalid-issue.json's retries:2 comes from the static-gate repair loop, which this aggregate does
    not contain (`run.verdict === "fail"` never evaluates for invalid). This file characterizes
@@ -12,7 +12,7 @@ import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-cloc
    maxRetries=2 with a progress-preserving stub.
  */
 
-test("CHARACTERIZATION: fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/characterization/goldens/fail-issue.json)", async () => {
+test("fail-issue golden — FixLoop reproduces retries:1, verdict=fail (test/characterization/goldens/fail-issue.json)", async () => {
   /* Mirrors makeDeps({ run: { sha:"s", verdict:"fail", passed:false, cases:[{name:"login",
      status:"fail"}], logs:"x" } }) from scenarios.ts exactly: execute() ALWAYS returns the SAME fail
      result (no state change across retries — no .detail, no .failureDom, no .file on the case), and
@@ -67,7 +67,7 @@ test("CHARACTERIZATION: fail-issue golden — FixLoop reproduces retries:1, verd
   assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human", "round 2 stops via the fail-closed progress gate (Rule 5), matching the legacy's own asymmetric-stop behavior");
 });
 
-test("CHARACTERIZATION: FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress-preserving stub (upper-bound proof, independent of invalid-issue's unrelated static-gate loop)", async () => {
+test("FixLoop's OWN retries counter reaches 2 under maxRetries=2 with a progress-preserving stub (upper-bound proof, independent of invalid-issue's unrelated static-gate loop)", async () => {
   /* A stub where EACH round shows measurable progress (Signal A: failing count strictly decreases),
      so decideProgress spends on every round up to the maxRetries cap — proving the aggregate's own
      loop can reach retries:2 (the SAME cap invalid-issue.json's static-gate loop independently hits

@@ -319,7 +319,7 @@ test("retrieve() with a generously large budget returns every retrieved rule unc
   assert.deepEqual(result.map((r) => r.id), ["r1"], "a rule set that already fits the default budget must not be trimmed");
 });
 
-/* R4: retrieve()'s optional relevance bias must reach LearningRepositoryPort.topRules verbatim —
+/* retrieve()'s optional relevance bias must reach LearningRepositoryPort.topRules verbatim —
    this is the wiring that was missing: RuleGovernanceService.topRules' errorClass/archetype bias
    (rule-governance.service.ts) existed but production never fed it anything, because retrieve()
    itself had no parameter to carry it through.

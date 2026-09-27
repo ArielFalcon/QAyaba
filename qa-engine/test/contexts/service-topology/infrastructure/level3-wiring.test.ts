@@ -13,7 +13,7 @@ import type { GenerationPorts } from "@contexts/generation/application/generate-
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 
-/* ---- L3.1: MirrorRegistryPort + StubMirrorRegistryAdapter ----
+/* ---- MirrorRegistryPort + StubMirrorRegistryAdapter ----
    The stub must implement the port contract:
    mirrorDir(repo: string): Promise<string>
    The stub must return a path (not throw) for any repo.
@@ -32,7 +32,7 @@ test("StubMirrorRegistryAdapter returns a consistent path for the same repo", as
   assert.equal(a, b, "same repo should return the same path on each call");
 });
 
-/* ---- L3.2: OpencodeRunInput.serviceLinks field ----
+/* ---- OpencodeRunInput.serviceLinks field ----
    The field must be optional (no existing tests break) and accept ServiceLink[].
  */
 
@@ -80,7 +80,7 @@ test("OpencodeRunInput without serviceLinks is still valid (optional field)", ()
   assert.equal(input.serviceLinks, undefined, "serviceLinks is absent when not provided");
 });
 
-/* ---- L3.3: GenerateTestsUseCase propagates serviceLinks to renderMain intact ----
+/* ---- GenerateTestsUseCase propagates serviceLinks to renderMain intact ----
    NOTE: no production renderMain implementation renders a "CROSS-REPO LINKS" prompt section
    from serviceLinks yet (that rendering is deferred to the runtime-wiring step — see the
    comment on OpencodeRunInput.serviceLinks in generation-ports.ts). What IS real today is that

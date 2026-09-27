@@ -16,7 +16,7 @@ import {
   clearPendingPromote,
 } from "./self-update";
 
-test("pending-promote survives the swap marker being cleared, and is cleared on terminal outcome (SELF-03)", () => {
+test("pending-promote survives the swap marker being cleared, and is cleared on terminal outcome", () => {
   const dir = mkdtempSync(join(tmpdir(), "promote-"));
   try {
     assert.equal(readPendingPromote(dir), null);

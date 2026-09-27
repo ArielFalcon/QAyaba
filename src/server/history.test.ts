@@ -188,7 +188,7 @@ test("recordRuleOutcome does NOT promote on good outcomes alone when none are or
   assert.ok(r, "rule should still exist");
   assert.equal(r!.outcomeCount, 3);
   assert.equal(r!.oracleOutcomeCount, 0, "isOracleScore was never passed — defaults to false");
-  assert.equal(r!.status, "candidate", "WS1.4(b): zero objective evidence — must not promote regardless of successRate");
+  assert.equal(r!.status, "candidate", "zero objective evidence — must not promote regardless of successRate");
 });
 
 /* A row an older build wrote can still carry the retired "pending" status (nothing inserts it
@@ -353,7 +353,7 @@ test("deleteAppHistory removes the app's runs (cascading cases/specs) but not ot
   assert.ok(getRecord(other.id));
 });
 
-/* ── context_maps (Batch F: persist the FE<->BE architecture map from mode:context runs) ────────── */
+/* ── context_maps (the persisted FE<->BE architecture map from mode:context runs) ────────── */
 
 test("saveContextMap/loadContextMap round-trip per app; latest save wins; a corrupt row is logged loudly and treated as absent, never crashes", () => {
   const app = `hist-ctxmap-${Date.now().toString(36)}`;
@@ -529,7 +529,7 @@ function makeTurn(overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord {
   };
 }
 
-test("Phase 0 A.1/A.2: saveAgentTurn round-trips to getAgentTurns with all fields", () => {
+test("saveAgentTurn round-trips to getAgentTurns with all fields", () => {
   const turn = makeTurn();
   saveAgentTurn(turn);
   const rows = getAgentTurns(turn.runId!);
@@ -551,13 +551,13 @@ test("Phase 0 A.1/A.2: saveAgentTurn round-trips to getAgentTurns with all field
   assert.equal(saved!.objective, "test the login flow");
 });
 
-test("Phase 0 A.2: saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
+test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
   const turn = makeTurn({ runId: null, sessionId: "sess-no-run" });
   /* Should not throw — null runId is explicitly valid (e.g. maintainer, chat sessions). */
   assert.doesNotThrow(() => saveAgentTurn(turn));
 });
 
-test("Phase 0 A.2: getAgentTurns returns multiple turns in chronological order", () => {
+test("getAgentTurns returns multiple turns in chronological order", () => {
   const runId = "run-order-test-" + Date.now();
   saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 0, role: "qa-generator", promptText: "first" }));
   saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 1, role: "qa-generator", promptText: "second" }));
@@ -569,7 +569,7 @@ test("Phase 0 A.2: getAgentTurns returns multiple turns in chronological order",
   assert.equal(rows[2]!.role, "qa-reviewer");
 });
 
-test("Phase 0 A.2: saveAgentTurn accepts null token fields (Codex path)", () => {
+test("saveAgentTurn accepts null token fields (Codex path)", () => {
   const runId = "run-codex-null-" + Date.now();
   const turn = makeTurn({
     runId,
@@ -589,7 +589,7 @@ test("Phase 0 A.2: saveAgentTurn accepts null token fields (Codex path)", () => 
   assert.equal(rows[0]!.cost, null);
 });
 
-test("Phase 0 A.2: saveAgentTurn stores sanitized output — caller must pre-sanitize (contract)", () => {
+test("saveAgentTurn stores sanitized output — caller must pre-sanitize (contract)", () => {
   /* The store accepts whatever it receives; the DI contract requires the caller (defaultAgentDeps
      funnel) to sanitize before calling saveAgentTurn. We test that round-trip is faithful.
    */
@@ -600,7 +600,7 @@ test("Phase 0 A.2: saveAgentTurn stores sanitized output — caller must pre-san
   assert.equal(rows[0]!.outputText, sanitizedText);
 });
 
-test("Phase 0 A.1: agent_turns table migrates idempotently on an existing DB (columnExists guard)", () => {
+test("agent_turns table migrates idempotently on an existing DB (columnExists guard)", () => {
   /* Calling saveAgentTurn twice with different sessions for the same run must work without errors,
      proving the schema was created exactly once (the IF NOT EXISTS guards prevent duplicate tables).
    */

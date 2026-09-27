@@ -1,5 +1,5 @@
 /* test/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.test.ts
-   RED-first (Task E.0): GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
+   GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
    and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
    a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own
    FixLoopGenerateResult.specSources contract) — absent/empty when the read collaborator is absent.
@@ -313,7 +313,7 @@ test("generate() with absent enrichment.contextPack/existingSpecFiles omits both
   }
 });
 
-/* T4: enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
+/* enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
    renderArchitectureContext. Spreading only contextPack text is not enough.
  */
 const T4_CONTEXT_MAP = {

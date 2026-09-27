@@ -393,7 +393,7 @@ test("ground(): a throwing loadContextMap collaborator is non-fatal — degrades
   assert.equal(result.contextPack, undefined);
 });
 
-/* T4: GroundingResult must carry the per-run contextMap object (not only feed it to
+/* GroundingResult must carry the per-run contextMap object (not only feed it to
    buildContextPack) so RunQaUseCase can thread it onto GenerationEnrichment → OpencodeRunInput.
  */
 test("ground(): returned GroundingResult includes contextMap when a valid context.json exists", async () => {

@@ -369,8 +369,8 @@ test("real git fixture (negative): a rename fully INSIDE e2e/ is not a stray —
    `renameCounterpart`. A rename fully inside the allowed area (both sides pass classifyStrays
    untouched) whose NEW side is a symlink escaping the mirror only pushed the new side into the
    revert bucket: `git restore --staged --worktree --source=HEAD -- <new>` then leaves the old
-   side's staged deletion orphaned — the exact destructive pattern the round-1 fix closed via
-   classifyStrays, reopened here via the second code path that never got the same treatment.
+   side's staged deletion orphaned — the exact destructive pattern classifyStrays
+   closes, which this second code path must close too.
  */
 
 test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts BOTH sides — rename fully undone (e2e target)", async () => {
@@ -617,10 +617,10 @@ test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT 
    path (containing a real `"` character) is what actually reaches git, not the still-escaped form.
    Under `core.quotePath=false`, git still C-style-quotes a path for reasons OTHER than non-ASCII
    bytes (here: an embedded space) but leaves the non-ASCII bytes literal inside the quotes instead
-   of octal-escaping them (as it would under the default core.quotePath=true, round 3's fix). The
+   of octal-escaping them (as it would under the default core.quotePath=true). The
    old literal-character branch of decodeQuoted pushed a raw UTF-16 code unit as a single byte —
    invalid standalone UTF-8 for a non-ASCII char — corrupting the decoded path so the revert
-   pathspec matched nothing on disk, the same silent-bypass class as round 3.
+   pathspec matched nothing on disk, the same silent-bypass class as the octal-escape case.
  */
 test("real git fixture: an untracked stray needing quoting for an embedded space AND a literal non-ASCII char is ACTUALLY deleted from disk under core.quotePath=false (e2e target)", async () => {
   const repo = initRepo();

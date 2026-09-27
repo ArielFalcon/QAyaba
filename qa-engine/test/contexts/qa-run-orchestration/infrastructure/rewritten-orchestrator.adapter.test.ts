@@ -315,7 +315,7 @@ test("reviewerApproved is forwarded into the returned RunOutcome, not hardcoded 
   });
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 
-  const outcome = await adapter.run({ ...baseInput, runId: "fix-1-adapter-reviewer-approved" });
+  const outcome = await adapter.run({ ...baseInput, runId: "adapter-reviewer-approved" });
 
   assert.equal(outcome.gateSignals.reviewerApproved, true, "reviewerApproved must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
 });
@@ -327,7 +327,7 @@ test("valueScore is forwarded into the returned RunOutcome, not hardcoded null",
   });
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: { ...baseConfig, needsReview: false } });
 
-  const outcome = await adapter.run({ ...baseInput, runId: "fix-3-adapter-value-score" });
+  const outcome = await adapter.run({ ...baseInput, runId: "adapter-value-score" });
 
   assert.equal(outcome.gateSignals.valueScore, 0.85, "valueScore must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome, matching the value-oracle result");
 });
@@ -339,7 +339,7 @@ test("errorClass is forwarded into the returned RunOutcome, not hardcoded null",
   });
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 
-  const outcome = await adapter.run({ ...baseInput, runId: "fix-4-adapter-error-class" });
+  const outcome = await adapter.run({ ...baseInput, runId: "adapter-error-class" });
 
   assert.equal(outcome.verdict, "fail");
   assert.equal(outcome.errorClass, "E-EXEC-FAIL", "errorClass must be forwarded from the use-case's RunQaResult into the adapter's RunOutcome");
@@ -377,5 +377,5 @@ test("a clean pass carries the real publish() outcome, never a fabricated diagno
   const outcome = await adapter.run({ ...baseInput, runId: "note-chain-adapter-no-note" });
 
   assert.equal(outcome.verdict, "pass");
-  assert.equal(outcome.note, "pr", "a clean pass's note must reflect the REAL publish() outcome string (F1), not be silently dropped");
+  assert.equal(outcome.note, "pr", "a clean pass's note must reflect the REAL publish() outcome string, not be silently dropped");
 });

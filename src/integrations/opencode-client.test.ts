@@ -384,7 +384,7 @@ test("buildWorkerPrompt is surgical: exact file, write-early discipline, no mani
   const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
   const p = buildWorkerPrompt(w);
   assert.match(p, /Write EXACTLY this file: e2e\/flows\/checkout\.spec\.ts/);
-  /* Q2: workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
+  /* Workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
      They transcribe the injected a11y tree instead. No LIVE DEV URL line in needsUi branch.
    */
   assert.doesNotMatch(p, /browser_navigate/);
@@ -423,7 +423,7 @@ test("buildWorkerPrompt injects the live a11y tree as GROUND TRUTH when provided
    are the "section order contract" that must stay green whenever prompts.ts or context-assembler.ts
    are modified.
  */
-test("Phase 1b E.5: buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
+test("buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
   const base: ParallelWorkerInput = {
     objective: "verify checkout flow",
     flow: "checkout",
@@ -535,7 +535,7 @@ test("buildContextTask without services is unchanged (no microservice section)",
    surfaces were dead (no production caller); this builder is still live.
  */
 
-test("Phase 5 regression gate: buildWorkerPrompt for complete mode preserves objective + context sections", () => {
+test("buildWorkerPrompt for complete mode preserves objective + context sections", () => {
   /* Complete mode workers receive a prompt from buildWorkerPrompt. The prompt must still contain */
   const completeWorker: ParallelWorkerInput = {
     objective: "Given the owners list, when the user clicks Add Owner, then a form appears",
@@ -809,7 +809,7 @@ function makeReviewInput(dir: string, overrides?: Partial<ReviewInput>): ReviewI
   };
 }
 
-test("Phase 1a D.1: buildReviewerPrompt produces the independence framing and key structural sections (diff mode)", () => {
+test("buildReviewerPrompt produces the independence framing and key structural sections (diff mode)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// login spec\ntest('login', async () => {});");
@@ -831,7 +831,7 @@ test("Phase 1a D.1: buildReviewerPrompt produces the independence framing and ke
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects the diff as the objective in diff mode (not manual framing)", () => {
+test("buildReviewerPrompt injects the diff as the objective in diff mode (not manual framing)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-diff-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -845,7 +845,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects the diff as the objective in dif
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt uses guidance as the objective in manual mode (not diff)", () => {
+test("buildReviewerPrompt uses guidance as the objective in manual mode (not diff)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-manual-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -859,7 +859,7 @@ test("Phase 1a D.1: buildReviewerPrompt uses guidance as the objective in manual
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects the DOM snapshot when provided", () => {
+test("buildReviewerPrompt injects the DOM snapshot when provided", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-dom-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -874,7 +874,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects the DOM snapshot when provided",
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt omits the DOM section when no snapshot is provided", () => {
+test("buildReviewerPrompt omits the DOM section when no snapshot is provided", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-nodom-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -886,12 +886,12 @@ test("Phase 1a D.1: buildReviewerPrompt omits the DOM section when no snapshot i
   }
 });
 
-/* Phase 1b deixis guard (regression for the stale "above" wording): the canonical reorder places the
+/* Deixis guard (no stale "above" wording): the canonical reorder places the
    ## Instructions section BEFORE the spec contents and the Live DEV DOM, so any instruction that
    claims either is "above" is FALSE. Assert the instructions are position-independent AND that the
    real section order matches the wording (Instructions precede both specs and DOM).
  */
-test("Phase 1b: reviewer Instructions are position-independent and precede the specs/DOM they reference", () => {
+test("reviewer Instructions are position-independent and precede the specs/DOM they reference", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-deixis-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// SPEC_BODY_MARKER\ntest('x', async () => {});");
@@ -925,7 +925,7 @@ test("Phase 1b: reviewer Instructions are position-independent and precede the s
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects learnedRules when present and adds the extra rule instruction", () => {
+test("buildReviewerPrompt injects learnedRules when present and adds the extra rule instruction", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-rules-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -939,7 +939,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects learnedRules when present and ad
   }
 });
 
-test("Phase 4: buildReviewerPrompt includes severity instructions in the output contract", () => {
+test("buildReviewerPrompt includes severity instructions in the output contract", () => {
   /* The output contract section must explain the blocking/advisory severity field so the
      reviewer knows to emit structured correction objects.
    */
@@ -956,7 +956,7 @@ test("Phase 4: buildReviewerPrompt includes severity instructions in the output 
   }
 });
 
-test("Phase 4: buildReviewerPrompt without priorCorrections omits the prior-corrections section", () => {
+test("buildReviewerPrompt without priorCorrections omits the prior-corrections section", () => {
   /* On round 1, there are no prior corrections to inject — the section must be absent. */
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-no-prior-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
@@ -969,7 +969,7 @@ test("Phase 4: buildReviewerPrompt without priorCorrections omits the prior-corr
   }
 });
 
-test("Phase 4 (d): buildReviewerPrompt injects priorCorrections as a VOLATILE section on round 2+", () => {
+test("buildReviewerPrompt injects priorCorrections as a VOLATILE section on round 2+", () => {
   /* On round 2, the reviewer must receive its own round-1 corrections so it can converge. */
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prior-round-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
@@ -987,7 +987,7 @@ test("Phase 4 (d): buildReviewerPrompt injects priorCorrections as a VOLATILE se
   }
 });
 
-test("Phase 4: buildReviewerPrompt prior-corrections section appears AFTER specs in the assembled order", () => {
+test("buildReviewerPrompt prior-corrections section appears AFTER specs in the assembled order", () => {
   /* The prior-corrections section is in the VOLATILE band at priority 4 (after specs at priority 2).
      This ensures it never crowds out the primary spec contents the reviewer is judging.
    */
@@ -1006,7 +1006,7 @@ test("Phase 4: buildReviewerPrompt prior-corrections section appears AFTER specs
   }
 });
 
-test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrections by default)", () => {
+test("complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrections by default)", () => {
   /* complete/exhaustive runs call buildReviewerPrompt with mode="complete" and no priorCorrections.
      The existing behavior must be preserved: no prior-corrections section, no regressions.
    */
@@ -1023,7 +1023,7 @@ test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchange
     assert.match(p, /COMPLETE_SPEC_MARKER/, "spec content inlined");
     /* The whole-repo objective framing must appear (not the commit-diff framing). */
     assert.match(p, /whole-repo complete run/, "complete mode uses whole-repo objective framing");
-    /* Severity contract must appear (Phase 4 — both complete and diff share the reviewer role). */
+    /* Severity contract must appear (both complete and diff share the reviewer role). */
     assert.match(p, /blocking/, "severity blocking instruction in contract");
     assert.match(p, /advisory/, "severity advisory instruction in contract");
   } finally {
@@ -1036,7 +1036,7 @@ test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchange
    These tests prove the wiring is active and can never silently regress to inert again.
  */
 
-test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
+test("buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
   /* A minimal diff-mode prompt is well within the qa-generator budget
      (roleWindowBytes("qa-generator") = floor(window × 0.75 × 4) — with the GLM 1M
      catalog entry this is 3,000,000 bytes).
@@ -1066,7 +1066,7 @@ test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal p
   );
 });
 
-test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
+test("buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
   /* The qa-reviewer budget is derived from the model-window catalog (roleWindowBytes("qa-reviewer")).
      To force an overflow size-independently: pad learnedRules to the ROLE BUDGET + 8 KB so the
      combined prompt exceeds the budget whatever window the reviewer's model resolves to.
@@ -1123,8 +1123,8 @@ test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — o
   }
 });
 
-/* ── T8: renderExecutionResult + ReviewInput.executionResult ──────────────────
-   These tests drive the T8 reviewer-consumer chain:
+/* ── renderExecutionResult + ReviewInput.executionResult ──────────────────
+   These tests drive the reviewer-consumer chain:
    - renderExecutionResult is a pure renderer: sanitizes finalUrl, bounds total
    output at 4000 chars, caps per-case detail at 500 chars.
    - ReviewInput gains an optional executionResult field.

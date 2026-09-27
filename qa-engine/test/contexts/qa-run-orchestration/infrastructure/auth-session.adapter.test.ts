@@ -26,7 +26,7 @@ test("absent auth returns an empty session and does not spawn", async () => {
   assert.deepEqual(session, { unauthored: false });
 });
 
-/* Batch S / S2: the agents container mounts the mirrors volume (read+bash) but not qa-data, so
+/* The agents container mounts the mirrors volume (read+bash) but not qa-data, so
    auth material must live in the orchestrator-only authDir, never under the watched-repo mirror
    (specDir). */
 test("mtls decodes the base64 P12 to authDir/client.p12 — NEVER under the mirror (specDir)", async () => {

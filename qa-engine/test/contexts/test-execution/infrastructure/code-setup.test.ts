@@ -32,7 +32,7 @@ test("setupCodeProject runs install only when there is an install command", asyn
 });
 
 test("setupCodeProject prepares the sandbox workdir even for a null-install ecosystem (before the early return)", async () => {
-  /* §21: Maven/Gradle/Rust have no install step, but their FIRST untrusted spawn is the test —
+  /* Maven/Gradle/Rust have no install step, but their FIRST untrusted spawn is the test —
      so the chown-to-sandbox must still run for them. prepareWorkdir must fire before install-null returns.
    */
   const prepared: string[] = [];

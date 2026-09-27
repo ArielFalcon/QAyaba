@@ -15,7 +15,7 @@ import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
-/* ExecutionPort/GenerationPort/SelectorCheck (this file); sub-decisions tested in isolation.
+/* ExecutionPort/GenerationPort/SelectorCheck (this file); each loop decision tested in isolation.
    Characterization against the fail-issue/invalid-issue goldens lives in a separate file.
  */
 
@@ -36,7 +36,7 @@ function regenAlwaysSucceeds(): FixLoopGenerationPort {
   };
 }
 
-test("sub-decision (a): break-issue with runner_infra evidence -> infra-error, no regen call", async () => {
+test("break-issue with runner_infra evidence -> infra-error, no regen call", async () => {
   let regenCalled = false;
   const execution: FixLoopExecutionPort = {
     execute: async () => {
@@ -70,7 +70,7 @@ test("sub-decision (a): break-issue with runner_infra evidence -> infra-error, n
   assert.equal(regenCalled, false, "runner_infra breaks BEFORE any regeneration call");
 });
 
-test("sub-decision (b): break-issue with app_defect (real-bug) evidence -> realBugDetected=true, verdict stays fail", async () => {
+test("break-issue with app_defect (real-bug) evidence -> realBugDetected=true, verdict stays fail", async () => {
   const execution: FixLoopExecutionPort = {
     execute: async () => {
       throw new Error("execute must not be called — the loop should break on the FIRST evaluation");
@@ -104,7 +104,7 @@ test("sub-decision (b): break-issue with app_defect (real-bug) evidence -> realB
   assert.equal(result.realBugDetected, true);
 });
 
-test("sub-decision: loop condition — maxRetries=0 disables the fix-loop entirely (no regen, no re-execute)", async () => {
+test("loop condition — maxRetries=0 disables the fix-loop entirely (no regen, no re-execute)", async () => {
   let regenCalled = false;
   const execution: FixLoopExecutionPort = {
     execute: async () => {
@@ -138,7 +138,7 @@ test("sub-decision: loop condition — maxRetries=0 disables the fix-loop entire
   assert.equal(result.retries, 0);
 });
 
-test("sub-decision: loop condition — verdict!=='fail' skips the loop entirely (already pass)", async () => {
+test("loop condition — verdict!=='fail' skips the loop entirely (already pass)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const generation: FixLoopGenerationPort = { generate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget, wallClockBudget } = budgets();
@@ -161,7 +161,7 @@ test("sub-decision: loop condition — verdict!=='fail' skips the loop entirely 
   assert.equal(result.retries, 0);
 });
 
-test("sub-decision: loop condition — generating=false skips the loop entirely (regression-only run)", async () => {
+test("loop condition — generating=false skips the loop entirely (regression-only run)", async () => {
   const execution: FixLoopExecutionPort = { execute: async () => { throw new Error("must not execute"); } };
   const generation: FixLoopGenerationPort = { generate: async () => { throw new Error("must not regen"); } };
   const { cycleBudget, wallClockBudget } = budgets();
@@ -184,7 +184,7 @@ test("sub-decision: loop condition — generating=false skips the loop entirely 
   assert.equal(result.retries, 0);
 });
 
-test("sub-decision (c): Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loops again", async () => {
+test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loops again", async () => {
   let executeCallCount = 0;
   let generateCallCount = 0;
   const execution: FixLoopExecutionPort = {
@@ -245,7 +245,7 @@ test("sub-decision (c): Lever-2 absentKeys short-circuit — regenerates WITHOUT
   assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human");
 });
 
-test("sub-decision (d): filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed in failed set)", async () => {
+test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed in failed set)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async (i) => {
@@ -329,7 +329,7 @@ test("filtered retry: a regen of the failing file written with backslashes re-ru
   assert.deepEqual(await retryScopeFor("user/login.spec.ts", ["user\\login.spec.ts"]), ["user/login.spec.ts"]);
 });
 
-test("sub-decision (d): filtered-retry — regen specs are ALL outside the failing set -> full re-execute (no specFiles)", async () => {
+test("filtered-retry — regen specs are ALL outside the failing set -> full re-execute (no specFiles)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async (i) => {
@@ -372,7 +372,7 @@ test("sub-decision (d): filtered-retry — regen specs are ALL outside the faili
   );
 });
 
-test("sub-decision (d): filtered-retry — canFilter false when coverageWillMeasure=true (never filter, keystone guard)", async () => {
+test("filtered-retry — canFilter false when coverageWillMeasure=true (never filter, keystone guard)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
     execute: async (i) => {
@@ -408,7 +408,7 @@ test("sub-decision (d): filtered-retry — canFilter false when coverageWillMeas
   assert.equal(receivedExecuteInputs[0]!.specFiles, undefined, "coverageWillMeasure=true must NEVER filter");
 });
 
-test("sub-decision (e): bestRunSoFar regression guard — a worse terminal retry is discarded for an earlier better run", async () => {
+test("bestRunSoFar regression guard — a worse terminal retry is discarded for an earlier better run", async () => {
   let executeCallCount = 0;
   const execution: FixLoopExecutionPort = {
     execute: async () => {
@@ -472,7 +472,7 @@ test("sub-decision (e): bestRunSoFar regression guard — a worse terminal retry
   );
 });
 
-test("sub-decision (e): bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail run must reach the Issue)", async () => {
+test("bestRunSoFar guard is SKIPPED when realBugDetected fired (the current fail run must reach the Issue)", async () => {
   let executeCallCount = 0;
   const execution: FixLoopExecutionPort = {
     execute: async () => {

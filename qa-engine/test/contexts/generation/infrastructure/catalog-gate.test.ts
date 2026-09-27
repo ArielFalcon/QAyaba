@@ -58,7 +58,7 @@ test("catalogGate: no test-ids → empty result (never throws)", () => {
   assert.deepEqual(r, { failClosed: [], inWindow: 0, advisory: 0 });
 });
 
-/* Regression guard (SAFE DIRECTION invariant, Fix 2 / audit leak 5): buildRouteCatalog's NEW degrade
+/* Regression guard (SAFE DIRECTION invariant): buildRouteCatalog's degrade
    reasons (classified runtimeErrors, empty nodes, redirect) MUST behave exactly like the existing
    degraded-via-`error` case here — advisory only, NEVER fail-closed-block. catalog-gate.ts itself is
    untouched; these tests pipe a REAL RouteSnapshot through buildRouteCatalog (not a hand-built
