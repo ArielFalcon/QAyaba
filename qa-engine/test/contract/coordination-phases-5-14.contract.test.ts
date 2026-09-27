@@ -7,6 +7,7 @@ import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import {
   applyPushback,
+  validateDelegationAuthority,
   buildProgressSnapshot,
   capabilityForFixLoopRound,
   createDelegationBrief,
@@ -117,6 +118,75 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
   });
   assert.equal(blocked.status, "blocked");
   assert.equal(blocked.recommendation, "escalate");
+});
+
+/* O13: a sidekick's "concerns" prose paraphrases the criterion in its own words rather than
+   quoting it verbatim — a plain c.includes(criterion) substring check misses this and silently
+   waves through a genuine acceptance contradiction. Matching by normalized key-term overlap
+   catches it. */
+test("acceptance-contradiction is detected from a PARAPHRASED concern, not just a verbatim substring match", () => {
+  const brief = createDelegationBrief({
+    delegationId: "d2",
+    runId: "r2",
+    objective: "o",
+    task: "t",
+    scope,
+    acceptanceCriteria: ["Login form validates email format before submission"],
+    validationPlan: [],
+  });
+  const result = {
+    delegationId: "d2",
+    runId: "r2",
+    status: "completed" as const,
+    summary: "done",
+    filesChanged: [],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    /* Same substance, different words: no verbatim "Login form validates email format before
+       submission" substring anywhere in this concern. */
+    concerns: ["cannot satisfy criterion: the login form does not validate email formatting correctly"],
+    unresolvedQuestions: [],
+    recommendation: "accept" as const,
+  };
+  const findings = validateDelegationAuthority(brief, result);
+  assert.ok(
+    findings.some((f) => f.reason === "acceptance-contradiction"),
+    "a paraphrased concern must still be recognized as contradicting the criterion, not only a verbatim substring match",
+  );
+});
+
+/* An unrelated concern sharing zero key terms with the criterion must NOT be flagged — the
+   normalized-overlap match must not degrade into "any concern at all contradicts everything". */
+test("acceptance-contradiction is NOT raised when the concern shares no meaningful terms with the criterion", () => {
+  const brief = createDelegationBrief({
+    delegationId: "d3",
+    runId: "r3",
+    objective: "o",
+    task: "t",
+    scope,
+    acceptanceCriteria: ["Login form validates email format before submission"],
+    validationPlan: [],
+  });
+  const result = {
+    delegationId: "d3",
+    runId: "r3",
+    status: "completed" as const,
+    summary: "done",
+    filesChanged: [],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    concerns: ["cannot satisfy criterion: the checkout page total omits sales tax"],
+    unresolvedQuestions: [],
+    recommendation: "accept" as const,
+  };
+  const findings = validateDelegationAuthority(brief, result);
+  assert.equal(
+    findings.some((f) => f.reason === "acceptance-contradiction"),
+    false,
+    "an unrelated concern must not be treated as contradicting a criterion it shares no meaningful terms with",
+  );
 });
 
 test("router order: infra and budget beat retry; no-progress escalates; FixLoop owns QA correction", () => {

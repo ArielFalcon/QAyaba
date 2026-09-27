@@ -16,6 +16,47 @@ export const PUSHBACK_REASONS = [
 ] as const;
 export type PushbackReason = (typeof PUSHBACK_REASONS)[number];
 
+/*
+ * A sidekick's free-text "concerns" prose paraphrases an acceptance criterion in its own words
+ * rather than quoting it verbatim — a plain substring check (c.includes(criterion)) silently waved
+ * through a genuine contradiction whenever the wording differed at all. Match by normalized
+ * key-term overlap instead: strip stopwords/punctuation, then require most of the criterion's
+ * significant words to reappear (by a lenient shared-prefix "stem") somewhere in the concern.
+ */
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "were", "be",
+  "been", "being", "must", "should", "shall", "will", "would", "with", "without", "that", "this",
+  "these", "those", "it", "its", "as", "by", "at", "from", "not", "no", "does", "do", "did", "has",
+  "have", "had", "before", "after", "during", "correctly", "properly",
+]);
+
+function keyTerms(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+}
+
+/* Lenient stem check: same word, or one is a >=4-char prefix of the other (validates/validate/validation). */
+function stemMatches(a: string, b: string): boolean {
+  if (a === b) return true;
+  const shortLen = Math.min(a.length, b.length);
+  if (shortLen < 4) return false;
+  return a.slice(0, 4) === b.slice(0, 4) && (a.startsWith(b) || b.startsWith(a));
+}
+
+/* True when `concern` reproduces most of `criterion`'s meaningful words — a paraphrase, not just an
+ * unrelated concern that happens to share a rare short word. Criteria with no meaningful words
+ * (empty after stopword filtering) never match anything, to avoid a vacuous always-true check. */
+function concernContradictsCriterion(concern: string, criterion: string): boolean {
+  const criterionTerms = keyTerms(criterion);
+  if (criterionTerms.length === 0) return false;
+  const concernTerms = keyTerms(concern);
+  const matched = criterionTerms.filter((ct) => concernTerms.some((cc) => stemMatches(ct, cc)));
+  return matched.length / criterionTerms.length >= 0.6;
+}
+
 export interface PushbackFinding {
   readonly reason: PushbackReason;
   readonly detail: string;
@@ -45,7 +86,9 @@ export function validateDelegationAuthority(
       else if (!hit.ok) findings.push({ reason: "acceptance-contradiction", detail: `validation ${step.id} failed` });
     }
     for (const criterion of brief.acceptanceCriteria) {
-      const contradicted = result.concerns.some((c) => /accept|criterion|cannot satisfy/i.test(c) && c.includes(criterion));
+      const contradicted = result.concerns.some(
+        (c) => /accept|criterion|cannot satisfy/i.test(c) && concernContradictsCriterion(c, criterion),
+      );
       if (contradicted) {
         findings.push({ reason: "acceptance-contradiction", detail: criterion });
       }
