@@ -46,7 +46,7 @@ any change to `src/`.
 doppler run -- docker compose up --build      # prod: Doppler injects secrets
 # or: cp .env.example .env  (fill OPENCODE_API_KEY) then `docker compose up --build`
 
-# Once "listening for webhooks on :458", trigger a run:
+# Once the log shows "qayaba listening on <addr>:458", trigger a run:
 SHA=$(git ls-remote https://github.com/<owner>/<repo> main | cut -f1)
 curl -X POST localhost:458 -H 'content-type: application/json' \
   -d "{\"repo\":\"<owner>/<repo>\",\"sha\":\"$SHA\"}"
