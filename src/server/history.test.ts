@@ -10,6 +10,7 @@ import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
+import type { RuleStatus } from "../qa/learning/learning-rule";
 
 test("markContextStale then consumeContextStale is one-shot: first consume true, second false", () => {
   const app = "hist-ctx-stale";
@@ -183,6 +184,67 @@ test("recordRuleOutcome does NOT promote on good outcomes alone when none are or
   assert.equal(r!.outcomeCount, 3);
   assert.equal(r!.oracleOutcomeCount, 0, "isOracleScore was never passed — defaults to false");
   assert.equal(r!.status, "candidate", "WS1.4(b): zero objective evidence — must not promote regardless of successRate");
+});
+
+/* A row an older build wrote can still carry the retired "pending" status (nothing inserts it
+   anymore — upsertLearningRule always writes "candidate"). rowToRule normalizes it to "candidate"
+   at the persistence boundary, so the fold never sees a status outside its own RuleStatus union. */
+test("recordRuleOutcome: a legacy 'pending' row is normalized to 'candidate' at the persistence boundary before folding", () => {
+  const app = "hist-learn-pending-legacy";
+  upsertLearningRule({
+    id: "lr-pending",
+    app,
+    trigger: "t",
+    action: "a",
+    errorClass: "E-FALSE-POSITIVE",
+    source: "run-x",
+    /* Simulates a row an older build wrote directly — the current type no longer allows this value. */
+    initialStatus: "pending" as unknown as RuleStatus,
+  });
+  recordRuleOutcome("lr-pending", 0.8);
+  const r = listLearningRules(app, 10).find((x) => x.id === "lr-pending");
+  assert.ok(r, "rule should still exist");
+  assert.equal(r!.status, "candidate", "a single outcome on a normalized (not yet MIN_OUTCOMES) rule stays candidate — real governance, not the old always-candidate pending override");
+});
+
+/*
+ * A row an older build wrote can ALSO already carry outcome/oracle evidence accumulated before the
+ * "pending" status ever normalized (a genuinely stuck legacy row — not something any current path
+ * produces). If normalization happened only inside the fold's own defensive nextStatus check (as
+ * before this fix), the unconditional `status === "pending" -> "candidate"` branch would fire
+ * FIRST and mask that evidence on every single call, never promoting no matter how much evidence
+ * had already accumulated. Normalizing at rowToRule instead means the fold sees "candidate" from
+ * the start and applies its REAL governance — this row must promote to "active" in ONE call.
+ */
+test("recordRuleOutcome: a legacy 'pending' row that already carries promotion-worthy evidence promotes in ONE call once normalized (never masked by the old blanket override)", () => {
+  const app = "hist-learn-pending-stuck";
+  upsertLearningRule({
+    id: "lr-pending-stuck",
+    app,
+    trigger: "t",
+    action: "a",
+    errorClass: "E-FALSE-POSITIVE",
+    source: "run-x",
+    initialStatus: "pending" as unknown as RuleStatus,
+  });
+
+  /* Directly backfill outcome/oracle evidence onto the still-"pending" row — a second connection
+     to the SAME on-disk db (WAL mode allows this), same pattern as the curriculum-corruption test
+     above. No current path writes a row into this shape; it simulates data an older build left. */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE learning_rules SET outcome_count = ?, oracle_outcome_count = ?, success_rate = ? WHERE id = ?").run(2, 2, 0.8, "lr-pending-stuck");
+  } finally {
+    raw.close();
+  }
+
+  recordRuleOutcome("lr-pending-stuck", 0.8, null, true);
+
+  const r = listLearningRules(app, 10).find((x) => x.id === "lr-pending-stuck");
+  assert.ok(r, "rule should still exist");
+  assert.equal(r!.outcomeCount, 3, "the backfilled 2 plus this call's 1");
+  assert.equal(r!.status, "active", "normalized-then-folded 'pending' row earns promotion through the SAME governance a 'candidate' row would — never masked by the old unconditional pending->candidate override");
 });
 
 test("createRecord persists triggerRepo and getRecord returns it", () => {

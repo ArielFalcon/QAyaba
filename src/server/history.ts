@@ -14,7 +14,6 @@ import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, PLANNER_OBJECTIVE } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
-import type { LearningRule as FoldLearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "../qa/learning/taxonomy";
 import type { Curriculum } from "../qa/learning/curriculum";
@@ -671,6 +670,16 @@ export function upsertLearningRule(rule: RuleUpsert & { app: string; id: string;
   });
 }
 
+/*
+ * "pending" is a retired status an older build could have written; no path inserts it anymore
+ * and RuleStatus no longer carries it. Normalize at this persistence boundary — the one place a
+ * raw DB value becomes a typed LearningRule — so every consumer (including the fold) only ever
+ * sees the current, narrower RuleStatus union.
+ */
+function normalizeRuleStatus(raw: unknown): RuleStatus {
+  return raw === "pending" ? "candidate" : (raw as RuleStatus);
+}
+
 function rowToRule(row: Record<string, unknown>): LearningRule {
   return {
     id: row.id as string,
@@ -685,7 +694,7 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
     successRate: row.success_rate as number | null,
     lastVerified: row.last_verified as string | null,
     source: row.source as string,
-    status: row.status as RuleStatus,
+    status: normalizeRuleStatus(row.status),
     at: row.at as string,
   };
 }
@@ -732,12 +741,14 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
   const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return;
   /*
-   * Shell LearningRule still includes retired "pending"; the fold's RuleStatus does not.
-   * nextStatus already self-heals pending → candidate via a string check — this is a boundary
-   * cast, not a second fold.
+   * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
+   * carries it), so the shell LearningRule is structurally assignable to the fold's own
+   * LearningRule with no cast on the way in. The cast on the way OUT is real, not incidental: the
+   * fold's errorClass is the wider `string` (@contexts/cross-run-learning stays kernel-decoupled),
+   * narrower than this shell's own ErrorClass literal union.
    */
   const updated = foldApplyOutcome(
-    rowToRule(row) as FoldLearningRule,
+    rowToRule(row),
     score,
     coverageCreditConfirmed,
     isOracleScore,
