@@ -14,7 +14,7 @@ export interface LiveActivity {
 }
 
 export interface RawEventStreamOpener {
-  open(directory: string): Promise<AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined>;
+  open(directory: string, signal?: AbortSignal): Promise<AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined>;
 }
 
 let rawOpener: RawEventStreamOpener | undefined;
@@ -37,7 +37,7 @@ async function startScopedEventStream(
       "EventStreamManager: no RawEventStreamOpener wired — the composition root must call setRawEventStreamOpener before opening any stream",
     );
   }
-  const stream = await rawOpener.open(directory);
+  const stream = await rawOpener.open(directory, signal);
   if (!stream) {
     console.warn(`[qa] SSE event stream returned no stream (${directory})`);
     return;

@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   startEventStreamWithReconnect,
   EventStreamManager,
+  setRawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
 
 test("startEventStreamWithReconnect retries after a stream error until aborted", async () => {
@@ -91,6 +92,42 @@ test("EventStreamManager defers opening a stream until the sink is set", () => {
   assert.deepEqual(opened, []);
   mgr.setSink(() => {}, new AbortController().signal);
   assert.deepEqual(opened, ["/m/a"]); /* opened once the sink arrives */
+});
+
+/* C6: the default (non-injected) stream path — EventStreamManager -> defaultOpenStream ->
+   startEventStreamWithReconnect -> startScopedEventStream -> RawEventStreamOpener.open — must
+   forward the per-directory AbortSignal into open() itself, not just check `signal?.aborted`
+   between already-buffered events. Without this, detach()/closeAll() abort a signal nothing
+   downstream ever listens to at the transport level, so the underlying SSE HTTP connection is
+   never actually torn down.
+ */
+test("C6: the default stream path forwards the per-directory AbortSignal into RawEventStreamOpener.open so detach can tear the connection down", () => {
+  const openCalls: Array<{ directory: string; signal: AbortSignal | undefined }> = [];
+  setRawEventStreamOpener({
+    open: async (directory, signal) => {
+      openCalls.push({ directory, signal });
+      return undefined; /* no stream — startScopedEventStream logs a warning and returns cleanly */
+    },
+  });
+
+  /* No injected openStream — this exercises the REAL defaultOpenStream -> rawOpener path, which
+     runs a real (unmocked) reconnect-with-backoff loop in the background. detach() in a `finally`
+     is load-bearing: without it, an assertion failure here would leave that loop's real setTimeout
+     alive and the test process would hang instead of failing fast.
+   */
+  const mgr = new EventStreamManager();
+  mgr.setSink(() => {});
+  mgr.attach("s1", "/m/real-dir");
+
+  try {
+    assert.equal(openCalls.length, 1);
+    assert.equal(openCalls[0]!.directory, "/m/real-dir");
+    assert.ok(openCalls[0]!.signal, "the per-directory AbortSignal must be forwarded to RawEventStreamOpener.open");
+    assert.equal(openCalls[0]!.signal!.aborted, false);
+  } finally {
+    mgr.detach("s1");
+  }
+  assert.equal(openCalls[0]!.signal!.aborted, true, "detach must abort the SAME signal instance that was forwarded to open()");
 });
 
 test("EventStreamManager closes every directory stream on shutdown and ignores later attaches", () => {

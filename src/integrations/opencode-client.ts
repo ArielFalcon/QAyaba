@@ -185,9 +185,12 @@ export function disposeSharedClient(): void {
 
 
 const rawEventStreamOpener: RawEventStreamOpener = {
-  open: async (directory) => {
+  open: async (directory, signal) => {
     const client = await getEventClient();
-    const result = await client.event.subscribe({ directory });
+    /* Forward the caller's AbortSignal into the SDK's own fetch-based SSE options (not the
+       `{ directory }` query parameters) so detach()/closeAll() actually tears down the
+       underlying HTTP connection instead of only stopping this side from consuming it. */
+    const result = await client.event.subscribe({ directory }, { signal });
     return result.stream as AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined;
   },
 };
