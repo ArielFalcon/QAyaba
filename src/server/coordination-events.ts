@@ -181,10 +181,19 @@ function isEnoent(err: unknown): boolean {
 /*
  * Reads a bounded window from the END of the ledger file, growing it until either enough matching
  * events are found (parseCoordinationLedger reports truncated=true — i.e. we already hold at least
- * `limit` of the most recent matches) or the file start is reached (nothing left to grow into). This
- * avoids the earlier readFileSync-the-whole-file-every-poll cost: a live /api/signals poll with the
- * default/typical limit reads a small tail chunk, not the entire (potentially large) historical file.
- * Correctness matches a full-file parse exactly in both stopping cases — see the two returns below.
+ * `limit` of the most recent matches), the file start is reached (nothing left to grow into), or —
+ * for a runId-scoped filter (J3) — growing further cannot possibly find more of that run's events.
+ *
+ * The orchestrator runs one QA run at a time (sequential queue), so a single runId's events form a
+ * CONTIGUOUS block in the ledger, never interleaved with another run's. Once a growth pass (a) has
+ * found at least one match AND (b) the window's oldest line is already older than that run's own
+ * oldest matched event, the run's whole contiguous block is provably captured — any further growth
+ * only reaches further back in time, i.e. strictly before this run started, where none of its
+ * events can exist. Without this, a runId filter whose run has fewer events than `limit` never sets
+ * `truncated` and walked all the way back to byte 0 on every poll. This avoids the earlier
+ * readFileSync-the-whole-file-every-poll cost: a live /api/signals poll with the default/typical
+ * limit reads a small tail chunk, not the entire (potentially large) historical file. Correctness
+ * matches a full-file parse exactly in every stopping case.
  */
 function readLedgerTail(
   path: string,
@@ -204,11 +213,40 @@ function readLedgerTail(
       const text = position > 0 ? dropPartialFirstLine(buffer.toString("utf8")) : buffer.toString("utf8");
       const parsed = parseCoordinationLedger(text, filter);
       if (parsed.truncated || position === 0) return parsed;
+      if (filter.runId && windowCapturesWholeRun(text, parsed.events)) return parsed;
       bytesToRead = Math.min(size, bytesToRead * TAIL_GROWTH_FACTOR);
     }
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/*
+ * True once the current window's oldest line is older than the runId filter's own oldest matched
+ * event — i.e. the window already extends past that run's start, so its contiguous block (see
+ * readLedgerTail above) is fully captured and no further growth can add more matches for it.
+ */
+function windowCapturesWholeRun(windowText: string, matched: readonly CoordinationEvent[]): boolean {
+  if (matched.length === 0) return false;
+  const oldestMatchedAt = matched[0]!.at;
+  const oldestLineAt = firstLineAt(windowText);
+  return oldestLineAt !== undefined && oldestLineAt < oldestMatchedAt;
+}
+
+/* First valid line's `at` timestamp in the window, regardless of kind/runId — used only to bound
+   how far back the current read window reaches (see windowCapturesWholeRun). */
+function firstLineAt(text: string): number | undefined {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (isRecord(parsed) && typeof parsed.at === "number") return parsed.at;
+    } catch {
+      /* corrupt/partial line — keep scanning, same tolerance as parseCoordinationLedger */
+    }
+  }
+  return undefined;
 }
 
 function dropPartialFirstLine(text: string): string {

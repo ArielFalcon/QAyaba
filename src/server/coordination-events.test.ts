@@ -97,6 +97,52 @@ test("readCoordinationLedger: reads only a bounded tail, not the whole file, for
   }
 });
 
+/* J3: readLedgerTail's growth loop used to stop ONLY on truncated (matched.length > limit) or
+   position === 0. When a runId filter's own run has FEWER events than `limit`, `truncated` never
+   becomes true, so a poll for that run's (few, recent) events walked the loop all the way back to
+   the start of the file on EVERY call — even though the run's events were all captured in the
+   first small chunk. Because the orchestrator runs one QA run at a time (sequential queue), a
+   single run's events form a contiguous block in the ledger, so once a growth pass finds no NEW
+   matches for the filter and the window already extends earlier than the run's own earliest event,
+   further growth cannot find more — the read must stop there. */
+test("readCoordinationLedger: a runId filter with few, recent events reads only a bounded tail (J3)", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    const lines: string[] = [];
+    /* Many unrelated older events from other runs. */
+    for (let i = 0; i < 3000; i++) {
+      lines.push(JSON.stringify({ runId: `other-${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i }));
+    }
+    /* The target run's own (few) events, appended contiguously and recently — sequential queue
+       means one run's events are never interleaved with another run's. */
+    lines.push(JSON.stringify({ runId: "target", kind: "proposal", action: "delegate", capability: "sidekick-standard", reason: "big", at: 3001 }));
+    lines.push(JSON.stringify({ runId: "target", kind: "delegation", reason: "sidekick status=completed", delegationId: "d1", attempt: 1, durationMs: 500, at: 3002 }));
+    lines.push(JSON.stringify({ runId: "target", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", at: 3003 }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+    const fullSize = statSync(path).size;
+
+    let bytesRead = 0;
+    const countingFs = {
+      openSync,
+      fstatSync,
+      readSync: ((fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number) => {
+        bytesRead += length;
+        return readSync(fd, buffer as Buffer, offset, length, position);
+      }) as typeof readSync,
+      closeSync,
+    };
+    /* limit (default 200) is far larger than this run's 3 events, so `truncated` never fires. */
+    const view = readCoordinationLedger({ runId: "target" }, path, countingFs);
+    assert.equal(view.events.length, 3, "must find exactly the target run's own events");
+    assert.equal(view.events.at(-1)?.runId, "target");
+    assert.ok(bytesRead > 0, "the injected byte-range reader must actually be exercised");
+    assert.ok(bytesRead < fullSize / 10, `expected a bounded tail read (<${Math.round(fullSize / 10)}B), got ${bytesRead}B out of a ${fullSize}B file`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("readCoordinationLedger: real file tail with run filter + limit", () => {
   const dir = mkdtemp();
   try {
