@@ -672,12 +672,10 @@ export function buildRewrittenCompositionConfig(
 
   const runCorruptedFaultInjection = ({ dir, baseUrl, namespace }: { dir: string; baseUrl: string; namespace: string }) =>
     /*
-     * Desktop-only on purpose: the oracle measures assertion strength, not viewport behavior, and
-     * the seed runs every spec in BOTH projects — one project halves the re-run cost. A repo whose
-     * config renamed the seed's "desktop" project fails the pass → infra-error → valueScore null
-     * (inconclusive), never a wrong score.
+     * No --project, like a suite run: the repo owns its playwright.config.ts, and naming a project
+     * it does not define fails the whole re-run, leaving the value score inconclusive.
      */
-    runE2E(dir, { baseUrl, namespace, faultInject: true, project: "desktop" }, e2eExecuteDeps);
+    runE2E(dir, { baseUrl, namespace, faultInject: true }, e2eExecuteDeps);
   const countInjectedFaultInjectionResponses = (e2eDir: string, namespace: string): number => {
     try {
       const dir = join(e2eDir, ".qa", "fault-injection", namespace);

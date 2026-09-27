@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
@@ -15,6 +15,7 @@ import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { Sha } from "@kernel/sha";
+import { BlastRadius } from "@kernel/blast-radius";
 import {
   REVIEWER_TIMEOUT_MS,
   agentTimeout,
@@ -877,6 +878,55 @@ test("buildRewrittenCompositionConfig selects the code target + Stryker oracle f
   assert.equal(config.isCode, true);
   assert.equal(config.versionUrl, undefined, "a code-mode app has no dev.versionUrl — no deploy gate");
   assert.equal(config.versionPoll, undefined);
+});
+
+/*
+ * The value oracle re-runs the suite with responses corrupted. The repo owns its
+ * playwright.config.ts, so that re-run must not name a project the repo may not define. A fake
+ * `playwright` binary stands in for the runner at the process boundary: it behaves like a config
+ * whose only project is "chromium" (an unknown --project fails), marks one intercepted response as
+ * corrupted, and reports the single baseline spec failing under corruption.
+ */
+const FAKE_PLAYWRIGHT = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const project = process.argv.slice(2).find((a) => a.startsWith("--project"));
+if (project && project !== "--project=chromium") {
+  process.stderr.write("Error: Project(s) not found. Available projects: \\"chromium\\"\\n");
+  process.exit(1);
+}
+const marks = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE);
+fs.mkdirSync(marks, { recursive: true });
+fs.writeFileSync(path.join(marks, "worker-0.json"), JSON.stringify({ corrupted: 1 }));
+fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
+  suites: [{ title: "login.spec.ts", specs: [{ title: "shows the dashboard", tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "dashboard heading missing" } }] }] }] }],
+  stats: { expected: 0, unexpected: 1 },
+}));
+process.exit(1);
+`;
+
+test("the value oracle scores a suite whose Playwright config has no desktop project", async () => {
+  const app: AppConfig = { ...cfg("factory-oracle-no-desktop"), qa: { ...cfg("factory-oracle-no-desktop").qa, valueOracle: "signal" } };
+  const e2eDir = mkdtempSync(join(tmpdir(), "qayaba-oracle-projects-"));
+  try {
+    mkdirSync(join(e2eDir, "node_modules", ".bin"), { recursive: true });
+    const bin = join(e2eDir, "node_modules", ".bin", "playwright");
+    writeFileSync(bin, FAKE_PLAYWRIGHT);
+    chmodSync(bin, 0o755);
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+
+    const result = await config.objectiveSignal.oracle.measure(
+      BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]),
+      e2eDir,
+      "qa-bot-abc1234-run1",
+      ["login.spec.ts › shows the dashboard"],
+    );
+
+    assert.notEqual(result.valueScore, null, `the corrupted re-run must be conclusive, got: ${result.details}`);
+    assert.equal(result.killedCount, 1);
+  } finally {
+    rmSync(e2eDir, { recursive: true, force: true });
+  }
 });
 
 /* P0-2: AppConfig.qa.valueOracle was schema-only — the factory always constructed
