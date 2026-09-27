@@ -67,8 +67,7 @@ let listOutcomesStmt!: Database.Statement;
 let getOutcomeStmt!: Database.Statement;
 let upsertRuleStmt!: Database.Statement;
 let listRulesStmt!: Database.Statement;
-let listActiveRulesStmt!: Database.Statement;
-let listCandidateRulesStmt!: Database.Statement;
+let listRetrievableRulesStmt!: Database.Statement;
 let listAllRulesStmt!: Database.Statement;
 let incrementRuleUsageStmt!: Database.Statement;
 let loadCurriculumStmt!: Database.Statement;
@@ -326,15 +325,13 @@ function ensureDb(): void {
   `);
   listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
   /*
-   * Governance-path fetch (backs listLearningRulesForGovernance, below): NO ORDER BY — ranking is
-   * RuleGovernanceService's job alone (see that service's own header) — and ONE STATEMENT PER
-   * STATUS so a generously large active set can never crowd candidate rows out of a single shared
-   * LIMIT before governance ever sees them (the bug listRulesStmt's shared LIMIT above has: actives
-   * always sort first, so they alone can exhaust the limit and starve topRules' own
-   * EXPLORATION_SLOTS of anything to explore).
+   * Governance-path fetch (backs listLearningRulesForGovernance, below): every retrievable row, no
+   * ORDER BY and no LIMIT — ranking is RuleGovernanceService's job alone (see that service's own
+   * header). Any SQL-side cap would have to pre-rank to decide what to keep, and no SQL order can
+   * match governance's ranking (success rate plus the per-run relevance bias, plus the newest-
+   * candidate exploration slots), so a cap always hides rules governance would pick.
    */
-  listActiveRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status = 'active' LIMIT ?");
-  listCandidateRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status = 'candidate' LIMIT ?");
+  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate')");
   listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
   incrementRuleUsageStmt = db.prepare("UPDATE learning_rules SET usage_count = usage_count + 1 WHERE id = ?");
   loadCurriculumStmt = db.prepare("SELECT data, updated_at FROM curriculum WHERE app = ?");
@@ -734,20 +731,13 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
 }
 
 /*
- * The shared "give me the live ledger, not a truncated preview" cap for learning-rule retrieval:
- * every operator-facing ledger view (TUI/API intelligence view, CLI `qayaba intel`) reads
- * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) below — a single shared-limit, status-ranked
- * read. Generation's own retrieve path (historyLearningStore(appName).selectRules ->
- * SqliteLearningRepository.topRules -> RuleGovernanceService.topRules, the single ranking truth)
- * reads listLearningRulesForGovernance(app) instead, which applies this SAME limit PER STATUS
- * (active/candidate fetched separately) so a large active set can never crowd fresh candidates out
- * of the rows governance gets to rank — the two reads are deliberately NOT the same query. Not used
- * by chat.ts's learning context, which is a deliberately small bounded prompt preview, not a ledger
- * view. R6: the fold-path by-id lookup (rewritten-engine-factory.ts's recordOutcome, prevention
- * path) used to read this same capped/ordered list and filter by id — a retrieved rule ranked
- * outside the window was silently treated as deprecated/missing. It now reads getLearningRule(id)
- * below instead, a direct uncapped lookup, so ledger size can never affect whether a genuinely
- * retrieved rule folds.
+ * The shared "give me the live ledger, not a truncated preview" cap for operator-facing ledger
+ * views (TUI/API intelligence view, CLI `qayaba intel`): listLearningRules(app,
+ * LEARNING_RULE_LEDGER_LIMIT) below — a single shared-limit, status-ranked read. Neither
+ * generation's retrieve path (listLearningRulesForGovernance, which feeds governance the whole
+ * retrievable ledger) nor the fold (getLearningRule, a direct by-id lookup) reads through this cap,
+ * so ledger size can never hide a rule from ranking or drop a fold. Not used by chat.ts's learning
+ * context, which is a deliberately small bounded prompt preview, not a ledger view.
  */
 export const LEARNING_RULE_LEDGER_LIMIT = 200;
 
@@ -774,20 +764,16 @@ export function getLearningRule(id: string): LearningRule | undefined {
  * Governance-only read: backs historyLearningStore(appName).selectRules, the ONLY caller
  * SqliteLearningRepository.topRules() feeds into RuleGovernanceService.topRules (the single
  * ranking truth — see that service's own header, and rule-governance.service.ts's EXPLORATION_SLOTS
- * doc). UNORDERED (no ORDER BY: pre-ranking here would just be a duplicate, less-informed copy of
- * governance's own ranking — the exact contradiction sqlite-learning-repository.adapter.ts's header
- * comment already disclaimed) and fetches 'active' and 'candidate' rows via SEPARATE statements,
- * each bounded by its own LEARNING_RULE_LEDGER_LIMIT-sized cap, so a large active set can never
- * crowd fresh candidates out of the rows governance gets to rank. listLearningRules() above is
- * unaffected and stays the correct read for every OTHER caller (CLI/TUI ledger views, chat's bounded
- * preview, and rewritten-engine-factory.ts's own fold-path by-id lookup) — none of those want this
- * governance-only split.
+ * doc). Returns EVERY active and candidate row for the app, unordered and uncapped: pre-ranking or
+ * truncating here would be a less-informed copy of governance's own ranking (it cannot see the
+ * per-run relevance bias), and an unordered cap silently keeps the OLDEST rows — so the newest
+ * candidates and the best-proven actives of a large ledger would never be ranked at all.
+ * listLearningRules() above stays the read for operator ledger views and chat's bounded preview.
  */
 export function listLearningRulesForGovernance(app: string): LearningRule[] {
   ensureDb();
-  const activeRows = listActiveRulesStmt.all(app, LEARNING_RULE_LEDGER_LIMIT) as Array<Record<string, unknown>>;
-  const candidateRows = listCandidateRulesStmt.all(app, LEARNING_RULE_LEDGER_LIMIT) as Array<Record<string, unknown>>;
-  return [...activeRows, ...candidateRows].map(rowToRule);
+  const rows = listRetrievableRulesStmt.all(app) as Array<Record<string, unknown>>;
+  return rows.map(rowToRule);
 }
 
 /*

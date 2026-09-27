@@ -250,18 +250,13 @@ test("recordRuleOutcome: a legacy 'pending' row that already carries promotion-w
   assert.equal(r!.status, "active", "normalized-then-folded 'pending' row earns promotion through the SAME governance a 'candidate' row would — never masked by the old unconditional pending->candidate override");
 });
 
-/* R5: listRulesStmt (backing listLearningRules, and — until this fix — historyLearningStore
-   (appName).selectRules too) is a SINGLE shared-limit query: ORDER BY (status='active') DESC,
-   success_rate DESC, at DESC LIMIT <n>. With more rows than the limit, actives (which always sort
-   first) can exhaust the limit before a single candidate row is even fetched into memory —
-   RuleGovernanceService (the single ranking truth) never gets a chance to rank what it never saw,
-   defeating its own EXPLORATION_SLOTS. listLearningRulesForGovernance() fixes this by fetching
-   'active' and 'candidate' rows via SEPARATE statements, each bounded by its OWN
-   LEARNING_RULE_LEDGER_LIMIT-sized cap, so a large active set can never crowd fresh candidates out.
- */
-test("listLearningRulesForGovernance: candidates survive even when active rows alone exceed LEARNING_RULE_LEDGER_LIMIT (no SQL-side starvation before governance ranks anything)", () => {
+/* The governance read feeds RuleGovernanceService (the single ranking truth) and must hand it the
+   whole retrievable ledger: a large active set must neither crowd candidates out nor be truncated
+   itself before governance ranks anything. */
+test("listLearningRulesForGovernance: returns every active and candidate row however large the ledger", () => {
   const app = "hist-governance-no-starve";
-  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 3; i++) {
+  const activeTotal = LEARNING_RULE_LEDGER_LIMIT + 3;
+  for (let i = 0; i < activeTotal; i++) {
     upsertLearningRule({
       id: `active-${i}`, app, trigger: `t${i}`, action: `a${i}`,
       errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active",
@@ -273,9 +268,8 @@ test("listLearningRulesForGovernance: candidates survive even when active rows a
   const rows = listLearningRulesForGovernance(app);
 
   const candidateIds = rows.filter((r) => r.status === "candidate").map((r) => r.id);
-  assert.deepEqual(new Set(candidateIds), new Set(["candidate-fresh-1", "candidate-fresh-2"]), "both fresh candidates must be present — a shared LIMIT would have dropped them before this function's caller (governance) ever saw them");
-  const activeCount = rows.filter((r) => r.status === "active").length;
-  assert.equal(activeCount, LEARNING_RULE_LEDGER_LIMIT, "the active partition is independently bounded by its own LEARNING_RULE_LEDGER_LIMIT-sized cap, not starved by (or starving) the candidate partition");
+  assert.deepEqual(new Set(candidateIds), new Set(["candidate-fresh-1", "candidate-fresh-2"]));
+  assert.equal(rows.filter((r) => r.status === "active").length, activeTotal);
 });
 
 test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same retrievable set as listLearningRules", () => {

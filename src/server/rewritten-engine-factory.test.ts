@@ -1912,6 +1912,60 @@ test("R5: historyLearningStore(app).selectRules feeds fresh candidates through e
   assert.equal(top.length, 20, "the caller's own limit must still be respected");
 });
 
+/* Retrieval through the production store must rank the WHOLE retrievable ledger: however many rows
+   an app accumulates, the newest candidates still reach the exploration slots and the best-proven
+   actives still reach the top. The clock is mocked so every row gets a distinct, ordered `at`. */
+test("retrieval: the newest candidates reach the exploration slots when the ledger holds more candidates than the ledger window", async (t) => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-newest-candidates-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const limit = 10;
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-01-01T00:00:00.000Z") });
+
+  for (let i = 0; i < limit; i++) {
+    upsertLearningRule({ id: `active-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  const candidateIds: string[] = [];
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
+    t.mock.timers.tick(1000);
+    const id = `candidate-${app}-${String(i).padStart(4, "0")}`;
+    candidateIds.push(id);
+    upsertLearningRule({ id, app, trigger: `c${i}`, action: "a", errorClass: "E-EXEC-FAIL", source: "test" });
+  }
+  const newestTwo = candidateIds.slice(-2);
+
+  const top = await new SqliteLearningRepository(historyLearningStore(app)).topRules(app, Sha.of("abc1234"), limit);
+
+  const topIds = top.map((r) => r.id);
+  for (const id of newestTwo) assert.ok(topIds.includes(id), `the newest candidate ${id} must be retrievable, got ${JSON.stringify(topIds)}`);
+});
+
+test("retrieval: the best-proven active rules are retrieved when the ledger holds more actives than the ledger window", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-best-actives-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
+    upsertLearningRule({ id: `unproven-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  const provenIds = Array.from({ length: 5 }, (_, i) => `proven-${app}-${i}`);
+  for (const id of provenIds) {
+    upsertLearningRule({ id, app, trigger: id, action: "a", errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  store.recordOutcome({
+    runId: "run-proof", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: 1, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: provenIds,
+    at: new Date().toISOString(),
+  } as never);
+
+  const top = await new SqliteLearningRepository(store).topRules(app, Sha.of("abc1234"), provenIds.length);
+
+  assert.deepEqual(new Set(top.map((r) => r.id)), new Set(provenIds));
+});
+
 test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
   const prev = process.env.PIPELINE_ENGINE;
   process.env.PIPELINE_ENGINE = "rewritten";
