@@ -26,6 +26,7 @@ type Format = {
     guidance?: string;
   }) => Record<string, unknown>;
   nextSseRetryDelay: (current: unknown, cap?: unknown) => number;
+  delegationsLabel: (wf: unknown) => string;
 };
 
 function loadFormat(): Format {
@@ -189,4 +190,20 @@ test("nextSseRetryDelay falls back to sane defaults for bad input", () => {
   assert.equal(F.nextSseRetryDelay(0), 2000, "a non-positive current delay resets to the 1s base");
   assert.equal(F.nextSseRetryDelay(null), 2000);
   assert.equal(F.nextSseRetryDelay(undefined), 2000);
+});
+
+test("delegationsLabel keeps the count and surfaces repairs and failures only when present", () => {
+  const F = loadFormat();
+  assert.equal(F.delegationsLabel({ delegations: 1, repairs: 0, failures: 0 }), "1");
+  assert.equal(F.delegationsLabel({ delegations: 3, repairs: 1, failures: 0 }), "3 · 1 repair");
+  assert.equal(F.delegationsLabel({ delegations: 4, repairs: 2, failures: 0 }), "4 · 2 repairs");
+  assert.equal(F.delegationsLabel({ delegations: 2, repairs: 0, failures: 2 }), "2 · 2 failed");
+  assert.equal(F.delegationsLabel({ delegations: 5, repairs: 2, failures: 1 }), "5 · 2 repairs · 1 failed");
+});
+
+test("delegationsLabel tolerates a missing or partial workforce record", () => {
+  const F = loadFormat();
+  assert.equal(F.delegationsLabel({ delegations: 0 }), "0", "a sidekick outcome with no delegation samples");
+  assert.equal(F.delegationsLabel(null), "0");
+  assert.equal(F.delegationsLabel(undefined), "0");
 });

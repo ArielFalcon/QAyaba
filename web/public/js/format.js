@@ -143,6 +143,20 @@ window.QayabaFormat = (function () {
     return Math.min(max, base * 2);
   }
 
+  /* Value of the run's "delegations" workforce chip: the delegation count, then how many of
+     those were fix-loop repairs and how many failed. Each suffix appears only when nonzero —
+     a clean single delegation reads as just its count.
+   */
+  function delegationsLabel(wf) {
+    const w = wf || {};
+    const count = isNum(w.delegations) ? w.delegations : 0;
+    const repairs = isNum(w.repairs) ? w.repairs : 0;
+    const failures = isNum(w.failures) ? w.failures : 0;
+    return String(count) +
+      (repairs ? ' · ' + repairs + ' repair' + (repairs !== 1 ? 's' : '') : '') +
+      (failures ? ' · ' + failures + ' failed' : '');
+  }
+
   return {
     fixed: fixed,
     multiplierLabel: multiplierLabel,
@@ -154,5 +168,6 @@ window.QayabaFormat = (function () {
     clampDiffCommits: clampDiffCommits,
     triggerPayload: triggerPayload,
     nextSseRetryDelay: nextSseRetryDelay,
+    delegationsLabel: delegationsLabel,
   };
 })();

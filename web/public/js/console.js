@@ -492,7 +492,7 @@
     if (!wf) return '';
     const msToVerdict = wf.avgMs == null ? '' : Math.round(wf.avgMs / 1000) + 's';
     return QChip('bot', 'specs by', wf.producer + (msToVerdict ? ' · ' + msToVerdict : ''), wf.producer === 'sidekick' ? 'var(--pass-600)' : 'var(--text-muted)') +
-      QChip('rotate-cw', 'delegations', String(wf.delegations) + (wf.failures ? ' · ' + wf.failures + ' failed' : ''), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
+      QChip('rotate-cw', 'delegations', F.delegationsLabel(wf), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
   }
   /* Compact fleet-list badge, same "who actually produced this run" rule as WorkforceChips:
      only the sidekick outcome earns the tag — a lead run (including a rejected delegation
