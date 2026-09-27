@@ -9,9 +9,9 @@
    exports (preventionOutcome + applyOutcome), so it exercises the real governance shape without
    touching the forbidden factory file.
  */
-import { test } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { preventionOutcome, applyOutcome, PREVENTION_HELD_SCORE } from "@contexts/cross-run-learning/domain/rule-fold.ts";
+import { preventionOutcome, applyOutcome, deriveConfidence, attributableRules, PREVENTION_HELD_SCORE } from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 
 function makeRule(overrides: Partial<LearningRule> = {}): LearningRule {
@@ -99,4 +99,197 @@ test("WS1.4(a): an empty-errorClass rule also earns no debit when its own (nonex
   let rule = makeRule({ errorClass: "" as never, status: "candidate", outcomeCount: 0, successRate: null });
   rule = foldPreventionOutcome(rule, "" as never);
   assert.equal(rule.outcomeCount, 0, "no debit either — the guard is unconditional on the rule's own blank class");
+});
+
+/* Below: recovered from the deleted shell tests src/qa/learning/learning-rule.test.ts and
+   learning-rule.invariants.test.ts (git a4827f5^), retargeted onto this live qa-engine module.
+   rule-fold.ts is a byte-identical successor of the shell's learning-rule.ts core (the deleted
+   rule-fold-parity.test.ts proved exactly that up to a4827f5), so these assertions exercise
+   real, already-implemented behavior — not new behavior. Only cases whose subject genuinely
+   still exists here are kept; "pending"-status cases are dropped because RuleStatus
+   (application/ports/index.ts) no longer has a "pending" member at all.
+ */
+
+describe("preventionOutcome — direct semantics matrix (recovered)", () => {
+  test("own class recurring = hard 0, clean run = capped positive (PREVENTION_HELD_SCORE), unrelated/noisy = null", () => {
+    assert.equal(preventionOutcome("E-FRAGILE-SELECTOR", "E-FRAGILE-SELECTOR"), 0, "the rule did not prevent its own class");
+    assert.equal(preventionOutcome("E-FRAGILE-SELECTOR", null), PREVENTION_HELD_SCORE, "a clean run is a weak positive, capped");
+    assert.ok(PREVENTION_HELD_SCORE < 0.7, "the held score must stay below the 0.7 'high' threshold");
+    assert.equal(preventionOutcome("E-FRAGILE-SELECTOR", "E-EXEC-FAIL"), null, "an unrelated failure carries no evidence about this rule");
+    assert.equal(preventionOutcome("E-INFRA", "E-INFRA"), null, "noisy infra class teaches nothing");
+    assert.equal(preventionOutcome("E-FLAKY", "E-FLAKY"), null, "noisy flaky class teaches nothing");
+  });
+
+  test("a rule whose class keeps recurring under the prevention path is demoted out of active", () => {
+    let r = makeRule({ status: "active", successRate: 0.7, outcomeCount: 4, errorClass: "E-FRAGILE-SELECTOR" });
+    for (let i = 0; i < 6; i++) {
+      const s = preventionOutcome(r.errorClass, "E-FRAGILE-SELECTOR");
+      if (s !== null) r = applyOutcome(r, s);
+    }
+    assert.equal(r.status, "deprecated", "a rule that never prevents its own recurring class loses trust");
+  });
+});
+
+describe("deriveConfidence — direct boundary pins", () => {
+  test("outcomeCount below MIN_OUTCOMES or a null successRate is always low", () => {
+    assert.equal(deriveConfidence(0, null), "low");
+    assert.equal(deriveConfidence(2, 0.9), "low", "2 outcomes is below MIN_OUTCOMES (3)");
+  });
+
+  test("the high/medium boundary sits exactly at 0.7", () => {
+    assert.equal(deriveConfidence(5, 0.69), "medium");
+    assert.equal(deriveConfidence(5, 0.7), "high");
+  });
+
+  test("the medium/low boundary sits exactly at 0.45", () => {
+    assert.equal(deriveConfidence(5, 0.44), "low");
+    assert.equal(deriveConfidence(5, 0.45), "medium");
+  });
+});
+
+describe("applyOutcome — running mean, promotion gate, and hysteresis (recovered)", () => {
+  test("sets successRate to the score on the first outcome and stays candidate (not enough evidence yet)", () => {
+    const r = applyOutcome(makeRule({ outcomeCount: 0, successRate: null }), 0.8);
+    assert.equal(r.successRate, 0.8);
+    assert.equal(r.outcomeCount, 1);
+    assert.equal(r.status, "candidate");
+  });
+
+  test("accumulates as a running mean, never an overwrite", () => {
+    let r = makeRule({ outcomeCount: 0, successRate: null });
+    r = applyOutcome(r, 1.0);
+    r = applyOutcome(r, 0.0);
+    r = applyOutcome(r, 0.5);
+    assert.equal(r.outcomeCount, 3);
+    assert.ok(Math.abs(r.successRate! - 0.5) < 1e-9, `expected ~0.5, got ${r.successRate}`);
+  });
+
+  test("promotes a candidate to active after enough good ORACLE-scored outcomes", () => {
+    let r = makeRule({ status: "candidate" });
+    r = applyOutcome(r, 0.8, null, true);
+    r = applyOutcome(r, 0.8, null, true);
+    assert.equal(r.status, "candidate");
+    r = applyOutcome(r, 0.8, null, true);
+    assert.equal(r.status, "active");
+  });
+
+  test("does NOT promote when the mean stays below PROMOTE_RATE, even with oracle evidence", () => {
+    let r = makeRule({ status: "candidate" });
+    r = applyOutcome(r, 0.5, null, true);
+    r = applyOutcome(r, 0.5, null, true);
+    r = applyOutcome(r, 0.5, null, true);
+    assert.equal(r.status, "candidate");
+  });
+
+  test("does NOT promote a candidate on good outcomes alone when none are oracle-scored", () => {
+    let r = makeRule({ status: "candidate" });
+    r = applyOutcome(r, 0.8);
+    r = applyOutcome(r, 0.8);
+    r = applyOutcome(r, 0.8);
+    assert.equal(r.status, "candidate", "zero oracle-scored outcomes — promotion must be held regardless of successRate");
+    assert.equal(r.oracleOutcomeCount, 0);
+  });
+
+  test("demotes an active rule only after SUSTAINED low outcomes (tolerant, not trigger-happy)", () => {
+    let r = makeRule({ status: "active", successRate: 0.8, outcomeCount: 3 });
+    r = applyOutcome(r, 0.0);
+    r = applyOutcome(r, 0.0);
+    r = applyOutcome(r, 0.0);
+    assert.equal(r.status, "active", "a few failures do NOT flip a trusted rule");
+    for (let i = 0; i < 6; i++) r = applyOutcome(r, 0.0);
+    assert.equal(r.status, "deprecated");
+  });
+
+  test("hysteresis: an active rule in the dead band [0.3,0.6) is NOT demoted", () => {
+    let r = makeRule({ status: "active", successRate: 0.45, outcomeCount: 5 });
+    r = applyOutcome(r, 0.45);
+    r = applyOutcome(r, 0.45);
+    assert.equal(r.status, "active");
+  });
+
+  test("is reversible: a deprecated rule recovers to active with good outcomes", () => {
+    const r = applyOutcome(makeRule({ status: "deprecated", successRate: 0.5, outcomeCount: 2 }), 0.9);
+    assert.equal(r.status, "active", "resurrected, nothing was deleted");
+  });
+
+  test("a single anomalous outcome barely moves a high-confidence rule", () => {
+    const r = applyOutcome(makeRule({ status: "active", successRate: 0.9, outcomeCount: 20 }), 0.0);
+    assert.ok(r.successRate! > 0.85, `expected >0.85, got ${r.successRate}`);
+    assert.equal(r.status, "active");
+  });
+
+  test("no status change or confidence above 'low' before MIN_OUTCOMES", () => {
+    let r = makeRule({ status: "candidate", outcomeCount: 0, successRate: null });
+    r = applyOutcome(r, 1, null, true);
+    r = applyOutcome(r, 1, null, true);
+    assert.equal(r.confidence, "low", "insufficient evidence stays low");
+    assert.equal(r.status, "candidate", "insufficient evidence does not promote");
+  });
+
+  test("promotion requires a clearly positive mean — a mean of 0.5 does NOT promote", () => {
+    let r = makeRule({ status: "candidate", outcomeCount: 0, successRate: null });
+    r = applyOutcome(r, 0.5, null, true);
+    r = applyOutcome(r, 0.5, null, true);
+    r = applyOutcome(r, 0.5, null, true);
+    assert.equal(r.status, "candidate", "a 0.5 mean is not enough evidence to promote");
+  });
+
+  test("'superseded' is terminal: outcomes never revive or further move it", () => {
+    const sup = makeRule({ status: "superseded" });
+    let good = sup;
+    for (let i = 0; i < 5; i++) good = applyOutcome(good, 1, null, true);
+    assert.equal(good.status, "superseded", "good outcomes cannot revive it");
+    let bad = sup;
+    for (let i = 0; i < 5; i++) bad = applyOutcome(bad, 0);
+    assert.equal(bad.status, "superseded", "bad outcomes cannot move it");
+  });
+});
+
+describe("applyOutcome accumulates an arithmetic running mean, not a windowed/last value (recovered)", () => {
+  test("successRate is the true mean of all folded scores", () => {
+    const two = applyOutcome(applyOutcome(makeRule({ outcomeCount: 0, successRate: null }), 1), 0);
+    assert.ok(Math.abs((two.successRate ?? -1) - 0.5) < 1e-9, "[1,0] -> 0.5");
+    const three = applyOutcome(two, 0);
+    assert.ok(Math.abs((three.successRate ?? -1) - 1 / 3) < 1e-9, "[1,0,0] -> 1/3, not a wrong denominator from windowing/overwriting");
+  });
+});
+
+describe("ledger invariant: a rule fed ONLY prevention outcomes can never reach 'high' confidence (exhaustive)", () => {
+  test("all-held sequences (n=1..30) never reach 'high'; mean never exceeds the held ceiling", () => {
+    for (let n = 1; n <= 30; n++) {
+      let r = makeRule({ status: "candidate", outcomeCount: 0, successRate: null });
+      for (let i = 0; i < n; i++) r = applyOutcome(r, PREVENTION_HELD_SCORE, null, false);
+      assert.notEqual(r.confidence, "high", `all-held n=${n} must never be 'high'`);
+      assert.ok((r.successRate ?? 0) <= PREVENTION_HELD_SCORE + 1e-9, `mean must stay <= ceiling at n=${n}`);
+    }
+  });
+});
+
+describe("attributableRules — context-directed attribution filter (recovered, previously untested)", () => {
+  function mkAttrRule(id: string, archetype: string | null): LearningRule {
+    return makeRule({ id, archetype, status: "active" });
+  }
+
+  test("keeps rules whose archetype matches the diff shapes, and untagged rules (fail-open per rule)", () => {
+    const rules = [mkAttrRule("form", "form"), mkAttrRule("api", "api-call"), mkAttrRule("untagged", null)];
+    const kept = attributableRules(rules, { diffArchetypes: ["form"] });
+    assert.deepEqual(kept.map((r) => r.id), ["form", "untagged"]);
+  });
+
+  test("keeps everything when no diff archetypes are known (fail-open)", () => {
+    const rules = [mkAttrRule("a", "form"), mkAttrRule("b", "api-call")];
+    assert.deepEqual(attributableRules(rules, { diffArchetypes: [] }).map((r) => r.id), ["a", "b"]);
+  });
+
+  test("drops tagged non-matching rules but keeps untagged ones", () => {
+    const rules = [mkAttrRule("x", "form"), mkAttrRule("y", null)];
+    const kept = attributableRules(rules, { diffArchetypes: ["data-list"] });
+    assert.deepEqual(kept.map((r) => r.id), ["y"]);
+  });
+
+  test("handles multiple matching archetypes", () => {
+    const rules = [mkAttrRule("form", "form"), mkAttrRule("api", "api-call"), mkAttrRule("nav", "navigation")];
+    const kept = attributableRules(rules, { diffArchetypes: ["form", "navigation"] });
+    assert.deepEqual(kept.map((r) => r.id), ["form", "nav"]);
+  });
 });
