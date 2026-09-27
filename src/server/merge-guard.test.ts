@@ -12,6 +12,7 @@ import {
   readDeployHistory,
   recordDeploy,
   LedgerFs,
+  DEFAULT_CHANGE_LIMITS,
   DEFAULT_RATE_LIMITS,
   SECURITY_SENSITIVE_SURFACE_ROOTS,
   NOT_SECURITY_SENSITIVE,
@@ -378,4 +379,106 @@ test("readDeployHistory tolerates corrupt/missing ledger files", () => {
   assert.deepEqual(readDeployHistory("/x", fs), []);
   const none: LedgerFs = { read: () => null, write: () => {} };
   assert.deepEqual(readDeployHistory("/x", none), []);
+});
+
+test("isProtectedPath protects every image build and dependency manifest", () => {
+  for (const file of ["agents/Dockerfile", "docker-compose.override.yml", "package.json", "package-lock.json"]) {
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
+test("assessChange allows exactly the file and line limits and blocks one past either", () => {
+  const { maxFiles, maxLines } = DEFAULT_CHANGE_LIMITS;
+  const files = (n: number) => Array.from({ length: n }, (_, i) => `src/f${i}.ts`);
+  assert.equal(assessChange({ files: files(maxFiles), additions: 1, deletions: 0 }).ok, true);
+  assert.equal(assessChange({ files: files(maxFiles + 1), additions: 1, deletions: 0 }).ok, false);
+  assert.equal(assessChange({ files: ["src/a.ts"], additions: maxLines, deletions: 0 }).ok, true);
+  assert.equal(assessChange({ files: ["src/a.ts"], additions: maxLines, deletions: 1 }).ok, false);
+});
+
+test("assessChange counts deleted lines toward the line limit", () => {
+  assert.equal(assessChange({ files: ["src/a.ts"], additions: 0, deletions: DEFAULT_CHANGE_LIMITS.maxLines + 1 }).ok, false);
+});
+
+test("parseNumstat ignores a line that is not a numstat row, so an empty diff stays a blocked empty change", () => {
+  const stat = parseNumstat("not a numstat row\n");
+  assert.deepEqual(stat.files, []);
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("every reason a gate blocks with is a non-empty explanation", () => {
+  const now = 1_000_000_000_000;
+  const { maxInWindow, cooldownMs } = DEFAULT_RATE_LIMITS;
+  const blocked = [
+    assessChange({ files: [], additions: 0, deletions: 0 }),
+    assessChange({ files: ["boot-guard.mjs"], additions: 1, deletions: 0 }),
+    assessRate(Array.from({ length: maxInWindow }, (_, i) => now - cooldownMs - (i + 1) * 1000), now),
+    assessRate([now - 1000], now),
+  ];
+  for (const r of blocked) {
+    assert.equal(r.ok, false);
+    assert.ok(r.reasons.length > 0 && r.reasons.every((x) => x.trim().length > 0), JSON.stringify(r.reasons));
+  }
+});
+
+/* Deploy timestamps placed after the cooldown but inside the window isolate the window limit. */
+test("assessRate blocks maxInWindow deploys inside the window even once the cooldown has passed", () => {
+  const now = 1_000_000_000_000;
+  const { maxInWindow, cooldownMs } = DEFAULT_RATE_LIMITS;
+  const history = Array.from({ length: maxInWindow }, (_, i) => now - cooldownMs - (i + 1) * 1000);
+  const r = assessRate(history, now);
+  assert.equal(r.ok, false);
+  assert.equal(r.reasons.length, 1, "only the window limit is hit");
+  assert.equal(assessRate(history.slice(1), now).ok, true, "one deploy fewer is allowed");
+});
+
+test("assessRate: a deploy exactly windowMs ago no longer counts toward the window", () => {
+  const now = 1_000_000_000_000;
+  const { maxInWindow, cooldownMs, windowMs } = DEFAULT_RATE_LIMITS;
+  const inside = Array.from({ length: maxInWindow - 1 }, (_, i) => now - cooldownMs - (i + 1) * 1000);
+  assert.deepEqual(assessRate([...inside, now - windowMs], now), { ok: true, reasons: [] });
+});
+
+test("assessRate: a deploy recorded at this instant counts toward the window; a future-dated one (clock skew) does not", () => {
+  const now = 1_000_000_000_000;
+  const { maxInWindow, cooldownMs } = DEFAULT_RATE_LIMITS;
+  const earlier = Array.from({ length: maxInWindow - 1 }, (_, i) => now - cooldownMs - (i + 1) * 1000);
+  assert.equal(assessRate([...earlier, now], now).reasons.length, 2, "window and cooldown");
+  const future = assessRate([...earlier, now + 1000], now);
+  assert.equal(future.ok, false);
+  assert.equal(future.reasons.length, 1, "cooldown only");
+});
+
+test("assessRate: the cooldown runs from the most recent deploy, whatever the ledger order", () => {
+  const now = 1_000_000_000_000;
+  assert.equal(assessRate([now - 1000, now - DEFAULT_RATE_LIMITS.windowMs * 2], now).ok, false);
+});
+
+test("assessRate: a deploy exactly cooldownMs ago is past the cooldown", () => {
+  const now = 1_000_000_000_000;
+  assert.deepEqual(assessRate([now - DEFAULT_RATE_LIMITS.cooldownMs], now), { ok: true, reasons: [] });
+});
+
+test("readDeployHistory drops non-numeric ledger entries (they would make the cooldown unmeasurable)", () => {
+  const fs: LedgerFs = { read: () => JSON.stringify([100, "200", null, 300]), write: () => {} };
+  assert.deepEqual(readDeployHistory("/x", fs), [100, 300]);
+});
+
+test("recordDeploy keeps only the newest `keep` timestamps", () => {
+  const store = new Map<string, string>();
+  const fs: LedgerFs = { read: (p) => store.get(p) ?? null, write: (p, s) => void store.set(p, s) };
+  for (const t of [1, 2, 3]) recordDeploy("/ledger.json", t, fs, 2);
+  assert.deepEqual(readDeployHistory("/ledger.json", fs), [2, 3]);
+});
+
+test("the real ledger store persists deploys on disk across reads, creating its directory", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qayaba-deploy-ledger-"));
+  try {
+    const path = join(dir, "nested", "maintainer-deploys.json");
+    recordDeploy(path, 100);
+    recordDeploy(path, 200);
+    assert.deepEqual(readDeployHistory(path), [100, 200]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
