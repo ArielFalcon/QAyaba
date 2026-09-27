@@ -359,16 +359,15 @@ export class RunQaUseCase {
       maxRetries: cfg.maxRetries,
       ...(cfg.iterationBudget !== undefined ? { iterationBudget: cfg.iterationBudget } : {}),
     });
+    /*
+     * A zero agentTimeoutMs with no YAML override derives to WallClockBudget.unbounded() —
+     * exhausted() then never fires, so a caller here needs no separate "is this armed" guard.
+     */
     const wallClockBudget = WallClockBudget.derive({
       cycleBudget,
       agentTimeoutMs: cfg.agentTimeoutMs ?? 0,
       ...(cfg.wallClockBudgetMs !== undefined ? { wallClockBudgetMs: cfg.wallClockBudgetMs } : {}),
     });
-    /*
-     * A zero agentTimeoutMs with no YAML override MUST NOT enforce exhausted() —
-     * that budget is 0 and would stop every retry on the first millisecond.
-     */
-    const wallClockArmed = (cfg.agentTimeoutMs ?? 0) > 0 || cfg.wallClockBudgetMs !== undefined;
 
     /* Already-aborted signal short-circuits before the entry gate. */
     if (signal?.aborted) {
@@ -1233,7 +1232,7 @@ export class RunQaUseCase {
             currentCapability: fixLoopCapability,
             previous: fixLoopPreviousProgress,
             current: progress,
-            budgetExhausted: wallClockArmed && wallClockBudget.exhausted(Date.now() - startedAt),
+            budgetExhausted: wallClockBudget.exhausted(Date.now() - startedAt),
             infraFailure: false,
             sidekickNeedsLead: fixLoopSidekickNeedsLead,
           });
