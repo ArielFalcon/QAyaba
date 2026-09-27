@@ -1,4 +1,10 @@
-/* Pure failure adjudicator for FixLoop — distinct from test-execution's AdjudicateService (runner-infra reclassification). First match wins: runner_infra → dev_infra → attributed 5xx app_defect → isLikelyRealBug app_defect → generated_test_defect/continue → break-needs-human → objective_gap (label only) → default continue. Pure: no I/O, never throw. */
+/* Pure failure adjudicator for FixLoop. Runner-infra reclassification has a single owner elsewhere
+ * (e2e-execution.runner.ts's allFailuresAreRunnerInfra, which runs upstream of every runE2E caller
+ * — see its own header); Rule 1 below re-checks the SAME PLAYWRIGHT_INFRA_RE pattern here only
+ * because FixLoop's evidence is pre-computed strings, not QaCase[], so it cannot call that helper
+ * directly. First match wins: runner_infra → dev_infra → attributed 5xx app_defect →
+ * isLikelyRealBug app_defect → generated_test_defect/continue → break-needs-human → objective_gap
+ * (label only) → default continue. Pure: no I/O, never throw. */
 
 import type { RunMode } from "@kernel/run-mode.ts";
 import { isLikelyRealBug, classifyFailure } from "./helpers/progress-gate.ts";

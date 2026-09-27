@@ -35,7 +35,7 @@ export class AgentTimeoutError extends InfraError {
 /* Name fallbacks cover cross-realm cases where `instanceof` fails; the message check covers operator cancel. */
 export function isInfraError(err: unknown): boolean {
   if (err instanceof InfraError) return true;
-  if (err instanceof Error && (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError" || err.name === "AgentTimeoutError" || err.name === "DeployTimeoutError")) return true;
+  if (err instanceof Error && (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError" || err.name === "AgentTimeoutError")) return true;
   if (err instanceof Error && /\brun cancelled by operator\b/i.test(err.message)) return true;
   return false;
 }

@@ -23,14 +23,24 @@ test("delegates to runE2E with the mapped opts and returns the verdict/cases/log
   assert.equal(out.logs, "ok");
 });
 
-test("runs the result through AdjudicateService — all-runner-infra fail becomes infra-error", async () => {
+/*
+ * O11: runner-infra reclassification has a SINGLE owner now — e2e-execution.runner.ts's own
+ * allFailuresAreRunnerInfra, which runs inside the real runE2E before this strategy ever sees a
+ * verdict (both of runE2E's production callers — this strategy AND the fault-injection oracle's
+ * runCorruptedFaultInjection re-run — depend on that SAME upstream reclassification; the strategy
+ * previously duplicated the exact same check via AdjudicateService/AppDefect, which never actually
+ * fired against the real runE2E and computed an AppDefect value nothing ever read). The strategy
+ * now passes the injected runE2E's verdict straight through, unchanged, whatever it is — a fake
+ * runE2E that skips its own reclassification (unlike the real one) gets no second chance here.
+ */
+test("passes the injected runE2E's verdict straight through — no second reclassification pass at the strategy boundary", async () => {
   const strategy = new E2eExecutionStrategy(async () => ({
     sha: "abc", verdict: "fail", passed: false,
     cases: [{ name: "t", status: "fail", detail: "browserType.launch: Executable doesn't exist" }],
     logs: "boom",
   }));
   const out = await strategy.run(req);
-  assert.equal(out.verdict, "infra-error");
+  assert.equal(out.verdict, "fail", "reclassification is runE2E's own job now (single owner) — the strategy must not re-derive it");
 });
 
 test("throws when baseUrl is absent (e2e requires a live DEV URL)", async () => {

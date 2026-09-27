@@ -22,7 +22,6 @@ const qaEngineRoot = join(here, "..", "..");
 const DECISION_PATH_FILES = [
   "src/contexts/qa-run-orchestration/domain/run-decision.service.ts",
   "src/contexts/qa-run-orchestration/domain/adjudicate.service.ts",
-  "src/contexts/test-execution/domain/adjudicate.service.ts",
   "src/contexts/objective-signal/domain/decide-coverage.service.ts",
   "src/contexts/workspace-and-publication/domain/publish-decision.service.ts",
   "src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",

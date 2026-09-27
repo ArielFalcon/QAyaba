@@ -13,6 +13,7 @@ import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.
 import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
+import { PLAYWRIGHT_INFRA_RE } from "@contexts/qa-run-orchestration/domain/helpers/playwright-infra.ts";
 
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
@@ -81,9 +82,11 @@ export function streamStatusToCase(status: string): CaseStatus | null {
   return "fail";
 }
 
-export const PLAYWRIGHT_INFRA_RE =
-  /browserType\.(?:launch|connect)|Executable doesn't exist|Failed to launch|missing dependencies to run browsers|Host system is missing dependencies/i;
-
+/*
+ * Single owner: qa-run-orchestration/domain/helpers/playwright-infra.ts. Runner-infra
+ * reclassification runs HERE, upstream of both of runE2E's production callers
+ * (E2eExecutionStrategy and the fault-injection oracle's own re-run) — see the call site below.
+ */
 export function allFailuresAreRunnerInfra(cases: QaCase[]): boolean {
   const failed = cases.filter((c) => c.status === "fail");
   return failed.length > 0 && failed.every((c) => PLAYWRIGHT_INFRA_RE.test(c.detail ?? ""));
