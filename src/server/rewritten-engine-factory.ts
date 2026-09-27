@@ -492,6 +492,15 @@ function requestContextHeal(
 }
 
 
+/*
+ * An app's orchestrator-only auth material directory (storageState / client certificate) under
+ * QAYABA_ROOT/data — the qa-data volume, never mounted into the agents container. Removed with the
+ * app on a purge.
+ */
+export function appAuthDir(qayabaRoot: string, appName: string): string {
+  return join(qayabaRoot, "data", "auth", appName);
+}
+
 export function buildRewrittenCompositionConfig(
   app: AppConfig,
   deps: RewrittenEngineFactoryDeps,
@@ -535,10 +544,11 @@ export function buildRewrittenCompositionConfig(
    * QAYABA_ROOT/data (the qa-data volume — NOT mounted into the agents container, only mirrors
    * is). authDir is where AuthSessionAdapter writes storageState/client.p12/cert.pass and where
    * every execute/DOM-capture spawn reads them back from: an orchestrator-only directory, never
-   * the watched-repo mirror (Batch S / S2).
+   * the watched-repo mirror.
    */
-  const dataDir = join(process.env.QAYABA_ROOT ?? process.cwd(), "data");
-  const authDir = join(dataDir, "auth", app.name);
+  const qayabaRoot = process.env.QAYABA_ROOT ?? process.cwd();
+  const dataDir = join(qayabaRoot, "data");
+  const authDir = appAuthDir(qayabaRoot, app.name);
 
 
   const triggerService =
@@ -889,7 +899,7 @@ export function buildRewrittenCompositionConfig(
       ? {
           authSession: new AuthSessionAdapter({
             env: process.env,
-            seedAuthSetup: readFileSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "e2e", "auth.setup.ts"), "utf8"),
+            readSeedAuthSetup: () => readFileSync(join(qayabaRoot, "config", "e2e", "auth.setup.ts"), "utf8"),
             authDir,
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({

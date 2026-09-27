@@ -70,9 +70,10 @@ The service must be running: \`docker compose up\` (or the orchestrator started 
 Select 'Delete Project' from the home screen. Two options:
 - **Config only:** removes config/apps/<name>.yaml, keeps the run history and the
   repo mirror cache.
-- **Full purge:** also removes the PRIMARY repo mirror (regenerable cache) and the
-  app's run history (irreversible). Service-repo mirrors may be shared with other
-  apps and are left intact. The watched repo itself is NEVER touched.
+- **Full purge:** also removes the PRIMARY repo mirror (regenerable cache), the
+  app's run history (irreversible) and its stored login session / client
+  certificate. Service-repo mirrors may be shared with other apps and are left
+  intact. The watched repo itself is NEVER touched.
 
 ## Configuration (config/apps/<name>.yaml)
 

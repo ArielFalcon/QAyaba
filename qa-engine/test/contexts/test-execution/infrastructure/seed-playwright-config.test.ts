@@ -50,7 +50,7 @@ async function loginSetupRunEnv(): Promise<Record<string, string>> {
   try {
     const adapter = new AuthSessionAdapter({
       env: { QA_USER: "u", QA_PASS: "p" },
-      seedAuthSetup: "/* qa-auth-setup-seed */\n",
+      readSeedAuthSetup: () => "/* qa-auth-setup-seed */\n",
       authDir,
       spawnSetup: async (_dir, env) => {
         captured = env;

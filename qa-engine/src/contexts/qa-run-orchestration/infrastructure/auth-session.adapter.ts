@@ -20,7 +20,8 @@ export interface AuthSessionSpawnResult {
 
 export interface AuthSessionAdapterDeps {
   env: NodeJS.ProcessEnv;
-  seedAuthSetup: string;
+  /** The current auth.setup.ts seed. Read only when a form login must tell a stock copy from an app-owned one. */
+  readSeedAuthSetup(): string;
   /** Orchestrator-only directory (outside the mirror) auth material is written to and read from. */
   authDir: string;
   spawnSetup(specDir: string, env: Record<string, string>, signal?: AbortSignal): Promise<AuthSessionSpawnResult>;
@@ -124,6 +125,6 @@ export class AuthSessionAdapter implements AuthSessionPort {
     if (!existsSync(path)) return true;
     const body = readFileSync(path, "utf8");
     /* The marker stays on every seed revision. Byte equality alone would treat an older seed as app-owned. */
-    return body === this.deps.seedAuthSetup || body.startsWith("/* qa-auth-setup-seed */");
+    return body.startsWith("/* qa-auth-setup-seed */") || body === this.deps.readSeedAuthSetup();
   }
 }

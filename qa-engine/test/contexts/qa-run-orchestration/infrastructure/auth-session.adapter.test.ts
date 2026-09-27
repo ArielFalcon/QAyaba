@@ -17,7 +17,7 @@ test("absent auth returns an empty session and does not spawn", async () => {
   const specDir = mkdtempSync(join(tmpdir(), "auth-"));
   const adapter = new AuthSessionAdapter({
     env: {},
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => { spawned = true; return { exitCode: 0, logs: "" }; },
   });
@@ -34,7 +34,7 @@ test("mtls decodes the base64 P12 to authDir/client.p12 — NEVER under the mirr
   const authDir = authDirFixture();
   const adapter = new AuthSessionAdapter({
     env: { QA_CERT: Buffer.from("p12-bytes").toString("base64"), QA_CERT_PASS: "secret" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir,
     spawnSetup: async () => { throw new Error("must not spawn"); },
   });
@@ -54,7 +54,7 @@ test("mtls decodes the base64 P12 to authDir/client.p12 — NEVER under the mirr
 test("form with missing username env throws", async () => {
   const adapter = new AuthSessionAdapter({
     env: {},
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => ({ exitCode: 0, logs: "" }),
   });
@@ -74,7 +74,7 @@ test("stock seed login failure on pre-generate is unauthored and does not throw"
   writeFileSync(join(specDir, "auth.setup.ts"), SEED);
   const adapter = new AuthSessionAdapter({
     env: { QA_USER: "u", QA_PASS: "p" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => ({ exitCode: 1, logs: "selector miss" }),
   });
@@ -93,7 +93,7 @@ test("authored setup failure throws", async () => {
   writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
   const adapter = new AuthSessionAdapter({
     env: { QA_USER: "u", QA_PASS: "p" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => ({ exitCode: 1, logs: "still on login" }),
   });
@@ -115,7 +115,7 @@ test("successful form login returns the storageState path the spawn wrote, under
   let capturedEnv: Record<string, string> = {};
   const adapter = new AuthSessionAdapter({
     env: { QA_USER: "u", QA_PASS: "p" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir,
     spawnSetup: async (_specDir, env) => {
       capturedEnv = env;
@@ -141,7 +141,7 @@ test("successful form login returns the storageState path the spawn wrote, under
 test("mtls without a passphrase throws", async () => {
   const adapter = new AuthSessionAdapter({
     env: { QA_CERT: Buffer.from("p12-bytes").toString("base64") },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => { throw new Error("must not spawn"); },
   });
@@ -161,7 +161,7 @@ test("exit 0 without user.json throws on pre-execute", async () => {
   writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
   const adapter = new AuthSessionAdapter({
     env: { QA_USER: "u", QA_PASS: "p" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => ({ exitCode: 0, logs: "" }),
   });
@@ -181,7 +181,7 @@ test("a seed marker still counts as stock after the seed text changes", async ()
   writeFileSync(join(specDir, "auth.setup.ts"), "/* qa-auth-setup-seed */\nexport const revised = true;\n");
   const adapter = new AuthSessionAdapter({
     env: { QA_USER: "u", QA_PASS: "p" },
-    seedAuthSetup: SEED,
+    readSeedAuthSetup: () => SEED,
     authDir: authDirFixture(),
     spawnSetup: async () => ({ exitCode: 1, logs: "selector miss" }),
   });
@@ -218,7 +218,7 @@ test("an authored form setup that exits 0 without writing a session fails instea
     writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login that ignores PW_STORAGE_STATE */\n");
     const adapter = new AuthSessionAdapter({
       env: { QA_USER: "u", QA_PASS: "p" },
-      seedAuthSetup: SEED,
+      readSeedAuthSetup: () => SEED,
       authDir,
       spawnSetup: async () => ({ exitCode: 0, logs: "" }),
     });
@@ -245,7 +245,7 @@ test("a stock seed that cannot log in before generation runs unauthenticated, no
     writeFileSync(join(specDir, "auth.setup.ts"), SEED);
     const adapter = new AuthSessionAdapter({
       env: { QA_USER: "u", QA_PASS: "p" },
-      seedAuthSetup: SEED,
+      readSeedAuthSetup: () => SEED,
       authDir,
       spawnSetup: async () => ({ exitCode: 1, logs: "selector miss" }),
     });
@@ -269,7 +269,7 @@ test("an app with no auth declared gets no auth env from an earlier run's materi
   try {
     const adapter = new AuthSessionAdapter({
       env: {},
-      seedAuthSetup: SEED,
+      readSeedAuthSetup: () => SEED,
       authDir,
       spawnSetup: async () => { throw new Error("must not spawn"); },
     });
@@ -288,7 +288,7 @@ test("a form login injects only its session, never an earlier client certificate
     writeFileSync(join(specDir, "auth.setup.ts"), "/* app-owned login */\n");
     const adapter = new AuthSessionAdapter({
       env: { QA_USER: "u", QA_PASS: "p" },
-      seedAuthSetup: SEED,
+      readSeedAuthSetup: () => SEED,
       authDir,
       spawnSetup: async (_dir, env) => {
         writeFileSync(env.PW_STORAGE_STATE!, "{\"cookies\":[]}");
@@ -315,7 +315,7 @@ test("a client certificate injects only the certificate, never an earlier form s
   try {
     const adapter = new AuthSessionAdapter({
       env: { QA_CERT: Buffer.from("p12-bytes").toString("base64"), QA_CERT_PASS: "secret" },
-      seedAuthSetup: SEED,
+      readSeedAuthSetup: () => SEED,
       authDir,
       spawnSetup: async () => { throw new Error("must not spawn"); },
     });

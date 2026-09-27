@@ -27,7 +27,7 @@ import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
 import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
-import { createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
+import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
@@ -432,6 +432,7 @@ const appAdminDeps: AppAdminDeps = {
   deleteConfig: (name) => unlinkSync(join(ROOT, "config", "apps", `${name}.yaml`)),
   deleteMirror: (repo) => rmSync(join(process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
   deleteHistory: (app) => deleteAppHistory(app),
+  deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
   loadApp: (name) => loadAppConfig(name),
   env: process.env,

@@ -46,6 +46,7 @@ function makeDeps(overrides: Partial<AppAdminDeps> = {}): AppAdminDeps & { writt
       deleteConfig: (name: string) => { removed.push(`config:${name}`); },
       deleteMirror: (repo: string) => { removed.push(`mirror:${repo}`); },
       deleteHistory: (app: string) => { removed.push(`history:${app}`); return 1; },
+      deleteAuthMaterial: (app: string) => { removed.push(`auth:${app}`); },
       applyEnv: (vars: Record<string, string>) => Object.keys(vars),
       loadApp: (name: string) => ({
         name,
@@ -177,13 +178,23 @@ test("duplicate name or invalid name is rejected", async () => {
   assert.equal(bad.ok, false);
 });
 
-test("deleteApp removes the config; purge also removes the PRIMARY mirror and history", () => {
+test("deleteApp without purge removes only the config", () => {
   const deps = makeDeps();
-  const plain = deleteApp("shop", false, deps);
-  assert.deepEqual(plain.removed, ["config:shop"]);
-  const deps2 = makeDeps();
-  const purged = deleteApp("shop", true, deps2);
-  assert.deepEqual(purged.removed, ["config:shop", "mirror:org/shop-front", "history:shop"]);
+  const result = deleteApp("shop", false, deps);
+  assert.ok(deps.removed.includes("config:shop"));
+  for (const kept of ["mirror:org/shop-front", "history:shop", "auth:shop"]) {
+    assert.equal(deps.removed.includes(kept), false, `${kept} must be kept without purge`);
+  }
+  assert.deepEqual([...result.removed].sort(), [...deps.removed].sort(), "the report lists exactly what was removed");
+});
+
+test("deleteApp with purge also removes the primary mirror, the run history and the stored login material", () => {
+  const deps = makeDeps();
+  const result = deleteApp("shop", true, deps);
+  for (const gone of ["config:shop", "mirror:org/shop-front", "history:shop", "auth:shop"]) {
+    assert.ok(deps.removed.includes(gone), `purge must remove ${gone}`);
+  }
+  assert.deepEqual([...result.removed].sort(), [...deps.removed].sort(), "the report lists exactly what was removed");
 });
 
 test("updateApp loads existing config, merges changes, and writes", async () => {

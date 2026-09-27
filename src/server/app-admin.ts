@@ -20,6 +20,8 @@ export interface AppAdminDeps {
   deleteConfig(name: string): void;
   deleteMirror(repo: string): void;
   deleteHistory(app: string): number;
+  /** Removes the app's stored login session / client certificate (orchestrator-only auth directory). */
+  deleteAuthMaterial(app: string): void;
   applyEnv(vars: Record<string, string>): string[];
   loadApp(name: string): AppConfig;
   env: Record<string, string | undefined>;
@@ -194,6 +196,8 @@ export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { r
     removed.push(`mirror:${app.repo}`);
     deps.deleteHistory(name);
     removed.push(`history:${name}`);
+    deps.deleteAuthMaterial(name);
+    removed.push(`auth:${name}`);
   }
   return { removed };
 }

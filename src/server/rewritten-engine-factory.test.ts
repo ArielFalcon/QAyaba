@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
@@ -75,6 +78,25 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.ok(config.confinement, "sdd/migration-remediation Slice 3: ConfinementPort collaborator must be wired");
   assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
   assert.ok(config.processAudit, "sdd/migration-remediation Slice 5: ProcessAuditPort collaborator must be wired");
+});
+
+/* The login seed (config/e2e/auth.setup.ts) matters only when a form login has to tell a stock
+   auth.setup.ts from an app-owned one; composing an app must not depend on it being readable. */
+test("composing an e2e app does not read the auth setup seed, whether or not the app declares a login", () => {
+  const rootWithoutSeed = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const previousRoot = process.env.QAYABA_ROOT;
+  process.env.QAYABA_ROOT = rootWithoutSeed;
+  try {
+    const publicApp = cfg("public-app");
+    const formApp: AppConfig = { ...cfg("form-app"), auth: { kind: "form", usernameEnv: "QA_FORM_USER", passwordEnv: "QA_FORM_PASS" } };
+    for (const app of [publicApp, formApp]) {
+      assert.doesNotThrow(() => buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }), `${app.name} must compose without the seed`);
+    }
+  } finally {
+    if (previousRoot === undefined) delete process.env.QAYABA_ROOT;
+    else process.env.QAYABA_ROOT = previousRoot;
+    rmSync(rootWithoutSeed, { recursive: true, force: true });
+  }
 });
 
 test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
