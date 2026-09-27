@@ -47,19 +47,49 @@ function stemMatches(a: string, b: string): boolean {
 }
 
 /*
- * Wording that asserts a criterion is NOT met. Sharing the criterion's words is not enough: a
- * sidekick routinely reports "could not verify <criterion>" (no runner in scope) or "criterion
- * satisfied: <criterion>", and neither contradicts it. Only an explicit non-satisfaction claim does.
+ * A concern contradicts a criterion only when it CLAIMS the criterion is not satisfied; sharing the
+ * criterion's words is not enough. A sidekick routinely reports uncertainty ("could not verify
+ * <criterion>", no runner in scope), affirmation ("criterion satisfied: <criterion>") or a negated
+ * breach ("nothing contradicts the criterion", "no violations"), and none of those contradicts it.
+ *
+ * A clause claims non-satisfaction when it states one of these and no negation governs it:
+ *  - failed satisfaction: "cannot satisfy", "could not be met", "not met", "unmet", ...
+ *  - a failure verdict on the criterion itself: "criterion failed", "acceptance fails";
+ *  - a breach: "violates", "contradicts" and their inflections.
  */
-const NON_SATISFACTION =
-  /\b(?:cannot|can't|can not|could not|couldn't|unable to|does not|doesn't|did not|didn't|do not|will not|won't|fails? to|failed to)\s+(?:satisfy|meet|fulfil+|achieve|comply with)\b|\bnot\s+(?:satisfied|met|fulfil+ed|achieved)\b|\b(?:unsatisfied|unmet|unfulfil+ed|unachievable)\b|\bviolat(?:e|es|ed|ing|ion)\b|\bcontradict(?:s|ed|ing|ion)?\b/i;
+const NON_SATISFACTION_CLAIMS: readonly RegExp[] = [
+  /\b(?:cannot|can't|can not|could not|couldn't|unable to|does not|doesn't|did not|didn't|do not|don't|will not|won't|fails? to|failed to)\s+(?:be\s+)?(?:satisf(?:y|ied)|meet|met|fulfil+(?:ed)?|achieved?|comply with)\b/gi,
+  /\bnot\s+(?:be\s+|been\s+)?(?:satisfied|met|fulfil+ed|achieved)\b/gi,
+  /\b(?:unsatisfied|unmet|unfulfil+ed|unachievable)\b/gi,
+  /\b(?:criterion|criteria|acceptance|requirements?)\s+(?:(?:has|have|was|were|is|are)\s+)?(?:failed|fails|failing)\b/gi,
+  /\bviolat\w*/gi,
+  /\bcontradict\w*/gi,
+];
+
+/* A claim is negated when one of the few words just before it, in the same clause, is a negation:
+ * "no violations", "nothing contradicts", "does not violate", "without violating". */
+const NEGATION_WORD = /^(?:no|not|nothing|never|none|neither|nor|without|cannot)$|n't$/;
+const NEGATION_WINDOW = 3;
+
+function negatedAt(clause: string, index: number): boolean {
+  const preceding = clause.slice(0, index).toLowerCase().split(/[^a-z']+/).filter(Boolean);
+  return preceding.slice(-NEGATION_WINDOW).some((word) => NEGATION_WORD.test(word));
+}
+
+function claimsNonSatisfaction(concern: string): boolean {
+  return concern.split(/[.;:!?\n]+/).some((clause) =>
+    NON_SATISFACTION_CLAIMS.some((claim) =>
+      [...clause.matchAll(claim)].some((match) => !negatedAt(clause, match.index)),
+    ),
+  );
+}
 
 /* True when `concern` claims non-satisfaction AND reproduces most of `criterion`'s meaningful
  * words — a paraphrase, not just an unrelated concern that happens to share a rare short word.
  * Criteria with no meaningful words (empty after stopword filtering) never match anything, to
  * avoid a vacuous always-true check. */
 function concernContradictsCriterion(concern: string, criterion: string): boolean {
-  if (!NON_SATISFACTION.test(concern)) return false;
+  if (!claimsNonSatisfaction(concern)) return false;
   const criterionTerms = keyTerms(criterion);
   if (criterionTerms.length === 0) return false;
   const concernTerms = keyTerms(concern);

@@ -219,10 +219,15 @@ function repairResult(concern: string) {
   };
 }
 
+/* Every concern below restates a criterion's key terms, so only the claim it makes about the
+   criterion decides whether it blocks. */
 for (const concern of [
   "Acceptance: could not re-execute the failing cases to confirm they pass (no test runner in scope)",
   "Acceptance criterion: could not verify that failing cases pass on re-execute",
   "Acceptance criterion satisfied: no writes outside scope (only e2e/specs/login.spec.ts)",
+  "Acceptance criterion satisfied: failing cases pass on re-execute",
+  "Verified the failing cases pass on re-execute; nothing contradicts the criterion",
+  "No violations: failing cases pass on re-execute",
 ]) {
   test(`pushback does not block a delegation whose concern is not a contradiction: "${concern}"`, () => {
     const result = applyPushback(repairBrief(), repairResult(concern));
@@ -235,6 +240,10 @@ for (const concern of [
   "Cannot satisfy acceptance criterion: Failing cases pass on re-execute",
   "cannot satisfy: re-executing the failing cases would still not make them pass",
   "criterion not met: the failing cases keep failing when re-executed",
+  "Acceptance criterion failed: failing cases do not pass on re-execute",
+  "Acceptance criterion could not be met: failing cases pass on re-execute",
+  "The change violates the criterion that failing cases pass on re-execute",
+  "Acceptance criterion unmet: failing cases pass on re-execute",
 ]) {
   test(`pushback blocks a delegation whose concern says a criterion is not met: "${concern}"`, () => {
     const result = applyPushback(repairBrief(), repairResult(concern));
