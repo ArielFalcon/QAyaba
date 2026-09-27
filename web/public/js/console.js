@@ -1556,7 +1556,10 @@ function loadRunExtras(id) {
     if (!state.runExtras || state.runExtras.runId !== id) return;
     state.runExtras.report = report || null;
     state.runExtras.turns = Array.isArray(turns) && turns.length ? turns : null;
-    if (state.runId === id && !liveRun()) render();
+    /* Repaint only the finished run's detail: the live run's own view is SSE-driven and never
+       shows these extras, so re-rendering it would just restart its stream. */
+    const live = liveRun();
+    if (state.runId === id && !(live && live.id === id)) render();
   });
 }
   function openApp(name) { state.appName = name; state.runId = null; state.section = 'overview'; initAppSel(name); history.pushState({ app: name }, '', '?app=' + encodeURIComponent(name)); render(); }
