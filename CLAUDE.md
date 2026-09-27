@@ -249,10 +249,10 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
 
 - **Root-cause & project-agnostic — never tailor a fix to a configured test
   app.** Every fix and feature targets the underlying cause and must hold for
-  ANY watched project. The apps in `config/apps/*` (`portfolio`, `petclinic`,
-  `jhipster-store`, `qayaba`, …) are *interchangeable test targets, not design
-  inputs* — never shape a code path "so app X passes"; reproduce on one,
-  diagnose the root, generalize the solution. The ONLY legitimate
+  ANY watched project. The apps configured under `config/apps/*` are
+  *interchangeable test targets, not design inputs* — never shape a code path
+  "so app X passes"; reproduce on one, diagnose the root, generalize the
+  solution. The ONLY legitimate
   project-shaped constraint is **declared, deliberate scope** (e.g.
   structural-signal analysis covers Java + JavaScript/TypeScript by design
   *for now*, widened later) — and even that lives in `config/` / the language
