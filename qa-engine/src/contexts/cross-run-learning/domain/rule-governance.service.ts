@@ -26,13 +26,13 @@ const RETRIEVAL_SUCCESS_RATE_WEIGHT = 10;
 export const EXPLORATION_SLOTS = 2;
 
 export class RuleGovernanceService {
-  rank(rules: readonly LearningRule[], bias?: (rule: LearningRule) => number, successRateWeight = 1): LearningRule[] {
+  rank(rules: readonly LearningRule[], bias?: (rule: LearningRule) => number): LearningRule[] {
     const score = bias ?? (() => 0);
     return [...rules].sort((a, b) => {
       const activeDelta = Number(b.status === "active") - Number(a.status === "active");
       if (activeDelta !== 0) return activeDelta;
       const rateDelta =
-        (b.successRate ?? 0) * successRateWeight + score(b) - ((a.successRate ?? 0) * successRateWeight + score(a));
+        (b.successRate ?? 0) * RETRIEVAL_SUCCESS_RATE_WEIGHT + score(b) - ((a.successRate ?? 0) * RETRIEVAL_SUCCESS_RATE_WEIGHT + score(a));
       if (rateDelta !== 0) return rateDelta;
       const atDelta = b.at.localeCompare(a.at);
       if (atDelta !== 0) return atDelta;
@@ -55,7 +55,7 @@ export class RuleGovernanceService {
         }
       : undefined;
     const eligible = rules.filter((r) => RETRIEVABLE.has(r.status));
-    const picked = this.rank(eligible, bias, RETRIEVAL_SUCCESS_RATE_WEIGHT).slice(0, limit);
+    const picked = this.rank(eligible, bias).slice(0, limit);
 
     /*
      * Exploration floor: once `limit` slots are already filled by ranked rules, reserve the last
