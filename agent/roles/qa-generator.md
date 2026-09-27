@@ -114,19 +114,30 @@ cookies/cache, file upload. Each test must:
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.
 
-### 4. Verify the tests compile (bash)
+### 4. Verify the tests COMPILE — do NOT run them (bash)
 
-After writing, run:
+After writing, verify they are DISCOVERABLE (parse + typecheck) and nothing more:
 ```bash
 cd e2e && npx playwright test --list 2>&1
 ```
-to verify the tests are discoverable. Fix any errors immediately.
+Fix any errors immediately. Then STOP touching the suite. Do **NOT**:
+- run the suite itself (`npx playwright test` WITHOUT `--list`),
+- `npx playwright install` browsers,
+- run mobile/desktop/project variants or any second execution.
+
+The ORCHESTRATOR executes the specs against live DEV (its deterministic Filter C) and then
+an independent reviewer judges them — running them yourself is wasted, duplicated work that
+can BLOCK your turn: a `playwright test` that waits on DEV (or a browser install) hangs your
+session, so you never emit the closing verdict and the whole run TIMES OUT and fails even
+though a correct spec is already on disk. Your deliverable is the written spec + a clean
+`--list`, nothing more.
 
 **Code mode** (`target: code` — no `e2e/`, no Playwright, no DEV): the equivalent of `--list` is a
-COMPILE check of the generated TEST sources, without running them — `mvn -B test-compile` ·
-`gradle testClasses` · `go vet ./...` (it compiles `_test.go`, which `go build` skips) ·
-`cargo check --tests` · `npx tsc --noEmit`. Fix any errors before emitting your verdict. Do NOT run
-the suite; the orchestrator runs it (Filter C) by exit code.
+COMPILE check of the generated TEST sources, without running them. Use the project's build tool —
+`mvn -B test-compile` · `gradle testClasses` · `go vet ./...` (it compiles `_test.go`, which
+`go build` skips) · `cargo check --tests` · `npx tsc --noEmit` — and FIX any errors before emitting
+your verdict. Do NOT run the suite; the orchestrator runs it (its Filter C) by exit code, then a
+compile failure you missed costs a full regeneration round — a clean compile is cheaper.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
