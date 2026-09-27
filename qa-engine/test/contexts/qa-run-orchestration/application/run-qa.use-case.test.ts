@@ -2385,6 +2385,38 @@ test("FIX 3: an absent valueScore from ObjectiveSignalPort.measure() persists nu
   assert.equal(saved!.gateSignals.valueScore, null, "an unwired/absent valueScore must persist as null, never a fabricated 0 or undefined");
 });
 
+test("O3: mutantCount/killedCount flow from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded 0 downstream)", async () => {
+  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+  const { ports } = stubPorts({
+    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    measure: async () => ({ status: "pass", ratio: 0.92, valueScore: 0.85, mutantCount: 20, killedCount: 17 }),
+  });
+  ports.runHistory.save = async (outcome) => { saved = outcome; };
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
+
+  await useCase.run({ ...baseInput, runId: "o3-mutant-killed-count-persisted" });
+
+  assert.ok(saved, "runHistory.save() must have been called");
+  assert.equal(saved!.gateSignals.mutantCount, 20, "the oracle's real mutantCount must be threaded into the persisted gateSignals");
+  assert.equal(saved!.gateSignals.killedCount, 17, "the oracle's real killedCount must be threaded into the persisted gateSignals");
+});
+
+test("O3: an absent mutantCount/killedCount from ObjectiveSignalPort.measure() persists as absent, never a fabricated 0", async () => {
+  let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
+  const { ports } = stubPorts({
+    execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
+    measure: async () => ({ status: "unknown", ratio: null }), /* no mutantCount/killedCount field at all */
+  });
+  ports.runHistory.save = async (outcome) => { saved = outcome; };
+  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, needsReview: false } });
+
+  await useCase.run({ ...baseInput, runId: "o3-mutant-killed-count-absent" });
+
+  assert.ok(saved, "runHistory.save() must have been called");
+  assert.equal(saved!.gateSignals.mutantCount, undefined, "an unwired/absent mutantCount must stay absent, never a fabricated 0");
+  assert.equal(saved!.gateSignals.killedCount, undefined, "an unwired/absent killedCount must stay absent, never a fabricated 0");
+});
+
 test("FIX 4: errorClass is derived from the verdict (E-EXEC-FAIL on a fail), not hardcoded null", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({

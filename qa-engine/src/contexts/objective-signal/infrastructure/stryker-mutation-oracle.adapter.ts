@@ -146,10 +146,11 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
     const eco = input.ecosystem ?? this.ecosystemForRepo(input.repoDir);
 
     if (eco !== "node") {
+      /* null, not 0, for every "not measured" branch below — never a fabricated zero mutant/kill count. */
       return Promise.resolve({
         valueScore: null,
-        mutantCount: 0,
-        killedCount: 0,
+        mutantCount: null,
+        killedCount: null,
         details: `mutation testing not available for ecosystem "${eco ?? "unknown"}" (only JS/TS via Stryker is supported)`,
       });
     }
@@ -163,8 +164,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
     } catch (err) {
       return Promise.resolve({
         valueScore: null,
-        mutantCount: 0,
-        killedCount: 0,
+        mutantCount: null,
+        killedCount: null,
         details: `failed to write Stryker config: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
@@ -204,8 +205,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
         this.deps.processKill.killTree(child);
         finish({
           valueScore: null,
-          mutantCount: 0,
-          killedCount: 0,
+          mutantCount: null,
+          killedCount: null,
           details: `mutation testing timeout after ${timeoutMs}ms`,
         });
       }, timeoutMs);
@@ -217,8 +218,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
             this.deps.processKill.killTree(child);
             finish({
               valueScore: null,
-              mutantCount: 0,
-              killedCount: 0,
+              mutantCount: null,
+              killedCount: null,
               details: "mutation testing aborted by operator cancel",
             });
           },
@@ -232,8 +233,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
       child.on("error", (err) => {
         finish({
           valueScore: null,
-          mutantCount: 0,
-          killedCount: 0,
+          mutantCount: null,
+          killedCount: null,
           details: `mutation testing spawn failed: ${err.message}`,
         });
       });
@@ -251,8 +252,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
         } else {
           finish({
             valueScore: null,
-            mutantCount: 0,
-            killedCount: 0,
+            mutantCount: null,
+            killedCount: null,
             details: `Stryker ran but produced no parseable report. Last output: ${(stderr || stdout).slice(0, 300)}`,
           });
         }

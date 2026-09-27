@@ -53,6 +53,20 @@ test("toIntelligenceView projects the curriculum's evidence counters", () => {
   assert.deepEqual({ evaluated: untouched.evaluated, credited: untouched.credited }, { evaluated: 0, credited: 0 });
 });
 
+test("O3: toIntelligenceView passes through a null (unmeasured) mutantCount/killedCount, never coercing to 0", () => {
+  const scorecard = {
+    app: "qayaba", updatedAt: "2026-01-02",
+    entries: [
+      { runId: "x", app: "qayaba", sha: "s", target: "e2e", valueScore: null, mutantCount: null, killedCount: null, at: "2026-01-02" },
+    ],
+    summary: { totalRuns: 1, measuredRuns: 0, avgValueScore: null, lastValueScore: null },
+  } as never;
+
+  const view = toIntelligenceView("qayaba", [], scorecard, null);
+  assert.equal(view.scorecard?.entries[0]!.mutantCount, null);
+  assert.equal(view.scorecard?.entries[0]!.killedCount, null);
+});
+
 test("toIntelligenceView tolerates a missing scorecard and curriculum", () => {
   const view = toIntelligenceView("portfolio", [], null, null);
   assert.equal(view.scorecard, null);

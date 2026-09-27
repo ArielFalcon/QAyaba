@@ -1457,6 +1457,44 @@ test("Ola 2: recordOutcome persists a scorecard entry even when rulesRetrieved i
   assert.equal(sc?.entries[0]?.runId, "run-scorecard-1");
 });
 
+test("O3: recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { loadScorecard } = await import("./history");
+  const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  store.recordOutcome({
+    runId: "run-scorecard-mutant-1", app, sha: "abc1234567", mode: "diff", target: "code", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: 0.85, mutantCount: 20, killedCount: 17, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: "2026-09-04T12:00:00.000Z",
+  } as never);
+
+  const sc = loadScorecard(app);
+  assert.equal(sc?.entries[0]?.mutantCount, 20, "a real measured mutantCount must be persisted, not hardcoded to 0");
+  assert.equal(sc?.entries[0]?.killedCount, 17, "a real measured killedCount must be persisted, not hardcoded to 0");
+});
+
+test("O3: recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { loadScorecard } = await import("./history");
+  const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  store.recordOutcome({
+    runId: "run-scorecard-unmeasured-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: "2026-09-04T12:00:00.000Z",
+  } as never);
+
+  const sc = loadScorecard(app);
+  assert.equal(sc?.entries[0]?.mutantCount, null, "an unmeasured mutantCount must persist as null, never a fabricated 0");
+  assert.equal(sc?.entries[0]?.killedCount, null, "an unmeasured killedCount must persist as null, never a fabricated 0");
+});
+
 test("historyLearningStore(appName).recordOutcome() — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");

@@ -141,6 +141,34 @@ test("toLegacyRunOutcome forwards structuralSignalBytes/serviceLinksCount/contra
   assert.equal(out.gateSignals.contractDriftCount, 0, "a genuine 0 (resolver ran, found none) must round-trip as 0, not be dropped or coerced to undefined");
 });
 
+/* O3: mutantCount/killedCount round-trip the same conditional-spread way as the sibling optional
+   counts above — absent stays absent (never a fabricated 0), a genuine measured value round-trips. */
+
+test("toLegacyRunOutcome omits mutantCount/killedCount when absent on the kernel outcome (never fabricates a 0)", () => {
+  const out = toLegacyRunOutcome(kernelOutcome());
+  assert.equal("mutantCount" in out.gateSignals, false);
+  assert.equal("killedCount" in out.gateSignals, false);
+});
+
+test("toLegacyRunOutcome forwards mutantCount/killedCount faithfully when present, including a genuine 0", () => {
+  const out = toLegacyRunOutcome(
+    kernelOutcome({
+      gateSignals: {
+        static: true,
+        coverageRatio: 0.7,
+        valueScore: 0.4,
+        reviewerCorrections: [],
+        flaky: false,
+        retries: 0,
+        mutantCount: 20,
+        killedCount: 0,
+      },
+    }),
+  );
+  assert.equal(out.gateSignals.mutantCount, 20);
+  assert.equal(out.gateSignals.killedCount, 0, "a genuine 0 (measured, none killed) must round-trip as 0, not be dropped or coerced to undefined");
+});
+
 test("toLegacyRunOutcome forwards rulesRetrieved (W3 F2) and reflection when present", () => {
   const out = toLegacyRunOutcome(
     kernelOutcome({

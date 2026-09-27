@@ -9,8 +9,10 @@ export interface CoverageCollectorPort {
 }
 export interface ValueOracleResult {
   valueScore: number | null;
-  mutantCount: number;
-  killedCount: number;
+  /* null when the oracle ran but produced no mutation/fault-injection count (e.g. it is wired off) —
+   * distinct from a genuine measured zero. Never fabricated as 0. */
+  mutantCount: number | null;
+  killedCount: number | null;
   details: string;
 }
 /** Signal-only: a null valueScore never gates publish. Mutation (code) vs fault-injection (e2e). */

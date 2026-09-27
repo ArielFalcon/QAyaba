@@ -31,7 +31,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
   } satisfies Record<keyof KernelRunOutcome, true>;
 
   const ALL_GATE_SIGNAL_FIELDS = {
-    static: true, coverageRatio: true, valueScore: true, reviewerCorrections: true,
+    static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true,
+    reviewerCorrections: true,
     reviewerRationale: true, reviewerApproved: true, flaky: true, retries: true, confinement: true,
     usage: true, phaseTimings: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
@@ -60,7 +61,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
 
   test("gateSignals' own field list is fully mapped (no allowlist needed — every field carries through)", () => {
     const mapped = [
-      "static", "coverageRatio", "valueScore", "reviewerCorrections", "reviewerRationale",
+      "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "reviewerCorrections",
+      "reviewerRationale",
       "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",

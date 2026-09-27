@@ -28,7 +28,7 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
     private readonly ctx: ObjectiveSignalPortStaticContext,
   ) {}
 
-  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; uncovered?: { file: string; lines: number[] }[] }> {
+  async measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[] }> {
     const namespace = opts?.namespace ?? this.ctx.namespace ?? br.sha.toString();
     /* coverage.mode "off" skips collector IO and the value oracle. decide() sees null → "unknown" (never blocks). */
     if (this.ctx.policy.mode === "off") {
@@ -46,7 +46,14 @@ export class ObjectiveSignalPortAdapter implements ObjectiveSignalPort {
 
     const oracleResult = await this.deps.oracle.measure(br, this.ctx.repoDir, namespace, baselineCases ?? this.ctx.baselineCases);
 
-    return { status, ratio, valueScore: oracleResult.valueScore, ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}) };
+    return {
+      status,
+      ratio,
+      valueScore: oracleResult.valueScore,
+      mutantCount: oracleResult.mutantCount,
+      killedCount: oracleResult.killedCount,
+      ...(willAssemble && cc?.uncovered ? { uncovered: cc.uncovered } : {}),
+    };
   }
 
   blocks(status: "pass" | "fail" | "unknown"): boolean {

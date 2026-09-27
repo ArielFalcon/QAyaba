@@ -162,6 +162,21 @@ test("measure() surfaces valueScore from the injected ValueOraclePort (the mutat
   const result = await adapter.measure(br, "/mirrors/org/app/e2e");
 
   assert.equal(result.valueScore, 0.85);
+  assert.equal(result.mutantCount, 20, "the oracle's real mutantCount must reach the caller, not be dropped on the floor");
+  assert.equal(result.killedCount, 17, "the oracle's real killedCount must reach the caller, not be dropped on the floor");
+});
+
+test("measure() surfaces a null mutantCount/killedCount from the injected ValueOraclePort as-is (distinct from 'ran and found zero')", async () => {
+  const collector = fakeCollector({ covered: [] });
+  const decide = new DecideCoverageService();
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "valueOracle is off" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const result = await adapter.measure(br, "/mirrors/org/app/e2e");
+
+  assert.equal(result.mutantCount, null);
+  assert.equal(result.killedCount, null);
 });
 
 /* ── NAMESPACE FIX ────────────────────────────────────────────────────────────────────────────── */
@@ -388,4 +403,6 @@ test("P0-5: measure() with policy.mode off skips collector and oracle", async ()
   assert.equal(result.status, "unknown");
   assert.equal(result.ratio, null);
   assert.equal(result.valueScore, undefined);
+  assert.equal(result.mutantCount, undefined, "the oracle never ran — mutantCount must be absent, never a fabricated 0 or null");
+  assert.equal(result.killedCount, undefined, "the oracle never ran — killedCount must be absent, never a fabricated 0 or null");
 });

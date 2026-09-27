@@ -254,6 +254,10 @@ export interface RunOutcome {
     static: boolean;
     coverageRatio: number | null;
     valueScore: number | null;
+    /* Real value-oracle counts when measured; absent means it never measured this run — never a
+     * fabricated 0 (indistinguishable from a genuine measured zero). */
+    mutantCount?: number;
+    killedCount?: number;
     reviewerCorrections: string[];
     /*
      * The reviewer's one/two-sentence reasoning for its verdict — on APPROVAL too, not only

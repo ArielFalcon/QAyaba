@@ -100,6 +100,8 @@ describe("StrykerMutationOracleAdapter.measure", () => {
       );
       const r = await adapter.measure(br, repo, "qa-bot-abc");
       assert.equal(r.valueScore, null);
+      assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+      assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
       assert.match(r.details, /not available/i);
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -112,6 +114,8 @@ describe("StrykerMutationOracleAdapter.measure", () => {
       const adapter = new StrykerMutationOracleAdapter(deps({ spawn: mockSpawn({ error: new Error("ENOENT: stryker not found") }) }));
       const r = await adapter.measure(br, repo, "qa-bot-abc");
       assert.equal(r.valueScore, null);
+      assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+      assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
       assert.match(r.details, /spawn failed|ENOENT/);
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -140,6 +144,8 @@ describe("StrykerMutationOracleAdapter.measure", () => {
       const adapter = new StrykerMutationOracleAdapter(deps({ spawn: mockSpawn({ exitCode: 0, stderr: "No mutants generated" }) }));
       const r = await adapter.measure(br, repo, "qa-bot-abc");
       assert.equal(r.valueScore, null);
+      assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+      assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
       assert.match(r.details, /no parseable report|No mutants/);
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -176,6 +182,8 @@ describe("StrykerMutationOracleAdapter.measure", () => {
       );
       const r = await adapter.measure(br, repo, "qa-bot-abc");
       assert.equal(r.valueScore, null);
+      assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+      assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
       assert.match(r.details, /timeout/);
       assert.ok(killed, "expected the timeout branch to delegate to the injected ProcessKillPort");
     } finally {

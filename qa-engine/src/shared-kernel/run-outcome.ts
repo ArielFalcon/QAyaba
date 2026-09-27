@@ -18,6 +18,9 @@ export interface RunOutcome {
     static: boolean;
     coverageRatio: number | null;
     valueScore: number | null;
+    /* Absent means the value-oracle never measured this run — never a fabricated 0 (indistinguishable from a genuine measured zero). */
+    mutantCount?: number;
+    killedCount?: number;
     reviewerCorrections: string[];
     reviewerRationale?: string;
     reviewerApproved?: boolean;

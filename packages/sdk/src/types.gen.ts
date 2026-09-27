@@ -915,8 +915,8 @@ export interface components {
             lastValueScore: number | null;
             entries: {
                 valueScore: number | null;
-                mutantCount: number;
-                killedCount: number;
+                mutantCount: number | null;
+                killedCount: number | null;
                 target: string;
                 at: string;
             }[];

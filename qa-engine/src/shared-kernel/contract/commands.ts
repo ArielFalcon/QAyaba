@@ -470,8 +470,10 @@ export const ScorecardViewSchema = z.object({
   entries: z.array(
     z.object({
       valueScore: z.number().nullable(),
-      mutantCount: z.number().int().nonnegative(),
-      killedCount: z.number().int().nonnegative(),
+      /* null means "not measured" (the value-oracle never ran or reported no count) — distinct
+       * from a genuine measured zero. Never a fabricated 0. */
+      mutantCount: z.number().int().nonnegative().nullable(),
+      killedCount: z.number().int().nonnegative().nullable(),
       target: z.string(),
       at: z.string(),
     }),

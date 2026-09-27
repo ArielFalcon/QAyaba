@@ -1507,6 +1507,12 @@ export class RunQaUseCase {
     let coverageStatus: "pass" | "fail" | "unknown" | undefined;
     /* null when the oracle is unwired — never a fabricated 0. */
     let valueScore: number | null = null;
+    /*
+     * Absent (undefined) means the oracle never measured this run at all; `null` means it measured
+     * but has no count to report. Neither is ever fabricated as 0 — see toRunOutcome's extra bag.
+     */
+    let mutantCount: number | undefined;
+    let killedCount: number | undefined;
     if (run.verdict === "pass") {
       /*
        * onStep("coverage") only when this pass actually measures (diff mode, not
@@ -1536,6 +1542,8 @@ export class RunQaUseCase {
       coverageRatio = signal.ratio;
       coverageStatus = signal.status;
       valueScore = signal.valueScore ?? null;
+      mutantCount = signal.mutantCount ?? undefined;
+      killedCount = signal.killedCount ?? undefined;
       /*
        * Ask the port: only enforce+fail blocks. Unknown/pass never block. Do not
        * re-implement the mode check here.
@@ -1823,6 +1831,9 @@ export class RunQaUseCase {
         staticOk: validation.ok,
         reviewerApproved: reviewerApprovedForOutcome,
         valueScore: gateValueScore,
+        /* Real oracle counts when threaded; absent (never a fabricated 0) when the oracle never measured. */
+        mutantCount,
+        killedCount,
         reviewerCorrections: finalReviewerCorrections,
         /* Persist reviewer-unavailable rationale only when the marker matched — never fabricated. */
         ...(finalReviewerRationale ? { reviewerRationale: finalReviewerRationale } : {}),
@@ -2020,6 +2031,9 @@ export class RunQaUseCase {
       /* Only the marker-scoped reviewer-unavailable exit threads a rationale. */
       reviewerRationale?: string;
       valueScore?: number | null;
+      /* Same "never ran" (absent) vs "ran and found zero" distinction as the sibling counts below. */
+      mutantCount?: number;
+      killedCount?: number;
       note?: string;
       rulesRetrieved?: string[];
       preExecAmbiguityCatches?: number;
@@ -2056,6 +2070,9 @@ export class RunQaUseCase {
         static: extra?.staticOk ?? false,
         coverageRatio: gateCoverageRatio,
         valueScore: gateValueScore,
+        /* Conditional-spread, not `?? 0`: absent means the oracle never measured this run. */
+        ...(extra?.mutantCount !== undefined ? { mutantCount: extra.mutantCount } : {}),
+        ...(extra?.killedCount !== undefined ? { killedCount: extra.killedCount } : {}),
         reviewerCorrections: extra?.reviewerCorrections ?? [],
         /* Conditional-spread: true undefined survives when no reviewer-unavailable rationale exists. */
         ...(extra?.reviewerRationale !== undefined ? { reviewerRationale: extra.reviewerRationale } : {}),

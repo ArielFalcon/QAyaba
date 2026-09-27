@@ -141,6 +141,43 @@ func TestIntelligenceGroundTruthScorecard(t *testing.T) {
 	}
 }
 
+// O3: mutantCount/killedCount are now *int (nullable — "not measured" vs a genuine measured
+// zero). A real value must render as its actual digits, and a nil (never measured) must render
+// as a placeholder, never as a raw pointer address or a fabricated "0".
+func TestIntelligenceScorecardEntryRendersRealAndUnmeasuredCounts(t *testing.T) {
+	avg := float32(0.82)
+	killed, mutants := 17, 20
+	m := newIntelligenceModel(api.New("http://x", ""), "qayaba")
+	m.loading = false
+	m.width = 96
+	m.view = &contract.IntelligenceView{
+		App: "qayaba",
+		Scorecard: &contract.ScorecardView{
+			AvgValueScore: &avg, LastValueScore: &avg, MeasuredRuns: 2, TotalRuns: 2,
+			Entries: []struct {
+				At          string   `json:"at"`
+				KilledCount *int     `json:"killedCount"`
+				MutantCount *int     `json:"mutantCount"`
+				Target      string   `json:"target"`
+				ValueScore  *float32 `json:"valueScore"`
+			}{
+				{At: "2026-09-01T00:00:00Z", KilledCount: &killed, MutantCount: &mutants, Target: "code", ValueScore: &avg},
+				{At: "2026-09-02T00:00:00Z", KilledCount: nil, MutantCount: nil, Target: "e2e", ValueScore: nil},
+			},
+		},
+	}
+	out := m.body()
+	if !strings.Contains(out, "killed 17/20") {
+		t.Fatalf("expected the real measured counts 'killed 17/20' to render:\n%s", out)
+	}
+	if strings.Contains(out, "killed 0/0") {
+		t.Fatalf("an unmeasured entry must never render as the fabricated rate 'killed 0/0':\n%s", out)
+	}
+	if !strings.Contains(out, "killed —/—") {
+		t.Fatalf("an unmeasured entry must render a placeholder, not a raw pointer or garbage value:\n%s", out)
+	}
+}
+
 func TestDashboardIntelKeyOpensIntelligence(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})

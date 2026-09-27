@@ -168,8 +168,8 @@ func (m intelligenceModel) body() string {
 			start = len(sc.Entries) - 5
 		}
 		for _, e := range sc.Entries[start:] {
-			b.WriteString("    " + hintStyle.Render(fmt.Sprintf("%s  %-4s  killed %d/%d  %s",
-				fmtScore(e.ValueScore), e.Target, e.KilledCount, e.MutantCount, relativeTime(e.At))) + "\n")
+			b.WriteString("    " + hintStyle.Render(fmt.Sprintf("%s  %-4s  killed %s/%s  %s",
+				fmtScore(e.ValueScore), e.Target, fmtCount(e.KilledCount), fmtCount(e.MutantCount), relativeTime(e.At))) + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -263,6 +263,16 @@ func fmtScore(s *float32) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.2f", *s)
+}
+
+// fmtCount renders a nullable oracle count (mutantCount/killedCount): nil means "not measured",
+// never a fabricated 0, and never the raw pointer itself (which %d would otherwise print as an
+// address, not the pointed-to value).
+func fmtCount(n *int) string {
+	if n == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%d", *n)
 }
 
 func confidenceMeter(conf string) string {

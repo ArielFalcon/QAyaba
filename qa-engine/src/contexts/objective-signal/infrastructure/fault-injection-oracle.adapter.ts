@@ -23,21 +23,22 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
     if (!repoDir || !this.baseUrl || !baselineCases || baselineCases.length === 0) {
       return {
         valueScore: null,
-        mutantCount: 0,
-        killedCount: 0,
+        /* null, not 0 — "not measured", never a fabricated zero mutant/kill count. */
+        mutantCount: null,
+        killedCount: null,
         details: "fault-injection needs e2eDir + baseUrl + baseline-passing specs",
       };
     }
     const fiNamespace = `${namespace}-fi`;
     const run = await this.runCorrupted({ dir: repoDir, baseUrl: this.baseUrl, namespace: fiNamespace });
     if (run.verdict === "infra-error") {
-      return { valueScore: null, mutantCount: 0, killedCount: 0, details: "fault-injection re-run inconclusive (infra)" };
+      return { valueScore: null, mutantCount: null, killedCount: null, details: "fault-injection re-run inconclusive (infra)" };
     }
     if (this.countInjected(repoDir, fiNamespace) === 0) {
       return {
         valueScore: null,
-        mutantCount: 0,
-        killedCount: 0,
+        mutantCount: null,
+        killedCount: null,
         details: "no JSON responses were intercepted — fault-injection is not applicable to this app's flows (no score)",
       };
     }
@@ -46,8 +47,8 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
     if (scoreable.length === 0) {
       return {
         valueScore: null,
-        mutantCount: 0,
-        killedCount: 0,
+        mutantCount: null,
+        killedCount: null,
         details: "the corrupted re-run executed none of the baseline-passing specs (inconclusive)",
       };
     }

@@ -1683,8 +1683,8 @@ type ScorecardView struct {
 	AvgValueScore *float32 `json:"avgValueScore"`
 	Entries       []struct {
 		At          string   `json:"at"`
-		KilledCount int      `json:"killedCount"`
-		MutantCount int      `json:"mutantCount"`
+		KilledCount *int     `json:"killedCount"`
+		MutantCount *int     `json:"mutantCount"`
 		Target      string   `json:"target"`
 		ValueScore  *float32 `json:"valueScore"`
 	} `json:"entries"`

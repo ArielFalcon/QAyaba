@@ -348,8 +348,10 @@ export function historyLearningStore(appName: string): LearningStore {
           sha: outcome.sha,
           target: outcome.target,
           valueScore: gateSignals.valueScore,
-          mutantCount: 0,
-          killedCount: 0,
+          /* Real counts when the value-oracle measured this run; null ("not measured") otherwise —
+           * never a hardcoded 0, which would be indistinguishable from a genuine measured zero. */
+          mutantCount: gateSignals.mutantCount ?? null,
+          killedCount: gateSignals.killedCount ?? null,
           at: outcome.at,
         });
         if (rulesRetrieved.length === 0) return;  /* nothing retrieved -> nothing to fold onto rules */

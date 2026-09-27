@@ -76,8 +76,15 @@ test("FROZEN: non-node ecosystem -> valueScore null (legacy behavior, pinned pre
     );
     const r = await adapter.measure(br, repo, "qa-bot-abc");
     assert.equal(r.valueScore, null, "FROZEN: non-node ecosystem yields no score");
-    assert.equal(r.mutantCount, 0);
-    assert.equal(r.killedCount, 0);
+    /*
+     * DELIBERATE amendment to the freeze, not a silenced failure: the legacy twin's hardcoded 0/0
+     * for "not measured" was itself the bug this file's own header warns against re-introducing —
+     * it made a scorecard read "0 mutants killed" indistinguishable from a genuine measured zero.
+     * See the sibling batch-O fix that made mutantCount/killedCount null throughout every
+     * not-measured branch of this adapter (and ValueOracleResult itself).
+     */
+    assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+    assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
     assert.match(r.details, /not available/i);
   } finally {
     rmSync(repo, { recursive: true, force: true });
