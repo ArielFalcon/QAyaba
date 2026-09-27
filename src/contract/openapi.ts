@@ -23,6 +23,7 @@ import {
   CoordinationEventSchema, CoordinationEventsViewSchema,
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
+  ArchitectureContextSchema, ContextMapViewSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -84,6 +85,8 @@ const NAMED_SCHEMAS = {
   ReportInsight: ReportInsightSchema,
   ReportView: ReportViewSchema,
   RunReportView: RunReportViewSchema,
+  ArchitectureContext: ArchitectureContextSchema,
+  ContextMapView: ContextMapViewSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -257,6 +260,17 @@ function paths(): Record<string, unknown> {
         summary: "Learning ledger, value-oracle scorecard and curriculum for an app (read-only)",
         parameters: [nameParam],
         responses: { "200": { description: "intelligence view", content: jsonBody("IntelligenceView") } },
+      },
+    },
+    "/api/v1/apps/{name}/context-map": {
+      get: {
+        operationId: "getAppContextMap",
+        summary: "The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only)",
+        parameters: [nameParam],
+        responses: {
+          "200": { description: "context map view", content: jsonBody("ContextMapView") },
+          "404": { description: "app not found, or no stored architecture map yet for this app" },
+        },
       },
     },
     "/api/v1/runs/{id}/report": {

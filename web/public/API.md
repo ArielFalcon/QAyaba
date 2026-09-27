@@ -91,6 +91,7 @@ contract schema names are in (parens).
 | **Activity tab · runs** | runs for the app | `GET /api/v1/runs?app={name}` → `RunRecord[]` | ✓ |
 | **Activity tab · suite** | committed specs for the app `[{file,status,n,coverage}]` | — | ✗ new — no committed-suite endpoint. Add `GET /api/v1/apps/{name}/suite`. |
 | **What Qayaba knows (engram)** | per-app episodic memory `[{text}]` | — | ✗ new — add `GET /api/v1/apps/{name}/memory` (episodic notes). Distinct from `intelligence` rules. |
+| **Activity tab · map** | FE<->BE architecture map `{map:{routes,api,feBe,flows?},builtAtSha,updatedAt}` | `GET /api/v1/apps/{name}/context-map` → `ContextMapView` | ✓ wired (Batch F) — 404 (no stored map yet) renders an honest empty state; live mode never shows a mock map. |
 
 ---
 

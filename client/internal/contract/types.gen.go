@@ -1166,6 +1166,34 @@ type AppView struct {
 // AppViewAuthKind defines model for AppView.AuthKind.
 type AppViewAuthKind string
 
+// ArchitectureContext defines model for ArchitectureContext.
+type ArchitectureContext struct {
+	Api []struct {
+		Method      string  `json:"method"`
+		OperationId string  `json:"operationId"`
+		Path        string  `json:"path"`
+		Service     *string `json:"service,omitempty"`
+		Spec        *string `json:"spec,omitempty"`
+	} `json:"api"`
+	BuiltAtSha string `json:"builtAtSha"`
+	FeBe       []struct {
+		OperationId string  `json:"operationId"`
+		Route       string  `json:"route"`
+		Via         *string `json:"via,omitempty"`
+	} `json:"feBe"`
+	Flows *[]struct {
+		Id         string    `json:"id"`
+		Operations *[]string `json:"operations,omitempty"`
+		Routes     []string  `json:"routes"`
+	} `json:"flows,omitempty"`
+	Routes []struct {
+		Component *string `json:"component,omitempty"`
+		Name      *string `json:"name,omitempty"`
+		Path      string  `json:"path"`
+		Source    *string `json:"source,omitempty"`
+	} `json:"routes"`
+}
+
 // AskRequest defines model for AskRequest.
 type AskRequest struct {
 	History  *[]ChatEntry `json:"history,omitempty"`
@@ -1190,6 +1218,14 @@ type ConfirmBoundariesInput struct {
 
 // ConfirmBoundariesInputConfirm defines model for ConfirmBoundariesInput.Confirm.
 type ConfirmBoundariesInputConfirm bool
+
+// ContextMapView defines model for ContextMapView.
+type ContextMapView struct {
+	App        string              `json:"app"`
+	BuiltAtSha string              `json:"builtAtSha"`
+	Map        ArchitectureContext `json:"map"`
+	UpdatedAt  string              `json:"updatedAt"`
+}
 
 // ContinueRequest defines model for ContinueRequest.
 type ContinueRequest struct {

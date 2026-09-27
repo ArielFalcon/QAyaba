@@ -42,6 +42,7 @@ import {
   ProposeBoundariesInputSchema,
   ConfirmBoundariesInputSchema,
   IntelligenceViewSchema,
+  ContextMapViewSchema,
   SignalsViewSchema,
   CoordinationEventsViewSchema,
   TrendsViewSchema,
@@ -92,6 +93,11 @@ export interface ApiDeps {
    * for an app. Absent ⇒ the /intelligence route returns 501.
    */
   intelligence?: (app: string) => z.infer<typeof IntelligenceViewSchema>;
+  /*
+   * Read-only FE<->BE architecture map (context.json) persisted from the app's last successful
+   * mode:context run (Batch F). Absent ⇒ the route returns 501; null ⇒ 404 (no stored map yet).
+   */
+  contextMap?: (app: string) => z.infer<typeof ContextMapViewSchema> | null;
   /*
    * Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
    * Absent ⇒ the /signals route returns 501.
@@ -269,6 +275,11 @@ export async function handleApi(
   const intelMatch = path.match(/^\/api\/apps\/([^/]+)\/intelligence$/);
   if (req.method === "GET" && intelMatch) {
     return handleAppIntelligence(res, deps, intelMatch[1]!);
+  }
+
+  const contextMapMatch = path.match(/^\/api\/apps\/([^/]+)\/context-map$/);
+  if (req.method === "GET" && contextMapMatch) {
+    return handleContextMap(res, deps, contextMapMatch[1]!);
   }
 
   const trendsMatch = path.match(/^\/api\/apps\/([^/]+)\/trends$/);
@@ -675,6 +686,26 @@ function handleAppIntelligence(res: ServerResponse, deps: ApiDeps, name: string)
     return true;
   }
   contractJson(res, 200, IntelligenceViewSchema, deps.intelligence(name));
+  return true;
+}
+
+function handleContextMap(res: ServerResponse, deps: ApiDeps, name: string): boolean {
+  if (!deps.contextMap) {
+    json(res, 501, { error: "context map is not available" });
+    return true;
+  }
+  try {
+    deps.loadApp(name);  /* 404 when the app isn't configured */
+  } catch {
+    json(res, 404, { error: `app not found: '${name}'` });
+    return true;
+  }
+  const view = deps.contextMap(name);
+  if (!view) {
+    json(res, 404, { error: `no stored architecture map for app '${name}'` });
+    return true;
+  }
+  contractJson(res, 200, ContextMapViewSchema, view);
   return true;
 }
 

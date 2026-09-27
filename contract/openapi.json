@@ -625,6 +625,37 @@
         }
       }
     },
+    "/api/v1/apps/{name}/context-map": {
+      "get": {
+        "operationId": "getAppContextMap",
+        "summary": "The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only)",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "context map view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextMapView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "app not found, or no stored architecture map yet for this app"
+          }
+        }
+      }
+    },
     "/api/v1/runs/{id}/report": {
       "get": {
         "operationId": "getRunReport",
@@ -3853,6 +3884,148 @@
         "required": [
           "current",
           "evolution"
+        ],
+        "additionalProperties": false
+      },
+      "ArchitectureContext": {
+        "type": "object",
+        "properties": {
+          "builtAtSha": {
+            "type": "string"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "component": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "api": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "operationId": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "service": {
+                  "type": "string"
+                },
+                "spec": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operationId",
+                "method",
+                "path"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "feBe": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "route": {
+                  "type": "string"
+                },
+                "operationId": {
+                  "type": "string"
+                },
+                "via": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "route",
+                "operationId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "flows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "routes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "operations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "routes"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "builtAtSha",
+          "routes",
+          "api",
+          "feBe"
+        ],
+        "additionalProperties": false
+      },
+      "ContextMapView": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "map": {
+            "$ref": "#/components/schemas/ArchitectureContext"
+          },
+          "builtAtSha": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "map",
+          "builtAtSha",
+          "updatedAt"
         ],
         "additionalProperties": false
       }

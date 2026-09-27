@@ -25,7 +25,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
+import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
@@ -587,6 +587,12 @@ const apiDeps: ApiDeps = {
   intelligence: (app) => {
     const curriculum = loadCurriculum(app);
     return toIntelligenceView(app, listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), loadScorecard(app), curriculum === CURRICULUM_CORRUPT ? null : curriculum);
+  },
+  /* Read-only stored FE<->BE architecture map (Batch F). null (no row yet) -> the route 404s. */
+  contextMap: (app) => {
+    const stored = loadContextMap(app);
+    if (!stored) return null;
+    return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
   },
   signals: () => toSignalsView(
     listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),

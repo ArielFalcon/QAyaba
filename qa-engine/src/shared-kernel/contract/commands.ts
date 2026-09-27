@@ -678,4 +678,52 @@ export const RunReportViewSchema = z.object({
   evolution: ReportViewSchema.nullable(),
 });
 
+/** ── Architecture map (`e2e/.qa/context.json`) — the FE<->BE map a mode:context run produces,
+ * persisted in the context_maps SQLite store and exposed read-only. Wire mirror of qa-engine's
+ * port-local ArchitectureContext (generation-ports.ts / qa-run-orchestration ports/index.ts) —
+ * same no-cross-context-import precedent as those two, now also mirrored at the contract boundary. */
+export const ArchitectureRouteSchema = z.object({
+  path: z.string(),
+  name: z.string().optional(),
+  component: z.string().optional(),
+  source: z.string().optional(),
+});
+
+export const ArchitectureApiOperationSchema = z.object({
+  operationId: z.string(),
+  method: z.string(),
+  path: z.string(),
+  service: z.string().optional(),
+  spec: z.string().optional(),
+});
+
+export const ArchitectureFeBeLinkSchema = z.object({
+  route: z.string(),
+  operationId: z.string(),
+  via: z.string().optional(),
+});
+
+export const ArchitectureFlowSchema = z.object({
+  id: z.string(),
+  routes: z.array(z.string()),
+  operations: z.array(z.string()).optional(),
+});
+
+export const ArchitectureContextSchema = z.object({
+  builtAtSha: z.string(),
+  routes: z.array(ArchitectureRouteSchema),
+  api: z.array(ArchitectureApiOperationSchema),
+  feBe: z.array(ArchitectureFeBeLinkSchema),
+  flows: z.array(ArchitectureFlowSchema).optional(),
+});
+
+export const ContextMapViewSchema = z.object({
+  app: z.string(),
+  map: ArchitectureContextSchema,
+  builtAtSha: z.string(),
+  updatedAt: z.string(),
+});
+
+export type ContextMapView = z.infer<typeof ContextMapViewSchema>;
+
 export type RunReportView = z.infer<typeof RunReportViewSchema>;

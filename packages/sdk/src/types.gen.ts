@@ -256,6 +256,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/apps/{name}/context-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only) */
+        get: operations["getAppContextMap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{id}/report": {
         parameters: {
             query?: never;
@@ -1076,6 +1093,38 @@ export interface components {
             current: components["schemas"]["ReportView"];
             evolution: components["schemas"]["ReportView"] | null;
         };
+        ArchitectureContext: {
+            builtAtSha: string;
+            routes: {
+                path: string;
+                name?: string;
+                component?: string;
+                source?: string;
+            }[];
+            api: {
+                operationId: string;
+                method: string;
+                path: string;
+                service?: string;
+                spec?: string;
+            }[];
+            feBe: {
+                route: string;
+                operationId: string;
+                via?: string;
+            }[];
+            flows?: {
+                id: string;
+                routes: string[];
+                operations?: string[];
+            }[];
+        };
+        ContextMapView: {
+            app: string;
+            map: components["schemas"]["ArchitectureContext"];
+            builtAtSha: string;
+            updatedAt: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -1617,6 +1666,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IntelligenceView"];
                 };
+            };
+        };
+    };
+    getAppContextMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description context map view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextMapView"];
+                };
+            };
+            /** @description app not found, or no stored architecture map yet for this app */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

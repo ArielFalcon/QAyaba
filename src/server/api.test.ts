@@ -250,6 +250,53 @@ test("GET /runs/:id/report returns {current, evolution}; CSV exports current; 40
   assert.equal(missing.status, 404);
 });
 
+test("GET /api/apps/:name/context-map returns 501 when not wired", async () => {
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps());
+  assert.equal(r.status, 501);
+});
+
+test("GET /api/apps/:name/context-map returns 404 for an unconfigured app, even when contextMap is wired", async () => {
+  let called = false;
+  const r = mkRes();
+  await handleApi(
+    mkReq("GET", "/api/v1/apps/ghost/context-map"),
+    r,
+    deps({ contextMap: () => { called = true; return null; } }),
+  );
+  assert.equal(r.status, 404);
+  assert.match(JSON.parse(r.body).error, /app not found/);
+  assert.equal(called, false, "the app-existence check must short-circuit before the contextMap dep is ever called");
+});
+
+test("GET /api/apps/:name/context-map returns 404 when the app is configured but has no stored map yet", async () => {
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => null }));
+  assert.equal(r.status, 404);
+  assert.match(JSON.parse(r.body).error, /no stored architecture map/);
+});
+
+test("GET /api/apps/:name/context-map returns 200 with the stored map and passes contractJson egress validation", async () => {
+  const view = {
+    app: "demo",
+    map: {
+      builtAtSha: "abc1234",
+      routes: [{ path: "/owners" }],
+      api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+      feBe: [{ route: "/owners", operationId: "getOwners" }],
+    },
+    builtAtSha: "abc1234",
+    updatedAt: "2026-09-20T10:15:00Z",
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  assert.equal(r.status, 200);
+  const body = JSON.parse(r.body);
+  assert.equal(body.app, "demo");
+  assert.equal(body.builtAtSha, "abc1234");
+  assert.equal(body.map.routes[0].path, "/owners");
+});
+
 test("GET /trends?format=csv returns a flat CSV", async () => {
   const trends = (app: string) => toTrendsView({ app, outcomes: [], now: "2026-06-14T00:00:00Z" });
   const r = mkRes();
