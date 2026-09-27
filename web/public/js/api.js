@@ -130,6 +130,8 @@ window.QayabaConsole = (function () {
       const ctrl = new AbortController();
       let lastSeq = null;
       let sawTerminal = false;
+      let authFailed = false;
+      let retryDelay = 1000;
       const handleMessage = (ev) => {
         const b = ev && ev.body ? ev.body : ev; if (!b || !b.type) return;
         if (typeof ev === 'object' && ev !== null && typeof ev.seq === 'number') lastSeq = ev.seq;
@@ -147,6 +149,20 @@ window.QayabaConsole = (function () {
           default: break; /* run.started / agent.activity / spec.written / test.discovered / reviewer.verdict / coverage.computed */
         }
       };
+      /* Retry policy: a 401 means the session is gone (already redirected to #login) — retrying
+         would just hammer the server with the same failing request forever, so this is terminal.
+         Any other failure (5xx or a network error) retries with bounded exponential backoff
+         instead of giving up permanently, so a transient blip does not end the live view for
+         good. The backoff resets to its 1s base as soon as a byte of the stream proves the
+         connection recovered.
+       */
+      const retryAfterFailure = async () => {
+        if (ctrl.signal.aborted || authFailed) return;
+        const delay = retryDelay;
+        retryDelay = window.QayabaFormat.nextSseRetryDelay(retryDelay, 30000);
+        await new Promise((r) => setTimeout(r, delay));
+        if (!ctrl.signal.aborted && !authFailed) return stream();
+      };
       const stream = async () => {
         try {
           const res = await fetch(API + '/runs/' + encodeURIComponent(runId) + '/events', {
@@ -155,17 +171,23 @@ window.QayabaConsole = (function () {
             signal: ctrl.signal,
           });
           if (res.status === 401) {
+            authFailed = true;
             if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
             window.location.hash = '#login';
-            throw new Error('Authentication required');
+            h.onError && h.onError();
+            return; /* terminal: never retry after an auth redirect */
           }
-          if (!res.ok || !res.body) { h.onError && h.onError(); return; }
+          if (!res.ok || !res.body) {
+            h.onError && h.onError();
+            return retryAfterFailure();
+          }
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buf = '';
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
+            retryDelay = 1000; /* a live byte proves the connection recovered — reset the backoff */
             buf += decoder.decode(value, { stream: true });
             let idx;
             while ((idx = buf.indexOf('\n\n')) !== -1) {
@@ -185,11 +207,9 @@ window.QayabaConsole = (function () {
           if (lastSeq != null) await new Promise((r) => setTimeout(r, 1000));
           if (!ctrl.signal.aborted) return stream();
         } catch (err) {
-          if (ctrl.signal.aborted) return;
+          if (ctrl.signal.aborted || authFailed) return;
           h.onError && h.onError();
-          /* transient network drop — resume through the durable poll (Last-Event-ID replay) */
-          await new Promise((r) => setTimeout(r, 2000));
-          if (!ctrl.signal.aborted) return stream();
+          return retryAfterFailure();
         }
       };
       /* send the resume point from the start so a RE-subscribe never loses events */

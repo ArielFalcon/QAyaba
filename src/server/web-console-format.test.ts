@@ -26,6 +26,7 @@ type Format = {
     commits?: number | string;
     guidance?: string;
   }) => Record<string, unknown>;
+  nextSseRetryDelay: (current: unknown, cap?: unknown) => number;
 };
 
 function loadFormat(): Format {
@@ -190,4 +191,19 @@ test("mergeLiveRun keeps the real run id (never the mock r-1842)", () => {
   assert.equal((merged.currentTest as { file: string }).file, "debounce.spec.ts");
   const emptyMsg = F.mergeLiveRun({ id: "run_2", sha: "aaaaaaaa", app: "portfolio", message: "" }, mock);
   assert.equal(emptyMsg && emptyMsg.message, "", "empty real message must not keep the mock commit subject");
+});
+
+test("nextSseRetryDelay doubles and caps (bounded exponential backoff)", () => {
+  const F = loadFormat();
+  assert.equal(F.nextSseRetryDelay(1000, 30000), 2000);
+  assert.equal(F.nextSseRetryDelay(2000, 30000), 4000);
+  assert.equal(F.nextSseRetryDelay(20000, 30000), 30000, "must not exceed the cap");
+  assert.equal(F.nextSseRetryDelay(30000, 30000), 30000, "stays capped once at the ceiling");
+});
+
+test("nextSseRetryDelay falls back to sane defaults for bad input", () => {
+  const F = loadFormat();
+  assert.equal(F.nextSseRetryDelay(0), 2000, "a non-positive current delay resets to the 1s base");
+  assert.equal(F.nextSseRetryDelay(null), 2000);
+  assert.equal(F.nextSseRetryDelay(undefined), 2000);
 });

@@ -154,6 +154,17 @@ window.QayabaFormat = (function () {
     return body;
   }
 
+  /* Bounded exponential backoff for the run-events SSE reconnect loop: doubles the previous
+     delay, capped so a persistent outage never grows the wait unbounded. A non-positive or
+     missing current delay resets to the 1s base, so the first retry after a fresh subscribe
+     (or after a success resets the caller's counter) is always fast.
+   */
+  function nextSseRetryDelay(current, cap) {
+    var base = (typeof current === 'number' && current > 0) ? current : 1000;
+    var max = (typeof cap === 'number' && cap > 0) ? cap : 30000;
+    return Math.min(max, base * 2);
+  }
+
   return {
     fixed: fixed,
     multiplierLabel: multiplierLabel,
@@ -165,5 +176,6 @@ window.QayabaFormat = (function () {
     triggerExtras: triggerExtras,
     clampDiffCommits: clampDiffCommits,
     triggerPayload: triggerPayload,
+    nextSseRetryDelay: nextSseRetryDelay,
   };
 })();
