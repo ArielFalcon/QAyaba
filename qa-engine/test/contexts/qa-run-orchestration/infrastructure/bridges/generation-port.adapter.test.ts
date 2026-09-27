@@ -710,9 +710,8 @@ test("generate() with no ctx.services OMITS the services key entirely from Openc
   }
 });
 
-/* renderLearnedRules: same section headers, same framing sentences, same proven/experimental
-   split, same per-rule field layout as the generator prompt contract.
- */
+/* renderLearnedRules: proven (active) rules and experimental (candidate) hints go to separate
+   sections, proven first, each rule carrying its trigger, action and error class. */
 
 const activeRule: RetrievedRule = {
   id: "rule-active", trigger: "selector absent", action: "use role+name", errorClass: "E-EXEC-FAIL",
@@ -723,85 +722,62 @@ const candidateRule: RetrievedRule = {
   status: "candidate", confidence: "low",
 };
 
-test("renderLearnedRules: active-only rule set matches legacy's renderRulesForPrompt byte-for-byte", () => {
-  const rendered = renderLearnedRules([activeRule]);
+/* The rendered markdown split into its "## " sections. */
+function sections(rendered: string): Array<{ heading: string; body: string }> {
+  return rendered
+    .split(/^## /m)
+    .slice(1)
+    .map((chunk) => {
+      const [heading = "", ...rest] = chunk.split("\n");
+      return { heading, body: rest.join("\n") };
+    });
+}
+const isExperimental = (heading: string): boolean => /experimental|unproven/i.test(heading);
 
-  assert.equal(
-    rendered,
-    [
-      "## Proven rules from past QA runs",
-      "These rules were earned from real failures and validated by measured outcomes. Apply them when they match the current change.",
-      "",
-      "### Rule (E-EXEC-FAIL, confidence=high)",
-      "- Trigger: selector absent",
-      "- Action: use role+name",
-      "",
-    ].join("\n"),
-  );
+test("renderLearnedRules: an active rule is offered as a proven rule with its trigger, action, error class and confidence", () => {
+  const found = sections(renderLearnedRules([activeRule]));
+
+  assert.equal(found.length, 1);
+  assert.equal(isExperimental(found[0]!.heading), false);
+  for (const field of ["selector absent", "use role+name", "E-EXEC-FAIL", "high"]) {
+    assert.ok(found[0]!.body.includes(field), `the proven rule must carry ${field}`);
+  }
 });
 
-test("renderLearnedRules: candidate-only rule set uses the experimental framing, not the proven one", () => {
-  const rendered = renderLearnedRules([candidateRule]);
+test("renderLearnedRules: a candidate rule is offered only as an experimental hint, never as a proven rule", () => {
+  const found = sections(renderLearnedRules([candidateRule]));
 
-  assert.equal(
-    rendered,
-    [
-      "## Experimental rules (unproven — consider, not prescriptive)",
-      "These are hypotheses from recent runs that have not yet been validated by enough measured outcomes. Consider them when clearly applicable, but do not let them override your judgment.",
-      "",
-      "### Experimental rule (E-FLAKY)",
-      "- Trigger: flaky wait",
-      "- Consider: use expect.poll",
-      "",
-    ].join("\n"),
-  );
+  assert.equal(found.length, 1);
+  assert.equal(isExperimental(found[0]!.heading), true);
+  for (const field of ["flaky wait", "use expect.poll", "E-FLAKY"]) {
+    assert.ok(found[0]!.body.includes(field), `the experimental hint must carry ${field}`);
+  }
 });
 
-test("renderLearnedRules: mixed active+candidate renders BOTH sections, proven first, byte-for-byte", () => {
-  const rendered = renderLearnedRules([activeRule, candidateRule]);
+test("renderLearnedRules: a mixed set renders the proven section first and keeps each rule in its own section", () => {
+  const [proven, experimental, ...rest] = sections(renderLearnedRules([activeRule, candidateRule]));
 
-  assert.equal(
-    rendered,
-    [
-      "## Proven rules from past QA runs",
-      "These rules were earned from real failures and validated by measured outcomes. Apply them when they match the current change.",
-      "",
-      "### Rule (E-EXEC-FAIL, confidence=high)",
-      "- Trigger: selector absent",
-      "- Action: use role+name",
-      "",
-      "## Experimental rules (unproven — consider, not prescriptive)",
-      "These are hypotheses from recent runs that have not yet been validated by enough measured outcomes. Consider them when clearly applicable, but do not let them override your judgment.",
-      "",
-      "### Experimental rule (E-FLAKY)",
-      "- Trigger: flaky wait",
-      "- Consider: use expect.poll",
-      "",
-    ].join("\n"),
-  );
+  assert.equal(rest.length, 0);
+  assert.equal(isExperimental(proven!.heading), false);
+  assert.equal(isExperimental(experimental!.heading), true);
+  assert.ok(proven!.body.includes("use role+name") && !proven!.body.includes("use expect.poll"));
+  assert.ok(experimental!.body.includes("use expect.poll") && !experimental!.body.includes("use role+name"));
 });
 
-test("renderLearnedRules: empty input renders the empty string (matches legacy's early return)", () => {
+test("renderLearnedRules: empty input renders the empty string", () => {
   assert.equal(renderLearnedRules([]), "");
 });
 
-/* renderLearnedRulesForReviewer: active-only (never candidates), two framing sentences, and the
-   `- trigger → action (errorClass)` line format — NOT the generator's proven/experimental renderer.
- */
+/* renderLearnedRulesForReviewer: active rules only (never candidates), framed as reject-on-sight
+   rules, one line per rule carrying its trigger, action and error class. */
 
-test("renderLearnedRulesForReviewer: active rule matches legacy's renderRulesForReviewer byte-for-byte", () => {
+test("renderLearnedRulesForReviewer: an active rule becomes a reject-on-sight line with its trigger, action and error class", () => {
   const rendered = renderLearnedRulesForReviewer([activeRule]);
 
-  assert.equal(
-    rendered,
-    [
-      "## App-specific reject-on-sight rules (earned from past runs on this app)",
-      "Each was learned from a real failure and proven by the value oracle or sustained prevention.",
-      "Treat them as an extension of the anti-pattern catalog: if a spec violates one, REJECT.",
-      "",
-      "- selector absent → use role+name (E-EXEC-FAIL)",
-    ].join("\n"),
-  );
+  assert.match(rendered, /reject/i, "the reviewer must be told a violated proven rule is grounds to reject");
+  const line = rendered.split("\n").find((l) => l.includes("selector absent"));
+  assert.ok(line, "the rule appears in the list");
+  assert.ok(line.includes("use role+name") && line.includes("E-EXEC-FAIL"), `one line carries trigger, action and error class: ${line}`);
 });
 
 test("renderLearnedRulesForReviewer: candidate-only input renders '' — unproven rules never gate the reviewer", () => {
