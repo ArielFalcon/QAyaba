@@ -183,8 +183,8 @@ test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMa
  * Process-audit context heal. A stale-flagged map never grounds the run that sees the flag, and
  * that run asks for a `mode: context` rebuild at its OWN sha (the sha DEV serves once a gated run
  * got this far — the mirror's HEAD at composition time is the previous run's sha). The flag stays
- * armed until the queue actually accepts the rebuild, so a refused, failed or unwired enqueue is
- * retried by the next qualifying run instead of being lost.
+ * armed until the queue actually accepts the rebuild or a context run stores a fresh map, so a
+ * refused, failed or unwired enqueue is retried by the next qualifying run instead of being lost.
  */
 const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
@@ -309,6 +309,54 @@ test("buildRewrittenCompositionConfig — a mode:context run never requests its 
   let requested = 0;
   buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "context", sha: "abc1234" });
   assert.equal(requested, 0);
+});
+
+/* A spec dir holding the given `.qa/context.json` body (or none), under the OS temp dir. */
+function specDirWithContextMap(body: string | undefined): string {
+  const specDir = mkdtempSync(join(tmpdir(), "qayaba-context-capture-"));
+  if (body !== undefined) {
+    mkdirSync(join(specDir, ".qa"), { recursive: true });
+    writeFileSync(join(specDir, ".qa", "context.json"), body);
+  }
+  return specDir;
+}
+
+for (const [label, enqueueContextRun] of [
+  ["a wired rebuild trigger", () => "run-heal-1"],
+  ["no rebuild trigger (the CLI)", undefined],
+] as const) {
+  test(`a context run that stores a fresh map disarms the stale flag and grounds the next run, with ${label}`, async () => {
+    const app = cfg(`factory-contextmap-fresh-capture-${Math.random().toString(36).slice(2)}`);
+    const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
+    saveContextMap(app.name, "sha-old", { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] });
+    markContextStale(app.name);
+    const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
+    const specDir = specDirWithContextMap(JSON.stringify(fresh));
+    try {
+      const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+      await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+    } finally {
+      rmSync(specDir, { recursive: true, force: true });
+    }
+
+    assert.equal(isContextStale(app.name), false);
+    const nextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
+    assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
+  });
+}
+
+test("a context run that stores no map (missing or invalid) keeps the stale flag armed", async () => {
+  const app = cfg(`factory-contextmap-no-capture-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+  const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+  for (const body of [undefined, JSON.stringify({ builtAtSha: "", routes: [], api: [], feBe: [] })]) {
+    const specDir = specDirWithContextMap(body);
+    try {
+      await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+    } finally {
+      rmSync(specDir, { recursive: true, force: true });
+    }
+  }
   assert.equal(isContextStale(app.name), true);
 });
 

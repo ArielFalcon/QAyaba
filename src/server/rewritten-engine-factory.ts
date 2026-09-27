@@ -28,7 +28,7 @@ import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructur
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
-import { ContextMapCapturePortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
+import { ContextMapCapturePortAdapter, type ContextMapSave } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
@@ -461,6 +461,12 @@ export interface ContextHealRunRequest {
   /* The triggering run's own sha: the one DEV serves for a gated app that got this far. */
   sha: string;
 }
+
+/* Persist a context run's validated map; a fresh map replaces the one the stale flag condemned. */
+const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
+  saveContextMap(app, sha, map);
+  clearContextStale(app);
+};
 
 /*
  * Ask for a context-map rebuild and disarm the stale flag only once the queue has accepted it. A
@@ -1041,8 +1047,10 @@ export function buildRewrittenCompositionConfig(
      * ContextMapCapturePort — write side of the FE<->BE architecture map. Constructed here for the
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
+     * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
+     * (a heal, a manual or onboarding run, the server or the CLI).
      */
-    contextMapCapture: new ContextMapCapturePortAdapter(saveContextMap),
+    contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap),
     ...(observer ? { observer } : {}),
   };
 }

@@ -875,7 +875,7 @@ export function isContextStale(app: string): boolean {
   return db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) !== undefined;
 }
 
-/* Disarm the staleness flag once a rebuild has actually been accepted by the queue. */
+/* Disarm the staleness flag: a rebuild was accepted by the queue, or a context run stored a fresh map. */
 export function clearContextStale(app: string): void {
   ensureDb();
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
