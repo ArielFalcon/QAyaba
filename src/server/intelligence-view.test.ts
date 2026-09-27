@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toIntelligenceView } from "./intelligence-view";
+import Database from "better-sqlite3";
+import { loadIntelligenceView, toIntelligenceView } from "./intelligence-view";
+import { saveCurriculum } from "./history";
 import { foldCurriculum, initCurriculum } from "../qa/learning/curriculum";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { IntelligenceViewSchema } from "../contract/commands";
@@ -91,4 +93,36 @@ test("the intelligence API does not report an app with no curriculum yet as corr
 
   assert.equal(body.curriculumCorrupt, false);
   assert.equal(body.curriculum, null);
+});
+
+/* The API's read path over the real history store. A stored curriculum row that no longer parses
+   (a partial write) is simulated by overwriting its data in this test process's own database. */
+function storeCorruptCurriculum(app: string): void {
+  saveCurriculum(initCurriculum(app));
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  try {
+    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run('{"app":', app);
+  } finally {
+    raw.close();
+  }
+}
+
+test("the stored intelligence view reports a corrupt curriculum row as corrupt", () => {
+  const app = `intelligence-corrupt-${Math.random().toString(36).slice(2)}`;
+  storeCorruptCurriculum(app);
+
+  const view = IntelligenceViewSchema.parse(loadIntelligenceView(app));
+
+  assert.equal(view.curriculumCorrupt, true);
+  assert.equal(view.curriculum, null);
+});
+
+test("the stored intelligence view reports a readable curriculum row with its content, not as corrupt", () => {
+  const app = `intelligence-readable-${Math.random().toString(36).slice(2)}`;
+  saveCurriculum(initCurriculum(app));
+
+  const view = IntelligenceViewSchema.parse(loadIntelligenceView(app));
+
+  assert.equal(view.curriculumCorrupt, false);
+  assert.notEqual(view.curriculum, null);
 });

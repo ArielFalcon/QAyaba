@@ -16,7 +16,7 @@ import { handleApi, ApiDeps } from "./server/api";
 import { authorizeBearer, issueSession, localWebLoginAllowed, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
-import { toIntelligenceView } from "./server/intelligence-view";
+import { loadIntelligenceView } from "./server/intelligence-view";
 import { toSignalsView } from "./server/signals-view";
 import { readRecentCoordinationEvents, toCoordinationSignals } from "./server/coordination-events";
 import { toTrendsView } from "./server/trends-view";
@@ -25,7 +25,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
 import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
@@ -592,13 +592,7 @@ const apiDeps: ApiDeps = {
   getRecord,
   listRecords,
   currentRun,
-  /*
-   * LEARNING_RULE_LEDGER_LIMIT is the SAME retrieve cap the engine injects into generation, so the
-   * operator ledger is the live set, not a truncated preview that silently drops the rest.
-   */
-  /* A corrupt curriculum row reaches the view as curriculumCorrupt, never as "no curriculum yet". */
-  intelligence: (app) =>
-    toIntelligenceView(app, listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), loadScorecard(app), loadCurriculum(app)),
+  intelligence: loadIntelligenceView,
   /* Read-only stored FE<->BE architecture map (Batch F). null (no row yet) -> the route 404s. */
   contextMap: (app) => {
     const stored = loadContextMap(app);

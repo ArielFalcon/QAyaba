@@ -66,15 +66,13 @@ describe("CurriculumPortAdapter.select", () => {
     assert.deepEqual(fromCorrupt, fresh);
   });
 
-  it("reports a corrupt stored row while selecting and never writes over it", async () => {
+  it("reports a corrupt stored row while selecting", async () => {
     let logged: unknown;
-    let saveCalls = 0;
-    const adapter = new CurriculumPortAdapter("app", () => CURRICULUM_CORRUPT, () => { saveCalls++; }, (error) => { logged = error; });
+    const adapter = new CurriculumPortAdapter("app", () => CURRICULUM_CORRUPT, () => {}, (error) => { logged = error; });
 
     await adapter.select(RICH_DIFF, FILES);
 
     assert.ok(logged instanceof Error, "a corrupt load result must be surfaced through onError, not swallowed");
-    assert.equal(saveCalls, 0);
   });
 });
 

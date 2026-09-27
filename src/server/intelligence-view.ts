@@ -2,6 +2,17 @@ import type { LearningRule } from "../qa/learning/learning-rule";
 import type { Scorecard } from "../qa/learning/oracle-types";
 import type { Curriculum } from "../qa/learning/curriculum";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum } from "./history";
+
+/*
+ * An app's intelligence view as the local history stores it: the intelligence API's read path.
+ * LEARNING_RULE_LEDGER_LIMIT is the same retrieve cap the engine injects into generation, so the
+ * operator ledger is the live set, not a truncated preview. A corrupt curriculum row reaches the
+ * view as curriculumCorrupt, never as "no curriculum yet".
+ */
+export function loadIntelligenceView(app: string): ReturnType<typeof toIntelligenceView> {
+  return toIntelligenceView(app, listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), loadScorecard(app), loadCurriculum(app));
+}
 
 /* Projects persisted learning artifacts into the read-only IntelligenceViewSchema shape. */
 export function toIntelligenceView(
