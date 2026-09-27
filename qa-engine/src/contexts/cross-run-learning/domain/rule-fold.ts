@@ -20,7 +20,6 @@ function nextStatus(
   coverageCreditConfirmed: boolean | null = null,
   oracleOutcomeCount = 0,
 ): RuleStatus {
-  if ((status as string) === "pending") return "candidate";
   if (outcomeCount < MIN_OUTCOMES) return status;
   switch (status) {
     case "candidate": {

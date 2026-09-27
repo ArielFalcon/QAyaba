@@ -278,6 +278,13 @@ function ensureDb(): void {
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
   }
+  /*
+   * "pending" is a retired rule status an older build could have written. Every retrieval and
+   * ledger read filters on status IN ('active', 'candidate'), so a stored 'pending' row would never
+   * be retrieved, never earn an outcome and stay stuck forever. Rewrite it once, at open, to the
+   * status it always meant. Idempotent: a no-op once no such row remains.
+   */
+  db.exec("UPDATE learning_rules SET status = 'candidate' WHERE status = 'pending'");
 
   insertRun = db.prepare(`
     INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs)
