@@ -6462,3 +6462,61 @@ test("mirror index: non-diff mode (mode: manual) → syncTo called with [] when 
   assert.equal(indexStatus.writes[0]!.sha, "abc1234");
   assert.equal(out.decision.verdict, "pass");
 });
+
+test("auth session failure before generate is infra-error and does not generate", async () => {
+  let generated = false;
+  const { ports } = stubPorts({
+    generate: async () => { generated = true; return { specs: ["a.spec.ts"], approved: true }; },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    authSession: { prepare: async () => { throw new Error("login failed"); } },
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
+  });
+  const out = await useCase.run({ ...baseInput, runId: "auth-session-pre-generate-fail" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(generated, false);
+  assert.match(out.note ?? "", /login failed/);
+});
+
+test("auth session prepare runs before generate and again before execute", async () => {
+  const phases: string[] = [];
+  const { ports } = stubPorts();
+  const useCase = new RunQaUseCase({
+    ...ports,
+    authSession: {
+      prepare: async (req) => {
+        phases.push(req.phase);
+        return { unauthored: false };
+      },
+    },
+    authContext: { baseUrl: "https://dev.example" },
+  });
+  const out = await useCase.run({ ...baseInput, runId: "auth-session-both-phases" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.deepEqual(phases, ["pre-generate", "pre-execute"]);
+});
+
+test("a stock auth seed tells generation to rewrite auth.setup.ts", async () => {
+  const packs: Array<string | undefined> = [];
+  const { ports } = stubPorts({
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      packs.push(enrichment?.contextPack);
+      return { specs: ["a.spec.ts"], approved: true };
+    },
+  });
+  let calls = 0;
+  const useCase = new RunQaUseCase({
+    ...ports,
+    authSession: {
+      prepare: async () => {
+        calls += 1;
+        return { unauthored: calls === 1 };
+      },
+    },
+    authContext: { baseUrl: "https://dev.example", auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } },
+  });
+  const out = await useCase.run({ ...baseInput, runId: "auth-seed-rewrite" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.match(packs[0] ?? "", /auth\.setup\.ts/);
+});

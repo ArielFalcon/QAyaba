@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort } from "../application/ports/index.ts";
+import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
 import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
@@ -79,6 +80,9 @@ export interface CompositionConfig {
   diff?: string;
   baseUrl?: string;
   openapi?: string | string[];
+  /** Wired for e2e apps that have a DEV url. Absent in code mode. */
+  authSession?: AuthSessionPort;
+  auth?: AuthDeclaration;
   testIdAttribute?: string;
 
   /* ChangeAnalysisPort collaborator. */
@@ -425,6 +429,15 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     deployGate,
     runHistory,
     ...(setup ? { setup } : {}),
+    ...(cfg.authSession && cfg.baseUrl
+      ? {
+          authSession: cfg.authSession,
+          authContext: {
+            baseUrl: cfg.baseUrl,
+            ...(cfg.auth ? { auth: cfg.auth } : {}),
+          },
+        }
+      : {}),
     ...(cleanup ? { cleanup } : {}),
     ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
     ...(reviewDomGrounding ? { reviewDomGrounding } : {}),

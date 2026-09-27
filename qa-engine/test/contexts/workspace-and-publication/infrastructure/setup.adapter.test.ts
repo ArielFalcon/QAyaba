@@ -431,6 +431,28 @@ test("ensurePlaywrightEnvKeys: idempotent — running twice on a repaired repo c
   }
 });
 
+test("ensureSessionGitignore appends .auth/ once and creates the file when it is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-"));
+  try {
+    const ignorePath = join(dir, ".gitignore");
+    writeFileSync(ignorePath, "node_modules/\n");
+    realAdapter().ensureSessionGitignore(dir);
+    const once = readFileSync(ignorePath, "utf8");
+    assert.match(once, /\.auth\//);
+    realAdapter().ensureSessionGitignore(dir);
+    assert.equal(readFileSync(ignorePath, "utf8"), once);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const empty = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-new-"));
+  try {
+    realAdapter().ensureSessionGitignore(empty);
+    assert.equal(readFileSync(join(empty, ".gitignore"), "utf8"), ".auth/\n");
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
+  }
+});
+
 test("ensurePlaywrightEnvKeys: missing playwright.config.ts is a no-op (new onboards get it from the seed copy already)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-missing-"));
   try {

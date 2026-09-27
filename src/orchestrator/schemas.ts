@@ -170,6 +170,21 @@ export const AppConfigSchema = z
      * No app-specific names are hardcoded in src/ — the value comes from config only.
      */
     e2e: z.object({ testIdAttribute: z.string().min(1).optional() }).optional(),
+    /*
+     * App login. Absent = public app. `form` is a Playwright setup project that
+     * writes storageState; `mtls` is a software PKCS#12 presented on the TLS
+     * handshake. Values stay in the env store — these fields are variable names.
+     * HTTP Basic of the DEV environment stays DEV_ENV_USER/PASS and is not this block.
+     */
+    auth: z
+      .object({
+        kind: z.enum(["form", "mtls"]),
+        usernameEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        passwordEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        certEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        certPassEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+      })
+      .optional(),
     code: z.boolean().optional(),
     /*
      * Stitcher → Generation seam: the app's declared cross-service call conventions
@@ -195,6 +210,18 @@ export const AppConfigSchema = z
   .refine((c) => !(c.code === true && (c.boundaries?.length ?? 0) > 0), {
     error: "boundaries are only valid for e2e apps (code-mode apps have no cross-service graph)",
     path: ["boundaries"],
+  })
+  .refine((c) => !(c.code === true && c.auth !== undefined), {
+    error: "auth is only valid for e2e apps (code-mode apps have no browser session)",
+    path: ["auth"],
+  })
+  .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
+    error: "auth.kind form requires usernameEnv and passwordEnv",
+    path: ["auth"],
+  })
+  .refine((c) => c.auth?.kind !== "mtls" || (!!c.auth.certEnv && !!c.auth.certPassEnv), {
+    error: "auth.kind mtls requires certEnv and certPassEnv",
+    path: ["auth"],
   })
   .refine(
     (c) => {

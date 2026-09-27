@@ -129,6 +129,29 @@ test("e2e target: coverage dumps and measured.json are excluded from a real stag
   }
 });
 
+test("e2e target: e2e/.auth/ session files are never published", async () => {
+  const repo = initRepo();
+  try {
+    writeFile(repo, "e2e/checkout.spec.ts", "test('x', () => {});\n");
+    writeFile(repo, "e2e/.auth/user.json", "{\"cookies\":[]}\n");
+    writeFile(repo, "e2e/.auth/client.p12", "cert-bytes");
+
+    const { git } = realGitNoPush(repo);
+    const vcsWrite = buildVcsPublish(false, "diff", git);
+    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/authtest1", sha: "authtest1" });
+
+    assert.equal(result.changed, true);
+    const paths = committedPaths(repo);
+    assert.ok(paths.includes("e2e/checkout.spec.ts"));
+    assert.ok(
+      !paths.some((p) => p.startsWith("e2e/.auth/")),
+      `auth session files must be excluded — committed paths: ${JSON.stringify(paths)}`,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("e2e target: node_modules/ (unprefixed, no mid-pattern slash) still excludes at ANY depth, including nested under e2e/ — existing legitimate exclude remains intact", async () => {
   const repo = initRepo();
   try {

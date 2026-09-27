@@ -13,6 +13,7 @@ import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
+import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type {
@@ -97,6 +98,21 @@ const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
 /* Static-gate repair-round bound. */
 const MAX_STATIC_FIX_ROUNDS = 2;
 
+/*
+ * Fact for the generator when the stock login did not sign in. Lives in the context
+ * pack because diff-mode prompts do not render manual guidance.
+ */
+const AUTH_SEED_REWRITE_NOTE = [
+  "## App login",
+  "App login is configured, but e2e/auth.setup.ts is still the stock seed and did not sign in.",
+  "Rewrite e2e/auth.setup.ts from the login page in this DOM pack.",
+  "Import test from @playwright/test, not from ./fixtures.",
+  "Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.",
+  "Wait until the password field is hidden (cookies are set on the redirect) before storageState.",
+  "Then write the specs for this change. Each spec that needs the app calls authenticate().",
+  "The orchestrator signs in with your setup file before execute.",
+].join("\n");
+
 /* Caps static-gate error text in the repair regen prompt. */
 const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
 
@@ -153,6 +169,13 @@ export interface RunQaUseCaseDeps {
   runHistory: RunHistoryPort;
   /** Absent: setup is skipped. A throw from setup() is infra-error, never a code verdict. */
   setup?: SetupPort;
+  /**
+   * Absent: no browser session is prepared (public app, or code mode).
+   * A throw is infra-error, same as setup(). unauthored does not throw.
+   */
+  authSession?: AuthSessionPort;
+  /** baseUrl plus the YAML auth declaration. Required when authSession is set. */
+  authContext?: AuthSessionContext;
   /**
    * Absent: cleanup is skipped. Runs only when previousNamespace is set.
    * A cleanup failure is logged and MUST NEVER alter this run's verdict.
@@ -472,6 +495,19 @@ export class RunQaUseCase {
         return this.infraErrorResult(`setup failed: ${msg}`, workspace.mirrorDir);
       }
     }
+    let authSeedUnauthored = false;
+    /* A declared app login stays on the lead. The sidekick browser has no storageState, so it would author against the login wall and the suite would then run authenticated. */
+    const loginKeepsLead = Boolean(this.deps.authContext?.auth);
+    if (!cfg.isCode) {
+      try {
+        const session = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
+        authSeedUnauthored = session?.unauthored === true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[qa] auth session failed:", err);
+        return this.infraErrorResult(`auth session failed: ${msg}`, workspace.mirrorDir);
+      }
+    }
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
     }
@@ -712,7 +748,14 @@ export class RunQaUseCase {
         point: "pre-generate",
         sidekickAvailable: !!this.deps.sidekick,
       });
-      if (honorDelegate && this.deps.sidekick && coordinationProposal) {
+      if (loginKeepsLead && honorDelegate && this.deps.sidekick) {
+        this.deps.observer?.onEvent({
+          type: "log.line",
+          level: "info",
+          text: "app login is configured; generation stays on the lead, which has the authenticated DOM pack",
+        });
+      }
+      if (honorDelegate && this.deps.sidekick && coordinationProposal && !loginKeepsLead) {
         try {
           const e2eRel = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
           const writableRoot = cfg.isCode ? "." : `${e2eRel}/`;
@@ -815,8 +858,19 @@ export class RunQaUseCase {
           );
         }
       }
-      generated = fromSidekick
-        ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, baseEnrichment));
+      /*
+       * A stock seed that did not sign in must reach the generator in every mode.
+       * guidance is manual-only; the context pack is the section diff mode actually renders.
+       * Sidekick output from the login wall is not the session the suite will run with.
+       */
+      const authContextPack = authSeedUnauthored
+        ? [AUTH_SEED_REWRITE_NOTE, groundingContextPack].filter((part): part is string => Boolean(part)).join("\n\n")
+        : undefined;
+      generated = (authSeedUnauthored ? undefined : fromSidekick)
+        ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
+          ...baseEnrichment,
+          ...(authContextPack ? { contextPack: authContextPack } : {}),
+        }));
     }
     /*
      * Confinement after a real generate() only. The regression synthetic stand-in
@@ -1056,6 +1110,15 @@ export class RunQaUseCase {
      * Context mode never executes — context.json is not a Playwright spec.
      * A successful context generation is an immediate pass with zero cases.
      */
+    if (input.mode !== "context" && !cfg.isCode) {
+      try {
+        await this.prepareAuth(workspace.specDir, "pre-execute", signal);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[qa] auth session failed:", err);
+        return this.infraErrorResult(`auth session failed: ${msg}`, workspace.mirrorDir);
+      }
+    }
     if (input.mode !== "context") {
       this.deps.observer?.onStep("execute");
     }
@@ -1225,7 +1288,14 @@ export class RunQaUseCase {
             capability: fixLoopCapability,
             sidekickAvailable: !!this.deps.sidekick,
           });
-          if (honorSidekick && this.deps.sidekick) {
+          if (loginKeepsLead && honorSidekick && this.deps.sidekick) {
+            this.deps.observer?.onEvent({
+              type: "log.line",
+              level: "info",
+              text: "app login is configured; fix-loop regen stays on the lead, which has the authenticated failure DOM",
+            });
+          }
+          if (honorSidekick && this.deps.sidekick && !loginKeepsLead) {
             try {
               const failSummary = failingNames.slice(0, 8).join(", ") || "failing tests";
               const selectorLines = mergedSelectorContradictions.slice(0, 20);
@@ -2050,6 +2120,23 @@ export class RunQaUseCase {
    * mirrorDir is passed only when prepare() already ran; the entry-gate deploy
    * failure omits it (the mirror was never touched).
    */
+  /** No-op when the port is unwired. unauthored is a setup note, not a failure. */
+  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | undefined> {
+    const sessionPort = this.deps.authSession;
+    const ctx = this.deps.authContext;
+    if (!sessionPort || !ctx) return undefined;
+    const session = await sessionPort.prepare({
+      specDir,
+      baseUrl: ctx.baseUrl,
+      ...(ctx.auth ? { auth: ctx.auth } : {}),
+      phase,
+    }, signal);
+    if (session.unauthored) {
+      this.deps.observer?.onStep("setup", "auth setup is still the seed; generation may rewrite e2e/auth.setup.ts");
+    }
+    return session;
+  }
+
   private async infraErrorResult(note?: string, mirrorDir?: string): Promise<RunQaResult> {
     if (note !== undefined) {
       console.error("[qa] infra-error terminal:", note);

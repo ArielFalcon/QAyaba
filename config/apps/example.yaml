@@ -70,6 +70,16 @@ baseBranch: "main"             # target branch for the QA pull requests
 #     serviceRepoTemplate: "ms-name-{service}"
 #     openApiPath: "src/main/resources/openapi/api-definition.yaml"
 
+# App login. Omit the block for a public app. HTTP Basic of the whole DEV
+# environment is NOT this block — that is DEV_ENV_USER/PASS from onboarding
+# ("basic auth"). Values live in the env store; these fields are names only.
+#   form: usernameEnv + passwordEnv (a Playwright setup project saves storageState)
+#   mtls: certEnv (base64 PKCS#12) + certPassEnv
+# auth:
+#   kind: form
+#   usernameEnv: QA_EXAMPLE_TEST_USER
+#   passwordEnv: QA_EXAMPLE_TEST_PASS
+
 # `dev` is REQUIRED for e2e apps (the default) and OMITTED for code-mode apps.
 dev:
   baseUrl: "https://dev.example.internal"

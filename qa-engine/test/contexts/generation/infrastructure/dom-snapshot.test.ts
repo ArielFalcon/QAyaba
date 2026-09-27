@@ -1240,6 +1240,14 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
    provider (e.g. Keycloak).
  */
 
+test("buildCaptureScript applies PW_STORAGE_STATE and PW_CLIENT_CERT_PATH on newContext()", () => {
+  const script = buildCaptureScript();
+  assert.match(script, /process\.env\.PW_STORAGE_STATE/);
+  assert.match(script, /storageState/);
+  assert.match(script, /process\.env\.PW_CLIENT_CERT_PATH/);
+  assert.match(script, /clientCertificates/);
+});
+
 test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
   const script = buildCaptureScript();
   assert.match(script, /process\.env\.DEV_ENV_USER/, "must read DEV_ENV_USER from the child's env");

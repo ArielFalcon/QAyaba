@@ -10,6 +10,35 @@ const base = {
   report: { onFailure: "github-issue" },
 };
 
+test("auth.kind form accepts env-var names", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.equal(cfg.auth?.kind, "form");
+  assert.equal(cfg.auth?.usernameEnv, "QA_SHOP_TEST_USER");
+});
+
+test("auth is optional and code-mode stays valid without it", () => {
+  const cfg = AppConfigSchema.parse({ ...base, code: true, dev: undefined });
+  assert.equal(cfg.auth, undefined);
+});
+
+test("auth.kind mtls requires certEnv", () => {
+  assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls" } }));
+});
+
+test("auth is rejected on a code-mode app", () => {
+  assert.throws(() =>
+    AppConfigSchema.parse({
+      ...base,
+      code: true,
+      dev: undefined,
+      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+    }),
+  );
+});
+
 test("accepts an app with services[] (repo + optional openapi/versionUrl/baseBranch)", () => {
   const cfg = AppConfigSchema.parse({
     ...base,

@@ -3,9 +3,9 @@
 // data, cleanup and the app's own capabilities (geolocation, mobile/offline,
 // cookies/cache, photo upload).
 //
-// Hybrid model: the skeleton is shared (this file); the app-specific parts (the
-// real Keycloak login selectors, etc.) are filled in by the agent and persisted
-// in git. For the "how" of each capability, see the `playwright-authoring` skill.
+// Hybrid model: the skeleton is shared (this file); the app-specific login
+// selectors live in auth.setup.ts, filled in by the agent and persisted in git.
+// For the "how" of each capability, see the `playwright-authoring` skill.
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -53,7 +53,7 @@ export interface QaFixtures {
   namespace: string; // PER-ATTEMPT data prefix `qa-bot-<sha>-w<worker>r<retry>` (use to NAME/find created
                      // entities). The run-level BASE is `process.env.PW_NAMESPACE` (no -wXrY) — match by THAT
                      // for cleanup/teardown so all workers' and retries' data is covered.
-  authenticate: () => Promise<void>; // the app's real login (Keycloak)
+  authenticate: () => Promise<void>; // the app's real login (storageState, or one form fill)
   cleanup: (undo: () => Promise<void>) => void; // registers undo steps (LIFO, automatic)
   // system-owned: do not edit — the orchestrator reads these dumps for change-coverage.
   _coverage: void;
@@ -73,29 +73,35 @@ export const test = base.extend<QaFixtures>({
     await use(`${base}-w${testInfo.workerIndex}r${testInfo.retry}`);
   },
 
-  // App login via Keycloak: pressing login redirects to the Keycloak domain
-  // (outside the app), the username/password are entered, and it returns.
-  // ADJUST the marked selectors to the app's real login. For PUBLIC pages, simply
-  // do not call authenticate(). Recommended optimization (see skill): do it once
-  // and cache storageState.
+  // App login. When the orchestrator already saved a session, PW_STORAGE_STATE
+  // is loaded by playwright.config.ts and this fixture does not fill the form.
+  // Otherwise it performs the same steps as auth.setup.ts. No creds → public app,
+  // no-op (a public app must not fail specs that call authenticate defensively).
   authenticate: async ({ page }, use) => {
     await use(async () => {
+      if (process.env.PW_STORAGE_STATE) {
+        if (page.url() === "about:blank") await page.goto("/");
+        return;
+      }
       const user = process.env.DEV_TEST_USER;
       const pass = process.env.DEV_TEST_PASS;
       if (!user || !pass) {
-        // No creds configured → treat the app as PUBLIC and skip login (no-op). A public app
-        // (e.g. PetClinic) needs no auth; throwing here would fail every spec that defensively
-        // calls authenticate(). Set DEV_TEST_USER/PASS only if the app actually requires Keycloak login.
         console.warn("[qa] authenticate(): DEV_TEST_USER/PASS not set — app treated as PUBLIC, skipping login.");
         return;
       }
       await page.goto("/");
-      await page.getByRole("link", { name: /log ?in|sign ?in/i }).click(); // ADJUST to the real button
-      // Now on the Keycloak domain (a different origin):
-      await page.locator("#username").fill(user); // standard Keycloak selectors
-      await page.locator("#password").fill(pass);
-      await page.locator("#kc-login, [type=submit]").first().click();
-      await page.waitForURL((url) => !/\/(auth|realms)\//.test(url.pathname)); // back in the app
+      await page.getByLabel(/username|email|user/i).fill(user);
+      await page.getByLabel(/^password$/i).fill(pass);
+      await page.getByRole("button", { name: /log ?in|sign ?in|entrar/i }).click();
+      const password = page.getByLabel(/^password$/i);
+      try {
+        await password.first().waitFor({ state: "hidden", timeout: 8000 });
+      } catch {
+        /* Still on the form — throw below. */
+      }
+      if ((await password.count()) > 0 && (await password.first().isVisible())) {
+        throw new Error("login did not leave the password form; rewrite e2e/auth.setup.ts for this app");
+      }
     });
   },
 

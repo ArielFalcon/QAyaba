@@ -12,7 +12,13 @@ export const PROTECTED_PATHS: string[] = [
   "src/orchestrator/sanitizer.ts",
   
   "qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts",
-  
+  /*
+   * Builds the child env used to prepare an authenticated Playwright session (storageState form
+   * login / PKCS#12 mTLS) — it handles credential material the same way scrub-env.ts does, so it
+   * gets the same protection.
+   */
+  "qa-engine/src/shared-infrastructure/process-sandbox/auth-session-env.ts",
+
   "qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts",
   /*
    * The write-confinement EFFECTFUL adapter — actually runs the git restore/clean revert this

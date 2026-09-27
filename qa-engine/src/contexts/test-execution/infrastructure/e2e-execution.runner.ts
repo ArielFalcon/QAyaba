@@ -10,6 +10,7 @@ import { sanitizeText, type SecretDetection } from "@contexts/generation/infrast
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
+import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
 
@@ -169,7 +170,8 @@ export async function runE2E(
     baseUrl: opts.baseUrl,
     namespace: opts.namespace,
     faultInject: opts.faultInject,
-    project: opts.project,
+    /* Default to the desktop project so auth.setup.ts (the setup project) is not a suite case. The orchestrator runs that project itself. */
+    project: opts.project ?? "desktop",
     testIdAttribute: opts.testIdAttribute,
     specFiles: opts.specFiles,
     signal: opts.signal,
@@ -380,7 +382,7 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
       new Promise((resolve) => {
         const child = spawn("npx", ["playwright", "test", "cleanup.spec.ts", "--reporter=line"], {
           cwd: dir,
-          env: { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) },
+          env: authSessionEnv(dir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) }),
           detached: true,
         });
         let settled = false;
@@ -454,7 +456,7 @@ export function createDefaultE2eExecuteDeps(
         const child = spawn("npx", playwrightArgs(reporterPath, project, specFiles), {
           cwd: dir,
           /* Agent-written specs are untrusted code: scrub orchestrator secrets, keep DEV_* creds. QA_FAILURE_CAPTURE_DIR: the qa-failure-capture afterEach fixture writes per-case aria snapshot dumps here on failure; the orchestrator harvests them post-run to populate QaCase.failureDom for the fix-loop grounding prompt. PW_TEST_ID_ATTRIBUTE: threads the configured testIdAttribute into the runner so playwright.config.ts resolves getByTestId correctly for the app's convention. PW_ACTION_TIMEOUT_MS: optional per-target override of the seed's action auto-wait bound (default 8000) so a slower DEV can widen it without editing the seed config — injected from the composition root (env-read confinement, this file's header). */
-          env: { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) },
+          env: authSessionEnv(dir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PLAYWRIGHT_JSON_OUTPUT_NAME: jsonPath, ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}), ...(actionTimeoutMs ? { PW_ACTION_TIMEOUT_MS: actionTimeoutMs } : {}), ...(faultInject ? { QA_FAULT_INJECT: "1" } : {}), ...(failureCaptureDir ? { QA_FAILURE_CAPTURE_DIR: failureCaptureDir } : {}) }),
           detached: true,
         });
 

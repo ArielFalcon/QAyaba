@@ -11,7 +11,7 @@ export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do 
 
 export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
 
-const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute"] as const;
+const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState"] as const;
 
 export const FAILURE_CAPTURE_BLOCK = `
 // >>> qa-failure-capture (system-owned: do not edit) >>>
@@ -171,6 +171,8 @@ export class SetupAdapter {
     if (!this.hasProject(e2eDir)) this.bootstrap(e2eDir);
     this.ensureSpecDir(e2eDir);
     this.ensureFailureCapture(e2eDir);
+    this.ensureAuthSetup(e2eDir);
+    this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
     if (this.isInstallCurrent(e2eDir)) {
       console.log("[qa] e2e dependencies up to date; skipping npm ci");
@@ -213,6 +215,28 @@ export class SetupAdapter {
     const src = this.deps.fs.read(path);
     if (src.includes(FAILURE_CAPTURE_MARKER)) return;
     this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+  }
+
+  /** Keeps the Playwright session directory out of the suite PR. Idempotent. */
+  ensureSessionGitignore(e2eDir: string): void {
+    const path = join(e2eDir, ".gitignore");
+    const line = ".auth/";
+    if (!this.deps.fs.exists(path)) {
+      this.deps.fs.write(path, `${line}\n`);
+      return;
+    }
+    const src = this.deps.fs.read(path);
+    if (src.split("\n").some((entry) => entry.trim() === line)) return;
+    this.deps.fs.append(path, src.endsWith("\n") || src.length === 0 ? `${line}\n` : `\n${line}\n`);
+  }
+
+  /** Copies the seed login setup only when the repo does not have one yet. An app-owned auth.setup.ts is left as-is. */
+  ensureAuthSetup(e2eDir: string): void {
+    const dest = join(e2eDir, "auth.setup.ts");
+    if (this.deps.fs.exists(dest)) return;
+    const src = join(this.deps.seedDir, "auth.setup.ts");
+    if (!this.deps.fs.exists(src)) return;
+    this.deps.fs.cp(src, dest);
   }
 
   ensurePlaywrightEnvKeys(e2eDir: string): void {

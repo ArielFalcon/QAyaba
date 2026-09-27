@@ -23,6 +23,7 @@ import {
 } from "../integrations/opencode-client";
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
+import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
@@ -144,7 +145,7 @@ export function roleToAgentName(role: AgentRole): string {
 
 
 const E2E_PUBLISH_ADD = ["e2e"];
-const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/"];
+const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.auth/"];
 const CODE_PUBLISH_ADD = ["."];
 
 const CONTEXT_PUBLISH_ADD = ["e2e/.qa/context.json"];
@@ -773,6 +774,30 @@ export function buildRewrittenCompositionConfig(
       : {}),
     
     ...(app.dev?.baseUrl ? { baseUrl: app.dev.baseUrl } : {}),
+    ...(!isCode && app.dev?.baseUrl
+      ? {
+          authSession: new AuthSessionAdapter({
+            env: process.env,
+            seedAuthSetup: readFileSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "config", "e2e", "auth.setup.ts"), "utf8"),
+            spawnSetup: async (specDir, env, signal) => {
+              const result = await runner.run({
+                command: "npx",
+                args: ["playwright", "test", "--project=setup"],
+                cwd: specDir,
+                env,
+                timeoutMs: 120_000,
+                ...(signal ? { signal } : {}),
+              });
+              const logs = `${result.stdout}\n${result.stderr}`;
+              return {
+                exitCode: result.timedOut ? 1 : (result.exitCode ?? 1),
+                logs: result.timedOut ? `auth setup timed out\n${logs}` : logs,
+              };
+            },
+          }),
+          ...(app.auth ? { auth: app.auth } : {}),
+        }
+      : {}),
     ...(app.openapi ? { openapi: app.openapi } : {}),
     
     ...(triggerService

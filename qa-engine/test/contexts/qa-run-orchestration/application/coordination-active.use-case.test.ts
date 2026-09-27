@@ -150,6 +150,51 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
   assert.ok(tel.events.some((e) => e.kind === "delegation"));
 });
 
+test("app login keeps generation on the lead and does not open a sidekick session", async () => {
+  ensureSidekickFile();
+  let generateCalls = 0;
+  let opened = 0;
+  const ports = basePorts(async () => {
+    generateCalls++;
+    return { specs: ["lead.spec.ts"], approved: true };
+  });
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        opened++;
+        return sessionReturning({
+          delegationId: "coord-auth-lead-pre-generate",
+          runId: "coord-auth-lead",
+          status: "completed",
+          summary: "should not run",
+          filesChanged: [{ path: "e2e/sidekick.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+        });
+      },
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["pre-generate"],
+    sidekick,
+    authSession: { prepare: async () => ({ unauthored: false }) },
+    authContext: {
+      baseUrl: "https://dev.example",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    },
+  });
+  const out = await useCase.run({ ...input, runId: "coord-auth-lead" });
+  assert.equal(opened, 0);
+  assert.equal(generateCalls, 1);
+  assert.equal(out.decision.verdict, "pass");
+});
+
 test("active pre-generate falls back when sidekick JSON claims files missing on disk", async () => {
   let generateCalls = 0;
   const ports = basePorts(async () => {

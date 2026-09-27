@@ -14,3 +14,5 @@ blob-report/
 # Measured fields (stability, coverage) — system-owned, updated every run. Lives OUTSIDE
 # the commited manifest to avoid PR-spam from stability.runs++.
 .qa/measured.json
+# Login session (cookies, localStorage, IndexedDB). Never commit.
+.auth/

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
@@ -466,12 +467,23 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
   let browser;
   try {
     browser = await chromium.launch();
-    /* Gated routes: httpCredentials from DEV_ENV_USER / DEV_ENV_PASS (password may be empty). Scoped to baseUrl's origin so creds never leak to a different-origin auth provider. Gate is DEV_ENV_USER alone. */
+    /* Gated routes: httpCredentials from DEV_ENV_USER / DEV_ENV_PASS (password may be empty). Scoped to baseUrl's origin so creds never leak to a different-origin auth provider. Gate is DEV_ENV_USER alone. App login arrives as PW_STORAGE_STATE; a software cert as PW_CLIENT_CERT_PATH. */
     const user = process.env.DEV_ENV_USER;
     const pass = process.env.DEV_ENV_PASS;
-    const context = await browser.newContext(user
-      ? { httpCredentials: { username: user, password: pass ?? "", origin: new URL(baseUrl).origin } }
-      : {});
+    const httpCredentials = user
+      ? { username: user, password: pass ?? "", origin: new URL(baseUrl).origin }
+      : undefined;
+    const contextOptions = {};
+    if (httpCredentials) contextOptions.httpCredentials = httpCredentials;
+    if (process.env.PW_STORAGE_STATE) contextOptions.storageState = process.env.PW_STORAGE_STATE;
+    if (process.env.PW_CLIENT_CERT_PATH) {
+      contextOptions.clientCertificates = [{
+        origin: new URL(baseUrl).origin,
+        pfxPath: process.env.PW_CLIENT_CERT_PATH,
+        passphrase: process.env.DEV_CLIENT_CERT_PASS ?? "",
+      }];
+    }
+    const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
     let currentRouteErrors = [];
     page.on("pageerror", function(err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
@@ -553,7 +565,7 @@ export const defaultCaptureDomDeps: CaptureDomDeps = {
       /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
       const child = spawn("node", [script], {
         cwd: e2eDir,
-        env: { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
+        env: authSessionEnv(e2eDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
         detached: true,
       });
       const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
