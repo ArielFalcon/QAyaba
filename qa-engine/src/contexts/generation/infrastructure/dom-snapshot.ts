@@ -556,10 +556,20 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
 
 /*
  * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
- * wrote auth material to — supplied by the composition-root shell. Absent falls back to e2eDir
- * (pre-S2 behavior; harmless when no auth material exists there — existsSync just reads false).
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED (J5): authDir used to be
+ * optional with a silent fallback to e2eDir (the agent-visible mirror) — an omitted override at any
+ * composition seam would silently put auth material back where the (read-only) agent can read it.
+ * There is no safe default, so a caller that forgets it is a TypeScript compile error, and — mirroring
+ * the same fail-closed constructor-guard pattern already established for PublicationPortAdapter
+ * (publication-port.adapter.test.ts) — a caller that bypasses the type system still gets an
+ * immediate, loud throw here, never a silent e2eDir default.
  */
-export function createCaptureDomDeps(authDir?: string): CaptureDomDeps {
+export function createCaptureDomDeps(authDir: string): CaptureDomDeps {
+  if (!authDir) {
+    throw new Error(
+      "[qa] createCaptureDomDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under e2eDir, the agent-visible mirror).",
+    );
+  }
   return {
     render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
       new Promise<RouteSnapshot[]>((resolve) => {
@@ -571,7 +581,7 @@ export function createCaptureDomDeps(authDir?: string): CaptureDomDeps {
         /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
         const child = spawn("node", [script], {
           cwd: e2eDir,
-          env: authSessionEnv(authDir ?? e2eDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
+          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
           detached: true,
         });
         const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
@@ -609,5 +619,20 @@ export function createCaptureDomDeps(authDir?: string): CaptureDomDeps {
   };
 }
 
-/** Pre-S2 default (authDir absent, falls back to e2eDir). Prefer createCaptureDomDeps(authDir) so DOM capture reads auth material from the orchestrator-only authDir, not the mirror. */
-export const defaultCaptureDomDeps: CaptureDomDeps = createCaptureDomDeps();
+/**
+ * J5: an INERT placeholder for the three composition seams (pre-exec/review-dom grounding bridges,
+ * the context-pack default deps) that fall back to this when no captureDomDeps collaborator is
+ * configured at all. It never touches the filesystem or spawns a process — unlike the pre-J5
+ * default, it does NOT silently derive credential paths from e2eDir. If it is ever actually invoked
+ * (every real production wiring always overrides it with createCaptureDomDeps(authDir) instead — see
+ * rewritten-engine-factory.ts), it fails loudly (CLAUDE.md: never swallow — surface integration
+ * errors loudly) rather than silently degrading to an insecure default.
+ */
+export const defaultCaptureDomDeps: CaptureDomDeps = {
+  render: async () => {
+    throw new Error(
+      "[qa] defaultCaptureDomDeps.render was invoked without a real authDir-backed CaptureDomDeps. " +
+      "Wire createCaptureDomDeps(authDir) explicitly at this seam — there is no safe default.",
+    );
+  },
+};

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
-  buildCaptureScript,
+  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps,
   type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 
@@ -1302,5 +1302,36 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
   const withoutFields: RouteSnapshot = { route: "/home", nodes: [] };
   assert.equal(withoutFields.runtimeErrors, undefined);
   assert.equal(withoutFields.finalUrl, undefined);
+});
+
+/* ── J5: authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
+   createCaptureDomDeps(authDir) used to accept an OPTIONAL authDir and fall back to e2eDir when
+   omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
+   grounding bridges, the context-pack default deps) would silently put auth material back into the
+   agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
+   it gets a compile error, and — mirroring the same fail-closed constructor-guard pattern already
+   established for PublicationPortAdapter (publication-port.adapter.test.ts, WS5.4b/Slice 4) — a
+   caller that bypasses the type system also gets an immediate, loud throw, never a silent e2eDir
+   default. The exported "no captureDomDeps configured at all" placeholder (defaultCaptureDomDeps,
+   consumed by the three seams above) is likewise inert: it never touches e2eDir, and fails loudly
+   instead of silently degrading if it is ever actually invoked.
+ */
+
+test("J5: createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createCaptureDomDeps(),
+    /authDir/i,
+    "createCaptureDomDeps must throw naming the missing authDir, never silently fall back to e2eDir",
+  );
+});
+
+test("J5: defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
+  await assert.rejects(
+    () => defaultCaptureDomDeps.render("/some/e2e/dir", "https://dev.example.com", ["/home"]),
+    /authDir/i,
+    "the placeholder must name authDir in its error, never silently fall back to e2eDir",
+  );
 });
 
