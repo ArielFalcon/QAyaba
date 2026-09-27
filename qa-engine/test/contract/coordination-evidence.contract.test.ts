@@ -105,3 +105,10 @@ test("agentClaimInvalidatedBy is undefined when deterministic evidence agrees or
   );
   assert.equal(agentClaimInvalidatedBy([evidenceFromExecution({ verdict: "fail", failing: 1 })]), undefined);
 });
+
+test("budget evidence reports both the cycle ceiling and the wall-clock budget", () => {
+  const ref = evidenceFromBudget({ cycleCeiling: 7, wallClockMs: 45_000 });
+
+  assert.match(ref.summary, /\b7\b/);
+  assert.match(ref.summary, /\b45000\b/);
+});
