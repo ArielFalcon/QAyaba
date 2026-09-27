@@ -32,10 +32,26 @@ export class StalledAgentError extends InfraError {
   }
 }
 
-/* Name fallbacks cover instanceof failing across module/bundle realms. */
+/* Agent call exceeded its hard deadline — infra-error, never blamed on the watched repo. */
+export class AgentTimeoutError extends InfraError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "AgentTimeoutError";
+  }
+}
+
+/*
+ * Name fallbacks cover instanceof failing across module/bundle realms — including qa-engine's own
+ * taxonomy (@kernel/domain-error.ts), whose errors reach runner.ts unwrapped.
+ */
 export function isInfraError(err: unknown): boolean {
   if (err instanceof InfraError) return true;
-  if (err instanceof Error && (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError")) return true;
+  if (
+    err instanceof Error &&
+    (err.name === "InfraError" || err.name === "AgentUnavailableError" || err.name === "StalledAgentError" || err.name === "AgentTimeoutError")
+  ) {
+    return true;
+  }
   if (err instanceof Error && /\brun cancelled by operator\b/i.test(err.message)) return true;
   return false;
 }

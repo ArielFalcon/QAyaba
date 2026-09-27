@@ -16,6 +16,8 @@ import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { AgentTimeoutError } from "@kernel/domain-error";
+import { getIncidents } from "./maintainer";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -85,6 +87,28 @@ test("engineFactory supplied — routes to port.run", async () => {
   assert.equal(calls[0]?.mode, "diff");
   assert.equal(calls[0]?.target, "e2e");
   assert.equal(calls[0]?.source, "manual");
+});
+
+/* The engine's agent transport throws qa-engine's AgentTimeoutError when an agent call exceeds its
+   hard deadline, and nothing between RunQaUseCase and the runner wraps it. */
+test("an agent call that exceeded its deadline finalizes as infrastructure, not as an internal crash", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new AgentTimeoutError("generate: timed out after 900000ms");
+    },
+  };
+  const incidentsBefore = getIncidents().length;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-agent-timeout", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getRecord(id)!;
+  assert.equal(r.verdict, "infra-error");
+  assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
+  assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
 });
 
 test("a context-map run is an e2e context-mode run at the given sha, from a manual source, never tied to a service repo", async () => {
