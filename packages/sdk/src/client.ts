@@ -3,7 +3,7 @@
    streamRunEvents wraps the SSE live feed. Same-origin clients pass baseUrl "" so the browser
    carries the operator's existing credentials.
  */
-import { createTransport, type TransportOptions } from "./transport";
+import { createTransport, ASSISTANT_REQUEST_TIMEOUT_MS, type TransportOptions, type RequestOptions } from "./transport";
 import { streamRunEvents, type StreamOptions } from "./sse";
 import type {
   VersionInfo,
@@ -76,10 +76,12 @@ export function createClient(opts: ClientOptions) {
     deleteApp: (name: string, purge = false) =>
       request<DeleteAppResult>("DELETE", `/api/v1/apps/${q(name)}${purge ? "?purge=1" : ""}`),
 
-    ask: (id: string, question: string, history?: ChatEntry[]) =>
-      request<AskResponse>("POST", `/api/v1/runs/${q(id)}/ask`, { question, history }),
-    help: (question: string, history?: ChatEntry[]) =>
-      request<AskResponse>("POST", "/api/v1/help", { question, history }),
+    /* Assistant answers are a model turn: bounded by ASSISTANT_REQUEST_TIMEOUT_MS unless the caller
+       passes its own timeoutMs/signal. */
+    ask: (id: string, question: string, history?: ChatEntry[], opts: RequestOptions = {}) =>
+      request<AskResponse>("POST", `/api/v1/runs/${q(id)}/ask`, { question, history }, { timeoutMs: ASSISTANT_REQUEST_TIMEOUT_MS, ...opts }),
+    help: (question: string, history?: ChatEntry[], opts: RequestOptions = {}) =>
+      request<AskResponse>("POST", "/api/v1/help", { question, history }, { timeoutMs: ASSISTANT_REQUEST_TIMEOUT_MS, ...opts }),
 
     listRepos: (owner: string, page = 1) =>
       request<RepoListResponse>("GET", `/api/v1/repos?owner=${q(owner)}&page=${page}`),
