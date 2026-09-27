@@ -11,7 +11,16 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { preventionOutcome, applyOutcome, deriveConfidence, attributableRules, PREVENTION_HELD_SCORE } from "@contexts/cross-run-learning/domain/rule-fold.ts";
+import {
+  preventionOutcome,
+  applyOutcome,
+  deriveConfidence,
+  attributableRules,
+  PREVENTION_HELD_SCORE,
+  PROMOTE_RATE,
+  DEMOTE_RATE,
+  MIN_OUTCOMES,
+} from "@contexts/cross-run-learning/domain/rule-fold.ts";
 import type { LearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 
 function makeRule(overrides: Partial<LearningRule> = {}): LearningRule {
@@ -298,5 +307,40 @@ describe("attributableRules — context-directed attribution filter (recovered, 
     const rules = [mkAttrRule("form", "form"), mkAttrRule("api", "api-call"), mkAttrRule("nav", "navigation")];
     const kept = attributableRules(rules, { diffArchetypes: ["form", "navigation"] });
     assert.deepEqual(kept.map((r) => r.id), ["form", "nav"]);
+  });
+});
+
+describe("promotion and demotion thresholds", () => {
+  /* A candidate one outcome short of MIN_OUTCOMES whose running rate already sits at `rate`; folding
+     one more outcome of the same score keeps the rate exactly there. */
+  const candidateAt = (rate: number, oracleOutcomeCount = 1) =>
+    makeRule({ status: "candidate", outcomeCount: MIN_OUTCOMES - 1, oracleOutcomeCount, successRate: rate });
+
+  test("a candidate whose success rate lands exactly on PROMOTE_RATE is promoted", () => {
+    assert.equal(applyOutcome(candidateAt(PROMOTE_RATE), PROMOTE_RATE, null, true).status, "active");
+  });
+
+  test("a candidate just below PROMOTE_RATE stays a candidate", () => {
+    const below = PROMOTE_RATE - 0.01;
+    assert.equal(applyOutcome(candidateAt(below), below, null, true).status, "candidate");
+  });
+
+  test("coverage measured WITHOUT credit for the changed lines blocks promotion", () => {
+    assert.equal(applyOutcome(candidateAt(0.9), 0.9, false, true).status, "candidate");
+  });
+
+  test("coverage measured WITH credit for the changed lines lets the candidate promote", () => {
+    assert.equal(applyOutcome(candidateAt(0.9), 0.9, true, true).status, "active");
+  });
+
+  test("an active rule whose success rate lands exactly on DEMOTE_RATE stays active; just below it is deprecated", () => {
+    const activeAt = (rate: number) => makeRule({ status: "active", outcomeCount: MIN_OUTCOMES, oracleOutcomeCount: 1, successRate: rate });
+    assert.equal(applyOutcome(activeAt(DEMOTE_RATE), DEMOTE_RATE).status, "active");
+    const below = DEMOTE_RATE - 0.01;
+    assert.equal(applyOutcome(activeAt(below), below).status, "deprecated");
+  });
+
+  test("a rule whose errorClass is only whitespace earns no prevention credit (nothing to prevent)", () => {
+    assert.equal(preventionOutcome("   ", null), null);
   });
 });

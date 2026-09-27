@@ -68,12 +68,14 @@ export class RuleGovernanceService {
      * counting from the END, so it deleted fewer elements than it inserted and `picked` grew past
      * `limit`.
      */
+    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: equivalent — picked holds the first `limit` eligible rules, so whenever this guard is false every candidate is already picked and no slot is taken
     if (eligible.length > limit && picked.length >= limit) {
       const pickedIds = new Set(picked.map((r) => r.id));
       const freshCandidates = eligible
         .filter((r) => r.status === "candidate" && !pickedIds.has(r.id))
         .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
       const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length, limit);
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — splicing zero slots at `limit` changes nothing
       if (slots > 0) picked.splice(limit - slots, slots, ...freshCandidates.slice(0, slots));
     }
     return picked;

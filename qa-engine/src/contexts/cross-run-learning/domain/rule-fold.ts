@@ -55,7 +55,7 @@ export function applyOutcome(
   const n = (rule.outcomeCount ?? 0) + 1;
   const oracleOutcomeCount = (rule.oracleOutcomeCount ?? 0) + (isOracleScore ? 1 : 0);
   const prev = rule.successRate;
-  const successRate = prev === null || prev === undefined ? score : prev + (score - prev) / n;
+  const successRate = prev == null ? score : prev + (score - prev) / n;
   return {
     ...rule,
     outcomeCount: n,

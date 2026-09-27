@@ -200,3 +200,41 @@ test("topRules: limit smaller than EXPLORATION_SLOTS never grows the result past
   const top = svc.topRules(rules, 1);
   assert.equal(top.length, 1, "must never grow past limit even when EXPLORATION_SLOTS > limit");
 });
+
+test("rank: a higher success rate outranks a newer rule and an earlier id", () => {
+  const ranked = svc.rank([
+    rule("active", 0.4, "a-lower-newer", "2026-06-01T00:00:00.000Z"),
+    rule("active", 0.9, "z-higher-older", "2026-01-01T00:00:00.000Z"),
+  ]);
+  assert.deepEqual(ranked.map((r) => r.trigger), ["z-higher-older", "a-lower-newer"]);
+});
+
+test("topRules: a relevance match flips a near-tie whatever order the rules arrive in", () => {
+  const matching = ruleWithMeta("active", 0.85, "matching", "E-EXEC-FAIL", null);
+  const other = ruleWithMeta("active", 0.9, "other", "E-FLAKY", null);
+  for (const input of [[matching, other], [other, matching]]) {
+    const top = svc.topRules(input, 5, { errorClass: "E-EXEC-FAIL" });
+    assert.deepEqual(top.map((r) => r.trigger), ["matching", "other"]);
+  }
+});
+
+test("topRules: the exploration slots go to the NEWEST excluded candidates, newest first", () => {
+  const rules = [
+    ruleWithMeta("active", 0.9, "a1", "E-X", null),
+    ruleWithMeta("active", 0.8, "a2", "E-X", null),
+    ruleWithMeta("active", 0.7, "a3", "E-X", null),
+    ruleWithMeta("candidate", 0.5, "c-a-oldest", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.5, "c-b-middle", "E-X", null, "2026-02-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.5, "c-c-newest", "E-X", null, "2026-03-01T00:00:00.000Z"),
+  ];
+  const top = svc.topRules(rules, 3);
+  assert.deepEqual(top.map((r) => r.trigger), ["a1", "c-c-newest", "c-b-middle"]);
+});
+
+test("rank: among rules tied on status and success rate, the newer one outranks an earlier id", () => {
+  const ranked = svc.rank([
+    rule("active", 0.5, "a-older", "2026-01-01T00:00:00.000Z"),
+    rule("active", 0.5, "z-newer", "2026-06-01T00:00:00.000Z"),
+  ]);
+  assert.deepEqual(ranked.map((r) => r.trigger), ["z-newer", "a-older"]);
+});
