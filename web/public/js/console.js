@@ -313,6 +313,8 @@
   var teardown = [];
   var LIVE = null;
   var toastTimer = 0;
+  /* Live verdict watches of runs the operator queued, by run id → unsubscribe. */
+  var verdictWatches = Object.create(null);
 
   function LiveStepper(stages) {
     return '<div style="display:flex;align-items:center;flex-wrap:wrap">' + stages.map(([name, status], i) => {
@@ -1580,8 +1582,12 @@ function loadRunExtras(id) {
   function queueVerdictWatch(runId) {
     if (!api || !api.subscribeRun) return;
     state.toastingRunId = runId;
-    api.subscribeRun(runId, {
+    /* One watch per run, and each is released once its verdict lands — a watch must never outlive
+       the run it follows. */
+    stopVerdictWatch(runId);
+    const unsubscribe = api.subscribeRun(runId, {
       onVerdict: () => {
+        stopVerdictWatch(runId);
         setTimeout(() => {
           loadAndRender().then(() => {
             state.toast = null; state.toastHtml = null;
@@ -1598,6 +1604,12 @@ function loadRunExtras(id) {
       },
       onError: () => {},
     });
+    if (unsubscribe) verdictWatches[runId] = unsubscribe;
+  }
+  function stopVerdictWatch(runId) {
+    const unsubscribe = verdictWatches[runId];
+    delete verdictWatches[runId];
+    if (unsubscribe) unsubscribe();
   }
 
   root.addEventListener('click', function (e) {

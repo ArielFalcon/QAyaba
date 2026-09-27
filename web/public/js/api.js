@@ -53,6 +53,15 @@ window.QayabaConsole = (function () {
     if (cfg.token) h.Authorization = 'Bearer ' + cfg.token;
     return h;
   }
+  function authLost() {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
+    window.location.hash = '#login';
+  }
+  function httpError(message, status) {
+    const err = new Error(message);
+    err.status = status;
+    return err;
+  }
   function req(method, path, body) {
     return fetch(API + path, {
       method: method,
@@ -61,13 +70,10 @@ window.QayabaConsole = (function () {
       body: body == null ? undefined : JSON.stringify(body),
     }).then((r) => {
       if (r.status === 401) {
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.removeItem('qayaba_token');
-        }
-        window.location.hash = '#login';
-        throw new Error('Authentication required');
+        authLost();
+        throw httpError('Authentication required', 401);
       }
-      if (!r.ok) throw new Error(method + ' ' + path + ' → ' + r.status);
+      if (!r.ok) throw httpError(method + ' ' + path + ' → ' + r.status, r.status);
       return r.status === 204 ? null : r.json();
     });
   }
@@ -130,14 +136,30 @@ window.QayabaConsole = (function () {
     subscribeRun(runId, h) {
       h = h || {};
       const ctrl = new AbortController();
+      const BASE_DELAY = 1000;
+      const MAX_DELAY = 30000;
+      /* Backstop for when the run's record cannot be read after a clean close: a few clean,
+         zero-byte closes in a row mean there is nothing left to stream. */
+      const MAX_EMPTY_CLOSES = 3;
       let lastSeq = null;
-      let sawTerminal = false;
-      let authFailed = false;
-      let retryDelay = 1000;
+      let retryDelay = BASE_DELAY;
+      let emptyCloses = 0;
+      const following = () => !ctrl.signal.aborted;
+      /* Abortable wait: unsubscribing ends a pending backoff at once instead of leaving a timer behind. */
+      const wait = (ms) => new Promise((resolve) => {
+        if (ctrl.signal.aborted) return resolve();
+        const done = () => { clearTimeout(timer); ctrl.signal.removeEventListener('abort', done); resolve(); };
+        const timer = setTimeout(done, ms);
+        ctrl.signal.addEventListener('abort', done);
+      });
+      const backoff = () => {
+        const delay = retryDelay;
+        retryDelay = window.QayabaFormat.nextSseRetryDelay(retryDelay, MAX_DELAY);
+        return wait(delay);
+      };
       const handleMessage = (ev) => {
-        const b = ev && ev.body ? ev.body : ev; if (!b || !b.type) return;
+        const b = ev && ev.body ? ev.body : ev; if (!b || !b.type) return false;
         if (typeof ev === 'object' && ev !== null && typeof ev.seq === 'number') lastSeq = ev.seq;
-        if (b.type === 'run.verdict') sawTerminal = true;
         switch (b.type) {
           case 'step.changed': h.onStep && h.onStep(b.step, b.detail); break;
           case 'plan.updated': h.onPlan && h.onPlan(b.todos); break;
@@ -146,51 +168,27 @@ window.QayabaConsole = (function () {
           case 'test.failed': h.onCase && h.onCase(b.name, 'fail', b.durationMs, b.detail); break;
           case 'test.flaky': h.onCase && h.onCase(b.name, 'flaky'); break;
           case 'log.line': h.onLog && h.onLog(logGlyph(b.level), b.text); break;
-          case 'run.verdict': h.onVerdict && h.onVerdict(b.verdict, b); break;
+          case 'run.verdict': h.onVerdict && h.onVerdict(b.verdict, b); return true;
           case 'agent.error': h.onLog && h.onLog('!', b.detail); break;
           default: break; /* run.started / agent.activity / spec.written / test.discovered / reviewer.verdict / coverage.computed */
         }
+        return false;
       };
-      /* Retry policy: a 401 means the session is gone (already redirected to #login) — retrying
-         would just hammer the server with the same failing request forever, so this is terminal.
-         Any other failure (5xx or a network error) retries with bounded exponential backoff
-         instead of giving up permanently, so a transient blip does not end the live view for
-         good. The backoff resets to its 1s base as soon as a byte of the stream proves the
-         connection recovered.
-       */
-      const retryAfterFailure = async () => {
-        if (ctrl.signal.aborted || authFailed) return;
-        const delay = retryDelay;
-        retryDelay = window.QayabaFormat.nextSseRetryDelay(retryDelay, 30000);
-        await new Promise((r) => setTimeout(r, delay));
-        if (!ctrl.signal.aborted && !authFailed) return stream();
-      };
-      const stream = async () => {
+      /* Reads one connection to its end. Returns 'verdict' (the run finished on this stream),
+         'closed' (the server closed it cleanly) or 'dropped' (it broke mid-flight), and whether
+         any byte arrived. Stops reading as soon as the verdict lands, so the connection is
+         released even when the server keeps it open. */
+      const readStream = async (body) => {
+        const reader = body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let sawBytes = false;
         try {
-          const res = await fetch(API + '/runs/' + encodeURIComponent(runId) + '/events', {
-            headers: headers(),
-            credentials: 'include',
-            signal: ctrl.signal,
-          });
-          if (res.status === 401) {
-            authFailed = true;
-            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('qayaba_token');
-            window.location.hash = '#login';
-            h.onError && h.onError();
-            return; /* terminal: never retry after an auth redirect */
-          }
-          if (!res.ok || !res.body) {
-            h.onError && h.onError();
-            return retryAfterFailure();
-          }
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
           for (;;) {
             const { done, value } = await reader.read();
-            if (done) break;
-            retryDelay = 1000; /* a live byte proves the connection recovered — reset the backoff */
-            buf += decoder.decode(value, { stream: true });
+            if (done) return { end: 'closed', sawBytes: sawBytes };
+            if (value && value.length) sawBytes = true;
+            buf += decoder.decode(value, { stream: true }).replace(/\r/g, '');
             let idx;
             while ((idx = buf.indexOf('\n\n')) !== -1) {
               const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
@@ -199,30 +197,75 @@ window.QayabaConsole = (function () {
               if (!dataLines.length) continue;
               const payload = dataLines.map((l) => l.slice(5).trim()).join('\n');
               let ev; try { ev = JSON.parse(payload); } catch (e) { continue; }
-              handleMessage(ev);
+              if (handleMessage(ev)) return { end: 'verdict', sawBytes: true };
             }
           }
-          /* Stream ended: the server closes on run.verdict (terminal — do NOT reconnect, else
-             the resubscribe loop hammers a finished run) or on a dropped connection mid-run
-             (retry resumably via the Last-Event-ID replay the durable poll already ships). */
-          if (sawTerminal) return;
-          if (lastSeq != null) await new Promise((r) => setTimeout(r, 1000));
-          if (!ctrl.signal.aborted) return stream();
         } catch (err) {
-          if (ctrl.signal.aborted || authFailed) return;
-          h.onError && h.onError();
-          return retryAfterFailure();
+          return { end: 'dropped', sawBytes: sawBytes };
+        } finally {
+          /* cancel() settles with a rejection when the stream already errored (an abort) — swallow it. */
+          try { Promise.resolve(reader.cancel()).catch(() => {}); } catch (e) { /* already released */ }
+        }
+      };
+      /* After a clean close without a verdict the server has nothing more to replay: either a
+         proxy dropped an idle connection mid-run, or the run is over and its verdict was never
+         streamed (cancelled while enqueued, interrupted by a restart). The run record says which. */
+      const readRecord = () => ep.getRun(runId).then(
+        (record) => ({ record: record }),
+        (err) => ({ status: err && err.status }),
+      );
+      /* Follow policy, the same guards as @qayaba/sdk's streamRunEvents:
+         - every reconnect waits first (bounded exponential backoff, reset once bytes flow), so a
+           server that closes instantly can never be hammered in a loop;
+         - 401/403/404 are final — the session is gone, access is refused, or the run does not exist;
+         - a run.verdict ends the feed, and so does a clean close whose run record is done (the
+           record's verdict is reported instead);
+         - when the record cannot be read, a few clean zero-byte closes in a row end the feed.
+         A live run is followed through any number of transient errors and idle closes. */
+      const follow = async () => {
+        while (following()) {
+          let res;
+          try {
+            res = await fetch(API + '/runs/' + encodeURIComponent(runId) + '/events', {
+              headers: streamHeaders(),
+              credentials: 'include',
+              signal: ctrl.signal,
+            });
+          } catch (err) {
+            if (!following()) return;
+            h.onError && h.onError();
+            await backoff();
+            continue;
+          }
+          if (res.status === 401) { authLost(); h.onError && h.onError(); return; }
+          if (res.status === 403 || res.status === 404) { h.onError && h.onError(); return; }
+          if (!res.ok || !res.body) { h.onError && h.onError(); await backoff(); continue; }
+          const read = await readStream(res.body);
+          if (read.end === 'verdict' || !following()) return;
+          if (read.sawBytes) { retryDelay = BASE_DELAY; emptyCloses = 0; }
+          if (read.end === 'closed') {
+            const found = await readRecord();
+            if (!following()) return;
+            if (found.status === 401 || found.status === 403 || found.status === 404) { h.onError && h.onError(); return; }
+            const record = found.record;
+            if (record && record.status === 'done') {
+              if (record.verdict && h.onVerdict) h.onVerdict(record.verdict, { type: 'run.verdict', verdict: record.verdict, outcome: record.note });
+              return;
+            }
+            if (!record && !read.sawBytes && ++emptyCloses >= MAX_EMPTY_CLOSES) return;
+          }
+          await backoff();
         }
       };
       /* send the resume point from the start so a RE-subscribe never loses events */
-      const headers = function () {
+      const streamHeaders = function () {
         const h2 = { 'Content-Type': 'application/json', Accept: 'text/event-stream' };
         if (lastSeq != null) h2['Last-Event-ID'] = String(lastSeq);
         const t = cfg.token || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('qayaba_token') : null);
         if (t) h2.Authorization = 'Bearer ' + t;
         return h2;
       };
-      stream();
+      follow();
       return () => ctrl.abort();
     },
     ask(runId, question) { return ep && req('POST', '/runs/' + encodeURIComponent(runId) + '/ask', { question: question }).then((r) => (r && r.answer) || null); },
