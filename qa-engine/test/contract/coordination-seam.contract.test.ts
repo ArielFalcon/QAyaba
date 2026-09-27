@@ -13,7 +13,6 @@ import {
   COORDINATION_ACTIONS,
   isAgentCapability,
   isCoordinationAction,
-  createCoordinationPort,
   type CoordinationContext,
   type CoordinationDecision,
   type EvidenceRef,

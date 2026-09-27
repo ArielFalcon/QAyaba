@@ -436,7 +436,7 @@ window.QayabaConsole = (function () {
   function deriveWorkforce(events) {
     if (!events || !events.length) return null;
     let producer = 'lead';
-    let delegations = 0, repairs = 0, failures = 0, lastMs = null;
+    let delegations = 0, repairs = 0, failures = 0;
     const times = [];
     events.forEach((e) => {
       if (e.kind === 'outcome' && e.action === 'delegate') producer = 'sidekick';

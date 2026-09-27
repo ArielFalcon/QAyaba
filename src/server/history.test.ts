@@ -95,7 +95,9 @@ test("a spec with no objective/flow round-trips as undefined (not null) — wire
 test("currentRun prefers running over enqueued when both exist (queue FIFO)", () => {
   clearDatabase();
   const olderRunning = createRecord({ target: "e2e", app: "hist-e-fifo", sha: "5555555", mode: "diff" });
-  const newerEnqueued = createRecord({ target: "e2e", app: "hist-e-fifo", sha: "6666666", mode: "diff" });
+  /* A second, newer enqueued record — the test's own point is that currentRun() must still prefer
+     the running one, so this row's own id is never asserted, only its presence in the DB. */
+  createRecord({ target: "e2e", app: "hist-e-fifo", sha: "6666666", mode: "diff" });
   updateRecord(olderRunning.id, { status: "running" });
   const cur = currentRun();
   assert.ok(cur);

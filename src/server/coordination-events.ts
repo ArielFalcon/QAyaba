@@ -36,23 +36,6 @@ export interface CoordinationEventsFilter {
   readonly limit?: number;
 }
 
-interface RawCoordinationEvent {
-  runId?: unknown;
-  kind?: unknown;
-  action?: unknown;
-  capability?: unknown;
-  reason?: unknown;
-  durationMs?: unknown;
-  delegationId?: unknown;
-  attempt?: unknown;
-  failureClass?: unknown;
-  progressFingerprint?: unknown;
-  finalOutcome?: unknown;
-  reviewOutcome?: unknown;
-  escalations?: unknown;
-  at?: unknown;
-}
-
 /*
  * parseCoordinationLedger reads a JSONL coordination ledger, filters by runId (newest
  * last → returned oldest-first within the tail), coerces the truncated flag, and

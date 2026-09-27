@@ -285,7 +285,7 @@ test("detection metadata — no secrets", () => {
 });
 
 test("detection metadata — with secrets", () => {
-  const { text, detection } = sanitizeText("apiKey: sk-abc\ntoken: xyz");
+  const { detection } = sanitizeText("apiKey: sk-abc\ntoken: xyz");
   assert.ok(detection.redacted);
   assert.ok(detection.count >= 2);
   assert.ok(detection.patterns.includes("api-key-assignment"));

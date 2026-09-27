@@ -8,7 +8,6 @@ import {
   AgentProviderHealth,
   AgentRuntimeConfig,
   AgentRuntimeStrategy,
-  AgentRole,
   assignmentForRole,
   roleForLegacyAgent,
 } from "./types";

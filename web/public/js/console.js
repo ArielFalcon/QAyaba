@@ -92,7 +92,6 @@
 
   /* ── number helpers ──────────────────────────────────────────────────── */
   const pctPts = (cur, prev) => Math.round((cur - prev) * 100);
-  const mult = (cur, prev) => (prev ? cur / prev : null);
   const fmtMMSS = (sec) => Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's';
   const fmtDur = (sec) => (sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's');
 
@@ -491,10 +490,7 @@
   function WorkforceChips(run) {
     const wf = run && run.workforce;
     if (!wf) return '';
-    const producer = wf.producer === 'sidekick' ? 'sidekick' : 'lead';
     const msToVerdict = wf.avgMs == null ? '' : Math.round(wf.avgMs / 1000) + 's';
-    const delegations = 'delegation' + (wf.delegations !== 1 ? 's' : '') + ' · ' +
-      (wf.repairs ? 'repairs: ' + wf.repairs : 'delegate only');
     return QChip('bot', 'specs by', wf.producer + (msToVerdict ? ' · ' + msToVerdict : ''), wf.producer === 'sidekick' ? 'var(--pass-600)' : 'var(--text-muted)') +
       QChip('rotate-cw', 'delegations', String(wf.delegations) + (wf.failures ? ' · ' + wf.failures + ' failed' : ''), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
   }

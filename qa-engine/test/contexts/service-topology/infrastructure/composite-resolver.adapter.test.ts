@@ -19,10 +19,6 @@ function makeResolver(result: ResolveLinksResult): ServiceBoundaryResolverPort {
   return { resolveLinks: async () => result };
 }
 
-function emptyResult(): ResolveLinksResult {
-  return { links: [], drift: [], external: [], unresolved: [] };
-}
-
 test("StubServiceBoundaryResolver.resolveLinks returns empty result without throwing", async () => {
   const stub = new StubServiceBoundaryResolver();
   const result = await stub.resolveLinks([BACK], FRONT);

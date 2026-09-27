@@ -29,7 +29,7 @@ export { activityRouter, registerRunSession, unregisterRunSession, startActivity
 export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
-import { type FinalVerdict, extractJsonObjects, parseVerdict } from "./verdict-parse";
+import { extractJsonObjects, parseVerdict } from "./verdict-parse";
 export { extractJsonObjects, parseVerdict };
 
 import {

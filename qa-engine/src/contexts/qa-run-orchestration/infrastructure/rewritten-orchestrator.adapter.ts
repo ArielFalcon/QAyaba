@@ -11,7 +11,7 @@ export interface RewrittenOrchestratorAdapterDeps extends Omit<RunQaUseCaseDeps,
 export class RewrittenOrchestratorAdapter implements RunPipelinePort {
   private readonly useCase: RunQaUseCase;
 
-  constructor(private readonly deps: RewrittenOrchestratorAdapterDeps) {
+  constructor(deps: RewrittenOrchestratorAdapterDeps) {
     this.useCase = new RunQaUseCase(deps);
   }
 

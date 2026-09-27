@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { updateScorecard, type Scorecard, type ScorecardEntry } from "./oracle-types";
+import { updateScorecard, type ScorecardEntry } from "./oracle-types";
 
 function entry(overrides: Partial<ScorecardEntry> = {}): ScorecardEntry {
   return {

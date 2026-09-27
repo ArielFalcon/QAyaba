@@ -136,7 +136,6 @@ if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
 }
 
 const queue = new JobQueue((e) => {
-  const msg = e instanceof Error ? e.message : String(e);
   console.error("[qa] run failed:", e);
   /*
    * Incidents are recorded by the runner (with infra-vs-code classification).

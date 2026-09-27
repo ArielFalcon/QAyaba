@@ -1,10 +1,9 @@
-import { createWriteStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { createWriteStream, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /* JSON-structured logger: a single stream so logs ship without interleaving stdout noise. */
 
 const LOG_DIR = join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "logs");
-const MAX_LOG_SIZE = 50 * 1024 * 1024;
 const MAX_LOG_FILES = 5;
 
 let stream: ReturnType<typeof createWriteStream> | null = null;

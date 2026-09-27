@@ -3,7 +3,7 @@
    between runs.
  */
 
-import { test, describe, beforeEach } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   checkCodexCircuit,

@@ -11,7 +11,6 @@ import {
   parseVerdict,
   extractJsonObjects,
   specFileForFlow,
-  agentTimeout,
   buildWorkerPrompt,
   buildExplorerPrompt,
   renderArchitectureContext,
@@ -19,7 +18,6 @@ import {
   buildReviewerPromptAssembled,
   renderExecutionResult,
   AgentDeps,
-  AgentTurnEvent,
   askAssistant,
 } from "./opencode-client";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";

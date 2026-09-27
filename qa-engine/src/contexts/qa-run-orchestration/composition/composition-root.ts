@@ -2,7 +2,6 @@
 buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
 
 import { join } from "node:path";
-import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";

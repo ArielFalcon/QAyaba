@@ -38,7 +38,6 @@ import type {
    (composition-root.ts / learning-port.adapter.ts).
  */
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
-import { BlastRadius } from "@kernel/blast-radius.ts";
 import { ok, err } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";

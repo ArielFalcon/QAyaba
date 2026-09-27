@@ -7,7 +7,7 @@ import type { CycleBudget } from "./cycle-budget.ts";
 import type { WallClockBudget } from "./wall-clock-budget.ts";
 import { adjudicate, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION } from "./adjudicate.service.ts";
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
-import { checkSpecSelectors, type SpecSelectorFindings } from "./helpers/selector-check.ts";
+import type { SpecSelectorFindings } from "./helpers/selector-check.ts";
 
 
 export interface FixLoopRun {

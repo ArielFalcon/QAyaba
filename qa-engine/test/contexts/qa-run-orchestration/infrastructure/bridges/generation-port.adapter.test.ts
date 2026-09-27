@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { Objective } from "@kernel/objective.ts";
-import type { GenerationPorts, GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";

@@ -1,7 +1,7 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, type ContextPackInput, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";

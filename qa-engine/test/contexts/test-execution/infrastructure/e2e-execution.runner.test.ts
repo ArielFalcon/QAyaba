@@ -23,7 +23,6 @@ import {
   DEFAULT_E2E_TIMEOUT_MS,
   matchFailureDumps,
   segmentsAreTail,
-  titleSegments,
   readFailureDumps,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";

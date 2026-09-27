@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { CoverageCollectorAdapter } from "@contexts/objective-signal/infrastructure/coverage-collector.adapter.ts";
 import type { CoverageCollectorPort, CoverageReport } from "@contexts/objective-signal/application/ports/index.ts";
 
-const empty: CoverageReport = { covered: [] };
-
 function stub(report: CoverageReport): CoverageCollectorPort {
   return { collect: async () => report };
 }

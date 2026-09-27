@@ -4,7 +4,6 @@ import {
   errorClassFromVerdict,
   errorClassFromCorrections,
   ERROR_CLASSES,
-  type ErrorClass,
 } from "./taxonomy";
 
 describe("ERROR_CLASSES", () => {

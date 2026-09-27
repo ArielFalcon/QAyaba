@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createApp, updateApp, deleteApp, type AppAdminDeps, type CreateAppInput } from "./app-admin";
+import { createApp, updateApp, deleteApp, type AppAdminDeps } from "./app-admin";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { buildYaml, type OnboardInput } from "./onboard";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";

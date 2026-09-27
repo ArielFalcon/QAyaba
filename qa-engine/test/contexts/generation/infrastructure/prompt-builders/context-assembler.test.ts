@@ -266,7 +266,6 @@ test("assemble: a realistic multi-section prompt has canonical structure (P3 spe
 
   const stableIdx = text.indexOf("Working rules");
   const archIdx = text.indexOf("Architecture context");
-  const diffIdx = text.indexOf("```diff");
   const domIdx = text.indexOf("Live DEV DOM");
   const correctionsIdx = text.indexOf("Reviewer corrections");
   const objectiveIdx = text.indexOf("## Objective");
