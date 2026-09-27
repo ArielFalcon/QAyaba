@@ -1,16 +1,31 @@
 
-/** Code-target denylist: paths (or glob patterns) the agent must NOT write. e2e-target uses an allowlist (only `e2e/` is permitted), not this list. `.git/` is intentionally NOT listed: git status never reports paths inside `.git/`, so a denylist entry for it would be dead — `.git/` is hardened separately via core.hooksPath. HONESTY: the `.env*` entries only catch a secret write that is NOT git-ignored — git status (the only input) omits git-ignored paths, and `.env*` is git-ignored in most repos. The publish exclude (CODE_EXCLUDES + e2e add, publish.ts) is the actual guard against committing a secret; these entries are defense-in-depth. See the module header. */
-export const CONFINEMENT_DENYLIST: string[] = [
+/* Secret env files. Matched against every path segment, not from the root: as gitignore-style
+   publish excludes, a pattern without a slash already reaches any depth, and confinement agrees. */
+const ENV_FILE_PATTERNS = [
   // Stryker disable next-line StringLiteral: equivalent — "*.env" denies ".env" as well
   ".env",
   ".env.*",
   "*.env",
-  ".github/",
-  "Dockerfile",
-  "docker-compose*",
-  ".gitattributes",
-  ".gitmodules",
 ];
+
+/* Build, CI and git-metadata files; confinement matches them from the repo root. */
+const ROOT_DENYLIST = [".github/", "Dockerfile", "docker-compose*", ".gitattributes", ".gitmodules"];
+
+/** Code-target denylist: paths (or glob patterns) the agent must NOT write. e2e-target uses an allowlist (only `e2e/` is permitted), not this list. `.git/` is intentionally NOT listed: git status never reports paths inside `.git/`, so a denylist entry for it would be dead — `.git/` is hardened separately via core.hooksPath. HONESTY: the `.env*` entries only catch a secret write that is NOT git-ignored — git status (the only input) omits git-ignored paths, and `.env*` is git-ignored in most repos. The publish exclude (CODE_EXCLUDES + e2e add, publish.ts) is the actual guard against committing a secret; these entries are defense-in-depth. See the module header. */
+export const CONFINEMENT_DENYLIST: string[] = [...ENV_FILE_PATTERNS, ...ROOT_DENYLIST];
+
+/* Whether one denylist entry denies a normalized, lowercased path. An env-file pattern holds for any
+   path segment, gitignore-style; every other entry is matched from the repo root. */
+function deniedBy(entry: string, path: string): boolean {
+  const pattern = entry.toLowerCase();
+  const candidates = ENV_FILE_PATTERNS.includes(entry) ? path.split("/") : [path];
+  return candidates.some((candidate) => {
+    if (pattern.startsWith("*")) return candidate.endsWith(pattern.slice(1));
+    if (pattern.endsWith("/")) return candidate.startsWith(pattern); /* directory prefix: .github/ */
+    if (pattern.endsWith("*")) return candidate.startsWith(pattern.slice(0, -1));
+    return candidate === pattern;
+  });
+}
 
 export interface ParsedChange {
   xy: string;
@@ -149,20 +164,13 @@ export class WriteConfinementService {
     /* The backslash→slash normalization is defensive-only: git status output (the only caller's input) is already forward-slashed, so it is a guard for non-git callers, never hit on-path. Lowercase BOTH sides: on a case-insensitive host (.ENV, DOCKERFILE, .GitHub/) the OS treats them as the same file, so the denylist must match them too — comparing raw would let them slip. */
     // Stryker disable next-line Regex: equivalent — git paths never contain "./" past the start, so the ^ anchor never decides
     const f = path.replace(/^\.\//, "").replace(/\\/g, "/").toLowerCase();
-    return CONFINEMENT_DENYLIST.some((entry) => {
-      const p = entry.toLowerCase();
-      if (p.startsWith("*")) return f.endsWith(p.slice(1));
-      if (p.endsWith("/")) return f.startsWith(p); /* directory prefix: .github/ */
-      if (p.endsWith("*")) return f.startsWith(p.slice(0, -1));
-      return f === p;
-    });
+    return CONFINEMENT_DENYLIST.some((entry) => deniedBy(entry, f));
   }
 
-  /* True when the path meets the dangerous tier: a secret-file write (.env exact, .env. prefix, or a name ending in .env). Applies regardless of run target. .git/ is not a case here — git status never surfaces paths inside .git/; hook RCE is hardened separately via core.hooksPath. */
+  /* True when the path meets the dangerous tier: a secret-file write — any path segment named .env, .env.<anything> or <anything>.env, at any depth (so a nested packages/api/.env.local counts, and .env.example-style templates count everywhere as they do at the root). Applies regardless of run target. .git/ is not a case here — git status never surfaces paths inside .git/; hook RCE is hardened separately via core.hooksPath. */
   isDangerousPath(path: string): boolean {
-    // Stryker disable next-line StringLiteral: equivalent — dropping a backslash instead of mapping it to "/" never changes a .env prefix or suffix of a real path
     const f = path.replace(/\\/g, "/").toLowerCase();
-    return f.startsWith(".env.") || f.endsWith(".env");
+    return ENV_FILE_PATTERNS.some((entry) => deniedBy(entry, f));
   }
 
   revertUnit(path: string, renameCounterpart?: string): string[] {

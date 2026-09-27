@@ -198,6 +198,34 @@ test("isCodeDenied denies env files at any depth and under any prefix, and the g
   assert.equal(svc.isCodeDenied(".gitmodules"), true);
 });
 
+test("an env file nested at any depth is denied and dangerous, exactly as at the root, templates included", () => {
+  for (const path of [
+    "packages/api/.env.local",
+    "services/x/.env",
+    ".env.example",
+    "packages/api/.env.example",
+    "Services/X/.ENV.Production",
+    "apps\\web\\.env.local",
+    "apps/web/.env.d/keys.json",
+  ]) {
+    assert.equal(svc.isCodeDenied(path), true, `${path} must be denied`);
+    assert.equal(svc.isDangerousPath(path), true, `${path} is a secret file`);
+  }
+});
+
+test("a name that only resembles an env file is neither denied nor dangerous, at the root or nested", () => {
+  for (const path of [".envrc", "packages/api/.envrc", ".env-sample", "packages/api/.env-sample", "packages/env/index.ts", "src/environment.ts"]) {
+    assert.equal(svc.isCodeDenied(path), false, `${path} stays writable`);
+    assert.equal(svc.isDangerousPath(path), false, `${path} is not a secret file`);
+  }
+});
+
+test("classifyStrays reports a nested env file the agent wrote as a dangerous stray", () => {
+  const { untracked, dangerousByPath } = svc.classifyStrays(svc.parseStatusOutput("?? packages/api/.env.local"), true);
+  assert.deepEqual(untracked, ["packages/api/.env.local"]);
+  assert.deepEqual(dangerousByPath, ["packages/api/.env.local"]);
+});
+
 test("isCodeDenied normalizes a leading ./ and backslash separators before matching (non-git callers)", () => {
   assert.equal(svc.isCodeDenied("./Dockerfile"), true);
   assert.equal(svc.isCodeDenied(".github\\workflows\\ci.yml"), true);
