@@ -178,11 +178,15 @@ test("duplicate name or invalid name is rejected", async () => {
   assert.equal(bad.ok, false);
 });
 
-test("deleteApp without purge removes only the config", () => {
+/* Login material (session cookies, client certificate and its passphrase) is a credential for an app
+   that no longer exists once it is deleted, so every delete removes it, purge or not. */
+test("deleteApp without purge removes the config and the stored login material, and keeps the mirror and run history", () => {
   const deps = makeDeps();
   const result = deleteApp("shop", false, deps);
-  assert.ok(deps.removed.includes("config:shop"));
-  for (const kept of ["mirror:org/shop-front", "history:shop", "auth:shop"]) {
+  for (const gone of ["config:shop", "auth:shop"]) {
+    assert.ok(deps.removed.includes(gone), `a delete must remove ${gone}`);
+  }
+  for (const kept of ["mirror:org/shop-front", "history:shop"]) {
     assert.equal(deps.removed.includes(kept), false, `${kept} must be kept without purge`);
   }
   assert.deepEqual([...result.removed].sort(), [...deps.removed].sort(), "the report lists exactly what was removed");

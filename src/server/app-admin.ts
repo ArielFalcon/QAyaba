@@ -190,14 +190,16 @@ export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { r
   const removed: string[] = [];
   deps.deleteConfig(name);
   removed.push(`config:${name}`);
+  /* Login material (session cookies, client certificate, its passphrase) is a live credential for an
+     app that no longer exists: every delete removes it, purge or not. */
+  deps.deleteAuthMaterial(name);
+  removed.push(`auth:${name}`);
   if (purge) {
     /* Only the primary mirror: a service repo's mirror may be shared with another app. */
     deps.deleteMirror(app.repo);
     removed.push(`mirror:${app.repo}`);
     deps.deleteHistory(name);
     removed.push(`history:${name}`);
-    deps.deleteAuthMaterial(name);
-    removed.push(`auth:${name}`);
   }
   return { removed };
 }

@@ -991,7 +991,7 @@ func appFieldHelp(cursor int) string {
 }
 
 func (m appAdminModel) renderDelete() string {
-	purgeBox, purgeWord, note := "☐", labelStyle.Render("purge"), hintStyle.Render("config entry only — mirrors & run history are kept")
+	purgeBox, purgeWord, note := "☐", labelStyle.Render("purge"), hintStyle.Render("config entry and stored login — mirrors & run history are kept")
 	if m.purge {
 		purgeBox, purgeWord, note = "☑", errorStyle.Render("purge"), errorStyle.Render("also wipes mirrors & run history — irreversible")
 	}
