@@ -5,12 +5,14 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   FileCoordinationTelemetryAdapter,
   MAX_LEDGER_EVENTS,
+  ROTATE_TO_EVENTS,
+  type CoordinationTelemetryFsDeps,
 } from "@contexts/qa-run-orchestration/infrastructure/bridges/coordination-telemetry-port.adapter.ts";
 import { deriveAdaptiveSignals, type CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
 
@@ -51,7 +53,7 @@ test("absent persistPath keeps the memory-only contract (no file writes)", () =>
   assert.equal(store.events.length, 1);
 });
 
-test("the ledger is bounded to MAX_LEDGER_EVENTS — oldest entries rotate out of memory AND the file", () => {
+test("the ledger is bounded — oldest entries rotate out of memory AND the file once the cap is crossed", () => {
   const dir = mkdtempSync(join(tmpdir(), "coord-tel-rotate-"));
   const path = join(dir, "coordination-events.jsonl");
   const adapter = new FileCoordinationTelemetryAdapter(path);
@@ -59,14 +61,50 @@ test("the ledger is bounded to MAX_LEDGER_EVENTS — oldest entries rotate out o
   for (let i = 0; i < MAX_LEDGER_EVENTS + overflow; i++) {
     adapter.record(event({ runId: `r${i}`, at: i }));
   }
-  assert.equal(adapter.events.length, MAX_LEDGER_EVENTS, "in-memory ledger must stay capped");
-  assert.equal(adapter.events[0]?.runId, `r${overflow}`, "the oldest surviving event is the first one past the overflow");
+  /* J2: rotation trims down to the lower ROTATE_TO_EVENTS watermark (not exactly the cap), and it
+     triggers the instant the cap is crossed (consuming 1 of the overflow), so the ledger settles
+     at ROTATE_TO_EVENTS + (overflow - 1) once that single rotation has fired. */
+  const expected = ROTATE_TO_EVENTS + (overflow - 1);
+  assert.equal(adapter.events.length, expected, "in-memory ledger must settle at the watermark plus events recorded since");
+  assert.ok(adapter.events.length <= MAX_LEDGER_EVENTS, "the ledger must never exceed the cap after a rotation");
 
   const linesOnDisk = readFileSync(path, "utf8").trim().split("\n");
-  assert.equal(linesOnDisk.length, MAX_LEDGER_EVENTS, "rotation must compact the FILE too, not just memory");
+  assert.equal(linesOnDisk.length, expected, "rotation must compact the FILE too, not just memory");
 
   const reloaded = new FileCoordinationTelemetryAdapter(path);
-  assert.equal(reloaded.events.length, MAX_LEDGER_EVENTS, "a fresh boot must reload the bounded (not unbounded) file");
+  assert.equal(reloaded.events.length, expected, "a fresh boot must reload the bounded (not unbounded) file");
+});
+
+/* J2: rotateIfOverCap used to trim to exactly MAX_LEDGER_EVENTS, so every record() past the cap
+   re-triggered a full synchronous file rewrite (writeFileSync + renameSync). Trimming down to a
+   lower watermark (ROTATE_TO_EVENTS) means the next (MAX_LEDGER_EVENTS - ROTATE_TO_EVENTS) records
+   grow the ledger organically (plain appendFileSync) without another full rewrite. */
+test("J2: after crossing the cap, the next records within the slack window do not re-rewrite the file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "coord-tel-slack-"));
+  const path = join(dir, "coordination-events.jsonl");
+  let rewriteCount = 0;
+  const countingFs: CoordinationTelemetryFsDeps = {
+    appendFileSync: ((...args: Parameters<typeof appendFileSync>) => appendFileSync(...args)) as typeof appendFileSync,
+    readFileSync: ((...args: Parameters<typeof readFileSync>) => readFileSync(...args)) as typeof readFileSync,
+    writeFileSync: ((...args: Parameters<typeof writeFileSync>) => {
+      rewriteCount++;
+      return writeFileSync(...args);
+    }) as typeof writeFileSync,
+    renameSync: ((...args: Parameters<typeof renameSync>) => renameSync(...args)) as typeof renameSync,
+  };
+  const adapter = new FileCoordinationTelemetryAdapter(path, countingFs);
+  for (let i = 0; i < MAX_LEDGER_EVENTS; i++) adapter.record(event({ runId: `r${i}`, at: i }));
+  assert.equal(rewriteCount, 0, "no rotation must have happened yet — the ledger has not exceeded the cap");
+
+  /* Crossing the cap by exactly one event triggers the single rotation down to the watermark. */
+  adapter.record(event({ runId: "cross", at: MAX_LEDGER_EVENTS }));
+  assert.equal(rewriteCount, 1, "crossing the cap must trigger exactly one rotation/rewrite");
+
+  const slack = MAX_LEDGER_EVENTS - ROTATE_TO_EVENTS;
+  for (let i = 0; i < slack - 1; i++) {
+    adapter.record(event({ runId: `slack${i}`, at: i }));
+  }
+  assert.equal(rewriteCount, 1, "records within the slack window after a rotation must not re-rewrite the file");
 });
 
 test("a corrupt tail line is skipped, earlier valid lines survive reload", () => {
