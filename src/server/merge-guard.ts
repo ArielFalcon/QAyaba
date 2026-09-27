@@ -3,12 +3,36 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+/*
+ * Validation + safety layers gating the maintainer's autonomous self-merge — the
+ * highest-consequence path in this system: an LLM-authored fix, hot-swapped into the running
+ * service and merged to main with no human in the loop unless a gate below stops it.
+ *
+ * The layered gates: PROTECTED_PATHS (this module) forbids an autonomous fix from rewriting the
+ * recovery net, the secret boundary, or its own gate integrity; assessChange/assessRate cap an
+ * autonomous fix's size and deploy frequency so a bad fix can't loop the system into
+ * self-modification; a required `ci` check on main is the outer guard before merge; and the
+ * canary-before-promote hot-swap (in index.ts) proves the fix healthy in the running process
+ * BEFORE it is merged, with the boot-guard rollback net as the last line of defense if a swap
+ * still ships something broken. Together: a rollback is always possible, an over-large/unscoped
+ * rewrite is never auto-deployed, and a fix that doesn't fix cannot loop forever.
+ */
 export const PROTECTED_PATHS: string[] = [
   /* 1. recovery net */
   "boot-guard.mjs",
   "src/server/self-update.ts",
   "src/server/merge-guard.ts",
-  
+  /*
+   * These sequence the autonomous-deploy gates themselves (the SELF_MAINTAINER_AUTOMERGE
+   * kill-switch, assessChange/assessRate, performSwap/rollback, the mandatory justification
+   * fields) — an autonomous fix that rewrites the maintainer runtime could silently skip its
+   * own gates without ever touching merge-guard.ts, boot-guard.mjs or self-update.ts.
+   */
+  "src/server/maintainer-runtime.ts",
+  "src/server/maintainer.ts",
+  "src/server/maintainer-summary.ts",
+  "src/server/maintainer-memory.ts",
+
   "src/orchestrator/sanitizer.ts",
   
   "qa-engine/src/shared-infrastructure/process-sandbox/scrub-env.ts",

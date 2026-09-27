@@ -102,6 +102,18 @@ test("isProtectedPath flags the control-plane auth boundary (FIX C)", () => {
   assert.equal(isProtectedPath("src/server/webhook.ts"), true);
 });
 
+/* These four sequence the autonomous-deploy gates themselves (the SELF_MAINTAINER_AUTOMERGE
+   kill-switch, assessChange/assessRate, performSwap/rollback, and the mandatory justification
+   fields) — an autonomous fix that rewrites maintainer-runtime.ts could silently skip its own
+   gates without ever touching merge-guard.ts, boot-guard.mjs or self-update.ts (Batch S / S1).
+ */
+test("isProtectedPath flags the maintainer runtime that sequences the autonomous-deploy gates (S1)", () => {
+  assert.equal(isProtectedPath("src/server/maintainer-runtime.ts"), true);
+  assert.equal(isProtectedPath("src/server/maintainer.ts"), true);
+  assert.equal(isProtectedPath("src/server/maintainer-summary.ts"), true);
+  assert.equal(isProtectedPath("src/server/maintainer-memory.ts"), true);
+});
+
 /* assembled and sanitized — literally the directory the 4th and 5th unsanitized-prompt-site defects
    lived in (only sanitize-text.ts was protected; every sibling, including prompts.ts itself, was
    not). qa-run-orchestration/infrastructure/bridges/ is the port-implementation layer wiring EVERY
