@@ -307,6 +307,25 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
   bakes in JDK (Java/Spring), python3, and the TypeScript LS (Angular); add the
   runtime in `agents/Dockerfile` when onboarding a new language.
 
+## Testing standards
+
+Read [`docs/testing-standards.md`](docs/testing-standards.md) before writing or changing a test.
+The rules an agent must follow:
+
+1. **Test behavior through the public seam** (exported function, use case, port) — never a private
+   helper, never exact prose/prompt wording, never a whole internal object.
+2. **A bug fix starts with a test that fails for the bug's reason; a test gap starts by showing the
+   mutant survives** (`npm run mutate -- <preset>`).
+3. **Name tests by the behavior they check** — no process labels (ticket, batch, review or priority
+   ids) in test names, test file names or test comments.
+4. **Fakes for injected ports, doubles only at the process boundary**; import a production constant
+   instead of re-typing its literal.
+5. **Write only under `os.tmpdir()`** — the tracked-tree write guard throws otherwise; no real time
+   or network.
+6. **Never kill a mutant by asserting its literal**; mark a genuinely equivalent one with
+   `// Stryker disable next-line <Mutator>: <reason>`. Mutation thresholds are per preset, never
+   repo-wide.
+
 ## The value/trust risk — read before adding "quality" logic
 
 The quality loop is **circular**: one LLM generates, another LLM reviews, and the

@@ -66,7 +66,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_TEST}/render-coverage-gap.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/objective-signal-port.adapter.test.ts`,
     ],
-    thresholds: DEFAULT_THRESHOLDS,
+    /* The keystone was already an enforced gate; every other preset starts in signal mode. */
+    thresholds: { high: 90, low: 80, break: 80 },
   },
   "rule-learning": {
     description: "cross-run learning: rule governance (promotion/demotion) and the outcome fold",
