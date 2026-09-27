@@ -735,8 +735,7 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
 
 /*
  * The shared "give me the live ledger, not a truncated preview" cap for learning-rule retrieval:
- * every operator-facing ledger view (TUI/API intelligence view, CLI `qayaba intel`) and the
- * fold-path by-id lookup (rewritten-engine-factory.ts's recordOutcome, prevention path) read
+ * every operator-facing ledger view (TUI/API intelligence view, CLI `qayaba intel`) reads
  * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT) below — a single shared-limit, status-ranked
  * read. Generation's own retrieve path (historyLearningStore(appName).selectRules ->
  * SqliteLearningRepository.topRules -> RuleGovernanceService.topRules, the single ranking truth)
@@ -744,7 +743,11 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
  * (active/candidate fetched separately) so a large active set can never crowd fresh candidates out
  * of the rows governance gets to rank — the two reads are deliberately NOT the same query. Not used
  * by chat.ts's learning context, which is a deliberately small bounded prompt preview, not a ledger
- * view.
+ * view. R6: the fold-path by-id lookup (rewritten-engine-factory.ts's recordOutcome, prevention
+ * path) used to read this same capped/ordered list and filter by id — a retrieved rule ranked
+ * outside the window was silently treated as deprecated/missing. It now reads getLearningRule(id)
+ * below instead, a direct uncapped lookup, so ledger size can never affect whether a genuinely
+ * retrieved rule folds.
  */
 export const LEARNING_RULE_LEDGER_LIMIT = 200;
 
@@ -752,6 +755,19 @@ export function listLearningRules(app: string, limit = 20): LearningRule[] {
   ensureDb();
   const rows = listRulesStmt.all(app, limit) as Array<Record<string, unknown>>;
   return rows.map(rowToRule);
+}
+
+/*
+ * R6: direct by-id read, uncapped and unordered — the correct lookup for a fold that already knows
+ * the exact rule id (e.g. recordOutcome's prevention path, folding rulesRetrieved). Unlike
+ * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), a rule ranked outside that shared window
+ * still resolves here: unset/null only when the row genuinely does not exist (deleted, or never
+ * upserted).
+ */
+export function getLearningRule(id: string): LearningRule | undefined {
+  ensureDb();
+  const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  return row ? rowToRule(row) : undefined;
 }
 
 /*

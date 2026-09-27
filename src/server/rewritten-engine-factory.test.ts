@@ -1706,6 +1706,50 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
   assert.equal(noisy?.outcomeCount, 0, "a rule NOT in rulesRetrieved must never fold");
 });
 
+/*
+ * R6: the prevention-path fold used to look up retrieved rules via
+ * listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT) — the SAME shared-limit, status-ranked,
+ * actives-first read R5 (above) pins as starvation-prone. A rule retrieved earlier in the run but
+ * ranked outside that bulk window at fold time was silently treated as "deprecated between
+ * retrieval and fold" (the old comment's own words) even though it still exists — no signal, no
+ * error, just a dropped fold. This walks the REAL production wiring (historyLearningStore ->
+ * recordOutcome) with a CANDIDATE target rule pushed genuinely outside the window by
+ * LEARNING_RULE_LEDGER_LIMIT ACTIVE filler rows (the query's primary sort key alone guarantees
+ * this — no timing dependency), proving the fold now looks the rule up directly by id instead of
+ * filtering a capped bulk list.
+ */
+test("R6: recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-r6-window-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const targetId = `rule-r6-target-${app}`;
+
+  /* The target is a CANDIDATE; every filler row is ACTIVE, so "(status = 'active') DESC" alone
+     (listRulesStmt's primary ORDER BY key) guarantees all LEARNING_RULE_LEDGER_LIMIT filler rows
+     outrank it — deterministically excluding it from a bulk listLearningRules(app,
+     LEARNING_RULE_LEDGER_LIMIT) read regardless of success_rate/at ties.
+   */
+  upsertLearningRule({ id: targetId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
+    upsertLearningRule({ id: `rule-r6-filler-${i}-${app}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+
+  const bulk = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
+  assert.ok(!bulk.some((r) => r.id === targetId), "setup check: the target rule must genuinely sit outside the bulk LEDGER_LIMIT window");
+
+  const store = historyLearningStore(app);
+  store.recordOutcome({
+    runId: "run-r6", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [targetId],
+    at: new Date().toISOString(),
+  } as never);
+
+  const row = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT + 5).find((r) => r.id === targetId);
+  assert.equal(row?.outcomeCount, 1, "a rule outside the bulk-list window must still fold via a direct by-id lookup — never silently skipped as if deprecated/missing");
+});
+
 /* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
    so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
    set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule

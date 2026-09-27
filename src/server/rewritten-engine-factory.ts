@@ -113,7 +113,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, consumeContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
+import { listLearningRules, listLearningRulesForGovernance, getLearningRule, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, consumeContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap as loadStoredContextMap } from "./history";
 import type { ContextMapRunRequest } from "./onboarding/onboarding-job";
 import { recordIncident } from "./maintainer";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
@@ -398,12 +398,16 @@ export function historyLearningStore(appName: string): LearningStore {
           /*
            * Prevention path: no oracle score — derived credit must not advance oracleOutcomeCount
            * or by itself promote candidate → active.
+           * R6: look each retrieved rule up directly by id (getLearningRule), not via
+           * listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT) — that bulk, status-ranked,
+           * shared-limit read silently excludes a rule ranked outside the window even though it
+           * still exists, which this path used to (mis)read as "deprecated between retrieval and
+           * fold". A direct by-id lookup only ever comes back undefined when the row is genuinely
+           * gone (actually deprecated/deleted), never because of ledger size.
            */
-          const rules = listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT);
-          const byId = new Map(rules.map((r) => [r.id, r]));
           for (const id of rulesRetrieved) {
-            const rule = byId.get(id);
-            if (!rule) continue; /* deprecated between retrieval and fold — no signal */
+            const rule = getLearningRule(id);
+            if (!rule) continue; /* genuinely deprecated/deleted between retrieval and fold — no signal */
             const score = preventionOutcome(rule.errorClass, errorClass);
             if (score !== null) recordRuleOutcome(id, score, coverageCreditConfirmed);
           }
