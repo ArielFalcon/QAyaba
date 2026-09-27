@@ -2357,6 +2357,37 @@ test("Batch F: a clean context-mode pass invokes contextMapCapture.capture() wit
   assert.equal(captured[0]!.sha, "abc1234");
 });
 
+/* The mirror's e2e/.qa/context.json does not survive the next run's checkout, so the durable
+   capture must not depend on how publication (a context.json PR) goes. */
+test("a clean context-mode pass captures the architecture map even when publication throws", async () => {
+  const captured: string[] = [];
+  const { ports } = stubPorts({
+    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+    publish: async () => { throw new Error("gh: 502 Bad Gateway"); },
+    contextMapCapture: { capture: async (_specDir, _app, sha) => { captured.push(sha); } },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "context-capture-despite-publish-throw", mode: "context" });
+
+  assert.deepEqual(captured, ["abc1234"]);
+});
+
+test("a throwing map capture does not change a clean context-mode pass's verdict or publication", async () => {
+  let published = 0;
+  const { ports } = stubPorts({
+    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+    publish: async () => { published += 1; return { outcome: "pr" }; },
+    contextMapCapture: { capture: async () => { throw new Error("SQLITE_BUSY: database is locked"); } },
+  });
+  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
+
+  const out = await useCase.run({ ...baseInput, runId: "context-capture-throws", mode: "context" });
+
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(published, 1);
+});
+
 test("Batch F: contextMapCapture is absent by default — no-op, no behavior change on a clean context-mode pass", async () => {
   const { ports } = stubPorts({
     generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),

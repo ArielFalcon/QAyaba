@@ -240,8 +240,9 @@ export interface RunQaUseCaseDeps {
   curriculum?: CurriculumPort;
   /**
    * Write side of the FE<->BE architecture map. Invoked once per clean context-mode pass
-   * (isContextCleanPass), in BOTH shadow and non-shadow runs. Off-path and fault-isolated inside
-   * the adapter — same contract as curriculum above, no extra try/catch here.
+   * (isContextCleanPass), before publication, in BOTH shadow and non-shadow runs. Off-path: the
+   * adapter is fault-isolated and the call site also guards it, so a capture fault never changes
+   * the verdict or skips publication.
    */
   contextMapCapture?: ContextMapCapturePort;
   /**
@@ -1816,6 +1817,27 @@ export class RunQaUseCase {
      * Cross-repo Issues file in triggerRepo; PRs still target the primary.
      */
     await enforceConfinement();
+    /*
+     * A clean context-mode pass must not persist or fold. Other context outcomes
+     * (e.g. context-invalid) still persist+fold.
+     */
+    const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
+    /*
+     * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's
+     * e2e/.qa/context.json. That file does not survive the mirror's next `git checkout -f` +
+     * `git clean -fd`, so the orchestrator captures it into the durable store BEFORE publication —
+     * in both shadow and non-shadow runs, whatever publish() then does with a context.json PR
+     * (including throwing). Off-path: a capture fault is logged and never changes the verdict.
+     */
+    if (isContextCleanPass && this.deps.contextMapCapture) {
+      try {
+        await this.deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
+      } catch (captureErr) {
+        console.warn(
+          `[qa] context-map capture failed (off-path; verdict unchanged): ${captureErr instanceof Error ? captureErr.message : String(captureErr)}`,
+        );
+      }
+    }
     let publishOutcome: string | undefined;
     if (decision.sideEffect !== "none") {
       /*
@@ -1871,21 +1893,6 @@ export class RunQaUseCase {
     /* Once, after confinement and publish, so gc never races this run's git write. */
     await this.pruneMirrorIfWired(workspace.mirrorDir);
 
-    /*
-     * A clean context-mode pass must not persist or fold. Other context outcomes
-     * (e.g. context-invalid) still persist+fold.
-     */
-    const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
-    /*
-     * A clean context-mode pass wrote the FE<->BE architecture map to the mirror's
-     * e2e/.qa/context.json. That file does not survive the mirror's next `git checkout -f` +
-     * `git clean -fd`, so the orchestrator captures it into the durable store here — in BOTH
-     * shadow and non-shadow runs, independent of whether publish() above opened a context.json PR
-     * (which stays independently shadow-gated).
-     */
-    if (isContextCleanPass && this.deps.contextMapCapture) {
-      await this.deps.contextMapCapture.capture(workspace.specDir, input.app, input.sha.toString());
-    }
     /* Derive errorClass/valueScore once for both the persisted outcome and the returned result. */
     const gateValueScore = valueScore;
     /* Thread the review loop's real final-round corrections into errorClass derivation. */
