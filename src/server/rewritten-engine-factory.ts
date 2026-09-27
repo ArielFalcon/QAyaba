@@ -397,17 +397,14 @@ export function historyLearningStore(appName: string): LearningStore {
         } else {
           /*
            * Prevention path: no oracle score — derived credit must not advance oracleOutcomeCount
-           * or by itself promote candidate → active.
-           * R6: look each retrieved rule up directly by id (getLearningRule), not via
-           * listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT) — that bulk, status-ranked,
-           * shared-limit read silently excludes a rule ranked outside the window even though it
-           * still exists, which this path used to (mis)read as "deprecated between retrieval and
-           * fold". A direct by-id lookup only ever comes back undefined when the row is genuinely
-           * gone (actually deprecated/deleted), never because of ledger size.
+           * or by itself promote candidate → active. Each retrieved rule is looked up directly by
+           * id (getLearningRule), never via a capped bulk list, so ledger size cannot drop a fold.
+           * A rule retired after retrieval (human veto, process audit) is skipped by
+           * recordRuleOutcome itself, the same guard the oracle path relies on.
            */
           for (const id of rulesRetrieved) {
             const rule = getLearningRule(id);
-            if (!rule) continue; /* genuinely deprecated/deleted between retrieval and fold — no signal */
+            if (!rule) continue; /* deleted between retrieval and fold — no signal */
             const score = preventionOutcome(rule.errorClass, errorClass);
             if (score !== null) recordRuleOutcome(id, score, coverageCreditConfirmed);
           }

@@ -810,10 +810,20 @@ export function incrementRuleUsage(ruleIds: string[]): void {
 }
 
 
+/*
+ * Folds one run outcome onto a rule. Only a retrievable rule (active/candidate) folds: a
+ * deprecated or superseded rule is never retrieved, so an outcome can reach one only when a
+ * governance decision retired it after the run retrieved it — a human veto or the process audit.
+ * Folding that outcome would let the outcome loop undo the decision (a clean run's prevention
+ * credit alone re-promotes a deprecated rule), so a retired rule accrues nothing and keeps its
+ * status until a human restores it.
+ */
 export function recordRuleOutcome(ruleId: string, score: number, coverageCreditConfirmed: boolean | null = null, isOracleScore = false): void {
   ensureDb();
   const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return;
+  const current = rowToRule(row);
+  if (current.status !== "active" && current.status !== "candidate") return;
   /*
    * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
    * carries it), so the shell LearningRule is structurally assignable to the fold's own
@@ -822,7 +832,7 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
    * narrower than this shell's own ErrorClass literal union.
    */
   const updated = foldApplyOutcome(
-    rowToRule(row),
+    current,
     score,
     coverageCreditConfirmed,
     isOracleScore,
@@ -838,8 +848,9 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
  * than the oracle — and the ONLY write to learning_rules that originates outside the deterministic
  * distiller. It is reached by an operator via the ledger CLI, never by the agent (the read-only
  * boundary holds). A veto STICKS: 'deprecated' rules are excluded from retrieval, so a vetoed rule
- * is never injected, never accrues outcomes, and therefore never auto-resurrects through the
- * outcome loop. Returns false when the rule id is unknown (no silent success).
+ * is never injected, and recordRuleOutcome refuses to fold onto it even for a run that retrieved
+ * it before the veto, so it never accrues outcomes and never auto-resurrects through the outcome
+ * loop. Returns false when the rule id is unknown (no silent success).
  */
 export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "active"): boolean {
   ensureDb();

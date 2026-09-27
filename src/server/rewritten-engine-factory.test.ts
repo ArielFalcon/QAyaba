@@ -1750,6 +1750,59 @@ test("R6: recordOutcome prevention path folds a retrieved rule even when the bul
   assert.equal(row?.outcomeCount, 1, "a rule outside the bulk-list window must still fold via a direct by-id lookup — never silently skipped as if deprecated/missing");
 });
 
+/* A human veto is the highest-authority governance signal: a rule an operator deprecates while a
+   run that already retrieved it is in flight must stay deprecated when that run's outcome folds —
+   on the prevention path and on the oracle path alike. Walks the real production store
+   (historyLearningStore -> recordOutcome) against the real SQLite ledger. */
+async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, setRuleStatusByHuman, getLearningRule } = await import("./history");
+  const app = `factory-learning-veto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ruleId = `rule-veto-${app}`;
+  const store = historyLearningStore(app);
+  const fold = (runId: string, valueScore: number | null) =>
+    store.recordOutcome({
+      runId, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+  upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  for (let i = 0; i < 3; i++) fold(`run-earn-${i}`, 0.9);
+  assert.equal(getLearningRule(ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
+
+  setRuleStatusByHuman(ruleId, "deprecated");
+  const before = getLearningRule(ruleId)!;
+  fold("run-in-flight", gateSignals.valueScore);
+  return { before, after: getLearningRule(ruleId)!, ruleId, fold, setRuleStatusByHuman, getLearningRule };
+}
+
+test("a human veto survives the prevention-path fold of a run that retrieved the rule before the veto", async () => {
+  const { before, after } = await vetoedRuleAfterFold({ valueScore: null });
+
+  assert.equal(after.status, "deprecated");
+  assert.equal(after.outcomeCount, before.outcomeCount, "a vetoed rule must not accrue the in-flight run's outcome");
+});
+
+test("a human veto survives the oracle-path fold of a run that retrieved the rule before the veto", async () => {
+  const { before, after } = await vetoedRuleAfterFold({ valueScore: 0.9 });
+
+  assert.equal(after.status, "deprecated");
+  assert.equal(after.outcomeCount, before.outcomeCount, "a vetoed rule must not accrue the in-flight run's outcome");
+});
+
+test("a rule a human restores after a veto folds outcomes again", async () => {
+  const { ruleId, fold, setRuleStatusByHuman, getLearningRule } = await vetoedRuleAfterFold({ valueScore: 0.9 });
+
+  setRuleStatusByHuman(ruleId, "active");
+  const restored = getLearningRule(ruleId)!;
+  fold("run-after-restore", 0.9);
+
+  assert.equal(getLearningRule(ruleId)?.outcomeCount, restored.outcomeCount + 1);
+});
+
 /* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
    so SqliteLearningRepository.listAll() always fell back to its own documented fail-open empty
    set — ReflectorPortAdapter's anti-respawn dedup (decideDistill against the FULL existing-rule
