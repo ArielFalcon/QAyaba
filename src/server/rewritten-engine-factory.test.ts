@@ -1882,6 +1882,31 @@ test("a rule a human restores after a veto folds outcomes again", async () => {
   assert.equal(getLearningRule(ruleId)?.outcomeCount, restored.outcomeCount + 1);
 });
 
+/* A superseded rule is retired like a vetoed one: a run that retrieved it before it was replaced
+   must not fold onto it, on either path. */
+for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
+  test(`a superseded rule keeps its status and accrues nothing on the ${path}-path fold of a run that retrieved it`, async () => {
+    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { upsertLearningRule, getLearningRule } = await import("./history");
+    const app = `factory-learning-superseded-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ruleId = `rule-superseded-${app}`;
+    upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
+    const before = getLearningRule(ruleId)!;
+
+    historyLearningStore(app).recordOutcome({
+      runId: `run-in-flight-${path}`, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+    const after = getLearningRule(ruleId)!;
+    assert.equal(after.status, "superseded");
+    assert.equal(after.outcomeCount, before.outcomeCount);
+  });
+}
+
 /* Attribution: a run's outcome only says something about the rules that could have shaped it. The
    fold credits a retrieved rule only when its archetype matches one of the run diff's structural
    shapes; an untagged rule always qualifies, and a run with no diff shapes credits every retrieved
