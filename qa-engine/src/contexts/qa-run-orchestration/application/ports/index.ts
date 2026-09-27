@@ -463,11 +463,14 @@ export interface PreGenerationGroundingPort {
    * Optional `diff` (diff mode only) for deterministic [CHANGED] markers.
    * Absent is unchanged.
    */
+  /* When `opts` is supplied, `sha` is REQUIRED — the collaborator's own exploreBrief contract needs
+   * a real commit sha, never a fabricated fallback (e.g. a run namespace). Omit `opts` entirely for
+   * a caller with no sha at all (the explorer pass is simply skipped, fail-open). */
   ground(
     specDir: string,
     signal?: AbortSignal,
     diff?: string,
-    opts?: { sha?: string; intent?: CommitIntent },
+    opts?: { sha: string; intent?: CommitIntent },
   ): Promise<GroundingResult>;
 }
 

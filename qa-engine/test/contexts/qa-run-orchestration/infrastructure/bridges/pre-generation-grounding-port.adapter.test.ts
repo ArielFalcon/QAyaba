@@ -635,7 +635,7 @@ test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as
         },
       },
     );
-    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n");
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n", { sha: "abc1234" });
     assert.equal(seenBrief, brief);
     assert.deepEqual(result.contextBrief, brief, "explorer brief must also reach GroundingResult.contextBrief for generate()");
   } finally {
@@ -657,9 +657,27 @@ test("P0-3: exploreBrief throw is fail-open — pack still builds without a brie
         },
       },
     );
-    const result = await adapter.ground(dir);
+    const result = await adapter.ground(dir, undefined, undefined, { sha: "abc1234" });
     assert.equal(result.contextPack, "## pack");
     assert.equal(seenBrief, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("O5: ground() never calls exploreBrief when opts (and therefore sha) is absent — never fabricates a sha (e.g. by falling back to a run namespace downstream)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-no-sha-"));
+  try {
+    let exploreBriefCalls = 0;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async () => { exploreBriefCalls++; return undefined; },
+        buildContextPack: async () => ({ text: "## pack", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir); /* no opts at all — no sha */
+    assert.equal(exploreBriefCalls, 0, "exploreBrief must never be invoked without a real sha — the collaborator's own contract requires one, never a fabricated fallback");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

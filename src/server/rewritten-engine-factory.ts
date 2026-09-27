@@ -648,7 +648,12 @@ export function buildRewrittenCompositionConfig(
 
   
   const setupAdapter = buildSetupAdapter();
-  const shouldExplore = app.qa.explorer || (app.services?.length ?? 0) > 0;
+  /*
+   * `??`, not `||`: app.qa.explorer is a tri-state (true/false/unconfigured). An explicit
+   * `explorer: false` must win over the services-length auto-detect, never be swallowed by it —
+   * `||` treated false and unconfigured identically, silently ignoring an operator's opt-out.
+   */
+  const shouldExplore = app.qa.explorer ?? (app.services?.length ?? 0) > 0;
 
   return {
     repo: app.repo,
@@ -731,7 +736,9 @@ export function buildRewrittenCompositionConfig(
                 });
                 const prompt = buildExplorerPrompt({
                   repo: app.repo,
-                  sha: sha ?? namespace,
+                  /* sha is REQUIRED on the exploreBrief contract now (O5) — never a fabricated
+                   * fallback to the run namespace, which is not a commit sha. */
+                  sha,
                   diff: diff ?? "",
                   mirrorDir: cwd,
                   e2eRelDir,

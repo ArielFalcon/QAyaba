@@ -264,24 +264,33 @@ test("explorer prompt uses the commit sha, intent, and triggerService — not th
   assert.equal(captured.includes("Explore the blast radius of commit qa-bot-abc1234-run1"), false, "the run namespace must not be passed as the commit sha");
 });
 
-test("multi-repo: explorer:false + services.length>0 wires groundingCollaborators.exploreBrief for an e2e app", () => {
+test("multi-repo: explorer:undefined (not configured) + services.length>0 auto-wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer-services-auto"), services: [{ repo: "org/ms-orders" }] };
+  assert.equal(app.qa.explorer, undefined, "precondition: explorer is genuinely unconfigured, not explicitly false");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
 });
 
-test("multi-repo: explorer:false + empty services[] stays opt-in (no exploreBrief)", () => {
+test("multi-repo: explorer:undefined (not configured) + empty services[] stays opt-in (no exploreBrief)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
   assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
 });
 
-test("multi-repo: explorer:false + undefined services stays opt-in", () => {
+test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
   const app = cfg("factory-explorer-undefined-services");
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
+  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
+});
+
+test("O5: explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
+  const base = cfg("factory-explorer-explicit-false");
+  const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
   assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps"], "no exploreBrief, but contextPackDeps stays wired for authDir-aware DOM capture");
 });
 

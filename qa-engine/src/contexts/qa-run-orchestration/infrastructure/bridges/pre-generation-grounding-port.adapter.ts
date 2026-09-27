@@ -25,12 +25,18 @@ export interface PreGenerationGroundingCollaborators {
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
-  /* Optional explorer pass. Called fail-open before buildContextPack. Absent → brief stays undefined. */
+  /*
+   * Optional explorer pass. Called fail-open before buildContextPack. Absent collaborator, or a
+   * ground() call with no sha, → brief stays undefined (see ground()'s own guard below).
+   * `sha` is REQUIRED, not optional: every real caller of ground() (run-qa.use-case.ts) always
+   * threads a genuine RunQaInput.sha, so an optional sha here only invited a silent fallback to
+   * something else entirely (e.g. the run namespace) instead of a real commit sha.
+   */
   exploreBrief?: (args: {
     specDir: string;
     diff?: string;
     signal?: AbortSignal;
-    sha?: string;
+    sha: string;
     intent?: CommitIntent;
   }) => Promise<ExplorationBrief | undefined>;
 }
@@ -120,7 +126,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
-  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha?: string; intent?: CommitIntent }): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent }): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
     const result: GroundingResult = {};
@@ -159,15 +165,19 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    /* Explorer pass is optional and fail-open. Throw or absent collaborator → brief undefined; pack degrades to DOM+contracts. */
+    /*
+     * Explorer pass is optional and fail-open. Throw, absent collaborator, or no sha (opts.sha is
+     * required on the collaborator's own contract — never fabricated) → brief stays undefined;
+     * pack degrades to DOM+contracts.
+     */
     let brief: ExplorationBrief | undefined;
-    if (this.collaborators.exploreBrief) {
+    if (this.collaborators.exploreBrief && opts?.sha) {
       try {
         brief = await this.collaborators.exploreBrief({
           specDir,
+          sha: opts.sha,
           ...(diff !== undefined ? { diff } : {}),
           ...(signal ? { signal } : {}),
-          ...(opts?.sha ? { sha: opts.sha } : {}),
           ...(opts?.intent ? { intent: opts.intent } : {}),
         });
       } catch (err) {
