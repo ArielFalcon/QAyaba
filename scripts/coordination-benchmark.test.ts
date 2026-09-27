@@ -2,16 +2,22 @@
    come from coordination telemetry JSONL. The case list does not store those numbers. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  COORDINATION_BENCHMARK_CASES,
   compareTelemetrySamples,
+  loadCoordinationBenchmarkCases,
   sampleFromTelemetry,
-} from "@contexts/qa-run-orchestration/application/coordination/index.ts";
+} from "./coordination-benchmark.ts";
 import type { CoordinationTelemetryEvent } from "@contexts/qa-run-orchestration/application/coordination/coordination-telemetry.ts";
 
-test("the benchmark set covers at least two apps and three diffs each", () => {
+const EXAMPLE_CASES_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "config", "benchmarks", "coordination-cases.example.json");
+
+test("loadCoordinationBenchmarkCases: the tracked example set is a well-formed benchmark (covers at least two apps, three cases each)", () => {
+  const cases = loadCoordinationBenchmarkCases(EXAMPLE_CASES_PATH);
   const byApp = new Map<string, number>();
-  for (const c of COORDINATION_BENCHMARK_CASES) {
+  for (const c of cases) {
     assert.match(c.sha, /^[0-9a-f]{7,40}$/);
     assert.ok(c.app.length > 0);
     assert.ok(c.repo.includes("/"));
@@ -23,9 +29,20 @@ test("the benchmark set covers at least two apps and three diffs each", () => {
   }
   assert.ok(byApp.size >= 2);
   for (const count of byApp.values()) assert.ok(count >= 3);
-  const bio = COORDINATION_BENCHMARK_CASES.find((c) => c.id === "portfolio-bio");
-  assert.ok(bio);
-  assert.ok(bio.relevantFiles.includes("src/data/cv.json") || bio.relevantFiles.some((f) => f.endsWith("cv.json")));
+});
+
+test("loadCoordinationBenchmarkCases: a missing cases file throws a loud, actionable error (never a silent empty benchmark)", () => {
+  assert.throws(
+    () => loadCoordinationBenchmarkCases("/nonexistent/coordination-cases.json"),
+    /coordination benchmark cases not found at .*coordination-cases\.example\.json/,
+  );
+});
+
+test("loadCoordinationBenchmarkCases: a malformed cases file (not an array of well-formed cases) throws loudly", (t) => {
+  const badPath = join(dirname(fileURLToPath(import.meta.url)), "coordination-benchmark.malformed-fixture.json");
+  writeFileSync(badPath, JSON.stringify([{ id: "missing-fields" }]));
+  t.after(() => rmSync(badPath, { force: true }));
+  assert.throws(() => loadCoordinationBenchmarkCases(badPath), /must be a JSON array of CoordinationBenchmarkCase objects/);
 });
 
 test("two telemetry samples compare verdict and latency without a hand-written narrative", () => {

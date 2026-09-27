@@ -132,11 +132,3 @@ export {
   type AdaptiveRoutingPolicy,
   type AdaptiveRoutingSignals,
 } from "./adaptive-routing.ts";
-export {
-  COORDINATION_BENCHMARK_CASES,
-  compareTelemetrySamples,
-  sampleFromTelemetry,
-  type CoordinationBenchmarkCase,
-  type CoordinationRunSample,
-  type TelemetrySampleComparison,
-} from "./benchmark.ts";

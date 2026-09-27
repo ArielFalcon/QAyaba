@@ -3,6 +3,9 @@ dist/
 .env
 .env.local
 config/.api_token
+# Reproducible coordination benchmark cases name real commits of real watched repos (user data) —
+# only the neutral-placeholder example ships tracked (see scripts/coordination-benchmark.ts).
+config/benchmarks/coordination-cases.json
 *.log
 .DS_Store
 
