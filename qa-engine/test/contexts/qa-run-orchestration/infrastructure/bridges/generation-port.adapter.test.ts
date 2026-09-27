@@ -15,6 +15,14 @@ import type { GenerationPorts } from "@contexts/generation/application/generate-
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
+import {
+  buildPromptAssembled,
+  buildWorkerPromptAssembled,
+  buildReviewerPromptAssembled,
+  buildExplorerPrompt,
+  specFileForFlow,
+} from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 
 function fakeGenerationPorts(overrides: {
   generatorOutput?: string;
@@ -808,4 +816,72 @@ test("renderLearnedRulesForReviewer: a mixed set renders ONLY the active rule's 
 
 test("renderLearnedRulesForReviewer: empty input renders the empty string", () => {
   assert.equal(renderLearnedRulesForReviewer([]), "");
+});
+
+/* The first reviewer pass is the publish gate, so it may only reject on PROVEN (active) learned
+   rules — unproven candidates are generator hints, never grounds for rejection. Driven through the
+   real bridge, use case and prompt builders; only the agent runtime (the LLM boundary) is faked. */
+
+const provenRule: RetrievedRule = {
+  id: "rule-proven", trigger: "the diff touches the owner search form",
+  action: "assert the owners table lists the searched last name", errorClass: "E-FALSE-POSITIVE",
+  status: "active", confidence: "high",
+};
+const unprovenRule: RetrievedRule = {
+  id: "rule-unproven", trigger: "the diff renders a paginated visit history",
+  action: "assert exactly five visit rows are listed", errorClass: "E-WRONG-OBJECTIVE",
+  status: "candidate", confidence: "low",
+};
+
+async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ generatorPrompt: string; reviewerPrompt: string }> {
+  const prompts: Record<string, string> = {};
+  const useCase = new GenerateTestsUseCase({
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          prompts[role] = text;
+          return { output: role === "reviewer" ? '{"approved":true,"corrections":[]}' : '{"specs":["flows/search.spec.ts"]}' };
+        },
+        dispose: async () => {},
+      }),
+    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
+    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
+  });
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234", needsReview: true, target: "e2e", mode: "diff",
+    diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
+  });
+  await adapter.generate([], "/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
+  return { generatorPrompt: prompts.primary ?? "", reviewerPrompt: prompts.reviewer ?? "" };
+}
+
+test("first review pass: the reviewer sees proven learned rules and never unproven candidates", async () => {
+  const { reviewerPrompt } = await runFirstReviewPass([provenRule, unprovenRule]);
+
+  assert.ok(reviewerPrompt.includes(provenRule.action), "a proven rule must reach the reviewer");
+  assert.ok(!reviewerPrompt.includes(unprovenRule.trigger), "an unproven candidate's trigger must never reach the reviewer");
+  assert.ok(!reviewerPrompt.includes(unprovenRule.action), "an unproven candidate's action must never reach the reviewer");
+});
+
+test("first review pass: the generator still receives unproven candidates as hints", async () => {
+  const { generatorPrompt } = await runFirstReviewPass([provenRule, unprovenRule]);
+
+  assert.ok(generatorPrompt.includes(unprovenRule.action));
+  assert.ok(generatorPrompt.includes(provenRule.action));
+});
+
+test("first review pass: candidate-only rules leave the reviewer prompt identical to a run with no learned rules", async () => {
+  const withCandidates = await runFirstReviewPass([unprovenRule]);
+  const withoutRules = await runFirstReviewPass([]);
+
+  assert.equal(withCandidates.reviewerPrompt, withoutRules.reviewerPrompt);
 });

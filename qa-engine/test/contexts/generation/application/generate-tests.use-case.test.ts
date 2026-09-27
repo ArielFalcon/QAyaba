@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
+import {
+  buildPromptAssembled,
+  buildWorkerPromptAssembled,
+  buildReviewerPromptAssembled,
+  buildExplorerPrompt,
+  specFileForFlow,
+} from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 
 /* Orchestration sequence through port stubs: render → open session → parse deliverable →
    reconcile manifest. A parse miss without review is fail-closed (empty specs, no phantom names).
@@ -264,33 +273,26 @@ test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:f
   assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
-/* C2: the FIRST reviewer pass (this file) must ground the review the same way regen passes do
-   (review-port.adapter.ts) — domSnapshot, learnedRules, baseUrl, target and an objective (guidance,
-   or the commit intent's message when no guidance was given) were previously omitted, and the
-   reviewerInput was pushed through an `as Parameters<...>` cast that hid the gap from the compiler.
- */
-test("C2: first reviewer pass grounds the review (domSnapshot, learnedRules, intent, baseUrl, target, objective from intent.message)", async () => {
-  let capturedReviewerInput: unknown;
+/* The FIRST reviewer pass must ground the review like every regen pass does: the reviewer prompt
+   (rendered by the real prompt builders) carries the live DOM, the base URL and the reviewer's own
+   learned-rule render. Only the agent runtime (the LLM boundary) is faked. */
+async function firstReviewerPrompt(input: Partial<OpencodeRunInput>): Promise<string> {
+  let reviewerPrompt = "";
   const ports: GenerationPorts = {
     runtime: {
-      openSession: async () => ({
-        prompt: async () => ({ output: '{"specs":["flows/login.spec.ts"]}' }),
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          if (role === "reviewer") reviewerPrompt = text;
+          return { output: role === "reviewer" ? '{"approved":true,"corrections":[]}' : '{"specs":["flows/contact.spec.ts"]}' };
+        },
         dispose: () => {},
       }),
     },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
-      renderReviewer: (input) => {
-        capturedReviewerInput = input;
-        return { text: "REV_PROMPT", sectionSizes: {} };
-      },
-      renderExplorer: () => "",
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
     verdicts: {
-      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      parseGenerator: () => ({ specs: ["flows/contact.spec.ts"], parsed: true }),
       parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
     },
     manifest: {
@@ -304,89 +306,51 @@ test("C2: first reviewer pass grounds the review (domSnapshot, learnedRules, int
     },
   };
 
-  const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
+  await new GenerateTestsUseCase(ports).generate({
     repo: "r",
     sha: "s",
-    diff: "DIFF_TEXT",
-    mirrorDir: "/m",
+    diff: "diff --git a/src/checkout.ts b/src/checkout.ts\n+export const pay = () => charge();\n",
+    mirrorDir: "/nonexistent/mirror",
     e2eRelDir: "e2e",
     namespace: "ns",
     needsReview: true,
     target: "e2e",
     mode: "diff",
     appName: "a",
+    ...input,
+  });
+  return reviewerPrompt;
+}
+
+test("first reviewer pass: the reviewer prompt carries the live DOM, the base URL and the reviewer's learned rules", async () => {
+  const prompt = await firstReviewerPrompt({
     baseUrl: "https://dev.example.test",
-    domSnapshot: "DOM_SNAPSHOT",
-    learnedRules: "RULES_TEXT",
-    intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
+    domSnapshot: "button \"Place order\"",
+    reviewerLearnedRules: "- checkout form → assert the confirmation number is shown (E-FALSE-POSITIVE)",
   });
 
-  assert.ok(capturedReviewerInput, "renderReviewer must be called");
-  const ri = capturedReviewerInput as Record<string, unknown>;
-  assert.equal(ri.domSnapshot, "DOM_SNAPSHOT");
-  assert.equal(ri.learnedRules, "RULES_TEXT");
-  assert.equal(ri.baseUrl, "https://dev.example.test");
-  assert.equal(ri.target, "e2e");
-  assert.deepEqual(ri.intent, { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] });
-  assert.equal(ri.objective, "fix the checkout flow", "no guidance -> objective falls back to the commit intent message");
-  assert.equal(ri.guidance, undefined);
+  assert.ok(prompt.includes("https://dev.example.test"));
+  assert.ok(prompt.includes("button \"Place order\""));
+  assert.ok(prompt.includes("assert the confirmation number is shown"));
 });
 
-test("C2: first reviewer pass — explicit guidance wins over the intent-derived objective (matches review-port.adapter.ts's precedence)", async () => {
-  let capturedReviewerInput: unknown;
-  const ports: GenerationPorts = {
-    runtime: {
-      openSession: async () => ({
-        prompt: async () => ({ output: '{"specs":["flows/login.spec.ts"]}' }),
-        dispose: () => {},
-      }),
-    },
-    rendering: {
-      render: () => "",
-      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
-      renderWorker: () => ({ text: "", sectionSizes: {} }),
-      renderReviewer: (input) => {
-        capturedReviewerInput = input;
-        return { text: "REV_PROMPT", sectionSizes: {} };
-      },
-      renderExplorer: () => "",
-      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
-    },
-    verdicts: {
-      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
-      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
-    },
-    manifest: {
-      read: async () => [],
-      reconcile: async (_d, e) => [...e] as ManifestEntry[],
-    },
-    budget: {
-      capDiff: (d) => d,
-      capText: (t) => t,
-      budgetForRole: () => 0,
-    },
-  };
+test("first reviewer pass: the generator's learned-rule hints never reach the reviewer prompt", async () => {
+  const prompt = await firstReviewerPrompt({
+    learnedRules: "### Experimental rule (E-FLAKY)\n- Consider: wait for the spinner to disappear",
+  });
 
-  const useCase = new GenerateTestsUseCase(ports);
-  await useCase.generate({
-    repo: "r",
-    sha: "s",
-    diff: "DIFF_TEXT",
-    mirrorDir: "/m",
-    e2eRelDir: "e2e",
-    namespace: "ns",
-    needsReview: true,
-    target: "e2e",
+  assert.ok(!prompt.includes("wait for the spinner to disappear"));
+});
+
+test("first reviewer pass: a guided run is judged against the operator guidance, not the commit diff", async () => {
+  const prompt = await firstReviewerPrompt({
     mode: "manual",
-    appName: "a",
-    guidance: "test the contact form",
+    guidance: "verify the contact form sends a message",
     intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
   });
 
-  const ri = capturedReviewerInput as Record<string, unknown>;
-  assert.equal(ri.guidance, "test the contact form");
-  assert.equal(ri.objective, undefined, "explicit guidance must win — objective stays unset");
+  assert.ok(prompt.includes("verify the contact form sends a message"));
+  assert.ok(!prompt.includes("export const pay = () => charge();"));
 });
 
 /* Fail-closed: parse miss without review.

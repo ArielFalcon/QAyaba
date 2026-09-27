@@ -103,6 +103,7 @@ export class GenerationPortAdapter implements GenerationPort {
   ) {}
 
   async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationPortResult> {
+    const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const input: OpencodeRunInput = {
       repo: this.ctx.repo,
       /* Manifest changeRef.sha. From enrichment.sha when supplied; "" otherwise. */
@@ -128,6 +129,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.coverageGap ? { coverageGap: enrichment.coverageGap } : {}),
       ...(enrichment?.intent ? { intent: toGenerationIntent(enrichment.intent) } : {}),
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRules(enrichment.learnedRules) } : {}),
+      ...(reviewerLearnedRules ? { reviewerLearnedRules } : {}),
       ...(enrichment?.contextPack ? { contextPack: enrichment.contextPack } : {}),
       ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),

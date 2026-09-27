@@ -103,15 +103,12 @@ export class GenerateTestsUseCase {
     /* ── 6. Independent reviewer session ────────────────────────────────────── The reviewer is the AUTHORITATIVE publish gate. Opens a SEPARATE session to guarantee independence — the generator cannot influence the reviewer. (mirrors reviewIndependently in opencode-client.ts:952-1009) */
     const reviewerRole: AgentRole = "reviewer";
     /* Ground this FIRST reviewer pass the same way review-port.adapter.ts grounds every regen
-       pass — omitting domSnapshot/learnedRules/guidance-or-objective/intent/baseUrl/target left the
-       first review judging specs with none of the context later rounds get. `intent` is passed
-       through directly (this use case already holds the full CommitIntent, unlike
-       review-port.adapter.ts's narrower ctx/enrichment split, which can only carry the message);
-       `objective` still mirrors review-port.adapter.ts's own guidance-wins-over-intent precedence
-       so the two reviewer-input builders cannot silently diverge on that call. `learnedRules` is
-       forwarded as-is: this use case only has the generator-rendered string (OpencodeRunInput never
-       carries the raw RetrievedRule[] review-port.adapter.ts re-renders for the reviewer), and that
-       is still real signal, not a fabricated one. */
+       pass (domSnapshot, learned rules, guidance-or-objective, intent, baseUrl, target). `intent` is
+       passed through directly (this use case holds the full CommitIntent, unlike
+       review-port.adapter.ts's ctx/enrichment split, which can only carry the message); `objective`
+       mirrors review-port.adapter.ts's guidance-wins-over-intent precedence. The reviewer gets the
+       reviewer render of the learned rules (proven rules only), never the generator render: the
+       generator's unproven candidates must not become grounds for rejection at the publish gate. */
     const reviewerInput: ReviewInput = {
       diff: input.diff,
       specs: deliverable.specs,
@@ -124,7 +121,7 @@ export class GenerateTestsUseCase {
       ...(input.guidance ? { guidance: input.guidance } : {}),
       ...(input.intent ? { intent: input.intent } : {}),
       ...(!input.guidance && input.intent?.message ? { objective: input.intent.message } : {}),
-      ...(input.learnedRules ? { learnedRules: input.learnedRules } : {}),
+      ...(input.reviewerLearnedRules ? { learnedRules: input.reviewerLearnedRules } : {}),
       ...(input.domSnapshot ? { domSnapshot: input.domSnapshot } : {}),
     };
     const reviewerAssembled = rendering.renderReviewer(reviewerInput);

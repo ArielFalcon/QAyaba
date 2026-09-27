@@ -111,7 +111,10 @@ export interface OpencodeRunInput {
   reviewCorrections?: string[];
   coverageGap?: string;
   selectorContradictions?: string[];
+  /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
   learnedRules?: string;
+  /* Reviewer render of the retrieved rules: PROVEN (active) rules only, as reject-on-sight rules. The reviewer is the publish gate, so an unproven candidate must never become grounds for rejection; absent when no proven rule was retrieved. */
+  reviewerLearnedRules?: string;
   domSnapshot?: string;
   failureSourced?: boolean;
   runId?: string;
