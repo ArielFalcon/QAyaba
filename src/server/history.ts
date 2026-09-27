@@ -690,6 +690,17 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
   };
 }
 
+/*
+ * The shared "give me the live ledger, not a truncated preview" cap for learning-rule retrieval:
+ * generation's own retrieve (historyLearningStore(appName).selectRules, via SqliteLearningRepository
+ * .topRules -> RuleGovernanceService.topRules' OWN further ranking/limit) and every operator-facing
+ * ledger view (TUI/API intelligence view, CLI `qayaba intel`) must read the SAME set — a caller with
+ * its own smaller literal would silently show a stale/truncated subset of what the engine actually
+ * used. Not used by chat.ts's learning context, which is a deliberately small bounded prompt preview,
+ * not a ledger view.
+ */
+export const LEARNING_RULE_LEDGER_LIMIT = 200;
+
 export function listLearningRules(app: string, limit = 20): LearningRule[] {
   ensureDb();
   const rows = listRulesStmt.all(app, limit) as Array<Record<string, unknown>>;

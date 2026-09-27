@@ -25,7 +25,7 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
+import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
 import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
@@ -572,8 +572,8 @@ const apiDeps: ApiDeps = {
   listRecords,
   currentRun,
   /*
-   * Same retrieve cap the engine injects into generation (listLearningRules(app, 200)) so the
-   * operator ledger is the live set, not a 20-row preview that silently drops the rest.
+   * LEARNING_RULE_LEDGER_LIMIT is the SAME retrieve cap the engine injects into generation, so the
+   * operator ledger is the live set, not a truncated preview that silently drops the rest.
    */
   /*
    * A corrupt curriculum row is already logged loudly by loadCurriculum() itself; this read-only
@@ -582,7 +582,7 @@ const apiDeps: ApiDeps = {
    */
   intelligence: (app) => {
     const curriculum = loadCurriculum(app);
-    return toIntelligenceView(app, listLearningRules(app, 200), loadScorecard(app), curriculum === CURRICULUM_CORRUPT ? null : curriculum);
+    return toIntelligenceView(app, listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), loadScorecard(app), curriculum === CURRICULUM_CORRUPT ? null : curriculum);
   },
   signals: () => toSignalsView(
     listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),

@@ -19,7 +19,7 @@ import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunResult } from "./server/run-delegate";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, loadCurriculum } from "./server/history";
+import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
@@ -260,7 +260,9 @@ function showLearning(app: string): void {
     console.log("");
   }
 
-  const rules = listLearningRules(app, 20);
+  /* Same LEARNING_RULE_LEDGER_LIMIT the TUI/API intelligence view reads — the live ledger, not a
+   * truncated preview that silently drops rules beyond a smaller cap. */
+  const rules = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
   console.log(`── Learning Rules (${rules.length} active/candidate) ──`);
   if (rules.length === 0) {
     console.log("  (none — failures will create rules via reflection)\n");

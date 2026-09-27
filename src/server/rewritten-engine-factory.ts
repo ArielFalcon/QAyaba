@@ -109,7 +109,7 @@ import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, rea
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
-import { listLearningRules, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
+import { listLearningRules, LEARNING_RULE_LEDGER_LIMIT, listAllLearningRules, upsertLearningRule, incrementRuleUsage, recordRuleOutcome, updateRunOutcomeReflection, listRunOutcomes, setRuleStatusByHuman, markContextStale, saveScorecardEntry, loadCurriculum, saveCurriculum } from "./history";
 import { recordIncident } from "./maintainer";
 import { preventionOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
 import { ReflectorPortAdapter, REFLECT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter";
@@ -292,7 +292,7 @@ async function fetchVersion(url: string): Promise<{ sha?: string; healthy?: bool
 export function historyLearningStore(appName: string): LearningStore {
   return {
     selectRules: (app) =>
-      listLearningRules(app, 200).map((r) => ({
+      listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT).map((r) => ({
         id: r.id,
         trigger_text: r.trigger,
         action_text: r.action,
@@ -369,7 +369,7 @@ export function historyLearningStore(appName: string): LearningStore {
            * Prevention path: no oracle score — derived credit must not advance oracleOutcomeCount
            * or by itself promote candidate → active.
            */
-          const rules = listLearningRules(appName, 200);
+          const rules = listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT);
           const byId = new Map(rules.map((r) => [r.id, r]));
           for (const id of rulesRetrieved) {
             const rule = byId.get(id);
