@@ -144,6 +144,17 @@ export async function getCommitMessage(dir: string, sha: string, deps: MirrorDep
 }
 
 /*
+ * The mirror's checked-out HEAD sha, through the injected git dependency — never a direct
+ * execFileSync shell-out. Going through `deps.git` gets every caller the same hardening
+ * (hardenGitArgs, GIT_TERMINAL_PROMPT=0) and the same InfraError classification + credential
+ * scrubbing every other git op in this module gets (see realGit above); a raw execFileSync
+ * bypasses all three and reports a raw error to whatever calls it.
+ */
+export async function getHeadSha(dir: string, deps: MirrorDeps): Promise<string> {
+  return (await deps.git(["rev-parse", "HEAD"], dir)).trim();
+}
+
+/*
  * Prepend the orchestrator's git hardening as COMMAND-LINE `-c` overrides (which a repo's own
  * .git/config cannot override) before the caller's subcommand. Two concerns, both stemming from
  * operating on UNTRUSTED, sandbox-touched working copies:

@@ -244,7 +244,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         `indexing ${repo} timed out`,
       );
     } catch (err) {
-      return { repo, status: REPO_INDEX_STATUS.failed, error: redactionPort.redactError(err) };
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding indexRepo failed (fail-open, advisory only)", { repo, error });
+      return { repo, status: REPO_INDEX_STATUS.failed, error };
     }
   }
 
@@ -264,7 +266,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       status = { ...status, indexProgress: progress };
     } catch (err) {
       /* Defensive-only: indexOneRepo never throws. Stay non-terminal so mapping can still run. */
-      status = { ...status, error: redactionPort.redactError(err) };
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runIndexing failed unexpectedly (fail-open, defensive-only)", { error });
+      status = { ...status, error };
     } finally {
       busy = false;
     }
@@ -304,7 +308,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       }
       finishDone();
     } catch (err) {
-      finishDone({ error: redactionPort.redactError(err) });
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runMapping failed (fail-open, advisory only)", { app, error });
+      finishDone({ error });
     }
   }
 
@@ -321,7 +327,11 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         finishDone();
       }
     } catch (err) {
-      finishDone({ error: redactionPort.redactError(err) });
+      /* Defensive-only: runIndexing/runMapping never rethrow. Stay fail-open so a corrected app's
+       * boundaries (already written by confirm() before this ran) are never re-litigated. */
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runPostConfirm failed unexpectedly (fail-open, defensive-only)", { error });
+      finishDone({ error });
     }
   }
 

@@ -495,29 +495,39 @@ test("S1.1: successful confirm() writes boundaries THEN transitions indexing->do
   ]);
 });
 
-test("S1.2: fail-open — indexRepo rejects for one repo, records failed, continues to the next, phase still ends done/winner", async () => {
-  const job = createOnboardingJob(buildIndexedDeps({
-    ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
-    indexRepo: async (repo: string): Promise<RepoIndexOutcome> => {
-      if (repo.endsWith("B")) throw new Error("boom");
-      return { repo, status: "ok", nodeCount: 5 };
-    },
-  }));
-  await job.propose({
-    app: "nname",
-    repo: "ArielFalcon/nname-gateway",
-    services: ["ArielFalcon/svc-B", "ArielFalcon/svc-C"],
-  });
-  job.confirm();
-  await job.settled();
+test("S1.2: fail-open — indexRepo rejects for one repo, records failed, continues to the next, phase still ends done/winner, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildIndexedDeps({
+      ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
+      indexRepo: async (repo: string): Promise<RepoIndexOutcome> => {
+        if (repo.endsWith("B")) throw new Error("boom");
+        return { repo, status: "ok", nodeCount: 5 };
+      },
+    }));
+    await job.propose({
+      app: "nname",
+      repo: "ArielFalcon/nname-gateway",
+      services: ["ArielFalcon/svc-B", "ArielFalcon/svc-C"],
+    });
+    job.confirm();
+    await job.settled();
 
-  const status = job.status();
-  assert.equal(status.state, ONBOARD_STATE.done);
-  assert.equal(status.outcome, "winner", "an advisory indexing failure must never fail the durable onboarding outcome");
-  const byRepo = new Map((status.indexProgress ?? []).map((o) => [o.repo, o]));
-  assert.equal(byRepo.get("ArielFalcon/svc-B")?.status, "failed");
-  assert.equal(byRepo.get("ArielFalcon/svc-C")?.status, "ok", "must continue to C after B fails");
-  assert.equal(byRepo.get("ArielFalcon/nname-gateway")?.status, "ok");
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner", "an advisory indexing failure must never fail the durable onboarding outcome");
+    const byRepo = new Map((status.indexProgress ?? []).map((o) => [o.repo, o]));
+    assert.equal(byRepo.get("ArielFalcon/svc-B")?.status, "failed");
+    assert.equal(byRepo.get("ArielFalcon/svc-C")?.status, "ok", "must continue to C after B fails");
+    assert.equal(byRepo.get("ArielFalcon/nname-gateway")?.status, "ok");
+    assert.equal(logged.length, 1, "the indexRepo failure must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /indexRepo failed/i, "the log line must be identifiable as an indexRepo failure");
+    assert.match(logged[0] ?? "", /boom/, "the log line must carry the (redacted) error detail");
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("S1.3: a never-resolving indexRepo is bounded by indexTimeoutMs, degrades that repo to failed, and the phase continues", async () => {
@@ -713,18 +723,28 @@ test("M3: isCodeApp true skips mapping — enqueue is never called, phase ends d
   assert.equal(job.status().mappingProgress, undefined);
 });
 
-test("M4: enqueueContextRun throws — fail-open done/winner with error, never failed", async () => {
-  const job = createOnboardingJob(buildMappedDeps({
-    enqueueContextRun: () => { throw new Error("queue exploded"); },
-  }));
-  await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
-  job.confirm();
-  await job.settled();
+test("M4: enqueueContextRun throws — fail-open done/winner with error, never failed, and the failure is logged once (redacted) instead of swallowed silently", async () => {
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const job = createOnboardingJob(buildMappedDeps({
+      enqueueContextRun: () => { throw new Error("queue exploded"); },
+    }));
+    await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
+    job.confirm();
+    await job.settled();
 
-  const status = job.status();
-  assert.equal(status.state, ONBOARD_STATE.done);
-  assert.equal(status.outcome, "winner");
-  assert.match(status.error ?? "", /queue exploded/);
+    const status = job.status();
+    assert.equal(status.state, ONBOARD_STATE.done);
+    assert.equal(status.outcome, "winner");
+    assert.match(status.error ?? "", /queue exploded/);
+    assert.equal(logged.length, 1, "the runMapping failure must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /runMapping failed/i, "the log line must be identifiable as a runMapping failure");
+    assert.match(logged[0] ?? "", /queue exploded/, "the log line must carry the (redacted) error detail");
+  } finally {
+    console.warn = originalWarn;
+  }
 });
 
 test("M5: propose() is rejected while mapping is in flight", async () => {

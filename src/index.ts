@@ -2,7 +2,6 @@
  * Control plane: webhook + sequential queue + HTTP API. One run at a time against DEV.
  */
 
-import { execFileSync } from "node:child_process";
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -33,7 +32,7 @@ import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
-import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch } from "./integrations/repo-mirror";
+import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha } from "./integrations/repo-mirror";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
@@ -509,13 +508,15 @@ const onboardingJob = createOnboardingJob({
   writeConfig: (path, content) => writeFileSync(path, content, "utf8"),
   configPath: (app) => join(ROOT, "config", "apps", `${app}.yaml`),
   indexRepo: (repo, mirrorDir) => indexRepoForOnboarding(repo, mirrorDir),
-  enqueueContextRun: ({ app, mirrorDir }) => {
-    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: mirrorDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    }).trim();
+  enqueueContextRun: async ({ app, mirrorDir }) => {
+    /*
+     * Same shutdown guard every other enqueue path in this file honors (enqueueApiRun,
+     * continueRun): refuse new work once draining, rather than resolving HEAD and enqueueing a
+     * run that queue.drain() would just have to outlive. onboarding-job.ts's runMapping()
+     * already treats an empty-string return as a clean "spec skip", never a fail-open warning.
+     */
+    if (shuttingDown) return "";
+    const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
     /*
      * shadow: false is the onboarding exception: this run publishes e2e/.qa/context.json even when
      * the app YAML has qa.shadow: true (req.shadow overrides YAML in enqueueTrackedRun). Never pass

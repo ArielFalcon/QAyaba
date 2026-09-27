@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
+import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
    clear both to isolate the logic (token-bearing tests set GITHUB_TOKEN per-test).
@@ -325,6 +325,32 @@ test("getCommitMessage propagates git show failure", async () => {
     git: async () => { throw new Error("git show failed"); },
   };
   await assert.rejects(() => getCommitMessage("/dir", "abc1234", d), /git show failed/);
+});
+
+test("getHeadSha resolves the mirror's checked-out HEAD through the injected git dependency, trimmed", async () => {
+  const calls: Array<{ args: string[]; cwd?: string }> = [];
+  const d: MirrorDeps = {
+    root: "/tmp/mirrors",
+    exists: () => true,
+    removeFile: () => {},
+    git: async (args, cwd) => {
+      calls.push({ args, cwd });
+      return "abc1234567890abc1234567890abc1234567890\n";
+    },
+  };
+  const sha = await getHeadSha("/dir", d);
+  assert.equal(sha, "abc1234567890abc1234567890abc1234567890");
+  assert.deepEqual(calls, [{ args: ["rev-parse", "HEAD"], cwd: "/dir" }], "must resolve HEAD via the injected git dependency, not a direct shell-out");
+});
+
+test("getHeadSha propagates git rev-parse failure (never swallowed to an empty sha)", async () => {
+  const d: MirrorDeps = {
+    root: "/tmp/mirrors",
+    exists: () => true,
+    removeFile: () => {},
+    git: async () => { throw new Error("rev-parse failed: not a git repository"); },
+  };
+  await assert.rejects(() => getHeadSha("/dir", d), /rev-parse failed/);
 });
 
 test("resolveRef propagates git ls-remote failure", async () => {
