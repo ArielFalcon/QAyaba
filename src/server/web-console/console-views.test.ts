@@ -217,3 +217,82 @@ test("a stale stored token at boot brings up the login prompt instead of an erro
   assert.equal(h.loginVisible(), true);
   assert.doesNotMatch(h.text(), /Could not load the console/);
 });
+
+/* Every "Xm YYs" duration the view shows, in minutes. */
+function minutesShown(text: string): number[] {
+  return [...text.matchAll(/\b(\d+)m (\d{2})s\b/g)].map((m) => Number(m[1]) + Number(m[2]) / 60);
+}
+
+test("the live run's elapsed time counts from the run's start, not from its current step", async () => {
+  const twoHoursAgo = new Date(Date.now() - 2 * 3600_000).toISOString();
+  const fiveSecondsAgo = new Date(Date.now() - 5_000).toISOString();
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [runRecord("run-live", { status: "running", verdict: undefined, step: "execute", at: twoHoursAgo, stepStartedAt: fiveSecondsAgo })],
+      running: { id: "run-live", app: "shop" },
+    }),
+  });
+
+  const hero = minutesShown(h.text());
+  assert.ok(hero.length > 0 && hero.every((m) => m >= 119), `overview timer: ${hero}`);
+  h.click("open-run", "run-live");
+  const detail = minutesShown(h.text());
+  assert.ok(detail.length > 0 && detail.every((m) => m >= 119), `live detail: ${detail}`);
+});
+
+/* SignalsView carries current-window values only — there is no previous window to compare to. */
+const currentWindowSignals = {
+  valueOracle: { measured: true, avgScore: 0.8, measuredRuns: 4, totalRuns: 6 },
+  reviewer: { passRate: 0.75, runs: 4 },
+  coverage: { measured: false, avgRatio: null, measuredRuns: 0, totalRuns: 6 },
+};
+
+test("fleet KPIs show no period-over-period change when the API has no previous window", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [],
+      extra: (req) => (req.path === "/api/v1/signals" ? { status: 200, json: currentWindowSignals } : undefined),
+    }),
+  });
+
+  const text = h.text();
+  assert.match(text, /75%/, "the current reviewer pass-rate is shown");
+  assert.doesNotMatch(text, /[+-]\d+ pts/, "no pass-rate change against a window that does not exist");
+  assert.doesNotMatch(text, /×\d/, "no value-oracle multiplier against a missing baseline");
+  assert.doesNotMatch(text, /\+0\b/, "no zero change fabricated from the current value");
+});
+
+test("the mock console still shows its period-over-period changes", async () => {
+  const h = await loadConsole({ withConsole: true, mode: "mock", routes: controlApi({ apps: [], runs: [] }) });
+  assert.match(h.text(), /[+-]\d+ pts/);
+});
+
+test("the engine is reported operational only when its health check says so", async () => {
+  const healthy = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [],
+      extra: (req) => (req.path === "/api/v1/health" ? { status: 200, json: { ok: true, openSessions: 2 } } : undefined),
+    }),
+  });
+  assert.match(healthy.text(), /engine operational/);
+
+  const unknown = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [],
+      extra: (req) => (req.path === "/api/v1/health" ? { status: 503, json: { error: "down" } } : undefined),
+    }),
+  });
+  assert.doesNotMatch(unknown.text(), /engine operational/);
+});

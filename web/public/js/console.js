@@ -340,11 +340,17 @@
   }
   function LiveBand(live, running) {
     const na = 'not available';
+    /* "operational" is a claim the health check has to back; without an answer the status is unknown. */
+    const engineLabel = live.status === 'operational' ? 'engine operational' : live.status === 'degraded' ? 'engine degraded' : 'engine status unknown';
+    const engineStatus = live.status === 'operational' ? PulseDot('var(--pass-500)', 9)
+      : '<span style="width:9px;height:9px;border-radius:50%;flex:none;background:' + (live.status === 'degraded' ? 'var(--fail-500)' : 'var(--ink-400)') + '"></span>';
+    const health = live.health || {};
+    const healthText = health.ok === true ? '/health · ok' + (health.last ? ' · ' + health.last : '') : health.ok === false ? '/health · failing' : na;
     return '<div class="pa-dot-bg" style="' + sty({ background: 'var(--ink-900)', border: '1px solid var(--ink-700)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }) + '">' +
       '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap', padding: '14px 22px', borderBottom: '1px solid var(--ink-700)' }) + '">' +
-      '<div style="display:flex;align-items:center;gap:9px">' + PulseDot('var(--pass-500)', 9) +
-      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--bone-50)' }) + '">engine operational</span></div>' +
-      EngineChip('heart-pulse', 'health', live.health && live.health.last ? '/health · ' + live.health.last : na) +
+      '<div style="display:flex;align-items:center;gap:9px">' + engineStatus +
+      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--bone-50)' }) + '">' + esc(engineLabel) + '</span></div>' +
+      EngineChip('heart-pulse', 'health', healthText) +
       EngineChip('layers', 'queue', live.queue.running + ' running · ' + live.queue.queued + ' queued') +
       EngineChip('cpu', 'sessions', live.sessions == null ? na : live.sessions + ' open') +
       EngineChip('webhook', 'webhook', live.webhook || na) +
@@ -411,17 +417,19 @@
                   sub: co.avgDelegationMs == null ? 'no delegation samples' : 'avg delegation ' + (co.avgDelegationMs >= 60000 ? Math.round(co.avgDelegationMs / 60000) + 'm' : Math.round(co.avgDelegationMs / 1000) + 's') })
       : '';
     const kpis = '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));gap:var(--space-3)">' +
-      KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
-      KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: rp.v == null ? 'n/a' : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
-      KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
+      /* A change chip needs a real previous value; without one (live SignalsView has no previous
+         window yet) the chip is omitted rather than computed against the current value. */
+      KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: (vo.v == null || vo.baseline == null) ? null : F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
+      KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: (rp.v == null || rp.prev == null) ? null : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
+      KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: rn.prevMeasured == null ? null : '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
       KpiCard({ label: 'suites green', value: sg.v == null ? 'n/a' : sg.v, unit: sg.v == null ? '' : '/ ' + sg.total, dir: 'flat', good: null,
-                deltaText: (sg.v == null || sg.prev == null) ? '' : (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev),
+                deltaText: (sg.v == null || sg.prev == null) ? null : (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev),
                 series: sg.series, seriesColor: 'var(--ember-500)', sub: sg.v == null ? 'not available from the API' : 'apps with a green suite' }) +
       KpiCard({ label: 'PRs auto-merged', value: pr.v == null ? 'n/a' : pr.v, dir: 'up', good: true,
-                deltaText: (pr.v == null || pr.prev == null) ? '' : '+' + (pr.v - pr.prev),
+                deltaText: (pr.v == null || pr.prev == null) ? null : '+' + (pr.v - pr.prev),
                 series: pr.series, seriesColor: 'var(--ember-500)', sub: pr.v == null ? 'not available from the API' : 'tests committed to apps' }) +
       KpiCard({ label: 'issues open', value: io.v == null ? 'n/a' : io.v, dir: 'down', good: true,
-                deltaText: (io.v == null || io.prev == null) ? '' : '' + (io.v - io.prev),
+                deltaText: (io.v == null || io.prev == null) ? null : '' + (io.v - io.prev),
                 series: io.series, seriesColor: 'var(--fail-500)', sub: io.v == null ? 'not available from the API' : 'awaiting a fix' }) + delegationKpi + '</div>';
     const ledgerBtn = '<button data-action="nav" data-id="learning" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">ledger ' + I('arrow-right', 13) + '</button>';
     const allRunsBtn = '<button data-action="nav" data-id="runs" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">all runs ' + I('arrow-right', 13) + '</button>';

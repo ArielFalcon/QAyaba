@@ -94,6 +94,9 @@ window.QayabaConsole = (function () {
   }
   const ep = {
     version: () => req('GET', '/version'),
+    /* Liveness of the orchestrator process ({ok, openSessions}) — the only engine status the API
+       serves today (API.md §1); the console claims "operational" only when this answers ok. */
+    health: () => req('GET', '/health'),
     signals: () => req('GET', '/signals'),
     queue: () => req('GET', '/queue'),
     listApps: () => req('GET', '/apps'),
@@ -122,8 +125,9 @@ window.QayabaConsole = (function () {
        few apps this fan-out is cheap; lazily-load per view later if it grows.
      */
     async loadAll() {
-      const [apps, queue, signals, coordination, agentConfig] = await Promise.all([
+      const [apps, queue, signals, coordination, agentConfig, health] = await Promise.all([
         ep.listApps(), ep.queue(), ep.signals().catch(() => null), ep.coordinationEvents().catch(() => null), ep.agentConfig().catch(() => null),
+        ep.health().catch(() => null),
       ]);
       const names = apps.map((a) => a.name);
       const perApp = await Promise.all(names.map((n) => Promise.all([
@@ -140,7 +144,7 @@ window.QayabaConsole = (function () {
         const fromApp = (runsByApp[queue.running.app] || []).find((r) => r.id === queue.running.id);
         runningRecord = fromApp || await ep.getRun(queue.running.id).catch(() => null);
       }
-      return mapModel({ apps, queue, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, contextMapByApp, runningRecord });
+      return mapModel({ apps, queue, health, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, contextMapByApp, runningRecord });
     },
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}. Transport is a fetch stream,
@@ -438,7 +442,7 @@ window.QayabaConsole = (function () {
       running: mappedRunning,
       runs: runs,
       stats: stats,
-      live: mapLive(raw.queue), /* partial; health/sessions/mirrors/webhook need an engine-status endpoint (API.md §1) */
+      live: mapLive(raw.queue, raw.health), /* partial; mirrors/webhook need an engine-status endpoint (API.md §1) */
       verdictMix: verdictMix,
       signals: mapSignals(raw.signals) || emptySignals(), /* see API.md: SignalsView is leaner than the hero needs */
       coordination: {
@@ -470,7 +474,8 @@ window.QayabaConsole = (function () {
     return {
       id: r.id, app: r.app, sha: r.sha, verdict: statusVerdict, mode: r.mode,
       message: r.note || r.step || '', author: '', time: relTime(r.at), _at: Date.parse(r.at) || 0,
-      mins: mapRunElapsed(r.stepStartedAt || r.startedAt || r.at), _step: r.step || '',
+      /* elapsed since the run was created — the run's own clock, never its current step's */
+      mins: mapRunElapsed(r.at), _step: r.step || '',
       specs: (r.specs || []).length, reviewer: '—', decision: r.note || '',
       /* A continuation re-runs the FAILED cases of a finished run — the server refuses anything else. */
       canContinue: r.status === 'done' && (r.cases || []).some((c) => c.status === 'fail'),
@@ -515,14 +520,16 @@ window.QayabaConsole = (function () {
     const avgMs = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : null;
     return { producer: producer, delegations: delegations, repairs: repairs, failures: failures, avgMs: avgMs };
   }
-  function mapLive(queue) {
-    /* Health-poller state, open sessions, last mirror-prune, and webhook status are not in the
-       contract yet (API.md §1) — report them honestly unavailable; only queue counts are real.
+  function mapLive(queue, health) {
+    /* Queue counts and the process health check ({ok, openSessions}) are real; the health-poller
+       cadence, last mirror-prune and webhook status are not in the contract yet (API.md §1) —
+       reported honestly unavailable. No health answer → status unknown, never "operational".
      */
+    const ok = health ? health.ok === true : null;
     return {
-      status: null,
-      health: { ok: null, last: null, interval: null },
-      sessions: null,
+      status: ok === true ? 'operational' : ok === false ? 'degraded' : null,
+      health: { ok: ok, last: null, interval: null },
+      sessions: health && typeof health.openSessions === 'number' ? health.openSessions : null,
       mirrors: null,
       webhook: null,
       queue: { running: queue && queue.running ? 1 : 0, queued: (queue && queue.pending) || 0 },
@@ -535,7 +542,7 @@ window.QayabaConsole = (function () {
     return {
       valueOracle: { v: null, prev: null, baseline: null, series: [] },
       reviewerPass: { v: null, prev: null, series: [] },
-      runs: { measured: 0, total: 0, prevMeasured: 0, prevTotal: 0, series: [] },
+      runs: { measured: 0, total: 0, prevMeasured: null, prevTotal: null, series: [] },
       coordination: null,
       suitesGreen: { v: null, prev: null, series: [] },
       prsAutoMerged: { v: null, prev: null, series: [] },
@@ -554,10 +561,13 @@ window.QayabaConsole = (function () {
     const rp = s.reviewer || {};
     const score = vo.avgScore;
     const passRate = rp.passRate;
+    /* Current-window values only: there is no previous window or baseline to compare against, so
+       prev/baseline stay null (the console then shows no change) — never the current value
+       copied in, which rendered a fabricated "+0 pts" / "×1.0". */
     const base = emptySignals();
-    base.valueOracle = { v: score == null ? null : score, prev: score == null ? null : score, baseline: score == null ? null : score, series: score == null ? [] : [score] };
-    base.reviewerPass = { v: passRate == null ? null : passRate, prev: passRate == null ? null : passRate, series: passRate == null ? [] : [passRate] };
-    base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: vo.measuredRuns || 0, prevTotal: vo.totalRuns || 0, series: [vo.measuredRuns || 0] };
+    base.valueOracle = { v: score == null ? null : score, prev: null, baseline: null, series: score == null ? [] : [score] };
+    base.reviewerPass = { v: passRate == null ? null : passRate, prev: null, series: passRate == null ? [] : [passRate] };
+    base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: null, prevTotal: null, series: [vo.measuredRuns || 0] };
     base.coordination = s.coordination || null;
     return base;
   }
