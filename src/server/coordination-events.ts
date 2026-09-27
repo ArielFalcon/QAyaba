@@ -208,11 +208,10 @@ function readLedgerTail(
     let bytesToRead = Math.min(size, INITIAL_TAIL_BYTES);
     for (;;) {
       const position = size - bytesToRead;
-      const buffer = Buffer.alloc(bytesToRead);
-      if (bytesToRead > 0) fs.readSync(fd, buffer, 0, bytesToRead, position);
+      const chunk = readWindow(fs, fd, position, bytesToRead).toString("utf8");
       /* A chunk that doesn't start at byte 0 may open mid-line; drop that partial first line — a
          wider re-read on the next growth pass will pick it up whole, from further back. */
-      const text = position > 0 ? dropPartialFirstLine(buffer.toString("utf8")) : buffer.toString("utf8");
+      const text = position > 0 ? dropPartialFirstLine(chunk) : chunk;
       const parsed = parseCoordinationLedger(text, filter);
       if (parsed.truncated || position === 0) return parsed;
       bytesToRead = Math.min(size, bytesToRead * TAIL_GROWTH_FACTOR);
@@ -220,6 +219,19 @@ function readLedgerTail(
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/* readSync may return fewer bytes than asked for: keep reading until the window is full or the file
+   ends, and return only the bytes actually read — never the unfilled tail of the buffer. */
+function readWindow(fs: CoordinationLedgerFsDeps, fd: number, position: number, length: number): Buffer {
+  const buffer = Buffer.alloc(length);
+  let filled = 0;
+  while (filled < length) {
+    const read = fs.readSync(fd, buffer, filled, length - filled, position + filled);
+    if (read === 0) break;
+    filled += read;
+  }
+  return buffer.subarray(0, filled);
 }
 
 function dropPartialFirstLine(text: string): string {

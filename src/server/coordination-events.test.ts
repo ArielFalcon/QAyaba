@@ -97,6 +97,33 @@ test("readCoordinationLedger: reads only a bounded tail, not the whole file, for
   }
 });
 
+/* readSync may return fewer bytes than asked for; the tail reader must keep reading until the window
+   is full instead of parsing the unfilled part of its buffer. */
+test("readCoordinationLedger: a reader that returns short reads still yields every event", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    const lines: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      lines.push(JSON.stringify({ runId: `r${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i }));
+    }
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+    const shortReadFs = {
+      openSync,
+      fstatSync,
+      readSync: ((fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number) =>
+        readSync(fd, buffer as Buffer, offset, Math.min(length, 7), position)) as typeof readSync,
+      closeSync,
+    };
+
+    const view = readCoordinationLedger({ limit: 100 }, path, shortReadFs);
+
+    assert.deepEqual(view.events.map((e) => e.runId), lines.map((_, i) => `r${i}`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* A ledger has a single writer (the long-lived service), but that still does not make one run's
    own events a contiguous block within the file — other runs' events land in between as they are
    appended over time. A runId-scoped read must match a full-file parse exactly regardless of that
