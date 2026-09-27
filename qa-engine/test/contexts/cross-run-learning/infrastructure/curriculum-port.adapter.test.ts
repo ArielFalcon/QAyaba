@@ -58,16 +58,23 @@ describe("CurriculumPortAdapter.select", () => {
     assert.equal(logged.message, "db down");
   });
 
-  it("treats a CURRICULUM_CORRUPT load result as a fault (same as a throwing store) — never silently starts fresh", async () => {
+  it("still ranks exemplars against a fresh curriculum when the stored row is corrupt", async () => {
+    const fresh = await new CurriculumPortAdapter("app", () => null, () => {}).select(RICH_DIFF, FILES);
+    const fromCorrupt = await new CurriculumPortAdapter("app", () => CURRICULUM_CORRUPT, () => {}, () => {}).select(RICH_DIFF, FILES);
+
+    assert.ok(fresh.length > 0, "setup check: the diff matches exemplars");
+    assert.deepEqual(fromCorrupt, fresh);
+  });
+
+  it("reports a corrupt stored row while selecting and never writes over it", async () => {
     let logged: unknown;
-    const adapter = new CurriculumPortAdapter(
-      "app",
-      () => CURRICULUM_CORRUPT,
-      () => {},
-      (error) => { logged = error; },
-    );
-    assert.deepEqual(await adapter.select(RICH_DIFF, FILES), []);
+    let saveCalls = 0;
+    const adapter = new CurriculumPortAdapter("app", () => CURRICULUM_CORRUPT, () => { saveCalls++; }, (error) => { logged = error; });
+
+    await adapter.select(RICH_DIFF, FILES);
+
     assert.ok(logged instanceof Error, "a corrupt load result must be surfaced through onError, not swallowed");
+    assert.equal(saveCalls, 0);
   });
 });
 

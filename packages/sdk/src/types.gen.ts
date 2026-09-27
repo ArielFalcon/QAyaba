@@ -953,6 +953,7 @@ export interface components {
             rules: components["schemas"]["LearningRuleView"][];
             scorecard: components["schemas"]["ScorecardView"] | null;
             curriculum: components["schemas"]["CurriculumView"] | null;
+            curriculumCorrupt: boolean;
         };
         SignalsView: {
             valueOracle: {

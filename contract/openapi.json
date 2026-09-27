@@ -3226,13 +3226,17 @@
                 "$ref": "#/components/schemas/CurriculumView"
               }
             ]
+          },
+          "curriculumCorrupt": {
+            "type": "boolean"
           }
         },
         "required": [
           "app",
           "rules",
           "scorecard",
-          "curriculum"
+          "curriculum",
+          "curriculumCorrupt"
         ],
         "additionalProperties": false
       },

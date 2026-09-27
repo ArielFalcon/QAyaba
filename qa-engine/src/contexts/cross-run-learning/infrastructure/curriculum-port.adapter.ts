@@ -10,12 +10,11 @@ import {
 
 /*
  * Distinct from `null` ("no curriculum yet — start fresh"): a load result of CURRICULUM_CORRUPT
- * means a row EXISTS but could not be parsed. Conflating the two would make `read()` silently
- * `initCurriculum` a corrupt app's history, and the next successful `fold()` would then persist
- * that fresh curriculum right over the corrupt row — permanently discarding whatever evidence it
- * held, with no signal anywhere that it ever happened. Treating it as a distinct fault instead
- * (read() throws) routes it through the SAME try/catch every store failure already goes through
- * (onError, no save) — see read() below.
+ * means a row EXISTS but could not be parsed. Only fold() writes, and it refuses a corrupt row
+ * (reported through onError, never saved over), so the corrupt row survives for an operator to
+ * inspect instead of being silently replaced by a fresh curriculum. select() only reads: it
+ * reports the corrupt row the same way but still ranks against a fresh curriculum, so exemplar
+ * selection keeps working while the row awaits repair.
  */
 export const CURRICULUM_CORRUPT = Symbol("curriculum-corrupt");
 
@@ -34,7 +33,7 @@ export class CurriculumPortAdapter implements CurriculumPort {
   async select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]> {
     if (!diff) return [];
     try {
-      const curriculum = this.read();
+      const curriculum = this.readForRanking();
       const patterns = detectStructuralPatterns(diff, [...changedFiles]);
       const matched = dedupeById(patterns.flatMap((p) => matchExemplars(p)));
       if (matched.length === 0) return [];
@@ -75,10 +74,21 @@ export class CurriculumPortAdapter implements CurriculumPort {
 
   private read(): Curriculum {
     const raw = this.loadFn(this.app);
+    if (raw === CURRICULUM_CORRUPT) throw this.corruptRowError();
+    return raw ? normalizeCurriculum(raw, this.app) : initCurriculum(this.app);
+  }
+
+  private readForRanking(): Curriculum {
+    const raw = this.loadFn(this.app);
     if (raw === CURRICULUM_CORRUPT) {
-      throw new Error(`curriculum row for '${this.app}' is corrupt — refusing to silently reset it`);
+      this.onError(this.corruptRowError());
+      return initCurriculum(this.app);
     }
     return raw ? normalizeCurriculum(raw, this.app) : initCurriculum(this.app);
+  }
+
+  private corruptRowError(): Error {
+    return new Error(`curriculum row for '${this.app}' is corrupt — refusing to silently reset it`);
   }
 }
 

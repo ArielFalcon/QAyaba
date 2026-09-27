@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toIntelligenceView } from "./intelligence-view";
 import { foldCurriculum, initCurriculum } from "../qa/learning/curriculum";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { IntelligenceViewSchema } from "../contract/commands";
 
 test("toIntelligenceView projects rules, scorecard and curriculum", () => {
   const rules = [
@@ -72,4 +74,21 @@ test("toIntelligenceView tolerates a missing scorecard and curriculum", () => {
   assert.equal(view.scorecard, null);
   assert.equal(view.curriculum, null);
   assert.deepEqual(view.rules, []);
+});
+
+/* The API response is the schema-parsed view (api.ts contractJson), so these assert on what an
+   operator's client actually receives: a corrupt curriculum row must read as corrupt, never as the
+   "no curriculum yet" of an app that simply has none. */
+test("the intelligence API reports a corrupt curriculum row as corrupt", () => {
+  const body = IntelligenceViewSchema.parse(toIntelligenceView("app", [], null, CURRICULUM_CORRUPT));
+
+  assert.equal(body.curriculumCorrupt, true);
+  assert.equal(body.curriculum, null);
+});
+
+test("the intelligence API does not report an app with no curriculum yet as corrupt", () => {
+  const body = IntelligenceViewSchema.parse(toIntelligenceView("app", [], null, null));
+
+  assert.equal(body.curriculumCorrupt, false);
+  assert.equal(body.curriculum, null);
 });

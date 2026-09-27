@@ -1377,10 +1377,11 @@ type FlakyTrend struct {
 
 // IntelligenceView defines model for IntelligenceView.
 type IntelligenceView struct {
-	App        string             `json:"app"`
-	Curriculum *CurriculumView    `json:"curriculum"`
-	Rules      []LearningRuleView `json:"rules"`
-	Scorecard  *ScorecardView     `json:"scorecard"`
+	App               string             `json:"app"`
+	Curriculum        *CurriculumView    `json:"curriculum"`
+	CurriculumCorrupt bool               `json:"curriculumCorrupt"`
+	Rules             []LearningRuleView `json:"rules"`
+	Scorecard         *ScorecardView     `json:"scorecard"`
 }
 
 // LearningRuleView defines model for LearningRuleView.

@@ -499,7 +499,10 @@ export const IntelligenceViewSchema = z.object({
   app: z.string(),
   rules: z.array(LearningRuleViewSchema),
   scorecard: ScorecardViewSchema.nullable(),
+  /* null when the app has no curriculum yet OR its stored row is corrupt; curriculumCorrupt tells the two apart. */
   curriculum: CurriculumViewSchema.nullable(),
+  /* true when a curriculum row exists but cannot be parsed. Renderers must show it as corrupt (the row is kept for repair, never silently reset), never as "no curriculum yet". */
+  curriculumCorrupt: z.boolean(),
 });
 
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
