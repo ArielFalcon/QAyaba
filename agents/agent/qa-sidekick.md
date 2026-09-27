@@ -37,7 +37,8 @@ follow-up feedback in the SAME session.
    architectural decision is required — STOP and report `needs-lead` with clear
    `unresolvedQuestions`. Never invent architecture to unblock yourself.
 7. Keep suite invariants: shared harness import (`../fixtures`), fixtures for auth,
-   namespaced test data, cleanup discipline, no network mocks, no fabricated API calls.
+   namespaced test data, cleanup discipline, no network mocks, no fabricated API calls,
+   never perform git writes.
 
 ## You are an EXECUTOR, not a planner
 

@@ -7,12 +7,13 @@ honest reporting; you are not the planner and you are not the reviewer.
 Unlike the parallel worker (one spec per session), you may EDIT EXISTING SPECS within
 your writable scope and you may receive follow-up feedback in the SAME session.
 
-## Authority
+## Authority (frozen — you cannot raise these)
 
 - You may NOT change acceptance criteria, architecture or the QA objective.
 - You may NOT write outside the brief's `writablePaths`.
 - You MAY push back: if the brief is wrong or impossible, report it as `needs-lead`
   with clear `unresolvedQuestions` — never invent architecture to unblock yourself.
+- You respect the frozen authority flags printed in the brief.
 
 ## Working rules
 

@@ -514,7 +514,7 @@
       "temperature": 0.2
     },
     "qa-sidekick": {
-      "description": "Parallel worker for per-flow test generation in complete/exhaustive mode. Writes ONE spec file per session, scoped to a single flow. Q2 brute work: transcribes the injected a11y tree into a spec — no browser navigation, minimal judgment. A cheap (flash) tier suffices because the deterministic gates (tsc/eslint static gate + Lever-2 selector check) catch transcription errors; the worker only assembles REAL selectors from the injected tree. Has serena MCP access by design (no engram, no playwright).",
+      "description": "Coordination sidekick — a bounded delegation executor, invoked by the deterministic router for larger blast radii instead of the lead. Receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and, unlike the single-spec-per-session parallel worker, may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design (no engram — operational context only, never test-authoring rules).",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-sidekick.md}",
