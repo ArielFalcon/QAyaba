@@ -1,6 +1,7 @@
 /* Unit tests for the Codex circuit breaker. Mirrors the OpenCode breaker tests but for the
-   Codex-specific breaker. All state is process-global in codex-circuit-breaker.ts; tests reset
-   between runs.
+   Codex-specific breaker. State is keyed per agent role (J1 — mirrors
+   qa-engine/.../resilience/circuit-breaker.ts); resetCodexCircuit() with no argument resets
+   every role's state at once.
  */
 
 import { test, describe } from "node:test";
@@ -19,16 +20,16 @@ function setup() {
 describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
   test("checkCodexCircuit does NOT throw when circuit is closed (healthy baseline)", () => {
     setup();
-    assert.doesNotThrow(() => checkCodexCircuit(), "circuit must not throw when closed");
+    assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must not throw when closed");
   });
 
   test("circuit opens after CIRCUIT_THRESHOLD (5) consecutive failures", () => {
     setup();
     for (let i = 0; i < 5; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
     assert.throws(
-      () => checkCodexCircuit(),
+      () => checkCodexCircuit("primary"),
       /Codex circuit breaker is OPEN/i,
       "circuit must throw after 5 consecutive failures",
     );
@@ -38,44 +39,71 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     setup();
     /* Record 4 failures (threshold is 5) — must not open */
     for (let i = 0; i < 4; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
-    assert.doesNotThrow(() => checkCodexCircuit(), "circuit must not open on fewer than 5 failures");
+    assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must not open on fewer than 5 failures");
   });
 
   test("open circuit rejects further calls with cooldown message (AC2.6.1)", () => {
     setup();
     for (let i = 0; i < 5; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
     /* Check multiple times — each must throw */
-    assert.throws(() => checkCodexCircuit(), /Codex circuit breaker is OPEN/i);
-    assert.throws(() => checkCodexCircuit(), /Codex circuit breaker is OPEN/i);
+    assert.throws(() => checkCodexCircuit("primary"), /Codex circuit breaker is OPEN/i);
+    assert.throws(() => checkCodexCircuit("primary"), /Codex circuit breaker is OPEN/i);
   });
 
   test("recordCodexCircuitSuccess resets failure count (circuit stays closed after mixed signals)", () => {
     setup();
-    recordCodexCircuitFailure();
-    recordCodexCircuitFailure();
-    recordCodexCircuitFailure();
-    recordCodexCircuitSuccess();
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitSuccess("primary");
     /* Now 2 more failures (total 2 from reset, below threshold) — must not open */
-    recordCodexCircuitFailure();
-    recordCodexCircuitFailure();
-    assert.doesNotThrow(() => checkCodexCircuit(), "circuit must not open after success resets the counter");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must not open after success resets the counter");
   });
 
-  test("resetCodexCircuit closes an open circuit immediately (operator recovery action)", () => {
+  test("resetCodexCircuit() with no argument closes an open circuit immediately for every role (operator recovery action)", () => {
     setup();
     for (let i = 0; i < 5; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
-    assert.throws(() => checkCodexCircuit(), /Codex circuit breaker is OPEN/i);
+    assert.throws(() => checkCodexCircuit("primary"), /Codex circuit breaker is OPEN/i);
 
     resetCodexCircuit();
 
     /* Must not throw now */
-    assert.doesNotThrow(() => checkCodexCircuit(), "circuit must be closed after resetCodexCircuit()");
+    assert.doesNotThrow(() => checkCodexCircuit("primary"), "circuit must be closed after resetCodexCircuit()");
+  });
+
+  /* J1: codex-circuit-breaker.ts used to be a single set of module-level counters shared by
+     every agent role on the Codex runtime — a run-away reviewer would trip the SAME breaker a
+     healthy primary relies on. State must be keyed per role, mirroring the OpenCode breaker. */
+  test("J1: tripping one role's circuit does not block a different role", () => {
+    setup();
+    for (let i = 0; i < 5; i++) recordCodexCircuitFailure("reviewer");
+    assert.throws(() => checkCodexCircuit("reviewer"), /Codex circuit breaker is OPEN/i);
+    assert.doesNotThrow(() => checkCodexCircuit("primary"), "an unrelated role's circuit must stay closed");
+    resetCodexCircuit();
+  });
+
+  test("J1: a success on one role does not reset a different role's failure streak", () => {
+    setup();
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitFailure("primary");
+    recordCodexCircuitSuccess("reviewer"); /* an unrelated role's success */
+    recordCodexCircuitFailure("primary"); /* primary's 5th consecutive failure */
+    assert.throws(
+      () => checkCodexCircuit("primary"),
+      /Codex circuit breaker is OPEN/i,
+      "reviewer's success must not have reset primary's own failure streak",
+    );
+    resetCodexCircuit();
   });
 
   test("codex and opencode breakers are independent — codex open does not affect opencode (isolation)", async () => {
@@ -88,15 +116,13 @@ describe("codex circuit breaker state machine (T-P2-6 / AC2.6.1)", () => {
     resetCircuit();
 
     for (let i = 0; i < 5; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
 
     /* Codex must be open */
-    assert.throws(() => checkCodexCircuit(), /Codex circuit breaker is OPEN/i);
+    assert.throws(() => checkCodexCircuit("primary"), /Codex circuit breaker is OPEN/i);
 
-    /* OpenCode breaker must NOT be open (separate state). Role is now a required key (C7 —
-       breaker state is per-agent-role); any role name proves this test's actual point, that
-       codex's own failures never touch the opencode module's state at all. */
+    /* OpenCode breaker must NOT be open (separate state, separate module). */
     assert.doesNotThrow(() => checkCircuit("qa-generator"), "opencode circuit must remain closed when codex trips");
 
     resetCodexCircuit();
@@ -121,7 +147,7 @@ describe("CodexRuntimeStrategy circuit breaker wiring (T-P2-6 / AC2.6.1)", () =>
     resetCodexCircuit();
 
     for (let i = 0; i < 5; i++) {
-      recordCodexCircuitFailure();
+      recordCodexCircuitFailure("primary");
     }
 
     let transportCalled = false;

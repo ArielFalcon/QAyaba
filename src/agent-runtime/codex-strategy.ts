@@ -272,6 +272,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
      * reconstructed from `ts`, not from this counter.
      */
     let round = 0;
+    /*
+     * Circuit breaker role key (J1): mirrors opts?.descriptor?.role ?? agent in
+     * agent-transport-policy.ts, so a caller-supplied descriptor role wins over the raw
+     * openSession role — keeps the breaker keyed the same way across both runtimes.
+     */
+    const breakerRole = opts?.descriptor?.role ?? role;
     return {
       id: session.id,
       /*
@@ -288,13 +294,13 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * If the codex circuit is open (repeated infra failures), reject immediately
          * without spending a codex exec — the error surfaces as infra-error via codexErrorToInfra.
          */
-        checkCodexCircuit();
+        checkCodexCircuit(breakerRole);
         let rawOutput: string;
         try {
           rawOutput = await session.prompt(withCodexRolePreamble(role, text, this.promptRoot));
-          recordCodexCircuitSuccess();
+          recordCodexCircuitSuccess(breakerRole);
         } catch (err) {
-          recordCodexCircuitFailure();
+          recordCodexCircuitFailure(breakerRole);
           throw err;
         }
         /*
