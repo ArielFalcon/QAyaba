@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
+import {
+  FixLoop,
+  type FixLoopExecuteInput,
+  type FixLoopExecutionPort,
+  type FixLoopGenerateInput,
+  type FixLoopGenerateResult,
+  type FixLoopGenerationPort,
+  type FixLoopInput,
+  type FixLoopRun,
+} from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
+import type { SpecSelectorFindings } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
 import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -740,4 +750,293 @@ test("lastSpecMetas is undefined when the loop never regenerated (already passin
   });
 
   assert.equal(result.lastSpecMetas, undefined);
+});
+
+/* ── Recording harness: the ports are the aggregate's only outputs besides its result ──────────── */
+
+const VALUE_MISMATCH = "expect(locator).toHaveText(expected) failed\nExpected: 'Paid'\nReceived: 'Pending'";
+const LOCATOR_FAULT = "getByRole resolved to 0 elements";
+
+function findings(overrides: Partial<SpecSelectorFindings> = {}): SpecSelectorFindings {
+  return { contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...overrides };
+}
+
+function recordingLoop(opts: {
+  runs?: FixLoopRun[];
+  regen?: (round: number) => FixLoopGenerateResult;
+  check?: (round: number) => SpecSelectorFindings;
+}) {
+  const rec = {
+    executes: [] as FixLoopExecuteInput[],
+    generates: [] as FixLoopGenerateInput[],
+    checks: [] as { specSources: string[]; trees: string[][] }[],
+  };
+  const loop = new FixLoop({
+    execution: {
+      execute: async (i) => {
+        rec.executes.push(i);
+        const next = opts.runs?.[Math.min(rec.executes.length, opts.runs.length) - 1];
+        if (!next) throw new Error("this scenario does not expect a re-execution");
+        return next;
+      },
+    },
+    generation: {
+      generate: async (i) => {
+        rec.generates.push(i);
+        return opts.regen ? opts.regen(rec.generates.length) : { specs: ["checkout.spec.ts"], approved: true };
+      },
+    },
+    selectorCheck: {
+      check: (specSources, trees) => {
+        rec.checks.push({ specSources, trees });
+        return opts.check ? opts.check(rec.checks.length) : findings();
+      },
+    },
+  });
+  return { loop, rec };
+}
+
+function loopInput(overrides: Partial<FixLoopInput> = {}): FixLoopInput {
+  const { cycleBudget, wallClockBudget } = budgets();
+  return {
+    initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts" })] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-run",
+    coverageWillMeasure: false,
+    ...overrides,
+  };
+}
+
+const noFix = (): FixLoopGenerateResult => ({ specs: [], approved: true });
+
+test("the selector check sees one tree per failing case that captured a failure DOM, without blank lines, beside the latest spec sources", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+  await loop.run(
+    loopInput({
+      initialSpecSources: ["spec-source"],
+      initialRun: {
+        verdict: "fail",
+        cases: [
+          makeCase({ name: "pay", file: "checkout.spec.ts", failureDom: "button: Pay\n\n   \nlink: Home" }),
+          makeCase({ name: "no-dom", file: "checkout.spec.ts" }),
+          { name: "passing", status: "pass", file: "login.spec.ts", failureDom: "heading: Welcome" },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(rec.checks[0], { specSources: ["spec-source"], trees: [["button: Pay", "link: Home"]] });
+});
+
+test("without a captured failure DOM, or in code mode, the selector check gets no spec sources", async () => {
+  const noDom = recordingLoop({ regen: noFix });
+  await noDom.loop.run(loopInput({ initialSpecSources: ["spec-source"] }));
+  assert.deepEqual(noDom.rec.checks[0], { specSources: [], trees: [] });
+
+  const code = recordingLoop({ regen: noFix });
+  await code.loop.run(
+    loopInput({ isCode: true, initialSpecSources: ["spec-source"], initialRun: { verdict: "fail", cases: [makeCase({ failureDom: "button: Pay" })] } }),
+  );
+  assert.deepEqual(code.rec.checks[0]?.specSources, []);
+});
+
+test("with a failure DOM but no known spec source, the selector check gets no spec sources", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+  await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ failureDom: "button: Pay" })] } }));
+  assert.deepEqual(rec.checks[0]?.specSources, []);
+});
+
+test("the regeneration is asked to fix only the failing cases", async () => {
+  const { loop, rec } = recordingLoop({ regen: noFix });
+  await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" }), { name: "login", status: "pass", file: "login.spec.ts" }] },
+    }),
+  );
+  assert.deepEqual(rec.generates[0]?.fixCases.map((c) => c.name), ["checkout"]);
+});
+
+test("a previously absent selector that turns up counts as progress and earns another regeneration", async () => {
+  const { loop, rec } = recordingLoop({
+    check: (round) => findings(round === 1 ? { absentKeys: new Set(["button:Pay"]) } : {}),
+    runs: [{ verdict: "pass", cases: [{ name: "login", status: "pass", file: "checkout.spec.ts" }] }],
+  });
+  await loop.run(loopInput({ maxRetries: 2 }));
+  assert.equal(rec.generates.length, 2, "round 2 regenerates because the absent selector flipped to present");
+});
+
+test("an absent selector keeps a value-mismatch failure from being judged a real app bug", async () => {
+  const { loop } = recordingLoop({ regen: noFix, check: () => findings({ anyVerifiedPresent: true, absentKeys: new Set(["button:Pay"]) }) });
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: VALUE_MISMATCH })] } }));
+  assert.equal(result.realBugDetected, false);
+});
+
+test("a selector that matches several nodes keeps a value-mismatch failure from being judged a real app bug", async () => {
+  const { loop } = recordingLoop({
+    regen: noFix,
+    check: () => findings({ anyVerifiedPresent: true, contradictions: ['button: "Pay" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)'] }),
+  });
+  const result = await loop.run(loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts", detail: VALUE_MISMATCH })] } }));
+  assert.equal(result.realBugDetected, false);
+});
+
+test("the adjudicator sees the failing spec files: a diff-mode failure outside the changed files is labelled an objective gap", async () => {
+  const { loop } = recordingLoop({ regen: noFix });
+  const result = await loop.run(
+    loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ file: "e2e/profile.spec.ts", detail: "Timeout 5000ms exceeded" })] } }),
+  );
+  assert.equal(result.lastAdjudicatorVerdict?.class, "objective_gap");
+});
+
+test("DEV found down at the adjudication snapshot ends the loop as infra-error, never as a real bug", async () => {
+  const { loop, rec } = recordingLoop({});
+  const result = await loop.run(loopInput({ devHealthy: async () => false }));
+  assert.equal(result.run.verdict, "infra-error");
+  assert.equal(result.realBugDetected, false);
+  assert.equal(rec.generates.length, 0);
+});
+
+test("code mode re-runs the repo's own suite under the run's namespace and keeps that namespace for coverage", async () => {
+  const { loop, rec } = recordingLoop({ regen: () => ({ specs: ["test/cart.test.ts"], approved: true }), runs: [{ verdict: "pass", cases: [{ name: "cart", status: "pass" }] }] });
+  const result = await loop.run(loopInput({ isCode: true, initialRun: { verdict: "fail", cases: [makeCase({ name: "cart", detail: "AssertionError: expected 1 to equal 2" })] } }));
+  assert.deepEqual(rec.executes, [{ namespace: "qa-bot-run" }]);
+  assert.equal(result.run.verdict, "pass");
+  assert.equal(result.coverageNamespace, "qa-bot-run");
+});
+
+test("DEV going down before the retry execution stops the loop without executing and keeps the failing run", async () => {
+  let calls = 0;
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "login", status: "pass", file: "checkout.spec.ts" }] }] });
+  const result = await loop.run(loopInput({ devHealthy: async () => ++calls < 2 }));
+  assert.equal(rec.executes.length, 0);
+  assert.equal(result.run.verdict, "fail");
+});
+
+test("a filtered retry re-runs only the failing spec files and keeps the results of the specs it did not re-run", async () => {
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] }] });
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" }), { name: "login", status: "pass", file: "login.spec.ts" }] },
+    }),
+  );
+  assert.deepEqual(rec.executes[0]?.specFiles, ["checkout.spec.ts"]);
+  assert.equal(result.run.verdict, "pass");
+  assert.deepEqual(result.run.cases.map((c) => c.name).sort(), ["checkout", "login"]);
+});
+
+test("a filtered retry that still fails, or only passes on retry, reports fail or flaky over the merged cases", async () => {
+  const initialRun: FixLoopRun = {
+    verdict: "fail",
+    cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" }), { name: "login", status: "pass", file: "login.spec.ts" }],
+  };
+  const stillFailing = recordingLoop({ runs: [{ verdict: "fail", cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" })] }] });
+  assert.equal((await stillFailing.loop.run(loopInput({ initialRun }))).run.verdict, "fail");
+  const flaky = recordingLoop({ runs: [{ verdict: "flaky", cases: [{ name: "checkout", status: "flaky", file: "checkout.spec.ts" }] }] });
+  assert.equal((await flaky.loop.run(loopInput({ initialRun }))).run.verdict, "flaky");
+});
+
+test("a failing case without a spec file disables the filtered retry; a passing one without a file does not", async () => {
+  const run: FixLoopRun = { verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] };
+  const failingNoFile = recordingLoop({ runs: [run] });
+  await failingNoFile.loop.run(
+    loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" }), makeCase({ name: "setup" })] } }),
+  );
+  assert.equal(failingNoFile.rec.executes[0]?.specFiles, undefined);
+
+  const passingNoFile = recordingLoop({ runs: [run] });
+  await passingNoFile.loop.run(
+    loopInput({ initialRun: { verdict: "fail", cases: [makeCase({ name: "checkout", file: "checkout.spec.ts" }), { name: "setup", status: "pass" }] } }),
+  );
+  assert.deepEqual(passingNoFile.rec.executes[0]?.specFiles, ["checkout.spec.ts"]);
+});
+
+test("filtered retry: a regen that rewrote a failing spec AND added a new one re-runs the whole suite", async () => {
+  assert.equal(await retryScopeFor("user/login.spec.ts", ["user/login.spec.ts", "user/new.spec.ts"]), undefined);
+});
+
+test("the filtered retry applies when the caller does not say whether coverage will be measured", async () => {
+  const { loop, rec } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "checkout", status: "pass", file: "checkout.spec.ts" }] }] });
+  const input = loopInput();
+  delete input.coverageWillMeasure;
+  await loop.run(input);
+  assert.deepEqual(rec.executes[0]?.specFiles, ["checkout.spec.ts"]);
+});
+
+test("DEV found down after a failed retry ends the run as infra-error even on the last allowed retry", async () => {
+  let calls = 0;
+  const { loop } = recordingLoop({ runs: [{ verdict: "fail", cases: [makeCase({ file: "checkout.spec.ts" })] }] });
+  const result = await loop.run(loopInput({ devHealthy: async () => ++calls < 3 }));
+  assert.equal(result.run.verdict, "infra-error");
+});
+
+test("a retry that ends in infra-error is reported as infra-error even after an earlier round improved", async () => {
+  let calls = 0;
+  const { loop } = recordingLoop({
+    runs: [
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }] },
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), makeCase({ name: "b", file: "b.spec.ts" })] },
+    ],
+  });
+  const result = await loop.run(
+    loopInput({
+      maxRetries: 2,
+      coverageWillMeasure: true,
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), makeCase({ name: "b", file: "b.spec.ts" })] },
+      devHealthy: async () => ++calls < 6,
+    }),
+  );
+  assert.equal(result.run.verdict, "infra-error");
+});
+
+test("a real bug found after a better earlier round reports the run that proved it, not the earlier one", async () => {
+  const { loop } = recordingLoop({
+    check: () => findings({ anyVerifiedPresent: true }),
+    runs: [
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }, { name: "c", status: "pass", file: "c.spec.ts" }] },
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts", detail: VALUE_MISMATCH }), makeCase({ name: "b", file: "b.spec.ts", detail: VALUE_MISMATCH }), { name: "c", status: "pass", file: "c.spec.ts" }] },
+    ],
+  });
+  const result = await loop.run(
+    loopInput({
+      maxRetries: 3,
+      coverageWillMeasure: true,
+      initialRun: {
+        verdict: "fail",
+        cases: [makeCase({ name: "a", file: "a.spec.ts", detail: LOCATOR_FAULT }), makeCase({ name: "b", file: "b.spec.ts", detail: LOCATOR_FAULT }), makeCase({ name: "c", file: "c.spec.ts", detail: LOCATOR_FAULT })],
+      },
+    }),
+  );
+  assert.equal(result.realBugDetected, true);
+  assert.deepEqual(result.run.cases.filter((c) => c.status === "fail").map((c) => c.name), ["a", "b"]);
+});
+
+test("a passing retry is kept even if DEV reports unhealthy right after it", async () => {
+  let calls = 0;
+  const { loop } = recordingLoop({ runs: [{ verdict: "pass", cases: [{ name: "login", status: "pass", file: "checkout.spec.ts" }] }] });
+  const result = await loop.run(loopInput({ devHealthy: async () => ++calls < 3 }));
+  assert.equal(result.run.verdict, "pass");
+});
+
+test("a retry the runner reports as infra-error keeps that verdict, even with more failing cases than an earlier round", async () => {
+  const launchError = "browserType.launch: Executable doesn't exist";
+  const { loop } = recordingLoop({
+    runs: [
+      { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }] },
+      { verdict: "infra-error", cases: [makeCase({ name: "a", file: "a.spec.ts", detail: launchError }), makeCase({ name: "b", file: "b.spec.ts", detail: launchError })] },
+    ],
+  });
+  const result = await loop.run(
+    loopInput({
+      maxRetries: 2,
+      coverageWillMeasure: true,
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), makeCase({ name: "b", file: "b.spec.ts" })] },
+    }),
+  );
+  assert.equal(result.run.verdict, "infra-error");
 });

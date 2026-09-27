@@ -111,7 +111,11 @@ export class FixLoop {
     let adjVerdict: AdjudicatorVerdict | undefined;
     let coverageNs = input.namespace;
     let lastRegenResult: FixLoopGenerateResult | undefined = input.initialSpecSources?.length
-      ? { specs: [], approved: true, specSources: input.initialSpecSources }
+      ? {
+          // Stryker disable next-line ArrayDeclaration,BooleanLiteral: equivalent — only specSources, reexploreNavigations and specMetas are ever read from it
+          specs: [], approved: true,
+          specSources: input.initialSpecSources,
+        }
       : undefined;
 
     const maxRetries = input.maxRetries;
@@ -131,10 +135,7 @@ export class FixLoop {
       const anyNonExtractableLocator = lever2.anyNonExtractable;
       const anyUnverifiableSelector = lever2.anyUnverifiable;
 
-      const lever2Flips =
-        prevRound && prevRound.absentSelectors.size > 0
-          ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length
-          : 0;
+      const lever2Flips = prevRound ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length : 0;
 
       const curRound: RoundResult = {
         failingNames: new Set(failed.map((c) => c.name)),
@@ -150,6 +151,7 @@ export class FixLoop {
         absentKeys.size === 0 &&
         !anyNonExtractableLocator &&
         !anyUnverifiableSelector &&
+        // Stryker disable next-line StringLiteral: equivalent — the selector check only reports a non-MULTIPLE contradiction together with an absent key, which already clears allUnique
         !selectorContradictions.some((c) => c.includes("MULTIPLE"));
 
       /* Fresh devHealthy() at this snapshot; a separate fresh call happens before retry-execute — never shared or memoized. */
@@ -157,7 +159,10 @@ export class FixLoop {
       const evidence: AdjudicatorEvidence = {
         isCode: input.isCode,
         allUnique,
+        /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
+        // Stryker disable next-line StringLiteral: equivalent — see above
         failureDetails: failed.map((c) => c.detail ?? ""),
+        // Stryker disable next-line StringLiteral: equivalent — see above
         failureClasses: failed.map((c) => classifyFailure(c.detail ?? "")),
         absentKeysCount: absentKeys.size,
         gateSpend: gate.spend,
@@ -180,9 +185,11 @@ export class FixLoop {
             realBugDetected = true;
           }
           break;
+        // Stryker disable next-line ConditionalExpression: equivalent — an empty case falls through to the same `break`
         case ADJ_ACTION.BREAK_NEEDS_HUMAN:
           /* Exits via the guard below; adjVerdict is already set — the caller labels the Issue. */
           break;
+        // Stryker disable next-line ConditionalExpression: equivalent — an empty last case leaves the switch the same way
         case ADJ_ACTION.CONTINUE:
           break;
       }
@@ -193,6 +200,7 @@ export class FixLoop {
       /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
       const result = await this.deps.generation.generate({
         fixCases: failed,
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — the generation adapter treats an empty list like an absent one
         ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),
         ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
         cycleBudget: input.cycleBudget,
@@ -218,6 +226,7 @@ export class FixLoop {
       } else {
         /* Fresh namespace per retry so a retry cannot collide with its own prior attempt's test data. */
         if (this.deps.revalidate) {
+          // Stryker disable next-line StringLiteral: unreachable — the only caller (RunQaUseCase) always passes specDir
           const reValidation = await this.deps.revalidate(input.specDir ?? "");
           if (!reValidation.ok) break; /* retry validation failed; keep original verdict */
         }
@@ -241,6 +250,7 @@ export class FixLoop {
         const regenStayedInFailedSet = !regenHasOutsiders;
         const canFilter =
           allFailedHaveFile &&
+          // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — with no failing file, every (non-empty) regen spec is an outsider, so regenStayedInFailedSet is already false
           failedSpecFiles.length > 0 &&
           regenStayedInFailedSet &&
           !(input.coverageWillMeasure ?? false);
@@ -258,6 +268,7 @@ export class FixLoop {
         if (canFilter) {
           /* Carry forward cases from files not re-run; splice in the re-run's results. */
           const rerunFileSet = new Set(failedSpecFiles);
+          // Stryker disable next-line ConditionalExpression: equivalent — a case without a file is never in rerunFileSet
           const carriedForward = run.cases.filter((c) => !(c.file && rerunFileSet.has(c.file)));
           const mergedCases = [...carriedForward, ...retryRun.cases];
           const mergedVerdict: RunVerdict = mergedCases.some((c) => c.status === "fail")
@@ -273,6 +284,7 @@ export class FixLoop {
       }
 
       /* Keep the best EXECUTED run seen so far. infra-error is never "better". */
+      // Stryker disable next-line ConditionalExpression: equivalent — an infra-error run ends the loop, and the restore below skips infra-error
       if (run.verdict !== "infra-error") {
         bestRunSoFar = bestRound([
           { failingCount: failCount(bestRunSoFar), run: bestRunSoFar },
@@ -282,7 +294,12 @@ export class FixLoop {
     }
 
     /* Restore bestRunSoFar after the loop — skipped when the real-bug branch fired or the loop ended on infra-error. */
-    if (!realBugDetected && run.verdict !== "infra-error" && failCount(bestRunSoFar) < failCount(run)) {
+    if (
+      !realBugDetected &&
+      run.verdict !== "infra-error" &&
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — bestRunSoFar already includes every executed non-infra run, ties going to the later one
+      failCount(bestRunSoFar) < failCount(run)
+    ) {
       run = bestRunSoFar;
     }
 
