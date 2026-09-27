@@ -246,10 +246,10 @@ export async function runE2E(
     };
   }
 
-  /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. Priority: fixture dump > errorContext from the JSON report (errorContext covers expect() failures for free in PW 1.60; the fixture dump covers click/nav timeouts where no errorContext is emitted). LOUD WARNING when a failed case yields neither — this is a grounding gap (invariant: never swallow, per CLAUDE.md INV-4). Post-run harvest over PwCase[] (before widening to QaCase[]): PwCase carries errorContext from the 1.60 JSON report, which is needed as a fallback when no fixture dump exists. We mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
+  /* Post-run harvest: for each failed case, read the aria snapshot dump written by the qa-failure-capture afterEach fixture and populate QaCase.failureDom. The pipeline splits this back into lines without re-parsing. The fixture dump is the ONLY source — Playwright's JSON reporter carries no per-error DOM snapshot to fall back to (JSONReportError is just {message, location?}). LOUD WARNING when a failed case yields no dump — this is a grounding gap (invariant: never swallow, per CLAUDE.md INV-4). Post-run harvest over PwCase[] (before widening to QaCase[]): we mutate the same objects (same references) — the cast to QaCase[] below picks up the failureDom we set here because the runtime objects are identical. */
   const failedPwCases = parsed.cases.filter((c) => c.status === "fail");
   if (failedPwCases.length > 0) {
-    /* W2: the per-case harvest runs whenever there are failed cases — NOT gated on failureCaptureDir. Only the fixture-dump read needs the dir; when it is absent (e.g. mkdtempSync failed for lack of /tmp space) `dumps` is simply [] and we fall through to the errorContext fallback (which needs no temp dir) and, failing that, the loud "no grounding captured" WARNING. Gating the whole loop on the dir silently dropped BOTH the fallback and the WARNING — violating the never-swallow invariant. Read every dump ONCE into {file, title, retry, yaml}: matching keys off the dump's own `file` + `title` (the describe›test chain the fixture wrote), which the report's case name ENDS WITH — the report prepends the spec file as the top suite, the fixture records it as a separate `file`. */
+    /* W2: the per-case harvest runs whenever there are failed cases — NOT gated on failureCaptureDir. When the dir is absent (e.g. mkdtempSync failed for lack of /tmp space) `dumps` is simply [] and every failed case falls straight to the loud "no grounding captured" WARNING below. Gating the whole loop on the dir silently dropped the WARNING — violating the never-swallow invariant. Read every dump ONCE into {file, title, retry, yaml}: matching keys off the dump's own `file` + `title` (the describe›test chain the fixture wrote), which the report's case name ENDS WITH — the report prepends the spec file as the top suite, the fixture records it as a separate `file`. */
     const dumps = failureCaptureDir ? readFailureDumps(failureCaptureDir) : [];
     for (const c of failedPwCases) {
       const qa = c as unknown as QaCase;
@@ -261,13 +261,9 @@ export async function runE2E(
       if (dump?.httpStatus !== undefined) qa.httpStatus = dump.httpStatus;
       if (dump?.finalUrl !== undefined) qa.finalUrl = dump.finalUrl;
       if (dump?.runtimeErrors !== undefined) qa.runtimeErrors = dump.runtimeErrors;
-      if (!qa.failureDom && c.errorContext) {
-        const nodes = parseAriaSnapshot(c.errorContext);
-        if (nodes.length > 0) qa.failureDom = nodes.join("\n");
-      }
-      /* Neither dump nor errorContext (or both unparseable): loud WARNING (grounding gap — INV-4: never swallow, and never store a half-shape raw YAML the consumers can't read). */
+      /* No dump (or an unparseable one): loud WARNING (grounding gap — INV-4: never swallow). */
       if (!qa.failureDom) {
-        console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (dump absent + no errorContext) — fix-loop will run without grounding.`);
+        console.warn(`[qa] WARNING: no failure-point DOM captured for failed case ${JSON.stringify(c.name)} (no fixture dump) — fix-loop will run without grounding.`);
       }
     }
   }

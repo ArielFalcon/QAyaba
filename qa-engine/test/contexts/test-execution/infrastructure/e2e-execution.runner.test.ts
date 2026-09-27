@@ -28,19 +28,6 @@ import {
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-/* selectorPresent — same function, verified in selector-check-parity.test.ts.
- */
-import { selectorPresent } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
-import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-
-/* buildFailureDomLines — splits a case's captured failure-point a11y tree into non-empty lines. Pure,
-   dependency-free. The production copy now lives in qa-engine's
-   only needs the same shape to assert the runner's DOM-harvest output is consumable by it.
- */
-function buildFailureDomLines(failureDom: string | undefined): string[] {
-  if (!failureDom) return [];
-  return failureDom.split("\n").filter((l) => l.trim());
-}
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
   const launchFail: QaCase[] = [
@@ -253,74 +240,13 @@ test("runE2E handles a null report by returning infra-error", async () => {
   assert.equal(run.passed, false);
 });
 
-/* The errorContext fallback (PW 1.60 expect() failures, no fixture dump) is RAW ariaSnapshot YAML
-   (`- role "name"`). It MUST be flattened through parseAriaSnapshot to "role: name" — the EXACT
-   shape every consumer expects — or Lever-2, the absent/unique checks and the real-bug branch are
-   all inert for expect() failures. This walks the full seam: report errorContext (raw YAML) →
-   runE2E harvest → QaCase.failureDom → buildFailureDomLines → selectorPresent finds the role.
+/* The per-case harvest's loud "no grounding" WARNING must fire even when failureCaptureDir is
+   UNDEFINED (mkdtempSync failed, e.g. no /tmp space) — the fixture dump is the ONLY source of
+   failureDom (Playwright's JSON reporter carries no per-error DOM snapshot), so a failed case with
+   no capture dir at all has nothing to fall back to and must warn rather than swallow the gap.
+   Force mkdtempSync to throw by pointing TMPDIR at a non-existent path.
  */
-test("runE2E flattens a RAW errorContext aria YAML so the Lever-2 seam can read role:name", async () => {
-  const rawAriaYaml = [
-    "- banner:",
-    "  - link \"Home\"",
-    "- main:",
-    "  - heading \"Find Owners\" [level=1]",
-    "  - button \"Add Owner\"",
-    "  - table:",
-    "    - row \"Name City\"",
-  ].join("\n");
-
-  const deps: E2eExecuteDeps = {
-    runSuite: async () => ({
-      report: {
-        suites: [
-          {
-            title: "owners.spec.ts",
-            specs: [
-              {
-                title: "lists owners",
-                ok: false,
-                tests: [
-                  {
-                    status: "unexpected",
-                    results: [{ status: "failed", error: { message: "expect(received).toHaveText(expected) failed" }, errors: [{ errorContext: rawAriaYaml }] }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      logs: "ok",
-      ran: true,
-    }),
-  };
-
-  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-ec" }, deps);
-  assert.equal(run.verdict, "fail");
-  const failed = run.cases.find((c) => c.name.endsWith("lists owners"));
-  assert.ok(failed, "the failing case should be present");
-
-  /* The stored failureDom must be the FLATTENED "role: name" form, never the raw "- role \"name\"" YAML. */
-  assert.ok(failed!.failureDom, "errorContext must have been harvested into failureDom");
-  assert.doesNotMatch(failed!.failureDom!, /- button "Add Owner"/, "must NOT store the raw YAML form");
-  assert.deepEqual(failed!.failureDom!.split("\n"), parseAriaSnapshot(rawAriaYaml), "failureDom must equal parseAriaSnapshot of the errorContext");
-
-  /* The downstream consumers must now find a known role:name (they were inert on raw YAML). */
-  const lines = buildFailureDomLines(failed!.failureDom);
-  assert.ok(lines.includes("button: Add Owner"), `expected flattened 'button: Add Owner' in ${JSON.stringify(lines)}`);
-  const present = selectorPresent({ kind: "role", role: "button", name: "Add Owner" }, lines);
-  assert.equal(present.present, true, "selectorPresent must locate the button against the flattened tree");
-  assert.equal(present.verifiable, true);
-});
-
-/* The per-case harvest — the errorContext fallback AND the loud "no grounding" WARNING — must run
-   even when failureCaptureDir is UNDEFINED (mkdtempSync failed, e.g. no /tmp space). Force
-   mkdtempSync to throw by pointing TMPDIR at a non-existent path, then assert: (1) the errorContext
-   case still gets failureDom, and (2) the no-dump/no-errorContext case still emits the WARNING.
- */
-test("W2: errorContext fallback + the no-grounding WARNING still fire when the capture dir can't be minted", async () => {
-  const rawAriaYaml = "- main:\n  - button \"Add Owner\"";
+test("W2: the no-grounding WARNING still fires when the capture dir can't be minted", async () => {
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
       /* The dir could not be minted, so the runner is handed no capture dir at all. */
@@ -331,11 +257,6 @@ test("W2: errorContext fallback + the no-grounding WARNING still fire when the c
             {
               title: "owners.spec.ts",
               specs: [
-                {
-                  title: "has errorContext",
-                  ok: false,
-                  tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "expect(received).toHaveText(expected) failed" }, errors: [{ errorContext: rawAriaYaml }] }] }],
-                },
                 {
                   title: "has nothing",
                   ok: false,
@@ -366,11 +287,10 @@ test("W2: errorContext fallback + the no-grounding WARNING still fire when the c
   }
 
   assert.equal(run.verdict, "fail");
-  /* (1) The errorContext fallback still populated failureDom for the first case (needs no temp dir). */
-  const ec = run.cases.find((c) => c.name.endsWith("has errorContext"));
-  assert.ok(ec?.failureDom, "errorContext must still be harvested into failureDom with no capture dir");
-  assert.ok(buildFailureDomLines(ec!.failureDom).includes("button: Add Owner"));
-  /* (2) The case with neither dump nor errorContext still triggers the loud WARNING (never swallowed). */
+  const failed = run.cases.find((c) => c.name.endsWith("has nothing"));
+  assert.ok(failed, "the failing case should be present");
+  assert.equal(failed!.failureDom, undefined, "no dump and no capture dir -> no failureDom, never fabricated");
+  /* The case with no dump still triggers the loud WARNING (never swallowed). */
   assert.ok(
     warnings.some((w) => /no failure-point DOM captured/i.test(w) && /has nothing/.test(w)),
     `expected a 'no failure-point DOM captured' WARNING for the empty case; warnings: ${JSON.stringify(warnings)}`,
