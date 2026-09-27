@@ -223,8 +223,8 @@ let errorResponses: { url: string; status: number; resourceType: string }[] = []
 // App-defect detection: browser console `error`-level entries and uncaught `pageerror`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
 // page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
-// orchestrator's classifyRuntimeErrors (src/qa/failure-adjudicator.ts) turns this into a diagnostic
-// signal ONLY — it never blocks or masks a real generated-test defect (see that module's doc).
+// orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
+// blocks or masks a real generated-test defect.
 let runtimeErrors: { type: string; text: string }[] = [];
 test.beforeEach(async ({ page }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)

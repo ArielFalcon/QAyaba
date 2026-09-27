@@ -49,7 +49,7 @@ export interface CoordinationTelemetryPort {
 
 /* Pure, process-lifetime, memory-only recorder — no fs, no sanitization side effects of its own.
    Any redaction/persistence policy is the caller's (or a wrapping adapter's) responsibility, so this
-   class does exactly one thing and its name no longer lies about what it does. */
+   class does exactly one thing: record. */
 export class CoordinationTelemetryRecorder implements CoordinationTelemetryPort {
   readonly events: CoordinationTelemetryEvent[] = [];
 
@@ -61,9 +61,9 @@ export class CoordinationTelemetryRecorder implements CoordinationTelemetryPort 
 export interface DeriveAdaptiveSignalsOptions {
   /** Scope derivation to one app's own events. Absent = fleet-wide (legacy, all apps mixed). */
   readonly app?: string;
-  /** Bounded recent window (last N events, applied AFTER app scoping) — keeps the "recent*" field
-   * names honest (previously computed over the entire all-time events array) and bounds the cost
-   * of a long-lived process's telemetry sample. */
+  /** Bounded recent window (last N events, applied AFTER app scoping) — keeps the "recent*" fields
+   * about recent events rather than the whole all-time events array, and bounds the cost of a
+   * long-lived process's telemetry sample. */
   readonly windowSize?: number;
 }
 

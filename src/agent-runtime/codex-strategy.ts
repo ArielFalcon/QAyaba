@@ -290,8 +290,9 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
       prompt: async (text, promptOpts) => {
         const thisRound = round++;
         /*
-         * Circuit breaker guard (mirrors checkCircuit() in opencode-client.ts:1607).
-         * If the codex circuit is open (repeated infra failures), reject immediately
+         * Circuit breaker guard — the Codex counterpart of the checkCircuit() gate the OpenCode
+         * transport policy applies (agent-transport-policy.ts). If the codex circuit is open
+         * (repeated infra failures), reject immediately
          * without spending a codex exec — the error surfaces as infra-error via codexErrorToInfra.
          */
         checkCodexCircuit(breakerRole);
@@ -340,7 +341,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
     if (opts?.apiKey) this.env.CODEX_API_KEY = opts.apiKey;
     /*
      * Clear the circuit breaker on restart so the operator's recovery action (rotate API key)
-     * is not blocked by stale failures — mirrors resetCircuit() in opencode-client.ts.
+     * is not blocked by stale failures — as disposeSharedClient() resets the OpenCode breaker.
      */
     resetCodexCircuit();
     const supervised = await supervisorRestart(this.env, this.provider, opts?.apiKey, opts?.env);

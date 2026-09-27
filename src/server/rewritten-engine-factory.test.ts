@@ -2466,7 +2466,7 @@ test("cross-repo: an UNDECLARED triggerRepo throws (defense in depth, matches ru
   );
 });
 
-test("cross-repo: mode 'context' triggered by a declared service throws (legacy pipeline.ts:1017-1020 sibling guard)", () => {
+test("cross-repo: mode 'context' triggered by a declared service throws", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-context-service"), services: [{ repo: "org/orders-svc" }] };
   assert.throws(
     () =>

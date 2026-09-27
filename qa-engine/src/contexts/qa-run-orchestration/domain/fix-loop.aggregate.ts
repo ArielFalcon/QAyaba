@@ -190,7 +190,7 @@ export class FixLoop {
 
       prevRound = curRound;
 
-      /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread — generation enforces them. */
+      /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
       const result = await this.deps.generation.generate({
         fixCases: failed,
         ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),

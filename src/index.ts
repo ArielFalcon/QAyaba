@@ -514,10 +514,9 @@ const onboardingJob = createOnboardingJob({
     /*
      * No shadow override: this run honors the app's own qa.shadow, same as any other enqueue path
      * (req.shadow is left absent, so runner.ts falls through to the YAML value unchanged). The
-     * SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's real
-     * durability mechanism now — it captures the validated map on every clean context-mode pass
-     * regardless of shadow, so forcing a context.json PR open for shadow apps is no longer needed
-     * to make the map survive the next mirror wipe. Never pass triggerRepo — context mode cannot be
+     * SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's
+     * durability mechanism — it captures the validated map on every clean context-mode pass
+     * regardless of shadow, so the map survives the next mirror wipe without a context.json PR. Never pass triggerRepo — context mode cannot be
      * driven from a service repo.
      */
     return enqueueTrackedRun(

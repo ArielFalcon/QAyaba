@@ -533,19 +533,15 @@ export class RunQaUseCase {
      * for by-id fold attribution — never conflate the two.
      */
     /*
-     * Bias retrieval toward the CURRENT diff's structural shape — restored from the deleted
-     * shell's selectForRetrieval bias (src/qa/learning/retrieval.ts, pre migration-tier-4c), using
-     * the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
+     * Bias retrieval toward the CURRENT diff's structural shape, using the SAME detector generation's own curriculum/archetype calls already use (detectArchetype
      * below, curriculum.select() above) so the offered archetypes never silently diverge from what
      * biases retrieval. classificationDiff is undefined outside diff mode (only "diff" classifies —
      * see above), so there is no signal to bias with there; never fabricated.
      *
-     * The shell ALSO biased on the app's MOST RECENT PERSISTED errorClass (deps.recentErrorClass,
-     * itself sourced from listRunOutcomes). RunHistoryPort here is save-only (no read-back — see
-     * rewritten-orchestrator.adapter.ts's own header note), and no other port wired into this
-     * use-case at this point in the flow can answer "what was this app's last outcome's
-     * errorClass" — that signal has no equivalent source today and is deliberately left unwired
-     * rather than invented.
+     * Retrieval is NOT biased by the app's most recent persisted errorClass: RunHistoryPort is
+     * save-only (no read-back — see rewritten-orchestrator.adapter.ts's own header note), and no
+     * port wired into this use-case at this point in the flow can answer "what was this app's
+     * last outcome's errorClass", so that signal is left unwired rather than invented.
      */
     /*
      * The diff's structural shapes, read once: they bias retrieval (specific shapes only) and ride
@@ -2186,11 +2182,6 @@ export class RunQaUseCase {
     };
   }
 
-  /*
-   * Every infra-error terminal carries a diagnostic note and is logged loudly.
-   * mirrorDir is passed only when prepare() already ran; the entry-gate deploy
-   * failure omits it (the mirror was never touched).
-   */
   /** No-op when the port is unwired. unauthored is a setup note, not a failure. */
   private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | undefined> {
     const sessionPort = this.deps.authSession;
@@ -2208,6 +2199,11 @@ export class RunQaUseCase {
     return session;
   }
 
+  /*
+   * Every infra-error terminal carries a diagnostic note and is logged loudly.
+   * mirrorDir is passed only when prepare() already ran; the entry-gate deploy
+   * failure omits it (the mirror was never touched).
+   */
   private async infraErrorResult(note?: string, mirrorDir?: string): Promise<RunQaResult> {
     if (note !== undefined) {
       console.error("[qa] infra-error terminal:", note);

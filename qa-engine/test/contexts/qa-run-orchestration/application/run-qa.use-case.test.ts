@@ -1467,7 +1467,7 @@ test("a diff-mode fail retry computes coverageWillMeasure per the legacy formula
   assert.equal(
     capturedCoverageWillMeasure,
     true,
-    "diff mode + coveragePolicyMode!=='off' must thread coverageWillMeasure:true into the FixLoop (matches src/pipeline.ts:2563-2564)",
+    "diff mode + coveragePolicyMode!=='off' must thread coverageWillMeasure:true into the FixLoop",
   );
 });
 
@@ -1510,7 +1510,7 @@ test("agent no-op skip calls runHistory.save() but NOT learning.fold()", async (
   const out = await useCase.run({ ...baseInput, runId: "fix-e-agent-no-op-skip" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.equal(saveCallCount, 1, "agent no-op skip must call runHistory.save() exactly once (matches persistOutcome at pipeline.ts:2226-2234)");
+  assert.equal(saveCallCount, 1, "agent no-op skip must call runHistory.save() exactly once");
   assert.equal(foldCallCount, 0, "agent no-op skip must NEVER call learning.fold() (the legacy never calls foldRunLearning for this source)");
 });
 
@@ -1525,7 +1525,7 @@ test("classify-skip does NOT call runHistory.save() or learning.fold() (distinct
   const out = await useCase.run({ ...baseInput, runId: "fix-e-classify-skip", mode: "diff" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.equal(saveCallCount, 0, "classify-skip is a bare return in the legacy (pipeline.ts:1263-1267) — it must NOT call runHistory.save()");
+  assert.equal(saveCallCount, 0, "classify-skip is a bare return in the legacy — it must NOT call runHistory.save()");
   assert.equal(foldCallCount, 0, "classify-skip must NOT call learning.fold()");
 });
 
@@ -1540,8 +1540,8 @@ test("invalid calls BOTH runHistory.save() AND learning.fold()", async () => {
   const out = await useCase.run({ ...baseInput, runId: "fix-e-invalid" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(saveCallCount, 1, "invalid must call runHistory.save() exactly once (matches persistOutcome at pipeline.ts:2313-2325)");
-  assert.equal(foldCallCount, 1, "invalid must call learning.fold() exactly once (matches foldRunLearning at pipeline.ts:2321)");
+  assert.equal(saveCallCount, 1, "invalid must call runHistory.save() exactly once");
+  assert.equal(foldCallCount, 1, "invalid must call learning.fold() exactly once");
 });
 
 /* The FixLoop's own adjudicator verdict threads into the persisted RunOutcome.adjudication, and
@@ -2233,7 +2233,7 @@ test("SETUP: setup() is SKIPPED on a classify-skip (nothing to generate for)", a
   const out = await useCase.run({ ...baseInput, runId: "setup-skipped-on-classify-skip", mode: "diff" });
 
   assert.equal(out.decision.verdict, "skipped");
-  assert.equal(setupCalled, false, "a classify-skip never reaches generation, so setup must not run either — matches legacy's classify-then-setup ordering (src/pipeline.ts:1263 returns before :1299)");
+  assert.equal(setupCalled, false, "a classify-skip never reaches generation, so setup must not run either");
 });
 
 test("SETUP: a setup() throw maps to infra-error, never a code verdict — and does NOT persist", async () => {
@@ -2310,7 +2310,7 @@ test("reviewerApproved is copied into the persisted gateSignals (not dropped aft
   await useCase.run({ ...baseInput, runId: "fix-1-reviewer-approved-persisted" });
 
   assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be threaded into the persisted gateSignals, matching src/pipeline.ts:1114's persistOutcome call");
+  assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be threaded into the persisted gateSignals");
 });
 
 test("reviewerApproved reflects a reviewer REJECTION (false), not silently omitted", async () => {
@@ -2339,7 +2339,7 @@ test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 co
   const out = await useCase.run({ ...baseInput, runId: "fix-2-context-clean-no-persist", mode: "context" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting (src/pipeline.ts:1422-1438)");
+  assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting");
 });
 
 test("a clean context-mode pass invokes contextMapCapture.capture() with the run's specDir/app/sha, in BOTH shadow and non-shadow modes", async () => {
@@ -2445,7 +2445,7 @@ test("a context-mode INVALID result is not saved to run history", async () => {
   const out = await useCase.run({ ...baseInput, runId: "fix-2-context-invalid-persists", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT persist — matches src/pipeline.ts:1377-1404's buildContextMap invalid branch, which files an Issue but never calls persistOutcome");
+  assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT persist — a context-mode invalid files an Issue but is never saved");
 });
 
 test("valueScore flows from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded null)", async () => {
@@ -2460,7 +2460,7 @@ test("valueScore flows from ObjectiveSignalPort.measure() into the persisted gat
   await useCase.run({ ...baseInput, runId: "fix-3-value-score-persisted" });
 
   assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.valueScore, 0.85, "valueScore must be threaded from ObjectiveSignalPort.measure() into the persisted gateSignals, matching src/pipeline.ts:3267's persistOutcome(..., valueScore, ...)");
+  assert.equal(saved!.gateSignals.valueScore, 0.85, "valueScore must be threaded from ObjectiveSignalPort.measure() into the persisted gateSignals");
 });
 
 test("an absent valueScore from ObjectiveSignalPort.measure() persists null, never a fabricated 0", async () => {
@@ -2623,7 +2623,7 @@ test("reviewerApproved is sourced from GENERATION's own approved flag when revie
   assert.equal(out.decision.verdict, "fail");
   assert.equal(reviewCallCount, 0, "the independent review phase must NEVER be called for a non-pass verdict (matches RunQaUseCase's own verdict==='pass' review gate)");
   assert.ok(saved, "runHistory.save() must have been called");
-  assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be sourced from GENERATION's own approved flag (needsReview gated, verdict-independent) — matching src/pipeline.ts:1114's persistOutcome call, which reads whatever AgentResult reviewGenerated returned unchanged when deps.review was never wired");
+  assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be sourced from GENERATION's own approved flag (needsReview gated, verdict-independent) — the review step never ran, so generation's own verdict is the only one");
 });
 
 test("reviewerApproved reflects generation's OWN rejection (false) on a non-pass verdict, not a fabricated true", async () => {
@@ -2778,7 +2778,7 @@ test("a context-mode INVALID result neither saves run history nor folds learning
   const out = await useCase.run({ ...baseInput, runId: "fix-2-batch2-context-invalid-no-persist", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT call runHistory.save() — matches src/pipeline.ts:1377-1404's buildContextMap invalid branch, which files an Issue but never calls persistOutcome");
+  assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT call runHistory.save() — a context-mode invalid files an Issue but is never saved");
   assert.equal(foldCallCount, 0, "a context-mode invalid must NOT call learning.fold() either — the legacy's early return never reaches foldRunLearning at all");
 });
 
@@ -2819,7 +2819,7 @@ test("a failing static gate is repaired by regenerating with the validation erro
   assert.equal(out.decision.sideEffect, "pr");
   assert.equal(validateCallCount, 2, "the static-fix loop must re-validate after the repair regen (1 initial fail + 1 recovery pass)");
   assert.ok(generateCallCount >= 2, `the static-fix loop must regenerate at least once to repair the static gate, got ${generateCallCount} generate() call(s)`);
-  assert.equal(out.gateSignals.retries, 1, "matches the legacy static-repair loop's own retries++ per repair round (src/pipeline.ts:2265) — 1 repair round consumed");
+  assert.equal(out.gateSignals.retries, 1, "matches the legacy static-repair loop's own retries++ per repair round — 1 repair round consumed");
 });
 
 test("the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static gate that never recovers still resolves to invalid, not an infinite loop", async () => {
@@ -2834,7 +2834,7 @@ test("the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static g
   const out = await useCase.run({ ...baseInput, runId: "fix-3-batch2-static-repair-bound" });
 
   assert.equal(out.decision.verdict, "invalid", "a static gate still red after the repair budget is exhausted must resolve to invalid, matching the legacy's own bounded loop");
-  assert.equal(validateCallCount, 1 + 2, "MAX_STATIC_FIX_ROUNDS=2 means exactly 1 initial validate() + 2 repair-round re-validates (3 total), matching src/pipeline.ts:804's MAX_STATIC_FIX_ROUNDS constant verbatim — never an unbounded loop");
+  assert.equal(validateCallCount, 1 + 2, "MAX_STATIC_FIX_ROUNDS=2 means exactly 1 initial validate() + 2 repair-round re-validates (3 total) — never an unbounded loop");
   assert.equal(generateCallCount, 1 + 2, "exactly 2 repair regenerations on top of the initial generate() call — bounded, not unbounded");
 });
 
@@ -2966,7 +2966,7 @@ test("infra-error calls runHistory.save() but NOT learning.fold()", async () => 
   const out = await useCase.run({ ...baseInput, runId: "fix-e-infra-error" });
 
   assert.equal(out.decision.verdict, "infra-error");
-  assert.equal(saveCallCount, 1, "infra-error must call runHistory.save() exactly once (matches persistOutcome at pipeline.ts:2328-2337)");
+  assert.equal(saveCallCount, 1, "infra-error must call runHistory.save() exactly once");
   assert.equal(foldCallCount, 0, "infra-error must NEVER call learning.fold() (the legacy never calls foldRunLearning for this source)");
 });
 
@@ -3204,7 +3204,7 @@ test("ObserverPort: a non-diff-mode (complete) PASS run never emits a 'coverage'
   const out = await useCase.run({ ...baseInput, runId: "coverage-step-non-diff-mode", mode: "complete" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(!steps.some((s) => s.step === "coverage"), "a non-diff mode pass must never emit 'coverage' — legacy's own onStep('coverage') site lives strictly inside the mode==='diff' branch (src/pipeline.ts:2919)");
+  assert.ok(!steps.some((s) => s.step === "coverage"), "a non-diff mode pass must never emit 'coverage' — legacy's own onStep('coverage') site lives strictly inside the mode==='diff' branch");
 });
 
 test("ObserverPort: a diff-mode PASS run WITH triggerRepo set never emits a 'coverage' step, mirroring the legacy's !triggerService conjunct", async () => {
@@ -3215,7 +3215,7 @@ test("ObserverPort: a diff-mode PASS run WITH triggerRepo set never emits a 'cov
   const out = await useCase.run({ ...baseInput, runId: "coverage-step-cross-repo", mode: "diff", triggerRepo: "org/orders-svc" });
 
   assert.equal(out.decision.verdict, "pass");
-  assert.ok(!steps.some((s) => s.step === "coverage"), "a cross-repo diff-mode pass must never emit 'coverage' — browser coverage cannot map the triggering service repo's changed lines (CLAUDE.md), matching legacy's !triggerService conjunct at src/pipeline.ts:2912");
+  assert.ok(!steps.some((s) => s.step === "coverage"), "a cross-repo diff-mode pass must never emit 'coverage' — browser coverage cannot map the triggering service repo's changed lines (CLAUDE.md)");
 });
 
 test("ObserverPort: a diff-mode PASS run WITHOUT triggerRepo still emits a 'coverage' step (control case for the two guards above)", async () => {
@@ -3531,7 +3531,7 @@ test("onFailure:'none' + fail verdict resolves to sideEffect:'none' and publish(
   const out = await useCase.run({ ...baseInput, runId: "f2-onfailure-none-no-issue" });
 
   assert.equal(out.decision.verdict, "fail");
-  assert.equal(out.decision.sideEffect, "none", "onFailure:'none' must suppress the side effect for a fail verdict (report()'s own top-guard, src/pipeline.ts:3337-3340)");
+  assert.equal(out.decision.sideEffect, "none", "onFailure:'none' must suppress the side effect for a fail verdict (report()'s own top-guard)");
   assert.equal(publishCallCount, 0, "an onFailure-suppressed decision ('none') must NEVER reach the publish port — no Issue must open");
 });
 
@@ -3550,7 +3550,7 @@ test("a triggerRepo run threads issueRepo into publish() so the Issue routes to 
 
   assert.equal(out.decision.sideEffect, "issue");
   assert.ok(publishedDecision, "publish() must have been called");
-  assert.equal(publishedDecision!.issueRepo, "org/orders-svc", "publish() must receive issueRepo from input.triggerRepo so PublicationPortAdapter can route the Issue to the triggering repo, not the primary (mirrors legacy's issueRepo = triggerService ? triggerService.repo : app.repo, src/pipeline.ts:1021)");
+  assert.equal(publishedDecision!.issueRepo, "org/orders-svc", "publish() must receive issueRepo from input.triggerRepo so PublicationPortAdapter can route the Issue to the triggering repo, not the primary (mirrors legacy's issueRepo = triggerService ? triggerService.repo : app.repo)");
 });
 
 test("an ordinary (non-cross-repo) run omits issueRepo entirely — the adapter falls back to its own static ctx.repo", async () => {
@@ -3690,7 +3690,7 @@ test("a context-mode invalid does NOT dispatch publish() when onFailure:'none' �
   const out = await useCase.run({ ...baseInput, runId: "w3-fix2-context-invalid-onfailure-none", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(publishCallCount, 0, "this composition prefers the CONSISTENT onFailure policy over legacy's undocumented direct-issueOrShadow bypass (src/pipeline.ts:1377-1404) — see the terminalResult skipPersist FIX 2 comment for the full rationale");
+  assert.equal(publishCallCount, 0, "this composition prefers the CONSISTENT onFailure policy over legacy's undocumented direct-issueOrShadow bypass — see the terminalResult skipPersist FIX 2 comment for the full rationale");
 });
 
 /* The FixLoop's own regenerate() call receives FixLoopGenerateInput
@@ -4533,7 +4533,7 @@ test("an early-exit terminal (invalid) carries cases:[] and no logs — nothing 
    placeholder is `[]` — the per-call arg is what supplies a real value.
  */
 
-test("measure() receives the run's own passing case names as baselineCases (mirrors legacy's post-execution src/pipeline.ts:731 formula)", async () => {
+test("measure() receives the run's own passing case names as baselineCases", async () => {
   const passingCases = [
     { name: "login flow", status: "pass" as const },
     { name: "checkout flow", status: "pass" as const },
@@ -4608,7 +4608,7 @@ test("CLEANUP: cleanup() is called with the run's previousNamespace, AFTER setup
   await useCase.run({ ...baseInput, runId: "cleanup-order-and-namespace", previousNamespace: "qa-portfolio-abc123-run42" });
 
   assert.deepEqual(callOrder, ["setup", "cleanup", "generate"], "cleanup must run strictly between setup and generate, mirroring legacy's step 4 (setup, awaited) then step 4a (cleanup)");
-  assert.equal(capturedOpts?.namespace, "qa-portfolio-abc123-run42", "cleanup must receive the run's previousNamespace verbatim, matching legacy's `namespace: opts.previousNamespace` (pipeline.ts:1455)");
+  assert.equal(capturedOpts?.namespace, "qa-portfolio-abc123-run42", "cleanup must receive the run's previousNamespace verbatim, matching legacy's `namespace: opts.previousNamespace`");
 });
 
 test("CLEANUP: cleanup() is SKIPPED when previousNamespace is absent (the common case — the prior run finished cleanly)", async () => {
@@ -4633,7 +4633,7 @@ test("CLEANUP: cleanup() is SKIPPED on the code target, even with a previousName
 
   await useCase.run({ ...baseInput, runId: "cleanup-skipped-code-target", target: "code", previousNamespace: "qa-portfolio-abc123-run42" });
 
-  assert.equal(cleanupCalled, false, "cleanup must never fire for the code target — mirrors legacy's `!isCode` conjunct (pipeline.ts:1453); code mode has no web test data to clean");
+  assert.equal(cleanupCalled, false, "cleanup must never fire for the code target — mirrors legacy's `!isCode` conjunct; code mode has no web test data to clean");
 });
 
 test("CLEANUP: an absent CleanupPort (deps.cleanup undefined) is a no-op — generation still runs (backward compatible)", async () => {
@@ -4656,7 +4656,7 @@ test("CLEANUP: a cleanup() failure is logged and swallowed — the run's verdict
 
   const out = await useCase.run({ ...baseInput, runId: "cleanup-failure-non-blocking", previousNamespace: "qa-portfolio-abc123-run42" });
 
-  assert.equal(generateCalled, true, "generation must proceed after a cleanup failure — best-effort, never blocking (mirrors legacy's `.catch((err) => log(...))`, pipeline.ts:1455-1457)");
+  assert.equal(generateCalled, true, "generation must proceed after a cleanup failure — best-effort, never blocking (mirrors legacy's `.catch((err) => log(...))`)");
   assert.equal(out.decision.verdict, "pass", "a cleanup failure must NEVER alter this run's verdict");
 });
 

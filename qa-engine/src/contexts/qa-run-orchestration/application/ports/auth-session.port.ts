@@ -1,8 +1,9 @@
 /*
  * One browser session for an e2e run. Form login and a software certificate
- * both come back as files under e2e/.auth/; callers do not branch on kind.
- * A throw is infra-error. unauthored means the stock seed could not log in
- * and generation may rewrite e2e/auth.setup.ts.
+ * both come back as files in the orchestrator-only auth directory (outside the
+ * watched-repo mirror, so the agent never sees them); callers do not branch on
+ * kind. A throw is infra-error. unauthored means the stock seed could not log
+ * in and generation may rewrite e2e/auth.setup.ts.
  */
 
 export interface AuthDeclaration {

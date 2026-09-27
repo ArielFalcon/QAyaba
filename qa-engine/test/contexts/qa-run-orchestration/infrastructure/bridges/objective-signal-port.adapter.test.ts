@@ -68,7 +68,7 @@ test("measure() returns unknown+null when an assembler IS injected but diff is a
   assert.equal(result.ratio, null);
 });
 
-test("measure() short-circuits the collector's IO entirely when no assembly will happen (judgment-day: legacy keeps collection INSIDE the gated block, src/pipeline.ts:2912)", async () => {
+test("measure() short-circuits the collector's IO entirely when no assembly will happen (judgment-day: legacy keeps collection INSIDE the gated block)", async () => {
   let collectCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();

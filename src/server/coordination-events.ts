@@ -130,8 +130,7 @@ export function toCoordinationSignals(events: readonly CoordinationEvent[]): Coo
    * classifyDelegationFailure in qa-engine — "failed" | "blocked" | "claimed-files-missing"), never
    * guessed from the free-text `reason` prose. The prose only ever reads "sidekick status=<X>" and
    * a regex over it could never distinguish, say, a pushback-blocked delegation from a completed one
-   * whose claimed files never verified on disk — both would print "completed"/"blocked" without the
-   * substrings the old regex looked for. Only a delegation failure class counts: a line with no
+   * whose claimed files never verified on disk. Only a delegation failure class counts: a line with no
    * failureClass, or with a value outside that set (older ledgers wrote "fail" on every fix-loop
    * delegation, successful ones included), has no opinion and is not counted.
    */

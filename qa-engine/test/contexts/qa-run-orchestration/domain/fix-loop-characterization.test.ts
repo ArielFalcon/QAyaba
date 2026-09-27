@@ -134,7 +134,7 @@ test("CHARACTERIZATION: FixLoop's OWN retries counter reaches 2 under maxRetries
    where round 1's and round 2's failing cases carry DIFFERENT failureDom trees; round 2's Lever-2
    check must see round 2's FRESH failureDom — not round 1's.
  */
-test("failureTrees are re-derived per-round from the CURRENT run's failing cases (fresh, not loop-invariant), matching src/pipeline.ts:2580-2582", async () => {
+test("failureTrees are re-derived per-round from the CURRENT run's failing cases (fresh, not loop-invariant)", async () => {
   let executeCallCount = 0;
   const receivedTreesPerCall: string[][][] = [];
   const execution: FixLoopExecutionPort = {

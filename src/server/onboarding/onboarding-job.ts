@@ -138,7 +138,7 @@ export interface OnboardingJobDeps {
   /** OPTIONAL: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
    *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun under
    *  the app's own qa.shadow (no override) — the SQLite context_maps store captures the validated
-   *  map regardless of shadow, so this run no longer needs to force a context.json PR open. */
+   *  map regardless of shadow, so this run does not need a context.json PR to keep it. */
   enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
   /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
   getContextRun?(runId: string): ContextMapRunSnapshot | undefined;

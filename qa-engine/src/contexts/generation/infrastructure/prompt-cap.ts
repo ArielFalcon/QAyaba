@@ -7,8 +7,7 @@
  * keeps WHOLE sections until the budget is spent, and replaces the rest with a named list of
  * omitted files (never truncates a hunk mid-line). A degenerate single-oversized-file overflow
  * hard-slices that one section. capText is flat prose truncation with no file-awareness.
- * capDiff is qa-engine-native: src/orchestrator/sanitizer.ts's own copy was deleted once this
- * became the sole production source (zero remaining callers there — see its test file's own note).
+ * capDiff is the only diff capper; nothing in src/ keeps a copy.
  */
 
 export const MAX_PROMPT_DIFF_CHARS = 50_000;

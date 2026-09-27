@@ -46,8 +46,7 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
      * Runner-infra reclassification has ONE owner: e2e-execution.runner.ts's own
      * allFailuresAreRunnerInfra, which runs inside runE2E before this point — both of runE2E's
      * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
-     * that SAME upstream check, so re-deriving it here (the deleted AdjudicateService/AppDefect
-     * duplicate) was dead weight that never fired against the real runE2E.
+     * that SAME upstream check, so this strategy does not re-derive it.
      */
     return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs };
   }

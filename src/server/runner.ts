@@ -364,11 +364,12 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       const msg = redactionPort.redactError(err);
       /*
-       * Classify by TYPE, not by substring. Genuine INFRASTRUCTURE (DeployTimeout, operator
-       * cancel, anything wrapped in InfraError) is a transient, non-code condition. Anything else
-       * thrown out of the pipeline (an OpenCode 500, a rejected git push, a JSON.parse that threw,
-       * an open circuit breaker) is an UNEXPECTED INTERNAL ERROR — still inconclusive, but a defect
-       * to surface, NOT silently laundered into a benign "infrastructure, ignore".
+       * Classify by TYPE, not by substring. Genuine INFRASTRUCTURE (an InfraError or one of its
+       * subclasses — deploy-gate timeout, agent unavailable or stalled — or an operator cancel) is
+       * a transient, non-code condition. Anything else thrown out of the engine (a rejected git
+       * push, a JSON.parse that threw, an open circuit breaker) is an UNEXPECTED INTERNAL ERROR —
+       * still inconclusive, but a defect to surface, NOT silently laundered into a benign
+       * "infrastructure, ignore".
        */
       const infra = isInfraError(err);
       const note = infra ? msg : `unexpected internal error (not infrastructure — investigate): ${msg}`;
@@ -396,9 +397,9 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * ONLY when a LIVE run was aborted (its in-flight turn interrupted via the queue's AbortSignal).
  * The subtle case this exists for: a record can read "running"/"enqueued" while the in-memory
  * queue does NOT actually hold it — a zombie left by a process restart or crash race, or an
- * operator view that lagged a queue advance. The old path returned without finalizing such a
- * record, so the cancel endpoint answered 409 and the stuck run never cleared (it sat at "0%"
- * forever, deaf to every stop press). Here we ALWAYS finalize a cancellable record:
+ * operator view that lagged a queue advance. Left unfinalized, such a record would make the
+ * cancel endpoint answer 409 and the stuck run would never clear, so a cancellable record is
+ * ALWAYS finalized:
  * - live run we hold        → abort its turn + finalize, return true
  * - enqueued (not started)  → finalize so the queued job skips itself,       return false
  * - stale "running" zombie  → finalize so the operator's stop clears it,      return false

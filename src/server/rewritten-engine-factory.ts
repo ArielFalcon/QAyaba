@@ -280,7 +280,7 @@ export function buildMirrorGc(git: GitFn = realGit): MirrorGcAdapter {
  * The ONLY place GITHUB_TOKEN is read for the publish path: qa-engine's github-http.ts takes
  * authHeaders() as an injected closure and never reads process.env itself (qa-engine never
  * reads process.env at all), so this composition root is the sole credential-locality seam for
- * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and the legacy src/integrations/
+ * every GitHub PR/Issue call the engine makes. (repo-mirror.ts and src/integrations/
  * github.ts read GITHUB_TOKEN too, but for git clone/fetch auth and the login/collaborator-check
  * path respectively — different concerns, not the publish path this closure serves.)
  */
@@ -798,8 +798,8 @@ export function buildRewrittenCompositionConfig(
       ? { sidekickTimeoutMs: resolveSidekickTimeoutMsFromEnv() }
       : {}),
     /*
-     * Derived from coveragePolicy.mode (computed once, above) — single source, see this fn's own
-     * header comment near `const coveragePolicy = ...`.
+     * The same coveragePolicy that configures the objective signal (computed once, above), so
+     * the policy that measures coverage and the one that decides whether it blocks never diverge.
      */
     coveragePolicyMode: coveragePolicy.mode,
     agentTimeoutMs: agentTimeout(run.mode),

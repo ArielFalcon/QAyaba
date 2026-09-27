@@ -263,7 +263,7 @@ export const SpecMetaSchema = z.object({
 });
 
 /*
- * The GENERATOR's deliverable. It no longer self-reports `approved` — the independent
+ * The GENERATOR's deliverable. It does not self-report `approved` — the independent
  * reviewer is the authoritative gate — so its closing JSON is just the specs it wrote plus
  * optional per-spec metadata. An EMPTY specs array is a valid no-op (nothing worth testing),
  * so `specs` is required-but-may-be-empty. A stray `approved` field is ignored (stripped).

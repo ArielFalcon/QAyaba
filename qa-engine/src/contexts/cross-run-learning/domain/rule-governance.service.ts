@@ -9,8 +9,7 @@ export interface RelevanceBias {
 }
 
 /*
- * Restored from the deleted shell (src/qa/learning/learning-rule.ts selectForRetrieval, pre
- * migration-tier-4c): successRate is the earned-from-outcomes signal and must dominate the
+ * successRate is the earned-from-outcomes signal and must dominate the
  * relevance bias (+3 per errorClass/archetype match). Scaling successRate by this weight before
  * adding the bias means a single relevance match (+3) only flips a NEAR-tie (e.g. 0.9 vs 0.85);
  * it can never let a merely-relevant, unproven rule beat a strongly-proven one (0.9 vs 0.5).
@@ -19,7 +18,7 @@ export interface RelevanceBias {
 const RETRIEVAL_SUCCESS_RATE_WEIGHT = 10;
 
 /*
- * Restored from the deleted shell (selectForRetrieval): how many of the last retrieval slots are
+ * How many of the last retrieval slots are
  * reserved for unproven candidates once active rules alone would fill the limit. Without this, a
  * candidate that never cracks the top `limit` by score is NEVER retrieved again — it can't
  * accumulate the outcomes that earn (or deny) promotion, and the injected rule set ossifies.
@@ -38,8 +37,7 @@ export class RuleGovernanceService {
       const atDelta = b.at.localeCompare(a.at);
       if (atDelta !== 0) return atDelta;
       /*
-       * Final, total-order tiebreak (restored from the shell's selectForRetrieval, which used
-       * `a.rule.id.localeCompare(b.rule.id)`): without this, two rules tied on every other
+       * Final, total-order tiebreak by id: without this, two rules tied on every other
        * criterion fall through to Array.sort's stability, which preserves INPUT order — making
        * retrieval order depend on incidental row-read order rather than the rule contents.
        */
