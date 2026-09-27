@@ -8,6 +8,9 @@
 import { openSync, fstatSync, readSync, closeSync } from "node:fs";
 import { resolveCoordinationTelemetryPath } from "./rewritten-engine-factory";
 import type { CoordinationEvent, CoordinationEventsView, CoordinationSignals } from "../contract/commands";
+import { DELEGATION_FAILURE_CLASSES } from "../../qa-engine/src/contexts/qa-run-orchestration/application/coordination/delegation-failure-class";
+
+const CONTRACT_FAILURE_CLASSES: ReadonlySet<string> = new Set(DELEGATION_FAILURE_CLASSES);
 
 const KINDS = new Set(["proposal", "delegation", "escalation", "router", "pushback", "outcome"]);
 
@@ -128,10 +131,13 @@ export function toCoordinationSignals(events: readonly CoordinationEvent[]): Coo
    * guessed from the free-text `reason` prose. The prose only ever reads "sidekick status=<X>" and
    * a regex over it could never distinguish, say, a pushback-blocked delegation from a completed one
    * whose claimed files never verified on disk — both would print "completed"/"blocked" without the
-   * substrings the old regex looked for. A ledger line recorded before failureClass existed simply
-   * has no opinion (undefined) and is not counted — lenient degradation on old data, not a hazard.
+   * substrings the old regex looked for. Only a delegation failure class counts: a line with no
+   * failureClass, or with a value outside that set (older ledgers wrote "fail" on every fix-loop
+   * delegation, successful ones included), has no opinion and is not counted.
    */
-  const failures = delegationEvents.filter((e) => typeof e.failureClass === "string").length;
+  const failures = delegationEvents.filter(
+    (e) => e.failureClass !== undefined && CONTRACT_FAILURE_CLASSES.has(e.failureClass),
+  ).length;
   const timed = delegationEvents.filter((e) => typeof e.durationMs === "number");
   const totalRuns = runIds.size;
   const delegateRuns = delegateRunIds.size;

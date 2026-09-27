@@ -170,6 +170,21 @@ test("toCoordinationSignals counts a typed failureClass even when the reason pro
   assert.equal(s.contractFailureRate, 1, "the typed failureClass must be trusted over the prose reason");
 });
 
+/* Older ledgers recorded every fix-loop delegation with failureClass "fail", including successful
+   ones. Only a delegation contract failure class may count against the contract. */
+test("toCoordinationSignals ignores an older ledger's failureClass that is not a delegation failure class", () => {
+  const events = parseCoordinationLedger(
+    [
+      JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "fix-loop-regen sidekick status=completed", delegationId: "r1-fix-loop-regen", attempt: 1, durationMs: 1000, failureClass: "fail", at: 1 }),
+      JSON.stringify({ runId: "r2", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=blocked", delegationId: "r2-pre-generate", attempt: 1, durationMs: 1000, failureClass: "blocked", at: 2 }),
+      JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 3 }),
+      JSON.stringify({ runId: "r2", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 4 }),
+    ].join("\n"),
+  ).events;
+  const s = toCoordinationSignals(events);
+  assert.equal(s.contractFailureRate, 0.5, "only the blocked delegation is a contract failure");
+});
+
 test("toCoordinationSignals with an empty ledger reports unmeasured, not zero-painted", () => {
   const signals = toCoordinationSignals([]);
   assert.equal(signals.measured, false);
