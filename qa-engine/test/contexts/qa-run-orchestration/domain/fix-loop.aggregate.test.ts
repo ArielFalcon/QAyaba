@@ -311,6 +311,14 @@ test("filtered retry: a regen of the failing file in the SAME folder re-runs onl
   assert.deepEqual(await retryScopeFor("user/login.spec.ts", ["./user/login.spec.ts"]), ["user/login.spec.ts"]);
 });
 
+test("filtered retry: a regen spec named only by the failing file's name re-runs the whole suite", async () => {
+  assert.equal(await retryScopeFor("user/login.spec.ts", ["login.spec.ts"]), undefined);
+});
+
+test("filtered retry: a regen of the failing file written with backslashes re-runs only that file", async () => {
+  assert.deepEqual(await retryScopeFor("user/login.spec.ts", ["user\\login.spec.ts"]), ["user/login.spec.ts"]);
+});
+
 test("sub-decision (d): filtered-retry — regen specs are ALL outside the failing set -> full re-execute (no specFiles)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
