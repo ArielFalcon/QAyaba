@@ -15,7 +15,7 @@ qayaba-console/
 │   └── console.css      # self-contained: design tokens + base + the whole console UI
 ├── js/
 │   ├── data.mock.js     # window.QayabaMockData — the offline dataset
-│   ├── api.js           # the ONE data seam: mock + live adapters (mirrors @ai-pipeline/sdk)
+│   ├── api.js           # the ONE data seam: mock + live adapters (mirrors @qayaba/sdk)
 │   └── console.js       # the app (rendering, routing, interactions) — never fetches directly
 ├── assets/              # brand marks + favicon
 ├── API.md               # ← endpoint requirements + field mapping + gaps (read this)
@@ -67,7 +67,7 @@ Asset/script paths are all relative, so they resolve correctly under `/app/`.
 
 **B. Through the workspace build (contract-true).** Move this into `ai-pipeline/web/` and have the
 web build emit it into `web/dist`. Optionally replace `js/api.js`'s live adapter with the real
-`@ai-pipeline/sdk` (`createClient({ baseUrl: '' })`) — the adapter is intentionally a 1:1 mirror
+`@qayaba/sdk` (`createClient({ baseUrl: '' })`) — the adapter is intentionally a 1:1 mirror
 of the SDK methods, so this is mechanical. The SDK keeps you type-safe against the contract.
 
 Either way: implement/extend the endpoints in **API.md**, then the dashboard is live. No CORS

@@ -2,7 +2,7 @@
 
 What the dashboard needs from the **ai-pipeline** orchestrator to show real data in
 every section, mapped against the **existing `/api/v1/*` contract**
-(`contract/openapi.json` → `@ai-pipeline/sdk`). Each row is either:
+(`contract/openapi.json` → `@qayaba/sdk`). Each row is either:
 
 - **✓ exists** — the contract already serves it (maybe with a small field/derivation note),
 - **⚠ extend** — an existing endpoint that needs more fields, or

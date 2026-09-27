@@ -6,7 +6,7 @@
    simulations locally. Zero backend. Default.
    • live — talks to the ai-pipeline orchestrator over /api/v1/* (same
    origin, Bearer/credentials) and the SSE live feed. Mirrors
-   @ai-pipeline/sdk's createClient() method-for-method, so a future
+   @qayaba/sdk's createClient() method-for-method, so a future
    swap to the real SDK is mechanical.
    Configure by setting window.QAYABA_CONSOLE_CONFIG before this script loads:
    window.QAYABA_CONSOLE_CONFIG = { mode:'live', baseUrl:'', token:null, landingUrl:'/' }
