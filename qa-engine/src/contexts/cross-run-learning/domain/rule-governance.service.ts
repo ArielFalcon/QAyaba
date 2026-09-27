@@ -64,13 +64,18 @@ export class RuleGovernanceService {
      * EXPLORATION_SLOTS positions for the NEWEST candidates not already selected, so candidate
      * turnover never stalls. Only replace when `picked` is actually FULL — splicing past the end
      * would append and grow the result beyond `limit`.
+     *
+     * J4: slots must also be clamped to `limit` itself. Without it, limit < EXPLORATION_SLOTS (e.g.
+     * limit=1) made `limit - slots` negative; Array.prototype.splice treats a negative start as
+     * counting from the END, so it deleted fewer elements than it inserted and `picked` grew past
+     * `limit`.
      */
     if (eligible.length > limit && picked.length >= limit) {
       const pickedIds = new Set(picked.map((r) => r.id));
       const freshCandidates = eligible
         .filter((r) => r.status === "candidate" && !pickedIds.has(r.id))
         .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
-      const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length);
+      const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length, limit);
       if (slots > 0) picked.splice(limit - slots, slots, ...freshCandidates.slice(0, slots));
     }
     return picked;

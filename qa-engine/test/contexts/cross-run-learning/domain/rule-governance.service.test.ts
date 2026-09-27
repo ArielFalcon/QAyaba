@@ -186,3 +186,17 @@ test("topRules: fewer eligible rules than the limit -> no truncation, exploratio
   const top = svc.topRules(rules, 5);
   assert.deepEqual(top.map((r) => r.trigger).sort(), ["a1", "c1"]);
 });
+
+/* J4: with limit < EXPLORATION_SLOTS, `picked.splice(limit - slots, slots, ...)` used to compute
+   a NEGATIVE start (e.g. limit=1, slots=2 -> -1). Array.prototype.splice treats a negative start
+   as counting from the end, so instead of replacing the tail it deleted fewer elements than it
+   inserted and the result grew past `limit`. slots must be clamped to `limit` too. */
+test("topRules: limit smaller than EXPLORATION_SLOTS never grows the result past limit (J4)", () => {
+  const rules = [
+    ruleWithMeta("active", 0.9, "a1", "E-X", null),
+    ruleWithMeta("candidate", 0.5, "c-old", "E-X", null, "2026-01-01T00:00:00.000Z"),
+    ruleWithMeta("candidate", 0.5, "c-new", "E-X", null, "2026-02-01T00:00:00.000Z"),
+  ];
+  const top = svc.topRules(rules, 1);
+  assert.equal(top.length, 1, "must never grow past limit even when EXPLORATION_SLOTS > limit");
+});
