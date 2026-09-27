@@ -5,7 +5,7 @@
   "type": "module",
   "description": "App-agnostic AI-assisted E2E QA engine. Template: a watched app is onboarded via config/ + .env only.",
   "engines": {
-    "node": ">=22.19"
+    "node": ">=24"
   },
   "workspaces": [
     "packages/*",

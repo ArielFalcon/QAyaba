@@ -1,7 +1,7 @@
 # QAyaba
 <div align="center">
 
-[![Node.js 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
+[![Node.js 24+](https://img.shields.io/badge/node-24%2B-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)](https://www.typescriptlang.org)
 [![Playwright](https://img.shields.io/badge/Playwright-1.60-45ba4b)](https://playwright.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED)](https://www.docker.com)
@@ -218,7 +218,7 @@ Four layers prevent low-quality tests from entering the suite:
 
 ### Prerequisites
 
-- **Node.js 22** or later
+- **Node.js 24** or later
 - **Docker** and Docker Compose (for production deployment)
 - An **OpenCode API key** or a **Codex/OpenAI API key**. Dual mode requires both.
 - A GitHub repo you want to watch, deployed to a DEV environment
