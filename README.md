@@ -318,6 +318,8 @@ GitHub login needs a **GitHub OAuth App** with the device flow enabled. The app'
    |---|---|---|
    | `AUTH_SIGNING_KEY` | reuses `QA_API_TOKEN` | HMAC secret that signs sessions. Set a dedicated value to rotate sessions independently of the machine token. |
    | `AUTH_SESSION_TTL_SECONDS` | `86400` (24 h) | How long a GitHub session lasts before the console asks the user to sign in again. |
+   | `BIND_ADDR` | `127.0.0.1` | Interface the orchestrator's published port (`docker-compose.yml`) binds to. Set to `0.0.0.0` only to expose the control plane beyond the host — put your own reverse proxy/auth in front when you do. |
+   | `QA_WEB_LOGIN_HOST_ALLOWLIST` | *(none)* | Comma-separated hostnames, besides `localhost`/`127.0.0.1`/`::1`, that `GET /api/auth/local` accepts in the request's `Host` header (defense against DNS rebinding). Only needed if the console is reached through another loopback-bound hostname. |
 
 > [!IMPORTANT]
 > Expose the orchestrator over **HTTPS** in production. During login the user's GitHub token transits to the orchestrator (which uses it read-only and immediately discards it — it is never stored or logged); HTTP would expose it in transit. Note also that rotating `QA_API_TOKEN` invalidates all active GitHub sessions when `AUTH_SIGNING_KEY` is not set, since they share the same signing secret.

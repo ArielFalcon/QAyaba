@@ -21,11 +21,11 @@ import {
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
 
-function mkReq(method: string, url: string, body?: string): any {
+function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);
   r.method = method;
   r.url = url;
-  r.headers = { host: "localhost" };
+  r.headers = { host: "localhost", ...headers };
   return r;
 }
 
@@ -961,6 +961,25 @@ test("GET /api/auth/local returns 404 when the dep refuses (not trusted)", async
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({ localLogin: () => null }));
   assert.equal(res.status, 404);
+});
+
+/* Batch S / S3: the Host header must reach localLogin so it can add the DNS-rebinding check
+   (isLoopbackHost) on top of the existing remote-address/flag check — a request whose Host names
+   an attacker's domain must be refused even though the TCP peer is loopback. */
+test("GET /api/auth/local passes the request Host header through to localLogin", async () => {
+  const res = mkRes();
+  let capturedHost: string | undefined;
+  await handleApi(
+    mkReq("GET", "/api/v1/auth/local", undefined, { host: "evil.example:458" }),
+    res,
+    deps({
+      localLogin: (_remoteAddress, host) => {
+        capturedHost = host;
+        return null;
+      },
+    }),
+  );
+  assert.equal(capturedHost, "evil.example:458");
 });
 
 test("GET /api/auth/local returns 404 when the dep is not wired", async () => {

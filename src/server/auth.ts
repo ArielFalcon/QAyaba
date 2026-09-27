@@ -101,6 +101,29 @@ export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: str
 }
 
 /*
+ * DNS rebinding resolves an attacker-controlled hostname (e.g. "evil.example") to 127.0.0.1, so
+ * the TCP peer genuinely IS loopback (allowLocalWebLogin's remoteAddress check passes) while the
+ * browser's Host header still names the attacker's domain. isLoopbackHost is the missing check:
+ * the request's Host header hostname must ALSO be loopback (localhost/127.0.0.1/::1) or an
+ * explicitly configured allowlist entry — never just any hostname that happens to resolve here.
+ */
+function hostnameFromHostHeader(host: string): string {
+  /* IPv6 literal: "[::1]:458" -> "::1"; "[::1]" -> "::1". */
+  const ipv6 = /^\[([^\]]+)\]/.exec(host);
+  if (ipv6) return (ipv6[1] ?? "").toLowerCase();
+  /* IPv4/hostname with optional port: "localhost:458" -> "localhost". */
+  const idx = host.lastIndexOf(":");
+  return (idx === -1 ? host : host.slice(0, idx)).toLowerCase();
+}
+
+export function isLoopbackHost(host: string | undefined, allowlist: readonly string[] = []): boolean {
+  if (!host) return false;
+  const hostname = hostnameFromHostHeader(host);
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
+  return allowlist.some((h) => h.toLowerCase() === hostname);
+}
+
+/*
  * Pre-auth control-plane surface. Login MUST be public (it is how a client with no
  * token yet obtains one). /auth/local is public too — the handler itself refuses
  * untrusted callers with 404, so the gate does not have to know about docker IPs.

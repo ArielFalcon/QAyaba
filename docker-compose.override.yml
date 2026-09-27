@@ -41,8 +41,11 @@ services:
       # raised to 600s (10min) here so a slow-but-progressing exploration is not killed mid-flight.
       OPENCODE_PLANNER_TIMEOUT_MS: ${OPENCODE_PLANNER_TIMEOUT_MS:-600000}
       # Same-origin web console: mint a short-lived session so the operator does not paste
-      # QA_API_TOKEN. Off in production compose (a published orchestrator port would otherwise be an open
-      # control plane). Override here for local `docker compose up`. Set false to force login.
+      # QA_API_TOKEN. Left unset (off) in production compose — layered with BIND_ADDR (the
+      # published port defaults to loopback-only, docker-compose.yml) and the /api/auth/local
+      # Host-header check (rejects DNS rebinding even when this flag is left on): no single layer
+      # is what keeps a published port from being an open control plane. Override here for local
+      # `docker compose up`. Set false to force login.
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
     volumes:
       - ./src:/app/src

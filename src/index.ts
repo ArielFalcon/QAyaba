@@ -14,7 +14,7 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps } from "./server/api";
-import { authorizeBearer, issueSession, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
+import { authorizeBearer, issueSession, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
 import { toIntelligenceView } from "./server/intelligence-view";
@@ -641,10 +641,16 @@ const apiDeps: ApiDeps = {
   /*
    * Same-origin web console: mint a short-lived session (never the machine token) when the
    * caller is loopback or QA_WEB_AUTO_LOGIN=true (local docker, where the browser hits the
-   * published port and the container sees a bridge IP).
+   * published port and the container sees a bridge IP) AND the request's Host header is itself
+   * loopback (or explicitly allowlisted via QA_WEB_LOGIN_HOST_ALLOWLIST) — a DNS-rebinding
+   * attacker can make the TCP peer look loopback while the Host header still names their domain.
    */
-  localLogin: (remoteAddress) => {
+  localLogin: (remoteAddress, host) => {
     if (!allowLocalWebLogin({ enabled: process.env.QA_WEB_AUTO_LOGIN === "true", remoteAddress })) {
+      return null;
+    }
+    const hostAllowlist = (process.env.QA_WEB_LOGIN_HOST_ALLOWLIST ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+    if (!isLoopbackHost(host, hostAllowlist)) {
       return null;
     }
     const now = Date.now();

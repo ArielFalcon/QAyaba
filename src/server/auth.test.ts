@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
+import { issueSession, validateSession, authorizeBearer, allowLocalWebLogin, isLoopbackHost, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./auth";
 
 const secret = "test-signing-secret";
 
@@ -89,6 +89,32 @@ test("allowLocalWebLogin is opt-in or loopback-only — never a docker-bridge IP
   assert.equal(allowLocalWebLogin({ enabled: false, remoteAddress: "::ffff:127.0.0.1" }), true);
   assert.equal(allowLocalWebLogin({ enabled: true, remoteAddress: "172.17.0.1" }), true);
   assert.equal(allowLocalWebLogin({ enabled: true, remoteAddress: "8.8.8.8" }), true);
+});
+
+/* Batch S / S3: DNS rebinding resolves an attacker-controlled hostname to 127.0.0.1, so the TCP
+   peer genuinely IS loopback while the browser's Host header still names the attacker's domain.
+   allowLocalWebLogin (remote-address/flag) alone cannot catch this — isLoopbackHost adds the
+   missing Host-header check.
+ */
+test("isLoopbackHost accepts localhost/127.0.0.1/::1 (with or without a port), rejects any other hostname", () => {
+  assert.equal(isLoopbackHost("localhost"), true);
+  assert.equal(isLoopbackHost("localhost:458"), true);
+  assert.equal(isLoopbackHost("127.0.0.1"), true);
+  assert.equal(isLoopbackHost("127.0.0.1:458"), true);
+  assert.equal(isLoopbackHost("[::1]"), true);
+  assert.equal(isLoopbackHost("[::1]:458"), true);
+  assert.equal(isLoopbackHost("LOCALHOST:458"), true, "case-insensitive");
+  assert.equal(isLoopbackHost(undefined), false);
+  assert.equal(isLoopbackHost(""), false);
+  assert.equal(isLoopbackHost("evil.example"), false, "DNS-rebinding host must be rejected");
+  assert.equal(isLoopbackHost("evil.example:458"), false);
+});
+
+test("isLoopbackHost also accepts an explicitly configured allowlist entry", () => {
+  assert.equal(isLoopbackHost("qayaba.internal", ["qayaba.internal"]), true);
+  assert.equal(isLoopbackHost("qayaba.internal:458", ["qayaba.internal"]), true, "allowlist entries are matched against the hostname, port stripped");
+  assert.equal(isLoopbackHost("QAYABA.internal", ["qayaba.internal"]), true, "case-insensitive");
+  assert.equal(isLoopbackHost("evil.example", ["qayaba.internal"]), false, "an unrelated host is still rejected");
 });
 
 test("isPublicControlPlaneRoute includes the local-console bootstrap and the existing pre-auth surface", () => {

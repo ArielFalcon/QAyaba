@@ -47,8 +47,10 @@ services:
     ports:
       # Host and container share PORT. The process listens on PORT (env_file + the
       # environment entry below); a fixed :8080 on the right would publish a port
-      # nothing inside the container is bound to.
-      - "${PORT:-458}:${PORT:-458}"
+      # nothing inside the container is bound to. BIND_ADDR defaults the published port to
+      # loopback-only (127.0.0.1) — set it to 0.0.0.0 only behind your own reverse proxy/auth,
+      # never to expose the control plane directly (see README.md).
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-458}:${PORT:-458}"
     environment:
       # Wins over env_file so the listen port cannot drift from the published port.
       PORT: ${PORT:-458}
