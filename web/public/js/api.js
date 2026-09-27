@@ -37,6 +37,9 @@ window.QayabaConsole = (function () {
     ask() { return Promise.resolve(null); },
     createRun(input) { return Promise.resolve({ id: 'queued', status: 'enqueued', app: input.app, mode: input.mode }); },
     cancelRun(id) { return Promise.resolve({ id: id, status: 'cancelled' }); },
+    continueRun(id) { return Promise.resolve({ id: 'queued', parentRunId: id }); },
+    runReport() { return Promise.resolve(null); },
+    turns() { return Promise.resolve([]); },
   };
 
   /* ── live adapter ──────────────────────────────────────────────────────
@@ -80,6 +83,9 @@ window.QayabaConsole = (function () {
     intelligence: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/intelligence'),
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
     agentModels: (provider) => req('GET', '/agent/models?provider=' + encodeURIComponent(provider || '')),
+    agentConfig: () => req('GET', '/agent/config'),
+    runReport: (id) => req('GET', '/runs/' + encodeURIComponent(id) + '/report'),
+    turns: (id) => req('GET', '/runs/' + encodeURIComponent(id) + '/turns'),
     /* Multi-agent coordination audit tail: one bounded request per dashboard load; the
        JSONL ledger it reads is the same artifact the engine writes (read-only tail, cap 1000).
      */
@@ -91,23 +97,24 @@ window.QayabaConsole = (function () {
        few apps this fan-out is cheap; lazily-load per view later if it grows.
      */
     async loadAll() {
-      const [apps, queue, signals, coordination] = await Promise.all([
-        ep.listApps(), ep.queue(), ep.signals().catch(() => null), ep.coordinationEvents().catch(() => null),
+      const [apps, queue, signals, coordination, agentConfig] = await Promise.all([
+        ep.listApps(), ep.queue(), ep.signals().catch(() => null), ep.coordinationEvents().catch(() => null), ep.agentConfig().catch(() => null),
       ]);
       const names = apps.map((a) => a.name);
       const perApp = await Promise.all(names.map((n) => Promise.all([
         ep.listRuns(n, 20).catch(() => []),
         ep.trends(n).catch(() => null),
         ep.intelligence(n).catch(() => null),
+        ep.report(n).catch(() => null),
       ])));
-      const runsByApp = {}, trendsByApp = {}, intelByApp = {};
-      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; });
+      const runsByApp = {}, trendsByApp = {}, intelByApp = {}, reportsByApp = {};
+      names.forEach((n, i) => { runsByApp[n] = perApp[i][0]; trendsByApp[n] = perApp[i][1]; intelByApp[n] = perApp[i][2]; reportsByApp[n] = perApp[i][3]; });
       let runningRecord = null;
       if (queue && queue.running && queue.running.id) {
         const fromApp = (runsByApp[queue.running.app] || []).find((r) => r.id === queue.running.id);
         runningRecord = fromApp || await ep.getRun(queue.running.id).catch(() => null);
       }
-      return mapModel({ apps, queue, signals, coordination, runsByApp, trendsByApp, intelByApp, runningRecord });
+      return mapModel({ apps, queue, signals, coordination, agentConfig, runsByApp, trendsByApp, intelByApp, reportsByApp, runningRecord });
     },
     /* SSE live feed → normalized handlers the UI applies. Maps the 15 RunEventBody
        variants onto {onStep,onPlan,onCase,onLog,onVerdict}.
@@ -206,6 +213,19 @@ window.QayabaConsole = (function () {
       guidance: input.guidance || undefined,
     }); },
     cancelRun(id) { return req('DELETE', '/runs/' + encodeURIComponent(id)); },
+    /* Human-in-the-loop continuation: re-run fixing the parent's failed cases (server caps the
+       chain depth). Body {} = all failed cases; `cases` narrows; `guidance` nudges generation. */
+    continueRun(id, input) {
+      input = input || {};
+      return req('POST', '/runs/' + encodeURIComponent(id) + '/continue', {
+        cases: input.cases && input.cases.length ? input.cases : undefined,
+        guidance: input.guidance || undefined,
+      });
+    },
+    /* Run-scoped post-run summary: {current: ReportView, evolution: ReportView|null}. */
+    runReport(id) { return ep.runReport(id); },
+    /* Chronological agent turns (role, round, prompt/output, tokens) for one run. */
+    turns(id) { return ep.turns(id); },
   };
 
   function logGlyph(level) { return level === 'error' ? '✗' : level === 'warn' ? '~' : level === 'ok' ? '✓' : '›'; }
@@ -254,14 +274,60 @@ window.QayabaConsole = (function () {
     const running = F.mergeLiveRun
       ? F.mergeLiveRun(mappedRunning, m.running)
       : mappedRunning;
+    /* Fleet 7d rollups derived from the per-app run feeds already fetched (each feed is the
+       most recent 20 runs, so the window covers whatever of the last 7d those feeds reach).
+       openIssues has no endpoint yet — keeps the mock value.
+    */
+    const allRuns = [];
+    Object.keys(raw.runsByApp).forEach((a) => (raw.runsByApp[a] || []).forEach((r) => allRuns.push(r)));
+    const weekRuns = allRuns.filter((r) => (Date.parse(r.at) || 0) >= Date.now() - 7 * 86400000);
+    const finishedRuns = weekRuns.filter((r) => ['pass', 'fail', 'flaky', 'infra-error'].indexOf(r.verdict) >= 0);
+    const stats = weekRuns.length ? Object.assign({}, m.stats, {
+      runs7d: weekRuns.length,
+      passRate: finishedRuns.length ? weekRuns.filter((r) => r.verdict === 'pass').length / finishedRuns.length : m.stats.passRate,
+      specsAdded: weekRuns.reduce((s, r) => s + (r.specs || []).length, 0),
+      watching: raw.apps.length,
+    }) : m.stats;
+    const VERDICTS = ['pass', 'fail', 'flaky', 'infra-error', 'skipped'];
+    const verdictMix = weekRuns.length
+      ? VERDICTS.map((v) => ({ v: v, n: weekRuns.filter((r) => (r.verdict || 'running') === v).length })).filter((x) => x.n > 0)
+      : m.verdictMix;
+    /* Reports: the first app whose /report returns insights replaces the mock exec blocks —
+       headline/detail/weight come from the contract; viz renders honestly (see console.js).
+       Templates stay client-side presets (API.md §6: "✗ new (or keep client-side presets)").
+    */
+    let liveInsights = null;
+    Object.keys(raw.reportsByApp || {}).some((a) => {
+      const rv = raw.reportsByApp[a];
+      if (!rv || !rv.insights || !rv.insights.length) return false;
+      liveInsights = rv.insights.map((ins) => ({
+        real: true,
+        metric: ins.id,
+        shape: ins.chart === 'gauge' ? 'gauge'
+          : (ins.chart === 'ranked-bars' || ins.chart === 'paired-bars' || ins.chart === 'stacked-bar' || ins.chart === 'donut') ? 'bars'
+          : (ins.chart === 'line' || ins.chart === 'area') ? 'sparkline'
+          : (ins.chart === 'big-number' && ins.multiplier != null) ? 'multiplier' : 'note',
+        headline: ins.title,
+        detail: ins.caption || (ins.value == null ? ins.title
+          : 'current ' + (Math.round(ins.value * 1000) / 1000) + (ins.unit === 'percent' ? '%' : ins.unit === 'ratio' ? '' : ' ' + (ins.unit || ''))
+            + (ins.delta == null ? '' : ' (' + (ins.delta > 0 ? '+' : '') + (Math.round(ins.delta * 1000) / 1000) + ')')),
+        weight: ins.score == null ? 0 : ins.score,
+      }));
+      return true;
+    });
+    const reports = Object.assign({}, m.reports, liveInsights ? { insights: liveInsights } : {});
     return {
-      models: m.models, /* TODO(server): expose generator/reviewer model ids (see /agent/config) */
+      models: raw.agentConfig && raw.agentConfig.assignments ? {
+        generator: raw.agentConfig.assignments.primary.model,
+        reviewer: raw.agentConfig.assignments.reviewer.model,
+        chat: raw.agentConfig.assignments.chat.model,
+      } : m.models,
       apps: apps,
       running: running,
       runs: runs,
-      stats: m.stats,           /* TODO(server): runs7d/passRate/specsAdded/openIssues — fleet rollup endpoint */
+      stats: stats,
       live: mapLive(raw.queue), /* partial; health/sessions/mirrors/webhook need an engine-status endpoint */
-      verdictMix: m.verdictMix, /* TODO(server): fleet 7d verdict distribution */
+      verdictMix: verdictMix,
       signals: mapSignals(raw.signals) || m.signals, /* see API.md: SignalsView is leaner than the hero needs */
       coordination: {
         byRun: coordByRun,
@@ -287,7 +353,7 @@ window.QayabaConsole = (function () {
           staticRejected: { v: '0%', desc: 'static rejected' },
         },
       },   /* TODO(server): suite-health/trust rollup */
-      reports: m.reports,       /* partial; /apps/:name/report → ReportView (see API.md) */
+      reports: reports,         /* insights from /apps/:name/report (first app with data); templates stay client-side presets */
       modes: m.modes, rules: m.rules, trend: m.trend,
     };
   }
@@ -376,6 +442,7 @@ window.QayabaConsole = (function () {
   }
   function mapLedger(intelByApp) {
     const rules = [];
+    const arch = {};
     Object.keys(intelByApp || {}).forEach((app) => {
       const iv = intelByApp[app]; if (!iv || !iv.rules) return;
       iv.rules.forEach((r, i) => rules.push({
@@ -384,9 +451,15 @@ window.QayabaConsole = (function () {
         confidence: r.confidence === 'medium' ? 'med' : r.confidence,
         usage: r.usageCount, outcomes: r.outcomeCount, success: r.successRate,
       }));
+      ((iv.curriculum && iv.curriculum.archetypes) || []).forEach((a) => {
+        const slot = arch[a.archetype] || (arch[a.archetype] = { name: a.archetype, caughtRealBug: false, promotions: 0 });
+        slot.promotions += a.promotionCount || 0;
+        if (a.caughtRealBug) slot.caughtRealBug = true;
+      });
     });
-    if (!rules.length) return null;
-    return { rules: rules, archetypes: [], audit: [] }; /* TODO(server): archetypes (curriculum) + governance audit log */
+    if (!rules.length && !Object.keys(arch).length) return null;
+    /* Governance audit log has no endpoint yet (API.md §6) — empty, never fake. */
+    return { rules: rules, archetypes: Object.keys(arch).map((k) => arch[k]), audit: [] };
   }
   function trendVmix(t) { return t && t.verdictMix ? Object.keys(t.verdictMix).map((v) => ({ v: v, n: t.verdictMix[v] })) : null; }
   function pick(obj, path, dflt) {

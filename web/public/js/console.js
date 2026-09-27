@@ -325,12 +325,13 @@
   const EYEBROW = (t) => '<span class="pa-eyebrow">' + esc(t) + '</span>';
 
   /* state lives at module scope so views + interactive mounts share it */
-  var state = {
-    section: 'overview', runId: null, appName: null,
-    dialog: false, dialogApp: null, dialogMode: 'diff', dialogCommits: 1,
-    toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
-    repTpl: 'exec', repView: 'blocks',
-  };
+var state = {
+section: 'overview', runId: null, appName: null,
+dialog: false, dialogApp: null, dialogMode: 'diff', dialogCommits: 1,
+toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
+repTpl: 'exec', repView: 'blocks',
+runExtras: null,
+};
   var teardown = [];
   var LIVE = null;
   var toastTimer = 0;
@@ -530,7 +531,7 @@
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(run.app) + ' · ' + esc(run.branch) + ' · ' + esc(run.mode) + '</span></div>' +
       '<h2 style="' + sty({ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(run.message) + '</h2>' +
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">by ' + esc(run.author) + ' · ' + esc(run.time) + ' · ' + esc(run.duration) + '</span></div>' +
-      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) + Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run' }) + '</div></div>';
+      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) + Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run', action: 'rerun', id: run.id }) + '</div></div>';
     const specs = run.newSpecs.length === 0
       ? '<span style="font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint)">no specs written — valid no-op</span>'
       : '<div style="display:flex;flex-direction:column">' + run.newSpecs.map((s, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
@@ -538,6 +539,7 @@
         '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(s.file) + '</span>' +
         '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + s.n + ' test' + (s.n > 1 ? 's' : '') + '</span></div>').join('') + '</div>';
     const changed = '<div style="display:flex;flex-direction:column">' + run.changed.map((f, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 0', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('file-code-2', 15, 'color:var(--text-muted)') + '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-body)">' + esc(f) + '</span></div>').join('') + '</div>';
+    const extras = runExtrasCards(run);
     return '<div style="padding:20px 28px 36px;display:flex;flex-direction:column;gap:var(--space-5)">' +
       backBtn('back-runs', 'all runs') + header +
       Card({ eyebrow: 'pipeline · deploy gate → classify → generate → validate → execute → decide', title: 'Run stages', children: StageStepper(run.stages) }) +
@@ -549,8 +551,57 @@
       Card({ eyebrow: 'blast radius', title: 'Changed files', action: '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + run.changed.length + ' file' + (run.changed.length !== 1 ? 's' : '') + '</span>', children: changed }) +
       Card({ eyebrow: 'generation', title: 'Generated specs', action: '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + (run.specs ? '+' + run.specs : '0') + ' specs</span>', children: specs }) + '</div>' +
       Callout({ tone: decisionTone, label: 'decision · ' + run.verdict, icon: decisionIcon, children: esc(run.decision) }) +
+      extras.report +
       '<div style="display:flex;flex-direction:column;gap:var(--space-2)">' + EYEBROW('run log') + Terminal(run.log) + '</div>' +
+      extras.turns +
       runChat(run, false) + '</div>';
+  }
+  /* Run-scoped extras from the lazy reads (state.runExtras): the post-run report
+     (GET /runs/{id}/report → RunReportView) and the agent turns (GET /runs/{id}/turns).
+     Text-only and ranked by the contract's own score — no invented charts.
+   */
+  function runExtrasCards(run) {
+    const ex = state.runExtras;
+    if (!ex || ex.runId !== run.id) return { report: '', turns: '' };
+    let report = '';
+    const rv = ex.report && ex.report.current;
+    if (rv && Array.isArray(rv.insights) && rv.insights.length) {
+      const arrow = { up: '↑', down: '↓', flat: '→' };
+      const rows = rv.insights.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map((ins, i) => {
+        const good = ins.goodWhen === 'neutral' || ins.direction === ins.goodWhen;
+        const valTxt = ins.value == null
+          ? (ins.multiplier != null ? '×' + ins.multiplier : '')
+          : (Math.round(ins.value * 1000) / 1000) + (ins.unit === 'percent' ? '%' : ins.unit === 'ratio' ? '' : ins.unit === 'count' ? '' : ' ' + (ins.unit || ''));
+        const deltaTxt = ins.delta == null ? '' : '  ' + (ins.delta > 0 ? '+' : '') + (Math.round(ins.delta * 1000) / 1000);
+        return '<div style="' + sty({ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+          '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, flex: 'none', width: 20, textAlign: 'center', color: good ? 'var(--pass-600)' : 'var(--fail-600)' }) + '">' + (arrow[ins.direction] || '→') + '</span>' +
+          '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">' +
+          '<span style="font-size:13px;font-weight:600;color:var(--text-strong);line-height:1.4">' + esc(ins.title) + '</span>' +
+          (ins.caption ? '<span style="font-size:12px;color:var(--text-muted);line-height:1.45">' + esc(ins.caption) + '</span>' : '') + '</div>' +
+          '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', flex: 'none', whiteSpace: 'nowrap' }) + '">' + esc((valTxt + deltaTxt).trim()) + '</span></div>';
+      }).join('');
+      const evoNote = ex.report.evolution
+        ? 'evolution computed: the period report as of this run ships with this endpoint — not rendered inline yet'
+        : 'evolution not available yet — not enough history before this run';
+      report = Card({ eyebrow: 'post-run report · ranked by interestingness', title: 'What this run means', bodyPadding: false, children: '<div>' + rows + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;border-top:var(--border-rule);font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + I('info', 12) + esc(evoNote) + '</div>' });
+    }
+    let turns = '';
+    if (ex.turns && ex.turns.length) {
+      const rows = ex.turns.map((t, i) => {
+        const out = String(t.outputText || '').replace(/\s+/g, ' ').trim();
+        const snippet = out.length > 320 ? out.slice(0, 320) + '…' : out;
+        const tokens = (t.tokensInput != null || t.tokensOutput != null) ? ' · ' + (t.tokensInput || 0) + ' in / ' + (t.tokensOutput || 0) + ' out' : '';
+        return '<div style="' + sty({ display: 'flex', flexDirection: 'column', gap: 4, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--ember-600)">' + esc(t.role || 'agent') + '</span>' +
+          '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">round ' + (t.round != null ? t.round : '—') + (t.isRepair ? ' · repair' : '') + tokens + '</span>' +
+          '<span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">' + esc(String(t.ts || '').slice(0, 19).replace('T', ' ')) + '</span></div>' +
+          (snippet ? '<span style="font-size:12.5px;color:var(--text-body);line-height:1.5;white-space:pre-wrap">' + esc(snippet) + '</span>' : '') + '</div>';
+      }).join('');
+      turns = Card({ eyebrow: 'agent turns · ' + ex.turns.length + ' LLM invocation' + (ex.turns.length !== 1 ? 's' : ''), title: 'What the agents did', bodyPadding: false, children: '<div>' + rows + '</div>' });
+    }
+    return { report: report, turns: turns };
   }
 
   function chatAnswer(run, live, q) {
@@ -1064,7 +1115,10 @@
   function insightBlock(ins, rank) {
     const shapeIcon = { multiplier: 'x', gauge: 'gauge', bars: 'bar-chart-3', sparkline: 'trending-up', note: 'info' };
     let viz;
-    if (ins.shape === 'multiplier') viz = '<span style="font-family:var(--font-display);font-weight:800;font-size:40px;letter-spacing:-0.02em;color:var(--ember-600);line-height:1">×1.6</span>';
+    /* Real contract insights (ins.real) carry no decoration series — viz stays an honest icon;
+       the hardcoded mock charts below only ever render for mock data. */
+    if (ins.real) viz = '<span style="' + sty({ display: 'inline-flex', width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--ember-100)', color: 'var(--ember-600)' }) + '">' + I(shapeIcon[ins.shape] || 'info', 22) + '</span>';
+    else if (ins.shape === 'multiplier') viz = '<span style="font-family:var(--font-display);font-weight:800;font-size:40px;letter-spacing:-0.02em;color:var(--ember-600);line-height:1">×1.6</span>';
     else if (ins.shape === 'gauge') viz = CoverageGauge(0.92, 0.7, 104);
     else if (ins.shape === 'bars') viz = '<div style="width:100%">' + ErrorClassBars(D.fleetErrorClasses.slice(0, 4), 'var(--ink-700)') + '</div>';
     else if (ins.shape === 'sparkline') viz = '<div style="width:100%">' + Sparkline(D.integrity.flakyRate.series, { w: 220, h: 40, color: 'var(--flaky-500)', responsive: true }) + '</div>';
@@ -1427,17 +1481,37 @@
     state.appSel = { a: 0, b: Math.max(0, h.length - 1) };
     state.appTab = 'runs';
   }
-  function syncFromUrl() {
-    const params = new URLSearchParams(location.search);
-    const run = params.get('run'), app = params.get('app');
-    const hash = (location.hash || '').replace('#', '');
-    state.runId = null; state.appName = null;
-    if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) { state.runId = run; state.section = 'runs'; }
-    else if (app && D.apps.some((a) => a.name === app)) { state.appName = app; state.section = 'overview'; initAppSel(app); }
-    else state.section = TITLES[hash] ? hash : 'overview';
-  }
+function syncFromUrl() {
+const params = new URLSearchParams(location.search);
+const run = params.get('run'), app = params.get('app');
+const hash = (location.hash || '').replace('#', '');
+state.runId = null; state.appName = null;
+if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) {
+state.runId = run; state.section = 'runs';
+/* Deep-link enters without openRun — still fetch the lazy run extras (report + turns). */
+loadRunExtras(run);
+}
+else if (app && D.apps.some((a) => a.name === app)) { state.appName = app; state.section = 'overview'; initAppSel(app); }
+else state.section = TITLES[hash] ? hash : 'overview';
+}
   function go(section) { state.section = section; state.runId = null; state.appName = null; history.pushState({ section: section }, '', '#' + section); render(); }
-  function openRun(id) { state.runId = id; state.appName = null; state.section = 'runs'; history.pushState({ run: id }, '', '?run=' + encodeURIComponent(id)); render(); }
+  function openRun(id) { state.runId = id; state.appName = null; state.section = 'runs'; history.pushState({ run: id }, '', '?run=' + encodeURIComponent(id)); render(); loadRunExtras(id); }
+/* Lazy per-run reads (GET /runs/{id}/report + /runs/{id}/turns) — fetched once per open,
+   rendered only while the operator is still on that run, and only when real data exists. */
+function loadRunExtras(id) {
+  state.runExtras = { runId: id, report: null, turns: null };
+  const api = apiOf();
+  if (!api || !api.runReport) return;
+  Promise.all([
+    api.runReport(id).catch(() => null),
+    api.turns ? api.turns(id).catch(() => null) : Promise.resolve(null),
+  ]).then(([report, turns]) => {
+    if (!state.runExtras || state.runExtras.runId !== id) return;
+    state.runExtras.report = report || null;
+    state.runExtras.turns = Array.isArray(turns) && turns.length ? turns : null;
+    if (state.runId === id && !liveRun()) render();
+  });
+}
   function openApp(name) { state.appName = name; state.runId = null; state.section = 'overview'; initAppSel(name); history.pushState({ app: name }, '', '?app=' + encodeURIComponent(name)); render(); }
   function backToRuns() { state.runId = null; state.section = 'runs'; history.pushState({ section: 'runs' }, '', '#runs'); render(); }
   function backToFleet() { state.appName = null; state.section = 'overview'; history.pushState({ section: 'overview' }, '', '#overview'); render(); }
@@ -1528,6 +1602,19 @@
           loadAndRender().then(() => queueVerdictWatch(newId));
         }).catch(() => { showToast('could not queue the run'); });
       }
+    }
+    else if (action === 'rerun') {
+      /* Human-in-the-loop continuation (POST /runs/{id}/continue): re-runs fixing the parent's
+         failed cases. Same follow-the-verdict flow as the trigger dialog. */
+      const api = apiOf();
+      if (!api || !api.continueRun || !id) return;
+      showToast('queuing continuation of ' + id.slice(-6));
+      api.continueRun(id, {}).then((res) => {
+        const newId = res && res.id && res.id !== 'queued' ? res.id : null;
+        if (!newId) { showToast('continuation queued'); return; }
+        showToast('queued continuation of ' + id.slice(-6) + ' · run ' + newId.slice(-6));
+        loadAndRender().then(() => queueVerdictWatch(newId));
+      }).catch(() => { showToast('could not queue the continuation'); });
     }
     else if (action === 'toast-run') {
       state.toast = null; renderOverlays();

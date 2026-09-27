@@ -23,7 +23,7 @@ contract schema names are in (parens).
 | Need | Endpoint | Status | Notes |
 |---|---|---|---|
 | Watched apps (sidebar, fleet) | `GET /api/v1/apps` → `AppView[]` | ✓ | `AppView` lacks a human **`stack`** label ("Astro · Vercel") and a **`status`** is derived from `code`/`shadow`. |
-| Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ⚠ extend | Dashboard shows `models.generator` / `models.reviewer`. Confirm both role→model ids are exposed here (or `/agent/models`). |
+| Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ✓ wired | Console maps `models.generator`/`models.reviewer` from `assignments.primary.model` / `assignments.reviewer.model`. |
 | Auth | — | — | Static shell public at `/app`; `/api/v1/*` Bearer-protected. The console sends `credentials:'include'` + optional `Authorization`. |
 
 ---
@@ -44,7 +44,7 @@ contract schema names are in (parens).
 
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| **Stats strip** | `stats{runs7d,passRate,specsAdded,openIssues,watching}` + 7-day `verdictMix[]` | — | ✗ new — fleet rollup. No fleet stats / fleet verdict-mix endpoint today (verdict mix exists only per-app in `/trends`). Add `GET /api/v1/signals` fields or `GET /api/v1/stats`. |
+| **Stats strip** | `stats{runs7d,passRate,specsAdded,openIssues,watching}` + 7-day `verdictMix[]` | — | ⚠ partially wired — the console derives `runs7d`/`passRate`/`specsAdded`/`verdictMix` client-side from the per-app run feeds (7d window bounded by the 20-runs-per-app feed). `openIssues` has no endpoint yet (stays mock). A fleet rollup endpoint would make this exact. |
 | **Run list (+ verdict filter)** | runs (fleet): `verdict, app, sha, message, mode, specs(count), time, stages(mini)` | `GET /api/v1/runs?app=&verdict=&mode=&limit=` → `RunRecord[]` | ✓/⚠ — `RunRecord` has `verdict, app, sha, mode, note, specs[], at`. Needs fleet-wide listing (see §1 recent), a `verdict`/`mode` filter, and a `stages` mini-pipeline (derive). `message` = `note`. `time` = relative(`at`). |
 | **Running row** | `queue.running` + summary | `GET /api/v1/queue` | ⚠ (as §1). |
 
@@ -109,14 +109,14 @@ contract schema names are in (parens).
 |---|---|---|---|
 | Flywheel counters | `flywheel: [{id,stat,unit,note}]` (labeler→oracle→reflector→distiller→curriculum) | — | ✗ new — fleet counters. Some derivable from `IntelligenceView.scorecard`. |
 | Governed rule inventory | `ledger.rules: [{id,status,trigger,action,errorClass,confidence,usage,outcomes,success}]` | `GET /api/v1/apps/{name}/intelligence` → `IntelligenceView.rules[]` (`LearningRuleView`) | ✓ per-app — fields map (`confidence` `low/medium/high`→`low/med/high`; `status` `candidate/active/deprecated/superseded` ✓; `usageCount/outcomeCount/successRate`). ⚠ needs a **fleet** aggregate + a stable rule **id** (contract rule has no id). |
-| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]` | ✓ per-app (`archetype,caughtRealBug,promotionCount`); fleet aggregate ⚠. |
+| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]` | ✓ wired — console aggregates each app's `curriculum.archetypes` into the fleet ledger (promotions summed, `caughtRealBug` OR-ed). |
 | Governance / audit log | `ledger.audit: [{rule,issue,level}]` | — | ✗ new. |
 | Engram (all apps) | `engram: [{app,text}]` | — | ✗ new (see §5 memory). |
 
 ### Reports
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| Insight blocks (ranked) | `reports.insights: [{metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ **maps well** — `ReportInsight{id,title,chart,value,unit,delta,multiplier,direction,goodWhen,series,breakdown,score}`. Map `shape`←`chart`, `headline`←`title`, `weight`←`score`. It's **per-app**; the dashboard's Reports is exec/fleet → call for the primary app or add a fleet report. |
+| Insight blocks (ranked) | `reports.insights: [{metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ wired — the console replaces the mock exec blocks with the first app whose `/report` returns insights (`shape`←`chart`, `headline`←`title`, `weight`←`score`); viz renders an honest icon (no invented series). Templates stay client-side presets. |
 | Templates | `reports.templates: [{id,name,desc,blocks,schedule,channel}]` | — | ✗ new (or keep client-side presets). |
 | Generate / schedule / export | actions | — | ✗ new (future POST). |
 
@@ -154,7 +154,9 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 | Trigger run (dialog) | `POST /api/v1/runs` (`CreateRunInput{app,target,mode,sha}`) → `CreateRunResult` | ✓ (`api.createRun`) |
 | Cancel run | `DELETE /api/v1/runs/{id}` | ✓ (`api.cancelRun`) |
 | Ask about a run | `POST /api/v1/runs/{id}/ask` → `AskResponse` | ✓ (`api.ask`) |
-| Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ (available; "Re-run" button is currently a no-op) |
+| Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ wired — the run-detail "Re-run" button calls `api.continueRun`; on a new run id it reloads the fleet and follows the verdict via `queueVerdictWatch` (same flow as the trigger dialog). |
+| Run report (post-run summary) | `GET /api/v1/runs/{id}/report` → `RunReportView{current, evolution|null}` | ✓ wired — run detail renders a "post-run report" card (insights ranked by `score`, evolution availability noted) when the read returns data; 404/null → section hidden. |
+| Agent turns | `GET /api/v1/runs/{id}/turns` → `AgentTurnRecord[]` | ✓ wired — run detail renders "What the agents did" (role · round · tokens · sanitized output snippet) when turns exist; empty → section hidden. |
 
 ---
 
