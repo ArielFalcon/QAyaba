@@ -196,6 +196,24 @@ test("isProtectedPath flags the maintainer runtime that sequences the autonomous
   assert.equal(isProtectedPath("src/server/maintainer-memory.ts"), true);
 });
 
+test("isProtectedPath flags the module that decides where the token, auth material, history and logs live", () => {
+  assert.ok(existsSync(join(repoRoot, "src/paths.ts")), "a protected path naming a deleted file proves nothing");
+  assert.equal(isProtectedPath("src/paths.ts"), true);
+});
+
+test("isProtectedPath flags the test infrastructure an autonomous fix could weaken to pass its own checks", () => {
+  const testInfrastructure = [
+    "test-setup.mjs",
+    "scripts/test-write-guard.mjs",
+    "src/server/web-console/console-harness.ts",
+    "scripts/mutate.ts",
+  ];
+  for (const file of testInfrastructure) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
 /* assembled and sanitized — literally the directory the 4th and 5th unsanitized-prompt-site defects
    lived in (only sanitize-text.ts was protected; every sibling, including prompts.ts itself, was
    not). qa-run-orchestration/infrastructure/bridges/ is the port-implementation layer wiring EVERY

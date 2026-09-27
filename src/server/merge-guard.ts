@@ -61,6 +61,13 @@ export const PROTECTED_PATHS: string[] = [
    * the agent-visible mirror.
    */
   "config/e2e/auth.setup.ts",
+  /*
+   * Decides the orchestrator root and the data directory (the qa-data volume the agents container
+   * never mounts) that holds the web token file, per-app auth material, the history DB, the logs
+   * and the coordination ledger — repointing it moves all of them into an agent-visible tree
+   * without touching any file that uses them.
+   */
+  "src/paths.ts",
 
   "qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts",
   /*
@@ -181,6 +188,15 @@ export const PROTECTED_PATHS: string[] = [
   "agents/opencode.json",
 
   "*.test.ts",
+  /*
+   * The test infrastructure every test run depends on: the preload that installs the
+   * tracked-tree write guard, the guard itself, the web console harness and the mutation presets.
+   * Weakening any of them lets a fix pass its own checks without the protected test files changing.
+   */
+  "test-setup.mjs",
+  "scripts/test-write-guard.mjs",
+  "src/server/web-console/console-harness.ts",
+  "scripts/mutate.ts",
   "tsconfig.json",
   "src/index.ts",
 
