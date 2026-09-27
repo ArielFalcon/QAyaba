@@ -136,7 +136,9 @@ export interface OnboardingJobDeps {
   /** Per-repo bound on indexRepo. Default 5 min. A timeout degrades that repo to `failed` and the phase continues. */
   indexTimeoutMs?: number;
   /** OPTIONAL: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
-   *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun with shadow: false. */
+   *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun under
+   *  the app's own qa.shadow (no override) — the SQLite context_maps store captures the validated
+   *  map regardless of shadow, so this run no longer needs to force a context.json PR open. */
   enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
   /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
   getContextRun?(runId: string): ContextMapRunSnapshot | undefined;

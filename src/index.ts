@@ -519,13 +519,17 @@ const onboardingJob = createOnboardingJob({
     if (shuttingDown) return "";
     const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
     /*
-     * shadow: false is the onboarding exception: this run publishes e2e/.qa/context.json even when
-     * the app YAML has qa.shadow: true (req.shadow overrides YAML in enqueueTrackedRun). Never pass
-     * triggerRepo — context mode cannot be driven from a service repo.
+     * No shadow override: this run honors the app's own qa.shadow, same as any other enqueue path
+     * (req.shadow is left absent, so runner.ts falls through to the YAML value unchanged). The
+     * SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's real
+     * durability mechanism now — it captures the validated map on every clean context-mode pass
+     * regardless of shadow, so forcing a context.json PR open for shadow apps is no longer needed
+     * to make the map survive the next mirror wipe. Never pass triggerRepo — context mode cannot be
+     * driven from a service repo.
      */
     return enqueueTrackedRun(
       queue,
-      { app, sha, target: "e2e", mode: "context", shadow: false, source: "manual" },
+      { app, sha, target: "e2e", mode: "context", source: "manual" },
       { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() },
     );
   },
