@@ -46,10 +46,20 @@ function stemMatches(a: string, b: string): boolean {
   return a.slice(0, 4) === b.slice(0, 4) && (a.startsWith(b) || b.startsWith(a));
 }
 
-/* True when `concern` reproduces most of `criterion`'s meaningful words — a paraphrase, not just an
- * unrelated concern that happens to share a rare short word. Criteria with no meaningful words
- * (empty after stopword filtering) never match anything, to avoid a vacuous always-true check. */
+/*
+ * Wording that asserts a criterion is NOT met. Sharing the criterion's words is not enough: a
+ * sidekick routinely reports "could not verify <criterion>" (no runner in scope) or "criterion
+ * satisfied: <criterion>", and neither contradicts it. Only an explicit non-satisfaction claim does.
+ */
+const NON_SATISFACTION =
+  /\b(?:cannot|can't|can not|could not|couldn't|unable to|does not|doesn't|did not|didn't|do not|will not|won't|fails? to|failed to)\s+(?:satisfy|meet|fulfil+|achieve|comply with)\b|\bnot\s+(?:satisfied|met|fulfil+ed|achieved)\b|\b(?:unsatisfied|unmet|unfulfil+ed|unachievable)\b|\bviolat(?:e|es|ed|ing|ion)\b|\bcontradict(?:s|ed|ing|ion)?\b/i;
+
+/* True when `concern` claims non-satisfaction AND reproduces most of `criterion`'s meaningful
+ * words — a paraphrase, not just an unrelated concern that happens to share a rare short word.
+ * Criteria with no meaningful words (empty after stopword filtering) never match anything, to
+ * avoid a vacuous always-true check. */
 function concernContradictsCriterion(concern: string, criterion: string): boolean {
+  if (!NON_SATISFACTION.test(concern)) return false;
   const criterionTerms = keyTerms(criterion);
   if (criterionTerms.length === 0) return false;
   const concernTerms = keyTerms(concern);
@@ -86,9 +96,7 @@ export function validateDelegationAuthority(
       else if (!hit.ok) findings.push({ reason: "acceptance-contradiction", detail: `validation ${step.id} failed` });
     }
     for (const criterion of brief.acceptanceCriteria) {
-      const contradicted = result.concerns.some(
-        (c) => /accept|criterion|cannot satisfy/i.test(c) && concernContradictsCriterion(c, criterion),
-      );
+      const contradicted = result.concerns.some((c) => concernContradictsCriterion(c, criterion));
       if (contradicted) {
         findings.push({ reason: "acceptance-contradiction", detail: criterion });
       }

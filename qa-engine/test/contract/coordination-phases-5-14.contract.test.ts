@@ -120,7 +120,7 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
   assert.equal(blocked.recommendation, "escalate");
 });
 
-/* O13: a sidekick's "concerns" prose paraphrases the criterion in its own words rather than
+/* A sidekick's "concerns" prose paraphrases the criterion in its own words rather than
    quoting it verbatim — a plain c.includes(criterion) substring check misses this and silently
    waves through a genuine acceptance contradiction. Matching by normalized key-term overlap
    catches it. */
@@ -188,6 +188,60 @@ test("acceptance-contradiction is NOT raised when the concern shares no meaningf
     "an unrelated concern must not be treated as contradicting a criterion it shares no meaningful terms with",
   );
 });
+
+/* A concern only contradicts a criterion when it says the criterion is NOT met. Reporting that
+   something could not be verified, or that a criterion IS satisfied, shares the criterion's words
+   but is not a contradiction and must never fatally block the delegation. */
+function repairBrief() {
+  return createDelegationBrief({
+    delegationId: "d-fix",
+    runId: "r-fix",
+    objective: "Repair failing QA specs: login works",
+    task: "Fix the failing tests",
+    scope,
+    acceptanceCriteria: ["Failing cases pass on re-execute", "No writes outside scope"],
+  });
+}
+
+function repairResult(concern: string) {
+  return {
+    delegationId: "d-fix",
+    runId: "r-fix",
+    status: "completed-with-concerns" as const,
+    summary: "fixed selectors",
+    filesChanged: [{ path: "e2e/specs/login.spec.ts" }],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    concerns: [concern],
+    unresolvedQuestions: [],
+    recommendation: "review" as const,
+  };
+}
+
+for (const concern of [
+  "Acceptance: could not re-execute the failing cases to confirm they pass (no test runner in scope)",
+  "Acceptance criterion: could not verify that failing cases pass on re-execute",
+  "Acceptance criterion satisfied: no writes outside scope (only e2e/specs/login.spec.ts)",
+]) {
+  test(`pushback does not block a delegation whose concern is not a contradiction: "${concern}"`, () => {
+    const result = applyPushback(repairBrief(), repairResult(concern));
+    assert.notEqual(result.status, "blocked");
+    assert.notEqual(result.recommendation, "escalate");
+  });
+}
+
+for (const concern of [
+  "Cannot satisfy acceptance criterion: Failing cases pass on re-execute",
+  "cannot satisfy: re-executing the failing cases would still not make them pass",
+  "criterion not met: the failing cases keep failing when re-executed",
+]) {
+  test(`pushback blocks a delegation whose concern says a criterion is not met: "${concern}"`, () => {
+    const result = applyPushback(repairBrief(), repairResult(concern));
+    assert.equal(result.status, "blocked");
+    assert.equal(result.recommendation, "escalate");
+  });
+}
 
 test("router order: infra and budget beat retry; no-progress escalates; FixLoop owns QA correction", () => {
   const snap = buildProgressSnapshot({ failureClass: "selector", failingNames: ["a"] });
