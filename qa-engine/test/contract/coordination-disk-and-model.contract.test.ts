@@ -62,6 +62,10 @@ test("classifyDelegationFailure: completed with verified files, or needs-lead, i
   assert.equal(classifyDelegationFailure("needs-lead", 0, 0), undefined, "an intentional handoff is not a broken contract");
 });
 
+test("classifyDelegationFailure: a needs-lead handoff is not a contract failure even with claimed files that never verified", () => {
+  assert.equal(classifyDelegationFailure("needs-lead", 2, 0), undefined);
+});
+
 test("resolveSidekickModel only returns model for sidekick-escalated", () => {
   assert.equal(resolveSidekickModel("sidekick-standard", "opencode-go/big"), undefined);
   assert.equal(resolveSidekickModel("lead", "opencode-go/big"), undefined);

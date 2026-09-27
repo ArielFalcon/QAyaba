@@ -13,6 +13,7 @@ export interface ProgressSnapshot {
 }
 
 export function fingerprintOf(parts: readonly string[]): string {
+  // Stryker disable next-line MethodExpression: equivalent — the truncation length changes the stored string, never which fingerprints are equal
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }
 
@@ -26,7 +27,9 @@ export function buildProgressSnapshot(input: {
 }): ProgressSnapshot {
   return {
     failureFingerprint: fingerprintOf([
+      // Stryker disable next-line StringLiteral: equivalent — any constant stands for an absent class
       input.failureClass ?? "",
+      // Stryker disable next-line ArrayDeclaration: equivalent — any constant stands for absent failing names
       ...(input.failingNames ?? []).slice().sort(),
     ]),
     ...(input.changedFiles
