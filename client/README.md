@@ -43,7 +43,7 @@ orchestrator's published `contract/openapi.json` (no hand-written drift).
 ## Run
 
 ```bash
-go run ./cmd/qayaba     # connects to localhost:8080 by default
+go run ./cmd/qayaba     # connects to localhost:458 by default
 ```
 
 ## Commands

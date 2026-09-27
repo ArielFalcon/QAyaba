@@ -20,9 +20,9 @@ node --import tsx --test src/server/webhook-routing.test.ts
 node --import tsx --test --test-name-pattern="skip" src/server/webhook-routing.test.ts
 
 # Manual QA run (same pipeline as webhook):
-npm run qa -- --app portfolio --sha <sha>
-npm run qa -- --app portfolio --sha <sha> --mode exhaustive
-npm run qa -- --app portfolio --sha <sha> --mode manual --guidance "test the contact form"
+npm run qa -- --app my-app --sha <sha>
+npm run qa -- --app my-app --sha <sha> --mode exhaustive
+npm run qa -- --app my-app --sha <sha> --mode manual --guidance "test the contact form"
 
 npm run start             # webhook + queue service (src/index.ts)
 ```
@@ -77,10 +77,12 @@ Every side-effecting step is injected via hexagonal ports (`RunQaUseCaseDeps`, c
 ### Agent layers (`agents/`)
 
 Provider-agnostic runtime (`src/agent-runtime/`, `AgentProvider = "opencode" | "codex"`): each role
-(primary / reviewer / chat) gets a provider + model, in `single` or `dual` mode. Below is the
-**OpenCode runtime's** roster — Config: `agents/opencode.json`, single `OPENCODE_API_KEY` (opencode-go/ prefix):
-- `qa-generator` (primary, `deepseek-v4-pro`) — writes tests, read/edit/bash
-- `qa-reviewer` (subagent, `qwen3.7-max`) — read-only, emits JSON verdict
+(primary / reviewer / chat) gets a provider + model, in `single` or `dual` mode. `agents/opencode.json`
+is the single source of truth for the **OpenCode runtime's** roster and model assignments (single
+`OPENCODE_API_KEY`, `opencode-go/` prefix) — read it rather than trusting model ids in prose, which
+drift. Stable roles: `qa-generator` (primary, writes tests, read/edit/bash) and `qa-reviewer`
+(subagent, read-only, emits JSON verdict); the file also defines the coordination roles
+(`qa-sidekick`, `qa-explorer`, `qa-proposer`, `qa-worker`/`qa-worker-code`, `qa-reflector`).
 
 Prompt layers: `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-role) → `agents/skill/` (on-demand: `playwright-authoring`, `test-value-review`). Codex uses the provider-neutral mirror under `agent/` (`agent/roles/*.md`, `agent/skills/`).
 
@@ -97,7 +99,7 @@ Prompt layers: `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-ro
 ## Conventions & gotchas
 
 - **No build step.** `tsx` runs TS at runtime — install ALL deps in Docker (not `--omit=dev`).
-- **Pin exact versions on the execution path.** Playwright pinned to `1.50.0` to match the base image (`playwright:v1.50.0-jammy`). Don't loosen it.
+- **Pin exact versions on the execution path.** Playwright pinned to `1.60.0` to match the base image (`playwright:v1.60.0-noble`). Don't loosen it.
 - **`.env` comments go on their own line.** `docker compose env_file` doesn't strip inline `#` — it becomes part of the value.
 - **Secrets via Doppler at runtime**; nothing committed. `.env` is for local-without-Doppler only.
 - **Tests use `node:test` + `node:assert/strict`**, colocated `*.test.ts`.

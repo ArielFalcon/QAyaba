@@ -3,7 +3,7 @@
 
 [![Node.js 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)](https://www.typescriptlang.org)
-[![Playwright](https://img.shields.io/badge/Playwright-1.50-45ba4b)](https://playwright.dev)
+[![Playwright](https://img.shields.io/badge/Playwright-1.60-45ba4b)](https://playwright.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED)](https://www.docker.com)
 [![Agent Runtime](https://img.shields.io/badge/OpenCode%20%2F%20Codex-runtime-7b68ee)](https://opencode.ai)
 
@@ -395,7 +395,7 @@ docker compose up --build
 
 ```bash
 SHA=$(git ls-remote https://github.com/your-org/your-repo main | cut -f1)
-curl -X POST localhost:8080 \
+curl -X POST localhost:458 \
   -H 'content-type: application/json' \
   -d "{\"repo\":\"your-org/your-repo\",\"sha\":\"$SHA\"}"
 ```
