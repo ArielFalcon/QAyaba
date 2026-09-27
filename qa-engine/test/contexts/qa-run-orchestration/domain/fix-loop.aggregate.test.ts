@@ -1040,3 +1040,61 @@ test("a retry the runner reports as infra-error keeps that verdict, even with mo
   );
   assert.equal(result.run.verdict, "infra-error");
 });
+
+test("a filtered retry the runner reports as infra-error ends the run as infra-error, never merged with the specs it did not re-run", async () => {
+  const { loop, rec } = recordingLoop({
+    regen: () => ({ specs: ["a.spec.ts"], approved: true }),
+    runs: [{ verdict: "infra-error", cases: [] }],
+  });
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }] },
+    }),
+  );
+  assert.deepEqual(rec.executes[0]?.specFiles, ["a.spec.ts"], "the retry was scoped to the failing spec");
+  assert.equal(result.run.verdict, "infra-error");
+});
+
+test("a re-run failing spec the filtered retry reports no result for keeps its last failure", async () => {
+  const { loop, rec } = recordingLoop({
+    regen: () => ({ specs: ["a.spec.ts", "c.spec.ts"], approved: true }),
+    runs: [{ verdict: "pass", cases: [{ name: "c", status: "pass", file: "c.spec.ts" }] }],
+  });
+  const result = await loop.run(
+    loopInput({
+      initialRun: {
+        verdict: "fail",
+        cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }, makeCase({ name: "c", file: "c.spec.ts" })],
+      },
+    }),
+  );
+  assert.deepEqual(rec.executes[0]?.specFiles, ["a.spec.ts", "c.spec.ts"], "the retry was scoped to the failing specs");
+  assert.equal(result.run.verdict, "fail");
+  assert.deepEqual(result.run.cases.filter((c) => c.status === "fail").map((c) => c.name), ["a"]);
+  assert.deepEqual(result.run.cases.map((c) => c.name).sort(), ["a", "b", "c"], "b is carried forward and c is replaced by its fresh result");
+});
+
+test("a filtered retry is never reported greener than the runner's own verdict for it", async () => {
+  const initialRun: FixLoopRun = {
+    verdict: "fail",
+    cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "pass", file: "b.spec.ts" }],
+  };
+  const regen = (): FixLoopGenerateResult => ({ specs: ["a.spec.ts"], approved: true });
+  const failed = recordingLoop({ regen, runs: [{ verdict: "fail", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }] });
+  assert.equal((await failed.loop.run(loopInput({ initialRun }))).run.verdict, "fail");
+  const flaky = recordingLoop({ regen, runs: [{ verdict: "flaky", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }] });
+  assert.equal((await flaky.loop.run(loopInput({ initialRun }))).run.verdict, "flaky");
+});
+
+test("a flaky spec the filtered retry did not re-run keeps a passing retry flaky", async () => {
+  const { loop } = recordingLoop({
+    regen: () => ({ specs: ["a.spec.ts"], approved: true }),
+    runs: [{ verdict: "pass", cases: [{ name: "a", status: "pass", file: "a.spec.ts" }] }],
+  });
+  const result = await loop.run(
+    loopInput({
+      initialRun: { verdict: "fail", cases: [makeCase({ name: "a", file: "a.spec.ts" }), { name: "b", status: "flaky", file: "b.spec.ts" }] },
+    }),
+  );
+  assert.equal(result.run.verdict, "flaky");
+});

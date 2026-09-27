@@ -3382,7 +3382,7 @@ test("live events: an ABSENT observer is a pure no-op for onCase/onRunning/onDis
    canFilter/failedSpecFiles decision) must reach the REAL ExecutionPort.execute() call.
  */
 
-test("FixLoop filtered-retry: a scoped retry (single failing spec, no coverage measurement) threads ONLY the failed spec file into execute()'s opts.specFiles", async () => {
+test("a filtered retry reaches the execution port scoped to the failing spec file when coverage is not measured", async () => {
   let executeCallCount = 0;
   const capturedSpecFiles: (string[] | undefined)[] = [];
   const { ports } = stubPorts({
@@ -3391,16 +3391,15 @@ test("FixLoop filtered-retry: a scoped retry (single failing spec, no coverage m
       const o = opts && !(opts instanceof AbortSignal) ? opts : {};
       capturedSpecFiles.push(o.specFiles);
       if (executeCallCount === 1) {
-        /* Both cases fail, but only "login" carries a file — matches FixLoop's own
-           allFailedHaveFile guard needing every failed case to carry a file to filter.
-         */
+        /* The failing case carries its spec file — the filtered retry needs every failing case to name one. */
         return {
           verdict: "fail" as const,
           cases: [{ name: "login", status: "fail" as const, file: "login.spec.ts", detail: "boom" }],
           logs: "",
         };
       }
-      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const }], logs: "" };
+      /* The retry reports the re-run spec's result under its file, as the Playwright report does. */
+      return { verdict: "pass" as const, cases: [{ name: "login", status: "pass" as const, file: "login.spec.ts" }], logs: "" };
     },
     /* The regen only rewrites the failing spec (stays inside the failed set — canFilter requires
        regenStayedInFailedSet), so filtering is not blocked by an "outsider" spec being touched too.

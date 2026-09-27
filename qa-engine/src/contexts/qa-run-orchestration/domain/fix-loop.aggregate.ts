@@ -265,17 +265,23 @@ export class FixLoop {
           break;
         }
 
-        if (canFilter) {
-          /* Carry forward cases from files not re-run; splice in the re-run's results. */
-          const rerunFileSet = new Set(failedSpecFiles);
-          // Stryker disable next-line ConditionalExpression: equivalent — a case without a file is never in rerunFileSet
-          const carriedForward = run.cases.filter((c) => !(c.file && rerunFileSet.has(c.file)));
+        /* A retry the runner could not complete (infra-error) is never merged: the run ends
+           inconclusive exactly as an unfiltered retry would, so a spec that never re-ran cannot
+           ride on the carried-forward passes into a green verdict. */
+        if (canFilter && retryRun.verdict !== "infra-error") {
+          /* Every file the retry reported (file-less cases count as one group) replaces its earlier
+             cases; every other file keeps its last result — including a re-run failing spec the
+             retry reported nothing for, whose last observed result is still its failure. */
+          const reportedFiles = new Set(retryRun.cases.map((c) => c.file));
+          const carriedForward = run.cases.filter((c) => !reportedFiles.has(c.file));
           const mergedCases = [...carriedForward, ...retryRun.cases];
-          const mergedVerdict: RunVerdict = mergedCases.some((c) => c.status === "fail")
-            ? "fail"
-            : mergedCases.some((c) => c.status === "flaky")
-              ? "flaky"
-              : "pass";
+          /* The merge is never greener than the runner's own verdict for the retry. */
+          const mergedVerdict: RunVerdict =
+            retryRun.verdict === "fail" || mergedCases.some((c) => c.status === "fail")
+              ? "fail"
+              : retryRun.verdict === "flaky" || mergedCases.some((c) => c.status === "flaky")
+                ? "flaky"
+                : "pass";
           run = { verdict: mergedVerdict, cases: mergedCases };
         } else {
           run = retryRun;
