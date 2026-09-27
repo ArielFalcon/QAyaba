@@ -404,7 +404,7 @@ func (m appAdminModel) updateForm(msg tea.KeyMsg) (appAdminModel, tea.Cmd) {
 		return m, func() tea.Msg { return backMsg{} }
 	/* Navigate with tab/arrows only — NOT j/k: the form has text inputs (name, url, env
 	   user/pass), and using printable letters as motion aliases would eat those letters while
-	   typing (e.g. "joomeco"). Toggle rows are still reachable via tab/arrows. */
+	   typing (e.g. an app name with "j" or "k"). Toggle rows are still reachable via tab/arrows. */
 	case "tab", "down":
 		m.moveFormFocus(1)
 		return m, textinput.Blink

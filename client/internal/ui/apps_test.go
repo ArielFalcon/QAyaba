@@ -553,7 +553,7 @@ func TestTogglingAuthModeClearsCredentialInputValues(t *testing.T) {
 }
 
 /* Regression: on a text field, j/k must be typed, not treated as motion — otherwise words
-   containing them (e.g. "joomeco", "webapp") can't be entered. Navigation is tab/arrows only. */
+   containing them (e.g. "job", "kite") can't be entered. Navigation is tab/arrows only. */
 func TestFormTextFieldAcceptsJAndKAsInput(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm

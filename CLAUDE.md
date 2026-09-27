@@ -341,15 +341,17 @@ coverage signal, not add another LLM proxy.
 
 ## Current state
 
-Several apps are wired in `config/apps/` across the current **Java +
-JavaScript/TypeScript** scope — all interchangeable test targets, never design
-inputs (see Invariants): `jhipster-store` (Angular 21 gateway + Spring
-microservices, monorepo), `petclinic` (Spring, monorepo) and `portfolio`
-(static Astro) run in **e2e** mode against live DEV in **shadow mode**;
-`qayaba` runs in **code** mode (the engine tests its own source, `code:
-true`). The deploy gate is skipped wherever no `versionUrl` is configured
-(already-deployed/static targets). engram is enabled for persistent agent
-memory across runs.
+Watched apps are configured in `config/apps/` (gitignored — user data; see
+`config/apps/example.yaml`) across the current **Java + JavaScript/TypeScript**
+scope — always interchangeable test targets, never design inputs (see
+Invariants). Both run targets are exercised across onboarded apps: **e2e**
+mode against live DEV (monorepos with an Angular/Spring or Spring-only
+backend, and static-site frontends all run in **shadow mode** while
+onboarding), and **code** mode (`code: true`, no `dev:` block) for
+source-level testing without a browser — this engine tests its own source
+in code mode as one such target. The deploy gate is skipped wherever no
+`versionUrl` is configured (already-deployed/static targets). engram is
+enabled for persistent agent memory across runs.
 
 The agent runtime is **provider-agnostic** (`src/agent-runtime/`): OpenCode and Codex,
 in `single` or `dual` mode, behind one facade (the `agents` container's supervisor

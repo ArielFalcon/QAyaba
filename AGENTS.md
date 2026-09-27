@@ -111,11 +111,11 @@ The quality loop is circular: one LLM generates, another reviews, and the harnes
 
 ## Current state
 
-Several apps are wired in `config/apps/` across the current **Java + JavaScript/TypeScript** scope — interchangeable test targets, never design inputs: `jhipster-store`, `petclinic` and `portfolio` run in **e2e** mode against live DEV in **shadow mode**; `qayaba` runs in **code** mode (`code: true`). The deploy gate is skipped wherever no `versionUrl` is configured. engram is enabled for persistent agent memory across runs.
+Watched apps are configured in `config/apps/` (gitignored — user data; see `config/apps/example.yaml`) across the current **Java + JavaScript/TypeScript** scope — interchangeable test targets, never design inputs. Onboarded apps run in **e2e** mode against live DEV, typically in **shadow mode** while trust is earned; source-level targets (no browser, no `dev:` block) run in **code** mode (`code: true`). The deploy gate is skipped wherever no `versionUrl` is configured. engram is enabled for persistent agent memory across runs.
 
 The `src/` → `qa-engine/` migration is **complete**: new engine logic targets `qa-engine/`; `src/` is the declared shell (composition root, control plane, provider I/O, persistence). `qa-engine` never imports `src/` (`npm run arch:check`).
 
-Controlled alpha demo: `portfolio`, `shadow: true`, `--mode manual`, narrow homepage guidance. Do not load untracked apps with `shadow: false`.
+Controlled alpha demo pattern: an e2e app onboarded with `shadow: true`, `--mode manual` and narrow guidance scoped to one flow. Do not load untracked apps with `shadow: false`.
 
 - Apps with a non-empty `services[]` auto-enable the read-only `qa-explorer` pass (still opt-in via `qa.explorer` when there are no services; skipped in code-mode).
 - After classify (not on skip), the run fail-open reindexes the mirror via `CodeGraphPort.syncTo` only when `lastIndexedSha` in `data/index-status.json` differs from the run SHA.

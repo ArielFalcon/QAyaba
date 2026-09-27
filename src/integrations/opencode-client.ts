@@ -283,7 +283,7 @@ export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_
 /*
  * The explorer is a read-only PRE-pass; cap it well below the generator/diff budget so a hung
  * explorer cannot hold the sequential queue for the full window before the generator even starts.
- * 90s proved too tight on large microservice monorepos (petclinic): the read-only brief needs room
+ * 90s proved too tight on large microservice monorepos: the read-only brief needs room
  * to finish; 240s still sits far under the generator's 25-minute worst case.
  * Shared with CodexRuntimeStrategy so both providers use one per-role budget.
  */
@@ -297,7 +297,7 @@ export const EXPLORER_TIMEOUT_MS = Number(process.env.OPENCODE_EXPLORER_TIMEOUT_
  * REGARDLESS of whether the explorer brief arrived: a brief-less planner still only widens+plans a
  * single scope, and reverting it to the 5–10 min generator budget would re-open the hang on exactly the
  * monorepos this targets. Matched to EXPLORER_TIMEOUT_MS (240s) — the explorer does the comparable
- * read+widen and needed that much on petclinic — and folded into the dispatcher Math.max below.
+ * read+widen and needed that much on a large monorepo — and folded into the dispatcher Math.max below.
  * complete/exhaustive (whole-repo analysis, no scope) keep the per-mode generator budget.
  */
 const PLANNER_TIMEOUT_MS = Number(process.env.OPENCODE_PLANNER_TIMEOUT_MS) || 240 * 1000;
