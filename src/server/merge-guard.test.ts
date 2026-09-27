@@ -62,6 +62,20 @@ function tempTreeWith(relPaths: string[]): string {
   return treeRoot;
 }
 
+/* Ordinary, existing source files an autonomous fix may touch — the negative examples below. */
+const ORDINARY_FILES = [
+  "src/server/queue.ts",
+  "src/server/metrics.ts",
+  "qa-engine/src/contexts/objective-signal/domain/decide-coverage.service.ts",
+];
+
+test("the ordinary-file examples exist and are not protected", () => {
+  for (const file of ORDINARY_FILES) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a negative example naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), false, `${file} must stay autonomously editable`);
+  }
+});
+
 test("isProtectedPath flags the recovery net and build/topology, exact and prefix", () => {
   assert.equal(isProtectedPath("boot-guard.mjs"), true);
   assert.equal(isProtectedPath("src/server/self-update.ts"), true);
@@ -69,8 +83,39 @@ test("isProtectedPath flags the recovery net and build/topology, exact and prefi
   assert.equal(isProtectedPath("docker-compose.yml"), true);
   assert.equal(isProtectedPath("./Dockerfile"), true);
   assert.equal(isProtectedPath(".github/workflows/ci.yml"), true);
-  /* ordinary source is NOT protected — the maintainer may fix it autonomously */
-  assert.equal(isProtectedPath("src/pipeline.ts"), false);
+});
+
+/* git reports forward-slash repo-relative paths, but the gate must not depend on it: a Windows
+   separator or a redundant "./" / "//" spelling of a protected path is still that path. */
+test("isProtectedPath protects a path however its separators and leading ./ are spelled", () => {
+  for (const spelling of [".\\src\\index.ts", "src\\index.ts", ".//src/index.ts", "././src/index.ts", "src//index.ts"]) {
+    assert.equal(isProtectedPath(spelling), true, `${JSON.stringify(spelling)} is src/index.ts`);
+  }
+  for (const spelling of [".\\.github\\workflows\\ci.yml", "./.github/workflows/ci.yml", ".github\\workflows\\ci.yml"]) {
+    assert.equal(isProtectedPath(spelling), true, `${JSON.stringify(spelling)} is under .github/`);
+  }
+  for (const file of ORDINARY_FILES) {
+    assert.equal(isProtectedPath(`.\\${file.replace(/\//g, "\\")}`), false, `${file} stays editable in any spelling`);
+  }
+});
+
+test("isSecuritySensitiveSurface recognizes the surface however the path is spelled", () => {
+  const file = "qa-engine/src/contexts/workspace-and-publication/domain/new-module.ts";
+  for (const spelling of [file, `./${file}`, `.//${file}`, `.\\${file.replace(/\//g, "\\")}`]) {
+    assert.equal(isSecuritySensitiveSurface(spelling), true, `${JSON.stringify(spelling)} is on the surface`);
+  }
+  assert.equal(isSecuritySensitiveSurface("./src/server/queue.ts"), false);
+});
+
+/* The login seed decides how credentials reach the setup run and where the session is saved;
+   .dockerignore decides what (e.g. .env) is baked into the image; agents/opencode.json sets the
+   agents' models and tool permissions — including the read-only boundary on watched repos. */
+test("isProtectedPath protects the login seed, the image build context filter and the agent permissions", () => {
+  assert.equal(isProtectedPath("config/e2e/auth.setup.ts"), true);
+  assert.equal(isProtectedPath(".dockerignore"), true);
+  assert.equal(isProtectedPath("./.dockerignore"), true);
+  assert.equal(isProtectedPath("agents/opencode.json"), true);
+  assert.equal(isProtectedPath("agents\\opencode.json"), true);
 });
 
 test("isProtectedPath flags the secret boundary (a fix must never weaken what scrubs data leaving the system)", () => {
@@ -107,7 +152,7 @@ test("isProtectedPath flags the secret boundary (a fix must never weaken what sc
    back into the agent-visible mirror, or drop a field a caller relies on to keep material out of
    it. Protected the same way as scrub-env.ts / auth-session-env.ts.
  */
-test("isProtectedPath flags the auth-material adapter and its port contract (S2)", () => {
+test("isProtectedPath flags the auth-material adapter and its port contract", () => {
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts"), true);
 });
@@ -121,7 +166,7 @@ test("isProtectedPath flags the auth-material adapter and its port contract (S2)
    promoting all of src/server/ to a root, which would force review of ~40 unrelated files (views,
    metrics, telemetry, queue, …) with no genuine security content.
  */
-test("isProtectedPath flags the control-plane auth boundary (FIX C)", () => {
+test("isProtectedPath flags the control-plane auth boundary", () => {
   assert.equal(isProtectedPath("src/server/auth.ts"), true);
   assert.equal(isProtectedPath("src/server/github-auth.ts"), true);
   assert.equal(isProtectedPath("src/server/webhook.ts"), true);
@@ -133,7 +178,7 @@ test("isProtectedPath flags the control-plane auth boundary (FIX C)", () => {
    at all was not; an autonomous edit here could silently stop calling them, or route around them,
    without ever touching a protected file.
  */
-test("isProtectedPath flags the control-plane router that decides auth-handler reachability (S4)", () => {
+test("isProtectedPath flags the control-plane router that decides auth-handler reachability", () => {
   assert.equal(isProtectedPath("src/server/api.ts"), true);
 });
 
@@ -142,7 +187,7 @@ test("isProtectedPath flags the control-plane router that decides auth-handler r
    fields) — an autonomous fix that rewrites maintainer-runtime.ts could silently skip its own
    gates without ever touching merge-guard.ts, boot-guard.mjs or self-update.ts (Batch S / S1).
  */
-test("isProtectedPath flags the maintainer runtime that sequences the autonomous-deploy gates (S1)", () => {
+test("isProtectedPath flags the maintainer runtime that sequences the autonomous-deploy gates", () => {
   assert.equal(isProtectedPath("src/server/maintainer-runtime.ts"), true);
   assert.equal(isProtectedPath("src/server/maintainer.ts"), true);
   assert.equal(isProtectedPath("src/server/maintainer-summary.ts"), true);
@@ -159,7 +204,7 @@ test("isProtectedPath flags the maintainer runtime that sequences the autonomous
    human review. The residual is zero by construction, not by review, and needs no NOT_SECURITY_SENSITIVE
    entries at all.
  */
-test("isProtectedPath flags the whole generation/infrastructure and orchestration bridges surface (FIX C)", () => {
+test("isProtectedPath flags the whole generation/infrastructure and orchestration bridges surface", () => {
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/route-catalog.ts"), true);
@@ -169,7 +214,7 @@ test("isProtectedPath flags the whole generation/infrastructure and orchestratio
 });
 
 /* despite being squarely inside the secret/confinement/review boundary this module protects. */
-test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/config.ts (FIX II(a))", () => {
+test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/config.ts", () => {
   /* owns authHeaderArgs() (GITHUB_TOKEN into git URLs), hardenGitArgs() (disables hooksPath — its own
      comment calls this a root-RCE escape), and scrubGitError() (its comment cites a PAST incident of a
      PAT logged in plaintext).
@@ -240,8 +285,8 @@ test("narrowing the generation/infrastructure protection past one file is caught
 
 test("isProtectedPath flags the gate-integrity surface (the fix must not weaken its own gate)", () => {
   /* *.test.ts (suffix glob, anywhere) — the npm-test gate the pre-deploy self-test runs. */
-  assert.equal(isProtectedPath("src/qa/change-coverage.test.ts"), true);
-  assert.equal(isProtectedPath("src/pipeline.test.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/test/contexts/objective-signal/domain/decide-coverage.service.test.ts"), true);
+  assert.equal(isProtectedPath("src/server/queue.test.ts"), true);
   assert.equal(isProtectedPath("./src/server/merge-guard.test.ts"), true);
   assert.equal(isProtectedPath("tsconfig.json"), true);
   assert.equal(isProtectedPath("src/index.ts"), true);
@@ -250,12 +295,12 @@ test("isProtectedPath flags the gate-integrity surface (the fix must not weaken 
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts"), true);
   /* which spawns agent-authored specs (untrusted) exactly like code-execution.runner.ts above. */
   assert.equal(isProtectedPath("qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"), true);
-  /* a non-test source file next to tests is still editable (glob is a strict .test.ts suffix). */
-  assert.equal(isProtectedPath("src/qa/change-coverage.ts"), false);
+  /* a non-test source file next to its tests is still editable (glob is a strict .test.ts suffix). */
+  assert.equal(isProtectedPath("src/server/queue.ts"), false);
 });
 
 test("assessChange blocks a fix that touches a protected file", () => {
-  const r = assessChange({ files: ["src/pipeline.ts", "boot-guard.mjs"], additions: 5, deletions: 2 });
+  const r = assessChange({ files: [ORDINARY_FILES[0]!, "boot-guard.mjs"], additions: 5, deletions: 2 });
   assert.equal(r.ok, false);
   assert.ok(r.reasons.some((x) => x.includes("protected")));
 });
@@ -271,7 +316,7 @@ test("assessChange blocks an over-large fix (files or lines)", () => {
 });
 
 test("assessChange allows a minimal, in-scope fix", () => {
-  const r = assessChange({ files: ["src/pipeline.ts", "src/qa/validate.ts"], additions: 12, deletions: 4 });
+  const r = assessChange({ files: ORDINARY_FILES.slice(0, 2), additions: 12, deletions: 4 });
   assert.deepEqual(r, { ok: true, reasons: [] });
 });
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { recordIncident, setMaintainerStatus, getIncidents, updateIncident } from "./maintainer";
 import { parseMaintainerSummary } from "./maintainer-summary";
-import { assessChange, assessRate, parseNumstat, readDeployHistory, recordDeploy } from "./merge-guard";
+import { assessChange, assessRate, parseNumstat, PROTECTED_PATHS, readDeployHistory, recordDeploy } from "./merge-guard";
 import {
   performSwap,
   confirmSwapHealthy,
@@ -163,12 +163,10 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           "healthy (the canary), and only then merged to main. So it must be NECESSARY, MINIMAL",
           "and SAFE. Hard constraints (a fix that breaks them is blocked and left for a human):",
           "  - Keep it small: at most 15 files / 400 changed lines.",
-          "  - Do NOT modify the recovery/build files: boot-guard.mjs, src/server/self-update.ts,",
-          "    src/server/merge-guard.ts, any Dockerfile, docker-compose.yml, or .github/ — these",
-          "    are the safety net and image build; changing them requires a human.",
-          "  - Do NOT modify the maintainer runtime itself: src/server/maintainer-runtime.ts,",
-          "    maintainer.ts, maintainer-summary.ts, maintainer-memory.ts — they sequence this",
-          "    very gate; changing them requires a human.",
+          "  - Do NOT modify any protected path: the recovery net, the secret and auth boundaries,",
+          "    this very gate and the image build. Changing one requires a human. (A trailing /",
+          "    is a whole directory; a leading * matches any file with that suffix.)",
+          ...PROTECTED_PATHS.map((path) => `      ${path}`),
           "Output a summary in this format (the `justification` is mandatory — without all three",
           "fields the fix is NOT deployed):",
           "```",

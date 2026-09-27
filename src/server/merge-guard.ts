@@ -54,6 +54,12 @@ export const PROTECTED_PATHS: string[] = [
    * to require, without touching the adapter file itself.
    */
   "qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts",
+  /*
+   * The login seed copied into every watched repo: it receives the app credentials in its env and
+   * decides where the session is saved — an edit could log them or write the session back under
+   * the agent-visible mirror.
+   */
+  "config/e2e/auth.setup.ts",
 
   "qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts",
   /*
@@ -165,6 +171,11 @@ export const PROTECTED_PATHS: string[] = [
    * rubber stamp with no detectable failure.
    */
   "src/agent-runtime/config.ts",
+  /*
+   * The OpenCode agents' models and tool permissions — including the read-only boundary on watched
+   * repos. Widening a role's permissions here grants the LLM write authority without touching code.
+   */
+  "agents/opencode.json",
 
   "*.test.ts",
   "tsconfig.json",
@@ -179,19 +190,26 @@ export const PROTECTED_PATHS: string[] = [
   ".github/",
   "Dockerfile",
   "agents/Dockerfile",
+  /* Decides what the image build context contains — dropping an entry can bake .env into the image. */
+  ".dockerignore",
   "docker-compose.yml",
   "docker-compose.override.yml",
   "package.json",
   "package-lock.json",
 ];
 
+/*
+ * One repo-relative spelling for every path the gates compare: Windows separators become "/",
+ * repeated slashes collapse, then leading "./" groups are stripped — in that order, so ".\\src\\x"
+ * and ".//src/x" both become "src/x". Only whole "./" groups go: the dot of a dotfile path
+ * (".github/", ".dockerignore") is kept.
+ */
+function normalizeRepoPath(file: string): string {
+  return file.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^(?:\.\/)+/, "");
+}
+
 export function isProtectedPath(file: string): boolean {
-  /*
-   * Strip leading "./" groups only. The old dot-star-slash strip regex ate the dot of dotfile
-   * paths too, turning ".github/workflows/ci.yml" into "github/..."; the ".github/" prefix
-   * (a directory rule) then never matched and the CI workflow surfaces were left unprotected.
-   */
-  const f = file.replace(/^(?:\.\/)+/, "").replace(/\\/g, "/");
+  const f = normalizeRepoPath(file);
   return PROTECTED_PATHS.some((p) => {
     if (p.startsWith("*")) return f.endsWith(p.slice(1)); 
     if (p.endsWith("/")) return f.startsWith(p);  /* directory prefix */
@@ -230,7 +248,7 @@ export const NOT_SECURITY_SENSITIVE: string[] = [
 ];
 
 export function isSecuritySensitiveSurface(file: string): boolean {
-  const f = file.replace(/^\.\/*/, "").replace(/\\/g, "/");
+  const f = normalizeRepoPath(file);
   return SECURITY_SENSITIVE_SURFACE_ROOTS.some((root) => f.startsWith(root));
 }
 

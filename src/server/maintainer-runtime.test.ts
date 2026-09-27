@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createMaintainerRuntime, type MaintainerSideEffects, type MaintainerConfig } from "./maintainer-runtime";
 import { recordIncident, getIncident, getIncidents, getMaintainerStatus } from "./maintainer";
 import type { AgentDeps } from "../integrations/opencode-client";
+import { PROTECTED_PATHS } from "./merge-guard";
 
 /* These are the FIRST tests of the self-deploy path — ARCH-01 extracted it from index.ts behind a DI
    factory precisely so the safety-layer SEQUENCING (open PR → justify → kill-switch → scope → rate →
@@ -34,9 +35,16 @@ function fixReply(): string {
   return `done.\n<!--MAINTAINER_SUMMARY ${JSON.stringify(j)} END_MAINTAINER_SUMMARY-->`;
 }
 
-function agentDeps(promptReturn: string): AgentDeps {
+function agentDeps(promptReturn: string, onPrompt?: (prompt: string) => void): AgentDeps {
   return {
-    open: async () => ({ id: "s1", prompt: async () => promptReturn, dispose: async () => {} }),
+    open: async () => ({
+      id: "s1",
+      prompt: async (prompt: string) => {
+        onPrompt?.(prompt);
+        return promptReturn;
+      },
+      dispose: async () => {},
+    }),
   };
 }
 
@@ -47,7 +55,7 @@ interface Spies {
   gateCmds: string[];
 }
 
-function harness(opts: { root: string; autonomous: boolean; promptReturn: string }) {
+function harness(opts: { root: string; autonomous: boolean; promptReturn: string; onPrompt?: (prompt: string) => void }) {
   const calls: Spies = { createPR: 0, performSwap: 0, exit: [], gateCmds: [] };
   const git = async (args: string[]): Promise<string> => {
     if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n";
@@ -81,7 +89,7 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
   };
   const cfg: MaintainerConfig = {
     queue: { drain: async () => {} },
-    getAgentDeps: () => agentDeps(opts.promptReturn),
+    getAgentDeps: () => agentDeps(opts.promptReturn, opts.onPrompt),
     setShuttingDown: () => {},
     root: opts.root,
     selfRepo: "Org/qayaba",
@@ -90,6 +98,22 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
   };
   return { runtime: createMaintainerRuntime(cfg, fx), calls };
 }
+
+/* The gate blocks a fix that touches any protected path, so the agent must be told every one of them
+   up front — a hand-maintained subset in the prompt lets it spend a whole fix on a file the gate will
+   refuse. */
+test("the maintainer agent is told every protected path before it writes a fix", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "protected-path prompt case" });
+  let prompt = "";
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), onPrompt: (p) => { prompt = p; } });
+
+  await runtime.triggerMaintainer();
+
+  for (const path of PROTECTED_PATHS) {
+    assert.ok(prompt.includes(path), `the maintainer prompt must name protected path ${path}`);
+  }
+});
 
 /* THE kill-switch invariant: with SELF_MAINTAINER_AUTOMERGE off, a perfectly fixable incident still
    stops at an OPEN PR — it is never swapped into the running service and never exits to restart.
