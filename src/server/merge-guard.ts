@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { WriteConfinementService } from "../../qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service";
 
 /*
  * Validation + safety layers gating the maintainer's autonomous self-merge — the
@@ -261,6 +262,7 @@ export interface ChangeStat {
   files: string[];
   additions: number;
   deletions: number;
+  unparsed?: string[];  /* diff-summary rows that could not be read; any one blocks the change */
 }
 
 export interface ChangeLimits {
@@ -278,6 +280,11 @@ export interface GateResult {
 export function assessChange(stat: ChangeStat, limits: ChangeLimits = DEFAULT_CHANGE_LIMITS): GateResult {
   const reasons: string[] = [];
   if (stat.files.length === 0) reasons.push("the fix changed no files");
+  const unparsed = stat.unparsed ?? [];
+  if (unparsed.length > 0) {
+    // Stryker disable next-line StringLiteral: message detail only — the separator between the named rows
+    reasons.push(`the diff summary holds rows the guard cannot read (human review required): ${unparsed.join(" | ")}`);
+  }
   const protectedTouched = stat.files.filter(isProtectedPath);
   if (protectedTouched.length > 0) {
     // Stryker disable next-line StringLiteral: message detail only — the separator between the named files
@@ -293,32 +300,107 @@ export function assessChange(stat: ChangeStat, limits: ChangeLimits = DEFAULT_CH
   return { ok: reasons.length === 0, reasons };
 }
 
+const RENAME_ARROW = " => ";
+
+/* git's C-style path decoding (octal byte escapes to UTF-8, \" \\ \t \n …) has one owner: write
+   confinement decodes the same quoting out of `git status`. */
+const gitPaths = new WriteConfinementService();
+
+/* Length of the C-quoted path `text` opens with, through its closing quote; -1 when it never closes. */
+function quotedLength(text: string): number {
+  // Stryker disable next-line EqualityOperator: equivalent — text[text.length] is undefined, so the extra pass only ends the loop
+  for (let i = 1; i < text.length; i++) {
+    if (text[i] === "\\") i++;
+    else if (text[i] === '"') return i + 1;
+  }
+  return -1;
+}
+
+/* The path one side of a numstat path field names. git quotes every path holding `"`, `\` or a
+   control character, so a side holding any must be exactly one quoted path with only escapes git
+   prints — else null. */
+function decodeSide(side: string): string | null {
+  if (!/["\\\u0000-\u001f\u007f]/.test(side)) return side;
+  if (!side.startsWith('"') || quotedLength(side) !== side.length) return null;
+  try {
+    return gitPaths.decodeGitPath(side);
+  } catch {
+    return null;
+  }
+}
+
+/* A path field split into [path] or, for a rename, [old, new]; null when no single split exists.
+   A quoted old side ends at its closing quote, a bare one at the first arrow — a second arrow
+   leaves a bare split ambiguous. */
+function renameSides(field: string): string[] | null {
+  if (!field.startsWith('"')) {
+    const sides = field.split(RENAME_ARROW);
+    return sides.length <= 2 ? sides : null;
+  }
+  const end = quotedLength(field);
+  if (end === field.length) return [field];
+  /* An unclosed quote (-1) fails this check too: the field opens with a quote, not the arrow. */
+  return field.startsWith(RENAME_ARROW, end) ? [field.slice(0, end), field.slice(end + RENAME_ARROW.length)] : null;
+}
+
 /*
- * Parse `git diff --numstat` output into a ChangeStat. Binary files report "-" for the
- * counts; treat those as 0 lines (the file still counts toward the file limit).
+ * git compacts a rename of two bare paths around their shared directory prefix and suffix as
+ * `pfx{old => new}sfx`. Returns the two paths that reading names; [] when the field cannot be that
+ * shape (no "{" before the arrow or no "}" after it); null when extra braces allow more than one
+ * reading.
+ */
+function braceReading(oldSide: string, newSide: string): string[] | null {
+  const [pfx, oldMid, ...moreOpen] = oldSide.split("{");
+  const [newMid, sfx, ...moreClose] = newSide.split("}");
+  if (oldMid === undefined || sfx === undefined) return [];
+  if (moreOpen.length + moreClose.length > 0) return null;
+  return [normalizeRepoPath(`${pfx}${oldMid}${sfx}`), normalizeRepoPath(`${pfx}${newMid}${sfx}`)];
+}
+
+/*
+ * The repo paths a numstat path field names, or null when it fits no shape git prints. git C-quotes
+ * a path holding `"`, `\`, a control character or (core.quotePath, the default) a non-ASCII byte,
+ * and prints a rename as `old => new`: each whole path quoted on its own when either needs quoting,
+ * otherwise brace-compacted. A brace-compacted field is also a valid plain rename of two brace-named
+ * files, so both readings are returned — each side is checked whichever one git meant.
+ */
+function numstatPaths(field: string): string[] | null {
+  const sides = renameSides(field);
+  if (sides === null) return null;
+  const paths = sides.map(decodeSide);
+  if (!paths.every((p): p is string => p !== null)) return null;
+  const [oldSide, newSide] = sides;
+  /* a quoted side means git printed whole paths, never a brace-compacted pair */
+  if (newSide === undefined || field.includes('"')) return paths;
+  const braces = braceReading(oldSide as string, newSide);
+  return braces === null ? null : [...paths, ...braces];
+}
+
+const NUMSTAT_ROW = /^(\d+|-)\t(\d+|-)\t(.+)$/;
+
+/*
+ * Parse `git diff --numstat` output into a ChangeStat. Binary files report "-" for the counts;
+ * treat those as 0 lines (the file still counts toward the file limit). A row the parser cannot
+ * read is kept in `unparsed`, never dropped: an unreadable row may name a protected path.
  */
 export function parseNumstat(out: string): ChangeStat {
   const files: string[] = [];
+  const unparsed: string[] = [];
   let additions = 0;
   let deletions = 0;
   for (const line of out.split("\n")) {
-    /* git numstat rows carry no surrounding whitespace, and a blank line has fewer than three fields
-       either way: the trim and the blank-line skip below are equivalent to the field-count guard. */
-    // Stryker disable next-line MethodExpression: equivalent — see above
-    const trimmed = line.trim();
-    // Stryker disable next-line ConditionalExpression: equivalent — see above
-    if (!trimmed) continue;
-    const parts = trimmed.split("\t");
-    if (parts.length < 3) continue;
-    const [add, del, ...rest] = parts;
-    // Stryker disable next-line StringLiteral: equivalent — git quotes a path holding a tab, so `rest` is always one field
-    files.push(rest.join("\t"));
-    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent — Number("-") is NaN, which `|| 0` also maps to 0
-    additions += add === "-" ? 0 : Number(add) || 0;
-    // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent — Number("-") is NaN, which `|| 0` also maps to 0
-    deletions += del === "-" ? 0 : Number(del) || 0;
+    if (line === "") continue;
+    const row = NUMSTAT_ROW.exec(line);
+    const paths = row && numstatPaths(row[3] as string);
+    if (!row || !paths) {
+      unparsed.push(line);
+      continue;
+    }
+    files.push(...paths);
+    additions += row[1] === "-" ? 0 : Number(row[1]);
+    deletions += row[2] === "-" ? 0 : Number(row[2]);
   }
-  return { files, additions, deletions };
+  return { files, additions, deletions, unparsed };
 }
 
 export interface RateLimits {

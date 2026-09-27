@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readdirSync, statSync, writeFileSync, rmSync, existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
@@ -343,6 +344,145 @@ test("a renamed protected file (delete row under --no-renames) is still caught",
   assert.ok(r.reasons.some((x) => x.includes("protected")));
 });
 
+/* A directory entry of PROTECTED_PATHS: every path under it needs human review. */
+const PROTECTED_DIR = PROTECTED_PATHS.find((p) => p.startsWith("qa-engine/") && p.endsWith("/")) as string;
+
+test("git's own numstat for a non-ASCII path or a rename into a protected directory is blocked", () => {
+  const repo = mkdtempSync(join(tmpdir(), "merge-guard-numstat-"));
+  try {
+    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
+    const git = (...args: string[]): string =>
+      execFileSync("git", ["-c", "core.quotePath=true", ...args], { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
+    const write = (rel: string, body: string) => {
+      mkdirSync(dirname(join(repo, rel)), { recursive: true });
+      writeFileSync(join(repo, rel), body);
+    };
+    const commit = (): string => {
+      git("add", "-A");
+      git("commit", "-qm", "step");
+      return git("rev-parse", "HEAD").trim();
+    };
+    git("init", "-q");
+    write("src/x/mv.ts", "export const moved = 1;\n");
+    write("src/x/mvé.ts", "export const accented = 1;\n");
+    const base = commit();
+    write(`${PROTECTED_DIR}café.ts`, "export const added = 1;\n");
+    const added = commit();
+    git("mv", "src/x/mv.ts", `${PROTECTED_DIR}mv.ts`);
+    const braceRename = commit();
+    git("mv", "src/x/mvé.ts", `${PROTECTED_DIR}mvé.ts`);
+    const quotedRename = commit();
+
+    const cases = [
+      { what: "a quoted non-ASCII add", out: git("diff", "--numstat", "--no-renames", base, added), shape: '"' },
+      { what: "a brace-compacted rename", out: git("diff", "--numstat", added, braceRename), shape: "{" },
+      { what: "a quoted rename", out: git("diff", "--numstat", braceRename, quotedRename), shape: '" => "' },
+    ];
+    for (const { what, out, shape } of cases) {
+      assert.ok(out.includes(shape), `git printed ${what} as ${JSON.stringify(out)}`);
+      assert.equal(assessChange(parseNumstat(out)).ok, false, `${what} must be blocked: ${JSON.stringify(out)}`);
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("parseNumstat decodes a C-quoted non-ASCII path, so a change under a protected directory is blocked", () => {
+  const stat = parseNumstat(`1\t0\t"${PROTECTED_DIR}caf\\303\\251.ts"\n`);
+  assert.deepEqual(stat.files, [`${PROTECTED_DIR}café.ts`]);
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("parseNumstat decodes the escapes git quotes a path for", () => {
+  const out = ['1\t0\t"src/x/q\\"uote.ts"', '1\t0\t"src/x/tab\\tname.ts"', '1\t0\t"src/x/back\\\\slash.ts"'].join("\n");
+  assert.deepEqual(parseNumstat(out).files, ['src/x/q"uote.ts', "src/x/tab\tname.ts", "src/x/back\\slash.ts"]);
+});
+
+test("a quoted path holding the rename arrow is one path, and a quoted old side ends at its closing quote", () => {
+  assert.deepEqual(parseNumstat('1\t0\t"docs/a => b\\303\\251.md"').files, ["docs/a => bé.md"]);
+  assert.deepEqual(parseNumstat('0\t0\t"docs/\\303\\251.md" => notes/a => b.md').files, ["docs/é.md", "notes/a => b.md"]);
+});
+
+test("parseNumstat keeps a bare path with spaces as one file", () => {
+  const stat = parseNumstat("1\t0\twe ird/sp ace.ts\n");
+  assert.deepEqual(stat.files, ["we ird/sp ace.ts"]);
+  assert.equal(assessChange(stat).ok, true);
+});
+
+test("a quoted rename into a protected directory names both paths and is blocked", () => {
+  const stat = parseNumstat(`0\t0\t"src/x/mv\\303\\251.ts" => "${PROTECTED_DIR}mv\\303\\251.ts"\n`);
+  assert.deepEqual(stat.files, ["src/x/mvé.ts", `${PROTECTED_DIR}mvé.ts`]);
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("a rename mixing a quoted and a bare side names both paths", () => {
+  assert.deepEqual(parseNumstat(`0\t0\t"${PROTECTED_DIR}caf\\303\\251.ts" => docs/cafe.ts`).files, [`${PROTECTED_DIR}café.ts`, "docs/cafe.ts"]);
+  const intoProtected = parseNumstat(`0\t0\tsrc/plain.ts => "${PROTECTED_DIR}caf\\303\\251.ts"`);
+  assert.deepEqual(intoProtected.files, ["src/plain.ts", `${PROTECTED_DIR}café.ts`]);
+  assert.equal(assessChange(intoProtected).ok, false);
+});
+
+test("a rename with no shared directory names both paths, so a rename onto a protected file is blocked", () => {
+  const stat = parseNumstat("0\t0\tnotes.ts => src/server/merge-guard.ts\n");
+  assert.deepEqual(stat.files, ["notes.ts", "src/server/merge-guard.ts"]);
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("a brace-compacted rename into a protected directory is blocked", () => {
+  const stat = parseNumstat(`0\t0\t{src/x => ${PROTECTED_DIR.slice(0, -1)}}/mv.ts\n`);
+  assert.ok(stat.files.includes("src/x/mv.ts"), JSON.stringify(stat.files));
+  assert.ok(stat.files.includes(`${PROTECTED_DIR}mv.ts`), JSON.stringify(stat.files));
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("a brace-compacted rename names the real old and new paths, including a move into a new subdirectory", () => {
+  const stat = parseNumstat(["0\t0\tsrc/x/{plain.ts => plain2.ts}", "0\t0\tsrc/{ => sub}/a.ts"].join("\n"));
+  for (const path of ["src/x/plain.ts", "src/x/plain2.ts", "src/a.ts", "src/sub/a.ts"]) {
+    assert.ok(stat.files.includes(path), `${path} in ${JSON.stringify(stat.files)}`);
+  }
+  assert.equal(assessChange(stat).ok, true);
+});
+
+/* A brace-shaped field is also a valid plain rename of two brace-named files; both readings are
+   checked, so a protected new path hidden behind a brace-named old path is still caught. */
+test("a brace-shaped rename is also checked as a plain rename of brace-named files", () => {
+  const stat = parseNumstat(`0\t0\ta/{b => ${PROTECTED_DIR}evil}\n`);
+  assert.ok(stat.files.includes(`${PROTECTED_DIR}evil}`), JSON.stringify(stat.files));
+  assert.equal(assessChange(stat).ok, false);
+});
+
+test("a rename with a brace on one side only is a plain rename of its two paths", () => {
+  assert.deepEqual(parseNumstat("0\t0\tx{1}.ts => y.ts").files, ["x{1}.ts", "y.ts"]);
+  assert.deepEqual(parseNumstat("0\t0\tx.ts => y}.ts").files, ["x.ts", "y}.ts"]);
+});
+
+test("a numstat row git never prints blocks an otherwise allowed change and is named in the reason", () => {
+  const rows = [
+    "not a numstat row",
+    "x1\t0\tsrc/a.ts",
+    "1\t0\t",
+    "1\t0\tsrc/a.ts\r",
+    '1\t0\t"',
+    '1\t0\tsrc/a.ts"',
+    "1\t0\tsrc\\a.ts",
+    "1\t0\tsrc/a.ts\tsrc/b.ts",
+    '1\t0\t"src/a.ts',
+    '1\t0\t"src/a.ts"x',
+    '1\t0\t"src/\\q.ts"',
+    '0\t0\t"src/a.ts" => "src/b.ts',
+    '0\t0\t"src/a.ts" => "src/b.ts"x',
+    "0\t0\ta.ts => b.ts => c.ts",
+    "0\t0\tsrc/{a{b => c}/d.ts",
+    "0\t0\tsrc/{a => b}}/d.ts",
+  ];
+  assert.equal(assessChange(parseNumstat("1\t0\tsrc/server/queue.ts\n")).ok, true, "the allowed row alone passes");
+  for (const row of rows) {
+    const r = assessChange(parseNumstat(`1\t0\tsrc/server/queue.ts\n${row}\n`));
+    assert.equal(r.ok, false, `${JSON.stringify(row)} must block`);
+    assert.ok(r.reasons.some((x) => x.includes(row)), `${JSON.stringify(row)} named in ${JSON.stringify(r.reasons)}`);
+  }
+});
+
 test("assessRate blocks a burst (window) and back-to-back deploys (cooldown)", () => {
   const now = 1_000_000_000_000;
   const burst = [now - 1000, now - 2000, now - 3000];
@@ -400,7 +540,7 @@ test("assessChange counts deleted lines toward the line limit", () => {
   assert.equal(assessChange({ files: ["src/a.ts"], additions: 0, deletions: DEFAULT_CHANGE_LIMITS.maxLines + 1 }).ok, false);
 });
 
-test("parseNumstat ignores a line that is not a numstat row, so an empty diff stays a blocked empty change", () => {
+test("a line that is not a numstat row names no changed file and blocks the change", () => {
   const stat = parseNumstat("not a numstat row\n");
   assert.deepEqual(stat.files, []);
   assert.equal(assessChange(stat).ok, false);
