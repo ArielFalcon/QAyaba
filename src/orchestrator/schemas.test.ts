@@ -83,13 +83,6 @@ test("rejects duplicate service repos", () => {
   );
 });
 
-test("qa.parallelDiff parses and defaults to undefined", () => {
-  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, parallelDiff: true } });
-  assert.equal(on.qa.parallelDiff, true);
-  const off = AppConfigSchema.parse(base);
-  assert.equal(off.qa.parallelDiff, undefined);
-});
-
 test("qa.structuralSignals absent leaves the field undefined (factory defaults to 'signal')", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.qa.structuralSignals, undefined);
@@ -129,6 +122,23 @@ test("qa.structuralSignals rejects any mode outside off|signal", () => {
   );
 });
 
+/*
+ * parallelDiff/sessionContinuity/specTriage were removed from the schema (never implemented —
+ * see the removed SCHEMA-ONLY comments). AppConfigSchema's qa object has no .strict()/.passthrough(),
+ * so Zod's default behavior applies: an unrecognized key is silently STRIPPED, not rejected. A
+ * config/apps/*.yaml written before this change (still setting one of these) must therefore keep
+ * parsing without error — it just no longer round-trips the dead field.
+ */
+test("qa: an unknown key (e.g. a since-removed schema-only flag) is silently stripped, never rejected", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    qa: { ...base.qa, parallelDiff: true, sessionContinuity: true, specTriage: true },
+  });
+  assert.equal("parallelDiff" in cfg.qa, false);
+  assert.equal("sessionContinuity" in cfg.qa, false);
+  assert.equal("specTriage" in cfg.qa, false);
+});
+
 const manifestEntry = {
   id: "login",
   objective: "valid credentials reach the dashboard",
@@ -164,21 +174,6 @@ test("AppConfigSchema accepts no e2e block at all (block optional)", () => {
 
 test("AppConfigSchema rejects testIdAttribute: empty string", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { testIdAttribute: "" } }));
-});
-
-test("qa.specTriage: true parses without error", () => {
-  const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, specTriage: true } });
-  assert.equal(cfg.qa.specTriage, true);
-});
-
-test("qa.specTriage: absent defaults to undefined (falsy, feature is default-OFF)", () => {
-  const cfg = AppConfigSchema.parse(base);
-  assert.equal(cfg.qa.specTriage, undefined);
-});
-
-test("qa.specTriage: false parses without error", () => {
-  const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, specTriage: false } });
-  assert.equal(cfg.qa.specTriage, false);
 });
 
 /* boundaries[] config. Shallow/pass-through validation: field names match

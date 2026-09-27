@@ -96,20 +96,7 @@ export const AppConfigSchema = z
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
-      /*
-       * Diff-mode fan-out: when true, a diff run plans the blast radius into objectives
-       * and dispatches parallel qa-workers (>=2 objectives; single-agent otherwise).
-       * SCHEMA-ONLY (not implemented): YAML parses the flag; the engine ignores it. Do not
-       * treat a true value as parallel generation.
-       */
-      parallelDiff: z.boolean().optional(),
-      
       explorer: z.boolean().optional(),
-      /*
-       * SCHEMA-ONLY (not implemented): YAML parses the flag; fix-loop / coverage retries still
-       * open a fresh generator session. Do not treat a true value as session reuse.
-       */
-      sessionContinuity: z.boolean().optional(),
       /*
        * Change-coverage policy (the value keystone). off = skip; signal (default) = measure +
        * record only; enforce = also try to close the gap and block publishing if it stays low.
@@ -132,8 +119,6 @@ export const AppConfigSchema = z
        * byte-for-byte. NO `enforce`: advisory signals have no block semantics.
        */
       structuralSignals: z.object({ mode: z.enum(["off", "signal"]) }).optional(),
-      /* SCHEMA-ONLY (not implemented): YAML parses the flag; decide stays all-or-nothing. */
-      specTriage: z.boolean().optional(),
       /*
        * Run-intelligence report tuning. `weights` overrides the ranker's per-insight interestingness
        * weight by insight id (e.g. { "change-coverage": 1.5 }); ids left out keep their defaults.
