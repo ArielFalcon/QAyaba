@@ -55,7 +55,6 @@ test("isProtectedPath flags the recovery net and build/topology, exact and prefi
   assert.equal(isProtectedPath(".github/workflows/ci.yml"), true);
   /* ordinary source is NOT protected — the maintainer may fix it autonomously */
   assert.equal(isProtectedPath("src/pipeline.ts"), false);
-  assert.equal(isProtectedPath("src/server/api.ts"), false);
 });
 
 test("isProtectedPath flags the secret boundary (a fix must never weaken what scrubs data leaving the system)", () => {
@@ -110,6 +109,16 @@ test("isProtectedPath flags the control-plane auth boundary (FIX C)", () => {
   assert.equal(isProtectedPath("src/server/auth.ts"), true);
   assert.equal(isProtectedPath("src/server/github-auth.ts"), true);
   assert.equal(isProtectedPath("src/server/webhook.ts"), true);
+});
+
+/* Batch S / S4: api.ts is the REST control-plane router that decides which auth handlers are even
+   reachable (it routes POST /api/auth/login and GET /api/auth/local to auth.ts/github-auth.ts) —
+   auth.ts/github-auth.ts/webhook.ts were protected but the router deciding whether their guards run
+   at all was not; an autonomous edit here could silently stop calling them, or route around them,
+   without ever touching a protected file.
+ */
+test("isProtectedPath flags the control-plane router that decides auth-handler reachability (S4)", () => {
+  assert.equal(isProtectedPath("src/server/api.ts"), true);
 });
 
 /* These four sequence the autonomous-deploy gates themselves (the SELF_MAINTAINER_AUTOMERGE

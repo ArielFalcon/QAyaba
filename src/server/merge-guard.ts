@@ -119,6 +119,12 @@ export const PROTECTED_PATHS: string[] = [
   "src/server/auth.ts",
   "src/server/github-auth.ts",
   "src/server/webhook.ts",
+  /*
+   * The REST control-plane router — decides whether /api/auth/login and /api/auth/local ever
+   * reach auth.ts/github-auth.ts at all. Those handlers being protected is meaningless if an
+   * autonomous fix can silently stop routing to them (or route around them) here instead.
+   */
+  "src/server/api.ts",
   
   "qa-engine/src/contexts/generation/infrastructure/",
   
