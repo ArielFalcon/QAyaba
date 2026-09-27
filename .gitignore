@@ -46,3 +46,7 @@ src/**/*.d.ts
 !qa-engine/test/**/fixtures/**/node_modules/**
 /.opencode/
 /.superpowers/
+
+# Mutation testing (npm run mutate): Stryker sandbox, incremental state and reports.
+/.stryker-tmp/
+/reports/
