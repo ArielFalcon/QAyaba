@@ -306,6 +306,7 @@
   }
   function ErrorClassBars(data, color) {
     color = color || 'var(--ink-700)';
+    if (!data || !data.length) return '<div style="padding:4px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no ErrorClass data yet</div>';
     const sorted = data.slice().sort((a, b) => b[1] - a[1]);
     const max = Math.max.apply(null, sorted.map((d) => d[1]).concat([1]));
     return '<div style="display:flex;flex-direction:column;gap:9px">' + sorted.map(([cls, n]) =>
@@ -354,15 +355,16 @@ runExtras: null,
       '<span style="font-family:var(--font-mono);font-size:12.5px;color:' + (tone || 'var(--bone-100)') + '">' + esc(value) + '</span></div>';
   }
   function LiveBand(live, running) {
+    const na = 'not available';
     return '<div class="pa-dot-bg" style="' + sty({ background: 'var(--ink-900)', border: '1px solid var(--ink-700)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }) + '">' +
       '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap', padding: '14px 22px', borderBottom: '1px solid var(--ink-700)' }) + '">' +
       '<div style="display:flex;align-items:center;gap:9px">' + PulseDot('var(--pass-500)', 9) +
       '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--bone-50)' }) + '">engine operational</span></div>' +
-      EngineChip('heart-pulse', 'health', '/health · ' + live.health.last) +
+      EngineChip('heart-pulse', 'health', live.health && live.health.last ? '/health · ' + live.health.last : na) +
       EngineChip('layers', 'queue', live.queue.running + ' running · ' + live.queue.queued + ' queued') +
-      EngineChip('cpu', 'sessions', live.sessions + ' open') +
-      EngineChip('webhook', 'webhook', 'verified') +
-      EngineChip('trash-2', 'mirrors', 'cleaned ' + live.mirrors) + '</div>' +
+      EngineChip('cpu', 'sessions', live.sessions == null ? na : live.sessions + ' open') +
+      EngineChip('webhook', 'webhook', live.webhook || na) +
+      EngineChip('trash-2', 'mirrors', live.mirrors ? 'cleaned ' + live.mirrors : na) + '</div>' +
       (running
         ? '<button data-action="open-run" data-id="' + esc(running.id) + '" style="' + sty({ display: 'block', width: '100%', textAlign: 'left', border: 0, cursor: 'pointer', background: 'transparent', padding: '16px 22px 18px' }) + '">' +
           '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
@@ -372,7 +374,7 @@ runExtras: null,
           '<span style="font-family:var(--font-mono);font-size:12px;color:var(--ember-400)">' + esc(shaOf(running.sha)) + '</span>' +
           '<span style="font-size:13.5px;color:var(--bone-200)">' + esc(running.message) + '</span>' +
           '<span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:12.5px;color:var(--bone-100)">' +
-          I('timer', 13, 'color:var(--ink-400)') + '<span class="ov-timer">' + fmtMMSS(72) + '</span></span></div>' +
+          I('timer', 13, 'color:var(--ink-400)') + '<span class="ov-timer">' + fmtMMSS(Math.max(0, running.mins | 0)) + '</span></span></div>' +
           LiveStepper(running.stages || []) + '</button>'
         : '') + '</div>';
   }
@@ -428,14 +430,21 @@ runExtras: null,
       KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
       KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: rp.v == null ? 'n/a' : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
       KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
-      KpiCard({ label: 'suites green', value: sg.v, unit: '/ ' + sg.total, dir: 'flat', good: null, deltaText: (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev), series: sg.series, seriesColor: 'var(--ember-500)', sub: 'apps with a green suite' }) +
-      KpiCard({ label: 'PRs auto-merged', value: pr.v, dir: 'up', good: true, deltaText: '+' + (pr.v - pr.prev), series: pr.series, seriesColor: 'var(--ember-500)', sub: 'tests committed to apps' }) +
-      KpiCard({ label: 'issues open', value: io.v, dir: 'down', good: true, deltaText: '' + (io.v - io.prev), series: io.series, seriesColor: 'var(--fail-500)', sub: 'awaiting a fix' }) + delegationKpi + '</div>';
+      KpiCard({ label: 'suites green', value: sg.v == null ? 'n/a' : sg.v, unit: sg.v == null ? '' : '/ ' + sg.total, dir: 'flat', good: null,
+                deltaText: (sg.v == null || sg.prev == null) ? '' : (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev),
+                series: sg.series, seriesColor: 'var(--ember-500)', sub: sg.v == null ? 'not available from the API' : 'apps with a green suite' }) +
+      KpiCard({ label: 'PRs auto-merged', value: pr.v == null ? 'n/a' : pr.v, dir: 'up', good: true,
+                deltaText: (pr.v == null || pr.prev == null) ? '' : '+' + (pr.v - pr.prev),
+                series: pr.series, seriesColor: 'var(--ember-500)', sub: pr.v == null ? 'not available from the API' : 'tests committed to apps' }) +
+      KpiCard({ label: 'issues open', value: io.v == null ? 'n/a' : io.v, dir: 'down', good: true,
+                deltaText: (io.v == null || io.prev == null) ? '' : '' + (io.v - io.prev),
+                series: io.series, seriesColor: 'var(--fail-500)', sub: io.v == null ? 'not available from the API' : 'awaiting a fix' }) + delegationKpi + '</div>';
     const ledgerBtn = '<button data-action="nav" data-id="learning" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">ledger ' + I('arrow-right', 13) + '</button>';
     const allRunsBtn = '<button data-action="nav" data-id="runs" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">all runs ' + I('arrow-right', 13) + '</button>';
+    const windowLabel = (s.window && s.prevWindow) ? ('fleet signals · ' + s.window + ' vs ' + s.prevWindow) : 'fleet signals · not available from the API';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' +
       LiveBand(D.live, D.running) +
-      '<div><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">' + EYEBROW('fleet signals · ' + s.window + ' vs ' + s.prevWindow) +
+      '<div><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">' + EYEBROW(windowLabel) +
       '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">ground-truth first</span></div>' + kpis + '</div>' +
       '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + sectionHead('watched repositories · drill into App Value', 'Fleet') +
       '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:var(--space-4)">' + D.apps.map(AppFleetCard).join('') + '</div></div>' +
@@ -459,9 +468,9 @@ runExtras: null,
       '<div style="' + sty({ padding: 'var(--space-4) var(--space-5)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'space-between' }) + '">' +
       '<div style="display:flex;align-items:baseline;justify-content:space-between">' + EYEBROW('runs · 7d') +
       '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + stats.runs7d + '</span></div>' + VerdictBar(D.verdictMix, 9) + '</div>' +
-      statBox(Stat('Pass rate', Math.round(stats.passRate * 100) + '%', 'green + approved', 'var(--pass-600)')) +
+      statBox(Stat('Pass rate', stats.passRate == null ? 'n/a' : Math.round(stats.passRate * 100) + '%', 'green + approved', 'var(--pass-600)')) +
       statBox(Stat('Specs added', '+' + stats.specsAdded, 'merged to suites', 'var(--ember-600)')) +
-      statBox(Stat('Open issues', stats.openIssues, 'awaiting fix', 'var(--fail-600)')) + '</div>';
+      statBox(Stat('Open issues', stats.openIssues == null ? 'n/a' : stats.openIssues, stats.openIssues == null ? 'not available from the API' : 'awaiting fix', 'var(--fail-600)')) + '</div>';
     const chips = '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">' + filters.map((f) => {
       const on = filter === f, c = f === 'all' ? 'var(--ink-900)' : VERDICT_FILL[f];
       return '<button data-action="runfilter" data-id="' + f + '" style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 11px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11.5, letterSpacing: '0.02em', border: '1px solid ' + (on ? 'var(--ink-900)' : 'var(--bone-300)'), background: on ? 'var(--ink-900)' : 'transparent', color: on ? 'var(--bone-100)' : 'var(--text-body)' }) + '">' +
@@ -861,6 +870,14 @@ runExtras: null,
   }
   function appCompareInner() {
     const history = D.histories[state.appName] || [], sel = state.appSel;
+    /* Fewer than two checkpoints → nothing to diff (comparing a run against itself, or
+       against nothing, produced NaN deltas here before the per-run history endpoint existed).
+       Say so honestly instead of rendering "NaN%".
+     */
+    if (history.length < 2) {
+      return '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);padding:18px">' +
+        UnknownPanel('not enough run history yet', 'Snapshot comparison needs at least two completed runs for this app — check back once more runs land.', 'git-compare-arrows') + '</div>';
+    }
     const older = history[Math.min(sel.a, sel.b)] || {}, newer = history[Math.max(sel.a, sel.b)] || {};
     const pctDelta = Math.round((newer.passRate - older.passRate) * 100);
     const oracleNa = !older.oracle && !newer.oracle;
@@ -912,6 +929,7 @@ runExtras: null,
         '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);flex:none">' + esc(r.time) + '</span></button>').join('');
       return rh + rrows;
     }
+    if (!appSuite.length) return '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no committed suite data yet</div>';
     return appSuite.map((s, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
       '<span style="width:60px;flex:none">' + VerdictTag(s.status, { sm: true, dot: false }) + '</span>' + I('file-code-2', 14, 'color:var(--text-muted);flex:none') +
       '<span style="' + sty({ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(s.file) + '</span>' +
@@ -1011,7 +1029,9 @@ runExtras: null,
         CfgRow('qa.valueOracle', app.oracle) + CfgRow('onFailure', 'github-issue') +
         CfgRow('shadow', app.shadow ? 'true' : 'false', app.shadow ? 'var(--flaky-600)' : 'var(--text-body)') + '</div>' }) +
       Card({ eyebrow: 'two-model loop', title: 'Models', children: '<div>' + CfgRow('generator', D.models.generator, null, true) + CfgRow('reviewer', D.models.reviewer) + '</div>' }) +
-      Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('') + '</div>' }) + '</div>';
+      Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + (appEngram.length
+        ? appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('')
+        : '<div style="padding:11px 18px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-faint)">not available from the API yet</div>') + '</div>' }) + '</div>';
     const targetChip = '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--bone-400)', fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' }) + '">' + I(app.target === 'code' ? 'terminal' : 'globe', 11) + esc(app.target) + '</span>';
     const header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
       '<div style="display:flex;flex-direction:column;gap:8px;min-width:0">' + EYEBROW(app.stack) +
@@ -1042,26 +1062,30 @@ runExtras: null,
   }
   function viewIntegrity() {
     const devBadge = DevBadge();
-    const it = D.integrity, pct = (x) => (x * 100).toFixed(1) + '%';
+    const na = 'not available from the API';
+    const it = D.integrity, pct = (x) => (x == null ? 'n/a' : (x * 100).toFixed(1) + '%');
+    const ptsDelta = (v, prev) => (v == null || prev == null) ? '' : pctPts(v, prev) + ' pts';
     const kpis = '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));gap:var(--space-3)">' +
-      KpiCard({ label: 'flaky / quarantine', value: pct(it.flakyRate.v), dir: 'down', good: true, deltaText: pctPts(it.flakyRate.v, it.flakyRate.prev) + ' pts', series: it.flakyRate.series, seriesColor: 'var(--flaky-500)', sub: 'passed only on retry → quarantined' }) +
-      KpiCard({ label: 'infra-error rate', value: pct(it.infraErrorRate.v), dir: 'up', good: null, deltaText: '+' + Math.abs(pctPts(it.infraErrorRate.v, it.infraErrorRate.prev)) + ' pts', series: it.infraErrorRate.series, seriesColor: 'var(--infra-500)', sub: 'DEV down — not the code' }) +
-      KpiCard({ label: 'invalid rate', value: pct(it.invalidRate.v), dir: 'down', good: true, deltaText: pctPts(it.invalidRate.v, it.invalidRate.prev) + ' pts', series: it.invalidRate.series, seriesColor: 'var(--ink-500)', sub: 'static-gate rejections' }) +
-      KpiCard({ label: 'time-to-green', value: it.timeToGreen.v + 's', dir: 'down', good: true, deltaText: (it.timeToGreen.v - it.timeToGreen.prev) + 's', sub: 'was ' + it.timeToGreen.prev + 's' }) +
-      KpiCard({ label: 'determinism', value: F.fixed(it.determinism, 2), dir: 'flat', good: null, deltaText: 'same-SHA', sub: '2 runs of a SHA agree' }) + '</div>';
+      KpiCard({ label: 'flaky / quarantine', value: pct(it.flakyRate.v), dir: 'down', good: true, deltaText: ptsDelta(it.flakyRate.v, it.flakyRate.prev), series: it.flakyRate.series, seriesColor: 'var(--flaky-500)', sub: it.flakyRate.v == null ? na : 'passed only on retry → quarantined' }) +
+      KpiCard({ label: 'infra-error rate', value: pct(it.infraErrorRate.v), dir: 'up', good: null, deltaText: (it.infraErrorRate.v == null || it.infraErrorRate.prev == null) ? '' : '+' + Math.abs(pctPts(it.infraErrorRate.v, it.infraErrorRate.prev)) + ' pts', series: it.infraErrorRate.series, seriesColor: 'var(--infra-500)', sub: it.infraErrorRate.v == null ? na : 'DEV down — not the code' }) +
+      KpiCard({ label: 'invalid rate', value: pct(it.invalidRate.v), dir: 'down', good: true, deltaText: ptsDelta(it.invalidRate.v, it.invalidRate.prev), series: it.invalidRate.series, seriesColor: 'var(--ink-500)', sub: it.invalidRate.v == null ? na : 'static-gate rejections' }) +
+      KpiCard({ label: 'time-to-green', value: it.timeToGreen.v == null ? 'n/a' : it.timeToGreen.v + 's', dir: 'down', good: true, deltaText: (it.timeToGreen.v == null || it.timeToGreen.prev == null) ? '' : (it.timeToGreen.v - it.timeToGreen.prev) + 's', sub: it.timeToGreen.prev == null ? na : 'was ' + it.timeToGreen.prev + 's' }) +
+      KpiCard({ label: 'determinism', value: F.fixed(it.determinism, 2), dir: 'flat', good: null, deltaText: 'same-SHA', sub: it.determinism == null ? na : '2 runs of a SHA agree' }) + '</div>';
     const total = it.phases.reduce((s, p) => s + p[1], 0) || 1;
-    const phaseBar = '<div style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;width:100%;height:16px;border-radius:var(--radius-xs);overflow:hidden;gap:2px">' +
-      it.phases.map(([name, sec]) => '<div title="' + esc(name) + ' · ' + sec + 's" style="width:' + ((sec / total) * 100) + '%;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></div>').join('') + '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px 18px">' + it.phases.map(([name, sec]) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></span>' + esc(name) + '<span style="color:var(--text-faint)">' + sec + 's</span></span>').join('') + '</div></div>';
+    const phaseBar = it.phases.length
+      ? ('<div style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;width:100%;height:16px;border-radius:var(--radius-xs);overflow:hidden;gap:2px">' +
+        it.phases.map(([name, sec]) => '<div title="' + esc(name) + ' · ' + sec + 's" style="width:' + ((sec / total) * 100) + '%;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></div>').join('') + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px 18px">' + it.phases.map(([name, sec]) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></span>' + esc(name) + '<span style="color:var(--text-faint)">' + sec + 's</span></span>').join('') + '</div></div>')
+      : '<div style="padding:6px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + na + '</div>';
     const gateStat = (value, desc, icon) => '<div style="' + sty({ display: 'flex', gap: 12, padding: '14px 16px', background: 'var(--surface-page)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '">' +
       '<span style="' + sty({ display: 'inline-flex', width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-xs)', background: 'var(--ink-900)', color: 'var(--bone-100)', flex: 'none' }) + '">' + I(icon, 17) + '</span>' +
-      '<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + value + '</span><span style="font-size:11.5px;color:var(--text-muted);line-height:1.35">' + esc(desc) + '</span></div></div>';
+      '<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + esc(value == null ? 'n/a' : value) + '</span><span style="font-size:11.5px;color:var(--text-muted);line-height:1.35">' + esc(desc) + '</span></div></div>';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-5)">' + devBadge + kpis +
       Callout({ tone: 'note', label: 'trust · infra-error is not a failure', icon: 'unplug', children: 'Infrastructure failures (DEV down, timeouts) are styled and counted <strong>separately</strong> from code failures — they never open an Issue and never count against pass-rate. A blue infra-error means "not the code\'s fault", not "the tests are bad."' }) +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px,1fr));gap:var(--space-4);align-items:start">' +
-      Card({ eyebrow: 'time-to-green · ' + it.timeToGreen.v + 's wall-clock', title: 'Phase timing', children: phaseBar }) +
+      Card({ eyebrow: 'time-to-green · ' + (it.timeToGreen.v == null ? na : it.timeToGreen.v + 's wall-clock'), title: 'Phase timing', children: phaseBar }) +
       Card({ eyebrow: 'how often the gate holds', title: 'Gate effectiveness', children: '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px,1fr));gap:var(--space-3)">' + gateStat(it.gates.enforceHeld.v, it.gates.enforceHeld.desc, 'shield-x') + gateStat(it.gates.regenRecovered.v, it.gates.regenRecovered.desc, 'rotate-cw') + gateStat(it.gates.staticRejected.v, it.gates.staticRejected.desc, 'file-x-2') + '</div>' }) + '</div>' +
-      Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: '<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>' }) + '</div>';
+      Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: D.gates.length ? ('<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>') : '<div style="padding:16px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + na + '</div>' }) + '</div>';
   }
 
   function viewLearning() {
@@ -1070,9 +1094,12 @@ runExtras: null,
     const confTone = { high: { c: 'var(--pass-600)', bg: 'var(--pass-100)' }, med: { c: 'var(--flaky-600)', bg: 'var(--flaky-100)' }, low: { c: 'var(--ink-500)', bg: 'var(--bone-200)' } };
     const STATUS = [['active', 'var(--pass-600)'], ['candidate', 'var(--ember-600)'], ['deprecated', 'var(--flaky-600)'], ['superseded', 'var(--ink-500)']];
     const notes = D.engram.map((e) => [e.app, e.text]);
+    const wheelRow = flywheel.length
+      ? flywheel.map((f, i) => FlowNode({ icon: f.icon, label: f.label, stat: f.stat, unit: f.unit, note: f.note, last: i === flywheel.length - 1 })).join('')
+      : '<div style="padding:16px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">flywheel counters not available from the API yet</div>';
     const wheel = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;flex-direction:column;gap:3px">' + EYEBROW('labeler → oracle → reflector → distiller → curriculum') +
       '<h2 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;color:var(--text-strong);margin:0">The learning flywheel</h2></div>' +
-      '<div style="display:flex;align-items:stretch;gap:0">' + flywheel.map((f, i) => FlowNode({ icon: f.icon, label: f.label, stat: f.stat, unit: f.unit, note: f.note, last: i === flywheel.length - 1 })).join('') + '</div>' +
+      '<div style="display:flex;align-items:stretch;gap:0">' + wheelRow + '</div>' +
       Callout({ tone: 'important', label: 'promotion uses two signals', children: 'The <strong>oracle</strong> (mutation / fault-injection) is strong ground-truth — it promotes rules to high confidence where it runs. A conservative <strong>prevention signal</strong> is always available and caps at medium. So the wheel turns for every onboarded app, and "high confidence" is reserved for rules backed by real evidence.' }) + '</div>';
     const inventory = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;align-items:center;gap:8px">' + I('book-marked', 15, 'color:var(--text-muted)') + EYEBROW('governed rule inventory · injected into future prompts') + '</div>' +
       STATUS.map(([st, c]) => {
@@ -1095,19 +1122,24 @@ runExtras: null,
           '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + items.length + '</span></div>' +
           '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' + rows + '</div></div>';
       }).join('') + '</div>';
+    const emptyRow = (text) => '<div style="padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(text) + '</div>';
     const maxPromo = Math.max.apply(null, ledger.archetypes.map((x) => x.promotions).concat([1]));
-    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' +
-      ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' + (ledger.archetypes.length
+      ? ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</span>' +
         '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', border: '1px solid ' + (a.caughtRealBug ? 'var(--pass-600)' : 'var(--bone-400)'), color: a.caughtRealBug ? 'var(--pass-600)' : 'var(--text-faint)', background: a.caughtRealBug ? 'var(--pass-100)' : 'transparent' }) + '">' + I(a.caughtRealBug ? 'bug' : 'circle-dashed', 11) + (a.caughtRealBug ? 'caught bug' : 'unproven') + '</span>' +
-        '<span style="width:56px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:6px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + ((a.promotions / maxPromo) * 100) + '%;height:100%;background:var(--ember-500)"></span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">' + a.promotions + '</span></span></div>').join('') + '</div>' });
-    const audit = Card({ eyebrow: 'audit / veto · rule lifecycle', title: 'Governance log', bodyPadding: false, children: '<div>' +
-      ledger.audit.map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+        '<span style="width:56px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:6px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + ((a.promotions / maxPromo) * 100) + '%;height:100%;background:var(--ember-500)"></span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">' + a.promotions + '</span></span></div>').join('')
+      : emptyRow('no proven archetypes yet')) + '</div>' });
+    const audit = Card({ eyebrow: 'audit / veto · rule lifecycle', title: 'Governance log', bodyPadding: false, children: '<div>' + (ledger.audit.length
+      ? ledger.audit.map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--ember-600);width:50px;flex:none">' + esc(a.rule) + '</span>' +
         '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);line-height:1.4">' + esc(a.issue) + '</span>' +
-        '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + (a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)'), color: a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)' }) + '">' + esc(a.level) + '</span></div>').join('') + '</div>' });
+        '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + (a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)'), color: a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)' }) + '">' + esc(a.level) + '</span></div>').join('')
+      : emptyRow('not available from the API yet')) + '</div>' });
     const engram = '<div style="display:flex;flex-direction:column;gap:var(--space-3)"><div style="display:flex;align-items:center;gap:8px">' + I('database', 15, 'color:var(--text-muted)') + EYEBROW('engram · episodic memory · per-app, volatile') + '</div>' +
-      notes.map(([app, t]) => '<div style="' + sty({ display: 'flex', gap: 14, padding: 'var(--space-4)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '"><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-600);width:96px;flex:none">' + esc(app) + '</span><span style="font-size:13.5px;color:var(--text-body);line-height:1.5">' + esc(t) + '</span></div>').join('') + '</div>';
+      (notes.length
+        ? notes.map(([app, t]) => '<div style="' + sty({ display: 'flex', gap: 14, padding: 'var(--space-4)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '"><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-600);width:96px;flex:none">' + esc(app) + '</span><span style="font-size:13.5px;color:var(--text-body);line-height:1.5">' + esc(t) + '</span></div>').join('')
+        : emptyRow('not available from the API yet')) + '</div>';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' + devBadge + wheel + inventory +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px,1fr));gap:var(--space-4);align-items:start">' + curriculum + audit + '</div>' + engram + '</div>';
   }
@@ -1345,7 +1377,10 @@ runExtras: null,
     document.querySelectorAll('.pa-gauge-arc').forEach((el) => requestAnimationFrame(() => { el.style.strokeDashoffset = el.dataset.final; }));
     const ovTimers = document.querySelectorAll('.ov-timer');
     if (ovTimers.length) {
-      let s = 72;
+      /* Seed from the real run's elapsed time (same field the live-detail view reads),
+         never a fixed placeholder — the hero band must not show a fabricated countdown. */
+      const runningNow = D && D.running;
+      let s = runningNow ? Math.max(0, runningNow.mins | 0) : 0;
       const t = setInterval(() => { s++; document.querySelectorAll('.ov-timer').forEach((n) => n.textContent = fmtMMSS(s)); }, 1000);
       teardown.push(() => clearInterval(t));
     }

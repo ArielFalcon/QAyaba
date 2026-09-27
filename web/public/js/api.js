@@ -230,12 +230,39 @@ window.QayabaConsole = (function () {
 
   function logGlyph(level) { return level === 'error' ? '✗' : level === 'warn' ? '~' : level === 'ok' ? '✓' : '›'; }
 
+  /* Report templates are a UI preset (which blocks/schedule a report offers), not measured
+     system data — API.md §6 explicitly allows keeping them client-side. Kept as a plain
+     constant here (never window.QayabaMockData) so live mode shows this real feature without
+     ever routing through the mock dataset.
+   */
+  const REPORT_TEMPLATES = [
+    { id: 'exec', name: 'Executive value summary', desc: 'Ground-truth value and trust, period-over-period, for the team under test.', blocks: 5, schedule: 'weekly · Slack', channel: 'slack' },
+    { id: 'health', name: 'Suite-health deep-dive', desc: 'Flakiness, infra vs code, gate effectiveness and determinism.', blocks: 6, schedule: 'on-demand', channel: 'email' },
+  ];
+  /* Honest empty integrity rollup — there is no /api/v1/integrity endpoint yet (API.md §6),
+     so live mode always reports every figure unavailable rather than a fabricated zero.
+   */
+  function emptyIntegrity() {
+    return {
+      flakyRate: { v: null, prev: null, series: [] },
+      infraErrorRate: { v: null, prev: null, series: [] },
+      invalidRate: { v: null, prev: null, series: [] },
+      timeToGreen: { v: null, prev: null },
+      determinism: null,
+      phases: [],
+      gates: {
+        enforceHeld: { v: null, desc: 'PRs blocked by the coverage-gate (enforce)' },
+        regenRecovered: { v: null, desc: 'runs where regeneration recovered coverage' },
+        staticRejected: { v: null, desc: 'invalid specs caught by the static gate' },
+      },
+    };
+  }
+
   /* Map the /api/v1 contract responses onto the dashboard's internal view model.
      Implemented for the fields the contract clearly provides; everything else is
      flagged TODO(server) and itemised in API.md.
    */
   function mapModel(raw) {
-    const m = (window.QayabaMockData) || {};
     const apps = raw.apps.map((a) => ({
       name: a.name, repo: a.repo, stack: '', /* TODO(server): AppView has no `stack` label */
       shadow: a.shadow, watching: true,
@@ -257,8 +284,7 @@ window.QayabaConsole = (function () {
     /* Coordination workforce: attach to every run the events describe. Producer comes from the
        run's outcome (the authoritative boundary), the rest from its delegation samples.
      */
-    const coordinationEvents = (raw.coordination && raw.coordination.events)
-      || (window.QayabaMockData && window.QayabaMockData.coordinationEvents) || [];
+    const coordinationEvents = (raw.coordination && raw.coordination.events) || [];
     const coordByRun = {};
     coordinationEvents.forEach((e) => { (coordByRun[e.runId] = coordByRun[e.runId] || []).push(e); });
     runs.forEach((r) => { r.workforce = deriveWorkforce(coordByRun[r.id]); });
@@ -267,31 +293,30 @@ window.QayabaConsole = (function () {
       || (runningRef && (raw.runsByApp[runningRef.app] || []).find((r) => r.id === runningRef.id))
       || null;
     /* __live marks the mapped record as the REAL in-flight run: the live detail view must
-       stay off the mock simulation (mock path never reaches mapModel).
+       stay off the mock simulation (mock path never reaches mapModel). Never merge in the
+       mock `running` record here — real runs render through viewLiveDetailReal, which reads
+       only record fields, so a mock plan/currentTest/author would sit unused but would still
+       be mock data presented as live if anything ever inspected it.
      */
     const mappedRunning = rawRunning ? Object.assign(mapRun(rawRunning), { __live: true }) : null;
-    const F = window.QayabaFormat || {};
-    const running = F.mergeLiveRun
-      ? F.mergeLiveRun(mappedRunning, m.running)
-      : mappedRunning;
     /* Fleet 7d rollups derived from the per-app run feeds already fetched (each feed is the
        most recent 20 runs, so the window covers whatever of the last 7d those feeds reach).
-       openIssues has no endpoint yet — keeps the mock value.
+       openIssues has no fleet-wide endpoint yet (API.md §2) — reported honestly unavailable,
+       never the mock demo count.
     */
     const allRuns = [];
     Object.keys(raw.runsByApp).forEach((a) => (raw.runsByApp[a] || []).forEach((r) => allRuns.push(r)));
     const weekRuns = allRuns.filter((r) => (Date.parse(r.at) || 0) >= Date.now() - 7 * 86400000);
     const finishedRuns = weekRuns.filter((r) => ['pass', 'fail', 'flaky', 'infra-error'].indexOf(r.verdict) >= 0);
-    const stats = weekRuns.length ? Object.assign({}, m.stats, {
+    const stats = {
       runs7d: weekRuns.length,
-      passRate: finishedRuns.length ? weekRuns.filter((r) => r.verdict === 'pass').length / finishedRuns.length : m.stats.passRate,
+      passRate: finishedRuns.length ? weekRuns.filter((r) => r.verdict === 'pass').length / finishedRuns.length : null,
       specsAdded: weekRuns.reduce((s, r) => s + (r.specs || []).length, 0),
+      openIssues: null,
       watching: raw.apps.length,
-    }) : m.stats;
+    };
     const VERDICTS = ['pass', 'fail', 'flaky', 'infra-error', 'skipped'];
-    const verdictMix = weekRuns.length
-      ? VERDICTS.map((v) => ({ v: v, n: weekRuns.filter((r) => (r.verdict || 'running') === v).length })).filter((x) => x.n > 0)
-      : m.verdictMix;
+    const verdictMix = VERDICTS.map((v) => ({ v: v, n: weekRuns.filter((r) => (r.verdict || 'running') === v).length })).filter((x) => x.n > 0);
     /* Reports: the first app whose /report returns insights replaces the mock exec blocks —
        headline/detail/weight come from the contract; viz renders honestly (see console.js).
        Templates stay client-side presets (API.md §6: "✗ new (or keep client-side presets)").
@@ -315,46 +340,34 @@ window.QayabaConsole = (function () {
       }));
       return true;
     });
-    const reports = Object.assign({}, m.reports, liveInsights ? { insights: liveInsights } : {});
+    const reports = { templates: REPORT_TEMPLATES, insights: liveInsights || [] };
     return {
       models: raw.agentConfig && raw.agentConfig.assignments ? {
         generator: raw.agentConfig.assignments.primary.model,
         reviewer: raw.agentConfig.assignments.reviewer.model,
         chat: raw.agentConfig.assignments.chat.model,
-      } : m.models,
+      } : { generator: 'n/a', reviewer: 'n/a', chat: 'n/a' }, /* /agent/config unavailable — never the mock model ids */
       apps: apps,
-      running: running,
+      running: mappedRunning,
       runs: runs,
       stats: stats,
-      live: mapLive(raw.queue), /* partial; health/sessions/mirrors/webhook need an engine-status endpoint */
+      live: mapLive(raw.queue), /* partial; health/sessions/mirrors/webhook need an engine-status endpoint (API.md §1) */
       verdictMix: verdictMix,
-      signals: mapSignals(raw.signals) || m.signals, /* see API.md: SignalsView is leaner than the hero needs */
+      signals: mapSignals(raw.signals) || emptySignals(), /* see API.md: SignalsView is leaner than the hero needs */
       coordination: {
         byRun: coordByRun,
-        signals: (raw.signals && raw.signals.coordination) || (window.QayabaMockData && window.QayabaMockData.coordinationSignals) || null,
+        signals: (raw.signals && raw.signals.coordination) || null,
       },
-      fleetErrorClasses: m.fleetErrorClasses, /* TODO(server): fleet-wide ErrorClass rollup */
-      flywheel: m.flywheel,     /* TODO(server): learning flywheel counters */
-      gates: m.gates,           /* TODO(server): 4-layer quality-gate effectiveness */
-      histories: m.histories,   /* TODO(server): per-app health history (per-run checkpoints) */
-      suite: m.suite,           /* TODO(server): committed suite per app */
-      engram: m.engram,         /* TODO(server): per-app episodic memory */
-      ledger: mapLedger(raw.intelByApp) || m.ledger,
-      integrity: m.integrity || {
-        flakyRate: { v: 0, prev: 0, series: [0] },
-        infraErrorRate: { v: 0, prev: 0, series: [0] },
-        invalidRate: { v: 0, prev: 0, series: [0] },
-        timeToGreen: { v: 0, prev: 0 },
-        determinism: 0,
-        phases: [],
-        gates: {
-          enforceHeld: { v: '0%', desc: 'enforce gate held' },
-          regenRecovered: { v: '0%', desc: 'regen recovered' },
-          staticRejected: { v: '0%', desc: 'static rejected' },
-        },
-      },   /* TODO(server): suite-health/trust rollup */
-      reports: reports,         /* insights from /apps/:name/report (first app with data); templates stay client-side presets */
-      modes: m.modes, rules: m.rules, trend: m.trend,
+      fleetErrorClasses: [], /* TODO(server): fleet-wide ErrorClass rollup (API.md §1) */
+      flywheel: [],          /* TODO(server): learning flywheel counters (API.md §6) */
+      gates: [],             /* TODO(server): 4-layer quality-gate effectiveness (API.md §6) */
+      histories: {},         /* TODO(server): per-app health history — per-run checkpoints (API.md §5) */
+      suite: [],             /* TODO(server): committed suite per app (API.md §5) */
+      engram: [],            /* TODO(server): per-app episodic memory (API.md §5) */
+      ledger: mapLedger(raw.intelByApp) || { rules: [], archetypes: [], audit: [] },
+      integrity: emptyIntegrity(), /* TODO(server): suite-health/trust rollup — no endpoint yet (API.md §6) */
+      reports: reports,         /* insights from /apps/:name/report (first app with data); templates are client-side presets, never simulated data (API.md §6) */
+      modes: [], rules: [], trend: { passRate: [], specs: [] }, /* unused by the current UI; kept honestly empty rather than the mock fleet trend */
     };
   }
   function mapRun(r) {
@@ -414,31 +427,50 @@ window.QayabaConsole = (function () {
     return { producer: producer, delegations: delegations, repairs: repairs, failures: failures, avgMs: avgMs };
   }
   function mapLive(queue) {
-    const m = (window.QayabaMockData && window.QayabaMockData.live) || {};
-    return Object.assign({}, m, { queue: { running: queue && queue.running ? 1 : 0, queued: (queue && queue.pending) || 0 } });
+    /* Health-poller state, open sessions, last mirror-prune, and webhook status are not in the
+       contract yet (API.md §1) — report them honestly unavailable; only queue counts are real.
+     */
+    return {
+      status: null,
+      health: { ok: null, last: null, interval: null },
+      sessions: null,
+      mirrors: null,
+      webhook: null,
+      queue: { running: queue && queue.running ? 1 : 0, queued: (queue && queue.pending) || 0 },
+    };
+  }
+  /* Honest empty SignalsView shape — used when the /signals request fails outright, and as the
+     base for the fields SignalsView does not carry yet (see mapSignals below).
+   */
+  function emptySignals() {
+    return {
+      valueOracle: { v: null, prev: null, baseline: null, series: [] },
+      reviewerPass: { v: null, prev: null, series: [] },
+      runs: { measured: 0, total: 0, prevMeasured: 0, prevTotal: 0, series: [] },
+      coordination: null,
+      suitesGreen: { v: null, prev: null, series: [] },
+      prsAutoMerged: { v: null, prev: null, series: [] },
+      issuesOpen: { v: null, prev: null, series: [] },
+      window: null,
+      prevWindow: null,
+    };
   }
   function mapSignals(s) {
     if (!s) return null;
     /* SignalsView → the hero's six KPI tiles. prev/series/suitesGreen/prsAutoMerged/issuesOpen
-       are NOT in SignalsView today → see API.md "Overview gap".
+       are NOT in SignalsView today → see API.md "Overview gap". Report them honestly
+       unavailable instead of the mock demo numbers.
      */
     const vo = s.valueOracle || {};
     const rp = s.reviewer || {};
-    const co = s.coordination || null;
-    const mock = (window.QayabaMockData && window.QayabaMockData.signals) || {};
     const score = vo.avgScore;
     const passRate = rp.passRate;
-    return Object.assign({}, mock, {
-      valueOracle: { v: score == null ? null : score, prev: score == null ? null : score, baseline: score == null ? null : score, series: score == null ? [] : [score] },
-      reviewerPass: { v: passRate == null ? null : passRate, prev: passRate == null ? null : passRate, series: passRate == null ? [] : [passRate] },
-      runs: { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: vo.measuredRuns || 0, prevTotal: vo.totalRuns || 0, series: [vo.measuredRuns || 0] },
-      coordination: co,
-      suitesGreen: mock.suitesGreen || { v: 0, total: 0, prev: 0, series: [0] },
-      prsAutoMerged: mock.prsAutoMerged || { v: 0, prev: 0, series: [0] },
-      issuesOpen: mock.issuesOpen || { v: 0, prev: 0, series: [0] },
-      window: mock.window || 'last 7d',
-      prevWindow: mock.prevWindow || 'previous 7d',
-    });
+    const base = emptySignals();
+    base.valueOracle = { v: score == null ? null : score, prev: score == null ? null : score, baseline: score == null ? null : score, series: score == null ? [] : [score] };
+    base.reviewerPass = { v: passRate == null ? null : passRate, prev: passRate == null ? null : passRate, series: passRate == null ? [] : [passRate] };
+    base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: vo.measuredRuns || 0, prevTotal: vo.totalRuns || 0, series: [vo.measuredRuns || 0] };
+    base.coordination = s.coordination || null;
+    return base;
   }
   function mapLedger(intelByApp) {
     const rules = [];
