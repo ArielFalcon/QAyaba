@@ -6,6 +6,7 @@ import {
   toCoordinationSignals,
 } from "./coordination-events";
 import { mkdirSync, rmSync, writeFileSync, openSync, fstatSync, readSync, closeSync, statSync } from "node:fs";
+import type { CoordinationLedgerFsDeps } from "./coordination-events";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mock } from "node:test";
@@ -58,6 +59,9 @@ test("readCoordinationLedger: a non-ENOENT read failure is logged loudly and ret
     };
     assert.throws(() => readCoordinationLedger({}, "/some/path/coordination-events.jsonl", fakeFs), /permission denied/);
     assert.equal(errorMock.mock.calls.length, 1, "a non-ENOENT failure must be logged, not swallowed");
+    const logged = String(errorMock.mock.calls[0]?.arguments[0]);
+    assert.match(logged, /\/some\/path\/coordination-events\.jsonl/, "the log names the ledger path");
+    assert.match(logged, /permission denied/, "the log names the cause");
   } finally {
     errorMock.mock.restore();
   }
@@ -219,6 +223,241 @@ test("toCoordinationSignals with an empty ledger reports unmeasured, not zero-pa
   assert.equal(signals.measured, false);
   assert.equal(signals.avgDelegationMs, null);
   assert.equal(signals.escalationRate, null);
+});
+
+const line = (o: Record<string, unknown>) => JSON.stringify(o);
+
+test("parseCoordinationLedger keeps router and pushback events", () => {
+  const { events } = parseCoordinationLedger(
+    [line({ runId: "r1", kind: "router", reason: "route", at: 1 }), line({ runId: "r1", kind: "pushback", reason: "out of scope", at: 2 })].join("\n"),
+  );
+  assert.deepEqual(events.map((e) => e.kind), ["router", "pushback"]);
+});
+
+test("parseCoordinationLedger drops a line whose runId, reason or at has the wrong type", () => {
+  const { events } = parseCoordinationLedger(
+    [
+      line({ runId: 7, kind: "outcome", reason: "x", at: 1 }),
+      line({ runId: "r1", kind: "outcome", reason: 7, at: 2 }),
+      line({ runId: "r1", kind: "outcome", reason: "x", at: "3" }),
+      line({ runId: "r1", kind: "outcome", reason: "kept", at: 4 }),
+    ].join("\n"),
+  );
+  assert.deepEqual(events.map((e) => e.reason), ["kept"]);
+});
+
+test("parseCoordinationLedger drops JSON lines that are not objects (null, a number, an array) without failing the read", () => {
+  const { events } = parseCoordinationLedger(["null", "5", "[1,2]", line({ runId: "r1", kind: "outcome", reason: "kept", at: 1 })].join("\n"));
+  assert.deepEqual(events.map((e) => e.reason), ["kept"]);
+});
+
+test("parseCoordinationLedger: exactly `limit` matching events is the whole ledger, not a truncated tail", () => {
+  const all = parseCoordinationLedger(raw).events.length;
+  const view = parseCoordinationLedger(raw, { limit: all });
+  assert.equal(view.events.length, all);
+  assert.equal(view.truncated, false);
+});
+
+test("parseCoordinationLedger: a zero or negative limit falls back to the default page", () => {
+  const all = parseCoordinationLedger(raw).events.length;
+  for (const limit of [0, -5]) {
+    const view = parseCoordinationLedger(raw, { limit });
+    assert.equal(view.events.length, all, `limit ${limit}`);
+    assert.equal(view.truncated, false, `limit ${limit}`);
+  }
+});
+
+test("parseCoordinationLedger surfaces every recorded optional field of an event", () => {
+  const [event] = parseCoordinationLedger(
+    line({
+      runId: "r1",
+      kind: "delegation",
+      reason: "sidekick status=completed",
+      at: 1,
+      action: "delegate",
+      capability: "sidekick-standard",
+      delegationId: "d1",
+      attempt: 2,
+      failureClass: "blocked",
+      progressFingerprint: "fp-1",
+      finalOutcome: "pass",
+      reviewOutcome: "approved",
+      coverageRatio: 0.9,
+    }),
+  ).events;
+  assert.ok(event);
+  assert.equal(event.capability, "sidekick-standard");
+  assert.equal(event.delegationId, "d1");
+  assert.equal(event.attempt, 2);
+  assert.equal(event.progressFingerprint, "fp-1");
+  assert.equal(event.finalOutcome, "pass");
+  assert.equal(event.reviewOutcome, "approved");
+  assert.equal(event.coverageRatio, 0.9);
+});
+
+test("parseCoordinationLedger: a zero count is kept, a negative one is dropped", () => {
+  const [zero, negative] = parseCoordinationLedger(
+    [line({ runId: "r1", kind: "delegation", reason: "x", at: 1, durationMs: 0, attempt: 0 }), line({ runId: "r1", kind: "delegation", reason: "x", at: 2, durationMs: -1, attempt: -1 })].join("\n"),
+  ).events;
+  assert.equal(zero?.durationMs, 0);
+  assert.equal(zero?.attempt, 0);
+  assert.equal(negative?.durationMs, undefined);
+  assert.equal(negative?.attempt, undefined);
+});
+
+test("parseCoordinationLedger keeps a numeric or null coverageRatio and drops any other value", () => {
+  const events = parseCoordinationLedger(
+    [
+      line({ runId: "r1", kind: "outcome", reason: "x", at: 1, coverageRatio: 0.5 }),
+      line({ runId: "r1", kind: "outcome", reason: "x", at: 2, coverageRatio: null }),
+      line({ runId: "r1", kind: "outcome", reason: "x", at: 3, coverageRatio: "0.5" }),
+    ].join("\n"),
+  ).events;
+  assert.equal(events[0]?.coverageRatio, 0.5);
+  assert.equal(events[1]?.coverageRatio, null);
+  assert.equal(events[2]?.coverageRatio, undefined);
+});
+
+test("toCoordinationSignals counts only runs with an outcome; a ledger without one is unmeasured", () => {
+  const inProgress = [
+    { runId: "r1", kind: "delegation" as const, reason: "x", at: 1, durationMs: 10 },
+    { runId: "r1", kind: "escalation" as const, reason: "x", at: 2, escalations: 1 },
+  ];
+  const s = toCoordinationSignals(inProgress);
+  assert.equal(s.measured, false);
+  assert.equal(s.totalRuns, 0);
+  const withOutcome = toCoordinationSignals([...inProgress, { runId: "r2", kind: "outcome" as const, action: "direct", reason: "x", at: 3 }]);
+  assert.equal(withOutcome.totalRuns, 1);
+});
+
+test("toCoordinationSignals: escalation rate is the distinct escalation steps with a count per delegating run", () => {
+  const events = parseCoordinationLedger(
+    [
+      line({ runId: "A", kind: "delegation", reason: "x", at: 1 }),
+      line({ runId: "A", kind: "escalation", reason: "x", escalations: 1, at: 2 }),
+      line({ runId: "A", kind: "escalation", reason: "x", escalations: 2, at: 3 }),
+      line({ runId: "A", kind: "escalation", reason: "no count recorded", at: 4 }),
+      line({ runId: "A", kind: "outcome", action: "delegate", reason: "x", escalations: 2, at: 5 }),
+      line({ runId: "B", kind: "escalation", reason: "x", escalations: 1, at: 6 }),
+      line({ runId: "B", kind: "outcome", action: "delegate", reason: "x", escalations: 1, at: 7 }),
+      line({ runId: "C", kind: "outcome", action: "direct", reason: "x", at: 8 }),
+    ].join("\n"),
+  ).events;
+  const s = toCoordinationSignals(events);
+  assert.equal(s.totalRuns, 3);
+  assert.equal(s.delegateRuns, 2);
+  assert.equal(s.escalationRate, 1.5, "three escalation steps (A:1, A:2, B:1) over two delegating runs");
+});
+
+test("toCoordinationSignals: average delegation cost only counts delegations that recorded a duration", () => {
+  const s = toCoordinationSignals([
+    { runId: "r1", kind: "delegation", reason: "x", at: 1, durationMs: 1000 },
+    { runId: "r1", kind: "delegation", reason: "x", at: 2 },
+  ]);
+  assert.equal(s.avgDelegationMs, 1000);
+});
+
+test("toCoordinationSignals: with outcomes but no delegation, the contract failure rate is unmeasured", () => {
+  const s = toCoordinationSignals([{ runId: "r1", kind: "outcome", action: "direct", reason: "x", at: 1 }]);
+  assert.equal(s.contractFailureRate, null);
+});
+
+test("readCoordinationLedger rethrows whatever the reader threw, even a non-Error value", () => {
+  const errorMock = mock.method(console, "error", () => {});
+  try {
+    for (const thrown of ["disk gone", null]) {
+      const fakeFs: CoordinationLedgerFsDeps = {
+        openSync: () => {
+          throw thrown;
+        },
+        fstatSync,
+        readSync,
+        closeSync,
+      };
+      assert.throws(() => readCoordinationLedger({}, "/x/coordination-events.jsonl", fakeFs), (err: unknown) => err === thrown);
+    }
+  } finally {
+    errorMock.mock.restore();
+  }
+});
+
+test("toCoordinationSignals: a delegating run whose outcome records zero escalations has an escalation rate of 0", () => {
+  const s = toCoordinationSignals([{ runId: "r1", kind: "outcome", action: "delegate", reason: "x", escalations: 0, at: 1 }]);
+  assert.equal(s.escalationRate, 0);
+});
+
+test("readCoordinationLedger: a filtered read of a ledger larger than one window but smaller than the next still finds the run's first event", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    const lines = [line({ runId: "target", kind: "proposal", reason: "first", at: 0 })];
+    for (let i = 1; i <= 500; i++) lines.push(line({ runId: `other-${i}`, kind: "outcome", reason: "pipeline verdict=pass", finalOutcome: "pass", at: i }));
+    writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+    const size = statSync(path).size;
+    assert.ok(size > 16 * 1024 && size < 128 * 1024, `fixture size ${size}B must sit between the first and second window`);
+
+    const view = readCoordinationLedger({ runId: "target" }, path);
+    assert.deepEqual(view.events.map((e) => e.reason), ["first"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readCoordinationLedger closes the ledger file it opened, whether the read succeeds or fails", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    writeFileSync(path, `${raw}\n`, "utf8");
+    const opened: number[] = [];
+    const closed: number[] = [];
+    const tracking = (read: typeof readSync): CoordinationLedgerFsDeps => ({
+      openSync: ((p: string, flags: string) => {
+        const fd = openSync(p, flags);
+        opened.push(fd);
+        return fd;
+      }) as typeof openSync,
+      fstatSync,
+      readSync: read,
+      closeSync: (fd: number) => {
+        closed.push(fd);
+        closeSync(fd);
+      },
+    });
+    readCoordinationLedger({}, path, tracking(readSync));
+    const failing = (() => {
+      throw Object.assign(new Error("EIO: i/o error"), { code: "EIO" });
+    }) as typeof readSync;
+    const errorMock = mock.method(console, "error", () => {});
+    try {
+      assert.throws(() => readCoordinationLedger({}, path, tracking(failing)), /i\/o error/);
+    } finally {
+      errorMock.mock.restore();
+    }
+    assert.equal(opened.length, 2);
+    assert.deepEqual(closed, opened);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readCoordinationLedger: a ledger that shrinks under the read (rotation) returns the bytes it got instead of spinning", () => {
+  const dir = mkdtemp();
+  try {
+    const path = join(dir, "coordination-events.jsonl");
+    writeFileSync(path, `${raw}\n`, "utf8");
+    const realSize = statSync(path).size;
+    const shrinking: CoordinationLedgerFsDeps = {
+      openSync,
+      /* fstat still reports the pre-rotation size, twice the bytes actually left on disk */
+      fstatSync: ((fd: number) => ({ ...fstatSync(fd), size: realSize * 2 })) as unknown as typeof fstatSync,
+      readSync,
+      closeSync,
+    };
+    const view = readCoordinationLedger({}, path, shrinking);
+    assert.deepEqual(view.events, parseCoordinationLedger(raw).events);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function mkdtemp(): string {

@@ -31,6 +31,7 @@ export const defaultCoordinationLedgerFsDeps: CoordinationLedgerFsDeps = {
 /* Initial tail-read window; grows by TAIL_GROWTH_FACTOR each retry until enough matching events are
    found or the file start is reached. 16KB comfortably covers a poll's default/typical limit
    (200, clamped to 1000) worth of small JSONL lines on the first read. */
+// Stryker disable next-line ArithmeticOperator: performance only — any positive first window grows until it yields the same events
 const INITIAL_TAIL_BYTES = 16 * 1024;
 const TAIL_GROWTH_FACTOR = 8;
 
@@ -51,21 +52,23 @@ export function parseCoordinationLedger(
   const limit = clampLimit(filter.limit);
   const lines = raw.split("\n");
   const matched: CoordinationEvent[] = [];
-  let total = 0;
   for (const line of lines) {
+    /* JSON.parse ignores surrounding whitespace and rejects a blank line, and an unparsed line fails
+       isRecord below: the trim, the blank-line skip and the catch's `continue` only save work. */
+    // Stryker disable next-line MethodExpression: equivalent — see above
     const trimmed = line.trim();
+    // Stryker disable next-line ConditionalExpression: equivalent — see above
     if (!trimmed) continue;
     let parsed: unknown;
     try {
       parsed = JSON.parse(trimmed);
-    } catch {
+    } catch /* Stryker disable next-line BlockStatement: equivalent — see above */ {
       continue;  /* corrupt/partial tail line — skip, never fail the read */
     }
     if (!isRecord(parsed) || typeof parsed.runId !== "string" || typeof parsed.kind !== "string"
       || typeof parsed.reason !== "string" || typeof parsed.at !== "number") continue;
     if (!KINDS.has(parsed.kind)) continue;
     if (filter.runId && parsed.runId !== filter.runId) continue;
-    total++;
     matched.push(coerce(parsed));
   }
   if (limit < matched.length) {
@@ -78,6 +81,8 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
   const optInt = (v: unknown): number | undefined =>
     typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : undefined;
   const optStr = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+  /* Forcing one of the numeric spreads below adds only an undefined value, which serializes exactly
+     like an absent key; dropping the field is still caught through the spread's ObjectLiteral mutant. */
   return {
     runId: o.runId as string,
     kind: o.kind as CoordinationEvent["kind"],
@@ -85,8 +90,10 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
     at: o.at as number,
     ...(optStr(o.action) ? { action: optStr(o.action) } : {}),
     ...(optStr(o.capability) ? { capability: optStr(o.capability) } : {}),
+    // Stryker disable next-line ConditionalExpression: equivalent — see above
     ...(optInt(o.durationMs) !== undefined ? { durationMs: optInt(o.durationMs) } : {}),
     ...(optStr(o.delegationId) ? { delegationId: optStr(o.delegationId) } : {}),
+    // Stryker disable next-line ConditionalExpression: equivalent — see above
     ...(optInt(o.attempt) !== undefined ? { attempt: optInt(o.attempt) } : {}),
     ...(optStr(o.failureClass) ? { failureClass: optStr(o.failureClass) } : {}),
     ...(optStr(o.progressFingerprint) ? { progressFingerprint: optStr(o.progressFingerprint) } : {}),
@@ -96,12 +103,18 @@ function coerce(o: Record<string, unknown>): CoordinationEvent {
     ...(o.coverageRatio === null || typeof o.coverageRatio === "number"
       ? { coverageRatio: o.coverageRatio as number | null }
       : {}),
+    // Stryker disable next-line ConditionalExpression: equivalent — see above
     ...(optInt(o.escalations) !== undefined ? { escalations: optInt(o.escalations) } : {}),
   };
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === "object" && !Array.isArray(v);
+  return (
+    !!v &&
+    // Stryker disable next-line ConditionalExpression: equivalent — a primitive has no string runId and is dropped by the field checks
+    typeof v === "object" &&
+    !Array.isArray(v)
+  );
 }
 
 function clampLimit(limit: number | undefined): number {
@@ -211,6 +224,7 @@ function readLedgerTail(
       const chunk = readWindow(fs, fd, position, bytesToRead).toString("utf8");
       /* A chunk that doesn't start at byte 0 may open mid-line; drop that partial first line — a
          wider re-read on the next growth pass will pick it up whole, from further back. */
+      // Stryker disable next-line ConditionalExpression: equivalent — see dropPartialFirstLine
       const text = position > 0 ? dropPartialFirstLine(chunk) : chunk;
       const parsed = parseCoordinationLedger(text, filter);
       if (parsed.truncated || position === 0) return parsed;
@@ -226,6 +240,7 @@ function readLedgerTail(
 function readWindow(fs: CoordinationLedgerFsDeps, fd: number, position: number, length: number): Buffer {
   const buffer = Buffer.alloc(length);
   let filled = 0;
+  // Stryker disable next-line EqualityOperator: equivalent — one more zero-length read returns 0 and ends the loop
   while (filled < length) {
     const read = fs.readSync(fd, buffer, filled, length - filled, position + filled);
     if (read === 0) break;
@@ -234,10 +249,16 @@ function readWindow(fs: CoordinationLedgerFsDeps, fd: number, position: number, 
   return buffer.subarray(0, filled);
 }
 
+/* Output-neutral by construction: a proper suffix of a JSON-object line never parses (the outer
+   closing brace trails it), so a kept partial line is dropped by the parser anyway; and a whole line
+   dropped at the window start is the oldest one, which the growth loop re-reads whenever it could
+   still be among the `limit` newest matches. It saves parse work only. */
+// Stryker disable all: equivalent — see above
 function dropPartialFirstLine(text: string): string {
   const idx = text.indexOf("\n");
   return idx === -1 ? "" : text.slice(idx + 1);
 }
+// Stryker restore all
 
 /* Convenience alias for the api-deps wiring: bounded tail (limit clamps inside the reader). */
 export function readRecentCoordinationEvents(filter: CoordinationEventsFilter = {}): CoordinationEventsView {
