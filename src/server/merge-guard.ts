@@ -118,7 +118,12 @@ export const PROTECTED_PATHS: string[] = [
 ];
 
 export function isProtectedPath(file: string): boolean {
-  const f = file.replace(/^\.\/*/, "").replace(/\\/g, "/");
+  /*
+   * Strip leading "./" groups only. The old dot-star-slash strip regex ate the dot of dotfile
+   * paths too, turning ".github/workflows/ci.yml" into "github/..."; the ".github/" prefix
+   * (a directory rule) then never matched and the CI workflow surfaces were left unprotected.
+   */
+  const f = file.replace(/^(?:\.\/)+/, "").replace(/\\/g, "/");
   return PROTECTED_PATHS.some((p) => {
     if (p.startsWith("*")) return f.endsWith(p.slice(1)); 
     if (p.endsWith("/")) return f.startsWith(p);  /* directory prefix */
