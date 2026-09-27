@@ -86,6 +86,7 @@ import {
   shouldHonorActiveDelegation,
   shouldHonorFixLoopSidekick,
   type AgentCapability,
+  type DelegationResult,
   type LeadContext,
   type ProgressSnapshot,
 } from "./coordination/index.ts";
@@ -494,14 +495,9 @@ export class RunQaUseCase {
     /* A declared app login stays on the lead. The sidekick browser has no storageState, so it would author against the login wall and the suite would then run authenticated. */
     const loginKeepsLead = Boolean(this.deps.authContext?.auth);
     if (!cfg.isCode) {
-      try {
-        const session = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
-        authSeedUnauthored = session?.unauthored === true;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[qa] auth session failed:", err);
-        return this.infraErrorResult(`auth session failed: ${msg}`, workspace.mirrorDir);
-      }
+      const auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
+      if ("failed" in auth) return this.infraErrorResult(auth.failed, workspace.mirrorDir);
+      authSeedUnauthored = auth.unauthored;
     }
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
@@ -680,6 +676,48 @@ export class RunQaUseCase {
     let leadContext: LeadContext | undefined;
     let coordinationEscalations = 0;
     let preGenerateAttempt = 0;
+
+    /* The sidekick when this point may delegate; with an app login, logs why the work stays on the lead. */
+    const delegateSidekick = (honored: boolean, stayOnLeadNote: string): SidekickExecutor | undefined => {
+      if (!honored || !this.deps.sidekick) return undefined;
+      if (loginKeepsLead) {
+        this.deps.observer?.onEvent({ type: "log.line", level: "info", text: stayOnLeadNote });
+        return undefined;
+      }
+      return this.deps.sidekick;
+    };
+    const delegationCompleted = (d: DelegationResult): boolean => d.status === "completed" || d.status === "completed-with-concerns";
+    /*
+     * JSON claims alone are not success: only files on disk under the writable scope count, and the
+     * failure class comes from the same disk truth (so telemetry never reports a completed
+     * delegation whose files are missing as a success).
+     */
+    const verifyDelegation = (delegation: DelegationResult, writableRoot: string) => {
+      const onDisk = delegationCompleted(delegation)
+        ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRoot])
+        : [];
+      const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
+      return { onDisk, ...(failureClass ? { failureClass } : {}) };
+    };
+    /* The lead records every delegation and inherits the sidekick's open questions. */
+    const noteDelegationForLead = (delegationId: string, delegation: DelegationResult): void => {
+      if (!leadContext) return;
+      leadContext = appendLeadDelegation(leadContext, { delegationId, status: delegation.status, summary: delegation.summary });
+      if (delegation.unresolvedQuestions.length) {
+        leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
+      }
+    };
+    const logDelegationFallback = (point: CoordinationActivePoint, delegation: DelegationResult): void => {
+      const claimed = delegation.filesChanged.length;
+      this.deps.observer?.onEvent({
+        type: "log.line",
+        level: "info",
+        text:
+          claimed > 0 && delegationCompleted(delegation)
+            ? `coordination active ${point}: sidekick claimed ${claimed} files but none on disk — falling back to lead GenerationPort`
+            : `coordination active ${point}: sidekick ${delegation.status} — falling back to lead GenerationPort`,
+      });
+    };
     if (this.deps.coordination) {
       try {
         const objective = input.guidance ?? classificationIntent?.message ?? `QA run ${input.runId}`;
@@ -764,14 +802,11 @@ export class RunQaUseCase {
         point: "pre-generate",
         sidekickAvailable: !!this.deps.sidekick,
       });
-      if (loginKeepsLead && honorDelegate && this.deps.sidekick) {
-        this.deps.observer?.onEvent({
-          type: "log.line",
-          level: "info",
-          text: "app login is configured; generation stays on the lead, which has the authenticated DOM pack",
-        });
-      }
-      if (honorDelegate && this.deps.sidekick && coordinationProposal && !loginKeepsLead) {
+      const preGenerateSidekick = delegateSidekick(
+        honorDelegate,
+        "app login is configured; generation stays on the lead, which has the authenticated DOM pack",
+      );
+      if (preGenerateSidekick && coordinationProposal) {
         try {
           const e2eRel = relative(workspace.mirrorDir, workspace.specDir).replace(/\\/g, "/") || "e2e";
           const writableRoot = cfg.isCode ? "." : `${e2eRel}/`;
@@ -803,19 +838,14 @@ export class RunQaUseCase {
           const sidekickModel = resolveSidekickModel(capability, this.deps.sidekickEscalatedModel);
           preGenerateAttempt += 1;
           const delegationStarted = Date.now();
-          const delegation = await this.deps.sidekick.execute(brief, {
+          const delegation = await preGenerateSidekick.execute(brief, {
             cwd: workspace.mirrorDir,
             capability,
             ...(sidekickModel ? { model: sidekickModel } : {}),
             signal,
             timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
           });
-          /* JSON claims alone are not success — require files on disk under writable scope (fail-open).
-             Computed BEFORE the telemetry record below so failureClass reflects the same disk truth. */
-          const onDisk =
-            delegation.status === "completed" || delegation.status === "completed-with-concerns"
-              ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRoot])
-              : [];
+          const { onDisk, failureClass } = verifyDelegation(delegation, writableRoot);
           this.deps.coordinationTelemetry?.record({
             runId: input.runId,
             app: input.app,
@@ -826,22 +856,10 @@ export class RunQaUseCase {
             delegationId: brief.delegationId,
             attempt: preGenerateAttempt,
             durationMs: Date.now() - delegationStarted,
-            ...(() => {
-              const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
-              return failureClass ? { failureClass } : {};
-            })(),
+            ...(failureClass ? { failureClass } : {}),
             at: Date.now(),
           });
-          if (leadContext) {
-            leadContext = appendLeadDelegation(leadContext, {
-              delegationId: brief.delegationId,
-              status: delegation.status,
-              summary: delegation.summary,
-            });
-            if (delegation.unresolvedQuestions.length) {
-              leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
-            }
-          }
+          noteDelegationForLead(brief.delegationId, delegation);
           if (onDisk.length > 0) {
             const prefix = writableRoot.endsWith("/") ? writableRoot : `${writableRoot}/`;
             const specs = onDisk.map((f) => {
@@ -863,16 +881,7 @@ export class RunQaUseCase {
               text: `coordination active pre-generate: sidekick ${delegation.status} specs=${specs.length}`,
             });
           } else {
-            const claimed = delegation.filesChanged.length;
-            this.deps.observer?.onEvent({
-              type: "log.line",
-              level: "info",
-              text:
-                claimed > 0 &&
-                (delegation.status === "completed" || delegation.status === "completed-with-concerns")
-                  ? `coordination active pre-generate: sidekick claimed ${claimed} files but none on disk — falling back to lead GenerationPort`
-                  : `coordination active pre-generate: sidekick ${delegation.status} — falling back to lead GenerationPort`,
-            });
+            logDelegationFallback("pre-generate", delegation);
           }
         } catch (err) {
           console.error(
@@ -1133,13 +1142,8 @@ export class RunQaUseCase {
      * A successful context generation is an immediate pass with zero cases.
      */
     if (input.mode !== "context" && !cfg.isCode) {
-      try {
-        await this.prepareAuth(workspace.specDir, "pre-execute", signal);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[qa] auth session failed before execute:", err);
-        return await preExecuteInfraError(`auth session failed: ${msg}`);
-      }
+      const auth = await this.prepareAuth(workspace.specDir, "pre-execute", signal);
+      if ("failed" in auth) return await preExecuteInfraError(auth.failed);
     }
     if (input.mode !== "context") {
       this.deps.observer?.onStep("execute");
@@ -1311,14 +1315,11 @@ export class RunQaUseCase {
             capability: fixLoopCapability,
             sidekickAvailable: !!this.deps.sidekick,
           });
-          if (loginKeepsLead && honorSidekick && this.deps.sidekick) {
-            this.deps.observer?.onEvent({
-              type: "log.line",
-              level: "info",
-              text: "app login is configured; fix-loop regen stays on the lead, which has the authenticated failure DOM",
-            });
-          }
-          if (honorSidekick && this.deps.sidekick && !loginKeepsLead) {
+          const fixLoopSidekick = delegateSidekick(
+            honorSidekick,
+            "app login is configured; fix-loop regen stays on the lead, which has the authenticated failure DOM",
+          );
+          if (fixLoopSidekick) {
             try {
               const failSummary = failingNames.slice(0, 8).join(", ") || "failing tests";
               const selectorLines = mergedSelectorContradictions.slice(0, 20);
@@ -1362,7 +1363,7 @@ export class RunQaUseCase {
                   : undefined;
               const delegationStarted = Date.now();
               fixLoopSidekickAttempt += 1;
-              const delegation = await this.deps.sidekick.execute(brief, {
+              const delegation = await fixLoopSidekick.execute(brief, {
                 cwd: workspace.mirrorDir,
                 capability: fixLoopCapability,
                 ...(sidekickModel ? { model: sidekickModel } : {}),
@@ -1370,17 +1371,11 @@ export class RunQaUseCase {
                 signal,
                 timeoutMs: this.deps.sidekickTimeoutMs ?? cfg.agentTimeoutMs,
               });
-              /* JSON claims alone are not success — require files on disk under writable scope
-                 (fail-open). Computed BEFORE the telemetry record below so failureClass reflects
-                 the same disk truth (also reused further down instead of recomputed). */
-              const onDisk =
-                delegation.status === "completed" || delegation.status === "completed-with-concerns"
-                  ? existingWritableFiles(workspace.mirrorDir, delegation.filesChanged, [writableRootForFix])
-                  : [];
+              const { onDisk, failureClass } = verifyDelegation(delegation, writableRootForFix);
               this.deps.coordinationTelemetry?.record({
                 runId: input.runId,
                 app: input.app,
-                    kind: "delegation",
+                kind: "delegation",
                 action: orchestration.action,
                 capability: fixLoopCapability,
                 reason: `fix-loop-regen sidekick status=${delegation.status}`,
@@ -1388,22 +1383,10 @@ export class RunQaUseCase {
                 attempt: fixLoopSidekickAttempt,
                 durationMs: Date.now() - delegationStarted,
                 progressFingerprint: progress.failureFingerprint,
-                ...(() => {
-                  const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
-                  return failureClass ? { failureClass } : {};
-                })(),
+                ...(failureClass ? { failureClass } : {}),
                 at: Date.now(),
               });
-              if (leadContext) {
-                leadContext = appendLeadDelegation(leadContext, {
-                  delegationId: brief.delegationId,
-                  status: delegation.status,
-                  summary: delegation.summary,
-                });
-                if (delegation.unresolvedQuestions.length) {
-                  leadContext = appendLeadQuestions(leadContext, delegation.unresolvedQuestions);
-                }
-              }
+              noteDelegationForLead(brief.delegationId, delegation);
               if (delegation.status === "needs-lead") {
                 fixLoopSidekickNeedsLead = true;
                 const advanced = advanceAfterNeedsLead(fixLoopCapability);
@@ -1413,7 +1396,7 @@ export class RunQaUseCase {
                 this.deps.coordinationTelemetry?.record({
                   runId: input.runId,
                   app: input.app,
-                        kind: "escalation",
+                  kind: "escalation",
                   action: "lead-takeover",
                   capability: advanced,
                   reason: "sidekick needs-lead — advance escalation ladder",
@@ -1440,16 +1423,7 @@ export class RunQaUseCase {
                   specMetas: specs.map((s) => ({ flow: s, objective: brief.objective })),
                 };
               }
-              const claimed = delegation.filesChanged.length;
-              this.deps.observer?.onEvent({
-                type: "log.line",
-                level: "info",
-                text:
-                  claimed > 0 &&
-                  (delegation.status === "completed" || delegation.status === "completed-with-concerns")
-                    ? `coordination active fix-loop-regen: sidekick claimed ${claimed} files but none on disk — falling back to lead GenerationPort`
-                    : `coordination active fix-loop-regen: sidekick ${delegation.status} — falling back to lead GenerationPort`,
-              });
+              logDelegationFallback("fix-loop-regen", delegation);
             } catch (err) {
               console.error(
                 `[qa] coordination fix-loop sidekick failed (fail-open — lead GenerationPort runs): ${err instanceof Error ? err.message : String(err)}`,
@@ -2182,21 +2156,30 @@ export class RunQaUseCase {
     };
   }
 
-  /** No-op when the port is unwired. unauthored is a setup note, not a failure. */
-  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | undefined> {
+  /*
+   * No-op when the port is unwired. unauthored is a setup note, not a failure. A failed prepare is
+   * logged and returned as the infra-error note for the caller's terminal.
+   */
+  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | { failed: string }> {
     const sessionPort = this.deps.authSession;
     const ctx = this.deps.authContext;
-    if (!sessionPort || !ctx) return undefined;
-    const session = await sessionPort.prepare({
-      specDir,
-      baseUrl: ctx.baseUrl,
-      ...(ctx.auth ? { auth: ctx.auth } : {}),
-      phase,
-    }, signal);
+    if (!sessionPort || !ctx) return { unauthored: false };
+    let session: { unauthored: boolean };
+    try {
+      session = await sessionPort.prepare({
+        specDir,
+        baseUrl: ctx.baseUrl,
+        ...(ctx.auth ? { auth: ctx.auth } : {}),
+        phase,
+      }, signal);
+    } catch (err) {
+      console.error(`[qa] auth session failed${phase === "pre-execute" ? " before execute" : ""}:`, err);
+      return { failed: `auth session failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
     if (session.unauthored) {
       this.deps.observer?.onStep("setup", "auth setup is still the seed; generation may rewrite e2e/auth.setup.ts");
     }
-    return session;
+    return { unauthored: session.unauthored };
   }
 
   /*

@@ -281,6 +281,108 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
   );
 });
 
+/* A first execute that fails once, then passes — enough to reach one FixLoop regen round. */
+function failOnceThenPass(): ExecutionPort["execute"] {
+  let executeCalls = 0;
+  return async () => {
+    executeCalls++;
+    if (executeCalls === 1) {
+      return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
+    }
+    return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
+  };
+}
+
+test("an app login keeps FixLoop regen on the lead and never opens a sidekick session", async () => {
+  ensureFixedSpec();
+  let generateCalls = 0;
+  let opened = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return { specs: ["lead.spec.ts"], approved: true };
+    },
+    execute: failOnceThenPass(),
+  });
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        opened++;
+        return sessionReturning({
+          delegationId: "coord-fixloop-login-fix-loop-regen",
+          runId: "coord-fixloop-login",
+          status: "completed",
+          summary: "should not run",
+          filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+        });
+      },
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    sidekick,
+    authSession: { prepare: async () => ({ unauthored: false }) },
+    authContext: {
+      baseUrl: "https://dev.example",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    },
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-login" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(opened, 0, "the sidekick browser has no login session, so it must never author the fix");
+  assert.equal(generateCalls, 2, "initial generate + the FixLoop regen, both on the lead");
+});
+
+test("a FixLoop sidekick whose claimed files are not on disk falls back to the lead and is recorded as claimed-files-missing", async () => {
+  let generateCalls = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return { specs: ["lead.spec.ts"], approved: true };
+    },
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () =>
+        sessionReturning({
+          delegationId: "coord-fixloop-missing-fix-loop-regen",
+          runId: "coord-fixloop-missing",
+          status: "completed",
+          summary: "claimed without writing",
+          filesChanged: [{ path: "e2e/never-written-fix.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+        }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-missing" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCalls, 2, "the FixLoop regen falls back to the lead when no claimed file exists");
+  const delegation = tel.events.find((e) => e.kind === "delegation" && e.reason.includes("fix-loop"));
+  assert.equal(delegation?.failureClass, "claimed-files-missing");
+});
+
 test("FixLoop honors abort-human when wall-clock budget is exhausted", async () => {
   let generateCalls = 0;
   let executeCalls = 0;
