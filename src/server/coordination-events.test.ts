@@ -177,12 +177,14 @@ test("toCoordinationSignals ignores an older ledger's failureClass that is not a
     [
       JSON.stringify({ runId: "r1", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "fix-loop-regen sidekick status=completed", delegationId: "r1-fix-loop-regen", attempt: 1, durationMs: 1000, failureClass: "fail", at: 1 }),
       JSON.stringify({ runId: "r2", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=blocked", delegationId: "r2-pre-generate", attempt: 1, durationMs: 1000, failureClass: "blocked", at: 2 }),
+      JSON.stringify({ runId: "r3", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=completed", delegationId: "r3-pre-generate", attempt: 1, durationMs: 1000, failureClass: "timeout", at: 5 }),
+      JSON.stringify({ runId: "r4", kind: "delegation", action: "delegate", capability: "sidekick-standard", reason: "sidekick status=completed", delegationId: "r4-pre-generate", attempt: 1, durationMs: 1000, failureClass: "claimed-files-missing", at: 6 }),
       JSON.stringify({ runId: "r1", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 3 }),
       JSON.stringify({ runId: "r2", kind: "outcome", action: "delegate", reason: "pipeline verdict=pass", finalOutcome: "pass", escalations: 0, at: 4 }),
     ].join("\n"),
   ).events;
   const s = toCoordinationSignals(events);
-  assert.equal(s.contractFailureRate, 0.5, "only the blocked delegation is a contract failure");
+  assert.equal(s.contractFailureRate, 0.5, "only the blocked and claimed-files-missing delegations are contract failures");
 });
 
 test("toCoordinationSignals with an empty ledger reports unmeasured, not zero-painted", () => {
