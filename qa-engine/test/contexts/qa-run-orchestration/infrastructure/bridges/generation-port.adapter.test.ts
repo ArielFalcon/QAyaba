@@ -14,7 +14,8 @@ import { Objective } from "@kernel/objective.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
-import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { GenerationEnrichment, RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { TestTarget } from "@kernel/run-mode.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import {
   buildPromptAssembled,
@@ -884,4 +885,65 @@ test("first review pass: candidate-only rules leave the reviewer prompt identica
   const withoutRules = await runFirstReviewPass([]);
 
   assert.equal(withCandidates.reviewerPrompt, withoutRules.reviewerPrompt);
+});
+
+/* A stock auth seed that did not sign in is a run fact the use case hands to generation; it must
+   reach the generator prompt through this bridge. Real bridge, use case and prompt builders; only
+   the agent runtime (the LLM boundary) is faked. */
+
+async function generatorPromptFor(
+  run: { e2eRelDir: string; target: TestTarget },
+  enrichment?: GenerationEnrichment,
+): Promise<string> {
+  let generatorPrompt = "";
+  const useCase = new GenerateTestsUseCase({
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          if (role === "primary") generatorPrompt = text;
+          return { output: '{"specs":[]}' };
+        },
+        dispose: async () => {},
+      }),
+    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
+    verdicts: {
+      parseGenerator: () => ({ specs: [], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
+    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
+  });
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
+    namespace: "qa-bot-abc1234", needsReview: false, target: run.target, mode: "diff", baseUrl: "https://dev",
+    diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
+  });
+  await adapter.generate([], `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
+  return generatorPrompt;
+}
+
+test("an unauthored auth seed makes the generator prompt ask to rewrite the suite's auth.setup.ts", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "tests/e2e", target: "e2e" }, { authSeedUnauthored: true });
+
+  assert.match(prompt, /^## App login$/m);
+  assert.ok(prompt.includes("tests/e2e/auth.setup.ts"), "the rewrite must target the suite folder's own setup file");
+});
+
+test("a signed-in auth seed leaves auth.setup.ts out of the generator prompt", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "tests/e2e", target: "e2e" });
+
+  assert.ok(prompt.length > 0, "the generator was prompted");
+  assert.doesNotMatch(prompt, /^## App login$/m);
+  assert.ok(!prompt.includes("auth.setup.ts"));
+});
+
+test("a code-target run never renders the app login section, even with an unauthored seed", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "e2e", target: "code" }, { authSeedUnauthored: true });
+
+  assert.ok(prompt.length > 0, "the generator was prompted");
+  assert.doesNotMatch(prompt, /^## App login$/m);
+  assert.ok(!prompt.includes("auth.setup.ts"));
 });

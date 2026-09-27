@@ -76,24 +76,37 @@ test("code mode working-rules: instruct compile-before-finish", () => {
 
 /* ── App login: a declared login whose stock auth.setup.ts did not sign in is a fact about the run,
    not grounding — it must reach the generator without pretending a live-DOM Context Pack exists. ── */
+
+/* The body of a prompt's "## App login" section, up to the next blank line or heading. */
+function appLoginSection(prompt: string): string | undefined {
+  const heading = "## App login\n";
+  const start = prompt.indexOf(heading);
+  if (start === -1) return undefined;
+  const body = prompt.slice(start + heading.length);
+  const end = body.search(/\n\n|\n#/);
+  return end === -1 ? body : body.slice(0, end);
+}
+
 test("an unauthored stock auth seed asks the generator to rewrite the suite's auth.setup.ts", () => {
-  const text = buildPrompt(mkInput({ e2eRelDir: "tests/e2e", authSeedUnauthored: true }));
-  assert.match(text, /tests\/e2e\/auth\.setup\.ts/);
+  const login = appLoginSection(buildPrompt(mkInput({ e2eRelDir: "tests/e2e", authSeedUnauthored: true })));
+  assert.match(login ?? "", /tests\/e2e\/auth\.setup\.ts/);
 });
 
-test("an unauthored stock auth seed without a Context Pack never claims a live-DOM pack exists", () => {
-  const text = buildPrompt(mkInput({ authSeedUnauthored: true }));
-  assert.doesNotMatch(text, /Context Pack|DOM pack/i);
-  assert.match(text, /Playwright MCP is AVAILABLE and you MUST use it/, "with no injected DOM the generator must still explore the live page");
+test("an unauthored stock auth seed without a Context Pack sends the login rewrite to the live page", () => {
+  const login = appLoginSection(buildPrompt(mkInput({ authSeedUnauthored: true })));
+  assert.ok(login, "the login section is rendered");
+  assert.doesNotMatch(login, /Context Pack|DOM pack/i, "no pack is in the prompt, so the section must not point at one");
+  assert.match(login, /Playwright MCP/);
 });
 
 test("an unauthored stock auth seed with a Context Pack points the rewrite at the pack's DOM", () => {
-  const text = buildPrompt(mkInput({ authSeedUnauthored: true, contextPack: "## Context Pack\n\n### Live DOM\n/login: textbox Email" }));
-  assert.match(text, /auth\.setup\.ts[^\n]*Context Pack|Context Pack[^\n]*auth\.setup\.ts/);
+  const login = appLoginSection(buildPrompt(mkInput({ authSeedUnauthored: true, contextPack: "## Context Pack\n\n### Live DOM\n/login: textbox Email" })));
+  assert.match(login ?? "", /Context Pack/);
 });
 
 test("a seed that signed in adds no auth.setup.ts rewrite instruction", () => {
   const text = buildPrompt(mkInput({}));
+  assert.equal(appLoginSection(text), undefined);
   assert.doesNotMatch(text, /auth\.setup\.ts/);
 });
 
