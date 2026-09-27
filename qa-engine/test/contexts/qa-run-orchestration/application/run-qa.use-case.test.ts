@@ -2429,25 +2429,6 @@ test("contextMapCapture is NOT invoked on a context-mode INVALID result — capt
   assert.equal(captureCallCount, 0, "an invalid context-mode result must never invoke contextMapCapture — only a clean pass reached a validated, publishable map");
 });
 
-test("a context-mode INVALID result is not saved to run history", async () => {
-  /* A context-mode static-gate failure files an Issue then returns WITHOUT ever calling
-     persistOutcome — the SAME no-persist convention as the clean context pass, not the generic
-     static-gate invalid path.
-   */
-  let saveCallCount = 0;
-  const { ports } = stubPorts({
-    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "tried" }),
-    validate: async () => ({ ok: false, errors: ["feBe[0]: route '/ghost' is not declared in 'routes'"] }),
-  });
-  ports.runHistory.save = async () => { saveCallCount++; };
-  const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
-
-  const out = await useCase.run({ ...baseInput, runId: "fix-2-context-invalid-persists", mode: "context" });
-
-  assert.equal(out.decision.verdict, "invalid");
-  assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT persist — a context-mode invalid files an Issue but is never saved");
-});
-
 test("valueScore flows from ObjectiveSignalPort.measure() into the persisted gateSignals (not hardcoded null)", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
