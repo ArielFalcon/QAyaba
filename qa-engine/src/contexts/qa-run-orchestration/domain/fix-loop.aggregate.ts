@@ -87,6 +87,13 @@ export interface FixLoopResult {
 
 const failCount = (r: FixLoopRun): number => r.cases.filter((c) => c.status === "fail").length;
 
+/* Suite-relative spec path in one canonical form: forward slashes, no leading "./". */
+function normalizeSpecPath(path: string): string {
+  let normalized = path.replace(/\\/g, "/");
+  while (normalized.startsWith("./")) normalized = normalized.slice(2);
+  return normalized;
+}
+
 function buildFailureDomLines(failureDom: string | undefined): string[] {
   if (!failureDom) return [];
   return failureDom.split("\n").filter((l) => l.trim());
@@ -223,14 +230,14 @@ export class FixLoop {
           ...new Set(run.cases.filter((c) => c.status === "fail" && c.file).map((c) => c.file as string)),
         ];
         const allFailedHaveFile = run.cases.filter((c) => c.status === "fail").every((c) => !!c.file);
-        const regenSpecBasenames = result.specs.map((s) => s.replace(/.*\//, "").replace(/.*\\/, ""));
-        const regenHasOutsiders = regenSpecBasenames.some(
-          (b) => !failedSpecFiles.some((f) => f === b || f.endsWith(`/${b}`) || f.endsWith(`\\${b}`)),
-        );
+        const failedSpecPaths = new Set(failedSpecFiles.map(normalizeSpecPath));
+        const regenHasOutsiders = result.specs.some((spec) => !failedSpecPaths.has(normalizeSpecPath(spec)));
         /* Any regen spec outside the failing set means filtering execute() to the stale failing
            set would never run the file the regen actually wrote — even when some regen specs
            also overlap the failing set. Only "regen touched nothing but already-failing files"
-           is safe to filter. */
+           is safe to filter. Paths are compared whole (suite-relative), never by file name: a
+           same-named spec in another folder is a different file, and any path that does not
+           name a failing file exactly re-runs everything (running more is always safe). */
         const regenStayedInFailedSet = !regenHasOutsiders;
         const canFilter =
           allFailedHaveFile &&

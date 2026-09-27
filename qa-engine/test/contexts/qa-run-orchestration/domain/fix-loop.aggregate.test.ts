@@ -271,6 +271,46 @@ test("sub-decision (d): filtered-retry — canFilter true (coverageWillMeasure=f
   assert.deepEqual(receivedExecuteInputs[0]!.specFiles, ["login.spec.ts"]);
 });
 
+/* The failing set and the regen's specs are compared as whole suite-relative paths: two specs that
+   share a file name in different folders are different files. */
+async function retryScopeFor(failingFile: string, regenSpecs: string[]): Promise<string[] | undefined> {
+  const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
+  const loop = new FixLoop({
+    execution: {
+      execute: async (i) => {
+        receivedExecuteInputs.push(i);
+        return { verdict: "pass", cases: [{ name: "login", status: "pass", file: failingFile }] };
+      },
+    },
+    generation: { generate: async () => ({ specs: regenSpecs, approved: true }) },
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: true, anyNonExtractable: false, anyUnverifiable: false }) },
+  });
+  const { cycleBudget, wallClockBudget } = budgets();
+  await loop.run({
+    initialRun: { verdict: "fail", cases: [makeCase({ file: failingFile })] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/login.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+    coverageWillMeasure: false,
+  });
+  assert.equal(receivedExecuteInputs.length, 1);
+  return receivedExecuteInputs[0]!.specFiles;
+}
+
+test("filtered retry: a regen spec with the failing file's name in ANOTHER folder re-runs the whole suite", async () => {
+  assert.equal(await retryScopeFor("user/login.spec.ts", ["admin/login.spec.ts"]), undefined);
+});
+
+test("filtered retry: a regen of the failing file in the SAME folder re-runs only that file", async () => {
+  assert.deepEqual(await retryScopeFor("user/login.spec.ts", ["./user/login.spec.ts"]), ["user/login.spec.ts"]);
+});
+
 test("sub-decision (d): filtered-retry — regen specs are ALL outside the failing set -> full re-execute (no specFiles)", async () => {
   const receivedExecuteInputs: Array<{ namespace: string; specFiles?: string[] }> = [];
   const execution: FixLoopExecutionPort = {
