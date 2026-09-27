@@ -1,4 +1,4 @@
-/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. */
+/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { scrub, scrubStrings } from "./scrub.ts";
@@ -92,7 +92,7 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
   const filesChanged = Array.isArray(o.filesChanged)
     ? o.filesChanged
         .filter((f): f is { path: string } => !!f && typeof f === "object" && typeof (f as { path?: unknown }).path === "string")
-        .map((f) => ({ path: scrub(f.path) }))
+        .map((f) => ({ path: f.path }))
     : [];
   const validation = Array.isArray(o.validation)
     ? o.validation

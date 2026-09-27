@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { existingWritableFiles } from "@contexts/qa-run-orchestration/application/coordination/existing-writable-files.ts";
 import {
   resolveCapabilityRole,
   SidekickExecutor,
@@ -264,6 +268,51 @@ test("SidekickExecutor marks write outside writablePaths as blocked", async () =
   const result = await executor.execute(brief(), { cwd: "/tmp", capability: "sidekick-standard" });
   assert.equal(result.status, "blocked");
   assert.equal(result.recommendation, "escalate");
+});
+
+/* filesChanged is an authority input (scope check + on-disk adoption), not free-form prose: a
+   redaction pass that rewrites a legitimate path makes the lead reject work the sidekick really did. */
+test("SidekickExecutor adopts long camelCase and digit-bearing spec paths it wrote, while still redacting a secret in a concern", async () => {
+  const written = [
+    "e2e/specs/checkoutWithSavedCreditCardAndCoupon.spec.ts",
+    "e2e/specs/orders/OrderHistoryPaginationAndFiltering2026.spec.ts",
+    "e2e/specs/login.spec.ts",
+  ];
+  const mirror = mkdtempSync(join(tmpdir(), "sidekick-paths-"));
+  for (const path of written) {
+    mkdirSync(dirname(join(mirror, path)), { recursive: true });
+    writeFileSync(join(mirror, path), "test('x', async () => {});\n");
+  }
+  const session: AgentSession = {
+    async prompt() {
+      return {
+        output: JSON.stringify({
+          delegationId: "d1",
+          runId: "r1",
+          status: "completed-with-concerns",
+          summary: "wrote three specs",
+          filesChanged: written.map((path) => ({ path })),
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: ["login form echoed token: ghs_supersecretvalue in the DOM"],
+          unresolvedQuestions: [],
+          recommendation: "review",
+        }),
+      };
+    },
+    async dispose() {},
+  };
+  const executor = new SidekickExecutor({
+    runtime: { openSession: async () => session },
+    render: renderSidekickBrief,
+  });
+  const result = await executor.execute(brief(), { cwd: mirror, capability: "sidekick-standard" });
+
+  assert.equal(result.status, "completed-with-concerns");
+  const adopted = existingWritableFiles(mirror, result.filesChanged, scope.writablePaths).map((f) => f.path);
+  assert.deepEqual([...adopted].sort(), [...written].sort());
+  assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
 });
 
 test("SidekickExecutor passes escalated model via OpenSessionOpts without naming it in domain", async () => {

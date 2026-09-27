@@ -47,7 +47,7 @@ test("change-analysis evidence, the brief, and the JSONL sink redact an injected
   assert.doesNotMatch(sink.events.map((e) => e.reason).join("\n"), /ghs_supersecretvalue/);
 });
 
-test("DelegationResult serialized after an illegal write still redacts secrets in the replacement summary", async () => {
+test("an illegal write's replacement summary and concerns redact a secret-bearing path", async () => {
   const session: AgentSession = {
     async prompt() {
       return {
@@ -84,5 +84,6 @@ test("DelegationResult serialized after an illegal write still redacts secrets i
     { cwd: "/tmp/mirror", capability: "sidekick-standard" },
   );
   assert.equal(result.status, "blocked");
-  assert.doesNotMatch(JSON.stringify(result), /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.summary, /ghs_supersecretvalue/);
+  assert.doesNotMatch(result.concerns.join("\n"), /ghs_supersecretvalue/);
 });
