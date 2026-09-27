@@ -1142,7 +1142,11 @@
       }).join('') + '</div>';
     const emptyRow = (text) => '<div style="padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(text) + '</div>';
     const maxPromo = Math.max.apply(null, ledger.archetypes.map((x) => x.promotions).concat([1]));
-    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' + (ledger.archetypes.length
+    /* A corrupt stored curriculum is a fault to repair, shown as such — its archetypes are missing
+       from the list below, not proven absent. */
+    const corruptRows = (ledger.corruptCurricula || []).map((app) => '<div style="padding:11px 18px;border-bottom:var(--border-rule)">' +
+      UnknownPanel(app + ' · curriculum corrupt', 'The stored curriculum for ' + app + ' cannot be read, so its archetypes are missing here until it is repaired.', 'alert-triangle') + '</div>').join('');
+    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' + corruptRows + (ledger.archetypes.length
       ? ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</span>' +
         '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', border: '1px solid ' + (a.caughtRealBug ? 'var(--pass-600)' : 'var(--bone-400)'), color: a.caughtRealBug ? 'var(--pass-600)' : 'var(--text-faint)', background: a.caughtRealBug ? 'var(--pass-100)' : 'transparent' }) + '">' + I(a.caughtRealBug ? 'bug' : 'circle-dashed', 11) + (a.caughtRealBug ? 'caught bug' : 'unproven') + '</span>' +

@@ -296,3 +296,27 @@ test("the engine is reported operational only when its health check says so", as
   });
   assert.doesNotMatch(unknown.text(), /engine operational/);
 });
+
+test("the learning view says an app's stored curriculum is corrupt, and only for that app", async () => {
+  const intelligence = (app: string, curriculumCorrupt: boolean) => ({ app, rules: [], scorecard: null, curriculum: null, curriculumCorrupt });
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop"), appView("blog")],
+      runs: [],
+      extra: (req) => {
+        if (req.path === "/api/v1/apps/shop/intelligence") return { status: 200, json: intelligence("shop", true) };
+        if (req.path === "/api/v1/apps/blog/intelligence") return { status: 200, json: intelligence("blog", false) };
+        return undefined;
+      },
+    }),
+  });
+
+  h.click("nav", "learning");
+  const text = h.text();
+
+  const mentions = [...text.matchAll(/[^.]*corrupt[^.]*/gi)].map((m) => m[0]);
+  assert.ok(mentions.some((m) => /\bshop\b/.test(m)), `shop's corrupt curriculum is reported: ${mentions}`);
+  assert.ok(mentions.every((m) => !/\bblog\b/.test(m)), `blog has no curriculum yet, not a corrupt one: ${mentions}`);
+});

@@ -39,14 +39,15 @@ export function buildLearningContext(app: string): string | null {
     const outcomes = listRunOutcomes(app, 10);
     const rules = listLearningRules(app, 20);
     /*
-     * A corrupt row is already logged loudly by loadCurriculum() itself; this chat context is
-     * read-only advisory prose (never a fold path), so it degrades the same as "no curriculum
-     * yet" rather than surfacing the fault to the operator a second time here.
+     * A corrupt row (logged by loadCurriculum() itself) is stated as corrupt, never folded into
+     * "no curriculum yet": the operator asking why archetype guidance is missing needs the real
+     * reason, and an app that simply has none must not read as broken.
      */
     const curriculumRaw = loadCurriculum(app);
-    const curriculum = curriculumRaw === CURRICULUM_CORRUPT ? null : curriculumRaw;
+    const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
+    const curriculum = curriculumCorrupt ? null : curriculumRaw;
 
-    if (outcomes.length === 0 && rules.length === 0 && !curriculum) return null;
+    if (outcomes.length === 0 && rules.length === 0 && !curriculum && !curriculumCorrupt) return null;
 
     const lines: string[] = ["## Learning state for this app", ""];
 
@@ -69,6 +70,12 @@ export function buildLearningContext(app: string): string | null {
         lines.push(`  trigger: ${r.trigger.slice(0, 120)}`);
         lines.push(`  action: ${r.action.slice(0, 120)}`);
       }
+      lines.push("");
+    }
+
+    if (curriculumCorrupt) {
+      lines.push("### Curriculum: CORRUPT");
+      lines.push("- The stored curriculum for this app cannot be read, so its proven scenario archetypes are unavailable. This is a fault to repair, not an app without a curriculum.");
       lines.push("");
     }
 

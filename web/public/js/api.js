@@ -574,8 +574,13 @@ window.QayabaConsole = (function () {
   function mapLedger(intelByApp) {
     const rules = [];
     const arch = {};
+    /* Apps whose stored curriculum cannot be read — a fault, never the "no curriculum yet" of an
+       app that simply has none (IntelligenceView.curriculumCorrupt). */
+    const corruptCurricula = [];
     Object.keys(intelByApp || {}).forEach((app) => {
-      const iv = intelByApp[app]; if (!iv || !iv.rules) return;
+      const iv = intelByApp[app]; if (!iv) return;
+      if (iv.curriculumCorrupt) corruptCurricula.push(app);
+      if (!iv.rules) return;
       iv.rules.forEach((r, i) => rules.push({
         id: 'R-' + app.slice(0, 2) + i, status: r.status === 'medium' ? 'active' : r.status,
         trigger: r.trigger, action: r.action, errorClass: r.errorClass,
@@ -588,9 +593,9 @@ window.QayabaConsole = (function () {
         if (a.caughtRealBug) slot.caughtRealBug = true;
       });
     });
-    if (!rules.length && !Object.keys(arch).length) return null;
+    if (!rules.length && !Object.keys(arch).length && !corruptCurricula.length) return null;
     /* Governance audit log has no endpoint yet (API.md §6) — empty, never fake. */
-    return { rules: rules, archetypes: Object.keys(arch).map((k) => arch[k]), audit: [] };
+    return { rules: rules, archetypes: Object.keys(arch).map((k) => arch[k]), audit: [], corruptCurricula: corruptCurricula };
   }
   function trendVmix(t) { return t && t.verdictMix ? Object.keys(t.verdictMix).map((v) => ({ v: v, n: t.verdictMix[v] })) : null; }
   function pick(obj, path, dflt) {

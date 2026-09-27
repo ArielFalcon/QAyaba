@@ -175,7 +175,13 @@ func (m intelligenceModel) body() string {
 	b.WriteString("\n")
 
 	/* ── CURRICULUM: which scenario archetypes have proven their worth ───────── */
-	if v.Curriculum != nil && len(v.Curriculum.Archetypes) > 0 {
+	if v.CurriculumCorrupt {
+		/* The stored row exists but cannot be read — a fault to repair, never the "no curriculum
+		   yet" of an app that simply has none. */
+		b.WriteString(labelRule(w, "curriculum", "") + "\n")
+		b.WriteString("  " + errorStyle.Render("✗ corrupt") + "  " +
+			hintStyle.Render("the stored curriculum cannot be read — archetype guidance is unavailable until it is repaired") + "\n")
+	} else if v.Curriculum != nil && len(v.Curriculum.Archetypes) > 0 {
 		proven := 0
 		for _, a := range v.Curriculum.Archetypes {
 			if a.CaughtRealBug {

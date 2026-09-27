@@ -110,7 +110,7 @@ contract schema names are in (parens).
 |---|---|---|---|
 | Flywheel counters | `flywheel: [{id,stat,unit,note}]` (labeler→oracle→reflector→distiller→curriculum) | — | ✗ new — fleet counters. Some derivable from `IntelligenceView.scorecard`. |
 | Governed rule inventory | `ledger.rules: [{id,status,trigger,action,errorClass,confidence,usage,outcomes,success}]` | `GET /api/v1/apps/{name}/intelligence` → `IntelligenceView.rules[]` (`LearningRuleView`) | ✓ per-app — fields map (`confidence` `low/medium/high`→`low/med/high`; `status` `candidate/active/deprecated/superseded` ✓; `usageCount/outcomeCount/successRate`). ⚠ needs a **fleet** aggregate + a stable rule **id** (contract rule has no id). |
-| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]` | ✓ wired — console aggregates each app's `curriculum.archetypes` into the fleet ledger (promotions summed, `caughtRealBug` OR-ed). |
+| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]`, `ledger.corruptCurricula: [app]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]`, `IntelligenceView.curriculumCorrupt` | ✓ wired — console aggregates each app's `curriculum.archetypes` into the fleet ledger (promotions summed, `caughtRealBug` OR-ed); an app whose stored curriculum is corrupt is flagged in the card, never shown as an empty curriculum. |
 | Governance / audit log | `ledger.audit: [{rule,issue,level}]` | — | ✗ new. |
 | Engram (all apps) | `engram: [{app,text}]` | — | ✗ new (see §5 memory). |
 

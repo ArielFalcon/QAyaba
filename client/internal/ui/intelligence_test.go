@@ -188,3 +188,26 @@ func TestDashboardIntelKeyOpensIntelligence(t *testing.T) {
 		t.Fatalf("i should open intelligence for the selected app, got %#v", cmd())
 	}
 }
+
+/* A corrupt stored curriculum is a fault the operator must see, not the "no curriculum yet" of an
+   app that simply has none. */
+func TestIntelligenceShowsACorruptCurriculumAsCorrupt(t *testing.T) {
+	cases := []struct {
+		name    string
+		view    contract.IntelligenceView
+		corrupt bool
+	}{
+		{"a corrupt stored curriculum", contract.IntelligenceView{App: "shop", CurriculumCorrupt: true}, true},
+		{"no curriculum yet", contract.IntelligenceView{App: "shop"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newIntelligenceModel(api.New("http://x", ""), "shop")
+			m, _ = m.Update(intelligenceLoadedMsg{view: tc.view})
+			got := strings.ToLower(visibleText(m.View()))
+			if strings.Contains(got, "corrupt") != tc.corrupt {
+				t.Fatalf("corrupt shown = %v, want %v:\n%s", !tc.corrupt, tc.corrupt, got)
+			}
+		})
+	}
+}
