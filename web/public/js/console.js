@@ -520,8 +520,13 @@ runExtras: null,
     return QChip('bot', 'specs by', wf.producer + (msToVerdict ? ' · ' + msToVerdict : ''), wf.producer === 'sidekick' ? 'var(--pass-600)' : 'var(--text-muted)') +
       QChip('rotate-cw', 'delegations', String(wf.delegations) + (wf.failures ? ' · ' + wf.failures + ' failed' : ''), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
   }
-  function WorkforceBadge() {
-    return '<span class="wtag">sk</span>';
+  /* Compact fleet-list badge, same "who actually produced this run" rule as WorkforceChips:
+     only the sidekick outcome earns the tag — a lead run (including a rejected delegation
+     that fell back to lead) stays silent.
+   */
+  function WorkforceBadge(run) {
+    const wf = run && run.workforce;
+    return (wf && wf.producer === 'sidekick') ? '<span class="wtag">sk</span>' : '';
   }
   function backBtn(action, label, extra) {
     return '<button data-action="' + action + '" style="display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;cursor:pointer;padding:0;align-self:flex-start;font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">' + I('arrow-left', 14) + ' ' + esc(label) + (extra || '') + '</button>';
