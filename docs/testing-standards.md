@@ -103,8 +103,12 @@ the two presets with slow tests, fix-loop's two failing-file-filter timeouts and
 write-confinement's 17 are killed within seconds when the preset's tests run directly (they timed out
 only under load), 4 of write-confinement's are loops, and one — the `" -> "` literal of the rename
 arrow check → `""` — survives when run directly: it is one of write-confinement's documented
-equivalents, so that preset really has 21 survivors. Runs used 4 workers (`--concurrency=4`),
-write-confinement its preset cap of 2.
+equivalents, so that preset really has 20 survivors. Runs used 4 workers (`--concurrency=4`),
+write-confinement its preset cap of 2. The coordination and merge-guard rows are full re-runs after
+later changes. The write-confinement row is derived, not re-run: the `^` anchor of `isCodeDenied`'s
+leading-`./` strip was listed as an equivalent survivor, but a `./` past the start of a path is part
+of a directory name (`e2e/.env./secrets` loses its `.env.` segment without the anchor); a test now
+kills it, checked by applying the mutant by hand, which moves one survivor to killed.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -112,10 +116,10 @@ write-confinement its preset cap of 2.
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 186 / 4 / 10 — 95% (93%) | — |
 | coordination | acceptance-report, pushback, orchestration-router, delegation-failure-class | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 268 / 2 / 6 — 97.83% (97.1%) | — |
+| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 299 / 2 / 5 — 98.37% (97.71%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
-| write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 146 / 17 / 20 — 89.07% (79.78%) | — |
+| write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 
 ### Documented survivors
@@ -126,8 +130,6 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files
   are also covered by a directory prefix entry; they are listed so narrowing that prefix cannot
   unprotect them.
-- `normalizeRepoPath` — the `^` anchor of `/^(?:\.\/)+/` (Regex): git never reports a `./` group
-  past the start of a path.
 - `assessChange` reasons — the `" | "` and `", "` list separators (StringLiteral ×2): each unreadable
   row and each protected file is still named.
 - `quotedLength` — `i < text.length` → `<=` (EqualityOperator): `text[text.length]` is undefined, so
@@ -179,5 +181,3 @@ logic is left unchanged rather than restructured.
   LogicalOperator, StringLiteral): an unquoted path never contains `"` or `\`, and a quoted old
   path's closing quote is always followed by `" -> "`; `l.length > 3` → `>= 3`: git never emits an
   empty path; the R/C arrow check forced true: an R/C line always carries the arrow.
-- `isCodeDenied` — the `^` anchor of `/^\.\//` (Regex): git paths never contain `./` past the
-  start.
