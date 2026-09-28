@@ -13,7 +13,10 @@ const ALLOWED_ENV_EXACT = new Set([
   "PLAYWRIGHT_BROWSERS_PATH",
 ]);
 
-const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|RUST_|GRADLE_|MAVEN_|PNPM_|YARN_|COREPACK_)/;
+/* Exported so sandbox.ts can scope its own home-rebase rule to exactly this family of
+   package-manager/locale vars (never to PATH or other executable-search vars) — single source of
+   truth for "which prefixes are package-manager config", kept in lockstep with the allowlist. */
+export const ALLOWED_ENV_PREFIX = /^(?:LC_|npm_config_|PIP_|CGO_|CARGO_|RUSTUP_|RUST_|GRADLE_|MAVEN_|PNPM_|YARN_|COREPACK_)/;
 
 export interface ScrubEnvOptions {
   extraExact?: Set<string>;
