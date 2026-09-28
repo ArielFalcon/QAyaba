@@ -9,13 +9,13 @@ container in this repo's own docker-compose stack), via the same
 tool-free turn ("Reply with the single word: ack. Do not use any tools.")
 against the `build` agent, run with no other session active.
 
-**Finding (resolves design R3):** `step-start` and `step-finish` **are**
+**Finding:** `step-start` and `step-finish` **are**
 emitted on the SSE stream as `message.part.updated` events whose
-`properties.part.type` is `"step-start"` / `"step-finish"` (see events at
-index 12 and 16 in the array). This means `stepsUsed` (the distinct count of
-`step-start` parts, per the design's Interfaces block) can be non-null for
+`properties.part.type` is `"step-start"` / `"step-finish"` (events 13 and 17,
+zero-based, in the array). This means `stepsUsed` (the distinct count of
+`step-start` parts) can be non-null for
 OpenCode-backed turns — it is not resolvable from Codex, which never streams
-tool/step events (see D3).
+tool/step events.
 
 The array is otherwise unmodified raw output — no prompt/response content was
 redacted because the fixture only carries the trivial ack exchange, not real

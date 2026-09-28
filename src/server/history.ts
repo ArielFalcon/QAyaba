@@ -46,7 +46,7 @@ export interface AgentTurnRecord {
   tokensCacheWrite: number | null;
   cost: number | null;
   /*
-   * Per-turn efficiency measurements (design D11). Each is null when the runtime or the row
+   * Per-turn efficiency measurements. Each is null when the runtime or the row
    * cannot supply it — never a fabricated zero/false. Omitted on write means null.
    */
   totalCalls?: number | null;
@@ -62,8 +62,8 @@ export interface AgentTurnRecord {
 }
 
 /*
- * The 10 nullable per-turn efficiency columns (design D11): the proposal's 8
- * plus prompt_provided_read_count and call_buckets (a JSON-encoded
+ * The nullable per-turn efficiency columns: call counts, step budget,
+ * redundancy and prompt-provided read counts, and call_buckets (a JSON-encoded
  * Record<CallBucket, number> TEXT blob, like run_outcomes.gate_signals).
  * `exhausted` is a nullable 0/1: NULL means "unknown", never false.
  */
@@ -317,11 +317,11 @@ function ensureDb(): void {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
   }
   /*
-   * agent-efficiency-metrics (design D11): every agent_turns efficiency column
+   * Every agent_turns efficiency column
    * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
    * column list has a single source of truth. All are nullable: they stay NULL
    * for a pre-existing row and for any runtime that cannot supply them (Codex
-   * leaves steps_used/max_steps/exhausted NULL, D3) — never a fabricated value.
+   * leaves steps_used/max_steps/exhausted NULL) — never a fabricated value.
    */
   for (const { name, type } of AGENT_TURN_EFFICIENCY_COLUMNS) {
     if (!columnExists("agent_turns", name)) {

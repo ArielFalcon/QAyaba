@@ -1,5 +1,5 @@
 /*
- * Reproducible agent-efficiency benchmark (design D14). A case names a real
+ * Reproducible agent-efficiency benchmark. A case names a real
  * commit of a real watched app — USER DATA (CLAUDE.md: "App-specificity
  * lives only in config/"), never engine code — so cases load from
  * config/benchmarks/efficiency-cases.json (gitignored), mirroring
@@ -35,7 +35,7 @@ export function defaultEfficiencyResultsDir(): string {
   return join(ROOT, "config", "benchmarks", "efficiency-results");
 }
 
-/** Shaped like the CLI's own run arguments (proposal §Scope). */
+/** Shaped like the CLI's own run arguments. */
 export interface EfficiencyBenchmarkCase {
   readonly name: string;
   readonly app: string;

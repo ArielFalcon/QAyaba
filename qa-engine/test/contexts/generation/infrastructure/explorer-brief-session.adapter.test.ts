@@ -51,7 +51,7 @@ test("explore(): opens an explorer session, sends the built prompt, and parses t
   ]);
 });
 
-test("explore(): tags the session descriptor with the given runId so the explorer's turns persist attributed to the run (design D13/1.9)", async () => {
+test("explore(): tags the session descriptor with the given runId so the explorer's turns persist attributed to the run", async () => {
   const opens: unknown[] = [];
   const session: AgentSession = {
     prompt: async () => ({ output: '{"builtForSha":"deadbeef","objective":"orders","blastRadius":[]}' }),

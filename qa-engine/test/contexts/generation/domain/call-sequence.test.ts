@@ -12,7 +12,7 @@ function call(callId: string, status: CallRecord["status"], bucket: CallRecord["
   return { callId, status, bucket, repeatKey };
 }
 
-test("a call counts once, at its first running/completed sighting (D6)", () => {
+test("a call counts once, at its first running/completed sighting", () => {
   const summary = summarizeCallSequence([
     call("c1", "pending", CALL_BUCKETS.CODE_READ),
     call("c1", "running", CALL_BUCKETS.CODE_READ),
@@ -22,7 +22,7 @@ test("a call counts once, at its first running/completed sighting (D6)", () => {
   assert.equal(summary.totalCalls, 2);
 });
 
-test("a call seen only pending or only error never counts (D6)", () => {
+test("a call seen only pending or only error never counts", () => {
   const summary = summarizeCallSequence([
     call("c1", "pending", CALL_BUCKETS.CODE_READ),
     call("c2", "error", CALL_BUCKETS.CODE_READ),
@@ -64,7 +64,7 @@ test("writeCount/commandCount/subagentCount tally by bucket", () => {
   assert.equal(summary.subagentCount, 1);
 });
 
-test("repeatedCallCount flags the second+ occurrence of the same repeatKey, not the first (D7 exact duplicate)", () => {
+test("repeatedCallCount flags the second+ occurrence of the same repeatKey, not the first", () => {
   const summary = summarizeCallSequence([
     call("c1", "completed", CALL_BUCKETS.CODE_READ, "read:/a.ts"),
     call("c2", "completed", CALL_BUCKETS.CODE_READ, "read:/a.ts"),
@@ -91,7 +91,7 @@ test("a first read of a path is never redundant", () => {
   assert.equal(redundant.size, 0);
 });
 
-test("re-reading the same path with no write in between flags the second read redundant (D7)", () => {
+test("re-reading the same path with no write in between flags the second read redundant", () => {
   const redundant = detectRedundantReads([
     rw("c1", "read", "/a.ts", CALL_BUCKETS.CODE_READ),
     rw("c2", "read", "/a.ts", CALL_BUCKETS.CODE_READ),
@@ -121,7 +121,7 @@ test("a write with no path invalidates every previously-read path", () => {
   assert.equal(redundant.size, 0);
 });
 
-test("only content-read tools (matching the D7 pattern) participate in redundant-read tracking", () => {
+test("only content-read tools (matching the content-read pattern) participate in redundant-read tracking", () => {
   const redundant = detectRedundantReads([
     rw("c1", "grep", "/a.ts", CALL_BUCKETS.CODE_READ),
     rw("c2", "grep", "/a.ts", CALL_BUCKETS.CODE_READ),

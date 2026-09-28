@@ -63,7 +63,7 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
   assert.equal(metrics.stepsUsed, null);
 });
 
-test("buildTurnStepBudget detects exhaustion from the turn's own output text (D10) and passes maxSteps through", () => {
+test("buildTurnStepBudget detects exhaustion from the turn's own output text and passes maxSteps through", () => {
   const exhausted = buildTurnStepBudget(50, "CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.");
   assert.equal(exhausted.maxSteps, 50);
   assert.equal(exhausted.exhausted, true);
@@ -72,7 +72,7 @@ test("buildTurnStepBudget detects exhaustion from the turn's own output text (D1
   assert.equal(notExhausted.exhausted, false);
 });
 
-test("buildTurnStepBudget passes a null maxSteps through unchanged (Codex, D3)", () => {
+test("buildTurnStepBudget passes a null maxSteps through unchanged (Codex has no step limit)", () => {
   const budget = buildTurnStepBudget(null, "any output text");
   assert.equal(budget.maxSteps, null);
   assert.equal(budget.exhausted, false);

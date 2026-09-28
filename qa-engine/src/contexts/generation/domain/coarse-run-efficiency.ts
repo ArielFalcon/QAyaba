@@ -1,5 +1,5 @@
 /*
- * Coarse (post-hoc) run-efficiency classifier (design D9) — a pure function
+ * Coarse (post-hoc) run-efficiency classifier — a pure function
  * over persisted `run_events`, applied identically to historical and new
  * runs. It windows `agent.activity` events on `step.changed`, so the
  * pre-generation grounding sub-step never inflates first-pass counts, and
@@ -22,7 +22,7 @@ type AgentActivityEvent = Extract<RunEventBody, { type: "agent.activity" }>;
 
 /* The coarse side only knows the 4-value ActivityKind, never the raw tool —
    "analyzing" cannot be refined into code_read/browser/memory without it, so
-   it maps to `other`. write/command/subagent map one-to-one (same as D5). */
+   it maps to `other`. write/command/subagent map one-to-one, as in the fine taxonomy. */
 function bucketForActivityKind(kind: AgentActivityEvent["kind"]): CallBucket {
   switch (kind) {
     case "writing": return CALL_BUCKETS.WRITE;
@@ -32,7 +32,7 @@ function bucketForActivityKind(kind: AgentActivityEvent["kind"]): CallBucket {
   }
 }
 
-/* D6: the coarse side only counts agent.activity events that carry a callId;
+/* The coarse side only counts agent.activity events that carry a callId;
    the (kind, target) pair is the best identity proxy available (no raw
    tool/input survives persistence) — this is why repeatedCallCount is a
    PROXY here, never required to reconcile exactly with the fine tracker. */

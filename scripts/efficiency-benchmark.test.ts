@@ -1,4 +1,4 @@
-/* EfficiencyBenchmarkCase format + validation (design D14, tasks 1.10/5.4).
+/* EfficiencyBenchmarkCase format + validation.
    Mirrors coordination-benchmark.ts's own loader test conventions. */
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -10,7 +10,7 @@ import {
   PROVIDED_CONTEXT_MATCH_RATIO,
 } from "@contexts/generation/domain/provided-context.ts";
 
-test("exported thresholds match the design constants (D8)", () => {
+test("exported thresholds match the documented detection thresholds", () => {
   assert.equal(PROVIDED_CONTEXT_SAMPLE_LINES, 24);
   assert.equal(PROVIDED_CONTEXT_MIN_LINE_LENGTH, 12);
   assert.equal(PROVIDED_CONTEXT_MIN_SAMPLE_LINES, 3);

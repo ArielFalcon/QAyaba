@@ -1,5 +1,5 @@
 /*
- * "Already in the prompt" detection (design D8) — content-based, with no
+ * "Already in the prompt" detection — content-based, with no
  * manifest threading (a manifest from the prompt builders is out of scope:
  * this change must not touch them). A read counts as redundant work when
  * most of what it returned was already visible in the turn's own prompt.

@@ -17,7 +17,7 @@ const sseFixture = JSON.parse(
   ),
 ) as Array<{ type: string; properties?: { part?: { type?: string; text?: string } } }>;
 
-test("detects the exact recorded-output marker OpenCode 1.17.7 injects on step exhaustion (D10)", () => {
+test("detects the exact recorded-output marker OpenCode 1.17.7 injects on step exhaustion", () => {
   assert.equal(detectStepExhaustion(maxStepsFixture), true);
 });
 

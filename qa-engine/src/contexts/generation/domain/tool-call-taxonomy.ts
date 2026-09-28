@@ -1,7 +1,7 @@
 /*
  * Pure tool-call taxonomy shared by the fine (in-session SSE) and coarse
  * (post-hoc run_events) classifiers, so counts derived from either path
- * reconcile by construction (design D5).
+ * reconcile by construction.
  *
  * `kindForTool` and its three regexes are ported VERBATIM from
  * `infrastructure/sse/agent-activity.ts` — that module now imports from here
@@ -60,8 +60,8 @@ const CODE_READ_TOOLS =
   /(^|_)(read|grep|glob|activate_project|find_referencing_symbols|find_symbol|get_symbols_overview|read_file|search_for_pattern|find_file|list_dir)$/i;
 
 /**
- * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`
- * (D5); `writing`, `command` and `subagent` map one-to-one onto `write`,
+ * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`;
+ * `writing`, `command` and `subagent` map one-to-one onto `write`,
  * `validate_run` and `subagent` so those three counts always reconcile with
  * `kindForTool`'s coarse classification.
  */

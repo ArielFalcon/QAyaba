@@ -1,7 +1,7 @@
 /*
- * Per-turn efficiency summary types and their assembly (design Interfaces
- * block). `CALL_BUCKETS` is re-exported here for convenience — its single
- * source of truth is `tool-call-taxonomy.ts` (D5).
+ * Per-turn efficiency summary types and their assembly.
+ * `CALL_BUCKETS` is re-exported here for convenience — its single
+ * source of truth is `tool-call-taxonomy.ts`.
  */
 
 import { CALL_BUCKETS, type CallBucket } from "./tool-call-taxonomy.ts";
@@ -70,8 +70,8 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
 }
 
 /** Resolves a turn's step budget: `maxSteps` is passed through as given
- *  (null for Codex, D3), `exhausted` is detected from the turn's own output
- *  text via the shared D10 marker. */
+ *  (null for Codex), `exhausted` is detected from the turn's own output
+ *  text via the shared step-limit marker. */
 export function buildTurnStepBudget(maxSteps: number | null, outputText: string): TurnStepBudget {
   return { maxSteps, exhausted: detectStepExhaustion(outputText) };
 }

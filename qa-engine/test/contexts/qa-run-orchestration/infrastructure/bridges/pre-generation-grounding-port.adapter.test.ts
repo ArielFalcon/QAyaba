@@ -750,7 +750,7 @@ test("ground(): exploreBrief receives sha and intent from the optional opts bag"
   }
 });
 
-test("ground(): forwards runId from opts to exploreBrief, so the explorer's turns can be tagged with it (design 1.9)", async () => {
+test("ground(): forwards runId from opts to exploreBrief, so the explorer's turns can be tagged with it", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-runid-"));
   try {
     let seenRunId: string | undefined;

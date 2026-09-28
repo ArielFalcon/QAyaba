@@ -38,7 +38,7 @@ export interface PreGenerationGroundingCollaborators {
     signal?: AbortSignal;
     sha: string;
     intent?: CommitIntent;
-    /** Threaded from ground()'s own opts.runId (design D13/1.9) — absent when the caller has none. */
+    /** Threaded from ground()'s own opts.runId — absent when the caller has none. */
     runId?: string;
   }) => Promise<ExplorationBrief | undefined>;
 }

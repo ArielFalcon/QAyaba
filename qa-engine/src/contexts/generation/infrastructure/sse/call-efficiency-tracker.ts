@@ -1,5 +1,5 @@
 /*
- * Fine in-session call-efficiency tracker (design D1/D6/D7/D8/D12). Fed the raw
+ * Fine in-session call-efficiency tracker. Fed the raw
  * OpenCode SSE `message.part.updated` events by event-stream.ts, it sees the raw
  * tool name and raw input path (never `targetFor()`'s display string) and, when
  * a turn's prompt resolves, `take()` returns that turn's `TurnCallMetrics` — the
@@ -46,7 +46,7 @@ interface TrackedCall {
 interface SessionState {
   cwd: string;
   poisoned: boolean;
-  /** Distinct callIds in the order they were first seen running or completed (D6). */
+  /** Distinct callIds in the order they were first seen running or completed. */
   order: string[];
   calls: Map<string, TrackedCall>;
   stepStarts: Set<string>;
@@ -145,7 +145,7 @@ export class CallEfficiencyTracker {
 
     let call = session.calls.get(part.callID);
     if (!call) {
-      /* D6: a call counts from its first running/completed sighting; an error with no prior
+      /* A call counts from its first running/completed sighting; an error with no prior
          running sighting never entered the sequence. */
       if (status === "error") return;
       call = { callId: part.callID, tool: part.tool, bucket: bucketForTool(part.tool), repeatKey: "" };

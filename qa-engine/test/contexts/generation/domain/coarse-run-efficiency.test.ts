@@ -16,7 +16,7 @@ function activity(
   return { type: "agent.activity", kind, target: "t", status, ...(callId ? { callId } : {}) };
 }
 
-test("splits grounding from first-pass activity using the PRE_GENERATION_GROUNDING_STEP_DETAIL window (D9)", () => {
+test("splits grounding from first-pass activity using the PRE_GENERATION_GROUNDING_STEP_DETAIL window", () => {
   const events: RunEventBody[] = [
     stepChanged("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL),
     activity("c1", "analyzing"),
@@ -59,7 +59,7 @@ test("a retry regeneration pass counts toward wholeRunExcludingGrounding but not
   assert.equal(result.wholeRunExcludingGrounding.totalCalls, 2);
 });
 
-test("agent.activity events with no callId are excluded from every window (D6)", () => {
+test("agent.activity events with no callId are excluded from every window", () => {
   const events: RunEventBody[] = [
     stepChanged("generate"),
     activity(undefined, "analyzing"),

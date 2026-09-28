@@ -1,5 +1,5 @@
 /*
- * Pure call-sequence analysis (design D6/D7), reused identically by the fine
+ * Pure call-sequence analysis, reused identically by the fine
  * in-session tracker and the coarse post-hoc classifier so the metrics they
  * share reconcile by construction. Bucket classification itself lives in
  * `tool-call-taxonomy.ts` — this module only reasons about ORDER, identity
@@ -15,7 +15,7 @@ export interface CallRecord {
   status: CallStatus;
   bucket: CallBucket;
   /**
-   * Identity used for exact-duplicate detection (D7 sentence 1: "the same
+   * Identity used for exact-duplicate detection ("the same
    * tool with the same stable-stringified input"). The fine tracker passes
    * `tool + stable-stringified input`; the coarse classifier passes a
    * `(kind, target)` proxy, since the raw tool/path are not persisted —
@@ -34,7 +34,7 @@ export interface CallSequenceSummary {
   repeatedCallCount: number;
 }
 
-/** A call counts once, at its FIRST sighting in `running` or `completed` (D6) — a
+/** A call counts once, at its FIRST sighting in `running` or `completed` — a
  *  callId seen only `pending` and/or `error` never counts. Order follows that
  *  first-valid-sighting position in the input array. */
 function firstSeenInOrder<T extends { callId: string; status: CallStatus }>(
@@ -99,7 +99,7 @@ export interface ReadWriteEvent {
   path?: string;
 }
 
-/* D7's exact pattern for a "content-read tool": read, or *_read, or read_file / *_read_file. */
+/* A "content-read tool": read, or *_read, or read_file / *_read_file. */
 const CONTENT_READ_TOOL = /(^|_)read(_file)?$/i;
 
 export function isContentReadTool(tool: string): boolean {
@@ -107,11 +107,11 @@ export function isContentReadTool(tool: string): boolean {
 }
 
 /**
- * Flags redundant reads (D7 sentences 2-3, fine-tracker only — the coarse
+ * Flags redundant reads (fine tracker only — the coarse
  * classifier has no raw paths to run this against). A content-read tool
  * re-reading a path already read, with no write to that path in between, is
  * redundant. A write to a specific path clears redundancy for that path only
- * (the spec's "a write clears redundancy" scenario); a write with NO path
+ * (a write clears redundancy); a write with NO path
  * invalidates every previously-read path.
  */
 export function detectRedundantReads(events: readonly ReadWriteEvent[]): ReadonlySet<string> {

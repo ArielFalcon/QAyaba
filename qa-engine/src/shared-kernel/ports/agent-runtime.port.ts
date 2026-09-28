@@ -10,12 +10,10 @@ export interface AgentOpenDescriptor {
   role?: string;
   objective?: string;
   /**
-   * `false` marks a session whose turns should still persist (tagged with
-   * `runId`) but whose SSE stream must NOT be registered — e.g. the explorer
-   * (design D13/R1): registering it would feed the 180s stall watchdog and
-   * change its liveness window, a behavior change out of scope for this
-   * measure-only change. Omitted/`true` means "register as usual" (today's
-   * behavior for every other role).
+   * `false` marks a session whose turns still persist (tagged with `runId`) but
+   * whose SSE stream must NOT be registered — the explorer's case: registering
+   * it would feed the 180s stall watchdog and change its liveness window.
+   * Omitted or `true` means "register as usual", as for every other role.
    */
   liveObservation?: boolean;
 }

@@ -1,6 +1,6 @@
 /*
- * Step-budget exhaustion detection (design D10), shared by the fine
- * in-session tracker (task 2.6/2.7, on the SANITIZED live output) and the
+ * Step-budget exhaustion detection, shared by the fine
+ * in-session tracker (on the SANITIZED live output) and the
  * coarse post-hoc classifier (reading persisted `agent_turns.output_text`).
  *
  * The pattern is pinned against OpenCode 1.17.7's own literal step-limit
