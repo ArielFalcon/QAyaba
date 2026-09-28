@@ -13,7 +13,8 @@
  * cap is crossed — a long-lived process's ledger file (and therefore the cost of reloading it on
  * the NEXT boot) never grows unbounded, without paying a full rewrite on every record.
  */
-import { appendFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import {
   CoordinationTelemetryRecorder,
@@ -35,6 +36,7 @@ export interface CoordinationTelemetryFsDeps {
   readonly readFileSync: typeof readFileSync;
   readonly writeFileSync: typeof writeFileSync;
   readonly renameSync: typeof renameSync;
+  readonly mkdirSync: typeof mkdirSync;
 }
 
 export const defaultCoordinationTelemetryFsDeps: CoordinationTelemetryFsDeps = {
@@ -42,6 +44,7 @@ export const defaultCoordinationTelemetryFsDeps: CoordinationTelemetryFsDeps = {
   readFileSync,
   writeFileSync,
   renameSync,
+  mkdirSync,
 };
 
 export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPort {
@@ -49,6 +52,7 @@ export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPo
   private readonly persistPath: string | undefined;
   private readonly fs: CoordinationTelemetryFsDeps;
   private warnedPersistFailure = false;
+  private sinkDirReady = false;
 
   /*
    * persistPath: optional durable sink (JSONL, one event per line). Without it the store is
@@ -94,6 +98,11 @@ export class FileCoordinationTelemetryAdapter implements CoordinationTelemetryPo
 
   private persist(event: CoordinationTelemetryEvent): void {
     try {
+      /* The sink owns its directory: nothing else is guaranteed to have created it. */
+      if (!this.sinkDirReady) {
+        this.fs.mkdirSync(dirname(this.persistPath!), { recursive: true });
+        this.sinkDirReady = true;
+      }
       this.fs.appendFileSync(this.persistPath!, `${JSON.stringify(event)}\n`, { encoding: "utf8" });
       this.warnedPersistFailure = false;
       this.rotateIfOverCap();

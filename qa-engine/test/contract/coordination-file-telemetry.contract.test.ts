@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -45,6 +45,18 @@ test("with persistPath, events append to the JSONL file AND reload on a fresh in
   second.record(event({ kind: "escalation", reason: "escalate-sidekick" }));
   const linesAfter = readFileSync(path, "utf8").trim().split("\n");
   assert.equal(linesAfter.length, 3);
+});
+
+test("a ledger whose directory does not exist yet is created on the first record", () => {
+  const root = mkdtempSync(join(tmpdir(), "coord-tel-nodir-"));
+  try {
+    const path = join(root, "data", "coordination-events.jsonl");
+    new FileCoordinationTelemetryAdapter(path).record(event({}));
+
+    assert.equal(new FileCoordinationTelemetryAdapter(path).events.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("absent persistPath keeps the memory-only contract (no file writes)", () => {
@@ -91,6 +103,7 @@ test("after crossing the cap, the next records within the slack window do not re
       return writeFileSync(...args);
     }) as typeof writeFileSync,
     renameSync: ((...args: Parameters<typeof renameSync>) => renameSync(...args)) as typeof renameSync,
+    mkdirSync,
   };
   const adapter = new FileCoordinationTelemetryAdapter(path, countingFs);
   for (let i = 0; i < MAX_LEDGER_EVENTS; i++) adapter.record(event({ runId: `r${i}`, at: i }));
