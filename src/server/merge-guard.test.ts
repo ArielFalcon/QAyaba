@@ -201,6 +201,17 @@ test("isProtectedPath flags the module that decides where the token, auth materi
   assert.equal(isProtectedPath("src/paths.ts"), true);
 });
 
+/* An exact entry names one file. A different file whose path merely starts with it (a .tsx sibling,
+   a backup copy) is not that file and stays autonomously editable; only directory entries match by
+   prefix. */
+test("an exact protected entry protects that file only, never a longer path that starts with it", () => {
+  for (const exact of ["src/paths.ts", "src/server/auth.ts", "Dockerfile", "package.json"]) {
+    assert.equal(isProtectedPath(exact), true, exact);
+    assert.equal(isProtectedPath(`${exact}x`), false, `${exact}x`);
+    assert.equal(isProtectedPath(`${exact}.orig`), false, `${exact}.orig`);
+  }
+});
+
 test("isProtectedPath flags the test infrastructure an autonomous fix could weaken to pass its own checks", () => {
   const testInfrastructure = [
     "test-setup.mjs",
@@ -510,6 +521,19 @@ test("assessRate blocks a burst (window) and back-to-back deploys (cooldown)", (
   const r = assessRate(recent, now);
   assert.equal(r.ok, false);
   assert.ok(r.reasons.some((x) => x.includes("cooldown")));
+});
+
+/* The reasons are what an operator reads when an autonomous deploy is refused: they must carry the
+   window, the time since the last deploy and the cooldown in the units they name. */
+test("assessRate's reasons name the window in minutes and the elapsed time and cooldown in seconds", () => {
+  const now = 1_000_000_000_000;
+  const limits = { maxInWindow: 2, windowMs: 90 * 60_000, cooldownMs: 240_000 };
+  const r = assessRate([now - 30_000, now - 600_000], now, limits);
+  const window = r.reasons.find((x) => /min\b/.test(x)) ?? "";
+  const cooldown = r.reasons.find((x) => x.includes("cooldown")) ?? "";
+  assert.match(window, /\b90\s*min\b/);
+  assert.match(cooldown, /\b30\s*s\b/);
+  assert.match(cooldown, /\b240\s*s\b/);
 });
 
 test("assessRate allows a deploy after the cooldown with few recent deploys", () => {

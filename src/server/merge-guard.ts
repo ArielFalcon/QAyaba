@@ -138,12 +138,11 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-kernel/ports/redaction.port.ts",
   /*
    * Model-prompt sanitizer twin (diff/commit-body/reviewer-text → model). Must stay in lockstep
-   * with src/orchestrator/sanitizer.ts so prompt assembly never imports src/.
+   * with src/orchestrator/sanitizer.ts so prompt assembly never imports src/. Also covered by the
+   * generation/infrastructure/ prefix below; listed so narrowing that prefix cannot unprotect it.
    */
-  // Stryker disable next-line StringLiteral: equivalent while the generation/infrastructure/ prefix entry stands; listed so narrowing that prefix cannot unprotect it
   "qa-engine/src/contexts/generation/infrastructure/sanitize-text.ts",
-
-  // Stryker disable next-line StringLiteral: equivalent while the bridges/ prefix entry stands; listed so narrowing that prefix cannot unprotect it
+  /* Also covered by the bridges/ prefix below; listed so narrowing that prefix cannot unprotect it. */
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/publication-port.adapter.ts",
 
   "src/server/auth.ts",
@@ -225,7 +224,6 @@ export const PROTECTED_PATHS: string[] = [
  */
 function normalizeRepoPath(file: string): string {
   const slashed = file.replace(/\\/g, "/").replace(/\/{2,}/g, "/");
-  // Stryker disable next-line Regex: equivalent for real paths — git never reports a "./" group past the start of a path
   return slashed.replace(/^(?:\.\/)+/, "");
 }
 
@@ -233,7 +231,6 @@ export function isProtectedPath(file: string): boolean {
   const f = normalizeRepoPath(file);
   return PROTECTED_PATHS.some((p) => {
     if (p.startsWith("*")) return f.endsWith(p.slice(1)); 
-    // Stryker disable next-line ConditionalExpression,StringLiteral: stricter only — a prefix match on an exact entry can only protect more paths
     if (p.endsWith("/")) return f.startsWith(p);  /* directory prefix */
     return f === p;  /* exact repo-relative path */
   });
@@ -298,12 +295,10 @@ export function assessChange(stat: ChangeStat, limits: ChangeLimits = DEFAULT_CH
   if (stat.files.length === 0) reasons.push("the fix changed no files");
   const unparsed = stat.unparsed ?? [];
   if (unparsed.length > 0) {
-    // Stryker disable next-line StringLiteral: message detail only — the separator between the named rows
     reasons.push(`the diff summary holds rows the guard cannot read (human review required): ${unparsed.join(" | ")}`);
   }
   const protectedTouched = stat.files.filter(isProtectedPath);
   if (protectedTouched.length > 0) {
-    // Stryker disable next-line StringLiteral: message detail only — the separator between the named files
     reasons.push(`touches protected recovery/build files (human review required): ${protectedTouched.join(", ")}`);
   }
   if (stat.files.length > limits.maxFiles) {
@@ -324,7 +319,6 @@ const gitPaths = new WriteConfinementService();
 
 /* Length of the C-quoted path `text` opens with, through its closing quote; -1 when it never closes. */
 function quotedLength(text: string): number {
-  // Stryker disable next-line EqualityOperator: equivalent — text[text.length] is undefined, so the extra pass only ends the loop
   for (let i = 1; i < text.length; i++) {
     if (text[i] === "\\") i++;
     else if (text[i] === '"') return i + 1;
@@ -436,12 +430,10 @@ export function assessRate(history: number[], now: number, limits: RateLimits = 
   const reasons: string[] = [];
   const recent = history.filter((t) => now - t >= 0 && now - t < limits.windowMs);
   if (recent.length >= limits.maxInWindow) {
-    // Stryker disable next-line ArithmeticOperator: message detail only — the window length shown in minutes
     reasons.push(`${recent.length} autonomous deploy(s) in the last ${Math.round(limits.windowMs / 60000)}min (limit ${limits.maxInWindow}) — possible self-modification loop`);
   }
   const last = history.length ? Math.max(...history) : Number.NEGATIVE_INFINITY;
   if (now - last < limits.cooldownMs) {
-    // Stryker disable next-line ArithmeticOperator: message detail only — the seconds shown
     reasons.push(`last autonomous deploy was ${Math.round((now - last) / 1000)}s ago (cooldown ${Math.round(limits.cooldownMs / 1000)}s)`);
   }
   return { ok: reasons.length === 0, reasons };
