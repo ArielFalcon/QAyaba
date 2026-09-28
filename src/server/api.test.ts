@@ -1070,12 +1070,27 @@ test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
    produced by ANOTHER process whose publishes never reach this server's in-process bus. ──
  */
 
-async function waitUntil(cond: () => boolean, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("condition not met within " + timeoutMs + "ms");
-    await new Promise((r) => setTimeout(r, 4));
-  }
+/* Resolves once the response is ended — awaited, never raced against a wall-clock window. */
+function endOf(res: { end: (b?: string) => void; writableEnded?: boolean }): Promise<void> {
+  return new Promise((resolve) => {
+    const end = res.end.bind(res);
+    res.end = (b?: string) => {
+      res.writableEnded = true;
+      end(b);
+      resolve();
+    };
+  });
+}
+
+/* Resolves once the response has written text containing `text`. */
+function writeOf(res: { write: (chunk: string) => void; writes: string[] }, text: string): Promise<void> {
+  return new Promise((resolve) => {
+    const write = res.write.bind(res);
+    res.write = (chunk: string) => {
+      write(chunk);
+      if (res.writes.join("").includes(text)) resolve();
+    };
+  });
 }
 
 /* A store whose live subscription NEVER fires — models a run executing in a different
@@ -1089,34 +1104,37 @@ function outOfProcessStore(persisted: RunEvent[]): RunEventStore {
   };
 }
 
-test("the SSE stream ends when the run goes terminal even without a run.verdict event (out-of-process)", async () => {
+/* The poll timer keeps the process alive, so a stream that never ends would hang the suite: the
+   test timeout only bounds that hang, the assertions await the event itself. */
+const SSE_HANG_GUARD = { timeout: 30_000 };
+
+test("the SSE stream ends when the run goes terminal even without a run.verdict event (out-of-process)", SSE_HANG_GUARD, async () => {
   let status: "running" | "done" = "running";
   const record = (): RunRecord => ({ id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status, cases: [], logs: [], at: "t" });
   const req = mkReq("GET", "/api/v1/runs/r1/events");
   const res = mkRes();
-  let ended = false;
-  const origEnd = res.end.bind(res);
-  res.end = (b?: string) => { ended = true; res.writableEnded = true; origEnd(b); };
+  const ended = endOf(res);
 
   await handleApi(req, res, deps({ getRecord: () => record(), runEvents: outOfProcessStore([]), ssePollMs: 5 }));
-  assert.equal(ended, false); /* still running → the stream stays open */
+  assert.notEqual(res.writableEnded, true); /* still running → the stream stays open */
 
   status = "done"; /* the run is finalized by the other process in the shared record store */
-  await waitUntil(() => ended, 400);
-  assert.equal(ended, true);
+  await ended;
+  assert.equal(res.writableEnded, true);
 });
 
-test("the SSE poll flushes events persisted by another process (the in-process bus never fired)", async () => {
+test("the SSE poll flushes events persisted by another process (the in-process bus never fired)", SSE_HANG_GUARD, async () => {
   const persisted: RunEvent[] = [];
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const req = mkReq("GET", "/api/v1/runs/r1/events");
   const res = mkRes();
+  const flushed = writeOf(res, "step.changed");
 
   await handleApi(req, res, deps({ getRecord: () => record, runEvents: outOfProcessStore(persisted), ssePollMs: 5 }));
 
   /* Another process persists an event AFTER we connected; only the durable poll can surface it. */
   persisted.push({ seq: 0, runId: "r1", ts: 1, body: { type: "step.changed", step: "execute" } } as RunEvent);
-  await waitUntil(() => res.writes.join("").includes("step.changed"), 400);
+  await flushed;
   assert.match(res.writes.join(""), /event: step.changed/);
   req.emit("close");
 });
