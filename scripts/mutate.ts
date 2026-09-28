@@ -212,8 +212,11 @@ export function sourcePathOf(entry: string): string {
   return entry.replace(/:\d+(-\d+)?$/, "");
 }
 
+/* The preset's tests, run in their own process group (scripts/run-in-group.mjs) so a timed-out run's
+   test-file processes die with it instead of spinning on an infinite-loop mutant. */
 export function testCommandFor(preset: MutationPreset): string {
-  return `node --import ./test-setup.mjs --import tsx --test ${preset.tests.map((t) => JSON.stringify(t)).join(" ")}`;
+  const tests = preset.tests.map((t) => JSON.stringify(t)).join(" ");
+  return `node scripts/run-in-group.mjs node --import ./test-setup.mjs --import tsx --test ${tests}`;
 }
 
 /* The checker type-checks the mutated files (and what they import) with the options of the project

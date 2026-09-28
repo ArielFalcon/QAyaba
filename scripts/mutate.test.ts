@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +50,81 @@ test("a mutant run executes only the preset's own test files, under the tracked-
   const command = testCommandFor(preset);
   assert.match(command, /--import \.\/test-setup\.mjs/);
   assert.match(command, /--test "src\/a\.test\.ts" "src\/b\.test\.ts"$/);
+});
+
+/* Whether a process still exists. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/* Polls a process-boundary condition; the deadline only ends a failing wait so the test can clean up. */
+async function until(condition: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`still waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/* Stryker reads a mutant as killed exactly when the test command exits non-zero. */
+test("the test command exits as the preset's tests do: non-zero when one fails, zero when all pass", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-mutate-status-"));
+  try {
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const statusOf = (body: string): number | null => {
+      const file = join(dir, `${Math.random().toString(36).slice(2)}.test.mjs`);
+      writeFileSync(file, `import { test } from "node:test";\nimport assert from "node:assert/strict";\ntest("t", () => { ${body} });\n`);
+      return spawnSync("/bin/sh", ["-c", testCommandFor({ ...plain, tests: [file] })], { cwd: ROOT, env, stdio: "ignore" }).status;
+    };
+    assert.notEqual(statusOf("assert.equal(1, 2);"), 0);
+    assert.equal(statusOf("assert.equal(1, 1);"), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* Stryker runs the test command through a shell and, on a timeout, kills what it can see of it with
+   SIGKILL. A test file spinning on an infinite-loop mutant — and anything it started — must die with
+   it, or it keeps a CPU busy for the rest of the run and beyond. */
+test("every process a timed-out test command started dies once the command is killed", { timeout: 60_000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-mutate-orphans-"));
+  const pidFile = join(dir, "pids");
+  const spinning = join(dir, "spinning.test.mjs");
+  writeFileSync(
+    spinning,
+    `import { spawn } from "node:child_process";\n` +
+      `import { writeFileSync } from "node:fs";\n` +
+      `const child = spawn(process.execPath, ["-e", "for (;;) {}"], { stdio: "ignore" });\n` +
+      `writeFileSync(${JSON.stringify(pidFile)}, \`\${process.pid} \${child.pid}\`);\n` +
+      `for (;;) {}\n`,
+  );
+  let pids: number[] = [];
+  try {
+    /* Run as Stryker runs it, not as a child of this test run (which node --test marks in the env). */
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const runner = spawn("/bin/sh", ["-c", testCommandFor({ ...plain, tests: [spinning] })], { cwd: ROOT, env, stdio: "ignore" });
+    await until(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").includes(" "), "the test file to start");
+    pids = readFileSync(pidFile, "utf8").split(" ").map(Number);
+    process.kill(runner.pid!, "SIGKILL");
+
+    await until(() => pids.every((pid) => !alive(pid)), "the test file and what it started to die");
+  } finally {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a run re-tests every mutant unless incremental mode is asked for (the command runner cannot see test-file changes)", () => {
