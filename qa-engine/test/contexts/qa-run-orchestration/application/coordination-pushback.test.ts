@@ -50,6 +50,9 @@ const reasonsOf = (b: DelegationBrief, r: DelegationResult) => validateDelegatio
 
 test("a result for another delegation is a foreign brief and is blocked", () => {
   assert.deepEqual(reasonsOf(brief(), result({ runId: "other-run" })), ["foreign-brief"]);
+  const [finding] = validateDelegationAuthority(brief(), result({ delegationId: "d9", runId: "other-run" }));
+  assert.match(finding!.detail, /d9/, "the finding names the delegation the result answered");
+  assert.match(finding!.detail, /other-run/, "the finding names the run the result answered");
   const pushed = applyPushback(brief(), result({ delegationId: "d2" }));
   assert.equal(pushed.status, "blocked");
   assert.equal(pushed.recommendation, "escalate");
@@ -58,6 +61,7 @@ test("a result for another delegation is a foreign brief and is blocked", () => 
 test("a brief whose authority was widened is an authority violation and is blocked", () => {
   const widened = { ...brief(), authority: { ...brief().authority, canExpandScope: true } } as unknown as DelegationBrief;
   assert.deepEqual(reasonsOf(widened, result()), ["authority-violation"]);
+  assert.match(validateDelegationAuthority(widened, result())[0]!.detail, /canExpandScope/, "the finding names the widened flag");
   assert.equal(applyPushback(widened, result()).status, "blocked");
 });
 
@@ -124,6 +128,11 @@ test("one fatal finding among non-fatal ones still blocks the delegation", () =>
 test("a needs-lead result asking an architecture question reports it and stays needs-lead", () => {
   const needsLead = result({ status: "needs-lead", unresolvedQuestions: ["Which retry policy applies?", "Is this an architecture change?"] });
   assert.deepEqual(reasonsOf(brief(), needsLead), ["architecture-decision-required"]);
+  const [architecture] = validateDelegationAuthority(brief(), needsLead);
+  assert.match(architecture!.detail, /architecture change/, "the finding names the question that needs a decision");
+  assert.doesNotMatch(architecture!.detail, /retry policy/, "and only that question");
+  const twoQuestions = result({ status: "needs-lead", unresolvedQuestions: ["Which architecture layer owns retries?", "Should the architecture split the module?"] });
+  assert.deepEqual(reasonsOf(brief(), twoQuestions), ["architecture-decision-required", "architecture-decision-required"], "one finding per question");
   assert.equal(applyPushback(brief(), needsLead).status, "needs-lead");
   assert.deepEqual(reasonsOf(brief(), result({ status: "needs-lead", unresolvedQuestions: ["Which retry policy applies?"] })), []);
   assert.deepEqual(reasonsOf(brief(), result({ status: "completed", unresolvedQuestions: ["Is this an architecture change?"] })), []);

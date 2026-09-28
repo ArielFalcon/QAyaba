@@ -30,7 +30,8 @@ export interface AcceptanceReport {
 }
 
 function toEntry(item: unknown, criteriaCount: number): AcceptanceReportEntry | undefined {
-  if (!item || typeof item !== "object") return undefined;
+  /* A primitive destructures to undefined fields and fails the checks below; only null/undefined cannot. */
+  if (!item) return undefined;
   const { criterion, status, note } = item as Record<string, unknown>;
   if (typeof criterion !== "number" || !Number.isInteger(criterion) || criterion < 1 || criterion > criteriaCount) {
     return undefined;

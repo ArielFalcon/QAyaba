@@ -31,8 +31,7 @@ export function validateDelegationAuthority(
 ): PushbackFinding[] {
   const findings: PushbackFinding[] = [];
   if (!belongsToBrief(result, brief.delegationId, brief.runId)) {
-    // Stryker disable next-line StringLiteral: message detail only
-    findings.push({ reason: "foreign-brief", detail: "delegationId/runId mismatch" });
+    findings.push({ reason: "foreign-brief", detail: `${result.delegationId}/${result.runId}` });
   }
   for (const file of result.filesChanged) {
     if (!isPathWithinWritableRoots(file.path, brief.scope.writablePaths)) {
@@ -41,8 +40,7 @@ export function validateDelegationAuthority(
   }
   /* Sidekick cannot claim expanded authority via result metadata — authority is frozen on the brief. */
   if (brief.authority.canExpandScope !== SIDEKICK_AUTHORITY.canExpandScope) {
-    // Stryker disable next-line StringLiteral: message detail only
-    findings.push({ reason: "authority-violation", detail: "brief authority was mutated" });
+    findings.push({ reason: "authority-violation", detail: `canExpandScope=${brief.authority.canExpandScope}` });
   }
   if (result.status === "completed" || result.status === "completed-with-concerns") {
     for (const step of brief.validationPlan) {
@@ -65,9 +63,10 @@ export function validateDelegationAuthority(
   if (result.acceptanceReportDefect) {
     findings.push({ reason: result.acceptanceReportDefect.reason, detail: result.acceptanceReportDefect.detail });
   }
-  if (result.status === "needs-lead" && result.unresolvedQuestions.some((q) => /architect/i.test(q))) {
-    // Stryker disable next-line StringLiteral: message detail only — the separator between the questions
-    findings.push({ reason: "architecture-decision-required", detail: result.unresolvedQuestions.join("; ") });
+  if (result.status === "needs-lead") {
+    for (const question of result.unresolvedQuestions) {
+      if (/architect/i.test(question)) findings.push({ reason: "architecture-decision-required", detail: question });
+    }
   }
   if (result.status === "blocked" && /dependenc/i.test(result.summary)) {
     findings.push({ reason: "dependency-unavailable", detail: result.summary });
@@ -87,7 +86,6 @@ export function applyPushback(brief: DelegationBrief, result: DelegationResult):
     f.reason === "authority-violation" ||
     f.reason === "acceptance-contradiction",
   );
-  // Stryker disable next-line StringLiteral: message detail only — the separator between the reasons
   const reasonList = findings.map((f) => f.reason).join(",");
   return {
     ...result,

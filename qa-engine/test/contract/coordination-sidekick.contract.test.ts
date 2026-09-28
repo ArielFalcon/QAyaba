@@ -424,9 +424,22 @@ test("a result without an acceptance report is a recorded contract defect, never
   assert.ok(result.concerns.includes("fails acceptance criterion 1"), "the sidekick's own concerns stay as notes");
 });
 
-test("an empty acceptance report for a brief with criteria is a missing report", async () => {
+test("an empty acceptance report for a brief with criteria is a missing report that names how many criteria went unreported", async () => {
   const result = await executeWith({ acceptance: [] });
   assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-missing");
+  assert.match(result.acceptanceReportDefect?.detail ?? "", /\b2\b/);
+});
+
+test("an invalid report's defect names every unreported criterion and how many entries were malformed", async () => {
+  const result = await executeWith(
+    { acceptance: [{ criterion: 1, status: "met" }, { criterion: 1, status: "done" }] },
+    ["first", "second", "third"],
+  );
+  const detail = result.acceptanceReportDefect?.detail ?? "";
+  assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid");
+  assert.match(detail, /\b2\b/, "criterion 2 unreported");
+  assert.match(detail, /\b3\b/, "criterion 3 unreported");
+  assert.match(detail, /\b1\b/, "one malformed entry");
 });
 
 test("a report entry with an unknown criterion number or status is a defect and is not kept", async () => {
