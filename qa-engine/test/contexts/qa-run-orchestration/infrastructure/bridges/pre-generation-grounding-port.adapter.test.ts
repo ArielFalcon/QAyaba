@@ -30,6 +30,28 @@ test("enumerateExistingSpecFiles: finds *.spec.ts files recursively, relative to
   }
 });
 
+test("enumerateExistingSpecFiles: installed packages and dot-directories are not the suite's specs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-skip-"));
+  try {
+    mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+    mkdirSync(join(dir, "flows", "node_modules", "nested"), { recursive: true });
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    mkdirSync(join(dir, ".auth"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", "pkg", "vendored.spec.ts"), "// vendored");
+    writeFileSync(join(dir, "flows", "node_modules", "nested", "deep.spec.ts"), "// vendored");
+    writeFileSync(join(dir, ".qa", "hidden.spec.ts"), "// hidden");
+    writeFileSync(join(dir, ".auth", "session.spec.ts"), "// hidden");
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(dir, ".root-dotfile.spec.ts"), "// a file, not a directory");
+
+    const found = enumerateExistingSpecFiles(dir).sort();
+
+    assert.deepEqual(found, [".root-dotfile.spec.ts", "flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("enumerateExistingSpecFiles: a missing directory yields [] (graceful, never throws)", () => {
   const found = enumerateExistingSpecFiles("/nonexistent/path/for/sure/qa-grounding-test");
   assert.deepEqual(found, []);

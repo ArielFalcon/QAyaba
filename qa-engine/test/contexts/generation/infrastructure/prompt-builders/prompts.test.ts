@@ -1932,6 +1932,14 @@ test("cross-repo explorer prompt (manual mode): describes a staged snapshot, nev
   assert.doesNotMatch(text, /working copy/i);
 });
 
+/* The reviewer and the generator verdict parser read `specs` relative to the suite directory, the
+   same path both generator role prompts name for a context run. */
+test("buildContextTask: its output contract reports the map relative to the suite directory, not the repo", () => {
+  const text = buildContextTask(mkInput({ mode: "context" }));
+  const contract = JSON.parse(text.trim().split("\n").at(-1) ?? "") as { specs: string[] };
+  assert.deepEqual(contract.specs, [".qa/context.json"]);
+});
+
 test("buildContextTask: describes each microservice path as a staged contract snapshot, never a mirrored working copy, and prefixes hints with contracts/", () => {
   const text = buildContextTask(mkInput({
     mode: "context",

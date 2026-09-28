@@ -98,6 +98,8 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   }
 }
 
+/* Every *.spec.ts under `dir`, relative to it. Installed packages and dot-directories are skipped, as
+   Playwright skips them: they are not the suite's specs. */
 export function enumerateExistingSpecFiles(dir: string): string[] {
   let results: string[] = [];
   try {
@@ -105,6 +107,7 @@ export function enumerateExistingSpecFiles(dir: string): string[] {
       const full = join(dir, entry);
       try {
         if (statSync(full).isDirectory()) {
+          if (entry === "node_modules" || entry.startsWith(".")) continue;
           results = results.concat(
             enumerateExistingSpecFiles(full).map((rel) => join(entry, rel)),
           );

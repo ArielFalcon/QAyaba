@@ -944,8 +944,8 @@ export function buildContextTask(input: OpencodeRunInput): string {
     `- Keep the map small: this is an E2E authoring aid, not exhaustive documentation.`,
     ``,
     `## Output`,
-    `End with ONLY this JSON (no other text):`,
-    `{"approved":true,"specs":["${input.e2eRelDir}/.qa/context.json"],"note":"built architecture map with X routes, Y api operations, Z links"}`,
+    `End with ONLY this JSON (no other text). \`specs\` names the map relative to ${input.e2eRelDir}/, like every spec path:`,
+    `{"approved":true,"specs":[".qa/context.json"],"note":"built architecture map with X routes, Y api operations, Z links"}`,
   ].join("\n");
 }
 
