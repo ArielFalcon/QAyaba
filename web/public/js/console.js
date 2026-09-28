@@ -1722,6 +1722,7 @@ function loadRunExtras(id) {
     if (loginScreen) loginScreen.style.display = 'none';
     loadingScreen();
     api.loadAll().then(function (data) {
+      sessionStorage.removeItem(LOCAL_RETRY_KEY);
       D = data;
       refreshShaAbbrevs();
       state.dialogApp = (D.apps && D.apps[0] && D.apps[0].name) || null;
@@ -1734,12 +1735,40 @@ function loadRunExtras(id) {
     });
   }
 
+  /* The loopback auto-login (GET /api/v1/auth/local): the server hands a local operator a session
+     without a prompt. Resolves the token; rejects when the server refuses. */
+  function localLogin() {
+    const localUrl = ((window.QayabaConsole && window.QayabaConsole.config && window.QayabaConsole.config.baseUrl) || '') + '/api/v1/auth/local';
+    return fetch(localUrl, { credentials: 'include' }).then(function (r) {
+      if (!r.ok) throw new Error('no local session');
+      return r.json();
+    }).then(function (data) {
+      if (!data || !data.token) throw new Error('no local session');
+      return data.token;
+    });
+  }
+  function signInWith(token) {
+    sessionStorage.setItem('qayaba_token', token);
+    window.location.reload();
+  }
+
   /* The session can expire at any time (a stale stored token at boot, or mid-session on any read
-     or stream): stop following runs and ask the operator to sign in again. */
+     or stream): stop following runs, try the loopback auto-login once, and only then ask the
+     operator for a token. The retry mark lives until a console load succeeds, so a session the
+     server keeps refusing ends at the prompt instead of reloading forever; concurrent 401s wait
+     for the one retry in flight. */
+  const LOCAL_RETRY_KEY = 'qayaba_local_login_retried';
+  let localRetry = null;
   function requireLogin() {
     Object.keys(verdictWatches).forEach(stopVerdictWatch);
     teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
-    bindLoginScreen();
+    if (localRetry) return;
+    if (CFG.mode !== 'live' || sessionStorage.getItem(LOCAL_RETRY_KEY)) {
+      bindLoginScreen();
+      return;
+    }
+    sessionStorage.setItem(LOCAL_RETRY_KEY, '1');
+    localRetry = localLogin().then(signInWith, bindLoginScreen).then(function () { localRetry = null; });
   }
   if (window.QayabaConsole && window.QayabaConsole.onAuthRequired) window.QayabaConsole.onAuthRequired(requireLogin);
 
@@ -1779,17 +1808,7 @@ function loadRunExtras(id) {
       return;
     }
     loadingScreen();
-    const localUrl = ((window.QayabaConsole && window.QayabaConsole.config && window.QayabaConsole.config.baseUrl) || '') + '/api/v1/auth/local';
-    fetch(localUrl, { credentials: 'include' }).then(function (r) {
-      if (!r.ok) throw new Error('no local session');
-      return r.json();
-    }).then(function (data) {
-      if (!data || !data.token) throw new Error('no local session');
-      sessionStorage.setItem('qayaba_token', data.token);
-      window.location.reload();
-    }).catch(function () {
-      bindLoginScreen();
-    });
+    localLogin().then(signInWith, bindLoginScreen);
   }
 
   start();

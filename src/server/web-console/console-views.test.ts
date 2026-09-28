@@ -214,6 +214,7 @@ test("a stale stored token at boot brings up the login prompt instead of an erro
   });
   await h.advance(1_000);
 
+  assert.equal(h.requestsTo("/api/v1/auth/local").length, 1, "the loopback auto-login is tried before the prompt");
   assert.equal(h.loginVisible(), true);
   assert.doesNotMatch(h.text(), /Could not load the console/);
 });

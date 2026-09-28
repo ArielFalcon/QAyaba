@@ -64,3 +64,34 @@ test("a pasted token the server rejects is refused and never kept", async () => 
   assert.notEqual(h.loginError(), "", "the operator is told the token was refused");
   assert.equal(h.loginVisible(), true);
 });
+
+/* A server that rejects every token but FRESH_TOKEN, and whose loopback auto-login hands one out. */
+const FRESH_TOKEN = "session-token-from-auto-login";
+function loopbackServer() {
+  const api = controlApi({ apps: [], runs: [] });
+  return (req: ConsoleRequest): Reply => {
+    if (req.path === "/api/v1/auth/local") return { status: 200, json: { token: FRESH_TOKEN, username: "local-console" } };
+    if (req.headers.authorization !== `Bearer ${FRESH_TOKEN}`) return { status: 401, json: { error: "unauthorized" } };
+    return api(req);
+  };
+}
+
+test("a session that expires signs in again through the loopback auto-login before asking for a token", async () => {
+  const h = await loadConsole({ withConsole: true, token: "expired", routes: loopbackServer() });
+  await h.advance(1_000);
+
+  assert.equal(h.requestsTo("/api/v1/auth/local").length, 1, "the auto-login is tried once");
+  assert.ok([...h.storage.values()].includes(FRESH_TOKEN), "the auto-login's session replaces the expired one");
+  assert.equal(h.loginVisible(), false, "no token prompt while the auto-login signs the console in");
+});
+
+test("a session that expires again right after the auto-login retry asks for a token", async () => {
+  const h = await loadConsole({ withConsole: true, token: "expired", routes: loopbackServer() });
+  await h.advance(1_000);
+
+  await h.api.loadAll().catch(() => undefined);
+  await h.advance(1_000);
+
+  assert.equal(h.requestsTo("/api/v1/auth/local").length, 1, "the auto-login is retried only once");
+  assert.equal(h.loginVisible(), true);
+});
