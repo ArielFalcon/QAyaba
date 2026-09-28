@@ -43,7 +43,8 @@ export interface TransportOptions {
 }
 
 export interface Transport {
-  request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
+  /* `opts` may also be a bare AbortSignal, the form this argument took in earlier SDK versions. */
+  request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions | AbortSignal): Promise<T>;
   base: string;
   token?: string;
   fetchImpl: typeof fetch;
@@ -55,7 +56,8 @@ export function createTransport(opts: TransportOptions): Transport {
   const token = opts.token;
   const requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
-  async function request<T>(method: string, path: string, body?: unknown, opts: RequestOptions = {}): Promise<T> {
+  async function request<T>(method: string, path: string, body?: unknown, optsOrSignal: RequestOptions | AbortSignal = {}): Promise<T> {
+    const opts: RequestOptions = optsOrSignal instanceof AbortSignal ? { signal: optsOrSignal } : optsOrSignal;
     const headers: Record<string, string> = {};
     if (token) headers["authorization"] = `Bearer ${token}`;
     if (body !== undefined) headers["content-type"] = "application/json";

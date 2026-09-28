@@ -42,6 +42,18 @@ test("an explicit caller AbortSignal aborts a hanging request independently of t
   await assert.rejects(pending);
 });
 
+test("an AbortSignal passed as the fourth argument, as earlier SDK versions took it, still cancels the request", async () => {
+  const t = createTransport({ baseUrl: "http://x", fetchImpl: hangingFetchImpl(), requestTimeoutMs: 200 });
+  const ac = new AbortController();
+  const pending = t.request("GET", "/api/v1/queue", undefined, ac.signal);
+  queueMicrotask(() => ac.abort());
+  await assert.rejects(pending, (err: unknown) => {
+    assert.ok(!(err instanceof ApiError), `the caller's cancellation must propagate as-is, got ${String(err)}`);
+    assert.equal((err as Error).name, "AbortError");
+    return true;
+  });
+});
+
 test("a request that resolves before the timeout is unaffected", async () => {
   const fetchImpl = (async () => new Response(JSON.stringify({ pending: 0, running: null }), { status: 200 })) as unknown as typeof fetch;
   const t = createTransport({ baseUrl: "http://x", fetchImpl, requestTimeoutMs: 10_000 });
