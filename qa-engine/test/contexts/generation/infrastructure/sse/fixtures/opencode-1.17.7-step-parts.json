@@ -1,0 +1,543 @@
+[
+  {
+    "id": "evt_0e8f672ed001Zki8kv5jrYBfEh",
+    "type": "server.connected",
+    "properties": {}
+  },
+  {
+    "id": "evt_0e8f672fd00285pZtimVjwGF08",
+    "type": "session.next.agent.switched",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "messageID": "msg_0e8f672fd0016ECRQbc2r1kiBB",
+      "timestamp": "2026-09-28T17:01:00.541Z",
+      "agent": "build"
+    }
+  },
+  {
+    "id": "evt_0e8f672ff001SLJG1ku6BxHgV4",
+    "type": "session.next.model.switched",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "messageID": "msg_0e8f672fe0016elZRriW2tV1IU",
+      "timestamp": "2026-09-28T17:01:00.541Z",
+      "model": {
+        "id": "gpt-5.6-luna",
+        "providerID": "opencode-go",
+        "variant": "default"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67300001szl0Az6DkXzYdP",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "role": "user",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "time": {
+          "created": 1790614860541
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode-go",
+          "modelID": "gpt-5.6-luna"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67301001yGJUYp5h6EAMHq",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "part": {
+        "type": "text",
+        "text": "Reply with the single word: ack. Do not use any tools.",
+        "messageID": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "id": "prt_0e8f67300001RJ5a950GQ4v3Mj"
+      },
+      "time": 1790614860545
+    }
+  },
+  {
+    "id": "evt_0e8f67302001j3iuswsnG2t00u",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "slug": "witty-engine",
+        "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
+        "directory": "/app/.mirrors/qayaba-self",
+        "path": "",
+        "title": "New session - 2026-09-28T17:01:00.510Z",
+        "agent": "build",
+        "model": {
+          "id": "gpt-5.6-luna",
+          "providerID": "opencode-go",
+          "variant": "default"
+        },
+        "version": "1.17.7",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1790614860510,
+          "updated": 1790614860546
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67305001TWHH2Ntt1DCPir",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f673050027xPY3YJhe5B2JH",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "parentID": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/app/.mirrors/qayaba-self",
+          "root": "/app/.mirrors/qayaba-self"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "modelID": "gpt-5.6-luna",
+        "providerID": "opencode-go",
+        "time": {
+          "created": 1790614860549
+        },
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f6732a001AR6vrl1R3ZEJRS",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "slug": "witty-engine",
+        "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
+        "directory": "/app/.mirrors/qayaba-self",
+        "path": "",
+        "title": "New session - 2026-09-28T17:01:00.510Z",
+        "agent": "build",
+        "model": {
+          "id": "gpt-5.6-luna",
+          "providerID": "opencode-go",
+          "variant": "default"
+        },
+        "version": "1.17.7",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1790614860510,
+          "updated": 1790614860585
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f6732b001xZGCGDd2x4N2e8",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_0e8f6732b002KYaJAS9zyY3Fv6",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1790614860541
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode-go",
+          "modelID": "gpt-5.6-luna"
+        },
+        "id": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67333001ua72FAXf7ahsKJ",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f676b8001WvNyfRFKHIrdvg",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "slug": "witty-engine",
+        "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
+        "directory": "/app/.mirrors/qayaba-self",
+        "path": "",
+        "title": "ack",
+        "agent": "build",
+        "model": {
+          "id": "gpt-5.6-luna",
+          "providerID": "opencode-go",
+          "variant": "default"
+        },
+        "version": "1.17.7",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1790614860510,
+          "updated": 1790614860585
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67939001DjLSPg0o4edolu",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "part": {
+        "id": "prt_0e8f67938001guTPC0fcSD0bou",
+        "messageID": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "snapshot": "bc34183887dd7652a1216a3906f488c275d6b94a",
+        "type": "step-start"
+      },
+      "time": 1790614862137
+    }
+  },
+  {
+    "id": "evt_0e8f67a08001CDXxogt8hgTdmM",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "part": {
+        "id": "prt_0e8f67a08001xTYOVyLMou2egi",
+        "messageID": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "type": "text",
+        "text": "",
+        "time": {
+          "start": 1790614862344
+        },
+        "metadata": {
+          "openai": {
+            "itemId": "msg_013c8d2dc039520f016aba9d4e4ad487d1a4bddcfa6f71572d",
+            "phase": "final_answer"
+          }
+        }
+      },
+      "time": 1790614862344
+    }
+  },
+  {
+    "id": "evt_0e8f67a20001Q3WZz1sQF4Y5zP",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "messageID": "msg_0e8f67305001lEpnIpkbgFrLOV",
+      "partID": "prt_0e8f67a08001xTYOVyLMou2egi",
+      "field": "text",
+      "delta": "ack"
+    }
+  },
+  {
+    "id": "evt_0e8f67ac1001LBUTLrkOflWe0g",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "part": {
+        "id": "prt_0e8f67a08001xTYOVyLMou2egi",
+        "messageID": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "type": "text",
+        "text": "ack",
+        "time": {
+          "start": 1790614862344,
+          "end": 1790614862529
+        },
+        "metadata": {
+          "openai": {
+            "itemId": "msg_013c8d2dc039520f016aba9d4e4ad487d1a4bddcfa6f71572d",
+            "phase": "final_answer"
+          }
+        }
+      },
+      "time": 1790614862529
+    }
+  },
+  {
+    "id": "evt_0e8f67add001nULWE5kWegYXV1",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "part": {
+        "id": "prt_0e8f67adc001qQIiii3T49ScdH",
+        "reason": "stop",
+        "snapshot": "bc34183887dd7652a1216a3906f488c275d6b94a",
+        "messageID": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "type": "step-finish",
+        "tokens": {
+          "total": 20734,
+          "input": 20729,
+          "output": 5,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "cost": 0.0041518
+      },
+      "time": 1790614862556
+    }
+  },
+  {
+    "id": "evt_0e8f67ade001tNa4UkTlJoL2Qo",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "parentID": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/app/.mirrors/qayaba-self",
+          "root": "/app/.mirrors/qayaba-self"
+        },
+        "cost": 0.0041518,
+        "tokens": {
+          "total": 20734,
+          "input": 20729,
+          "output": 5,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "gpt-5.6-luna",
+        "providerID": "opencode-go",
+        "time": {
+          "created": 1790614860549
+        },
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67aec001y168btm8N9XKAn",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "msg_0e8f67305001lEpnIpkbgFrLOV",
+        "parentID": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/app/.mirrors/qayaba-self",
+          "root": "/app/.mirrors/qayaba-self"
+        },
+        "cost": 0.0041518,
+        "tokens": {
+          "total": 20734,
+          "input": 20729,
+          "output": 5,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "gpt-5.6-luna",
+        "providerID": "opencode-go",
+        "time": {
+          "created": 1790614860549,
+          "completed": 1790614862571
+        },
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67aed001dNAi286bb7O8Vu",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67aee0018lrp4KmINC7AoN",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "status": {
+        "type": "idle"
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67aee002hB5VDj6EFrtEOp",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst"
+    }
+  },
+  {
+    "id": "evt_0e8f67aef00109ivYSxijKicyZ",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "id": "ses_f17098d21ffeZoNC7PyLvZarst",
+        "slug": "witty-engine",
+        "projectID": "d3e8d3d6b5c993ad0e51b7c1a996d2f1c7633593",
+        "directory": "/app/.mirrors/qayaba-self",
+        "path": "",
+        "title": "ack",
+        "agent": "build",
+        "model": {
+          "id": "gpt-5.6-luna",
+          "providerID": "opencode-go",
+          "variant": "default"
+        },
+        "version": "1.17.7",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0.0041518,
+        "tokens": {
+          "input": 20729,
+          "output": 5,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1790614860510,
+          "updated": 1790614862575
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_0e8f67af00013TGLTy0TrnuM2h",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_0e8f67afa001keGS7Wr1l0qZNf",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1790614860541
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode-go",
+          "modelID": "gpt-5.6-luna"
+        },
+        "summary": {
+          "diffs": []
+        },
+        "id": "msg_0e8f672fd001RgNtdxC31xPk10",
+        "sessionID": "ses_f17098d21ffeZoNC7PyLvZarst"
+      }
+    }
+  }
+]
