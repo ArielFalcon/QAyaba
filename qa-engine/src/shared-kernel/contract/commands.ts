@@ -730,3 +730,76 @@ export const ContextMapViewSchema = z.object({
 export type ContextMapView = z.infer<typeof ContextMapViewSchema>;
 
 export type RunReportView = z.infer<typeof RunReportViewSchema>;
+
+const nullableCount = z.number().int().nonnegative().nullable();
+
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, memory, subagent, other); counts only, never paths or targets. */
+export const AgentTurnViewSchema = z.object({
+  runId: z.string().nullable(),
+  sessionId: z.string(),
+  role: z.string(),
+  round: z.number().int().nonnegative(),
+  isRepair: z.boolean(),
+  ts: z.string(),
+  objective: z.string().nullable(),
+  promptText: z.string(),
+  outputText: z.string(),
+  promptBytes: z.number().int().nonnegative(),
+  tokensInput: z.number().nullable(),
+  tokensOutput: z.number().nullable(),
+  tokensReasoning: z.number().nullable(),
+  tokensCacheRead: z.number().nullable(),
+  tokensCacheWrite: z.number().nullable(),
+  cost: z.number().nullable(),
+  totalCalls: nullableCount,
+  stepsUsed: nullableCount,
+  maxSteps: nullableCount,
+  callsBeforeFirstWrite: nullableCount,
+  writeCount: nullableCount,
+  redundantReadCount: nullableCount,
+  duplicateCallCount: nullableCount,
+  promptProvidedReadCount: nullableCount,
+  exhausted: z.boolean().nullable(),
+  callBuckets: z.record(z.string(), z.number()).nullable(),
+});
+
+export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;
+
+export const TelemetryRoleStatSchema = z.object({
+  role: z.string(),
+  medianPromptBytes: z.number().nullable(),
+  p95PromptBytes: z.number().nullable(),
+  medianCacheHitRate: z.number().nullable(),
+  turnCount: z.number().int().nonnegative(),
+});
+
+/** Aggregates over the turns' persisted efficiency measurements; turns a runtime could not measure are left out of every figure, never counted as zero. */
+export const TelemetryEfficiencySchema = z.object({
+  turnsMeasured: z.number().int().nonnegative(),
+  medianCallsBeforeFirstWrite: z.number().nullable(),
+  exhaustedRate: z.number().nullable(),
+  redundantReadRatio: z.number().nullable(),
+  duplicateRatio: z.number().nullable(),
+});
+
+/** ── App telemetry (GET /apps/:name/telemetry) ─────────────────────────────────────── Prompt-size, grounding, repair and wall-clock aggregates over the app's agent turns, plus the agent-efficiency aggregates. */
+export const AppTelemetryViewSchema = z.object({
+  app: z.string(),
+  generatedAt: z.string(),
+  windowDays: z.number().int().nullable(),
+  runCount: z.number().int().nonnegative(),
+  byRole: z.array(TelemetryRoleStatSchema),
+  reviewerConvergence: z.object({
+    avgCorrectionsRound0: z.number().nullable(),
+    avgCorrectionsRound1: z.number().nullable(),
+    approveRate: z.number().nullable(),
+  }),
+  groundingPresence: z.number().nullable(),
+  repairFraction: z.number().nullable(),
+  medianTurnsPerRun: z.number().nullable(),
+  medianWallClockSec: z.number().nullable(),
+  p95WallClockSec: z.number().nullable(),
+  efficiency: TelemetryEfficiencySchema,
+});
+
+export type AppTelemetryView = z.infer<typeof AppTelemetryViewSchema>;

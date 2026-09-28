@@ -24,6 +24,7 @@ import {
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
   ArchitectureContextSchema, ContextMapViewSchema,
+  AgentTurnViewSchema, AppTelemetryViewSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -87,6 +88,8 @@ const NAMED_SCHEMAS = {
   RunReportView: RunReportViewSchema,
   ArchitectureContext: ArchitectureContextSchema,
   ContextMapView: ContextMapViewSchema,
+  AgentTurnView: AgentTurnViewSchema,
+  AppTelemetryView: AppTelemetryViewSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -182,6 +185,14 @@ function paths(): Record<string, unknown> {
             },
           },
         },
+      },
+    },
+    "/api/v1/runs/{id}/turns": {
+      get: {
+        operationId: "getRunTurns",
+        summary: "The run's agent turns in chronological order, each with its efficiency measurements (read-only); a measurement is null when the runtime could not supply it",
+        parameters: [idParam],
+        responses: { "200": { description: "agent turns", content: jsonArray("AgentTurnView") } },
       },
     },
     "/api/v1/runs/{id}/ask": {
@@ -290,6 +301,14 @@ function paths(): Record<string, unknown> {
         summary: "Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only)",
         parameters: [nameParam, windowParam, formatParam],
         responses: { "200": { description: "trends view", content: jsonBody("TrendsView") } },
+      },
+    },
+    "/api/v1/apps/{name}/telemetry": {
+      get: {
+        operationId: "getAppTelemetry",
+        summary: "Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only)",
+        parameters: [nameParam, windowParam],
+        responses: { "200": { description: "app telemetry", content: jsonBody("AppTelemetryView") } },
       },
     },
     "/api/v1/apps/{name}/report": {

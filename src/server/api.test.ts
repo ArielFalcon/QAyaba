@@ -21,6 +21,7 @@ import {
 } from "../contract/commands";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
+import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
 
 function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);
@@ -296,6 +297,68 @@ test("GET /api/apps/:name/context-map returns 200 with the stored map and passes
   assert.equal(body.app, "demo");
   assert.equal(body.builtAtSha, "abc1234");
   assert.equal(body.map.routes[0].path, "/owners");
+});
+
+const measuredTurn: AgentTurnRecord = {
+  runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
+  ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
+  tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
+  totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6,
+  duplicateCallCount: 4, promptProvidedReadCount: 3, exhausted: true,
+  callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+};
+
+test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
+  const unmeasured: AgentTurnRecord = {
+    ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
+    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null,
+  };
+  const r = mkRes();
+  await handleApi(
+    mkReq("GET", "/api/v1/runs/p1/turns"),
+    r,
+    deps({ getRecord: () => parentRec, getAgentTurns: () => [measuredTurn, unmeasured] }),
+  );
+  assert.equal(r.status, 200);
+  const [first, second] = JSON.parse(r.body);
+  assert.equal(first.totalCalls, 31);
+  assert.equal(first.exhausted, true);
+  assert.equal(first.callBuckets.code_read, 20);
+  assert.equal(first.promptText, "the prompt", "existing fields are unchanged");
+  assert.equal(second.totalCalls, null);
+  assert.equal(second.exhausted, null);
+  assert.equal(second.callBuckets, null);
+});
+
+test("GET /api/v1/apps/:name/telemetry returns the efficiency aggregates alongside the existing analysis", async () => {
+  const analysis: TelemetryAnalysis = {
+    app: "demo", generatedAt: "2026-09-28T10:00:00.000Z", windowDays: null, runCount: 2,
+    byRole: [{ role: "qa-generator", medianPromptBytes: 200, p95PromptBytes: 300, medianCacheHitRate: null, turnCount: 4 }],
+    reviewerConvergence: { avgCorrectionsRound0: null, avgCorrectionsRound1: null, approveRate: 0.5 },
+    groundingPresence: 1, repairFraction: 0, medianTurnsPerRun: 2, medianWallClockSec: 30, p95WallClockSec: 40,
+    efficiency: { turnsMeasured: 3, medianCallsBeforeFirstWrite: 8, exhaustedRate: 1 / 3, redundantReadRatio: 0.15, duplicateRatio: 0.1 },
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => analysis }));
+  assert.equal(r.status, 200);
+  const body = JSON.parse(r.body);
+  assert.equal(body.efficiency.medianCallsBeforeFirstWrite, 8);
+  assert.equal(body.efficiency.exhaustedRate, 1 / 3);
+  assert.equal(body.byRole[0].turnCount, 4, "existing fields are unchanged");
+  assert.equal(body.runCount, 2);
+});
+
+test("GET /api/v1/apps/:name/telemetry answers 500, never a partial body, when the analysis drifts from the contract", async () => {
+  const drifted = { app: "demo", generatedAt: "now", windowDays: null, runCount: 0, byRole: [] } as unknown as TelemetryAnalysis;
+  const r = mkRes();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => drifted }));
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(r.status, 500);
 });
 
 test("GET /trends?format=csv returns a flat CSV", async () => {
@@ -1158,6 +1221,12 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
   assert.match(res.body, /not found/i);
 });
 
+/* The efficiency fields a stored turn carries when nothing measured them (what getAgentTurns returns for an unmeasured turn). */
+const UNMEASURED_TURN_FIELDS = {
+  totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
+  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null,
+};
+
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const stubTurns = [
@@ -1167,6 +1236,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
       promptText: "generate tests", outputText: "tests done",
       promptBytes: 14, tokensInput: 100, tokensOutput: 50,
       tokensReasoning: 0, tokensCacheRead: 20, tokensCacheWrite: 5, cost: 0.001,
+      ...UNMEASURED_TURN_FIELDS,
     },
     {
       runId: "r1", sessionId: "s2", role: "qa-reviewer", round: 0, isRepair: false,
@@ -1174,6 +1244,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
       promptText: "review tests", outputText: '{"approved":true,"corrections":[],"rationale":"ok"}',
       promptBytes: 12, tokensInput: 80, tokensOutput: 30,
       tokensReasoning: null, tokensCacheRead: 10, tokensCacheWrite: 3, cost: 0.0008,
+      ...UNMEASURED_TURN_FIELDS,
     },
   ];
   const res = mkRes();
@@ -1208,6 +1279,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
       outputText: `done — leaked ${secret}`,
       promptBytes: 50, tokensInput: 100, tokensOutput: 50,
       tokensReasoning: 0, tokensCacheRead: 20, tokensCacheWrite: 5, cost: 0.001,
+      ...UNMEASURED_TURN_FIELDS,
     },
   ];
   const res = mkRes();

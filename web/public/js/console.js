@@ -564,6 +564,16 @@
      (GET /runs/{id}/report → RunReportView) and the agent turns (GET /runs/{id}/turns).
      Text-only and ranked by the contract's own score — no invented charts.
    */
+  /* One turn's efficiency measurements. A measurement the runtime could not supply (null, or absent
+     on an older server) reads "n/a" — never a zero that would pass for a real reading. */
+  function turnEfficiencyLine(t) {
+    const val = (v) => (v == null ? 'n/a' : String(v));
+    const steps = t.stepsUsed == null && t.maxSteps == null ? 'n/a' : val(t.stepsUsed) + '/' + val(t.maxSteps);
+    const limit = t.exhausted == null ? 'n/a' : t.exhausted ? 'hit' : 'not hit';
+    return 'calls ' + val(t.totalCalls) + ' · before 1st write ' + val(t.callsBeforeFirstWrite) + ' · writes ' + val(t.writeCount) +
+      ' · steps ' + steps + ' · redundant reads ' + val(t.redundantReadCount) + ' · duplicate calls ' + val(t.duplicateCallCount) +
+      ' · reads already in prompt ' + val(t.promptProvidedReadCount) + ' · step limit ' + limit;
+  }
   function runExtrasCards(run) {
     const ex = state.runExtras;
     if (!ex || ex.runId !== run.id) return { report: '', turns: '' };
@@ -601,6 +611,7 @@
           '<span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--ember-600)">' + esc(t.role || 'agent') + '</span>' +
           '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">round ' + (t.round != null ? t.round : '—') + (t.isRepair ? ' · repair' : '') + tokens + '</span>' +
           '<span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">' + esc(String(t.ts || '').slice(0, 19).replace('T', ' ')) + '</span></div>' +
+          '<span style="font-family:var(--font-mono);font-size:10.5px;color:' + (t.exhausted === true ? 'var(--fail-600)' : 'var(--text-faint)') + '">' + esc(turnEfficiencyLine(t)) + '</span>' +
           (snippet ? '<span style="font-size:12.5px;color:var(--text-body);line-height:1.5;white-space:pre-wrap">' + esc(snippet) + '</span>' : '') + '</div>';
       }).join('');
       turns = Card({ eyebrow: 'agent turns · ' + ex.turns.length + ' LLM invocation' + (ex.turns.length !== 1 ? 's' : ''), title: 'What the agents did', bodyPadding: false, children: '<div>' + rows + '</div>' });

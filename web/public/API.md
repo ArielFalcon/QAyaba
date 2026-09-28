@@ -157,7 +157,8 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 | Ask about a run | `POST /api/v1/runs/{id}/ask` → `AskResponse` | ✓ (`api.ask`) |
 | Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ wired — the run-detail "Re-run failed cases" button (offered only for a finished run with failed cases, the only runs the server continues) calls `api.continueRun`; on a new run id it reloads the fleet and follows the verdict via `queueVerdictWatch` (same flow as the trigger dialog); a refusal shows the server's reason. |
 | Run report (post-run summary) | `GET /api/v1/runs/{id}/report` → `RunReportView{current, evolution|null}` | ✓ wired — run detail renders a "post-run report" card (insights ranked by `score`, evolution availability noted) when the read returns data; 404/null → section hidden. |
-| Agent turns | `GET /api/v1/runs/{id}/turns` → `AgentTurnRecord[]` | ✓ wired — run detail renders "What the agents did" (role · round · tokens · sanitized output snippet) when turns exist; empty → section hidden. |
+| Agent turns | `GET /api/v1/runs/{id}/turns` → `AgentTurnView[]` | ✓ wired — run detail renders "What the agents did" (role · round · tokens · efficiency line · sanitized output snippet) when turns exist; empty → section hidden. Each efficiency measurement (calls, calls before the first write, writes, steps used/max, redundant reads, duplicate calls, reads already in the prompt, step limit hit) is `null` when the runtime could not supply it, and the console shows `n/a` for it — never a zero. |
+| App telemetry | `GET /api/v1/apps/{name}/telemetry` → `AppTelemetryView` | Read-only aggregates over an app's agent turns; its `efficiency` block (median calls before the first write, exhausted rate, redundant-read and duplicate ratios) covers only measured turns. Not rendered in the console yet. |
 
 ---
 

@@ -237,6 +237,37 @@
         }
       }
     },
+    "/api/v1/runs/{id}/turns": {
+      "get": {
+        "operationId": "getRunTurns",
+        "summary": "The run's agent turns in chronological order, each with its efficiency measurements (read-only); a measurement is null when the runtime could not supply it",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "agent turns",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentTurnView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs/{id}/ask": {
       "post": {
         "operationId": "askRun",
@@ -748,6 +779,43 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TrendsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/apps/{name}/telemetry": {
+      "get": {
+        "operationId": "getAppTelemetry",
+        "summary": "Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only)",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "app telemetry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppTelemetryView"
                 }
               }
             }
@@ -4030,6 +4098,309 @@
           "map",
           "builtAtSha",
           "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "AgentTurnView": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "nullable": true,
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "isRepair": {
+            "type": "boolean"
+          },
+          "ts": {
+            "type": "string"
+          },
+          "objective": {
+            "nullable": true,
+            "type": "string"
+          },
+          "promptText": {
+            "type": "string"
+          },
+          "outputText": {
+            "type": "string"
+          },
+          "promptBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "tokensInput": {
+            "nullable": true,
+            "type": "number"
+          },
+          "tokensOutput": {
+            "nullable": true,
+            "type": "number"
+          },
+          "tokensReasoning": {
+            "nullable": true,
+            "type": "number"
+          },
+          "tokensCacheRead": {
+            "nullable": true,
+            "type": "number"
+          },
+          "tokensCacheWrite": {
+            "nullable": true,
+            "type": "number"
+          },
+          "cost": {
+            "nullable": true,
+            "type": "number"
+          },
+          "totalCalls": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stepsUsed": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxSteps": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "callsBeforeFirstWrite": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "writeCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "redundantReadCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "duplicateCallCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "promptProvidedReadCount": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "exhausted": {
+            "nullable": true,
+            "type": "boolean"
+          },
+          "callBuckets": {
+            "nullable": true,
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "runId",
+          "sessionId",
+          "role",
+          "round",
+          "isRepair",
+          "ts",
+          "objective",
+          "promptText",
+          "outputText",
+          "promptBytes",
+          "tokensInput",
+          "tokensOutput",
+          "tokensReasoning",
+          "tokensCacheRead",
+          "tokensCacheWrite",
+          "cost",
+          "totalCalls",
+          "stepsUsed",
+          "maxSteps",
+          "callsBeforeFirstWrite",
+          "writeCount",
+          "redundantReadCount",
+          "duplicateCallCount",
+          "promptProvidedReadCount",
+          "exhausted",
+          "callBuckets"
+        ],
+        "additionalProperties": false
+      },
+      "AppTelemetryView": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "windowDays": {
+            "nullable": true,
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "runCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "byRole": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "medianPromptBytes": {
+                  "nullable": true,
+                  "type": "number"
+                },
+                "p95PromptBytes": {
+                  "nullable": true,
+                  "type": "number"
+                },
+                "medianCacheHitRate": {
+                  "nullable": true,
+                  "type": "number"
+                },
+                "turnCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "role",
+                "medianPromptBytes",
+                "p95PromptBytes",
+                "medianCacheHitRate",
+                "turnCount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "reviewerConvergence": {
+            "type": "object",
+            "properties": {
+              "avgCorrectionsRound0": {
+                "nullable": true,
+                "type": "number"
+              },
+              "avgCorrectionsRound1": {
+                "nullable": true,
+                "type": "number"
+              },
+              "approveRate": {
+                "nullable": true,
+                "type": "number"
+              }
+            },
+            "required": [
+              "avgCorrectionsRound0",
+              "avgCorrectionsRound1",
+              "approveRate"
+            ],
+            "additionalProperties": false
+          },
+          "groundingPresence": {
+            "nullable": true,
+            "type": "number"
+          },
+          "repairFraction": {
+            "nullable": true,
+            "type": "number"
+          },
+          "medianTurnsPerRun": {
+            "nullable": true,
+            "type": "number"
+          },
+          "medianWallClockSec": {
+            "nullable": true,
+            "type": "number"
+          },
+          "p95WallClockSec": {
+            "nullable": true,
+            "type": "number"
+          },
+          "efficiency": {
+            "type": "object",
+            "properties": {
+              "turnsMeasured": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "medianCallsBeforeFirstWrite": {
+                "nullable": true,
+                "type": "number"
+              },
+              "exhaustedRate": {
+                "nullable": true,
+                "type": "number"
+              },
+              "redundantReadRatio": {
+                "nullable": true,
+                "type": "number"
+              },
+              "duplicateRatio": {
+                "nullable": true,
+                "type": "number"
+              }
+            },
+            "required": [
+              "turnsMeasured",
+              "medianCallsBeforeFirstWrite",
+              "exhaustedRate",
+              "redundantReadRatio",
+              "duplicateRatio"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "app",
+          "generatedAt",
+          "windowDays",
+          "runCount",
+          "byRole",
+          "reviewerConvergence",
+          "groundingPresence",
+          "repairFraction",
+          "medianTurnsPerRun",
+          "medianWallClockSec",
+          "p95WallClockSec",
+          "efficiency"
         ],
         "additionalProperties": false
       }

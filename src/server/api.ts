@@ -43,6 +43,8 @@ import {
   ConfirmBoundariesInputSchema,
   IntelligenceViewSchema,
   ContextMapViewSchema,
+  AgentTurnViewSchema,
+  AppTelemetryViewSchema,
   SignalsViewSchema,
   CoordinationEventsViewSchema,
   TrendsViewSchema,
@@ -595,7 +597,7 @@ function handleRunTurns(res: ServerResponse, deps: ApiDeps, id: string): boolean
     promptText: sanitizeText(t.promptText).text,
     outputText: sanitizeText(t.outputText).text,
   }));
-  json(res, 200, turns);
+  contractJson(res, 200, z.array(AgentTurnViewSchema), turns);
   return true;
 }
 
@@ -858,7 +860,7 @@ function handleAppTelemetry(res: ServerResponse, deps: ApiDeps, name: string, wi
   }
   try {
     const analysis = deps.telemetryAnalysis(name, window);
-    json(res, 200, analysis);
+    contractJson(res, 200, AppTelemetryViewSchema, analysis);
   } catch (err) {
     json(res, 500, { error: `telemetry query failed: ${err instanceof Error ? err.message : String(err)}` });
   }

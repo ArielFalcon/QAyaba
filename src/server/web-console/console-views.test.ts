@@ -70,6 +70,59 @@ test("a finished run's report and agent turns render while another run is live",
   assert.match(h.text(), /What the agents did/);
 });
 
+function turnsRoute(runId: string, turns: unknown[]) {
+  return (req: { path: string }) => (req.path === `/api/v1/runs/${runId}/turns` ? { status: 200, json: turns } : undefined);
+}
+
+const baseTurn = { runId: "run-done", sessionId: "s", role: "qa-generator", round: 0, isRepair: false, ts: new Date().toISOString(), objective: null, promptText: "p", outputText: "wrote the login spec", promptBytes: 1, tokensInput: 10, tokensOutput: 5 };
+
+test("an agent turn shows its efficiency measurements, including when it hit the step limit", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [runRecord("run-done")],
+      extra: turnsRoute("run-done", [{
+        ...baseTurn, totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2,
+        redundantReadCount: 6, duplicateCallCount: 4, promptProvidedReadCount: 3, exhausted: true, callBuckets: { code_read: 20 },
+      }]),
+    }),
+  });
+
+  h.click("open-run", "run-done");
+  await h.advance(1_000);
+
+  assert.match(h.text(), /calls 31/);
+  assert.match(h.text(), /before 1st write 27/);
+  assert.match(h.text(), /steps 50\/50/);
+  assert.match(h.text(), /redundant reads 6/);
+  assert.match(h.text(), /step limit hit/);
+});
+
+test("an agent turn with unmeasured efficiency shows n/a, never a zero, whether the fields are null or absent", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps: [appView("shop")],
+      runs: [runRecord("run-done")],
+      extra: turnsRoute("run-done", [
+        { ...baseTurn, totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null },
+        { ...baseTurn, sessionId: "s2" },
+      ]),
+    }),
+  });
+
+  h.click("open-run", "run-done");
+  await h.advance(1_000);
+
+  assert.match(h.text(), /calls n\/a/);
+  assert.match(h.text(), /steps n\/a/);
+  assert.match(h.text(), /step limit n\/a/);
+  assert.doesNotMatch(h.text(), /calls 0/);
+});
+
 test("opening the live run keeps a single stream to it when its lazy reads arrive", async () => {
   const h = await loadConsole({
     withConsole: true,
