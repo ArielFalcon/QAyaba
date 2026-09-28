@@ -13,10 +13,10 @@ export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do 
 const FAILURE_CAPTURE_END_MARKER = "// <<< qa-failure-capture <<<\n";
 
 /*
- * sha256 of every earlier FAILURE_CAPTURE_BLOCK revision appended into repos' fixtures.ts (the
- * whole block, from the newline before its opening marker through its closing marker line). An
- * appended block that still byte-matches one is upgraded in place; an edited block is left as-is.
- * Add the outgoing block's hash whenever FAILURE_CAPTURE_BLOCK changes.
+ * sha256 of every earlier capture block a repo's fixtures.ts received — appended by setup or carried
+ * by the seed's fixtures.ts (the whole block, from the newline before its opening marker through its
+ * closing marker line). A block that still byte-matches one is upgraded in place; an edited block is
+ * left as-is. Add the outgoing block's hash whenever FAILURE_CAPTURE_BLOCK changes.
  */
 const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "0665bc90120cf1f2da387182d638f279cafb27d3c36850523a26164b69e57569",
@@ -24,7 +24,20 @@ const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
   "3ebe14ac5cdf1b445c37db2acf6cbf53f1f02057b3e58f0076a46c7bd6a32a3c",
   "aaaec869a29d0d5066cb7cb9ab89c829bae7b04797a9e0e5372fef24de034550",
   "607112cee45f4edf134ecefa660e815f6e40dfce2b9a0f19184f4e5372d935b1",
+  "9490d34eb64c08551d6c9ac3dee476d21d5f227c5631e5b7af0155d4d4241569",
 ]);
+
+/*
+ * The one capture block revision appended without its markers, known by its first line, its length
+ * and its sha256. A repo holding it byte-for-byte gets the current block in its place; appending
+ * beside any copy of it would redeclare its variables, so an edited copy is left as it is and nothing
+ * is appended.
+ */
+const UNMARKED_FAILURE_CAPTURE_BLOCK = {
+  firstLine: "\nlet errorResponses = [];\n",
+  length: 3473,
+  sha256: "65d0916709e4b89b743a151d4b001bfdabdef20d8f0180b0ea3af3e52ac5e85a",
+} as const;
 
 /*
  * sha256 of every playwright.config.ts seed revision shipped into watched repos, the current one
@@ -251,7 +264,7 @@ export class SetupAdapter {
     const src = this.deps.fs.read(path);
     const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
     if (start === -1) {
-      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.addCaptureBlock(path, src);
       return;
     }
     const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
@@ -259,6 +272,18 @@ export class SetupAdapter {
     const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
     if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return;
     this.deps.fs.write(path, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
+  }
+
+  /* Appends the block to a fixtures.ts that has none, or puts it in place of the block appended without markers. */
+  private addCaptureBlock(path: string, src: string): void {
+    const { firstLine, length, sha256: unmarkedHash } = UNMARKED_FAILURE_CAPTURE_BLOCK;
+    const at = src.indexOf(firstLine);
+    if (at === -1) {
+      this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+      return;
+    }
+    if (sha256(src.slice(at, at + length)) !== unmarkedHash) return;
+    this.deps.fs.write(path, src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length));
   }
 
   /** Keeps the Playwright session directory out of the suite PR. Idempotent. */

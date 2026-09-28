@@ -968,13 +968,53 @@ test("a repo that received an earlier, untyped capture block type-checks after s
   assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
 });
 
-/* Only a block that is still byte-for-byte an earlier appended revision is upgraded, in place. */
-test("ensureFailureCapture upgrades every earlier appended block revision in place to the current block", () => {
+/* Every capture block a repo received, appended or in the seed's fixtures.ts, is recorded as a
+   failure-capture.revN.txt fixture; the newest is the block shipped today. Only a block that is still
+   byte-for-byte an earlier revision is upgraded, in place. Changing FAILURE_CAPTURE_BLOCK means
+   recording it as the next revision, which makes the outgoing block an earlier one that must upgrade. */
+const FAILURE_CAPTURE_REVISIONS = readdirSync(SEED_REVISIONS_DIR)
+  .filter((name) => /^failure-capture\.rev\d+\.txt$/.test(name))
+  .sort((a, b) => Number(/\d+/.exec(a)![0]) - Number(/\d+/.exec(b)![0]));
+
+test("the block shipped today is the newest recorded capture block revision", () => {
+  const newest = FAILURE_CAPTURE_REVISIONS.at(-1)!;
+  assert.equal(
+    shippedRevision(newest),
+    FAILURE_CAPTURE_BLOCK,
+    `FAILURE_CAPTURE_BLOCK changed: record it as the next failure-capture.revN.txt after ${newest} and add the outgoing block's sha256 to the earlier revisions`,
+  );
+});
+
+test("ensureFailureCapture upgrades every earlier recorded block revision in place to the current block", () => {
   const later = "export const helperAddedLater = 1;\n";
-  for (const revision of ["failure-capture.rev1.txt", "failure-capture.rev2.txt", "failure-capture.rev3.txt", "failure-capture.rev4.txt", "failure-capture.rev5.txt"]) {
+  const earlier = FAILURE_CAPTURE_REVISIONS.slice(0, -1);
+  assert.ok(earlier.length > 0, "precondition: earlier revisions are recorded");
+  for (const revision of earlier) {
     const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision(revision) + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
-    assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later, `${revision} is an earlier appended block`);
+    assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later, `${revision} is an earlier capture block`);
   }
+});
+
+/* One revision was appended without its markers. A repo holding it byte-for-byte gets the current
+   block in its place; appending beside it would redeclare its variables and fail every run's
+   type-check. */
+test("ensureFailureCapture replaces in place the capture block appended without markers", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt") + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later);
+});
+
+test("a repo that received the capture block without markers type-checks after setup", () => {
+  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt"));
+  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+test("ensureFailureCapture leaves an edited copy of the block appended without markers as it is, appending nothing", () => {
+  const unmarked = shippedRevision("failure-capture.unmarked.txt");
+  const edited = REPO_FIXTURES + unmarked.replace("runtimeErrors = [];\n  try {", "runtimeErrors = [];\n  console.log('edited');\n  try {");
+  assert.notEqual(edited, REPO_FIXTURES + unmarked, "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
 });
 
 test("ensureFailureCapture never touches an appended capture block someone edited", () => {
