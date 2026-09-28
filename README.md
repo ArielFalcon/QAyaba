@@ -319,6 +319,7 @@ GitHub login needs a **GitHub OAuth App** with the device flow enabled. The app'
    | `AUTH_SIGNING_KEY` | reuses `QA_API_TOKEN` | HMAC secret that signs sessions. Set a dedicated value to rotate sessions independently of the machine token. |
    | `AUTH_SESSION_TTL_SECONDS` | `86400` (24 h) | How long a GitHub session lasts before the console asks the user to sign in again. |
    | `BIND_ADDR` | `127.0.0.1` | Interface the orchestrator's published port (`docker-compose.yml`) binds to. Set to `0.0.0.0` only to expose the control plane beyond the host — put your own reverse proxy/auth in front when you do. |
+   | `LISTEN_HOST` | `127.0.0.1` | Interface the orchestrator process itself listens on. A bare `npm run start` stays loopback-only; `docker-compose.yml` sets `0.0.0.0` inside the container (exposure beyond the host is then decided by `BIND_ADDR`). Set it on a bare run only to serve other machines, behind your own reverse proxy/auth. |
    | `QA_WEB_LOGIN_HOST_ALLOWLIST` | *(none)* | Comma-separated hostnames, besides `localhost`/`127.0.0.1`/`::1`, that `GET /api/auth/local` accepts in the request's `Host` header (defense against DNS rebinding). Only needed if the console is reached through another loopback-bound hostname. |
 
 > [!IMPORTANT]
@@ -393,7 +394,7 @@ docker compose up --build
 <details>
 <summary>The control-plane port (<code>PORT</code>, default 458)</summary>
 
-The orchestrator listens on `PORT` (default `458`) and serves the web console there at `/app`; the terminal clients (the `qayaba` TUI and `bin/qa`) connect to `localhost:458` unless `QA_HOST` says otherwise. The boot log names the interface and port it actually bound (e.g. `qayaba listening on [::]:458`).
+The orchestrator listens on `PORT` (default `458`) on `LISTEN_HOST` (default `127.0.0.1`; `0.0.0.0` inside the container) and serves the web console there at `/app`; the terminal clients (the `qayaba` TUI and `bin/qa`) connect to `localhost:458` unless `QA_HOST` says otherwise. The boot log names the interface and port it actually bound (e.g. `qayaba listening on 127.0.0.1:458`).
 
 458 is a **privileged port** (below 1024):
 

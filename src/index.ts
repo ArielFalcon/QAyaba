@@ -51,7 +51,7 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
-import { resolvePort, describeListenAddress, serverErrorListener } from "./server/port";
+import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -73,6 +73,7 @@ const runEvents = createDurableRunEventStore();
 const AUTONOMOUS_MAINTAINER = process.env.SELF_MAINTAINER_AUTOMERGE === "true";
 
 const port = resolvePort(process.env);
+const listenHost = resolveListenHost(process.env);
 const MAX_BODY = 1_000_000;
 const secret = process.env.WEBHOOK_SECRET;
 
@@ -835,7 +836,7 @@ server.on(
   }),
 );
 
-server.listen(port, () => {
+server.listen(port, listenHost, () => {
   logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);
   /*
    * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or

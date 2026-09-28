@@ -9,7 +9,8 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolvePort, serverErrorListener } from "./port";
+import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolveListenHost, resolvePort, serverErrorListener } from "./port";
+import { isLoopbackAddress } from "./auth";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildHelpContext } from "./help";
 
@@ -93,4 +94,12 @@ test("an error after the server is up is logged with secrets redacted and never 
   assert.equal(logged[0]?.level, "error");
   assert.match(String(logged[0]?.meta?.error), /socket failure/);
   assert.doesNotMatch(JSON.stringify(logged[0]), /ghp_/);
+});
+
+test("a bare run listens on loopback only unless LISTEN_HOST names another interface", () => {
+  assert.equal(isLoopbackAddress(resolveListenHost({})), true, "no LISTEN_HOST: loopback");
+  assert.equal(isLoopbackAddress(resolveListenHost({ LISTEN_HOST: "" })), true, "an empty LISTEN_HOST is unset");
+  assert.equal(isLoopbackAddress(resolveListenHost({ LISTEN_HOST: "  " })), true, "a blank LISTEN_HOST is unset");
+  assert.equal(resolveListenHost({ LISTEN_HOST: "0.0.0.0" }), "0.0.0.0");
+  assert.equal(resolveListenHost({ LISTEN_HOST: " ::1 " }), "::1");
 });

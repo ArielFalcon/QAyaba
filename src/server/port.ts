@@ -23,7 +23,19 @@ export function resolvePort(env: Record<string, string | undefined>): number {
   return port;
 }
 
-/* "[::]:458" / "0.0.0.0:458" — where the server is actually reachable, for the boot log. */
+/*
+ * The interface the server listens on. A bare `npm run start` listens on loopback only, so it never
+ * exposes the control plane to the network by accident; LISTEN_HOST names another interface (an
+ * empty value counts as unset). The container sets 0.0.0.0 (docker-compose.yml), where exposure
+ * beyond the host is decided by the published port's BIND_ADDR.
+ */
+export const DEFAULT_LISTEN_HOST = "127.0.0.1";
+
+export function resolveListenHost(env: Record<string, string | undefined>): string {
+  return env.LISTEN_HOST?.trim() || DEFAULT_LISTEN_HOST;
+}
+
+/* "127.0.0.1:458" / "0.0.0.0:458" — where the server is actually reachable, for the boot log. */
 export function describeListenAddress(address: AddressInfo | string | null): string {
   if (address === null) return "an unknown address";
   if (typeof address === "string") return address; /* a pipe or socket path */

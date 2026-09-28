@@ -37,3 +37,11 @@ test("the orchestrator's published port binds to BIND_ADDR, defaulting to loopba
     "the published port must bind to BIND_ADDR (default 127.0.0.1), not Docker's default 0.0.0.0",
   );
 });
+
+/* Inside the container the process must listen on every interface, or the published port (and the
+   other compose services) cannot reach it; exposure beyond the host is still decided by BIND_ADDR. */
+test("the orchestrator container listens on every interface; BIND_ADDR alone limits what is published", () => {
+  const orchestrator = getService(loadCompose(), "orchestrator");
+  const environment = orchestrator?.environment as Record<string, unknown> | undefined;
+  assert.equal(String(environment?.LISTEN_HOST), "0.0.0.0");
+});

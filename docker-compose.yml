@@ -54,6 +54,10 @@ services:
     environment:
       # Wins over env_file so the listen port cannot drift from the published port.
       PORT: ${PORT:-458}
+      # A bare `npm run start` listens on loopback only. Inside the container the process must
+      # listen on every interface for the published port (and the other services) to reach it;
+      # BIND_ADDR above decides whether that port is exposed beyond the host.
+      LISTEN_HOST: 0.0.0.0
       OPENCODE_SERVE_URL: http://agents:4096
       AGENT_SUPERVISOR_URL: http://agents:4097
       MIRROR_DIR: /app/.mirrors
