@@ -50,6 +50,27 @@ export interface Transport {
   fetchImpl: typeof fetch;
 }
 
+/* An abort signal from any realm or polyfill: recognized by its shape, since `instanceof AbortSignal`
+   only holds for this realm's native class. */
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as AbortSignal).aborted === "boolean" &&
+    typeof (value as AbortSignal).addEventListener === "function"
+  );
+}
+
+/* A native signal that aborts with `signal`, so AbortSignal.any — which takes native signals only —
+   can merge one from another realm or a polyfill. */
+function nativeSignal(signal: Pick<AbortSignal, "aborted" | "reason" | "addEventListener">): AbortSignal {
+  if (signal instanceof AbortSignal) return signal;
+  const controller = new AbortController();
+  if (signal.aborted) controller.abort(signal.reason);
+  else signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  return controller.signal;
+}
+
 export function createTransport(opts: TransportOptions): Transport {
   const base = opts.baseUrl.replace(/\/+$/, "");
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -57,7 +78,7 @@ export function createTransport(opts: TransportOptions): Transport {
   const requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
   async function request<T>(method: string, path: string, body?: unknown, optsOrSignal: RequestOptions | AbortSignal = {}): Promise<T> {
-    const opts: RequestOptions = optsOrSignal instanceof AbortSignal ? { signal: optsOrSignal } : optsOrSignal;
+    const opts: RequestOptions = isAbortSignal(optsOrSignal) ? { signal: optsOrSignal } : optsOrSignal;
     const headers: Record<string, string> = {};
     if (token) headers["authorization"] = `Bearer ${token}`;
     if (body !== undefined) headers["content-type"] = "application/json";
@@ -70,7 +91,7 @@ export function createTransport(opts: TransportOptions): Transport {
     const timeoutMs = opts.timeoutMs ?? requestTimeoutMs;
     const signal = opts.signal;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const requestSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+    const requestSignal = signal ? AbortSignal.any([timeoutSignal, nativeSignal(signal)]) : timeoutSignal;
     const where = base || "(same origin)";
 
     let res: Response;

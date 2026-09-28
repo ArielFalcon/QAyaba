@@ -54,6 +54,54 @@ test("an AbortSignal passed as the fourth argument, as earlier SDK versions took
   });
 });
 
+/* An abort signal from a polyfill or another realm: the AbortSignal shape, not the native class. */
+function foreignAbortController(): { signal: AbortSignal; abort(reason: Error): void } {
+  const listeners: (() => void)[] = [];
+  const signal = {
+    aborted: false,
+    reason: undefined as unknown,
+    addEventListener(type: string, listener: () => void) {
+      if (type === "abort") listeners.push(listener);
+    },
+    removeEventListener(_type: string, listener: () => void) {
+      listeners.splice(listeners.indexOf(listener) >>> 0, 1);
+    },
+  };
+  return {
+    signal: signal as unknown as AbortSignal,
+    abort(reason: Error) {
+      signal.aborted = true;
+      signal.reason = reason;
+      for (const listener of listeners.splice(0)) listener();
+    },
+  };
+}
+
+test("a non-native abort signal cancels the request, bare or as an option, with the caller's own reason", async () => {
+  for (const asOption of [false, true]) {
+    const t = createTransport({ baseUrl: "http://x", fetchImpl: hangingFetchImpl(), requestTimeoutMs: 5_000 });
+    const foreign = foreignAbortController();
+    const pending = t.request("GET", "/api/v1/queue", undefined, asOption ? { signal: foreign.signal } : foreign.signal);
+    const cancelled = new Error("cancelled by the UI");
+    queueMicrotask(() => foreign.abort(cancelled));
+    await assert.rejects(pending, (err: unknown) => {
+      assert.equal(err, cancelled, `asOption=${asOption}: the caller's cancellation propagates as-is, got ${String(err)}`);
+      return true;
+    });
+  }
+});
+
+test("a non-native abort signal that is already aborted cancels the request with its reason", async () => {
+  const t = createTransport({ baseUrl: "http://x", fetchImpl: hangingFetchImpl(), requestTimeoutMs: 5_000 });
+  const foreign = foreignAbortController();
+  const cancelled = new Error("cancelled before sending");
+  foreign.abort(cancelled);
+  await assert.rejects(t.request("GET", "/api/v1/queue", undefined, foreign.signal), (err: unknown) => {
+    assert.equal(err, cancelled);
+    return true;
+  });
+});
+
 test("a request that resolves before the timeout is unaffected", async () => {
   const fetchImpl = (async () => new Response(JSON.stringify({ pending: 0, running: null }), { status: 200 })) as unknown as typeof fetch;
   const t = createTransport({ baseUrl: "http://x", fetchImpl, requestTimeoutMs: 10_000 });
