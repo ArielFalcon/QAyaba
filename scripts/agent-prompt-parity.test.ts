@@ -8,7 +8,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACCEPTANCE_STATUSES } from "../qa-engine/src/contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
+import {
+  ACCEPTANCE_STATUSES,
+  readAcceptanceReport,
+} from "../qa-engine/src/contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,16 +42,28 @@ test("qa-sidekick: both copies state frozen authority and the git-write ban", ()
   assertBothContain("qa-sidekick", "never perform git writes");
 });
 
-/* The executor reads `acceptance` strictly (missing/invalid is a recorded contract defect) and pushback
-   blocks only on an "unmet" entry, so both copies must ask for one entry per numbered criterion and
-   name every status the reader accepts. */
-test("qa-sidekick: both copies require a per-criterion acceptance report with every status the executor reads", () => {
+/* The output example writes each enum as its alternatives ("met"|"unmet"); reading every alternative
+   list as an array makes the example parse as JSON. */
+function parseOutputExample(example: string): Record<string, unknown> {
+  return JSON.parse(example.replace(/"[^"]*"(?:\|"[^"]*")+/g, (alternatives) => `[${alternatives.split("|").join(",")}]`));
+}
+
+/* The executor reads `acceptance` strictly (missing/invalid is a recorded contract defect), so the
+   example in both copies must be a report the executor reads cleanly under every status it names,
+   and it must name every status the reader accepts. */
+test("qa-sidekick: both copies' output example is a per-criterion acceptance report the executor reads", () => {
   for (const [copy, text] of Object.entries(readBoth("qa-sidekick"))) {
-    assert.match(text, /"acceptance":\[\{"criterion":1,"status":/, `${copy} copy's output contract must carry the acceptance report`);
-    for (const status of ACCEPTANCE_STATUSES) {
-      assert.match(text, new RegExp(`"${status}"`), `${copy} copy must name the "${status}" status`);
+    const example = /```json\n([\s\S]*?)\n```/.exec(text)?.[1];
+    assert.ok(example, `${copy} copy carries a JSON output example`);
+    const { acceptance } = parseOutputExample(example) as { acceptance?: { criterion: unknown; status: string[] }[] };
+    assert.ok(Array.isArray(acceptance) && acceptance.length > 0, `${copy} copy's example carries an acceptance report`);
+    for (const { criterion, status } of acceptance) {
+      assert.deepEqual([...status].sort(), [...ACCEPTANCE_STATUSES].sort(), `${copy} copy names every status the executor reads`);
+      for (const one of status) {
+        const report = readAcceptanceReport([{ criterion, status: one }], acceptance.length);
+        assert.equal(report.defect, undefined, `${copy} copy's example entry with status "${one}" reads cleanly`);
+      }
     }
-    assert.match(text, /every numbered acceptance criterion/i, `${copy} copy must ask for every numbered criterion`);
   }
 });
 
