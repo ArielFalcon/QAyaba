@@ -11,15 +11,24 @@ import { loadContextMapFromDisk } from "./pre-generation-grounding-port.adapter.
  */
 export type ContextMapSave = (app: string, sha: string, data: ArchitectureContext) => void;
 
+/*
+ * Whether this run wrote `specDir`'s .qa/context.json: it differs from the run's base commit (added,
+ * modified, untracked or ignored). A committed map the run left untouched is not a fresh one — it
+ * may be the very map the process audit condemned. Throws when it cannot tell.
+ */
+export type ContextMapWrittenThisRun = (specDir: string) => boolean;
+
 export class ContextMapCapturePortAdapter implements ContextMapCapturePort {
   constructor(
     private readonly saveFn: ContextMapSave,
+    private readonly writtenThisRun: ContextMapWrittenThisRun,
     private readonly onError: (err: unknown) => void = (err) =>
       console.warn("[ContextMapCapturePortAdapter] off-path failure, swallowed:", err),
   ) {}
 
   async capture(specDir: string, app: string, sha: string): Promise<void> {
     try {
+      if (!this.writtenThisRun(specDir)) return;
       /* Reuses the SAME read-validate logic PreGenerationGroundingPort's default loadContextMap
        * uses: missing/malformed/invalid all degrade to undefined (never throw, never a partial map). */
       const map = loadContextMapFromDisk(specDir);

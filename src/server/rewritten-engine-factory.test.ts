@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcs
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord, saveContextMap, markContextStale, isContextStale } from "./history";
+import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
@@ -311,27 +312,62 @@ test("buildRewrittenCompositionConfig — a mode:context run never requests its 
   assert.equal(requested, 0);
 });
 
-/* A spec dir holding the given `.qa/context.json` body (or none), under the OS temp dir. */
-function specDirWithContextMap(body: string | undefined): string {
+/* A spec dir in its own git repository under the OS temp dir: `committed` is the `.qa/context.json`
+   the run's base commit holds, `written` the body the run leaves in the working copy (none when
+   absent, so a committed map stays untouched). */
+function specDirWithContextMap(written: string | undefined, committed?: string): string {
   const specDir = mkdtempSync(join(tmpdir(), "qayaba-context-capture-"));
-  if (body !== undefined) {
-    mkdirSync(join(specDir, ".qa"), { recursive: true });
-    writeFileSync(join(specDir, ".qa", "context.json"), body);
-  }
+  const git = (...args: string[]): void => {
+    execFileSync("git", ["-C", specDir, "-c", "user.email=qa@example.invalid", "-c", "user.name=qa", "-c", "commit.gpgsign=false", ...args], { stdio: "ignore" });
+  };
+  git("init", "-q");
+  mkdirSync(join(specDir, ".qa"), { recursive: true });
+  writeFileSync(join(specDir, "README.md"), "e2e\n");
+  if (committed !== undefined) writeFileSync(join(specDir, ".qa", "context.json"), committed);
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  if (written !== undefined) writeFileSync(join(specDir, ".qa", "context.json"), written);
   return specDir;
 }
+
+const CONDEMNED_MAP: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
 
 for (const [label, enqueueContextRun] of [
   ["a wired rebuild trigger", () => "run-heal-1"],
   ["no rebuild trigger (the CLI)", undefined],
 ] as const) {
-  test(`a context run that stores a fresh map disarms the stale flag and grounds the next run, with ${label}`, async () => {
-    const app = cfg(`factory-contextmap-fresh-capture-${Math.random().toString(36).slice(2)}`);
-    const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
-    saveContextMap(app.name, "sha-old", { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] });
+  for (const [written, committedBefore] of [
+    ["a new map", undefined],
+    ["a rewrite of the committed map", JSON.stringify(CONDEMNED_MAP)],
+  ] as const) {
+    test(`a context run that stores ${written} disarms the stale flag and grounds the next run, with ${label}`, async () => {
+      const app = cfg(`factory-contextmap-fresh-capture-${Math.random().toString(36).slice(2)}`);
+      const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
+      saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
+      markContextStale(app.name);
+      const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
+      const specDir = specDirWithContextMap(JSON.stringify(fresh), committedBefore);
+      try {
+        const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+        await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+      } finally {
+        rmSync(specDir, { recursive: true, force: true });
+      }
+
+      assert.equal(isContextStale(app.name), false);
+      const nextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
+      assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
+    });
+  }
+
+  /* A context run that did not write the map leaves the condemned, committed one in the working copy:
+     storing it would re-key the known-bad map at the new sha and disarm the flag that condemned it. */
+  test(`a context run that leaves the committed, condemned map untouched stores nothing and keeps the stale flag armed, with ${label}`, async () => {
+    const app = cfg(`factory-contextmap-untouched-${Math.random().toString(36).slice(2)}`);
+    saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
     markContextStale(app.name);
     const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
-    const specDir = specDirWithContextMap(JSON.stringify(fresh));
+    const specDir = specDirWithContextMap(undefined, JSON.stringify(CONDEMNED_MAP));
     try {
       const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
       await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
@@ -339,9 +375,8 @@ for (const [label, enqueueContextRun] of [
       rmSync(specDir, { recursive: true, force: true });
     }
 
-    assert.equal(isContextStale(app.name), false);
-    const nextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
-    assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
+    assert.equal(isContextStale(app.name), true);
+    assert.equal(loadStoredContextMap(app.name)?.builtAtSha, "sha-old", "the condemned map is not stored again at the new sha");
   });
 }
 

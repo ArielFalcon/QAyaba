@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
 import { readFile } from "node:fs/promises";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
@@ -28,7 +28,7 @@ import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructur
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
-import { ContextMapCapturePortAdapter, type ContextMapSave } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
+import { ContextMapCapturePortAdapter, type ContextMapSave, type ContextMapWrittenThisRun } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter";
 import { Sha, shaMatches } from "@kernel/sha";
 import type { AgentRole } from "@kernel/agent-role";
 import type { RunMode, TestTarget } from "@kernel/run-mode";
@@ -467,6 +467,13 @@ const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
   saveContextMap(app, sha, map);
   clearContextStale(app);
 };
+
+/* The mirror's git status for the spec dir's context map: any entry means this run wrote it. */
+const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
+  execFileSync("git", ["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim() !== "";
 
 /*
  * Ask for a context-map rebuild and disarm the stale flag only once the queue has accepted it. A
@@ -1047,9 +1054,10 @@ export function buildRewrittenCompositionConfig(
      * same reason curriculumPort is: its store is history.ts (src-only; qa-engine may never import
      * it). Wired unconditionally: a clean context-mode pass is the only run that ever invokes it.
      * Storing a fresh map disarms the process audit's stale flag, whoever started the context run
-     * (a heal, a manual or onboarding run, the server or the CLI).
+     * (a heal, a manual or onboarding run, the server or the CLI). Only a map the run wrote is
+     * fresh: a committed map left untouched is neither stored nor disarms the flag.
      */
-    contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap),
+    contextMapCapture: new ContextMapCapturePortAdapter(storeFreshContextMap, contextMapWrittenThisRun),
     ...(observer ? { observer } : {}),
   };
 }

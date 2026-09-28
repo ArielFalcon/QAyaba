@@ -13,13 +13,16 @@ const VALID_CONTEXT_JSON: ArchitectureContext = {
   feBe: [{ route: "/owners", operationId: "getOwners" }],
 };
 
-test("capture(): a valid committed context.json is saved via the injected saveFn, keyed by the deterministic run sha", async () => {
+/* Whether the run wrote the map is decided at the process boundary (the mirror's git status). */
+const WRITTEN_THIS_RUN = (): boolean => true;
+
+test("capture(): a valid context.json the run wrote is saved via the injected saveFn, keyed by the deterministic run sha", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-ctxcapture-valid-"));
   try {
     mkdirSync(join(dir, ".qa"), { recursive: true });
     writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
     const saved: Array<{ app: string; sha: string; data: ArchitectureContext }> = [];
-    const adapter = new ContextMapCapturePortAdapter((app, sha, data) => { saved.push({ app, sha, data }); });
+    const adapter = new ContextMapCapturePortAdapter((app, sha, data) => { saved.push({ app, sha, data }); }, WRITTEN_THIS_RUN);
 
     await adapter.capture(dir, "demo", "deadbeef1");
 
@@ -36,7 +39,7 @@ test("capture(): a missing context.json is a no-op — saveFn is never called, n
   const dir = mkdtempSync(join(tmpdir(), "qa-ctxcapture-missing-"));
   try {
     let saveCallCount = 0;
-    const adapter = new ContextMapCapturePortAdapter(() => { saveCallCount++; });
+    const adapter = new ContextMapCapturePortAdapter(() => { saveCallCount++; }, WRITTEN_THIS_RUN);
 
     await adapter.capture(dir, "demo", "deadbeef1");
 
@@ -52,7 +55,7 @@ test("capture(): a malformed/invalid context.json degrades to a no-op — never 
     mkdirSync(join(dir, ".qa"), { recursive: true });
     writeFileSync(join(dir, ".qa", "context.json"), "{ not valid json");
     let saveCallCount = 0;
-    const adapter = new ContextMapCapturePortAdapter(() => { saveCallCount++; });
+    const adapter = new ContextMapCapturePortAdapter(() => { saveCallCount++; }, WRITTEN_THIS_RUN);
 
     await adapter.capture(dir, "demo", "deadbeef1");
 
@@ -70,6 +73,7 @@ test("capture(): a throwing saveFn is fault-isolated — never escapes, is repor
     let logged: unknown;
     const adapter = new ContextMapCapturePortAdapter(
       () => { throw new Error("db down"); },
+      WRITTEN_THIS_RUN,
       (err) => { logged = err; },
     );
 
@@ -77,6 +81,46 @@ test("capture(): a throwing saveFn is fault-isolated — never escapes, is repor
 
     assert.ok(logged instanceof Error);
     assert.equal((logged as Error).message, "db down");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("capture(): a valid map the run did not write is never saved", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-ctxcapture-untouched-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    const asked: string[] = [];
+    let saveCallCount = 0;
+    const adapter = new ContextMapCapturePortAdapter(() => { saveCallCount++; }, (specDir) => { asked.push(specDir); return false; });
+
+    await adapter.capture(dir, "demo", "deadbeef1");
+
+    assert.deepEqual(asked, [dir], "the spec dir is what is checked");
+    assert.equal(saveCallCount, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("capture(): a map whose origin cannot be told is not saved, and the failure is reported", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-ctxcapture-unknown-"));
+  try {
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
+    let logged: unknown;
+    let saveCallCount = 0;
+    const adapter = new ContextMapCapturePortAdapter(
+      () => { saveCallCount++; },
+      () => { throw new Error("not a git repository"); },
+      (err) => { logged = err; },
+    );
+
+    await assert.doesNotReject(adapter.capture(dir, "demo", "deadbeef1"));
+
+    assert.equal(saveCallCount, 0);
+    assert.match(String(logged), /not a git repository/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
