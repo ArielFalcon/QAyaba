@@ -471,6 +471,7 @@ test("a report numbering criteria outside the brief's 1..N keeps no entry, so no
   ]) {
     const result = await executeWith({ acceptance: [outside, { criterion: 1, status: "met" }, { criterion: 2, status: "met" }] });
     assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", JSON.stringify(outside));
+    assert.ok(result.acceptanceReportDefect?.detail.includes(String(outside.criterion)), "the defect names the number outside the brief's");
     assert.deepEqual(result.acceptance, [], JSON.stringify(outside));
     assert.equal(result.status, "completed-with-concerns", JSON.stringify(outside));
   }

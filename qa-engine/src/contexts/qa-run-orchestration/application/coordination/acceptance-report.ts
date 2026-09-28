@@ -49,10 +49,10 @@ function isUnmet(status: unknown): boolean {
   return typeof status === "string" && status.trim().toLowerCase() === "unmet";
 }
 
-function toEntry({ criterion, status, note }: ReportItem, criteriaCount: number): AcceptanceReportEntry | undefined {
-  if (typeof criterion !== "number" || !Number.isInteger(criterion) || criterion < 1 || criterion > criteriaCount) {
-    return undefined;
-  }
+/* A whole-number criterion and a known status; whether the number is one of the brief's is decided for
+   the report as a whole. */
+function toEntry({ criterion, status, note }: ReportItem): AcceptanceReportEntry | undefined {
+  if (typeof criterion !== "number" || !Number.isInteger(criterion)) return undefined;
   if (typeof status !== "string" || !(ACCEPTANCE_STATUSES as readonly string[]).includes(status)) return undefined;
   return {
     criterion,
@@ -73,16 +73,16 @@ export function readAcceptanceReport(raw: unknown, criteriaCount: number): Accep
   }
   /* A whole number outside 1..criteriaCount means the report numbers the criteria its own way (0-based,
      another list): no entry can be matched to the brief's criterion, so none is kept. */
-  const misnumbered = items.some(
-    ({ criterion }) => Number.isInteger(criterion) && ((criterion as number) < 1 || (criterion as number) > criteriaCount),
-  );
+  const outside = items
+    .map(({ criterion }) => criterion)
+    .filter((criterion) => Number.isInteger(criterion) && ((criterion as number) < 1 || (criterion as number) > criteriaCount));
   const entries: AcceptanceReportEntry[] = [];
   const unmet: string[] = [];
   let malformed = 0;
   for (const item of items) {
-    const entry = toEntry(item, criteriaCount);
+    const entry = toEntry(item);
     if (!entry) malformed += 1;
-    if (entry && !misnumbered) entries.push(entry);
+    if (entry && outside.length === 0) entries.push(entry);
     else if (isUnmet(item.status)) unmet.push(scrub(`criterion ${JSON.stringify(item.criterion)}`));
   }
   const unreported: number[] = [];
@@ -91,6 +91,7 @@ export function readAcceptanceReport(raw: unknown, criteriaCount: number): Accep
   }
   const problems = [
     ...(unreported.length > 0 ? [`criteria not reported: ${unreported.join(", ")}`] : []),
+    ...outside.map((criterion) => `criterion ${criterion} is outside 1..${criteriaCount}`),
     ...(malformed > 0 ? [`malformed entries: ${malformed}`] : []),
     ...unmet.map((claim) => `reported unmet: ${claim}`),
   ];
