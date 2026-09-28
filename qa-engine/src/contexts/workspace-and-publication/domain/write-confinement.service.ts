@@ -2,7 +2,6 @@
 /* Secret env files. Matched against every path segment, not from the root: as gitignore-style
    publish excludes, a pattern without a slash already reaches any depth, and confinement agrees. */
 const ENV_FILE_PATTERNS = [
-  // Stryker disable next-line StringLiteral: equivalent — "*.env" denies ".env" as well
   ".env",
   ".env.*",
   "*.env",
@@ -64,7 +63,6 @@ export class WriteConfinementService {
   private decodeQuotedSegment(inner: string): string {
     const bytes: number[] = [];
     for (let i = 0; i < inner.length; i++) {
-      // Stryker disable next-line StringLiteral: equivalent — i < inner.length, so inner[i] is always defined
       const ch = inner[i] ?? "";
       if (ch !== "\\") {
         const codePoint = inner.codePointAt(i) as number;
@@ -73,7 +71,6 @@ export class WriteConfinementService {
         continue;
       }
       const octal = inner.slice(i + 1, i + 4);
-      // Stryker disable next-line Regex: equivalent — `octal` holds at most three characters, so either anchor alone pins the whole string
       if (/^[0-7]{3}$/.test(octal)) {
         bytes.push(Number.parseInt(octal, 8));
         i += 3;
@@ -87,7 +84,6 @@ export class WriteConfinementService {
       }
       /* Unrecognized escape shape — no known git C-style-quoting escape starts this way. Fail LOUDLY (CLAUDE.md invariant "surface integration errors loudly — never swallow errors into an empty/degraded result") instead of silently keeping the bare backslash, which would hand a corrupted path to the revert git calls and reproduce the same revert-matches-nothing silent bypass this function exists to prevent. enforce()'s caller (RunQaUseCase's enforceConfinement wrapper) already catches, logs loudly, and records this in gateSignals — a throw here is fault-isolated, never a run crash. */
       throw new Error(
-        // Stryker disable next-line ArithmeticOperator,MethodExpression: message detail only — the message always carries the whole quoted segment
         `decodeQuoted: unrecognized escape sequence starting at ${JSON.stringify(inner.slice(i, i + 4))} in quoted path segment ${JSON.stringify(inner)}`,
       );
     }
@@ -95,7 +91,6 @@ export class WriteConfinementService {
   }
 
   decodeGitPath(raw: string): string {
-    // Stryker disable next-line LogicalOperator,MethodExpression,StringLiteral: equivalent — git quotes every path containing `"`, so a raw path has a quote at both ends or at neither
     return raw.startsWith('"') && raw.endsWith('"') ? this.decodeQuotedSegment(raw.slice(1, -1)) : raw;
   }
 
@@ -111,13 +106,10 @@ export class WriteConfinementService {
 
   parseStatusOutput(out: string): ParsedChange[] {
     /* Unquoted paths never contain `"` or `\` (git quotes such paths), and in a well-formed R/C line a
-       quoted old path's closing quote is always followed by " -> "; the directives below mark the
-       mutants those two facts make equivalent. */
+       quoted old path's closing quote is always followed by " -> ". */
     const findArrowSplit = (rest: string): number => {
-      // Stryker disable next-line ConditionalExpression: equivalent — see above
       if (rest[0] === '"') {
         let i = 1;
-        // Stryker disable next-line EqualityOperator: equivalent — rest[rest.length] is undefined and only advances i past the end
         while (i < rest.length) {
           if (rest[i] === "\\") {
             i += 2;
@@ -126,7 +118,6 @@ export class WriteConfinementService {
           if (rest[i] === '"') break;
           i++;
         }
-        // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator,StringLiteral: equivalent — see above
         if (i < rest.length && rest.startsWith(" -> ", i + 1)) return i + 1;
       }
       return rest.indexOf(" -> ");
@@ -134,7 +125,6 @@ export class WriteConfinementService {
     return out
       .split("\n")
       .filter(
-        // Stryker disable next-line EqualityOperator: equivalent — git never emits a status line with an empty path
         (l) => l.length > 3,
       )
       .flatMap((l): ParsedChange[] => {
@@ -142,7 +132,6 @@ export class WriteConfinementService {
         const rest = l.slice(3);
         if (xy[0] === "R" || xy[0] === "C") {
           const arrowIdx = findArrowSplit(rest);
-          // Stryker disable next-line ConditionalExpression: equivalent — an R/C line always contains the arrow
           if (arrowIdx !== -1) {
             const oldPath = this.decodeGitPath(rest.slice(0, arrowIdx));
             const newPath = this.decodeGitPath(rest.slice(arrowIdx + 4));
@@ -162,7 +151,6 @@ export class WriteConfinementService {
 
   isCodeDenied(path: string): boolean {
     /* The backslash→slash normalization is defensive-only: git status output (the only caller's input) is already forward-slashed, so it is a guard for non-git callers, never hit on-path. Lowercase BOTH sides: on a case-insensitive host (.ENV, DOCKERFILE, .GitHub/) the OS treats them as the same file, so the denylist must match them too — comparing raw would let them slip. */
-    // Stryker disable next-line Regex: equivalent — git paths never contain "./" past the start, so the ^ anchor never decides
     const f = path.replace(/^\.\//, "").replace(/\\/g, "/").toLowerCase();
     return CONFINEMENT_DENYLIST.some((entry) => deniedBy(entry, f));
   }
