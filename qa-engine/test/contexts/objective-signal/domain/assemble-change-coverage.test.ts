@@ -50,6 +50,21 @@ test("parseDiffHunks: multiple files and hunks, ignores /dev/null (deleted file)
   assert.deepEqual(lines(parseDiffHunks(diff)), { "a.ts": [1, 2] });
 });
 
+/* With -U0 a pure-deletion hunk declares zero new-side lines, so its removed lines arrive while the
+   parser waits for the next header: they must not rename the file the next hunk belongs to. */
+test("parseDiffHunks: in a -U0 diff, a pure-deletion hunk's removed lines do not rename the file of the next hunk", () => {
+  const diff = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -3 +2,0 @@",
+    "-const removed = true;",
+    "@@ -10,0 +10 @@",
+    "+const added = true;",
+  ].join("\n");
+  assert.deepEqual(lines(parseDiffHunks(diff)), { "src/app.ts": [10] });
+});
+
 test("parseDiffHunks: a NEW file (all-added hunk) numbers lines starting at 1", () => {
   const diff = [
     "diff --git a/new.ts b/new.ts",

@@ -30,11 +30,10 @@ export function parseDiffHunks(diff: string): CoveredLines {
       continue;
     }
     if (newLeft <= 0) {
-      // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent — "+++ " is the last file-header line before "@@", so it overwrites whatever an earlier header line set
+      /* Only the new-side header names the file. A deleted file's reads "+++ /dev/null": its hunks
+         declare zero new-side lines, so that name never receives an added line. */
       if (raw.startsWith("+++ ")) {
-        const p = raw.slice(4).trim();
-        // Stryker disable next-line ConditionalExpression,StringLiteral: equivalent — a deleted file's hunk only removes lines, so it maps nothing under any name
-        file = p === "/dev/null" ? null : p.replace(/^[ab]\//, "").replace(/\t.*/, "");
+        file = raw.slice(4).trim().replace(/^[ab]\//, "").replace(/\t.*/, "");
       }
       continue;
     }
