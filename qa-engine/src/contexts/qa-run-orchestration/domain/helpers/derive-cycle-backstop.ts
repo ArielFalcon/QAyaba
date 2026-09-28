@@ -1,6 +1,6 @@
 /* Regeneration-loop caps. MAX_REVIEW_ROUNDS — reviewer reject→regenerate rounds inside one generateAndReview(). MAX_STATIC_FIX_ROUNDS — static-gate (Filter B) repair rounds (tsc/eslint/list). The derivation and the loops that consume these caps share this source of truth. */
 const MAX_REVIEW_ROUNDS = 2;
-const MAX_STATIC_FIX_ROUNDS = 2;
+export const MAX_STATIC_FIX_ROUNDS = 2;
 
 /* Each generateAndReview() costs at most CYCLES_PER_GENERATE counter ticks: 1 for the entry invocation + up to (MAX_REVIEW_ROUNDS - 1) in-loop review-round regenerations. */
 const CYCLES_PER_GENERATE = 1 + (MAX_REVIEW_ROUNDS - 1);

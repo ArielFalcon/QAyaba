@@ -1374,11 +1374,11 @@ test("serviceLinks string fields pass through the local s() sanitize wrapper (se
   assert.match(text, /REDACTED/, "the sanitize wrapper must have actually redacted the secret pattern");
 });
 
-/* the EXISTING "Cross-service links" section bullets — NOT a new/duplicate subsection. Byte-identical
-   when crossRepoImpact is absent (empty lookup, tierFor always undefined, prefix always ""). ────────
+/* Cross-repo impact is marked inline on the EXISTING "Cross-service links" section bullets — never a
+   new or duplicate subsection. Byte-identical when crossRepoImpact is absent. ────────
  */
 
-test("C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix", () => {
+test("a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix", () => {
   const text = buildPrompt(mkInput({
     serviceLinks: [link1],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
@@ -1391,7 +1391,7 @@ test("C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' pre
   );
 });
 
-test("C-R6(2): no duplicate '### Impacted by this change' (or similarly named) subsection is ever rendered", () => {
+test("no duplicate '### Impacted by this change' (or similarly named) subsection is ever rendered", () => {
   const text = buildPrompt(mkInput({
     serviceLinks: [link1],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
@@ -1402,14 +1402,14 @@ test("C-R6(2): no duplicate '### Impacted by this change' (or similarly named) s
   assert.equal(occurrences, 1, "the Cross-service links section header must render exactly once, never duplicated for the impacted subset");
 });
 
-test("C-R6(3): an empty crossRepoImpact.impactedLinks is byte-identical to the field being entirely absent", () => {
+test("an empty crossRepoImpact.impactedLinks is byte-identical to the field being entirely absent", () => {
   const withEmpty = buildPrompt(mkInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [] } }));
   const withoutField = buildPrompt(mkInput({ serviceLinks: [link1] }));
   assert.equal(withEmpty, withoutField, "an empty impacted set must render byte-identical to the field being entirely absent");
   assert.ok(!withoutField.includes("[IMPACTED:"), "no inline marker may render when crossRepoImpact is absent");
 });
 
-test("C-R6(4): a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix", () => {
+test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix", () => {
   const unmatchedLink = {
     from: { repo: "org/front", file: "src/other.ts", symbol: "getOther" },
     to: { repo: "org/other", file: "src/routes.ts", symbol: "GET /other" },
@@ -1430,7 +1430,7 @@ test("C-R6(4): a link present in serviceLinks but NOT in crossRepoImpact.impacte
   );
 });
 
-test("C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH its marker — impacted links survive truncation", () => {
+test("an impacted link past the MAX_LINKS cut still renders WITH its marker — impacted links survive truncation", () => {
   const filler = Array.from({ length: 44 }, (_, i) => ({
     from: { repo: "org/front", file: `src/f${i}.ts`, symbol: `call${i}` },
     to: { repo: "org/other", file: "src/routes.ts", symbol: `GET /f${i}` },
@@ -1535,7 +1535,7 @@ test("defect 2: GROUND-TRUTH-AT-FAILURE fallback offers getByText only, not CSS/
    gate — the worker builder has no such mode switch (workers always generate).
  */
 
-test("A-R3(1): worker prompt with populated serviceLinks renders the 'Cross-service links' section with from -> to (transport, confidence)", () => {
+test("worker prompt with populated serviceLinks renders the 'Cross-service links' section with from -> to (transport, confidence)", () => {
   const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1] }));
   assert.match(text, /Cross-service links \(deterministic/, "worker prompt must render the section header when serviceLinks is populated");
   assert.match(
@@ -1550,7 +1550,7 @@ test("A-R3(1): worker prompt with populated serviceLinks renders the 'Cross-serv
    ordering and a byte-identical-when-absent guarantee, on ParallelWorkerInput.
  */
 
-test("A-R3-C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix in the worker prompt", () => {
+test("a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]' prefix in the worker prompt", () => {
   const text = buildWorkerPrompt(mkWorkerInput({
     serviceLinks: [link1],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
@@ -1563,7 +1563,7 @@ test("A-R3-C-R6(1): a matched link's EXISTING bullet gets the '[IMPACTED:<tier>]
   );
 });
 
-test("A-R3-C-R6(2): no duplicate '### Impacted by this change' (or similarly named) subsection is ever rendered in the worker prompt", () => {
+test("no duplicate '### Impacted by this change' (or similarly named) subsection is ever rendered in the worker prompt", () => {
   const text = buildWorkerPrompt(mkWorkerInput({
     serviceLinks: [link1],
     crossRepoImpact: { impactedLinks: [{ link: link1, tier: "contract-file" }] },
@@ -1573,14 +1573,14 @@ test("A-R3-C-R6(2): no duplicate '### Impacted by this change' (or similarly nam
   assert.equal(occurrences, 1, "the Cross-service links section header must render exactly once in the worker prompt, never duplicated for the impacted subset");
 });
 
-test("A-R3-C-R6(3): an empty crossRepoImpact.impactedLinks is byte-identical to the field being entirely absent in the worker prompt", () => {
+test("an empty crossRepoImpact.impactedLinks is byte-identical to the field being entirely absent in the worker prompt", () => {
   const withEmpty = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1], crossRepoImpact: { impactedLinks: [] } }));
   const withoutField = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1] }));
   assert.equal(withEmpty, withoutField, "an empty impacted set must render byte-identical to the field being entirely absent");
   assert.ok(!withoutField.includes("[IMPACTED:"), "no inline marker may render when crossRepoImpact is absent");
 });
 
-test("A-R3-C-R6(4): a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix in the worker prompt", () => {
+test("a link present in serviceLinks but NOT in crossRepoImpact.impactedLinks renders with NO marker prefix in the worker prompt", () => {
   const unmatchedLink = {
     from: { repo: "org/front", file: "src/other.ts", symbol: "getOther" },
     to: { repo: "org/other", file: "src/routes.ts", symbol: "GET /other" },
@@ -1601,7 +1601,7 @@ test("A-R3-C-R6(4): a link present in serviceLinks but NOT in crossRepoImpact.im
   );
 });
 
-test("A-R3-C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH its marker in the worker prompt — impacted links survive truncation", () => {
+test("an impacted link past the MAX_LINKS cut still renders WITH its marker in the worker prompt — impacted links survive truncation", () => {
   const filler = Array.from({ length: 44 }, (_, i) => ({
     from: { repo: "org/front", file: `src/f${i}.ts`, symbol: `call${i}` },
     to: { repo: "org/other", file: "src/routes.ts", symbol: `GET /f${i}` },
@@ -1621,24 +1621,24 @@ test("A-R3-C-R6(5): an impacted link past the MAX_LINKS cut still renders WITH i
   );
 });
 
-test("A-R3(2): worker prompt with contractDrift renders the 'Contract drift (WARNINGS' sub-heading", () => {
+test("worker prompt with contractDrift renders the 'Contract drift (WARNINGS' sub-heading", () => {
   const text = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [link1], contractDrift: [drift1] }));
   assert.match(text, /Contract drift \(WARNINGS/, "worker prompt must render the drift sub-heading");
   assert.match(text, /DELETE \/orders\/\{id\}/, "worker prompt must render the drift verb+path");
 });
 
-test("A-R3(3): worker prompt with absent serviceLinks/contractDrift renders NO 'Cross-service links' section", () => {
+test("worker prompt with absent serviceLinks/contractDrift renders NO 'Cross-service links' section", () => {
   const text = buildWorkerPrompt(mkWorkerInput({}));
   assert.ok(!text.includes("Cross-service links"), "worker prompt without serviceLinks/contractDrift must render no section");
 });
 
-test("A-R3(4): worker prompt with empty serviceLinks array is byte-identical to the field being entirely absent", () => {
+test("worker prompt with empty serviceLinks array is byte-identical to the field being entirely absent", () => {
   const withEmpty = buildWorkerPrompt(mkWorkerInput({ serviceLinks: [] }));
   const withoutField = buildWorkerPrompt(mkWorkerInput({}));
   assert.equal(withEmpty, withoutField, "an empty serviceLinks array must be byte-identical to the field being entirely absent");
 });
 
-test("A-R3(5): worker prompt caps serviceLinks at MAX_LINKS (40) and contractDrift at MAX_DRIFT (20)", () => {
+test("worker prompt caps serviceLinks at MAX_LINKS (40) and contractDrift at MAX_DRIFT (20)", () => {
   const manyLinks = Array.from({ length: 45 }, (_, i) => ({
     from: { repo: "org/front", file: "src/api.ts", symbol: `sym${i}` },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: `route${i}` },
@@ -1658,7 +1658,7 @@ test("A-R3(5): worker prompt caps serviceLinks at MAX_LINKS (40) and contractDri
   assert.ok(!text.includes("/path20") && !text.includes("/path24"), "drift entries beyond the 20-cap must be dropped");
 });
 
-test("A-R3(6): worker prompt serviceLinks string fields pass through the local s() sanitize wrapper", () => {
+test("worker prompt serviceLinks string fields pass through the local s() sanitize wrapper", () => {
   const dirtyLink = {
     from: { repo: "org/front", file: "src/api.ts", symbol: "const k = sk-abc123XYZsecretvalue" },
     to: { repo: "org/orders", file: "src/routes.ts", symbol: "GET /orders/:id" },

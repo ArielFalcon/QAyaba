@@ -1,4 +1,4 @@
-/* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
+/* Expected values are the established behavior, built by hand — change them only with a deliberate behavior change, never to silence a failure. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
@@ -68,21 +68,16 @@ function tmpRepo(): string {
   return repo;
 }
 
-test("FROZEN: non-node ecosystem -> valueScore null (legacy behavior, pinned pre-deletion)", async () => {
+test("a non-node project is not measured: no value score and null mutant counts", async () => {
   const repo = tmpRepo();
   try {
     const adapter = new StrykerMutationOracleAdapter(
       deps({ detectCodeProject: () => ({ ecosystem: "python", test: { cmd: "python3", args: ["-m", "pytest"] } }) }),
     );
     const r = await adapter.measure(br, repo, "qa-bot-abc");
-    assert.equal(r.valueScore, null, "FROZEN: non-node ecosystem yields no score");
-    /*
-     * DELIBERATE amendment to the freeze, not a silenced failure: the legacy twin's hardcoded 0/0
-     * for "not measured" was itself the bug this file's own header warns against re-introducing —
-     * it made a scorecard read "0 mutants killed" indistinguishable from a genuine measured zero.
-     * See the sibling batch-O fix that made mutantCount/killedCount null throughout every
-     * not-measured branch of this adapter (and ValueOracleResult itself).
-     */
+    assert.equal(r.valueScore, null, "a non-node ecosystem yields no score");
+    /* "Not measured" is null, never 0/0: a zero would read as "0 mutants killed", indistinguishable
+       from a genuine measured zero. */
     assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
     assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
     assert.match(r.details, /not available/i);
@@ -91,12 +86,12 @@ test("FROZEN: non-node ecosystem -> valueScore null (legacy behavior, pinned pre
   }
 });
 
-test("FROZEN: node ecosystem + parseable Stryker report -> score/100 + killed/mutant (legacy arithmetic, pinned pre-deletion)", async () => {
+test("a node project's Stryker report yields its mutation score as a ratio plus the killed and total mutant counts", async () => {
   const repo = tmpRepo();
   try {
     const adapter = new StrykerMutationOracleAdapter(deps({ spawn: mockSpawn({ exitCode: 0, createReport: true }) }));
     const r = await adapter.measure(br, repo, "qa-bot-abc");
-    assert.equal(r.valueScore, 0.755, "FROZEN: mutationScore/100, matching the legacy report-parse arithmetic");
+    assert.equal(r.valueScore, 0.755, "the report's mutationScore (75.5) as a ratio");
     assert.equal(r.mutantCount, 200);
     assert.equal(r.killedCount, 151);
     assert.match(r.details, /151\/200/);
@@ -105,7 +100,7 @@ test("FROZEN: node ecosystem + parseable Stryker report -> score/100 + killed/mu
   }
 });
 
-test("FROZEN: Stryker spawn error -> valueScore null (legacy behavior, pinned pre-deletion)", async () => {
+test("a Stryker process that cannot start yields no value score and names the spawn failure", async () => {
   const repo = tmpRepo();
   try {
     const adapter = new StrykerMutationOracleAdapter(deps({ spawn: mockSpawn({ error: new Error("ENOENT: stryker not found") }) }));
@@ -117,7 +112,7 @@ test("FROZEN: Stryker spawn error -> valueScore null (legacy behavior, pinned pr
   }
 });
 
-test("FROZEN: BlastRadius.changedFiles scopes the Stryker mutate targets (legacy selectMutateTargets behavior, pinned pre-deletion)", async () => {
+test("Stryker mutates only the blast radius's changed files, not the whole repo", async () => {
   const repo = tmpRepo();
   writeFileSync(join(repo, "src", "changed.ts"), "export const y = 2;");
   try {
@@ -137,7 +132,7 @@ test("FROZEN: BlastRadius.changedFiles scopes the Stryker mutate targets (legacy
     const localBr = BlastRadius.of(sha, ["src/changed.ts"]);
     const adapter = new StrykerMutationOracleAdapter(deps({ spawn: scopingSpawn }));
     await adapter.measure(localBr, repo, "qa-bot-abc");
-    assert.deepEqual(seenMutate, ["src/changed.ts"], "FROZEN: BlastRadius.changedFiles must scope the mutate targets, not the whole repo");
+    assert.deepEqual(seenMutate, ["src/changed.ts"], "BlastRadius.changedFiles must scope the mutate targets, not the whole repo");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

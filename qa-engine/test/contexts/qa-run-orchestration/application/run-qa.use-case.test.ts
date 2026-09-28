@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { Sha } from "@kernel/sha.ts";
 import type {
   ChangeAnalysisPort,
@@ -2342,21 +2343,21 @@ test("a CLEAN context-mode pass does NOT persist (matches the legacy's Flag 3 co
   assert.equal(saveCallCount, 0, "a clean context-mode pass must NOT call runHistory.save() — the legacy's buildContextMap publishes directly via publishContext and returns without persisting");
 });
 
-test("a clean context-mode pass invokes contextMapCapture.capture() with the run's specDir/app/sha, in BOTH shadow and non-shadow modes", async () => {
-  const captured: Array<{ specDir: string; app: string; sha: string }> = [];
-  const { ports } = stubPorts({
-    generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
-    contextMapCapture: { capture: async (specDir, app, sha) => { captured.push({ specDir, app, sha }); } },
-  });
-  const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow: true } });
+/* The stored map is independent of whether a context.json PR opens, so shadow must not suppress it. */
+test("a clean context-mode pass captures the architecture map with the run's specDir, app and sha, in shadow and non-shadow runs", async () => {
+  for (const shadow of [true, false]) {
+    const captured: Array<{ specDir: string; app: string; sha: string }> = [];
+    const { ports } = stubPorts({
+      generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+      contextMapCapture: { capture: async (specDir, app, sha) => { captured.push({ specDir, app, sha }); } },
+    });
+    const useCase = new RunQaUseCase({ ...ports, config: { ...baseConfig, shadow } });
 
-  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-clean-capture", mode: "context" });
+    const out = await useCase.run({ ...baseInput, runId: `context-clean-capture-${shadow ? "shadow" : "live"}`, mode: "context" });
 
-  assert.equal(out.decision.verdict, "pass");
-  assert.equal(captured.length, 1, "contextMapCapture.capture() must be invoked exactly once on a clean context-mode pass — shadow must not suppress it, since the stored map is independent of whether a context.json PR opens");
-  assert.equal(captured[0]!.specDir, "/tmp/qa-golden/e2e");
-  assert.equal(captured[0]!.app, "demo");
-  assert.equal(captured[0]!.sha, "abc1234");
+    assert.equal(out.decision.verdict, "pass", `shadow=${shadow}`);
+    assert.deepEqual(captured, [{ specDir: "/tmp/qa-golden/e2e", app: "demo", sha: "abc1234" }], `shadow=${shadow}: captured once, at the run's own specDir, app and sha`);
+  }
 });
 
 /* The mirror's e2e/.qa/context.json does not survive the next run's checkout, so the durable
@@ -2396,7 +2397,7 @@ test("contextMapCapture is absent by default — no-op, no behavior change on a 
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-capture-absent", mode: "context" });
+  const out = await useCase.run({ ...baseInput, runId: "context-capture-absent", mode: "context" });
 
   assert.equal(out.decision.verdict, "pass");
 });
@@ -2408,7 +2409,7 @@ test("contextMapCapture is NOT invoked on a non-context mode's clean pass — ca
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "batch-f-diff-mode-no-capture" });
+  const out = await useCase.run({ ...baseInput, runId: "diff-mode-no-capture" });
 
   assert.equal(out.decision.verdict, "pass");
   assert.equal(captureCallCount, 0, "a diff-mode (non-context) pass must never invoke contextMapCapture — it is scoped to isContextCleanPass only");
@@ -2423,7 +2424,7 @@ test("contextMapCapture is NOT invoked on a context-mode INVALID result — capt
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "batch-f-context-invalid-no-capture", mode: "context" });
+  const out = await useCase.run({ ...baseInput, runId: "context-invalid-no-capture", mode: "context" });
 
   assert.equal(out.decision.verdict, "invalid");
   assert.equal(captureCallCount, 0, "an invalid context-mode result must never invoke contextMapCapture — only a clean pass reached a validated, publishable map");
@@ -2685,7 +2686,7 @@ test("publish() is called with the coverageBlocks field threaded (not dropped) u
    the mainline publish() call site (the only one that can ever route to "pr") threads both fields.
  */
 
-test("PROD-BLOCKER: publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s own return value on the 'pr' side effect", async () => {
+test("publish() is called with mirrorDir threaded from WorkspacePort.prepare()'s own return value on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2702,7 +2703,7 @@ test("PROD-BLOCKER: publish() is called with mirrorDir threaded from WorkspacePo
   assert.equal(publishedDecision!.mirrorDir, "/mirrors/org/app", "publish() must receive the REAL per-run mirrorDir from WorkspacePort.prepare(), not a dropped/undefined value");
 });
 
-test("PROD-BLOCKER: publish() is called with sha threaded from input.sha on the 'pr' side effect", async () => {
+test("publish() is called with sha threaded from input.sha on the 'pr' side effect", async () => {
   let publishedDecision: { verdict: string; mirrorDir?: string; sha?: string } | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2719,9 +2720,8 @@ test("PROD-BLOCKER: publish() is called with sha threaded from input.sha on the 
 });
 
 test("reviewerApproved on a genuine pass+review call still reflects the INDEPENDENT reviewer's verdict, not generation's", async () => {
-  /* from generation — on a genuine pass verdict with needsReview:true, the independent REVIEW
-     phase's own approved/rejected verdict must win, even when it disagrees with generation's.
-   */
+  /* On a genuine pass with needsReview:true, the independent review phase's own verdict is what
+     gets persisted, even when it disagrees with generation's self-approval. */
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "pass", cases: [], logs: "" }),
@@ -2738,14 +2738,9 @@ test("reviewerApproved on a genuine pass+review call still reflects the INDEPEND
 });
 
 test("a context-mode INVALID result neither saves run history nor folds learning", async () => {
-  /* context-mode invalid-context.json branch calls issueOrShadow() then returns resultOf(ns,
-     "invalid", ...) WITHOUT ever calling persistOutcome — a DIFFERENT "invalid" than the generic
-     static-gate invalid terminalResult covers (this is validateContextFn's own context-specific
-     validation, not the generic ValidationPort gate). This is the SAME no-persist convention as the
-     above) — extended here to context-mode's OWN invalid path, distinct from every OTHER mode's
-     still persists..." test's PRE-EXISTING assertion, now narrowed to non-context-mode invalids only
-     — see the FIX below for how the two are distinguished).
-   */
+  /* A context run whose architecture map fails validation files an Issue and ends without saving
+     run history or folding learning — unlike an invalid in any other mode, which is saved (next
+     test). */
   let saveCallCount = 0;
   let foldCallCount = 0;
   const { ports } = stubPorts({
@@ -2760,7 +2755,7 @@ test("a context-mode INVALID result neither saves run history nor folds learning
 
   assert.equal(out.decision.verdict, "invalid");
   assert.equal(saveCallCount, 0, "a context-mode invalid (validateContextFn's own context-specific validation) must NOT call runHistory.save() — a context-mode invalid files an Issue but is never saved");
-  assert.equal(foldCallCount, 0, "a context-mode invalid must NOT call learning.fold() either — the legacy's early return never reaches foldRunLearning at all");
+  assert.equal(foldCallCount, 0, "a context-mode invalid must NOT call learning.fold() either");
 });
 
 test("a GENERIC (non-context-mode) invalid is still saved to run history exactly once", async () => {
@@ -2803,7 +2798,7 @@ test("a failing static gate is repaired by regenerating with the validation erro
   assert.equal(out.gateSignals.retries, 1, "matches the legacy static-repair loop's own retries++ per repair round — 1 repair round consumed");
 });
 
-test("the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static gate that never recovers still resolves to invalid, not an infinite loop", async () => {
+test("the static-fix loop is bounded — a static gate that never recovers resolves to invalid after the last repair round", async () => {
   let validateCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
@@ -2814,9 +2809,9 @@ test("the static-fix loop is bounded by MAX_STATIC_FIX_ROUNDS (2) — a static g
 
   const out = await useCase.run({ ...baseInput, runId: "static-repair-bound" });
 
-  assert.equal(out.decision.verdict, "invalid", "a static gate still red after the repair budget is exhausted must resolve to invalid, matching the legacy's own bounded loop");
-  assert.equal(validateCallCount, 1 + 2, "MAX_STATIC_FIX_ROUNDS=2 means exactly 1 initial validate() + 2 repair-round re-validates (3 total) — never an unbounded loop");
-  assert.equal(generateCallCount, 1 + 2, "exactly 2 repair regenerations on top of the initial generate() call — bounded, not unbounded");
+  assert.equal(out.decision.verdict, "invalid", "a static gate still red after the repair budget is exhausted must resolve to invalid");
+  assert.equal(validateCallCount, 1 + MAX_STATIC_FIX_ROUNDS, "one initial validate() plus one re-validate per repair round");
+  assert.equal(generateCallCount, 1 + MAX_STATIC_FIX_ROUNDS, "one repair regeneration per round on top of the initial generate()");
 });
 
 test("the static-fix loop is SKIPPED entirely when generation produced zero specs (nothing to repair)", async () => {
@@ -5151,7 +5146,7 @@ test("anti-inert companion: with the serviceLinks collaborator OMITTED, the REAL
    triggers the composition"). ──────────────────────────────────────────────────────────────────
  */
 
-test("C-R5(A): a wired crossRepoImpact port is invoked when triggerRepo is present and a resolvedServiceLinks entry matches it; result reaches baseEnrichment + telemetry", async () => {
+test("a cross-repo run whose trigger matches a resolved service link asks the crossRepoImpact port, and the impact reaches generation and telemetry", async () => {
   const link: ServiceLink = {
     from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" },
     to: { repo: "org/orders-svc", file: "src/routes.ts", symbol: "getOrder" },
@@ -5191,7 +5186,7 @@ test("C-R5(A): a wired crossRepoImpact port is invoked when triggerRepo is prese
   assert.equal(out.outcome?.gateSignals.crossRepoImpactedCount, 1, "crossRepoImpactedCount telemetry must reflect impactedLinks.length");
 });
 
-test("C-R7 companion (C-R5(B)): a same-repo run (no input.triggerRepo) never invokes the crossRepoImpact port at all", async () => {
+test("a same-repo run (no input.triggerRepo) never invokes the crossRepoImpact port at all", async () => {
   let resolveCallCount = 0;
   const crossRepoImpact: CrossRepoImpactPort = {
     resolve: async () => { resolveCallCount++; return null; },

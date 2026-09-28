@@ -568,11 +568,21 @@ test("multi-repo: explorer:undefined (not configured) + services.length>0 auto-w
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
 });
 
+/* With the explorer off, the rest of pre-generation grounding stays in place: the authDir-backed DOM
+   capture and the DB-first context map. */
+function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof buildRewrittenCompositionConfig>): void {
+  const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
+  assert.ok(domDeps, "a DOM capture is wired");
+  assert.notEqual(domDeps, defaultCaptureDomDeps, "the DOM capture is the authDir-backed one");
+  saveContextMap(app.name, "abc1234", { builtAtSha: "abc1234", routes: [{ path: "/stored" }], api: [], feBe: [] });
+  assert.deepEqual(config.groundingCollaborators?.loadContextMap?.("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/stored" }], "the stored context map still grounds");
+}
+
 test("multi-repo: explorer:undefined (not configured) + empty services[] stays opt-in (no exploreBrief)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
@@ -580,7 +590,7 @@ test("multi-repo: explorer:undefined (not configured) + undefined services stays
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
@@ -588,14 +598,14 @@ test("explorer:false explicitly wins over services.length>0 — an explicit fals
   const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(Object.keys(config.groundingCollaborators ?? {}), ["contextPackDeps", "loadContextMap"], "no exploreBrief, but contextPackDeps + loadContextMap stay wired (authDir-aware DOM capture; DB-first context-map lookup)");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {

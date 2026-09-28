@@ -96,12 +96,10 @@ import { checkPreExecGrounding, checkPersistingAmbiguity } from "../domain/pre-e
 import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
+import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
-
-/* Static-gate repair-round bound. */
-const MAX_STATIC_FIX_ROUNDS = 2;
 
 /* Caps static-gate error text in the repair regen prompt. */
 const STATIC_GATE_ERROR_DETAIL_MAX_CHARS = 4000;
@@ -1767,8 +1765,9 @@ export class RunQaUseCase {
      */
     await enforceConfinement();
     /*
-     * A clean context-mode pass must not persist or fold. Other context outcomes
-     * (e.g. context-invalid) still persist+fold.
+     * A clean context-mode pass neither persists nor folds: it produced an architecture map, not
+     * tests. A context run whose map failed validation already ended through terminalResult,
+     * without persisting or folding either.
      */
     const isContextCleanPass = input.mode === "context" && decision.verdict === "pass";
     /*
