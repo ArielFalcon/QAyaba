@@ -313,6 +313,20 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
+  it("both qa-generator.md copies ask for specs as suite-relative paths, the same ones specMetas names", () => {
+    for (const rel of ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"]) {
+      const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
+      const example = /```json\n([\s\S]*?)\n```/.exec(finalOutput)?.[1];
+      assert.ok(example, `${rel}: the Final output section carries a JSON example`);
+      const verdict = JSON.parse(example) as { specs: string[]; specMetas: Array<{ file: string }> };
+      assert.ok(verdict.specs.length > 0, `${rel}: the example reports at least one spec`);
+      for (const spec of verdict.specs) {
+        assert.match(spec, /^[^./][^\\]*\/[^/]+\.spec\.ts$/, `${rel}: "${spec}" must be a path under e2e/, not a bare name`);
+      }
+      assert.deepEqual(verdict.specMetas.map((m) => m.file), verdict.specs, `${rel}: specMetas[].file names the same paths`);
+    }
+  });
+
   it("AGENTS.md Global rules section matches between agents/ and agent/", () => {
     const codexAgents = parseSections(readFile("agent/AGENTS.md"));
     const opencodeAgents = parseSections(readFile("agents/AGENTS.md"));

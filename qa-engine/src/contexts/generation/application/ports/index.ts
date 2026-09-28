@@ -22,7 +22,8 @@ export interface ReviewJudgment {
   issues: string[];
 }
 export interface VerdictParserPort {
-  parseGenerator(text: string): GeneratorDeliverable;
+  /* With the run's specDir, a bare spec file name the agent reported resolves to the one suite spec of that name (suite-relative); without it, names are kept as reported. */
+  parseGenerator(text: string, specDir?: string): GeneratorDeliverable;
   parseReview(text: string): ReviewJudgment;
 }
 

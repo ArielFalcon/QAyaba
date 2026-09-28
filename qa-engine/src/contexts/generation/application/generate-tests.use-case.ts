@@ -74,10 +74,11 @@ export class GenerateTestsUseCase {
       await session.dispose();
     }
 
-    const deliverable = verdicts.parseGenerator(generatorOutput);
+    /* Spec paths are suite-relative (as the runner reports failing files); a code-target run has no suite dir to resolve names against. */
+    const specDir = `${input.mirrorDir}/${input.e2eRelDir}`;
+    const deliverable = verdicts.parseGenerator(generatorOutput, input.target === "code" ? undefined : specDir);
 
     /* A spec in specs[] with no specMetas[] entry gets no manifest row — silent, because the spec file is what execution needs. */
-    const specDir = `${input.mirrorDir}/${input.e2eRelDir}`;
     const changeType = input.intent?.type ?? "unknown";
     const rawEntries: ManifestEntry[] = (deliverable.specMetas ?? []).map((m) => ({
       id: m.flow,

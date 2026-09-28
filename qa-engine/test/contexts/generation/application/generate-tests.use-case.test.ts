@@ -5,6 +5,10 @@ import type { GenerationPorts } from "@contexts/generation/application/generate-
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildPromptAssembled,
   buildWorkerPromptAssembled,
@@ -898,4 +902,42 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
   assert.ok(typeof entry?.changeRef === "object" && entry.changeRef !== null, "changeRef: present");
   assert.ok(typeof entry?.changeRef?.sha === "string" && entry.changeRef.sha.length > 0, "changeRef.sha: non-empty string");
   assert.ok(typeof entry?.changeRef?.type === "string" && entry.changeRef.type.length > 0, "changeRef.type: non-empty string");
+});
+
+/* The generator reports "login.spec.ts" for the spec it wrote at e2e/flows/login.spec.ts. */
+async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "generate-suite-paths-"));
+  try {
+    mkdirSync(join(mirrorDir, "e2e", "flows"), { recursive: true });
+    writeFileSync(join(mirrorDir, "e2e", "flows", "login.spec.ts"), "export {};\n");
+    const ports: GenerationPorts = {
+      runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"specs":["login.spec.ts"]}' }), dispose: () => {} }) },
+      rendering: {
+        render: () => "",
+        renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+        renderWorker: () => ({ text: "", sectionSizes: {} }),
+        renderReviewer: () => ({ text: "", sectionSizes: {} }),
+        renderExplorer: () => "",
+        specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+      },
+      verdicts: new VerdictParserAdapter({
+        parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"] }),
+        parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+      }),
+      manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+      budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    };
+    const out = await new GenerateTestsUseCase(ports).generate({
+      repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
+      needsReview: false, target, mode: "diff", appName: "a",
+    });
+    return out.specs;
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+}
+
+test("an e2e generation reports its specs as suite-relative paths; a code generation keeps the names it was given", async () => {
+  assert.deepEqual(await reportedSpecsFor("e2e"), ["flows/login.spec.ts"]);
+  assert.deepEqual(await reportedSpecsFor("code"), ["login.spec.ts"]);
 });

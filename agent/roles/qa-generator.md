@@ -191,9 +191,9 @@ End with a single JSON block, with no text after it:
 
 ```json
 {
-  "specs": ["login.spec.ts"],
+  "specs": ["flows/login.spec.ts"],
   "specMetas": [
-    { "file": "login.spec.ts", "flow": "user-login", "objective": "given valid credentials, the dashboard is visible after login", "targets": ["AuthService.login"] }
+    { "file": "flows/login.spec.ts", "flow": "user-login", "objective": "given valid credentials, the dashboard is visible after login", "targets": ["AuthService.login"] }
   ],
   "note": ""
 }
@@ -202,7 +202,9 @@ End with a single JSON block, with no text after it:
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
   separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
   here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
-- `specs`: names of the files you wrote/updated in `e2e/`. An EMPTY list is a valid no-op (nothing
-  in this change is worth an E2E test) — never invent tests to fill it.
+- `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
+  for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
+  `specMetas[].file` uses the same path. An EMPTY list is a valid no-op (nothing in this change is
+  worth an E2E test) — never invent tests to fill it.
 - `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
   only"), otherwise "".

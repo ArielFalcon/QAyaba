@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 
 test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
@@ -68,4 +71,55 @@ test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] =
   const d = adapter.parseGenerator("garbage");
   assert.equal(d.parsed, false);     /* a parse miss is NOT a deliberate no-op — the use-case branches on this */
   assert.deepEqual(d.specs, []);     /* undefined specs default to [] (fail-closed, never undefined) */
+});
+
+/* A suite on disk (the e2e/ spec dir) holding the given suite-relative files, under the OS temp dir. */
+function suiteWith(files: string[]): string {
+  const specDir = mkdtempSync(join(tmpdir(), "verdict-suite-"));
+  for (const file of files) {
+    mkdirSync(dirname(join(specDir, file)), { recursive: true });
+    writeFileSync(join(specDir, file), "export {};\n");
+  }
+  return specDir;
+}
+
+/* The generator reported `specs`, each with a specMetas entry naming the same file. */
+function reporting(specs: string[]): VerdictParserAdapter {
+  return new VerdictParserAdapter({
+    parseVerdict: () => ({ parsed: true, approved: true, specs, specMetas: specs.map((file) => ({ file, flow: `flow-${file}`, objective: "o", targets: [] })) }),
+    parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+  });
+}
+
+function reportedPaths(specs: string[], suite: string[] | undefined): { specs: string[]; metaFiles: (string | undefined)[] } {
+  const specDir = suite ? suiteWith(suite) : undefined;
+  try {
+    const d = reporting(specs).parseGenerator("verdict text", specDir);
+    return { specs: d.specs, metaFiles: (d.specMetas ?? []).map((m) => m.file) };
+  } finally {
+    if (specDir) rmSync(specDir, { recursive: true, force: true });
+  }
+}
+
+test("a bare spec name resolves to the one suite spec of that name, in specs and specMetas", () => {
+  const { specs, metaFiles } = reportedPaths(["login.spec.ts"], ["flows/login.spec.ts", "flows/cart.spec.ts"]);
+  assert.deepEqual(specs, ["flows/login.spec.ts"]);
+  assert.deepEqual(metaFiles, ["flows/login.spec.ts"]);
+});
+
+test("a bare spec name that several suite specs share is kept as reported", () => {
+  assert.deepEqual(reportedPaths(["login.spec.ts"], ["user/login.spec.ts", "admin/login.spec.ts"]).specs, ["login.spec.ts"]);
+});
+
+test("a suite-relative path, a root-level spec and an unknown name are kept as reported", () => {
+  const reported = ["flows/login.spec.ts", "home.spec.ts", "missing.spec.ts"];
+  assert.deepEqual(reportedPaths(reported, ["flows/login.spec.ts", "home.spec.ts", "flows/home.spec.ts"]).specs, reported);
+});
+
+test("specs inside installed packages never make a bare name ambiguous", () => {
+  assert.deepEqual(reportedPaths(["login.spec.ts"], ["flows/login.spec.ts", "node_modules/pkg/login.spec.ts"]).specs, ["flows/login.spec.ts"]);
+});
+
+test("without a spec dir (code target) reported names are kept as they are", () => {
+  assert.deepEqual(reportedPaths(["login.spec.ts"], undefined).specs, ["login.spec.ts"]);
 });
