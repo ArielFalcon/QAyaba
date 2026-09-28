@@ -101,6 +101,13 @@ test("isProtectedPath protects a path however its separators and leading ./ are 
   }
 });
 
+/* Only a leading ./ spells the repo root; past the start it belongs to a directory's name, so the path
+   is not the protected file it would spell without it. */
+test("isProtectedPath keeps a ./ past the start of a path as part of the name", () => {
+  assert.equal(isProtectedPath("Docker./file"), false);
+  assert.equal(isProtectedPath("./Docker./file"), false);
+});
+
 test("isSecuritySensitiveSurface recognizes the surface however the path is spelled", () => {
   const file = "qa-engine/src/contexts/workspace-and-publication/domain/new-module.ts";
   for (const spelling of [file, `./${file}`, `.//${file}`, `.\\${file.replace(/\//g, "\\")}`]) {

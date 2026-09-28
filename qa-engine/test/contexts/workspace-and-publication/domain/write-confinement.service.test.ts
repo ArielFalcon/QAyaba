@@ -231,6 +231,12 @@ test("isCodeDenied normalizes a leading ./ and backslash separators before match
   assert.equal(svc.isCodeDenied(".github\\workflows\\ci.yml"), true);
 });
 
+/* Only a leading ./ is a spelling of the repo root; past the start it belongs to a segment's name. */
+test("isCodeDenied keeps a ./ past the start of a path: a file under a directory named .env. is denied", () => {
+  assert.equal(svc.isCodeDenied("e2e/.env./secrets"), true);
+  assert.equal(svc.isCodeDenied("./e2e/.env./secrets"), true);
+});
+
 test("isCodeDenied: an exact entry denies only that path and a wildcard entry only its own prefix", () => {
   assert.equal(svc.isCodeDenied("Dockerfile"), true);
   assert.equal(svc.isCodeDenied("dockerfiles/README.md"), false);
