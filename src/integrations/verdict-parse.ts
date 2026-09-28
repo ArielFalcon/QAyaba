@@ -69,14 +69,19 @@ export function isClosingVerdict(o: Record<string, unknown>): boolean {
 
 /*
  * Last balanced object with `specs` or `approved`. A missing `approved` is not a rejection
- * (the reviewer is the gate); no parseable block is fail-closed with parsed:false.
+ * (the reviewer is the gate); no parseable block — or one listing a spec that is not a path
+ * string — is fail-closed with parsed:false.
  */
 export function parseVerdict(text: string): FinalVerdict {
   const o = lastJsonMatching(text, isClosingVerdict);
+  const specs: unknown[] = Array.isArray(o?.specs) ? o.specs : [];
+  if (specs.some((spec) => typeof spec !== "string")) {
+    return { approved: false, specs: [], note: "the agent's verdict lists a spec that is not a path string", parsed: false };
+  }
   if (o) {
     return {
       approved: typeof o.approved === "boolean" ? o.approved : true,
-      specs: Array.isArray(o.specs) ? (o.specs as string[]) : [],
+      specs: specs as string[],
       specMetas: parseSpecMetas(o.specMetas),
       note: typeof o.note === "string" ? o.note : undefined,
       parsed: true,
