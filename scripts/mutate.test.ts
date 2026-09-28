@@ -9,6 +9,8 @@ import {
   checkerTsconfigFor,
   clearPreviousReport,
   concurrencyFor,
+  FREE_CPUS,
+  MAX_WORKERS,
   runOptionsFrom,
   sourcePathOf,
   summarize,
@@ -143,23 +145,33 @@ test("a run starts without the preset's previous report, so a failed run never p
 
 const plain: MutationPreset = { description: "x", mutate: ["src/a.ts"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } };
 
-test("a run uses at most 8 workers and leaves two CPUs free, never fewer than one worker", () => {
-  assert.equal(concurrencyFor(plain, {}, 10), 8);
-  assert.equal(concurrencyFor(plain, {}, 12), 8);
-  assert.equal(concurrencyFor(plain, {}, 6), 4);
-  assert.equal(concurrencyFor(plain, {}, 2), 1);
+test("a run never starts more than the worker cap, however many CPUs the machine has", () => {
+  for (const cpus of [MAX_WORKERS + FREE_CPUS, MAX_WORKERS + FREE_CPUS + 1, 64]) {
+    assert.equal(concurrencyFor(plain, {}, cpus), MAX_WORKERS, `${cpus} CPUs`);
+  }
+});
+
+test("below the cap a run uses every CPU but the ones it leaves free, and never fewer than one worker", () => {
+  for (let cpus = 1; cpus <= MAX_WORKERS + FREE_CPUS; cpus++) {
+    const workers = concurrencyFor(plain, {}, cpus);
+    assert.ok(workers >= 1, `${cpus} CPUs: at least one worker`);
+    assert.ok(workers <= Math.max(1, cpus - FREE_CPUS), `${cpus} CPUs: ${FREE_CPUS} left free`);
+  }
+  const busiest = MAX_WORKERS + FREE_CPUS - 1;
+  assert.equal(concurrencyFor(plain, {}, busiest), busiest - FREE_CPUS, "every CPU not left free gets a worker");
 });
 
 test("a preset's own concurrency caps the workers, and --concurrency overrides every preset", () => {
+  const bigMachine = MAX_WORKERS + FREE_CPUS;
   const capped: MutationPreset = { ...plain, concurrency: 2 };
-  assert.equal(concurrencyFor(capped, {}, 10), 2);
-  assert.equal(concurrencyFor(capped, {}, 3), 1, "the cap never raises the machine default");
-  assert.equal(concurrencyFor(capped, { concurrency: 5 }, 10), 5);
-  assert.equal(concurrencyFor(plain, { concurrency: 1 }, 10), 1);
+  assert.equal(concurrencyFor(capped, {}, bigMachine), 2);
+  assert.equal(concurrencyFor(capped, {}, FREE_CPUS + 1), 1, "the cap never raises the machine default");
+  assert.equal(concurrencyFor(capped, { concurrency: 5 }, bigMachine), 5);
+  assert.equal(concurrencyFor(plain, { concurrency: 1 }, bigMachine), 1);
 });
 
 test("the write-confinement preset, whose tests spawn git, runs with fewer workers than the default", () => {
-  assert.ok(concurrencyFor(PRESETS["write-confinement"]!, {}, 10) < concurrencyFor(plain, {}, 10));
+  assert.ok(concurrencyFor(PRESETS["write-confinement"]!, {}, MAX_WORKERS + FREE_CPUS) < concurrencyFor(plain, {}, MAX_WORKERS + FREE_CPUS));
 });
 
 test("--concurrency=N sets the worker count without being read as the preset name; a bad value is ignored", () => {

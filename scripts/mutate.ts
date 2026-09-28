@@ -188,10 +188,14 @@ const SANDBOX_IGNORE = [
   "reports",
 ];
 
-/* At most 8 workers, two CPUs left free, at least one; a preset's own cap lowers it, the CLI flag overrides both. */
+/* The most Stryker workers a run starts by default, and the CPUs it leaves to the rest of the machine. */
+export const MAX_WORKERS = 8;
+export const FREE_CPUS = 2;
+
+/* At most MAX_WORKERS workers, FREE_CPUS CPUs left free, at least one; a preset's own cap lowers it, the CLI flag overrides both. */
 export function concurrencyFor(preset: MutationPreset, opts: { concurrency?: number }, cpus: number): number {
   if (opts.concurrency !== undefined) return opts.concurrency;
-  const machine = Math.max(1, Math.min(8, cpus - 2));
+  const machine = Math.max(1, Math.min(MAX_WORKERS, cpus - FREE_CPUS));
   return preset.concurrency === undefined ? machine : Math.min(machine, preset.concurrency);
 }
 
