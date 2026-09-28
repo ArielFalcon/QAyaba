@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
@@ -648,4 +648,64 @@ test("agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts,
   assert.equal(survivors.length, 1, "exactly the newer row must survive");
   assert.equal(survivors[0]!.ts, newerSameDay, "the surviving row must be the newer-same-day one");
   db.close();
+});
+
+/* A DB created before the efficiency columns existed: opening it must add every efficiency column
+   exactly once (however many times it is opened), leave the pre-existing row valid, and read NULL for
+   each new column — never a fabricated zero. Each open uses a fresh module instance (the store keeps
+   its handle in module state) pointed at the legacy file through HISTORY_DB_PATH. */
+test("opening a pre-existing agent_turns table twice adds each efficiency column once and old rows read NULL", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-agent-turns-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+
+  const legacy = new Database(legacyPath);
+  legacy.exec(`
+    CREATE TABLE agent_turns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      round INTEGER NOT NULL DEFAULT 0,
+      is_repair INTEGER NOT NULL DEFAULT 0,
+      ts TEXT NOT NULL,
+      objective TEXT,
+      prompt_text TEXT NOT NULL,
+      output_text TEXT NOT NULL,
+      prompt_bytes INTEGER NOT NULL DEFAULT 0,
+      tokens_input INTEGER,
+      tokens_output INTEGER,
+      tokens_reasoning INTEGER,
+      tokens_cache_read INTEGER,
+      tokens_cache_write INTEGER,
+      cost REAL
+    );
+  `);
+  legacy
+    .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
+    .run("run-legacy", "sess-legacy", "qa-generator", "2026-09-01T00:00:00.000Z", "old prompt", "old output");
+  legacy.close();
+
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  for (const open of ["first", "second"]) {
+    const store = (await import(new URL(`./history.ts?open=${open}`, import.meta.url).href)) as typeof import("./history");
+    const turns = store.getAgentTurns("run-legacy");
+    assert.equal(turns.length, 1, `the pre-existing row is still readable on the ${open} open`);
+    assert.equal(turns[0]!.outputText, "old output");
+  }
+
+  const inspect = new Database(legacyPath, { readonly: true });
+  t.after(() => inspect.close());
+  const columns = (inspect.prepare("PRAGMA table_info(agent_turns)").all() as Array<{ name: string }>).map((c) => c.name);
+  const row = inspect.prepare("SELECT * FROM agent_turns WHERE run_id = 'run-legacy'").get() as Record<string, unknown>;
+  for (const { name } of AGENT_TURN_EFFICIENCY_COLUMNS) {
+    assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
+    assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
+  }
 });

@@ -582,7 +582,7 @@ export class RunQaUseCase {
           workspace.specDir,
           signal,
           classificationDiff,
-          { sha: input.sha.toString(), ...(classificationIntent ? { intent: classificationIntent } : {}) },
+          { sha: input.sha.toString(), ...(classificationIntent ? { intent: classificationIntent } : {}), runId: input.runId },
         );
         groundingContextPack = grounding.contextPack;
         groundingExistingSpecFiles = grounding.existingSpecFiles;

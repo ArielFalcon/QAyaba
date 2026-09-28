@@ -38,6 +38,8 @@ export interface PreGenerationGroundingCollaborators {
     signal?: AbortSignal;
     sha: string;
     intent?: CommitIntent;
+    /** Threaded from ground()'s own opts.runId (design D13/1.9) — absent when the caller has none. */
+    runId?: string;
   }) => Promise<ExplorationBrief | undefined>;
 }
 
@@ -129,7 +131,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
-  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent }): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent; runId?: string }): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
     const result: GroundingResult = {};
@@ -182,6 +184,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           ...(diff !== undefined ? { diff } : {}),
           ...(signal ? { signal } : {}),
           ...(opts?.intent ? { intent: opts.intent } : {}),
+          ...(opts?.runId ? { runId: opts.runId } : {}),
         });
       } catch (err) {
         console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

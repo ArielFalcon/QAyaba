@@ -46,7 +46,46 @@ test("explore(): opens an explorer session, sends the built prompt, and parses t
   assert.deepEqual(brief, { builtForSha: "deadbeef", objective: "orders", blastRadius: [] });
   assert.equal(disposed, true, "dispose must run on the success path");
   assert.match(promptSeen, /deadbeef/, "the built prompt must carry the given sha");
-  assert.deepEqual(opens, [{ role: "explorer", cwd: "/mirrors/org__demo", opts: { timeoutMs: 60_000, descriptor: { role: "qa-explorer" } } }]);
+  assert.deepEqual(opens, [
+    { role: "explorer", cwd: "/mirrors/org__demo", opts: { timeoutMs: 60_000, descriptor: { role: "qa-explorer", liveObservation: false } } },
+  ]);
+});
+
+test("explore(): tags the session descriptor with the given runId so the explorer's turns persist attributed to the run (design D13/1.9)", async () => {
+  const opens: unknown[] = [];
+  const session: AgentSession = {
+    prompt: async () => ({ output: '{"builtForSha":"deadbeef","objective":"orders","blastRadius":[]}' }),
+    dispose: async () => {},
+  };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session, opens),
+    parseBrief: (text) => (text.includes("deadbeef") ? { builtForSha: "deadbeef", objective: "orders", blastRadius: [] } : null),
+  });
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef", runId: "run-abc123" });
+
+  assert.deepEqual((opens[0] as { opts: { descriptor: { runId?: string } } }).opts.descriptor, {
+    role: "qa-explorer",
+    runId: "run-abc123",
+    liveObservation: false,
+  });
+});
+
+test("explore(): with no runId, the descriptor omits it (never fabricated)", async () => {
+  const opens: unknown[] = [];
+  const session: AgentSession = {
+    prompt: async () => ({ output: '{"builtForSha":"deadbeef","objective":"orders","blastRadius":[]}' }),
+    dispose: async () => {},
+  };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session, opens),
+    parseBrief: (text) => (text.includes("deadbeef") ? { builtForSha: "deadbeef", objective: "orders", blastRadius: [] } : null),
+  });
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  const descriptor = (opens[0] as { opts: { descriptor: Record<string, unknown> } }).opts.descriptor;
+  assert.equal("runId" in descriptor, false);
 });
 
 test("explore(): a session that throws on open resolves to undefined (fail-open), never propagates", async () => {

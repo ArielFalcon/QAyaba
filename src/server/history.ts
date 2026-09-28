@@ -46,6 +46,25 @@ export interface AgentTurnRecord {
   cost: number | null;
 }
 
+/*
+ * The 10 nullable per-turn efficiency columns (design D11): the proposal's 8
+ * plus prompt_provided_read_count and call_buckets (a JSON-encoded
+ * Record<CallBucket, number> TEXT blob, like run_outcomes.gate_signals).
+ * `exhausted` is a nullable 0/1: NULL means "unknown", never false.
+ */
+export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: "INTEGER" | "TEXT" }> = [
+  { name: "total_calls", type: "INTEGER" },
+  { name: "steps_used", type: "INTEGER" },
+  { name: "max_steps", type: "INTEGER" },
+  { name: "calls_before_first_write", type: "INTEGER" },
+  { name: "write_count", type: "INTEGER" },
+  { name: "redundant_read_count", type: "INTEGER" },
+  { name: "duplicate_call_count", type: "INTEGER" },
+  { name: "prompt_provided_read_count", type: "INTEGER" },
+  { name: "exhausted", type: "INTEGER" },
+  { name: "call_buckets", type: "TEXT" },
+];
+
 const DELETE_MAX_AGE_DAYS = 30;
 
 let db!: Database.Database;
@@ -281,6 +300,18 @@ function ensureDb(): void {
   }
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
+  }
+  /*
+   * agent-efficiency-metrics (design D11): every agent_turns efficiency column
+   * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
+   * column list has a single source of truth. All are nullable: they stay NULL
+   * for a pre-existing row and for any runtime that cannot supply them (Codex
+   * leaves steps_used/max_steps/exhausted NULL, D3) — never a fabricated value.
+   */
+  for (const { name, type } of AGENT_TURN_EFFICIENCY_COLUMNS) {
+    if (!columnExists("agent_turns", name)) {
+      db.exec(`ALTER TABLE agent_turns ADD COLUMN ${name} ${type}`);
+    }
   }
   /*
    * "pending" is a retired rule status an older build could have written. Every retrieval and

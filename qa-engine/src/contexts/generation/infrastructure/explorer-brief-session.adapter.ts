@@ -54,6 +54,10 @@ export interface ExploreBriefArgs {
   signal?: AbortSignal;
   sha: string;
   intent?: CommitIntent;
+  /** Threaded from RunQaInput.runId (design D13/1.9) so the explorer's own
+   *  turns persist attributed to this run. Never fabricated — absent when
+   *  the caller has no run context. */
+  runId?: string;
 }
 
 /**
@@ -73,7 +77,17 @@ export class ExplorerBriefSessionAdapter {
       session = await this.deps.runtime.openSession("explorer", cwd, {
         ...(args.signal ? { signal: args.signal } : {}),
         timeoutMs: this.ctx.timeoutMs,
-        descriptor: { role: "qa-explorer" },
+        /*
+         * liveObservation: false (design D13/R1) — the explorer's turns persist
+         * (tagged with runId below) but its session must NOT be SSE-registered:
+         * that would feed the 180s stall watchdog and change its liveness
+         * window relative to today's behavior, a change out of scope here.
+         */
+        descriptor: {
+          role: "qa-explorer",
+          ...(args.runId ? { runId: args.runId } : {}),
+          liveObservation: false,
+        },
       });
       const build = this.deps.buildPrompt ?? buildExplorerPrompt;
       const prompt = build({

@@ -485,7 +485,7 @@ export interface PreGenerationGroundingPort {
     specDir: string,
     signal?: AbortSignal,
     diff?: string,
-    opts?: { sha: string; intent?: CommitIntent },
+    opts?: { sha: string; intent?: CommitIntent; runId?: string },
   ): Promise<GroundingResult>;
 }
 

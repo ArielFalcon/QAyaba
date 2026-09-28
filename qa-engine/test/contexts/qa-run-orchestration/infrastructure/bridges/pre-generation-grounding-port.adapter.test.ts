@@ -749,3 +749,45 @@ test("ground(): exploreBrief receives sha and intent from the optional opts bag"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ground(): forwards runId from opts to exploreBrief, so the explorer's turns can be tagged with it (design 1.9)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-runid-"));
+  try {
+    let seenRunId: string | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async (args) => {
+          seenRunId = args.runId;
+          return undefined;
+        },
+        buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234", runId: "run-xyz789" });
+    assert.equal(seenRunId, "run-xyz789");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): with no runId in opts, exploreBrief receives no runId (never fabricated)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-norunid-"));
+  try {
+    let sawRunId = true;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async (args) => {
+          sawRunId = "runId" in args;
+          return undefined;
+        },
+        buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.equal(sawRunId, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
