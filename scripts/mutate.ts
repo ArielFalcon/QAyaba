@@ -6,6 +6,7 @@
  *
  *   npm run mutate -- <preset>                  full run (every mutant against the preset's tests)
  *   npm run mutate -- <preset> --incremental    re-test only mutants whose source changed
+ *   npm run mutate -- <preset> --concurrency=N  run N Stryker workers instead of the default
  *   npm run mutate -- --list              the presets
  *   npm run mutate:keystone               the change-coverage keystone preset
  *
@@ -16,8 +17,15 @@
  *
  * The Stryker config and the checker's tsconfig are generated under os.tmpdir(); the incremental
  * state and the JSON report live under reports/mutation/ (gitignored), the sandbox under
- * .stryker-tmp/ (gitignored). docs/testing-standards.md records each preset's baseline score and
- * `break` threshold: a preset fails its run when its score drops below its own `break`.
+ * .stryker-tmp/ (gitignored). A run deletes the preset's previous JSON report first, so a run that
+ * fails before reporting never prints a stale summary. docs/testing-standards.md records each
+ * preset's baseline score and `break` threshold: a preset fails its run when its score drops below
+ * its own `break`.
+ *
+ * A timed-out mutant counts as detected in the score (an infinite loop is a real kill), but it is
+ * reported apart from killed ones with a killed-only score beside it: under load a slow test run
+ * also times out, so a timeout alone proves nothing. Presets whose tests spawn processes (git) set a
+ * lower `concurrency` so the workers do not starve each other into timeouts.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -43,6 +51,8 @@ export interface MutationPreset {
      tests of its direct consumers — never the whole suite. */
   tests: readonly string[];
   thresholds: MutationThresholds;
+  /* Upper bound on Stryker workers, for presets whose tests spawn processes (git). */
+  concurrency?: number;
 }
 
 const OS = "qa-engine/src/contexts/objective-signal/domain";
@@ -143,6 +153,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/vcs-write.adapter.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
+    /* Both adapter tests drive real git repositories per case. */
+    concurrency: 2,
   },
   "run-decision": {
     description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none)",
@@ -175,6 +187,22 @@ const SANDBOX_IGNORE = [
   "qa-engine/.tsbuild",
   "reports",
 ];
+
+/* At most 8 workers, two CPUs left free, at least one; a preset's own cap lowers it, the CLI flag overrides both. */
+export function concurrencyFor(preset: MutationPreset, opts: { concurrency?: number }, cpus: number): number {
+  if (opts.concurrency !== undefined) return opts.concurrency;
+  const machine = Math.max(1, Math.min(8, cpus - 2));
+  return preset.concurrency === undefined ? machine : Math.min(machine, preset.concurrency);
+}
+
+export function reportPathFor(root: string, name: string): string {
+  return join(root, REPORT_DIR, `${name}.json`);
+}
+
+/* The incremental state stays: --incremental reads it. */
+export function clearPreviousReport(root: string, name: string): void {
+  rmSync(reportPathFor(root, name), { force: true });
+}
 
 export function sourcePathOf(entry: string): string {
   return entry.replace(/:\d+(-\d+)?$/, "");
@@ -244,10 +272,12 @@ export interface MutationSummary {
   timeout: number;
   noCoverage: number;
   compileErrors: number;
-  /* Mutants a `// Stryker disable` directive excludes — documented equivalent mutants. */
+  /* Mutants a `// Stryker disable` directive excludes. */
   ignored: number;
   /* (killed + timeout) / (killed + timeout + survived + noCoverage), in percent; null when nothing was valid. */
   score: number | null;
+  /* killed / (killed + timeout + survived + noCoverage): the score without trusting a single timeout. */
+  killedScore: number | null;
   survivors: string[];
 }
 
@@ -270,6 +300,7 @@ export function summarize(report: { files: Record<string, { mutants: ReportMutan
   const timeout = count.Timeout ?? 0;
   const noCoverage = count.NoCoverage ?? 0;
   const valid = killed + timeout + survived + noCoverage;
+  const percent = (n: number) => (valid === 0 ? null : Math.round((n / valid) * 10000) / 100);
   return {
     mutants,
     killed,
@@ -278,14 +309,15 @@ export function summarize(report: { files: Record<string, { mutants: ReportMutan
     noCoverage,
     compileErrors: count.CompileError ?? 0,
     ignored: count.Ignored ?? 0,
-    score: valid === 0 ? null : Math.round(((killed + timeout) / valid) * 10000) / 100,
+    score: percent(killed + timeout),
+    killedScore: percent(killed),
     survivors,
   };
 }
 
 function usage(): string {
   const lines = Object.entries(PRESETS).map(([n, p]) => `  ${n.padEnd(20)} ${p.description}`);
-  return `usage: npm run mutate -- <preset> [--incremental]\n\npresets:\n${lines.join("\n")}`;
+  return `usage: npm run mutate -- <preset> [--incremental] [--concurrency=N]\n\npresets:\n${lines.join("\n")}`;
 }
 
 export interface RunOptions {
@@ -293,13 +325,18 @@ export interface RunOptions {
   preset: string | undefined;
   /* Off unless asked for: see the incremental note at the top of this file. */
   incremental: boolean;
+  /* --concurrency=N with a positive integer N; otherwise the preset/machine default. */
+  concurrency?: number;
 }
 
 export function runOptionsFrom(argv: readonly string[]): RunOptions {
+  const flag = argv.find((a) => a.startsWith("--concurrency="));
+  const concurrency = flag === undefined ? NaN : Number(flag.slice("--concurrency=".length));
   return {
     list: argv.includes("--list"),
     preset: argv.find((a) => !a.startsWith("--")),
     incremental: argv.includes("--incremental"),
+    ...(Number.isInteger(concurrency) && concurrency > 0 ? { concurrency } : {}),
   };
 }
 
@@ -321,20 +358,22 @@ function main(argv: string[]): number {
     const tsconfigFile = join(workDir, "tsconfig.json");
     writeFileSync(tsconfigFile, JSON.stringify(checkerTsconfigFor(preset, ROOT), null, 2));
     const configFile = join(workDir, "stryker.conf.json");
-    const concurrency = Math.max(1, Math.min(8, availableParallelism() - 2));
+    const concurrency = concurrencyFor(preset, opts, availableParallelism());
     writeFileSync(
       configFile,
       JSON.stringify(strykerConfigFor(name, preset, { tsconfigFile, concurrency, incremental: opts.incremental }), null, 2),
     );
 
+    clearPreviousReport(ROOT, name);
+    console.log(`mutate ${name}: ${concurrency} worker(s)`);
     const strykerArgs = ["run", configFile];
     const run = spawnSync(join(ROOT, "node_modules", ".bin", "stryker"), strykerArgs, { cwd: ROOT, stdio: "inherit" });
     if (run.error) throw run.error;
 
-    const reportFile = join(ROOT, REPORT_DIR, `${name}.json`);
+    const reportFile = reportPathFor(ROOT, name);
     if (existsSync(reportFile)) {
       const s = summarize(JSON.parse(readFileSync(reportFile, "utf8")));
-      console.log(`\nmutate ${name}: ${s.mutants} mutants — killed ${s.killed}, survived ${s.survived}, timeout ${s.timeout}, no-coverage ${s.noCoverage}, compile-error ${s.compileErrors}, ignored ${s.ignored}, score ${s.score ?? "n/a"}%`);
+      console.log(`\nmutate ${name}: ${s.mutants} mutants — killed ${s.killed}, timeout ${s.timeout}, survived ${s.survived}, no-coverage ${s.noCoverage}, compile-error ${s.compileErrors}, ignored ${s.ignored}, score ${s.score ?? "n/a"}% (killed only ${s.killedScore ?? "n/a"}%)`);
       for (const line of s.survivors) console.log(`  ${line}`);
     }
     return run.status ?? 1;

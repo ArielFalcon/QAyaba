@@ -1,9 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRESETS, checkerTsconfigFor, runOptionsFrom, sourcePathOf, summarize, testCommandFor, type MutationPreset } from "./mutate.ts";
+import {
+  PRESETS,
+  checkerTsconfigFor,
+  clearPreviousReport,
+  concurrencyFor,
+  runOptionsFrom,
+  sourcePathOf,
+  summarize,
+  testCommandFor,
+  type MutationPreset,
+} from "./mutate.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -90,4 +101,72 @@ test("the score counts killed and timed-out mutants over valid ones; compile err
 test("a run with no valid mutants has no score rather than a perfect one", () => {
   const s = summarize({ files: { "a.ts": { mutants: [{ status: "CompileError", mutatorName: "M", location: { start: { line: 1, column: 1 } } }] } } });
   assert.equal(s.score, null);
+});
+
+test("timed-out mutants are reported apart from killed ones: the killed-only score leaves them out", () => {
+  const at = (line: number) => ({ start: { line, column: 1 } });
+  const s = summarize({
+    files: {
+      "a.ts": {
+        mutants: [
+          { status: "Killed", mutatorName: "M", location: at(1) },
+          { status: "Timeout", mutatorName: "M", location: at(2) },
+          { status: "Timeout", mutatorName: "M", location: at(3) },
+          { status: "Survived", mutatorName: "M", location: at(4) },
+        ],
+      },
+    },
+  });
+  assert.equal(s.killed, 1);
+  assert.equal(s.timeout, 2);
+  assert.equal(s.score, 75);
+  assert.equal(s.killedScore, 25);
+});
+
+test("a run starts without the preset's previous report, so a failed run never prints a stale summary", () => {
+  const root = mkdtempSync(join(tmpdir(), "mutate-report-"));
+  try {
+    const dir = join(root, "reports", "mutation");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "keystone.json"), "{}");
+    writeFileSync(join(dir, "keystone.incremental.json"), "{}");
+    writeFileSync(join(dir, "fix-loop.json"), "{}");
+    clearPreviousReport(root, "keystone");
+    assert.equal(existsSync(join(dir, "keystone.json")), false);
+    assert.equal(existsSync(join(dir, "keystone.incremental.json")), true, "incremental state survives for --incremental");
+    assert.equal(existsSync(join(dir, "fix-loop.json")), true, "other presets' reports are untouched");
+    clearPreviousReport(root, "absent-preset");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const plain: MutationPreset = { description: "x", mutate: ["src/a.ts"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } };
+
+test("a run uses at most 8 workers and leaves two CPUs free, never fewer than one worker", () => {
+  assert.equal(concurrencyFor(plain, {}, 10), 8);
+  assert.equal(concurrencyFor(plain, {}, 12), 8);
+  assert.equal(concurrencyFor(plain, {}, 6), 4);
+  assert.equal(concurrencyFor(plain, {}, 2), 1);
+});
+
+test("a preset's own concurrency caps the workers, and --concurrency overrides every preset", () => {
+  const capped: MutationPreset = { ...plain, concurrency: 2 };
+  assert.equal(concurrencyFor(capped, {}, 10), 2);
+  assert.equal(concurrencyFor(capped, {}, 3), 1, "the cap never raises the machine default");
+  assert.equal(concurrencyFor(capped, { concurrency: 5 }, 10), 5);
+  assert.equal(concurrencyFor(plain, { concurrency: 1 }, 10), 1);
+});
+
+test("the write-confinement preset, whose tests spawn git, runs with fewer workers than the default", () => {
+  assert.ok(concurrencyFor(PRESETS["write-confinement"]!, {}, 10) < concurrencyFor(plain, {}, 10));
+});
+
+test("--concurrency=N sets the worker count without being read as the preset name; a bad value is ignored", () => {
+  const opts = runOptionsFrom(["--concurrency=3", "keystone"]);
+  assert.equal(opts.preset, "keystone");
+  assert.equal(opts.concurrency, 3);
+  assert.equal(runOptionsFrom(["keystone"]).concurrency, undefined);
+  assert.equal(runOptionsFrom(["keystone", "--concurrency=0"]).concurrency, undefined);
+  assert.equal(runOptionsFrom(["keystone", "--concurrency=two"]).concurrency, undefined);
 });
