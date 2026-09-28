@@ -4,7 +4,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -20,7 +22,14 @@ type runtimeFlagState struct {
 	dual     bool
 }
 
+// version is set at build time with -ldflags "-X main.version=<v>"; otherwise it is the module
+// version a `go install` records, or "dev".
+var version = ""
+
 func main() {
+	if printInfo(os.Args[1:], os.Stdout) {
+		return
+	}
 	runtimeFlags, args := parseRuntimeFlags(os.Args[1:])
 	if runtimeFlags.provider != "" || runtimeFlags.dual || firstArg(args) == "agent" {
 		if err := runCommand(runtimeFlags, args); err != nil {
@@ -35,6 +44,50 @@ func main() {
 		fmt.Fprintln(os.Stderr, "qayaba:", err)
 		os.Exit(1)
 	}
+}
+
+// printInfo answers --help/-h and --version anywhere in args, without a terminal and before any
+// network call or UI; it reports whether it handled one.
+func printInfo(args []string, w io.Writer) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h":
+			fmt.Fprint(w, usage())
+			return true
+		case "--version":
+			fmt.Fprintf(w, "qayaba %s\n", versionString())
+			return true
+		}
+	}
+	return false
+}
+
+func usage() string {
+	return `qayaba — terminal client for the Qayaba QA control plane
+
+Usage:
+  qayaba                                       open the interactive UI (needs a terminal)
+  qayaba --opencode | --codex                  run every agent role on one provider, then open the UI
+  qayaba --dual                                run primary and reviewer on different providers, then open the UI
+  qayaba agent [status]                        print the agent runtime configuration
+  qayaba agent models <provider>               list a provider's models
+  qayaba agent set --opencode|--codex|--dual   change the agent runtime without opening the UI
+  qayaba --help | --version
+
+Environment:
+  QA_HOST       orchestrator host (default ` + api.DefaultHost + `)
+  QA_API_TOKEN  machine token (otherwise the login saved for QA_HOST)
+`
+}
+
+func versionString() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
 }
 
 func parseRuntimeFlags(args []string) (runtimeFlagState, []string) {
