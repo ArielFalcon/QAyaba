@@ -44,9 +44,13 @@ your writable scope and you may receive follow-up feedback in the SAME session.
 End with ONLY this JSON block:
 
 ```json
-{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
+{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
 ```
 
 `filesChanged` must list EVERY file you wrote or edited (paths relative to the working
-copy). When feedback from the lead arrives, address it and emit the SAME JSON contract
+copy). `acceptance` reports every numbered acceptance criterion of the brief, once, by its
+number: `met` only when you checked that it holds, `unmet` when your work does not satisfy it,
+`unverified` when you could not check it; `[]` when the brief lists none. Only an `unmet` entry
+sends the work back to the lead — a failure stated only in `concerns` does not, and a missing
+or malformed report is recorded as a contract breach. When feedback from the lead arrives, address it and emit the SAME JSON contract
 again for the same `delegationId`/`runId`.

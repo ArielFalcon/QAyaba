@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ACCEPTANCE_STATUSES } from "../qa-engine/src/contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -36,6 +37,19 @@ test("qa-proposer: both copies know the http-backend (BE→BE REST) transport", 
 test("qa-sidekick: both copies state frozen authority and the git-write ban", () => {
   assertBothContain("qa-sidekick", "frozen authority flags printed in the brief");
   assertBothContain("qa-sidekick", "never perform git writes");
+});
+
+/* The executor reads `acceptance` strictly (missing/invalid is a recorded contract defect) and pushback
+   blocks only on an "unmet" entry, so both copies must ask for one entry per numbered criterion and
+   name every status the reader accepts. */
+test("qa-sidekick: both copies require a per-criterion acceptance report with every status the executor reads", () => {
+  for (const [copy, text] of Object.entries(readBoth("qa-sidekick"))) {
+    assert.match(text, /"acceptance":\[\{"criterion":1,"status":/, `${copy} copy's output contract must carry the acceptance report`);
+    for (const status of ACCEPTANCE_STATUSES) {
+      assert.match(text, new RegExp(`"${status}"`), `${copy} copy must name the "${status}" status`);
+    }
+    assert.match(text, /every numbered acceptance criterion/i, `${copy} copy must ask for every numbered criterion`);
+  }
 });
 
 test("qa-generator: both copies send the app login to auth.setup.ts, never to a fixtures.ts override", () => {

@@ -10,6 +10,7 @@ import {
   SidekickExecutor,
 } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
 import { renderSidekickBrief } from "@contexts/qa-run-orchestration/application/coordination/sidekick-prompt.ts";
+import { ACCEPTANCE_STATUSES } from "@contexts/qa-run-orchestration/application/coordination/acceptance-report.ts";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 
@@ -466,4 +467,21 @@ test("a report entry's note is scrubbed before it re-enters the lead context", a
     ],
   });
   assert.doesNotMatch(result.acceptance.map((e) => e.note ?? "").join("\n"), /ghs_supersecretvalue/);
+});
+
+test("the brief numbers each acceptance criterion and asks for a report of every status by that number", () => {
+  const { text } = renderSidekickBrief(
+    createDelegationBrief({
+      delegationId: "d1",
+      runId: "r1",
+      objective: "Repair failing QA specs",
+      task: "Fix the failing tests",
+      scope,
+      acceptanceCriteria: TWO_CRITERIA,
+    }),
+  );
+  assert.match(text, /^1\. Failing cases pass on re-execute$/m);
+  assert.match(text, /^2\. No writes outside scope$/m);
+  assert.match(text, /"acceptance":\[\{"criterion":1,"status":/);
+  for (const status of ACCEPTANCE_STATUSES) assert.match(text, new RegExp(`"${status}"`), status);
 });
