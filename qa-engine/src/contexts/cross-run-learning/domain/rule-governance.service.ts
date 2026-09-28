@@ -58,26 +58,22 @@ export class RuleGovernanceService {
     const picked = this.rank(eligible, bias).slice(0, limit);
 
     /*
-     * Exploration floor: once `limit` slots are already filled by ranked rules, reserve the last
-     * EXPLORATION_SLOTS positions for the NEWEST candidates not already selected, so candidate
-     * turnover never stalls. Only replace when `picked` is actually FULL — splicing past the end
-     * would append and grow the result beyond `limit`.
+     * Exploration floor: the last EXPLORATION_SLOTS positions of `picked` go to the NEWEST candidates
+     * it does not already hold, so candidate turnover never stalls. rank() is a permutation, so such a
+     * candidate exists only when `eligible` overflows `limit` — i.e. when `picked` is already full, and
+     * the splice replaces slots without growing it (zero slots splice nothing).
      *
      * Slots must also be clamped to `limit` itself. Without it, limit < EXPLORATION_SLOTS (e.g.
      * limit=1) made `limit - slots` negative; Array.prototype.splice treats a negative start as
      * counting from the END, so it deleted fewer elements than it inserted and `picked` grew past
      * `limit`.
      */
-    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: equivalent — picked holds the first `limit` eligible rules, so whenever this guard is false every candidate is already picked and no slot is taken
-    if (eligible.length > limit && picked.length >= limit) {
-      const pickedIds = new Set(picked.map((r) => r.id));
-      const freshCandidates = eligible
-        .filter((r) => r.status === "candidate" && !pickedIds.has(r.id))
-        .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
-      const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length, limit);
-      // Stryker disable next-line ConditionalExpression,EqualityOperator: equivalent — splicing zero slots at `limit` changes nothing
-      if (slots > 0) picked.splice(limit - slots, slots, ...freshCandidates.slice(0, slots));
-    }
+    const pickedIds = new Set(picked.map((r) => r.id));
+    const freshCandidates = eligible
+      .filter((r) => r.status === "candidate" && !pickedIds.has(r.id))
+      .sort((a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id));
+    const slots = Math.min(EXPLORATION_SLOTS, freshCandidates.length, limit);
+    picked.splice(limit - slots, slots, ...freshCandidates.slice(0, slots));
     return picked;
   }
 }
