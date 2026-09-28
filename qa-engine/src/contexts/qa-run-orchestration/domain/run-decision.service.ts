@@ -15,8 +15,8 @@ export interface RunEvidence {
   onFailure: string;
 }
 
-/* Shared by every non-pass verdict. flaky/infra-error ignore both the onFailure guard outcome (except flaky stays quarantine) and shadow. */
-function reportSideEffect(verdict: RunVerdict, onFailure: string, shadow: boolean): SideEffect {
+/* Shared by every non-pass verdict. flaky/infra-error ignore both the onFailure guard outcome (except flaky stays quarantine) and shadow; skipped is always silent. */
+function reportSideEffect(verdict: Exclude<RunVerdict, "pass">, onFailure: string, shadow: boolean): SideEffect {
   if (onFailure !== "github-issue") {
     return verdict === "flaky" ? "quarantine" : "none";
   }
@@ -28,18 +28,12 @@ function reportSideEffect(verdict: RunVerdict, onFailure: string, shadow: boolea
       return "none";
     case "flaky":
       return "quarantine";
-    default:
-      /* pass and skipped never reach this helper — decide() routes them first. */
+    case "skipped":
       return "none";
   }
 }
 
 export function decide(ev: RunEvidence): RunDecision {
-  // Stryker disable next-line ConditionalExpression,BlockStatement: equivalent — reportSideEffect maps skipped to "none" as well; this branch states the policy
-  if (ev.verdict === "skipped") {
-    return RunDecision.of("skipped", "none");
-  }
-
   if (ev.verdict !== "pass") {
     return RunDecision.of(ev.verdict, reportSideEffect(ev.verdict, ev.onFailure, ev.shadow));
   }
