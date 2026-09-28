@@ -1,23 +1,11 @@
 /* This is the v2-ready, enriched successor to agent-activity.ts's router: it uses every SDK signal worth surfacing and NEVER surfaces model prose — only structured tool/todo/command facts. SDK facts used (types.gen.d.ts): message.part.updated → properties.part: Part (sessionID lives on the part) ToolPart { tool, callID, state: ToolState } ToolState .status running|completed|error · .title (OpenCode-authored label) · .input (filePath/command/description) · .output text/reasoning/step parts → PROSE → dropped todo.updated → { sessionID, todos: [{ content, status }] } command.executed → { sessionID, name, arguments } session.error → { sessionID?, error } */
 
 import type { RunEventBody } from "@kernel/contract/events.ts";
+import { kindForTool } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 
 export interface RawOpencodeEvent {
   type: string;
   properties?: Record<string, unknown>;
-}
-
-type ActivityKind = "analyzing" | "writing" | "command" | "subagent";
-
-const WRITE_TOOLS = /^(write|edit|multiedit|create|apply_patch|patch)$/i;
-const SHELL_TOOLS = /^(bash|shell|run|exec)$/i;
-const SUBAGENT_TOOLS = /^(task|agent|subtask|dispatch)$/i;
-
-function kindForTool(tool: string): ActivityKind {
-  if (WRITE_TOOLS.test(tool)) return "writing";
-  if (SHELL_TOOLS.test(tool)) return "command";
-  if (SUBAGENT_TOOLS.test(tool)) return "subagent";
-  return "analyzing";
 }
 
 function basename(p: string): string {

@@ -7,6 +7,7 @@
  */
 
 import { Sha } from "@kernel/sha.ts";
+import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
@@ -575,7 +576,7 @@ export class RunQaUseCase {
     let groundingContextMap: ArchitectureContext | undefined;
     let groundingContextBrief: ExplorationBrief | undefined;
     if (this.deps.preGenerationGrounding) {
-      this.deps.observer?.onStep("generate", "pre-generation grounding");
+      this.deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
       try {
         const grounding = await this.deps.preGenerationGrounding.ground(
           workspace.specDir,
