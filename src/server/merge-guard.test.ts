@@ -563,6 +563,66 @@ test("readDeployHistory tolerates corrupt/missing ledger files", () => {
   assert.deepEqual(readDeployHistory("/x", none), []);
 });
 
+/* Every TypeScript config and dependency-cruiser config decides what a gate compiles or forbids; a
+   copy added anywhere later is protected without a list update. */
+test("isProtectedPath protects every TypeScript and dependency-cruiser config a gate reads, wherever it sits", () => {
+  const gateConfigs = [
+    "tsconfig.json",
+    "qa-engine/tsconfig.json",
+    "qa-engine/tsconfig.parity.json",
+    "scripts/tsconfig.json",
+    "packages/sdk/tsconfig.json",
+    "config/e2e/tsconfig.json",
+    "qa-engine/.dependency-cruiser.cjs",
+  ];
+  for (const file of gateConfigs) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+  for (const later of ["client/web/tsconfig.build.json", ".dependency-cruiser.cjs", "packages/sdk/.dependency-cruiser.json"]) {
+    assert.equal(isProtectedPath(later), true, `${later} must require human review`);
+  }
+  for (const other of ["src/server/tsconfig-notes.md", "src/server/mytsconfig.json", "src/server/settings.json", "src/dependency-cruiser.ts"]) {
+    assert.equal(isProtectedPath(other), false, `${other} is not a gate config`);
+  }
+});
+
+/* The fixtures, goldens and helpers a protected test reads decide what it checks: editing them
+   weakens the test without changing a protected file. */
+test("isProtectedPath protects everything the protected tests read beside their own files", () => {
+  const testInputs = [
+    "qa-engine/test/characterization/equivalence.ts",
+    "qa-engine/test/characterization/goldens/context.json",
+    "qa-engine/test/contexts/workspace-and-publication/infrastructure/__fixtures__/seed-revisions/auth.setup.rev1.txt",
+    "qa-engine/test/contexts/service-topology/fixtures/backend-literal/src/main/resources/openapi/api-definition.yaml",
+  ];
+  for (const file of testInputs) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+  assert.equal(isProtectedPath("src/server/__fixtures__/payload.json"), true, "a fixtures directory beside colocated tests");
+  assert.equal(isProtectedPath("__fixtures__/payload.json"), true, "a fixtures directory at the root");
+  assert.equal(isProtectedPath("src/server/__fixtures__.ts"), false, "a file named like the directory is not in it");
+  assert.equal(isProtectedPath("src/server/my__fixtures__/payload.json"), false, "only a directory of exactly that name");
+});
+
+test("isProtectedPath protects every Go test and every .mjs test", () => {
+  for (const file of ["client/cmd/qayaba/main_test.go", "client/internal/api/auth_test.go", "agents/agent-supervisor.test.mjs"]) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+  assert.equal(isProtectedPath("client/internal/api/auth.go"), false);
+});
+
+/* env-store.ts decides where operator-supplied secrets are written; the stock-seed predicate decides
+   whether setup may overwrite a repo's login and whether a failing sign-in is swallowed. */
+test("isProtectedPath protects where operator secrets are written and what counts as the stock login seed", () => {
+  for (const file of ["src/server/env-store.ts", "qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts"]) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
 test("isProtectedPath protects every image build and dependency manifest", () => {
   for (const file of ["agents/Dockerfile", "docker-compose.override.yml", "package.json", "package-lock.json"]) {
     assert.equal(isProtectedPath(file), true, `${file} must require human review`);

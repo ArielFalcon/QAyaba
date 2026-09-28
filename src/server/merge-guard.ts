@@ -62,12 +62,21 @@ export const PROTECTED_PATHS: string[] = [
    */
   "config/e2e/auth.setup.ts",
   /*
+   * Decides which auth.setup.ts is the stock seed for both adapters above: setup overwrites only a
+   * stock copy, and only a stock copy's failing sign-in is read as "not authored yet" instead of an
+   * error. Widening it would let setup replace an app's own login and swallow its failure.
+   */
+  "qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts",
+  /*
    * Decides the orchestrator root and the data directory (the qa-data volume the agents container
    * never mounts) that holds the web token file, per-app auth material, the history DB, the logs
    * and the coordination ledger — repointing it moves all of them into an agent-visible tree
    * without touching any file that uses them.
    */
   "src/paths.ts",
+  /* Decides where operator-supplied secrets are written — repointing it moves them into a tree the
+     agents container can read. */
+  "src/server/env-store.ts",
 
   "qa-engine/src/contexts/workspace-and-publication/domain/write-confinement.service.ts",
   /*
@@ -187,6 +196,14 @@ export const PROTECTED_PATHS: string[] = [
   "agents/opencode.json",
 
   "*.test.ts",
+  "*.test.mjs",
+  "*_test.go",
+  /*
+   * What the protected tests read beside their own files — fixtures, goldens and helpers. Editing
+   * one changes what a test checks without changing a protected file.
+   */
+  "qa-engine/test/",
+  "**/__fixtures__/",
   /*
    * The test infrastructure every test run depends on: the preload that installs the
    * tracked-tree write guard, the guard itself, the web console harness and the mutation presets.
@@ -196,7 +213,13 @@ export const PROTECTED_PATHS: string[] = [
   "scripts/test-write-guard.mjs",
   "src/server/web-console/console-harness.ts",
   "scripts/mutate.ts",
-  "tsconfig.json",
+  /*
+   * Every TypeScript config decides what the typecheck gate (and the static gate on generated
+   * specs) compiles; every dependency-cruiser config holds architecture rules such as the ban on VCS
+   * writes outside workspace-and-publication. A copy added anywhere later is covered as well.
+   */
+  "**/tsconfig*.json",
+  "**/.dependency-cruiser*",
   "src/index.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
@@ -227,9 +250,21 @@ function normalizeRepoPath(file: string): string {
   return slashed.replace(/^(?:\.\/)+/, "");
 }
 
+const ANY_DEPTH = "**/";
+
+// An ANY_DEPTH entry names a directory (trailing "/") or a file name at any depth; in a file name,
+// "*" stands for any run of characters.
+function matchesAtAnyDepth(f: string, name: string): boolean {
+  if (name.endsWith("/")) return `/${f}`.includes(`/${name}`);
+  const fileName = f.slice(f.lastIndexOf("/") + 1);
+  const star = name.indexOf("*");
+  return fileName.startsWith(name.slice(0, star)) && fileName.endsWith(name.slice(star + 1));
+}
+
 export function isProtectedPath(file: string): boolean {
   const f = normalizeRepoPath(file);
   return PROTECTED_PATHS.some((p) => {
+    if (p.startsWith(ANY_DEPTH)) return matchesAtAnyDepth(f, p.slice(ANY_DEPTH.length));
     if (p.startsWith("*")) return f.endsWith(p.slice(1)); 
     if (p.endsWith("/")) return f.startsWith(p);  /* directory prefix */
     return f === p;  /* exact repo-relative path */
