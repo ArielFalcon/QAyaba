@@ -95,8 +95,9 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   coordination: {
-    description: "coordination routing: pushback authority checks, delegation-failure class, orchestration router",
+    description: "coordination routing: acceptance report, pushback authority checks, delegation-failure class, orchestration router",
     mutate: [
+      `${ORCH}/application/coordination/acceptance-report.ts`,
       `${ORCH}/application/coordination/pushback.ts`,
       `${ORCH}/application/coordination/delegation-failure-class.ts`,
       `${ORCH}/application/coordination/orchestration-router.ts`,

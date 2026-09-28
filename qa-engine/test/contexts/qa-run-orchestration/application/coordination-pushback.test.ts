@@ -4,6 +4,7 @@ import {
   applyPushback,
   createDelegationBrief,
   validateDelegationAuthority,
+  type AcceptanceStatus,
   type DelegationBrief,
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
@@ -86,9 +87,11 @@ test("a completed result whose planned validation failed contradicts acceptance,
   assert.match(findings[0]!.detail, /typecheck/);
 });
 
-test("a blocked result is not checked against the validation plan or the acceptance criteria", () => {
+test("a result that did not complete is not checked against the validation plan or the acceptance report", () => {
   const b = brief({ validationPlan: [{ id: "typecheck", description: "tsc passes" }] });
-  assert.deepEqual(reasonsOf(b, result({ status: "blocked", summary: "stuck", concerns: [`Cannot satisfy: ${CRITERION}`] })), []);
+  for (const status of ["blocked", "needs-lead", "failed"] as const) {
+    assert.deepEqual(reasonsOf(b, result({ status, summary: "stuck", acceptance: [{ criterion: 1, status: "unmet" }] })), [], status);
+  }
 });
 
 /* ── non-fatal findings ──────────────────────────────────────────────────────────────────────── */
@@ -133,78 +136,51 @@ test("a blocked result names a missing dependency or an insufficient scope only 
   assert.deepEqual(reasonsOf(brief(), result({ status: "completed", summary: "updated a dependency within scope" })), []);
 });
 
-/* ── acceptance contradictions: what a concern must claim, and about which words ─────────────── */
+/* ── the acceptance report decides; concerns are notes ──────────────────────────────────────── */
 
-const blocks = (concern: string, criterion = CRITERION) =>
-  applyPushback(brief({ acceptanceCriteria: [criterion] }), result({ status: "completed-with-concerns", concerns: [concern] })).status === "blocked";
+const TWO_CRITERIA = [CRITERION, "No writes outside scope"];
+const reported = (...statuses: AcceptanceStatus[]) => statuses.map((status, i) => ({ criterion: i + 1, status }));
 
-for (const concern of [
-  `Cannot  satisfy: ${CRITERION}`,
-  `The fix would fail to meet: ${CRITERION}`,
-  `Cannot be  satisfied: ${CRITERION}`,
-  `Cannot be met: ${CRITERION}`,
-  `Cannot fulfill: ${CRITERION}`,
-  `Cannot achieve: ${CRITERION}`,
-  `It is not  met: ${CRITERION}`,
-  `It might not be met: ${CRITERION}`,
-  `It might not be  met: ${CRITERION}`,
-  `It has not been met: ${CRITERION}`,
-  `It has not been  met: ${CRITERION}`,
-  `It is not fulfilled: ${CRITERION}`,
-  `Criterion unfulfilled: ${CRITERION}`,
-  `Requirement failed: ${CRITERION}`,
-  `Acceptance  failed: ${CRITERION}`,
-  `Acceptance has  failed: ${CRITERION}`,
-  `The acceptance criterion has failed: ${CRITERION}`,
-  `A minor violation of: ${CRITERION}`,
-  `Notably the change violates: ${CRITERION}`,
-  `No flaky tests appeared and the change violates: ${CRITERION}`,
-]) {
-  test(`a concern claiming the criterion is not met blocks: ${JSON.stringify(concern)}`, () => {
-    assert.equal(blocks(concern), true);
-  });
-}
-
-test("a negation three words before the claim still negates it", () => {
-  assert.equal(blocks(`No known change violates: ${CRITERION}`), false);
+test("a criterion the sidekick reports unmet blocks the delegation, naming the criterion", () => {
+  const b = brief({ acceptanceCriteria: TWO_CRITERIA });
+  const r = result({ acceptance: reported("met", "unmet") });
+  const findings = validateDelegationAuthority(b, r);
+  assert.deepEqual(findings.map((f) => f.reason), ["acceptance-contradiction"]);
+  assert.match(findings[0]!.detail, /No writes outside scope/);
+  const pushed = applyPushback(b, r);
+  assert.equal(pushed.status, "blocked");
+  assert.equal(pushed.recommendation, "escalate");
 });
 
-test("a claim against a criterion with no meaningful words never blocks", () => {
-  assert.equal(blocks("Cannot satisfy anything here", "ok"), false);
+test("a completed-with-concerns result reporting an unmet criterion is blocked too", () => {
+  const pushed = applyPushback(
+    brief({ acceptanceCriteria: TWO_CRITERIA }),
+    result({ status: "completed-with-concerns", acceptance: reported("unmet", "met") }),
+  );
+  assert.equal(pushed.status, "blocked");
 });
 
-test("a concern must repeat at least 60% of the criterion's meaningful words", () => {
-  const criterion = "checkout shows discount tax shipping";
-  assert.equal(blocks("Cannot satisfy: checkout shows discount", criterion), true, "3 of 5 words");
-  assert.equal(blocks("Cannot satisfy: checkout", criterion), false, "1 of 5 words");
+test("met and unverified criteria never block", () => {
+  for (const statuses of [["met", "met"], ["unverified", "unverified"], ["met", "unverified"]] as AcceptanceStatus[][]) {
+    const pushed = applyPushback(brief({ acceptanceCriteria: TWO_CRITERIA }), result({ acceptance: reported(...statuses) }));
+    assert.equal(pushed.status, "completed", statuses.join(","));
+    assert.equal(pushed.recommendation, "accept", statuses.join(","));
+  }
 });
 
-test("function words never count toward a criterion's meaningful words", () => {
-  assert.equal(blocks("Cannot satisfy: sent", "It must have been sent"), true);
-});
-
-test("two-letter words never count toward a criterion's meaningful words", () => {
-  assert.equal(blocks("Cannot satisfy: loads", "UI loads"), true);
-});
-
-test("identical three-letter words match", () => {
-  assert.equal(blocks("Cannot satisfy: api key set", "API key set"), true);
-});
-
-test("words match by a shared stem of four letters or more, in either direction", () => {
-  assert.equal(blocks("Cannot satisfy: forms submit", "form submits"), true);
-  assert.equal(blocks("Cannot satisfy: validate email", "validates emails"), true);
-});
-
-test("a word under four letters matches only itself, never as a stem", () => {
-  assert.equal(blocks("Cannot satisfy: taxes", "tax"), false);
-});
-
-test("words that only share their first four letters do not match", () => {
-  assert.equal(blocks("Cannot satisfy: repository exported", "report exported"), false);
-});
-
-test("punctuation separates words: quoted, bracketed and slash-joined criterion words still match", () => {
-  assert.equal(blocks("Cannot satisfy: the checkout page shows no total with tax", 'The "checkout" page shows the "total" (with tax)'), true);
-  assert.equal(blocks("Cannot satisfy: logout works", "login/logout works"), true);
+test("concerns are notes only: prose saying a criterion failed never blocks a report without an unmet criterion", () => {
+  for (const concern of [
+    "fails acceptance criterion 1",
+    "doesn't pass, violating criterion 2",
+    "the retry flow is not implemented",
+    "validation failed on DEV",
+    `Cannot satisfy: ${CRITERION}`,
+  ]) {
+    const pushed = applyPushback(
+      brief({ acceptanceCriteria: TWO_CRITERIA }),
+      result({ acceptance: reported("unverified", "met"), concerns: [concern] }),
+    );
+    assert.equal(pushed.status, "completed", concern);
+    assert.deepEqual(pushed.concerns, [concern]);
+  }
 });

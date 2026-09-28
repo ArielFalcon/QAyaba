@@ -391,6 +391,53 @@ test("a FixLoop sidekick whose claimed files are not on disk falls back to the l
   assert.equal(delegation?.failureClass, "claimed-files-missing");
 });
 
+test("a FixLoop sidekick reporting an unmet criterion is blocked and the regen falls back to the lead", async () => {
+  ensureFixedSpec();
+  let generateCalls = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return { specs: ["lead.spec.ts"], approved: true };
+    },
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () =>
+        sessionReturning({
+          delegationId: "coord-fixloop-unmet-fix-loop-regen",
+          runId: "coord-fixloop-unmet",
+          status: "completed",
+          summary: "rewrote the spec",
+          filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+          acceptance: [
+            { criterion: 1, status: "unmet", note: "the login case still fails on DEV" },
+            { criterion: 2, status: "met" },
+          ],
+        }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-unmet" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCalls, 2, "initial generate + the FixLoop regen on the lead, not the blocked sidekick work");
+  const delegation = tel.events.find((e) => e.kind === "delegation" && e.reason.includes("fix-loop"));
+  assert.equal(delegation?.failureClass, "blocked");
+});
+
 test("a FixLoop sidekick result without an acceptance report is recorded as a pushback contract finding", async () => {
   ensureFixedSpec();
   const ports = basePorts({
