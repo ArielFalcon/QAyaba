@@ -1,4 +1,5 @@
 /* External authority checks for DelegationResult. Prompt compliance is not enough. */
+import { ACCEPTANCE_REPORT_DEFECTS } from "./acceptance-report.ts";
 import { SIDEKICK_AUTHORITY } from "./authority.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import { belongsToBrief, type DelegationResult } from "./delegation-result.ts";
@@ -13,6 +14,7 @@ export const PUSHBACK_REASONS = [
   "path-outside-scope",
   "foreign-brief",
   "authority-violation",
+  ...ACCEPTANCE_REPORT_DEFECTS,
 ] as const;
 export type PushbackReason = (typeof PUSHBACK_REASONS)[number];
 
@@ -145,6 +147,11 @@ export function validateDelegationAuthority(
         findings.push({ reason: "acceptance-contradiction", detail: criterion });
       }
     }
+  }
+  /* A missing or malformed acceptance report breaks the output contract without proving any
+     criterion unmet: a non-fatal finding, whatever the status. */
+  if (result.acceptanceReportDefect) {
+    findings.push({ reason: result.acceptanceReportDefect.reason, detail: result.acceptanceReportDefect.detail });
   }
   if (result.status === "needs-lead" && result.unresolvedQuestions.some((q) => /architect/i.test(q))) {
     // Stryker disable next-line StringLiteral: message detail only — the separator between the questions

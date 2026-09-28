@@ -697,6 +697,25 @@ export class RunQaUseCase {
       const failureClass = classifyDelegationFailure(delegation.status, delegation.filesChanged.length, onDisk.length);
       return { onDisk, ...(failureClass ? { failureClass } : {}) };
     };
+    /* A missing or malformed acceptance report is a non-fatal contract finding: recorded, never silent. */
+    const recordAcceptanceReportDefect = (
+      delegation: DelegationResult,
+      at: { capability: AgentCapability; delegationId: string; attempt: number },
+    ): void => {
+      const defect = delegation.acceptanceReportDefect;
+      if (!defect) return;
+      this.deps.coordinationTelemetry?.record({
+        runId: input.runId,
+        app: input.app,
+        kind: "pushback",
+        capability: at.capability,
+        reason: `${defect.reason}: ${defect.detail}`,
+        delegationId: at.delegationId,
+        attempt: at.attempt,
+        failureClass: defect.reason,
+        at: Date.now(),
+      });
+    };
     /* The lead records every delegation and inherits the sidekick's open questions. */
     const noteDelegationForLead = (delegationId: string, delegation: DelegationResult): void => {
       if (!leadContext) return;
@@ -857,6 +876,7 @@ export class RunQaUseCase {
             ...(failureClass ? { failureClass } : {}),
             at: Date.now(),
           });
+          recordAcceptanceReportDefect(delegation, { capability, delegationId: brief.delegationId, attempt: preGenerateAttempt });
           noteDelegationForLead(brief.delegationId, delegation);
           if (onDisk.length > 0) {
             const prefix = writableRoot.endsWith("/") ? writableRoot : `${writableRoot}/`;
@@ -1383,6 +1403,11 @@ export class RunQaUseCase {
                 progressFingerprint: progress.failureFingerprint,
                 ...(failureClass ? { failureClass } : {}),
                 at: Date.now(),
+              });
+              recordAcceptanceReportDefect(delegation, {
+                capability: fixLoopCapability,
+                delegationId: brief.delegationId,
+                attempt: fixLoopSidekickAttempt,
               });
               noteDelegationForLead(brief.delegationId, delegation);
               if (delegation.status === "needs-lead") {

@@ -134,6 +134,7 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         }),
     },
   });
@@ -175,6 +176,7 @@ test("app login keeps generation on the lead and does not open a sidekick sessio
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },
@@ -217,6 +219,7 @@ test("active pre-generate falls back when sidekick JSON claims files missing on 
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         }),
     },
   });
@@ -260,6 +263,7 @@ test("active pre-generate falls back to lead GenerationPort when sidekick needs-
           concerns: [],
           unresolvedQuestions: ["which layout?"],
           recommendation: "escalate",
+          acceptance: [],
         }),
     },
   });
@@ -297,6 +301,7 @@ test("active without enabled points never calls sidekick", async () => {
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },
@@ -332,6 +337,7 @@ test("active pre-generate passes escalated model into sidekick execute", async (
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "escalate",
+          acceptance: [],
         });
       },
     },

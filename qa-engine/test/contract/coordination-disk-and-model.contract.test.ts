@@ -94,6 +94,7 @@ test("pushback rejects path escape even with code-mode root '.'", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   });
   assert.equal(blocked.status, "blocked");
   assert.ok(blocked.concerns.some((c) => c.includes("path-outside-scope")));
@@ -120,6 +121,7 @@ test("pushback allows relative project path under code-mode root '.'", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   });
   assert.equal(ok.status, "completed");
 });

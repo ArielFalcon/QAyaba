@@ -115,6 +115,7 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   });
   assert.equal(blocked.status, "blocked");
   assert.equal(blocked.recommendation, "escalate");
@@ -148,6 +149,7 @@ test("acceptance-contradiction is detected from a PARAPHRASED concern, not just 
     concerns: ["cannot satisfy criterion: the login form does not validate email formatting correctly"],
     unresolvedQuestions: [],
     recommendation: "accept" as const,
+    acceptance: [],
   };
   const findings = validateDelegationAuthority(brief, result);
   assert.ok(
@@ -180,6 +182,7 @@ test("acceptance-contradiction is NOT raised when the concern shares no meaningf
     concerns: ["cannot satisfy criterion: the checkout page total omits sales tax"],
     unresolvedQuestions: [],
     recommendation: "accept" as const,
+    acceptance: [],
   };
   const findings = validateDelegationAuthority(brief, result);
   assert.equal(
@@ -216,6 +219,7 @@ function repairResult(concern: string) {
     concerns: [concern],
     unresolvedQuestions: [],
     recommendation: "review" as const,
+    acceptance: [],
   };
 }
 

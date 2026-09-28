@@ -49,6 +49,16 @@ export {
   type FileChange,
 } from "./delegation-result.ts";
 export {
+  ACCEPTANCE_REPORT_DEFECTS,
+  ACCEPTANCE_STATUSES,
+  readAcceptanceReport,
+  type AcceptanceReport,
+  type AcceptanceReportDefect,
+  type AcceptanceReportDefectReason,
+  type AcceptanceReportEntry,
+  type AcceptanceStatus,
+} from "./acceptance-report.ts";
+export {
   classifyDelegationFailure,
   DELEGATION_FAILURE_CLASSES,
   type DelegationFailureClass,

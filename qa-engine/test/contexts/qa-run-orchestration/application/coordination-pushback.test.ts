@@ -38,6 +38,7 @@ function result(overrides: Partial<DelegationResult> = {}): DelegationResult {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
     ...overrides,
   };
 }
@@ -98,6 +99,15 @@ test("a non-fatal finding downgrades a completed result to completed-with-concer
   assert.equal(pushed.recommendation, "accept");
   assert.equal(pushed.summary, "fixed selectors");
   assert.ok(pushed.concerns.some((c) => c.startsWith("missing-artifact")));
+});
+
+test("an acceptance report defect is a non-fatal finding: the result keeps its recommendation but is not a clean completion", () => {
+  const defective = result({ acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria" } });
+  assert.deepEqual(reasonsOf(brief(), defective), ["acceptance-report-missing"]);
+  const pushed = applyPushback(brief(), defective);
+  assert.equal(pushed.status, "completed-with-concerns");
+  assert.equal(pushed.recommendation, "accept");
+  assert.ok(pushed.concerns.some((c) => c.startsWith("acceptance-report-missing")));
 });
 
 test("one fatal finding among non-fatal ones still blocks the delegation", () => {

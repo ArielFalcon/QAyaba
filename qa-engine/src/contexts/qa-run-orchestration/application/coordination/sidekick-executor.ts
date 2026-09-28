@@ -14,6 +14,7 @@ import {
 } from "./delegation-result.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
+import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
 
@@ -104,6 +105,7 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
         .filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
         .map((e) => ({ ...e, summary: typeof e.summary === "string" ? scrub(e.summary) : e.summary }))
     : [];
+  const acceptance = readAcceptanceReport(o.acceptance, brief.acceptanceCriteria.length);
   return {
     delegationId: o.delegationId,
     runId: o.runId,
@@ -116,6 +118,8 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
     concerns: scrubStrings(asStringArray(o.concerns)),
     unresolvedQuestions: scrubStrings(asStringArray(o.unresolvedQuestions)),
     recommendation: recommendation as DelegationRecommendation,
+    acceptance: acceptance.entries,
+    ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
   };
 }
 
@@ -141,6 +145,7 @@ function failedResult(brief: DelegationBrief, summary: string): DelegationResult
     concerns: [safe],
     unresolvedQuestions: [],
     recommendation: "escalate",
+    acceptance: [],
   };
 }
 

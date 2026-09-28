@@ -152,6 +152,10 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [
+            { criterion: 1, status: "unverified" },
+            { criterion: 2, status: "met" },
+          ],
         });
       },
     },
@@ -206,6 +210,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
           concerns: [],
           unresolvedQuestions: ["layout?"],
           recommendation: "escalate",
+          acceptance: [],
         });
       },
     },
@@ -255,6 +260,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
           concerns: [],
           unresolvedQuestions: ["which layout?"],
           recommendation: "escalate",
+          acceptance: [],
         }),
     },
   });
@@ -320,6 +326,7 @@ test("an app login keeps FixLoop regen on the lead and never opens a sidekick se
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },
@@ -366,6 +373,7 @@ test("a FixLoop sidekick whose claimed files are not on disk falls back to the l
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         }),
     },
   });
@@ -381,6 +389,50 @@ test("a FixLoop sidekick whose claimed files are not on disk falls back to the l
   assert.equal(generateCalls, 2, "the FixLoop regen falls back to the lead when no claimed file exists");
   const delegation = tel.events.find((e) => e.kind === "delegation" && e.reason.includes("fix-loop"));
   assert.equal(delegation?.failureClass, "claimed-files-missing");
+});
+
+test("a FixLoop sidekick result without an acceptance report is recorded as a pushback contract finding", async () => {
+  ensureFixedSpec();
+  const ports = basePorts({
+    generate: async () => ({ specs: ["lead.spec.ts"], approved: true }),
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const answer = {
+    delegationId: "coord-fixloop-noreport-fix-loop-regen",
+    runId: "coord-fixloop-noreport",
+    status: "completed",
+    summary: "fixed selector",
+    filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    concerns: ["fails acceptance criterion 1"],
+    unresolvedQuestions: [],
+    recommendation: "accept",
+  };
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => ({
+        async prompt() {
+          return { output: JSON.stringify(answer) };
+        },
+        async dispose() {},
+      }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  await useCase.run({ ...input, runId: "coord-fixloop-noreport" });
+  const finding = tel.events.find((e) => e.kind === "pushback");
+  assert.equal(finding?.failureClass, "acceptance-report-missing");
+  assert.equal(finding?.delegationId, "coord-fixloop-noreport-fix-loop-regen");
+  assert.equal(finding?.app, "demo");
 });
 
 test("FixLoop honors abort-human when wall-clock budget is exhausted", async () => {
@@ -415,6 +467,7 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },

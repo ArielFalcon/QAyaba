@@ -63,6 +63,7 @@ test("DelegationResult cannot belong to another brief", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   };
   assert.equal(belongsToBrief(result, "d1", "r1"), true);
   assert.equal(belongsToBrief(result, "d2", "r1"), false);

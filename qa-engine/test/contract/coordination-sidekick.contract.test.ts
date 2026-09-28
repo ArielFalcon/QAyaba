@@ -94,6 +94,7 @@ test("SidekickExecutor opens sidekick session, prompts, disposes, and parses Del
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [{ criterion: 1, status: "met" }],
         }),
       };
     },
@@ -357,4 +358,112 @@ test("SidekickExecutor passes escalated model via OpenSessionOpts without naming
   });
   assert.equal(seenModel, "configured-externally");
   assert.equal(result.status, "needs-lead");
+});
+
+/* ── the per-criterion acceptance report ─────────────────────────────────────────────────────── */
+
+const TWO_CRITERIA = ["Failing cases pass on re-execute", "No writes outside scope"];
+
+/* Runs the executor on one sidekick answer: the base answer is a clean completion, `fields` replace
+   or (as undefined) remove any of its keys. */
+async function executeWith(fields: Record<string, unknown>, criteria: readonly string[] = TWO_CRITERIA) {
+  const answer: Record<string, unknown> = {
+    delegationId: "d1",
+    runId: "r1",
+    status: "completed",
+    summary: "fixed selectors",
+    filesChanged: [{ path: "e2e/specs/login.spec.ts" }],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    concerns: [],
+    unresolvedQuestions: [],
+    recommendation: "accept",
+    ...fields,
+  };
+  const session: AgentSession = {
+    async prompt() {
+      return { output: JSON.stringify(answer) };
+    },
+    async dispose() {},
+  };
+  const executor = new SidekickExecutor({ runtime: { openSession: async () => session }, render: renderSidekickBrief });
+  const repairBrief = createDelegationBrief({
+    delegationId: "d1",
+    runId: "r1",
+    objective: "Repair failing QA specs",
+    task: "Fix the failing tests",
+    scope,
+    acceptanceCriteria: criteria,
+  });
+  return executor.execute(repairBrief, { cwd: "/tmp", capability: "sidekick-standard" });
+}
+
+test("the executor keeps the sidekick's per-criterion acceptance report and its notes", async () => {
+  const result = await executeWith({
+    acceptance: [
+      { criterion: 1, status: "unverified", note: "no test runner in scope" },
+      { criterion: 2, status: "met" },
+    ],
+  });
+  const byCriterion = new Map(result.acceptance.map((e) => [e.criterion, e]));
+  assert.equal(byCriterion.get(1)?.status, "unverified");
+  assert.match(byCriterion.get(1)?.note ?? "", /no test runner/);
+  assert.equal(byCriterion.get(2)?.status, "met");
+  assert.equal(result.acceptanceReportDefect, undefined);
+  assert.equal(result.status, "completed");
+});
+
+test("a result without an acceptance report is a recorded contract defect, never a clean completion", async () => {
+  const result = await executeWith({ acceptance: undefined, concerns: ["fails acceptance criterion 1"] });
+  assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-missing");
+  assert.deepEqual(result.acceptance, []);
+  assert.equal(result.status, "completed-with-concerns");
+  assert.ok(result.concerns.some((c) => c.startsWith("acceptance-report-missing")));
+  assert.ok(result.concerns.includes("fails acceptance criterion 1"), "the sidekick's own concerns stay as notes");
+});
+
+test("an empty acceptance report for a brief with criteria is a missing report", async () => {
+  const result = await executeWith({ acceptance: [] });
+  assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-missing");
+});
+
+test("a report entry with an unknown criterion number or status is a defect and is not kept", async () => {
+  for (const bad of [
+    { criterion: 3, status: "met" },
+    { criterion: 0, status: "met" },
+    { criterion: 1.5, status: "met" },
+    { criterion: "1", status: "met" },
+    { criterion: 1, status: "done" },
+    { criterion: 1 },
+    "criterion 1 met",
+    null,
+  ]) {
+    const result = await executeWith({ acceptance: [{ criterion: 1, status: "met" }, { criterion: 2, status: "met" }, bad] });
+    assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", JSON.stringify(bad));
+    assert.equal(result.acceptance.length, 2, JSON.stringify(bad));
+  }
+});
+
+test("a report that leaves a criterion out is a defect naming that criterion", async () => {
+  const result = await executeWith({ acceptance: [{ criterion: 1, status: "met" }] });
+  assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid");
+  assert.match(result.acceptanceReportDefect?.detail ?? "", /\b2\b/);
+  assert.doesNotMatch(result.acceptanceReportDefect?.detail ?? "", /\b1\b/);
+});
+
+test("a brief without acceptance criteria needs no report", async () => {
+  const result = await executeWith({ acceptance: undefined }, []);
+  assert.equal(result.acceptanceReportDefect, undefined);
+  assert.equal(result.status, "completed");
+});
+
+test("a report entry's note is scrubbed before it re-enters the lead context", async () => {
+  const result = await executeWith({
+    acceptance: [
+      { criterion: 1, status: "unverified", note: "runner needs token: ghs_supersecretvalue" },
+      { criterion: 2, status: "met" },
+    ],
+  });
+  assert.doesNotMatch(result.acceptance.map((e) => e.note ?? "").join("\n"), /ghs_supersecretvalue/);
 });
