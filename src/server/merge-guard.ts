@@ -213,6 +213,8 @@ export const PROTECTED_PATHS: string[] = [
   "scripts/test-write-guard.mjs",
   "src/server/web-console/console-harness.ts",
   "scripts/mutate.ts",
+  /* Runs each mutation preset's tests and hands Stryker their exit status. */
+  "scripts/run-in-group.mjs",
   /*
    * Every TypeScript config decides what the typecheck gate (and the static gate on generated
    * specs) compiles; every dependency-cruiser config holds architecture rules such as the ban on VCS

@@ -225,6 +225,7 @@ test("isProtectedPath flags the test infrastructure an autonomous fix could weak
     "scripts/test-write-guard.mjs",
     "src/server/web-console/console-harness.ts",
     "scripts/mutate.ts",
+    "scripts/run-in-group.mjs",
   ];
   for (const file of testInfrastructure) {
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
