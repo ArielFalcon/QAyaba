@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { resolveListenHost } from "./port";
 
 function loadCompose(): unknown {
   return parse(readFileSync(join(process.cwd(), "docker-compose.yml"), "utf8"));
@@ -44,4 +45,20 @@ test("the orchestrator container listens on every interface; BIND_ADDR alone lim
   const orchestrator = getService(loadCompose(), "orchestrator");
   const environment = orchestrator?.environment as Record<string, unknown> | undefined;
   assert.equal(String(environment?.LISTEN_HOST), "0.0.0.0");
+});
+
+/* The environment a bare `docker run -p 458:458 <image>` gives the process: the image's ENV lines. */
+function imageEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [, key, value] of readFileSync(join(process.cwd(), "Dockerfile"), "utf8").matchAll(/^ENV\s+(\w+)[=\s]\s*(.*?)\s*$/gm)) {
+    env[key!] = value!;
+  }
+  return env;
+}
+
+/* A container run without compose must still be reachable through its published port: the image
+   itself listens on every interface, and `-p`/BIND_ADDR decide what is exposed. A bare run outside
+   the image keeps the loopback default (port.test.ts). */
+test("the image listens on every interface, so a port published without compose reaches it", () => {
+  assert.equal(resolveListenHost(imageEnv()), "0.0.0.0");
 });

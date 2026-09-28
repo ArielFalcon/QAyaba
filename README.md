@@ -319,7 +319,7 @@ GitHub login needs a **GitHub OAuth App** with the device flow enabled. The app'
    | `AUTH_SIGNING_KEY` | reuses `QA_API_TOKEN` | HMAC secret that signs sessions. Set a dedicated value to rotate sessions independently of the machine token. |
    | `AUTH_SESSION_TTL_SECONDS` | `86400` (24 h) | How long a GitHub session lasts before the console asks the user to sign in again. |
    | `BIND_ADDR` | `127.0.0.1` | Interface the orchestrator's published port (`docker-compose.yml`) binds to. Set to `0.0.0.0` only to expose the control plane beyond the host — put your own reverse proxy/auth in front when you do. |
-   | `LISTEN_HOST` | `127.0.0.1` | Interface the orchestrator process itself listens on. A bare `npm run start` stays loopback-only; `docker-compose.yml` sets `0.0.0.0` inside the container (exposure beyond the host is then decided by `BIND_ADDR`). Set it on a bare run only to serve other machines, behind your own reverse proxy/auth. |
+   | `LISTEN_HOST` | `127.0.0.1` | Interface the orchestrator process itself listens on. A bare `npm run start` stays loopback-only; the image sets `0.0.0.0` (and `docker-compose.yml` repeats it), so a port published with `docker run -p` or compose reaches the process, and exposure beyond the host is decided by the publish address (`-p`, or `BIND_ADDR` under compose). Set it on a bare run only to serve other machines, behind your own reverse proxy/auth. |
    | `QA_WEB_LOGIN_HOST_ALLOWLIST` | *(none)* | Comma-separated hostnames, besides `localhost`/`127.0.0.1`/`::1`, that `GET /api/auth/local` accepts in the request's `Host` header (defense against DNS rebinding). Only needed if the console is reached through another loopback-bound hostname. |
 
 > [!IMPORTANT]

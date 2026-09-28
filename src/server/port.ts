@@ -26,8 +26,8 @@ export function resolvePort(env: Record<string, string | undefined>): number {
 /*
  * The interface the server listens on. A bare `npm run start` listens on loopback only, so it never
  * exposes the control plane to the network by accident; LISTEN_HOST names another interface (an
- * empty value counts as unset). The container sets 0.0.0.0 (docker-compose.yml), where exposure
- * beyond the host is decided by the published port's BIND_ADDR.
+ * empty value counts as unset). The image sets 0.0.0.0 (Dockerfile, repeated in docker-compose.yml),
+ * where exposure beyond the host is decided by the publish address (-p, or BIND_ADDR under compose).
  */
 export const DEFAULT_LISTEN_HOST = "127.0.0.1";
 
