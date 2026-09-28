@@ -313,6 +313,9 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
+  /* The directory every watched repo keeps its suite in; the runner reports spec paths relative to it. */
+  const SUITE_DIR = "e2e";
+
   it("both qa-generator.md copies ask for specs as suite-relative paths, the same ones specMetas names", () => {
     for (const rel of ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"]) {
       const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
@@ -322,6 +325,7 @@ describe("prompt-sync drift guard", () => {
       assert.ok(verdict.specs.length > 0, `${rel}: the example reports at least one spec`);
       for (const spec of verdict.specs) {
         assert.match(spec, /^[^./][^\\]*\/[^/]+\.spec\.ts$/, `${rel}: "${spec}" must be a path under e2e/, not a bare name`);
+        assert.notEqual(spec.split("/")[0], SUITE_DIR, `${rel}: "${spec}" must be relative to ${SUITE_DIR}/, not to the repo root`);
       }
       assert.deepEqual(verdict.specMetas.map((m) => m.file), verdict.specs, `${rel}: specMetas[].file names the same paths`);
     }
