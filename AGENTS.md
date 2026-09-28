@@ -122,9 +122,9 @@ The rules an agent must follow:
    instead of re-typing its literal.
 5. **Write only under `os.tmpdir()`** — the tracked-tree write guard throws otherwise; no real time
    or network.
-6. **Never kill a mutant by asserting its literal**; mark a genuinely equivalent one with
-   `// Stryker disable next-line <Mutator>: <reason>`. Mutation thresholds are per preset, never
-   repo-wide.
+6. **Never kill a mutant by asserting its literal**; restructure a genuinely equivalent one away, or
+   list it as a documented survivor in docs/testing-standards.md — no `// Stryker disable`
+   directives. Mutation thresholds are per preset, never repo-wide.
 
 ## The value/trust risk
 

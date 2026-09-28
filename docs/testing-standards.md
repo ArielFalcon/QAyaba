@@ -74,26 +74,110 @@ internals; never wait on real time.
 `npm run mutate -- <preset>` mutates ONE module and runs only the test files that exercise it
 (`scripts/mutate.ts` holds the presets; `npm run mutate -- --list`). Runs are full by default:
 `--incremental` is safe only while editing the mutated source, because the command runner cannot see
-test-file changes.
+test-file changes. Each run deletes the preset's previous report first, so a failed run never prints
+a stale summary.
 
 - **Survivors are triaged, not tolerated.** A real gap gets a behavior test through the public seam.
-  An equivalent mutant (no observable difference) gets a `// Stryker disable next-line <Mutator>:
-  <reason>` directive — never a test that asserts the mutated literal. Vocabulary data (stopword
-  lists) and message-only text are excluded the same way, with the reason.
+  An equivalent mutant (no observable difference) is never hidden: restructure the code so the
+  mutant cannot exist (drop the redundant guard, the unreachable fallback, the duplicated check), or,
+  when it cannot be removed, leave it surviving and list it below as a documented survivor with its
+  reason. There are no `// Stryker disable` directives: a mutator-wide directive also excludes the
+  non-equivalent mutants on its line, which is how the earlier "100%" hid survivors and kills alike.
+- **Message text carries data a test can pin** (the path, the count, the offending question). A
+  separator or wording that carries none is a documented survivor, never a test on the prose.
+- **Timeouts are reported apart from kills.** A timeout counts as detected (an infinite-loop mutant
+  legitimately times out), but the summary prints a killed-only score beside it: a timeout on a
+  mutant that cannot loop is load noise. Re-run such a preset with fewer workers
+  (`--concurrency=N`); presets whose tests spawn git set a lower `concurrency` of their own.
 - **Thresholds are per module, never repo-wide.** A preset starts in signal mode (`break: null`);
   raise its `break` only after it holds above `high` (90) for a few cycles. The keystone keeps
   `break: 80`.
 
-Baseline (2026-09-27; score = killed+timeout over valid mutants; ignored = documented equivalents):
+Baseline (2026-09-28). Score = (killed + timeout) / valid mutants; the killed-only score leaves
+timeouts out. **Before** is the suite against the code as it stood with every exclusion directive
+lifted (the earlier table reported 100% for every preset because directives excluded 3–70 mutants
+each, several of them killed and some surviving non-equivalent ones). **After** is the current code
+with no directive. Every timeout was checked: in keystone, merge-guard, coordination-events and
+coordination each one is an infinite-loop mutant (a loop bound, counter or growth step mutated). In
+the two presets with slow tests, fix-loop's two failing-file-filter timeouts and 12 of
+write-confinement's 17 are killed within seconds when the preset's tests run directly (they timed out
+only under load), 4 of write-confinement's are loops, and one — the `" -> "` literal of the rename
+arrow check → `""` — survives when run directly: it is one of write-confinement's documented
+equivalents, so that preset really has 21 survivors. Runs used 4 workers (`--concurrency=4`),
+write-confinement its preset cap of 2.
 
-| Preset | Module(s) | Before | After | Ignored | `break` |
-|---|---|---|---|---|---|
-| keystone | objective-signal decide/assemble/render | 82.76% | 100% | 8 | 80 |
-| rule-learning | rule-governance.service, rule-fold | 86.92% | 100% | 13 | — |
-| fix-loop | fix-loop.aggregate | 63.78% | 100% | 22 | — |
-| coordination | pushback, orchestration-router, delegation-failure-class | 40.50% | 100% | 70 | — |
-| merge-guard | src/server/merge-guard.ts | 73.71% | 100% | 27 | — |
-| coordination-events | src/server/coordination-events.ts | 63.98% | 100% | 25 | — |
-| local-login | src/server/auth.ts (local-login policy range) | 88.41% | 100% | 10 | — |
-| write-confinement | write-confinement.service | 74.87% | 100% | 31 | — |
-| run-decision | run-decision.service, run-decision | 91.18% | 100% | 3 | — |
+| Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
+|---|---|---|---|---|
+| keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
+| rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
+| fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 186 / 4 / 10 — 95% (93%) | — |
+| coordination | acceptance-report, pushback, orchestration-router, delegation-failure-class | 199 / 20 / 11 — 95.22% (86.52%) | 220 / 1 / 3 — 98.66% (98.21%) | — |
+| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 268 / 2 / 6 — 97.83% (97.1%) | — |
+| coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
+| local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
+| write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 146 / 17 / 20 — 89.07% (79.78%) | — |
+| run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
+
+### Documented survivors
+
+Each is a genuine equivalent mutant: no test can observe it without asserting the mutated literal.
+
+**merge-guard** (`src/server/merge-guard.ts`)
+- `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files
+  are also covered by a directory prefix entry; they are listed so narrowing that prefix cannot
+  unprotect them.
+- `normalizeRepoPath` — the `^` anchor of `/^(?:\.\/)+/` (Regex): git never reports a `./` group
+  past the start of a path.
+- `assessChange` reasons — the `" | "` and `", "` list separators (StringLiteral ×2): each unreadable
+  row and each protected file is still named.
+- `quotedLength` — `i < text.length` → `<=` (EqualityOperator): `text[text.length]` is undefined, so
+  the extra pass only ends the loop.
+
+**coordination-events** (`src/server/coordination-events.ts`)
+- `parseCoordinationLedger` — the `catch` block emptied (BlockStatement): an unparsed line leaves
+  `parsed` undefined, which the field checks drop anyway.
+
+**coordination** (`acceptance-report`, `pushback`, `orchestration-router`, `delegation-failure-class`)
+- `fingerprintOf` — `.slice(0, 16)` removed (MethodExpression): the truncation changes the stored
+  string, never which fingerprints are equal.
+- `buildProgressSnapshot` — the absent-failing-names stand-in `[]` (ArrayDeclaration): any constant
+  stands for "no failing names".
+- `applyPushback` — the `","` separator of the blocked summary's reason list (StringLiteral): every
+  reason is still named, and each finding is also its own concern.
+
+**fix-loop** (`fix-loop.aggregate.ts`)
+- `allUnique` — the `"MULTIPLE"` marker → `""` (StringLiteral): the selector check reports a
+  non-MULTIPLE contradiction only together with an absent key, which already clears `allUnique`.
+- the missing-detail fallback `c.detail ?? ""` → a placeholder (StringLiteral): any placeholder text
+  classifies the same ("other", not infra).
+- the regeneration's `selectorContradictions` spread — condition forced true / `>= 0`
+  (ConditionalExpression, EqualityOperator): the generation adapter treats an empty list like an
+  absent one.
+- `revalidate(input.specDir ?? "")` → a placeholder (StringLiteral): unreachable, the only caller
+  always passes `specDir`.
+- `canFilter`'s `failedSpecFiles.length > 0` — forced true / `>= 0` (ConditionalExpression,
+  EqualityOperator): with no failing file every (non-empty) regeneration spec is an outsider, so the
+  retry is never filtered anyway.
+- the best-run update's `run.verdict !== "infra-error"` forced true (ConditionalExpression): an
+  infra-error run ends the loop and the restore skips infra-error.
+- the restore's `failCount(bestRunSoFar) < failCount(run)` — forced true / `<=`
+  (ConditionalExpression, EqualityOperator): `bestRunSoFar` already includes every executed
+  non-infra run, ties going to the later one.
+
+**write-confinement** (`write-confinement.service.ts`)
+All rest on git's own status/quoting invariants; the module is a protected security surface, so its
+logic is left unchanged rather than restructured.
+- the `".env"` denylist entry → `""` (StringLiteral): `"*.env"` denies `.env` as well.
+- `decodeQuotedSegment` — `inner[i] ?? ""` → a placeholder (StringLiteral): `i < inner.length`, so
+  `inner[i]` is always defined; the `^` or `$` anchor of `/^[0-7]{3}$/` dropped (Regex): `octal`
+  holds at most three characters; the error message's escape excerpt (MethodExpression,
+  ArithmeticOperator): the message always carries the whole quoted segment too.
+- `decodeGitPath` — either quote check alone (LogicalOperator, MethodExpression, StringLiteral):
+  git quotes every path containing `"`, so a raw path has a quote at both ends or at neither.
+- `parseStatusOutput` — the quoted-old-path branch forced true, its scan bound `<=`, and the
+  closing-quote/arrow check forced true or loosened (ConditionalExpression, EqualityOperator,
+  LogicalOperator, StringLiteral): an unquoted path never contains `"` or `\`, and a quoted old
+  path's closing quote is always followed by `" -> "`; `l.length > 3` → `>= 3`: git never emits an
+  empty path; the R/C arrow check forced true: an R/C line always carries the arrow.
+- `isCodeDenied` — the `^` anchor of `/^\.\//` (Regex): git paths never contain `./` past the
+  start.
