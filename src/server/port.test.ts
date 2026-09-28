@@ -9,7 +9,8 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolvePort } from "./port";
+import { DEFAULT_HOST, DEFAULT_PORT, describeListenAddress, listenErrorHint, resolvePort, serverErrorListener } from "./port";
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildHelpContext } from "./help";
 
 test("the server listens on the default port unless PORT names another", () => {
@@ -60,4 +61,36 @@ test("a refused privileged port explains how to run without root", () => {
   assert.match(hint, /\bPORT\b/, "names the variable that moves the port");
   assert.match(hint, /CAP_NET_BIND_SERVICE/, "names the capability that allows a low port");
   assert.doesNotMatch(listenErrorHint(Object.assign(new Error("listen EACCES"), { code: "EACCES" }), 8458), /CAP_NET_BIND_SERVICE/, "a high port is not a privilege problem");
+});
+
+/* What the server's "error" listener reports, and whether it ends the process. */
+function runServerErrorListener(listening: boolean, err: Error & { code?: string }) {
+  const logged: { level: string; message: string; meta?: Record<string, unknown> }[] = [];
+  const exits: number[] = [];
+  const redaction = new RedactionPortAdapter({});
+  serverErrorListener({
+    port: 8458,
+    listening: () => listening,
+    log: (level, message, meta) => logged.push({ level, message, ...(meta ? { meta } : {}) }),
+    exit: (code) => exits.push(code),
+    redact: (e) => redaction.redactError(e),
+  })(err);
+  return { logged, exits };
+}
+
+test("a bind failure ends the process with a hint naming the port", () => {
+  const { logged, exits } = runServerErrorListener(false, Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" }));
+  assert.deepEqual(exits, [1]);
+  assert.equal(logged[0]?.level, "error");
+  assert.match(logged[0]?.message ?? "", /8458/);
+});
+
+test("an error after the server is up is logged with secrets redacted and never ends the process", () => {
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz1234567890AB";
+  const { logged, exits } = runServerErrorListener(true, Object.assign(new Error(`socket failure for ${token}`), { code: "ECONNRESET" }));
+  assert.deepEqual(exits, []);
+  assert.equal(logged.length, 1, "the post-listen error is logged");
+  assert.equal(logged[0]?.level, "error");
+  assert.match(String(logged[0]?.meta?.error), /socket failure/);
+  assert.doesNotMatch(JSON.stringify(logged[0]), /ghp_/);
 });

@@ -41,3 +41,28 @@ export function listenErrorHint(err: Error & { code?: string }, port: number): s
   }
   return `cannot listen on port ${port}: ${err.message}`;
 }
+
+export interface ServerErrorListenerDeps {
+  port: number;
+  listening: () => boolean;
+  log: (level: "error", message: string, meta?: Record<string, unknown>) => void;
+  exit: (code: number) => void;
+  redact: (err: unknown) => string;
+}
+
+/*
+ * The control-plane server's "error" listener. A bind failure (a privileged port without root, a
+ * port already taken) ends the process with a hint the operator can act on instead of a bare
+ * EACCES/EADDRINUSE stack. An error once the server is up is logged, redacted, and the server keeps
+ * serving.
+ */
+export function serverErrorListener(deps: ServerErrorListenerDeps): (err: Error & { code?: string }) => void {
+  return (err) => {
+    if (deps.listening()) {
+      deps.log("error", "control-plane server error", { error: deps.redact(err), ...(err.code ? { code: err.code } : {}) });
+      return;
+    }
+    deps.log("error", `qayaba cannot start: ${listenErrorHint(err, deps.port)}`);
+    deps.exit(1);
+  };
+}

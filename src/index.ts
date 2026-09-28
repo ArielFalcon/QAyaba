@@ -51,7 +51,7 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
-import { resolvePort, describeListenAddress, listenErrorHint } from "./server/port";
+import { resolvePort, describeListenAddress, serverErrorListener } from "./server/port";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
 const ROOT = qayabaRoot();
@@ -824,15 +824,16 @@ const server = createServer(async (req, res) => {
  */
 finalizeInterruptedRuns({ runEvents });
 
-/*
- * A bind failure (a privileged port without root, a port already taken) ends the process with a
- * hint the operator can act on instead of a bare EACCES/EADDRINUSE stack.
- */
-server.on("error", (err: NodeJS.ErrnoException) => {
-  if (server.listening) return;
-  logJson("error", `qayaba cannot start: ${listenErrorHint(err, port)}`);
-  process.exit(1);
-});
+server.on(
+  "error",
+  serverErrorListener({
+    port,
+    listening: () => server.listening,
+    log: logJson,
+    exit: (code) => process.exit(code),
+    redact: (err) => redactionPort.redactError(err),
+  }),
+);
 
 server.listen(port, () => {
   logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""}`);
