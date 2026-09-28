@@ -61,6 +61,8 @@ const LEARN = "qa-engine/src/contexts/cross-run-learning/domain";
 const LEARN_TEST = "qa-engine/test/contexts/cross-run-learning/domain";
 const ORCH = "qa-engine/src/contexts/qa-run-orchestration";
 const ORCH_TEST = "qa-engine/test/contexts/qa-run-orchestration";
+const GEN = "qa-engine/src/contexts/generation";
+const GEN_TEST = "qa-engine/test/contexts/generation";
 const PUB = "qa-engine/src/contexts/workspace-and-publication/domain";
 const PUB_TEST = "qa-engine/test/contexts/workspace-and-publication/domain";
 
@@ -123,6 +125,31 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/application/coordination-active.use-case.test.ts`,
       `${ORCH_TEST}/application/coordination-fixloop.use-case.test.ts`,
       "src/server/coordination-events.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "agent-efficiency": {
+    description: "agent efficiency metrics: tool taxonomy, call sequence/redundancy, prompt-provided reads, step exhaustion, coarse windows, turn summary, and the in-session call tracker",
+    mutate: [
+      `${GEN}/domain/tool-call-taxonomy.ts`,
+      `${GEN}/domain/call-sequence.ts`,
+      `${GEN}/domain/provided-context.ts`,
+      `${GEN}/domain/step-exhaustion.ts`,
+      `${GEN}/domain/coarse-run-efficiency.ts`,
+      `${GEN}/domain/turn-efficiency-summary.ts`,
+      `${GEN}/infrastructure/sse/call-efficiency-tracker.ts`,
+    ],
+    tests: [
+      `${GEN_TEST}/domain/tool-call-taxonomy.test.ts`,
+      `${GEN_TEST}/domain/call-sequence.test.ts`,
+      `${GEN_TEST}/domain/provided-context.test.ts`,
+      `${GEN_TEST}/domain/step-exhaustion.test.ts`,
+      `${GEN_TEST}/domain/coarse-run-efficiency.test.ts`,
+      `${GEN_TEST}/domain/turn-efficiency-summary.test.ts`,
+      `${GEN_TEST}/infrastructure/sse/call-efficiency-tracker.test.ts`,
+      `${GEN_TEST}/infrastructure/sse/event-stream.test.ts`,
+      `${GEN_TEST}/infrastructure/agent-transport-policy.test.ts`,
+      "qa-engine/test/contract/agent-efficiency-reconcile.contract.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

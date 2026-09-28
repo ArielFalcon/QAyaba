@@ -40,6 +40,18 @@ test("the keystone preset mutates the change-coverage decision and assembly modu
   assert.ok(sources.some((s) => s.endsWith("objective-signal/domain/assemble-change-coverage.ts")));
 });
 
+test("the agent-efficiency preset mutates the pure classification modules and the call tracker, against their own and their consumers' tests", () => {
+  const preset = PRESETS["agent-efficiency"];
+  assert.ok(preset, "the agent-efficiency preset exists");
+  const sources = preset.mutate.map(sourcePathOf);
+  for (const module of ["tool-call-taxonomy", "call-sequence", "provided-context", "step-exhaustion", "coarse-run-efficiency", "turn-efficiency-summary"]) {
+    assert.ok(sources.some((s) => s.endsWith(`generation/domain/${module}.ts`)), `${module} is mutated`);
+  }
+  assert.ok(sources.some((s) => s.endsWith("sse/call-efficiency-tracker.ts")), "the tracker is mutated");
+  assert.ok(preset.tests.some((t) => t.endsWith("agent-efficiency-reconcile.contract.test.ts")), "the fine/coarse reconciliation contract runs against every mutant");
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",
