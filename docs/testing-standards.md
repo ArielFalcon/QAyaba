@@ -88,7 +88,9 @@ a stale summary.
 - **Timeouts are reported apart from kills.** A timeout counts as detected (an infinite-loop mutant
   legitimately times out), but the summary prints a killed-only score beside it: a timeout on a
   mutant that cannot loop is load noise. Re-run such a preset with fewer workers
-  (`--concurrency=N`); presets whose tests spawn git set a lower `concurrency` of their own.
+  (`--concurrency=N`); presets whose tests spawn git set a lower `concurrency` of their own. A
+  preset's tests run in their own process group (`scripts/run-in-group.mjs`), so a timed-out run's
+  test-file processes die with it instead of spinning on the looping mutant.
 - **Thresholds are per module, never repo-wide.** A preset starts in signal mode (`break: null`);
   raise its `break` only after it holds above `high` (90) for a few cycles. The keystone keeps
   `break: 80`.
@@ -116,7 +118,7 @@ kills it, checked by applying the mutant by hand, which moves one survivor to ki
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 186 / 4 / 10 — 95% (93%) | — |
 | coordination | acceptance-report, pushback, orchestration-router, delegation-failure-class | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 299 / 2 / 5 — 98.37% (97.71%) | — |
+| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 300 / 2 / 5 — 98.37% (97.72%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
