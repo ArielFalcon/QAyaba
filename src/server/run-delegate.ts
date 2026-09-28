@@ -10,7 +10,8 @@ export interface DelegateRunInput {
   sha: string;
   /** Range start: the service's diff spans baseSha..sha (same meaning as the webhook and standalone paths). */
   baseSha?: string;
-  target: TestTarget;
+  /** Absent means the service picks it from the app's config (code apps run in code mode). */
+  target?: TestTarget;
   mode: RunMode;
   guidance?: string;
 }
@@ -49,7 +50,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
       app: input.app,
       sha: input.sha,
       ...(input.baseSha ? { baseSha: input.baseSha } : {}),
-      target: input.target,
+      ...(input.target ? { target: input.target } : {}),
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),
     }),

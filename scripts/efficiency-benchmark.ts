@@ -4,17 +4,35 @@
  * lives only in config/"), never engine code — so cases load from
  * config/benchmarks/efficiency-cases.json (gitignored), mirroring
  * coordination-benchmark.ts's own convention.
- * config/benchmarks/efficiency-cases.example.json ships tracked (task 5.4).
+ * config/benchmarks/efficiency-cases.example.json ships tracked.
+ *
+ * Commands (run inside the orchestrator container, where the service and its history live):
+ *   run <label>                          submit every case, one at a time, through the service's queue
+ *   register <label> <case> <runId>      attach an already-finished run to a case of the label
+ *   snapshot <label>                     freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json
+ *   report <A> <B>                       compare two labels' snapshots
  */
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { RunEventBody } from "@kernel/contract/events.ts";
+import { QueueStatusSchema } from "@kernel/contract/commands.ts";
+import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/domain/coarse-run-efficiency.ts";
+import { detectStepExhaustion } from "@contexts/generation/domain/step-exhaustion.ts";
+import { delegateRun } from "../src/server/run-delegate.ts";
+import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
+import type { AgentTurnRecord } from "../src/server/history.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function defaultEfficiencyBenchmarkCasesPath(): string {
   return join(ROOT, "config", "benchmarks", "efficiency-cases.json");
+}
+
+/** Per-label registries and snapshots live here (gitignored): they hold run ids and numbers only. */
+export function defaultEfficiencyResultsDir(): string {
+  return join(ROOT, "config", "benchmarks", "efficiency-results");
 }
 
 /** Shaped like the CLI's own run arguments (proposal §Scope). */
@@ -67,5 +85,452 @@ export function loadEfficiencyBenchmarkCases(
       `${path} must be a JSON array of EfficiencyBenchmarkCase objects (name/app/sha required; baseSha/mode/target/guidance optional)`,
     );
   }
+  const seen = new Set<string>();
+  for (const c of parsed) {
+    if (seen.has(c.name)) throw new Error(`${path} has a duplicate case name '${c.name}' — results are keyed by case name`);
+    seen.add(c.name);
+  }
   return parsed;
+}
+
+/* ── labels and their run registry ─────────────────────────────────────────────────── */
+
+const LABEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** A label names files, so it must not be able to escape the results directory. */
+export function assertLabel(label: string): void {
+  if (!LABEL_PATTERN.test(label)) {
+    throw new Error(`invalid label '${label}' — use letters, digits, '.', '_' or '-' (starting with a letter or digit)`);
+  }
+}
+
+const registryFile = (resultsDir: string, label: string): string => join(resultsDir, `${label}.runs.json`);
+
+/** case name → run id, for a label. Empty when nothing was registered yet; a corrupt file throws. */
+export function readRegistry(resultsDir: string, label: string): Record<string, string> {
+  assertLabel(label);
+  const path = registryFile(resultsDir, label);
+  if (!existsSync(path)) return {};
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !Object.values(parsed).every((v) => typeof v === "string")) {
+    throw new Error(`${path} is not a case-name → run-id map`);
+  }
+  return parsed as Record<string, string>;
+}
+
+/** Attaches a run to a case of the label (a later registration for the same case replaces the earlier one). */
+export function registerRun(resultsDir: string, label: string, caseName: string, runId: string): void {
+  const registry = readRegistry(resultsDir, label);
+  registry[caseName] = runId;
+  mkdirSync(resultsDir, { recursive: true });
+  writeFileSync(registryFile(resultsDir, label), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+}
+
+/* ── run ───────────────────────────────────────────────────────────────────────────── */
+
+export interface BenchmarkService {
+  fetch: typeof fetch;
+  baseUrl: string;
+  token?: string;
+  pollMs?: number;
+  timeoutMs?: number;
+  now?: () => number;
+}
+
+export interface RunBenchmarkOptions {
+  casesPath?: string;
+  resultsDir?: string;
+  service: BenchmarkService;
+  log?: (line: string) => void;
+}
+
+export interface RunBenchmarkResult {
+  completed: Array<{ caseName: string; runId: string; verdict: string | null }>;
+  /** Set when the benchmark stopped early; no later case was submitted. */
+  stopped?: { caseName: string; runId: string; reason: "timeout" };
+}
+
+/* A benchmark must be the only work against DEV: the service's queue is the one sequential queue, so a
+   busy one means someone else's run would share the interval a case is measured over. */
+async function assertQueueIdle(service: BenchmarkService): Promise<void> {
+  const headers: Record<string, string> = service.token ? { Authorization: `Bearer ${service.token}` } : {};
+  const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
+  if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
+  const queue = QueueStatusSchema.parse(await res.json());
+  if (queue.running || queue.pending > 0) {
+    const running = queue.running ? `run ${queue.running.id} (${queue.running.app}) is running` : "no run is running";
+    throw new Error(`the queue is busy (${running}, ${queue.pending} pending) — a benchmark must be the only work against DEV; wait for it to drain`);
+  }
+}
+
+/**
+ * Submits every case through the service's sequential queue, one at a time, each waiting for a
+ * terminal status before the next starts, and remembers each run id under the label. A case that
+ * outlives the timeout stops the benchmark (its run id is kept; nothing later is submitted).
+ */
+export async function runBenchmark(label: string, opts: RunBenchmarkOptions): Promise<RunBenchmarkResult> {
+  assertLabel(label);
+  const cases = loadEfficiencyBenchmarkCases(opts.casesPath);
+  const resultsDir = opts.resultsDir ?? defaultEfficiencyResultsDir();
+  const log = opts.log ?? (() => {});
+  await assertQueueIdle(opts.service);
+
+  const completed: RunBenchmarkResult["completed"] = [];
+  for (const c of cases) {
+    log(`[bench] ${label}: running case '${c.name}' (${c.app} @ ${c.sha}${c.baseSha ? ` from ${c.baseSha}` : ""})`);
+    const result = await delegateRun(
+      {
+        app: c.app,
+        sha: c.sha,
+        ...(c.baseSha ? { baseSha: c.baseSha } : {}),
+        ...(c.target ? { target: c.target } : {}),
+        mode: c.mode ?? "diff",
+        ...(c.guidance ? { guidance: c.guidance } : {}),
+      },
+      {
+        fetch: opts.service.fetch,
+        baseUrl: opts.service.baseUrl,
+        ...(opts.service.token ? { token: opts.service.token } : {}),
+        ...(opts.service.pollMs !== undefined ? { pollMs: opts.service.pollMs } : {}),
+        ...(opts.service.timeoutMs !== undefined ? { timeoutMs: opts.service.timeoutMs } : {}),
+        ...(opts.service.now ? { now: opts.service.now } : {}),
+      },
+    );
+    registerRun(resultsDir, label, c.name, result.id);
+    if (result.timedOut) {
+      log(`[bench] ${label}: case '${c.name}' (run ${result.id}) did not finish in time — stopping`);
+      return { completed, stopped: { caseName: c.name, runId: result.id, reason: "timeout" } };
+    }
+    log(`[bench] ${label}: case '${c.name}' finished (run ${result.id}, verdict ${result.verdict ?? "?"})`);
+    completed.push({ caseName: c.name, runId: result.id, verdict: result.verdict });
+  }
+  return { completed };
+}
+
+/* ── snapshot ──────────────────────────────────────────────────────────────────────── */
+
+export interface CaseGuardrails {
+  verdict: string | null;
+  specsProduced: number | null;
+  /** The static gate (gateSignals.static). */
+  staticPass: boolean | null;
+  /** Passed > 0 and failed = 0; null when nothing was executed. */
+  executePass: boolean | null;
+  /** Null means unknown (never measured, or not measurable for the run). */
+  coverageRatio: number | null;
+  reviewerApproved: boolean | null;
+}
+
+export interface CaseMeasurement {
+  coarse: CoarseRunEfficiency;
+  /** Whether a generator turn hit the step limit; null for Codex (no step budget) and for a run with no generator turn. */
+  exhausted: boolean | null;
+  guardrails: CaseGuardrails;
+}
+
+/** `data` is null when the run's records are gone (retention) or were never there. */
+export interface SnapshotEntry {
+  runId: string;
+  data: CaseMeasurement | null;
+}
+
+/** Numbers and ids only — never prompt, output or event text. */
+export interface EfficiencySnapshot {
+  label: string;
+  takenAt: string;
+  cases: Record<string, SnapshotEntry>;
+}
+
+/** Where a run's recorded data is read from — history.ts in the orchestrator container, a fake in tests. */
+export interface RunDataSource {
+  events(runId: string): RunEventBody[];
+  outcome(runId: string): RunOutcome | undefined;
+  record(runId: string): RunRecord | undefined;
+  turns(runId: string): AgentTurnRecord[];
+}
+
+function specsProduced(events: RunEventBody[], record: RunRecord | undefined): number | null {
+  if (record?.specs) return record.specs.length;
+  const written = new Set<string>();
+  for (const event of events) if (event.type === "spec.written") written.add(event.file);
+  return events.length > 0 ? written.size : null;
+}
+
+function executePass(record: RunRecord | undefined): boolean | null {
+  if (!record) return null;
+  const passed = record.passed ?? 0;
+  const failed = record.failed ?? 0;
+  if (passed + failed === 0) return null;
+  return passed > 0 && failed === 0;
+}
+
+/* Exhaustion is read from the generator's own output, the same marker the live tracker uses. */
+function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRecord[]): boolean | null {
+  if (outcome?.gateSignals.usage?.primaryProvider === "codex") return null;
+  const generatorTurns = turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
+  if (generatorTurns.length === 0) return null;
+  return generatorTurns.some((t) => detectStepExhaustion(t.outputText));
+}
+
+/** The run's coarse efficiency and guardrails, or null when none of its records remain. */
+export function measureRun(runId: string, source: RunDataSource): CaseMeasurement | null {
+  const events = source.events(runId);
+  const outcome = source.outcome(runId);
+  const record = source.record(runId);
+  if (events.length === 0 && !outcome && !record) return null;
+  return {
+    coarse: classifyRunEfficiency(events),
+    exhausted: generatorExhausted(outcome, source.turns(runId)),
+    guardrails: {
+      verdict: outcome?.verdict ?? record?.verdict ?? null,
+      specsProduced: specsProduced(events, record),
+      staticPass: outcome?.gateSignals.static ?? null,
+      executePass: executePass(record),
+      coverageRatio: outcome?.gateSignals.coverageRatio ?? null,
+      reviewerApproved: outcome?.gateSignals.reviewerApproved ?? null,
+    },
+  };
+}
+
+const snapshotFile = (resultsDir: string, label: string): string => join(resultsDir, `${label}.snapshot.json`);
+
+/** Measures every run registered under the label; a run whose data is gone yields a null entry. */
+export function takeSnapshot(
+  label: string,
+  resultsDir: string,
+  sourceFor: (runId: string) => RunDataSource,
+  now: () => string = () => new Date().toISOString(),
+): EfficiencySnapshot {
+  const cases: Record<string, SnapshotEntry> = {};
+  for (const [caseName, runId] of Object.entries(readRegistry(resultsDir, label))) {
+    cases[caseName] = { runId, data: measureRun(runId, sourceFor(runId)) };
+  }
+  return { label, takenAt: now(), cases };
+}
+
+export function readSnapshot(resultsDir: string, label: string): EfficiencySnapshot | null {
+  assertLabel(label);
+  const path = snapshotFile(resultsDir, label);
+  if (!existsSync(path)) return null;
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as EfficiencySnapshot;
+  if (typeof parsed !== "object" || parsed === null || typeof parsed.label !== "string" || typeof parsed.cases !== "object") {
+    throw new Error(`${path} is not an efficiency snapshot`);
+  }
+  return parsed;
+}
+
+/**
+ * Writes the snapshot, but never one that holds less than the file it replaces: once the runs'
+ * records age out, re-snapshotting would silently erase the only surviving measurements.
+ */
+export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot): void {
+  const existing = readSnapshot(resultsDir, snapshot.label);
+  if (existing) {
+    const lost = Object.entries(existing.cases)
+      .filter(([name, entry]) => entry.data !== null && snapshot.cases[name]?.data == null)
+      .map(([name]) => name);
+    if (lost.length > 0) {
+      throw new Error(
+        `refusing to overwrite snapshot '${snapshot.label}': it would lose the measurements of case(s) ${lost.join(", ")} (their runs' records may have been pruned). Keep the existing snapshot or use a new label.`,
+      );
+    }
+  }
+  mkdirSync(resultsDir, { recursive: true });
+  writeFileSync(snapshotFile(resultsDir, snapshot.label), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+}
+
+/* ── report ────────────────────────────────────────────────────────────────────────── */
+
+export type CaseView = { status: "missing" } | { status: "measured"; data: CaseMeasurement };
+
+export interface ReportRow {
+  caseName: string;
+  a: CaseView;
+  b: CaseView;
+  /** Names of the guardrails whose recorded value differs between the two labels (empty unless both measured). */
+  guardrailChanges: string[];
+}
+
+export interface Comparison {
+  labelA: string;
+  labelB: string;
+  rows: ReportRow[];
+}
+
+function viewOf(snapshot: EfficiencySnapshot, caseName: string): CaseView {
+  const data = snapshot.cases[caseName]?.data;
+  return data ? { status: "measured", data } : { status: "missing" };
+}
+
+const GUARDRAIL_NAMES: ReadonlyArray<keyof CaseGuardrails> = [
+  "verdict", "specsProduced", "staticPass", "executePass", "coverageRatio", "reviewerApproved",
+];
+
+/** One row per case named by either snapshot: a case with no data on a side is `missing` there, never left out. */
+export function compareSnapshots(a: EfficiencySnapshot, b: EfficiencySnapshot): Comparison {
+  const names = [...new Set([...Object.keys(a.cases), ...Object.keys(b.cases)])];
+  const rows = names.map((caseName): ReportRow => {
+    const left = viewOf(a, caseName);
+    const right = viewOf(b, caseName);
+    const guardrailChanges =
+      left.status === "measured" && right.status === "measured"
+        ? GUARDRAIL_NAMES.filter((g) => left.data.guardrails[g] !== right.data.guardrails[g]).map(String)
+        : [];
+    return { caseName, a: left, b: right, guardrailChanges };
+  });
+  return { labelA: a.label, labelB: b.label, rows };
+}
+
+const val = (v: number | string | null): string => (v === null ? "n/a" : String(v));
+const yesNo = (v: boolean | null, yes: string, no: string): string => (v === null ? "n/a" : v ? yes : no);
+
+function windowLine(w: CoarseRunEfficiency["firstPass"]): string {
+  return `calls ${w.totalCalls} · before 1st write ${w.callsBeforeFirstWrite} · writes ${w.writeCount} · commands ${w.commandCount} · subagents ${w.subagentCount}`;
+}
+
+function measuredLines(data: CaseMeasurement): string[] {
+  const g = data.guardrails;
+  return [
+    `first pass: ${windowLine(data.coarse.firstPass)}`,
+    `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
+    `grounding: calls ${data.coarse.grounding.totalCalls}`,
+    `generator: step limit ${yesNo(data.exhausted, "hit", "not hit")}`,
+    `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")}`,
+  ];
+}
+
+/** A plain-text side-by-side report, one block per case. */
+export function renderReport(comparison: Comparison): string {
+  const lines: string[] = [`efficiency report: ${comparison.labelA} → ${comparison.labelB}`, ""];
+  for (const row of comparison.rows) {
+    lines.push(`case: ${row.caseName}`);
+    for (const [label, view] of [[comparison.labelA, row.a], [comparison.labelB, row.b]] as const) {
+      if (view.status === "missing") {
+        lines.push(`  ${label}: MISSING — no recorded data for this case`);
+        continue;
+      }
+      lines.push(`  ${label}:`);
+      for (const line of measuredLines(view.data)) lines.push(`    ${line}`);
+    }
+    if (row.guardrailChanges.length > 0) lines.push(`  guardrails changed: ${row.guardrailChanges.join(", ")}`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+/* ── command line ──────────────────────────────────────────────────────────────────── */
+
+const USAGE = [
+  "usage: npm run efficiency-benchmark -- <command>",
+  "  run <label>                        submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue",
+  "  register <label> <case> <runId>    attach an already-finished run to a case of the label",
+  "  snapshot <label>                   freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json",
+  "  report <labelA> <labelB>           compare two labels' snapshots",
+  "run inside the orchestrator container: it needs the service's control API and its run history.",
+].join("\n");
+
+export interface MainOptions {
+  resultsDir?: string;
+  casesPath?: string;
+  out?: (line: string) => void;
+  /** The service `run` submits to; defaults to the local orchestrator. */
+  service?: BenchmarkService;
+  /** Where `snapshot` reads run data from; defaults to the orchestrator's run history. */
+  sourceFor?: (runId: string) => RunDataSource;
+  now?: () => string;
+  env?: Record<string, string | undefined>;
+}
+
+function discoverApiToken(env: Record<string, string | undefined>): string | undefined {
+  if (env.QA_API_TOKEN) return env.QA_API_TOKEN;
+  try {
+    return readFileSync(join(ROOT, "config", ".api_token"), "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function defaultService(env: Record<string, string | undefined>): Promise<BenchmarkService> {
+  const { resolvePort } = await import("../src/server/port.ts");
+  const token = discoverApiToken(env);
+  return { fetch, baseUrl: `http://localhost:${resolvePort(env)}`, ...(token ? { token } : {}) };
+}
+
+/* The orchestrator's own history store, imported lazily so the commands that never read it do not open it. */
+async function historySource(): Promise<(runId: string) => RunDataSource> {
+  const history = await import("../src/server/history.ts");
+  const source: RunDataSource = {
+    events: (runId) => history.loadRunEvents(runId).map((e) => e.body as RunEventBody),
+    outcome: (runId) => history.getRunOutcome(runId),
+    record: (runId) => history.getRecord(runId),
+    turns: (runId) => history.getAgentTurns(runId),
+  };
+  return () => source;
+}
+
+/** Returns the process exit code: 0 ok, 1 the command failed, 2 bad usage. */
+export async function main(argv: string[], opts: MainOptions = {}): Promise<number> {
+  const out = opts.out ?? ((line: string) => console.log(line));
+  const env = opts.env ?? process.env;
+  const resultsDir = opts.resultsDir ?? defaultEfficiencyResultsDir();
+  const [command, ...args] = argv;
+
+  try {
+    if (command === "run" && args.length === 1) {
+      const result = await runBenchmark(args[0]!, {
+        ...(opts.casesPath ? { casesPath: opts.casesPath } : {}),
+        resultsDir,
+        service: opts.service ?? (await defaultService(env)),
+        log: out,
+      });
+      for (const c of result.completed) out(`${c.caseName}: run ${c.runId} → ${c.verdict ?? "no verdict"}`);
+      if (result.stopped) {
+        out(`stopped at '${result.stopped.caseName}' (run ${result.stopped.runId}): it did not finish in time; later cases were not submitted`);
+        return 1;
+      }
+      out(`${result.completed.length} case(s) finished; now run: snapshot ${args[0]}`);
+      return 0;
+    }
+
+    if (command === "register" && args.length === 3) {
+      registerRun(resultsDir, args[0]!, args[1]!, args[2]!);
+      out(`registered run ${args[2]} as case '${args[1]}' of label '${args[0]}'`);
+      return 0;
+    }
+
+    if (command === "snapshot" && args.length === 1) {
+      const label = args[0]!;
+      if (Object.keys(readRegistry(resultsDir, label)).length === 0) {
+        out(`no runs registered under label '${label}' — use \`run ${label}\` or \`register ${label} <case> <runId>\` first`);
+        return 1;
+      }
+      const snapshot = takeSnapshot(label, resultsDir, opts.sourceFor ?? (await historySource()), opts.now);
+      writeSnapshot(resultsDir, snapshot);
+      const entries = Object.values(snapshot.cases);
+      const measured = entries.filter((e) => e.data !== null).length;
+      out(`snapshot '${label}' written: ${measured} case(s) measured, ${entries.length - measured} with no recorded data (missing)`);
+      return 0;
+    }
+
+    if (command === "report" && args.length === 2) {
+      const [a, b] = [readSnapshot(resultsDir, args[0]!), readSnapshot(resultsDir, args[1]!)];
+      if (!a || !b) {
+        out(`no snapshot for label '${!a ? args[0] : args[1]}' — run \`snapshot ${!a ? args[0] : args[1]}\` first`);
+        return 1;
+      }
+      for (const line of renderReport(compareSnapshots(a, b)).split("\n")) out(line);
+      return 0;
+    }
+  } catch (err) {
+    out(`error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+
+  for (const line of USAGE.split("\n")) out(line);
+  return 2;
+}
+
+/* Run as a script (not when imported by a test). */
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then((code) => process.exit(code));
 }

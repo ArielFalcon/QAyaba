@@ -4,8 +4,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadEfficiencyBenchmarkCases } from "./efficiency-benchmark.ts";
+
+test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed benchmark covering a plain, a ranged and a guided case", () => {
+  const examplePath = join(dirname(fileURLToPath(import.meta.url)), "..", "config", "benchmarks", "efficiency-cases.example.json");
+  const cases = loadEfficiencyBenchmarkCases(examplePath);
+  assert.ok(cases.length >= 3);
+  assert.ok(cases.some((c) => c.baseSha !== undefined), "one example shows a commit range");
+  assert.ok(cases.some((c) => c.guidance !== undefined), "one example shows guidance");
+  for (const c of cases) assert.match(c.sha, /^[0-9a-f]{7,40}$/);
+});
 
 test("loadEfficiencyBenchmarkCases: a missing cases file throws a loud, actionable error (never a silent empty benchmark)", () => {
   assert.throws(
@@ -56,6 +66,20 @@ test("loadEfficiencyBenchmarkCases: accepts the optional baseSha/mode/target/gui
   assert.equal(cases[0]?.mode, "manual");
   assert.equal(cases[0]?.target, "code");
   assert.equal(cases[0]?.guidance, "test checkout");
+});
+
+test("loadEfficiencyBenchmarkCases: rejects two cases with the same name (results are keyed by case name)", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const badPath = join(dir, "efficiency-cases.json");
+  writeFileSync(
+    badPath,
+    JSON.stringify([
+      { name: "same", app: "a", sha: "abc1234" },
+      { name: "same", app: "a", sha: "def5678" },
+    ]),
+  );
+  assert.throws(() => loadEfficiencyBenchmarkCases(badPath), /duplicate case name 'same'/);
 });
 
 test("loadEfficiencyBenchmarkCases: rejects a case with an invalid mode value", (t) => {

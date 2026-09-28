@@ -1,0 +1,22 @@
+[
+  {
+    "name": "example-app-a-single-commit",
+    "app": "example-app-a",
+    "sha": "0000000000000000000000000000000000000a"
+  },
+  {
+    "name": "example-app-a-commit-range",
+    "app": "example-app-a",
+    "sha": "0000000000000000000000000000000000000b",
+    "baseSha": "0000000000000000000000000000000000000c",
+    "mode": "diff"
+  },
+  {
+    "name": "example-app-b-guided",
+    "app": "example-app-b",
+    "sha": "0000000000000000000000000000000000000d",
+    "mode": "manual",
+    "target": "code",
+    "guidance": "Describe what the run should focus on."
+  }
+]

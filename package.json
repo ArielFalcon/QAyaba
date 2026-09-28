@@ -23,6 +23,7 @@
     "typecheck": "tsc -b qa-engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.parity.json && tsc --noEmit -p scripts/tsconfig.json",
     "mutate": "tsx scripts/mutate.ts",
     "mutate:keystone": "tsx scripts/mutate.ts keystone",
+    "efficiency-benchmark": "tsx scripts/efficiency-benchmark.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src"
   },
   "dependencies": {

@@ -6,6 +6,11 @@ config/.api_token
 # Reproducible coordination benchmark cases name real commits of real watched repos (user data) —
 # only the neutral-placeholder example ships tracked (see scripts/coordination-benchmark.ts).
 config/benchmarks/coordination-cases.json
+# Same for the agent-efficiency benchmark: its cases name real commits (user data) and its results
+# hold run ids and measurements of real runs — only the example ships tracked
+# (see scripts/efficiency-benchmark.ts).
+config/benchmarks/efficiency-cases.json
+config/benchmarks/efficiency-results/
 # Watched-app configs are user data (real repo URLs, tokens-adjacent settings) — only the
 # neutral-placeholder example ships tracked. A fresh clone has no app configured (see
 # CLAUDE.md's Onboarding note and docs invariants).
