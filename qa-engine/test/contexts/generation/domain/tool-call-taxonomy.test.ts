@@ -45,6 +45,20 @@ test("bucketForTool refines analyzing into code_read for the native read tool an
   assert.equal(bucketForTool("read_file"), CALL_BUCKETS.CODE_READ);
 });
 
+test("bucketForTool recognizes MCP tools whose names carry the server prefix", () => {
+  assert.equal(bucketForTool("playwright_browser_navigate"), CALL_BUCKETS.BROWSER);
+  assert.equal(bucketForTool("mcp__playwright__browser_snapshot"), CALL_BUCKETS.BROWSER);
+  assert.equal(bucketForTool("engram_mem_search"), CALL_BUCKETS.MEMORY);
+  assert.equal(bucketForTool("serena_read_memory"), CALL_BUCKETS.MEMORY);
+  assert.equal(bucketForTool("serena_find_symbol"), CALL_BUCKETS.CODE_READ);
+  assert.equal(bucketForTool("serena_read_file"), CALL_BUCKETS.CODE_READ);
+});
+
+test("bucketForTool does not treat an unrelated tool that merely ends in a read-like word as code_read", () => {
+  assert.equal(bucketForTool("spread"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("thread"), CALL_BUCKETS.OTHER);
+});
+
 test("bucketForTool falls back to other for an analyzing tool matching none of the fine patterns", () => {
   assert.equal(bucketForTool("webfetch"), CALL_BUCKETS.OTHER);
   assert.equal(bucketForTool("some_unknown_tool"), CALL_BUCKETS.OTHER);

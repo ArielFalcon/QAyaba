@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { Objective } from "@kernel/objective.ts";
+import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -119,6 +120,33 @@ test("generate() omits specSources when no readSpecSource collaborator is inject
   const result = await adapter.generate([], "/mirrors/org/app/e2e");
 
   assert.equal(result.specSources, undefined);
+});
+
+test("generate() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded", async () => {
+  callEfficiencyTracker.attach("sess-navigation-heavy", "/mirrors/org/app");
+  for (let i = 0; i < 25; i++) {
+    callEfficiencyTracker.record({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: `prt-${i}`, sessionID: "sess-navigation-heavy", messageID: "m", type: "tool", callID: `call-${i}`,
+          tool: "playwright_browser_navigate", state: { status: "completed", input: { url: `http://dev/${i}` }, output: "ok" },
+        },
+      },
+    });
+  }
+  assert.equal(callEfficiencyTracker.take("sess-navigation-heavy", "")?.totalCalls, 25);
+  callEfficiencyTracker.clear("sess-navigation-heavy");
+
+  const useCase = new GenerateTestsUseCase(fakeGenerationPorts());
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+  });
+
+  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+
+  assert.equal("reexploreNavigations" in result, false, "measuring calls must not activate the progress gate's re-exploration signal");
 });
 
 /* already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the

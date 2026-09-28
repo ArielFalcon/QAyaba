@@ -41,21 +41,23 @@ export function kindForTool(tool: string): ActivityKind {
   return "analyzing";
 }
 
-/* Playwright MCP tools are all named with this prefix (agents/opencode.json's
-   qa-reviewer permission block enumerates the full set: browser_navigate,
-   browser_snapshot, browser_click, …). */
-const BROWSER_TOOLS = /^browser_/i;
+/* MCP tools reach the agent as `<server>_<tool>` (e.g. playwright_browser_navigate,
+   mcp__playwright__browser_snapshot), so every fine pattern below tolerates a
+   server prefix ending in `_`. Native tools (read, grep, …) carry none. */
+
+/* Playwright MCP tools are all named browser_* (agents/opencode.json's qa-reviewer
+   permission block enumerates the full set: browser_navigate, browser_snapshot, …). */
+const BROWSER_TOOLS = /(^|_)browser_/i;
 
 /* Cross-session recall: engram's MCP tools (mem_search, mem_save, mem_get_observation, …)
    and Serena's own project-memory tools (read_memory, write_memory, list_memories,
    delete_memory) are semantically the same bucket — the agent is recalling or
    persisting context rather than reading the working tree. */
-const MEMORY_TOOLS = /^mem_|_memor(y|ies)$/i;
+const MEMORY_TOOLS = /(^|_)mem_|_memor(y|ies)$/i;
 
-/* The native `read` tool plus Serena's code-navigation/search tools (the same
-   set reexplore.ts's SERENA_RE already tracks for re-exploration counting). */
+/* The native `read` tool plus Serena's code-navigation/search tools. */
 const CODE_READ_TOOLS =
-  /^(read|grep|glob|activate_project|find_referencing_symbols|find_symbol|get_symbols_overview|read_file|search_for_pattern|find_file|list_dir)$/i;
+  /(^|_)(read|grep|glob|activate_project|find_referencing_symbols|find_symbol|get_symbols_overview|read_file|search_for_pattern|find_file|list_dir)$/i;
 
 /**
  * Refines the coarse `analyzing` kind into `code_read` / `browser` / `memory` / `other`

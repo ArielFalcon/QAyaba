@@ -102,6 +102,10 @@ export interface ReadWriteEvent {
 /* D7's exact pattern for a "content-read tool": read, or *_read, or read_file / *_read_file. */
 const CONTENT_READ_TOOL = /(^|_)read(_file)?$/i;
 
+export function isContentReadTool(tool: string): boolean {
+  return CONTENT_READ_TOOL.test(tool);
+}
+
 /**
  * Flags redundant reads (D7 sentences 2-3, fine-tracker only — the coarse
  * classifier has no raw paths to run this against). A content-read tool
@@ -121,7 +125,7 @@ export function detectRedundantReads(events: readonly ReadWriteEvent[]): Readonl
       else readPaths.clear();
       continue;
     }
-    if (!call.path || !CONTENT_READ_TOOL.test(call.tool)) continue;
+    if (!call.path || !isContentReadTool(call.tool)) continue;
     if (readPaths.has(call.path)) redundant.add(call.callId);
     else readPaths.add(call.path);
   }

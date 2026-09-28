@@ -7,9 +7,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   startEventStreamWithReconnect,
+  startActivitySink,
+  registerRunSession,
+  unregisterRunSession,
   EventStreamManager,
   setRawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
+import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { registerSessionWatchdogNotify, unregisterSessionWatchdogNotify } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 
 test("startEventStreamWithReconnect retries after a stream error until aborted", async () => {
   const controller = new AbortController();
@@ -160,4 +165,94 @@ test("EventStreamManager closes every directory stream on shutdown and ignores l
   assert.ok(opened.every((o) => o.signal.aborted), "all directory streams aborted on shutdown");
   mgr.attach("s3", "/m/c");
   assert.equal(opened.length, 2);
+});
+
+function toolPartEvent(sessionID: string, callID: string, tool: string, input: Record<string, unknown>): { type: string; properties: Record<string, unknown> } {
+  return {
+    type: "message.part.updated",
+    properties: {
+      part: { id: `prt-${sessionID}-${callID}`, sessionID, messageID: "m", type: "tool", callID, tool, state: { status: "completed", input, output: "ok" } },
+    },
+  };
+}
+
+/** Streams the given raw events through the real SSE loop for sessions registered via registerRunSession. */
+async function streamThroughRegisteredSessions(
+  sessions: string[],
+  events: Array<{ type: string; properties: Record<string, unknown> }>,
+  whileRegistered: () => void,
+): Promise<void> {
+  let drained!: () => void;
+  const allProcessed = new Promise<void>((resolve) => { drained = resolve; });
+  let firstOpen = true;
+  const restoreOpener = setRawEventStreamOpener({
+    open: async () => {
+      if (!firstOpen) return undefined;
+      firstOpen = false;
+      return (async function* () {
+        for (const event of events) yield event;
+        drained();
+      })();
+    },
+  });
+  const shutdown = new AbortController();
+  void startActivitySink(() => {}, shutdown.signal);
+  try {
+    for (const sessionId of sessions) registerRunSession(sessionId, "run-1", "/m/sse-dir");
+    await allProcessed;
+    whileRegistered();
+  } finally {
+    for (const sessionId of sessions) unregisterRunSession(sessionId);
+    shutdown.abort();
+    restoreOpener();
+  }
+}
+
+test("events of a registered run session reach the call tracker, and unregistering forgets the session", async () => {
+  const events = [
+    toolPartEvent("sess-tracked", "c1", "read", { filePath: "/m/sse-dir/a.ts" }),
+    toolPartEvent("sess-tracked", "c2", "write", { filePath: "/m/sse-dir/e2e/a.spec.ts" }),
+    toolPartEvent("sess-stranger", "c1", "read", { filePath: "/m/sse-dir/a.ts" }),
+  ];
+  let metrics: ReturnType<typeof callEfficiencyTracker.take> = null;
+  let strangerMetrics: ReturnType<typeof callEfficiencyTracker.take> = null;
+  await streamThroughRegisteredSessions(["sess-tracked"], events, () => {
+    metrics = callEfficiencyTracker.take("sess-tracked", "");
+    strangerMetrics = callEfficiencyTracker.take("sess-stranger", "");
+  });
+
+  assert.equal(metrics!.totalCalls, 2);
+  assert.equal(metrics!.writeCount, 1);
+  assert.equal(strangerMetrics, null, "a session that was never registered must not be tracked");
+  assert.equal(callEfficiencyTracker.take("sess-tracked", ""), null, "unregistering must clear the session's tracker state");
+});
+
+test("a tracking fault on one session neither starves any session's watchdog nor stops the loop", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  const events = [
+    toolPartEvent("sess-bad", "c1", "read", circular),
+    toolPartEvent("sess-good", "c1", "read", { filePath: "/m/sse-dir/a.ts" }),
+    toolPartEvent("sess-bad", "c2", "read", { filePath: "/m/sse-dir/b.ts" }),
+    toolPartEvent("sess-good", "c2", "write", { filePath: "/m/sse-dir/e2e/a.spec.ts" }),
+  ];
+  const notified: string[] = [];
+  registerSessionWatchdogNotify("sess-bad", () => notified.push("bad"));
+  registerSessionWatchdogNotify("sess-good", () => notified.push("good"));
+  let badMetrics: ReturnType<typeof callEfficiencyTracker.take> = null;
+  let goodMetrics: ReturnType<typeof callEfficiencyTracker.take> = null;
+  try {
+    await streamThroughRegisteredSessions(["sess-bad", "sess-good"], events, () => {
+      badMetrics = callEfficiencyTracker.take("sess-bad", "");
+      goodMetrics = callEfficiencyTracker.take("sess-good", "");
+    });
+  } finally {
+    unregisterSessionWatchdogNotify("sess-bad");
+    unregisterSessionWatchdogNotify("sess-good");
+  }
+
+  assert.deepEqual(notified, ["bad", "good", "bad", "good"], "every event must keep its watchdog alive, whatever the tracker does");
+  assert.equal(badMetrics, null);
+  assert.equal(goodMetrics!.totalCalls, 2);
 });

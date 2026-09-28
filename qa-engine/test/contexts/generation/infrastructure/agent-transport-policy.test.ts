@@ -268,6 +268,39 @@ test("withSessionRegistration does NOT register when descriptor.runId is absent 
   assert.equal(registerCalls, 0, "no descriptor.runId means no run context — must not register a session under a fabricated identity");
 });
 
+test("withSessionRegistration does NOT register or unregister a session whose descriptor sets liveObservation false, even with a runId", async () => {
+  const { deps: base } = fakeBaseDeps("sess-explorer");
+  const registered: string[] = [];
+  const unregistered: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (sessionId) => registered.push(sessionId),
+    unregister: (sessionId) => unregistered.push(sessionId),
+  });
+
+  const session = await wrapped.open("qa-explorer", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-explorer", liveObservation: false },
+  });
+  await session.dispose();
+
+  assert.deepEqual(registered, [], "a liveObservation:false session must stay out of SSE/watchdog registration");
+  assert.deepEqual(unregistered, []);
+});
+
+test("withSessionRegistration still registers when liveObservation is explicitly true", async () => {
+  const { deps: base } = fakeBaseDeps("sess-live");
+  const registered: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (sessionId) => registered.push(sessionId),
+    unregister: () => {},
+  });
+
+  await wrapped.open("qa-generator", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-generator", liveObservation: true },
+  });
+
+  assert.deepEqual(registered, ["sess-live"]);
+});
+
 test("withSessionRegistration unregisters the session on dispose", async () => {
   const { deps: base } = fakeBaseDeps("sess-77");
   const unregistered: string[] = [];
@@ -756,6 +789,34 @@ test("createAgentDeps: the default turn sink calls collab.persistTurn when a run
   assert.equal(persisted.length, 1);
   assert.equal(persisted[0]!.runId, "run-99");
   assert.equal(persisted[0]!.outputText, "persisted output");
+});
+
+test("an explorer-style session (runId, liveObservation false) persists its turn under the run without being registered for live observation", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-explorer" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "brief" }] }),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const registered: string[] = [];
+  const deps = withSessionRegistration(
+    createAgentDeps(raw, {
+      defaultPromptTimeoutMs: 5000,
+      getFallbackModel: () => undefined,
+      persistTurn: (t) => persisted.push(t),
+    }),
+    { register: (sessionId) => registered.push(sessionId), unregister: () => {} },
+  );
+  const session = await deps.open("qa-explorer", "/tmp", {
+    descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false },
+  });
+  await session.prompt("map the change");
+  await session.dispose();
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.runId, "run-7");
+  assert.equal(persisted[0]!.role, "qa-explorer");
+  assert.deepEqual(registered, []);
 });
 
 test("createAgentDeps: no turn sink fires when the caller supplies neither a runId nor an onTurn override (no fabricated telemetry)", async () => {

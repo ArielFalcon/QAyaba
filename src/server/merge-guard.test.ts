@@ -247,7 +247,7 @@ test("isProtectedPath flags the whole generation/infrastructure and orchestratio
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/prompt-builders/prompts.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/dom-snapshot.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/route-catalog.ts"), true);
-  assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/sse/reexplore.ts"), true);
+  assert.equal(isProtectedPath("qa-engine/src/contexts/generation/infrastructure/sse/call-efficiency-tracker.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/execution-port.adapter.ts"), true);
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/deploy-gate-port.adapter.ts"), true);
 });

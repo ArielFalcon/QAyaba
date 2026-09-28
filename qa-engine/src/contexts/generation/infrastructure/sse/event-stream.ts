@@ -2,7 +2,7 @@
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { ActivityRouter, type ActivityKind } from "./agent-activity.ts";
 import { mapOpencodeEvent, eventRunId } from "./activity-mapper.ts";
-import { reexploreKindFromEvent, reexploreTracker } from "./reexplore.ts";
+import { callEfficiencyTracker } from "./call-efficiency-tracker.ts";
 import { notifySessionActivity } from "../agent-transport-policy.ts";
 
 export interface LiveActivity {
@@ -56,13 +56,11 @@ async function startScopedEventStream(
 
       const raw = { type: evt.type, properties: evt.properties };
 
-      const reexKind = reexploreKindFromEvent(raw);
-      const rawPart = raw.properties?.part as { sessionID?: string; callID?: string } | undefined;
-      if (reexKind && rawPart?.sessionID) {
-        reexploreTracker.record(rawPart.sessionID, reexKind, rawPart.callID);
-      }
-      /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. */
+      const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
+      /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
       if (rawPart?.sessionID) notifySessionActivity(rawPart.sessionID);
+      /* Measure-only call-efficiency tracking; never throws (a fault poisons only that session's metrics) and feeds no decision. */
+      callEfficiencyTracker.record(raw);
 
       if (onRunEvent) {
         const rid = eventRunId(raw, activityRouter.sessionMap());
@@ -237,10 +235,11 @@ export function startActivitySink(
 export function registerRunSession(sessionId: string, runId: string, directory: string, workerId?: string): void {
   activityRouter.register(sessionId, runId, workerId);
   eventStreams.attach(sessionId, directory);
+  callEfficiencyTracker.attach(sessionId, directory);
 }
 
 export function unregisterRunSession(sessionId: string): void {
   activityRouter.unregister(sessionId);
   eventStreams.detach(sessionId);
-  reexploreTracker.clear(sessionId);
+  callEfficiencyTracker.clear(sessionId);
 }

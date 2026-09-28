@@ -50,6 +50,8 @@ export interface AgentOpenDescriptor {
   runId?: string;
   role?: string;
   objective?: string;
+  /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
+  liveObservation?: boolean;
 }
 
 export interface AgentDeps {
@@ -471,7 +473,10 @@ export function withSessionRegistration(
     ...baseDeps,
     open: async (agent, cwd, opts) => {
       const inner = await baseDeps.open(agent, cwd, opts);
-      const runId = opts?.descriptor?.runId;
+      /* A run context registers the session for live observation (SSE + stall watchdog) unless the
+         descriptor opts out: the explorer's turns persist under its runId, but registering it would
+         start feeding the stall watchdog and change its liveness window. */
+      const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
 
       return {
