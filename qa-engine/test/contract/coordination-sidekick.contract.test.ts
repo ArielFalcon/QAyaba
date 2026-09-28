@@ -442,13 +442,13 @@ test("an invalid report's defect names every unreported criterion and how many e
   assert.match(detail, /\b1\b/, "one malformed entry");
 });
 
-test("a report entry with an unknown criterion number or status is a defect and is not kept", async () => {
+test("a malformed report entry that reports no unmet is a non-blocking defect and is not kept", async () => {
   for (const bad of [
-    { criterion: 3, status: "met" },
-    { criterion: 0, status: "met" },
     { criterion: 1.5, status: "met" },
+    { criterion: 2.5, status: "met" },
     { criterion: "1", status: "met" },
     { criterion: 1, status: "done" },
+    { criterion: 1, status: "Met" },
     { criterion: 1 },
     "criterion 1 met",
     null,
@@ -456,6 +456,64 @@ test("a report entry with an unknown criterion number or status is a defect and 
     const result = await executeWith({ acceptance: [{ criterion: 1, status: "met" }, { criterion: 2, status: "met" }, bad] });
     assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", JSON.stringify(bad));
     assert.equal(result.acceptance.length, 2, JSON.stringify(bad));
+    assert.equal(result.status, "completed-with-concerns", JSON.stringify(bad));
+  }
+});
+
+test("a report numbering criteria outside the brief's 1..N keeps no entry, so none is read as met", async () => {
+  for (const outside of [
+    { criterion: 0, status: "met" },
+    { criterion: 3, status: "met" },
+    { criterion: -1, status: "met" },
+  ]) {
+    const result = await executeWith({ acceptance: [outside, { criterion: 1, status: "met" }, { criterion: 2, status: "met" }] });
+    assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", JSON.stringify(outside));
+    assert.deepEqual(result.acceptance, [], JSON.stringify(outside));
+    assert.equal(result.status, "completed-with-concerns", JSON.stringify(outside));
+  }
+});
+
+test("an unmet the sidekick reports blocks the delegation whatever the shape of its report, naming the unmet", async () => {
+  const shapes: { label: string; acceptance: unknown; named: RegExp }[] = [
+    { label: "criterion as a numeral string", acceptance: [{ criterion: "1", status: "unmet" }, { criterion: 2, status: "met" }], named: /"1"/ },
+    { label: "0-based numbering", acceptance: [{ criterion: 0, status: "unmet" }, { criterion: 1, status: "met" }], named: /\b0\b/ },
+    { label: "a status in another case", acceptance: [{ criterion: 1, status: "Unmet" }, { criterion: 2, status: "met" }], named: /\b1\b/ },
+    { label: "a status with padding", acceptance: [{ criterion: 1, status: " unmet " }, { criterion: 2, status: "met" }], named: /\b1\b/ },
+    {
+      label: "the criterion's text for its number",
+      acceptance: [{ criterion: TWO_CRITERIA[0], status: "unmet" }, { criterion: 2, status: "met" }],
+      named: new RegExp(TWO_CRITERIA[0]!),
+    },
+    { label: "a keyed object of statuses", acceptance: { "1": "unmet", "2": "met" }, named: /"1"/ },
+    { label: "a keyed object of entries", acceptance: { "1": { status: "met" }, "2": { status: "UNMET" }, "3": null }, named: /"2"/ },
+  ];
+  for (const { label, acceptance, named } of shapes) {
+    const result = await executeWith({ acceptance });
+    assert.equal(result.status, "blocked", label);
+    assert.equal(result.recommendation, "escalate", label);
+    assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid", label);
+    assert.match(result.acceptanceReportDefect?.detail ?? "", named, label);
+  }
+});
+
+test("a well-numbered unmet in a 0-based report still blocks although the report keeps no entry", async () => {
+  const result = await executeWith({ acceptance: [{ criterion: 0, status: "met" }, { criterion: 1, status: "unmet" }] });
+  assert.deepEqual(result.acceptance, []);
+  assert.equal(result.status, "blocked");
+});
+
+test("a keyed report without an unmet is a non-blocking defect that reads no criterion as met", async () => {
+  const result = await executeWith({ acceptance: { "1": "met", "2": "met" } });
+  assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-invalid");
+  assert.deepEqual(result.acceptance, []);
+  assert.equal(result.status, "completed-with-concerns");
+});
+
+test("an acceptance report that is neither a list nor a keyed object is a missing report", async () => {
+  for (const acceptance of ["all criteria met", null, 2]) {
+    const result = await executeWith({ acceptance });
+    assert.equal(result.acceptanceReportDefect?.reason, "acceptance-report-missing", JSON.stringify(acceptance));
+    assert.equal(result.status, "completed-with-concerns", JSON.stringify(acceptance));
   }
 });
 

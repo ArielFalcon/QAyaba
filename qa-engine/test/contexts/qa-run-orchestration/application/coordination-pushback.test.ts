@@ -109,7 +109,7 @@ test("a non-fatal finding downgrades a completed result to completed-with-concer
 });
 
 test("an acceptance report defect is a non-fatal finding: the result keeps its recommendation but is not a clean completion", () => {
-  const defective = result({ acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria" } });
+  const defective = result({ acceptanceReportDefect: { reason: "acceptance-report-missing", detail: "no report for 1 criteria", unmet: [] } });
   assert.deepEqual(reasonsOf(brief(), defective), ["acceptance-report-missing"]);
   const pushed = applyPushback(brief(), defective);
   assert.equal(pushed.status, "completed-with-concerns");
@@ -159,6 +159,18 @@ test("a criterion the sidekick reports unmet blocks the delegation, naming the c
   const pushed = applyPushback(b, r);
   assert.equal(pushed.status, "blocked");
   assert.equal(pushed.recommendation, "escalate");
+});
+
+test("an unmet stated in a malformed report blocks a completed delegation, naming it as the sidekick wrote it", () => {
+  const defect = { reason: "acceptance-report-invalid", detail: "malformed entries: 1", unmet: ['criterion "1"'] } as const;
+  const findings = validateDelegationAuthority(brief(), result({ acceptanceReportDefect: defect }));
+  assert.deepEqual(findings.map((f) => f.reason).sort(), ["acceptance-contradiction", "acceptance-report-invalid"]);
+  assert.match(findings.find((f) => f.reason === "acceptance-contradiction")!.detail, /"1"/);
+  assert.equal(applyPushback(brief(), result({ acceptanceReportDefect: defect })).status, "blocked");
+  for (const status of ["blocked", "needs-lead", "failed"] as const) {
+    const reasons = reasonsOf(brief(), result({ status, summary: "stuck", acceptanceReportDefect: defect }));
+    assert.deepEqual(reasons, ["acceptance-report-invalid"], status);
+  }
 });
 
 test("a completed-with-concerns result reporting an unmet criterion is blocked too", () => {

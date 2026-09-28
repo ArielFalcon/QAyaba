@@ -48,7 +48,8 @@ export function validateDelegationAuthority(
       if (!hit) findings.push({ reason: "missing-artifact", detail: `validation ${step.id}` });
       else if (!hit.ok) findings.push({ reason: "acceptance-contradiction", detail: `validation ${step.id} failed` });
     }
-    /* A criterion the sidekick itself reports unmet contradicts acceptance; met and unverified never block. */
+    /* A criterion the sidekick itself reports unmet contradicts acceptance, whatever the shape of its
+       report; met and unverified never block. */
     for (const entry of result.acceptance) {
       if (entry.status === "unmet") {
         findings.push({
@@ -56,6 +57,9 @@ export function validateDelegationAuthority(
           detail: `criterion ${entry.criterion}: ${brief.acceptanceCriteria[entry.criterion - 1]}`,
         });
       }
+    }
+    for (const claim of result.acceptanceReportDefect?.unmet ?? []) {
+      findings.push({ reason: "acceptance-contradiction", detail: claim });
     }
   }
   /* A missing or malformed acceptance report breaks the output contract without proving any
