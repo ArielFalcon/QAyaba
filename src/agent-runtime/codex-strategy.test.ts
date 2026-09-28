@@ -7,6 +7,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { AgentUnavailableError } from "../errors";
+import { getAgentTurns } from "../server/history";
 import {
   codexErrorToInfra,
   extractCodexLastMessage,
@@ -673,6 +674,44 @@ describe("onUsage honesty", () => {
       null,
       "cost must be null for codex (usage not available in JSONL). See CODEX_USAGE_AVAILABLE.",
     );
+  });
+
+  it("a Codex turn reports no step budget and no call metrics: both null, never fabricated", async () => {
+    const capturedTurns: Array<{ stepBudget: unknown; callMetrics: unknown }> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({ id: "t-eff-session", prompt: async () => "codex output", dispose: async () => {} }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-eff", role: "primary" as const },
+      onTurn: (t) => { capturedTurns.push({ stepBudget: t.stepBudget, callMetrics: t.callMetrics }); },
+    });
+
+    await session.prompt("a prompt");
+
+    assert.deepEqual(capturedTurns, [{ stepBudget: null, callMetrics: null }]);
+  });
+
+  it("the default turn sink persists a Codex turn with its efficiency columns NULL", async () => {
+    const runId = `run-codex-persist-${Date.now()}`;
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({ id: "t-persist-session", prompt: async () => "codex output", dispose: async () => {} }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", { descriptor: { runId, role: "primary" as const } });
+
+    await session.prompt("a prompt");
+
+    const [saved] = getAgentTurns(runId);
+    assert.equal(saved!.outputText, "codex output");
+    assert.equal(saved!.maxSteps, null);
+    assert.equal(saved!.exhausted, null);
+    assert.equal(saved!.totalCalls, null);
+    assert.equal(saved!.stepsUsed, null);
   });
 
   it("openSession does not silently drop an onUsage callback when it is passed — asymmetry is explicit", async () => {

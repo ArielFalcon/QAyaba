@@ -819,6 +819,92 @@ test("an explorer-style session (runId, liveObservation false) persists its turn
   assert.deepEqual(registered, []);
 });
 
+const SAMPLE_CALL_METRICS = {
+  totalCalls: 7,
+  stepsUsed: 3,
+  callsBeforeFirstWrite: 5,
+  writeCount: 1,
+  redundantReadCount: 2,
+  duplicateCallCount: 1,
+  promptProvidedReadCount: 0,
+  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+};
+
+async function promptWithCollaborators(
+  outputText: string,
+  collaborators: Partial<Parameters<typeof createAgentDeps>[1]>,
+): Promise<AgentTurnEvent> {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-efficiency" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: outputText }] }),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    ...collaborators,
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-eff" } });
+  const returned = await session.prompt("the turn prompt");
+  assert.equal(returned, outputText, "efficiency measurement must never alter the agent's output");
+  assert.equal(persisted.length, 1);
+  return persisted[0]!;
+}
+
+test("createAgentDeps: the turn event carries the tracker's call metrics for that session and prompt", async () => {
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const turn = await promptWithCollaborators("done", {
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return SAMPLE_CALL_METRICS;
+    },
+  });
+  assert.deepEqual(flushes, [{ sessionId: "sess-efficiency", promptText: "the turn prompt" }]);
+  assert.deepEqual(turn.callMetrics, SAMPLE_CALL_METRICS);
+});
+
+test("createAgentDeps: the step budget resolves maxSteps from the acting agent and detects exhaustion in the output", async () => {
+  const asked: string[] = [];
+  const exhausted = await promptWithCollaborators("CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.", {
+    maxStepsFor: (agent) => {
+      asked.push(agent);
+      return 50;
+    },
+  });
+  assert.deepEqual(asked, ["qa-generator"]);
+  assert.deepEqual(exhausted.stepBudget, { maxSteps: 50, exhausted: true });
+
+  const finished = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50 });
+  assert.deepEqual(finished.stepBudget, { maxSteps: 50, exhausted: false });
+});
+
+test("createAgentDeps: an agent without a configured step limit still reports exhaustion, with a null maxSteps", async () => {
+  const turn = await promptWithCollaborators("The maximum number of steps allowed for this task has been reached.", {
+    maxStepsFor: () => undefined,
+  });
+  assert.deepEqual(turn.stepBudget, { maxSteps: null, exhausted: true });
+});
+
+test("createAgentDeps: without efficiency collaborators the turn's step budget and call metrics are null, never fabricated", async () => {
+  const turn = await promptWithCollaborators("plain output", {});
+  assert.equal(turn.stepBudget, null);
+  assert.equal(turn.callMetrics, null);
+});
+
+test("createAgentDeps: a failing efficiency collaborator yields nulls and leaves the prompt result untouched", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const turn = await promptWithCollaborators("still fine", {
+    takeTurnCalls: () => { throw new Error("tracker exploded"); },
+    maxStepsFor: () => { throw new Error("config unreadable"); },
+  });
+  assert.equal(turn.callMetrics, null);
+  assert.equal(turn.stepBudget, null);
+  assert.equal(errors.length, 2, "each fault is logged loudly, never swallowed silently");
+});
+
 test("createAgentDeps: no turn sink fires when the caller supplies neither a runId nor an onTurn override (no fabricated telemetry)", async () => {
   resetCircuit();
   const raw = makeRawTransport({

@@ -4,10 +4,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { AGENT_TURN_EFFICIENCY_COLUMNS, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
+import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
 import type { RuleStatus } from "../qa/learning/learning-rule";
@@ -549,6 +550,82 @@ test("saveAgentTurn round-trips to getAgentTurns with all fields", () => {
   assert.equal(saved!.tokensCacheWrite, 2);
   assert.ok(Math.abs((saved!.cost ?? 0) - 0.001) < 1e-9);
   assert.equal(saved!.objective, "test the login flow");
+});
+
+function makeTurnEvent(overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent {
+  return {
+    runId: "run-event-001",
+    sessionId: "sess-event",
+    role: "qa-generator",
+    objective: undefined,
+    round: 0,
+    isRepair: false,
+    promptText: "Write a test.",
+    promptBytes: 13,
+    outputText: "Done.",
+    tokensInput: 10,
+    tokensOutput: 5,
+    tokensReasoning: null,
+    tokensCacheRead: null,
+    tokensCacheWrite: null,
+    cost: null,
+    ts: new Date().toISOString(),
+    sectionSizes: null,
+    stepBudget: null,
+    callMetrics: null,
+    ...overrides,
+  };
+}
+
+test("saveAgentTurnEvent persists the step budget and the call metrics of a turn", () => {
+  const runId = "run-event-metrics-" + Date.now();
+  saveAgentTurnEvent(
+    makeTurnEvent({
+      runId,
+      stepBudget: { maxSteps: 50, exhausted: true },
+      callMetrics: {
+        totalCalls: 31,
+        stepsUsed: 50,
+        callsBeforeFirstWrite: 27,
+        writeCount: 2,
+        redundantReadCount: 6,
+        duplicateCallCount: 4,
+        promptProvidedReadCount: 3,
+        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+      },
+    }),
+  );
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, 50);
+  assert.equal(saved!.exhausted, true);
+  assert.equal(saved!.totalCalls, 31);
+  assert.equal(saved!.stepsUsed, 50);
+  assert.equal(saved!.callsBeforeFirstWrite, 27);
+  assert.equal(saved!.writeCount, 2);
+  assert.equal(saved!.redundantReadCount, 6);
+  assert.equal(saved!.duplicateCallCount, 4);
+  assert.equal(saved!.promptProvidedReadCount, 3);
+  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 });
+});
+
+test("saveAgentTurnEvent stores nulls, never zero or false, when a runtime reports no step budget or call metrics", () => {
+  const runId = "run-event-null-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, stepBudget: null, callMetrics: null }));
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, null);
+  assert.equal(saved!.exhausted, null);
+  assert.equal(saved!.totalCalls, null);
+  assert.equal(saved!.stepsUsed, null);
+  assert.equal(saved!.callBuckets, null);
+});
+
+test("saveAgentTurnEvent keeps an unknown step limit (null) apart from a known exhaustion flag and an unknown steps-used", () => {
+  const runId = "run-event-partial-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, stepBudget: { maxSteps: null, exhausted: false } }));
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, null);
+  assert.equal(saved!.exhausted, false);
+  assert.equal(saved!.stepsUsed, null);
 });
 
 test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {

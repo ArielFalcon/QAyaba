@@ -23,6 +23,7 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 
 const redactionPort = new RedactionPortAdapter();
 
@@ -44,6 +45,20 @@ export interface AgentTurnRecord {
   tokensCacheRead: number | null;
   tokensCacheWrite: number | null;
   cost: number | null;
+  /*
+   * Per-turn efficiency measurements (design D11). Each is null when the runtime or the row
+   * cannot supply it — never a fabricated zero/false. Omitted on write means null.
+   */
+  totalCalls?: number | null;
+  stepsUsed?: number | null;
+  maxSteps?: number | null;
+  callsBeforeFirstWrite?: number | null;
+  writeCount?: number | null;
+  redundantReadCount?: number | null;
+  duplicateCallCount?: number | null;
+  promptProvidedReadCount?: number | null;
+  exhausted?: boolean | null;
+  callBuckets?: Record<string, number> | null;
 }
 
 /*
@@ -393,11 +408,15 @@ function ensureDb(): void {
     INSERT INTO agent_turns
       (run_id, session_id, role, round, is_repair, ts, objective,
        prompt_text, output_text, prompt_bytes,
-       tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost)
+       tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost,
+       total_calls, steps_used, max_steps, calls_before_first_write, write_count,
+       redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
-       @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost)
+       @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost,
+       @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
+       @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -983,6 +1002,53 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     tokensCacheRead: turn.tokensCacheRead ?? null,
     tokensCacheWrite: turn.tokensCacheWrite ?? null,
     cost: turn.cost ?? null,
+    totalCalls: turn.totalCalls ?? null,
+    stepsUsed: turn.stepsUsed ?? null,
+    maxSteps: turn.maxSteps ?? null,
+    callsBeforeFirstWrite: turn.callsBeforeFirstWrite ?? null,
+    writeCount: turn.writeCount ?? null,
+    redundantReadCount: turn.redundantReadCount ?? null,
+    duplicateCallCount: turn.duplicateCallCount ?? null,
+    promptProvidedReadCount: turn.promptProvidedReadCount ?? null,
+    /* exhausted is tri-state: NULL = unknown, 0 = known not exhausted, 1 = exhausted. */
+    exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
+    callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
+  });
+}
+
+/*
+ * The one place a transport's AgentTurnEvent becomes an agent_turns row, shared by every runtime
+ * so a new column can never drift between OpenCode and Codex. `output_text` is already sanitized
+ * by the transport that emitted the event.
+ */
+export function saveAgentTurnEvent(t: AgentTurnEvent): void {
+  saveAgentTurn({
+    runId: t.runId,
+    sessionId: t.sessionId,
+    role: t.role,
+    round: t.round,
+    isRepair: t.isRepair,
+    ts: t.ts,
+    objective: t.objective ?? null,
+    promptText: t.promptText,
+    outputText: t.outputText,
+    promptBytes: t.promptBytes,
+    tokensInput: t.tokensInput,
+    tokensOutput: t.tokensOutput,
+    tokensReasoning: t.tokensReasoning,
+    tokensCacheRead: t.tokensCacheRead,
+    tokensCacheWrite: t.tokensCacheWrite,
+    cost: t.cost,
+    maxSteps: t.stepBudget?.maxSteps ?? null,
+    exhausted: t.stepBudget ? t.stepBudget.exhausted : null,
+    totalCalls: t.callMetrics?.totalCalls ?? null,
+    stepsUsed: t.callMetrics?.stepsUsed ?? null,
+    callsBeforeFirstWrite: t.callMetrics?.callsBeforeFirstWrite ?? null,
+    writeCount: t.callMetrics?.writeCount ?? null,
+    redundantReadCount: t.callMetrics?.redundantReadCount ?? null,
+    duplicateCallCount: t.callMetrics?.duplicateCallCount ?? null,
+    promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
+    callBuckets: t.callMetrics?.buckets ?? null,
   });
 }
 
@@ -1007,6 +1073,16 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     tokensCacheRead: (r.tokens_cache_read as number | null) ?? null,
     tokensCacheWrite: (r.tokens_cache_write as number | null) ?? null,
     cost: (r.cost as number | null) ?? null,
+    totalCalls: (r.total_calls as number | null) ?? null,
+    stepsUsed: (r.steps_used as number | null) ?? null,
+    maxSteps: (r.max_steps as number | null) ?? null,
+    callsBeforeFirstWrite: (r.calls_before_first_write as number | null) ?? null,
+    writeCount: (r.write_count as number | null) ?? null,
+    redundantReadCount: (r.redundant_read_count as number | null) ?? null,
+    duplicateCallCount: (r.duplicate_call_count as number | null) ?? null,
+    promptProvidedReadCount: (r.prompt_provided_read_count as number | null) ?? null,
+    exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
+    callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
   }));
 }
 
@@ -1127,6 +1203,34 @@ export interface TelemetryAnalysis {
   medianTurnsPerRun: number | null;
   medianWallClockSec: number | null;
   p95WallClockSec: number | null;
+  efficiency: TelemetryEfficiency;
+}
+
+/* Aggregates over the turns' persisted efficiency measurements. Turns a runtime could not measure (null) are left out of every figure, never counted as zero. */
+export interface TelemetryEfficiency {
+  turnsMeasured: number;                       /* turns with call metrics */
+  medianCallsBeforeFirstWrite: number | null;  /* over measured turns that made at least one call */
+  exhaustedRate: number | null;                /* exhausted turns / turns whose exhaustion is known (0–1) */
+  redundantReadRatio: number | null;           /* redundant reads / calls, over measured turns (0–1) */
+  duplicateRatio: number | null;               /* duplicate calls / calls, over measured turns (0–1) */
+}
+
+function efficiencyOf(turnRows: Array<Record<string, unknown>>): TelemetryEfficiency {
+  const measured = turnRows.filter((r) => r.total_calls != null);
+  const totalCalls = measured.reduce((sum, r) => sum + (r.total_calls as number), 0);
+  const sumOf = (column: string) => measured.reduce((sum, r) => sum + ((r[column] as number | null) ?? 0), 0);
+  const known = turnRows.filter((r) => r.exhausted != null);
+  return {
+    turnsMeasured: measured.length,
+    medianCallsBeforeFirstWrite: median(
+      measured
+        .filter((r) => (r.total_calls as number) > 0 && r.calls_before_first_write != null)
+        .map((r) => r.calls_before_first_write as number),
+    ),
+    exhaustedRate: known.length > 0 ? known.filter((r) => r.exhausted === 1).length / known.length : null,
+    redundantReadRatio: totalCalls > 0 ? sumOf("redundant_read_count") / totalCalls : null,
+    duplicateRatio: totalCalls > 0 ? sumOf("duplicate_call_count") / totalCalls : null,
+  };
 }
 
 function median(values: number[]): number | null {
@@ -1265,6 +1369,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     medianTurnsPerRun,
     medianWallClockSec,
     p95WallClockSec,
+    efficiency: efficiencyOf(turnRows),
   };
 }
 

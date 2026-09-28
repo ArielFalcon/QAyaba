@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { capabilitiesForRole } from "./types";
 import { AgentUnavailableError } from "../errors";
 import { sanitizeText } from "../orchestrator/sanitizer";
-import { saveAgentTurn } from "../server/history";
+import { saveAgentTurnEvent } from "../server/history";
 import {
   checkCodexCircuit,
   recordCodexCircuitFailure,
@@ -241,24 +241,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
     const defaultOnTurn = opts?.descriptor?.runId
       ? (t: AgentTurnEvent) => {
           try {
-            saveAgentTurn({
-              runId: t.runId,
-              sessionId: t.sessionId,
-              role: t.role,
-              round: t.round,
-              isRepair: t.isRepair,
-              ts: t.ts,
-              objective: t.objective ?? null,
-              promptText: t.promptText,
-              outputText: t.outputText,
-              promptBytes: t.promptBytes,
-              tokensInput: t.tokensInput,
-              tokensOutput: t.tokensOutput,
-              tokensReasoning: t.tokensReasoning,
-              tokensCacheRead: t.tokensCacheRead,
-              tokensCacheWrite: t.tokensCacheWrite,
-              cost: t.cost,
-            });
+            saveAgentTurnEvent(t);
           } catch (err) {
             console.warn(`[qa] agent_turns persist failed: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -329,6 +312,9 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             cost: null,
             ts: new Date().toISOString(),
             sectionSizes: promptOpts?.sectionSizes ?? null,
+            /* Codex has no step-budget concept and, in production, no tool stream (the supervisor returns only the final message): unknown, never fabricated. */
+            stepBudget: null,
+            callMetrics: null,
           });
         }
         return output;

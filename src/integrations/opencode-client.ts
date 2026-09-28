@@ -9,7 +9,8 @@ import { join } from "node:path";
 
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
-import { saveAgentTurn } from "../server/history";
+import { saveAgentTurnEvent } from "../server/history";
+import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -108,6 +109,25 @@ function getFallbackModel(agent: string): string | undefined {
     if (!existsSync(configPath)) return undefined;
     const raw = JSON.parse(readFileSync(configPath, "utf8"));
     return raw.model_fallback?.[agent] as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/*
+ * The acting agent's step limit from opencode.json (`agent.<id>.maxSteps`) — the same limit the
+ * OpenCode server enforces — so a turn's exhaustion is reported against the real budget, never a
+ * hardcoded copy. Undefined when the file, the agent or a numeric limit is absent.
+ */
+export function maxStepsFromConfig(
+  agent: string,
+  configPath: string = join(process.cwd(), "agents", "opencode.json"),
+): number | undefined {
+  try {
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf8"));
+    const limit: unknown = raw.agent?.[agent]?.maxSteps;
+    return typeof limit === "number" ? limit : undefined;
   } catch {
     return undefined;
   }
@@ -394,26 +414,9 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
   return createAgentDeps(raw, {
     defaultPromptTimeoutMs: dispatcherTimeoutMs,
     getFallbackModel,
-    persistTurn: (t) => {
-      saveAgentTurn({
-        runId: t.runId,
-        sessionId: t.sessionId,
-        role: t.role,
-        round: t.round,
-        isRepair: t.isRepair,
-        ts: t.ts,
-        objective: t.objective ?? null,
-        promptText: t.promptText,
-        outputText: t.outputText,
-        promptBytes: t.promptBytes,
-        tokensInput: t.tokensInput,
-        tokensOutput: t.tokensOutput,
-        tokensReasoning: t.tokensReasoning,
-        tokensCacheRead: t.tokensCacheRead,
-        tokensCacheWrite: t.tokensCacheWrite,
-        cost: t.cost,
-      });
-    },
+    persistTurn: saveAgentTurnEvent,
+    takeTurnCalls: (sessionId, promptText) => callEfficiencyTracker.take(sessionId, promptText),
+    maxStepsFor: maxStepsFromConfig,
   });
 }
 

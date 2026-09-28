@@ -258,3 +258,70 @@ describe("computeTelemetryAnalysis — windowDays filtering", () => {
     assert.equal(analysis.medianTurnsPerRun, 1, "only 1 turn in the window");
   });
 });
+
+describe("computeTelemetryAnalysis — efficiency aggregates", () => {
+  const measured = (overrides: Partial<AgentTurnRecord>): Partial<AgentTurnRecord> => ({
+    totalCalls: 10,
+    callsBeforeFirstWrite: 5,
+    redundantReadCount: 0,
+    duplicateCallCount: 0,
+    exhausted: false,
+    ...overrides,
+  });
+
+  it("reports null aggregates when the app has no measured turns", () => {
+    const app = uniqueApp("tel-eff-empty");
+    const runId = `run-eff-empty-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 0);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, null);
+    assert.equal(efficiency.exhaustedRate, null);
+    assert.equal(efficiency.redundantReadRatio, null);
+    assert.equal(efficiency.duplicateRatio, null);
+  });
+
+  it("computes the aggregates from the persisted per-turn metrics", () => {
+    const app = uniqueApp("tel-eff");
+    const runId = `run-eff-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 8, redundantReadCount: 2, duplicateCallCount: 1, exhausted: true })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 4, redundantReadCount: 0, duplicateCallCount: 1, exhausted: false })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 20, callsBeforeFirstWrite: 20, redundantReadCount: 4, duplicateCallCount: 2, exhausted: false })));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 3);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 8);
+    assert.equal(efficiency.exhaustedRate, 1 / 3);
+    assert.equal(efficiency.redundantReadRatio, 6 / 40);
+    assert.equal(efficiency.duplicateRatio, 4 / 40);
+  });
+
+  it("leaves turns without measurements out of every aggregate and out of the exhausted rate's denominator", () => {
+    const app = uniqueApp("tel-eff-null");
+    const runId = `run-eff-null-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 1, duplicateCallCount: 0, exhausted: true })));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(turn(runId, { exhausted: null, totalCalls: null }));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 1);
+    assert.equal(efficiency.exhaustedRate, 1);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 6);
+    assert.equal(efficiency.redundantReadRatio, 0.1);
+  });
+
+  it("ignores turns that made no calls when taking the median calls before the first write", () => {
+    const app = uniqueApp("tel-eff-zero");
+    const runId = `run-eff-zero-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 0, callsBeforeFirstWrite: 0 })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 12, callsBeforeFirstWrite: 9 })));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 9);
+  });
+});

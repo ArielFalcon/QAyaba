@@ -19,6 +19,7 @@ import {
   renderExecutionResult,
   AgentDeps,
   askAssistant,
+  maxStepsFromConfig,
 } from "./opencode-client";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -1241,3 +1242,32 @@ test("buildReviewerPrompt execution-result section is VOLATILE (precedes output 
   }
 });
 
+
+function writeAgentsConfig(config: unknown): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "opencode-config-"));
+  const path = join(dir, "opencode.json");
+  writeFileSync(path, typeof config === "string" ? config : JSON.stringify(config));
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("maxStepsFromConfig reads the configured step limit of the acting agent", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
+  assert.equal(maxStepsFromConfig("qa-reviewer", path), 10);
+});
+
+test("maxStepsFromConfig is undefined for an unknown agent, an agent with no limit, or a non-numeric limit", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-x": {}, "qa-y": { maxSteps: "many" } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-unknown", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-x", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-y", path), undefined);
+});
+
+test("maxStepsFromConfig is undefined when the config file is missing or malformed", (t) => {
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+});

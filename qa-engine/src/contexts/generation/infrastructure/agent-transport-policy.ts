@@ -3,6 +3,7 @@ import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resi
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import { sanitizeText } from "./sanitize-text.ts";
+import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -34,6 +35,10 @@ export interface AgentTurnEvent {
   cost: number | null;
   ts: string;
   sectionSizes: Record<string, number> | null;
+  /** Step limit and whether the turn hit it. Null when the runtime has no step-budget concept (Codex) or the measurement failed. */
+  stepBudget: TurnStepBudget | null;
+  /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
+  callMetrics: TurnCallMetrics | null;
 }
 
 export interface AgentSession {
@@ -191,6 +196,23 @@ export interface AgentDepsCollaborators {
   getFallbackModel(agent: string): string | undefined;
   /** Best-effort turn persistence (writes to the local run history). Invoked only when the caller supplied a run context (opts.descriptor.runId) and no caller-supplied onTurn overrides it. */
   persistTurn?(t: AgentTurnEvent): void;
+  /**
+   * Flushes the call-efficiency tracker for the session whose prompt just resolved and returns that turn's metrics
+   * (null when the session was not observed). Shell-injected: this module cannot import the SSE tracker (event-stream.ts already imports this one).
+   */
+  takeTurnCalls?(sessionId: string, promptText: string): TurnCallMetrics | null;
+  /** The agent's configured step limit (agents/opencode.json `agent.<id>.maxSteps`), or undefined when it has none. Shell-injected like getFallbackModel. */
+  maxStepsFor?(agent: string): number | undefined;
+}
+
+/* Measurement is best-effort and must never disturb the prompt path: a fault is logged loudly and yields null. */
+function measureOrNull<T>(label: string, measure: () => T): T | null {
+  try {
+    return measure();
+  } catch (err) {
+    console.error(`[qa] turn efficiency: ${label} failed, recording null: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 /*
@@ -304,6 +326,13 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                         cost: res.cost ?? null,
                         ts: new Date().toISOString(),
                         sectionSizes: promptOpts?.sectionSizes ?? null,
+                        /* Exhaustion is read from the SANITIZED output: the same text the post-hoc classifier sees. */
+                        stepBudget: collab.maxStepsFor
+                          ? measureOrNull("step budget", () => buildTurnStepBudget(collab.maxStepsFor!(agent) ?? null, sanitizedOutput))
+                          : null,
+                        callMetrics: collab.takeTurnCalls
+                          ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text))
+                          : null,
                       };
                       effectiveOnTurn(turnEvent);
                     }
