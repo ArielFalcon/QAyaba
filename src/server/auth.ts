@@ -84,8 +84,6 @@ export const MACHINE_PRINCIPAL = "machine";
 export const LOCAL_CONSOLE_PRINCIPAL = "local-console";
 
 export function isLoopbackAddress(addr: string | undefined): boolean {
-  // Stryker disable next-line ConditionalExpression: equivalent — an absent or empty address equals none of the loopback literals below
-  if (!addr) return false;
   return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
@@ -119,18 +117,16 @@ const HOST_HEADER_RE = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9._-]+))(?::[0-9]{1,5})?$/i
 function hostnameFromHostHeader(host: string): string | null {
   const m = HOST_HEADER_RE.exec(host);
   if (!m) return null;
-  // Stryker disable next-line StringLiteral: equivalent — a match always captures one alternative, so the "" fallback is never used
-  return (m[1] ?? m[2] ?? "").toLowerCase();
+  /* A match always captures exactly one of the two alternatives. */
+  return (m[1] ?? m[2])!.toLowerCase();
 }
 
-// Stryker disable next-line ArrayDeclaration: equivalent — a default entry can only match a hostname HOST_HEADER_RE accepts, and the mutant's entry contains spaces
-export function isLoopbackHost(host: string | undefined, allowlist: readonly string[] = []): boolean {
+/* A malformed header (null hostname) equals no loopback name and no allowlist entry. */
+export function isLoopbackHost(host: string | undefined, allowlist?: readonly string[]): boolean {
   if (!host) return false;
   const hostname = hostnameFromHostHeader(host);
-  // Stryker disable next-line ConditionalExpression: equivalent — a null hostname equals no loopback name and no allowlist entry
-  if (!hostname) return false;
   if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
-  return allowlist.some((h) => h.toLowerCase() === hostname);
+  return allowlist?.some((h) => h.toLowerCase() === hostname) ?? false;
 }
 
 /*
@@ -144,8 +140,8 @@ export function localWebLoginAllowed(
   env: { QA_WEB_AUTO_LOGIN?: string; QA_WEB_LOGIN_HOST_ALLOWLIST?: string },
 ): boolean {
   if (!allowLocalWebLogin({ enabled: env.QA_WEB_AUTO_LOGIN === "true", remoteAddress: request.remoteAddress })) return false;
-  // Stryker disable next-line MethodExpression,StringLiteral: equivalent — a parsed hostname is never empty and never contains spaces, so an empty or placeholder entry matches nothing
-  const allowlist = (env.QA_WEB_LOGIN_HOST_ALLOWLIST ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  /* An empty entry (",," or a trailing comma) never equals a parsed hostname, which is never empty. */
+  const allowlist = env.QA_WEB_LOGIN_HOST_ALLOWLIST?.split(",").map((h) => h.trim());
   return isLoopbackHost(request.host, allowlist);
 }
 
