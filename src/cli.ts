@@ -19,7 +19,7 @@ import { JobQueue } from "./server/queue";
 import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { createDurableRunEventStore } from "./server/durable-run-events";
-import { delegateRun, type DelegateRunResult } from "./server/run-delegate";
+import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
@@ -82,7 +82,22 @@ function discoverApiToken(): string | undefined {
  * standalone CLI's contract (wait, report, exit with the verdict's code). The run executes IN the
  * server process, so the TUI streams it live and the single-queue invariant holds.
  */
-async function runViaService(args: { app: string; sha: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
+/** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
+export function delegateRunInput(
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string },
+  target: TestTarget,
+): DelegateRunInput {
+  return {
+    app: args.app,
+    sha: args.sha,
+    ...(args.baseSha ? { baseSha: args.baseSha } : {}),
+    target,
+    mode: args.mode,
+    guidance: args.guidance,
+  };
+}
+
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
   const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
@@ -95,7 +110,7 @@ async function runViaService(args: { app: string; sha: string; mode: RunMode; ta
   let result: DelegateRunResult;
   try {
     result = await delegateRun(
-      { app: args.app, sha: args.sha, target, mode: args.mode, guidance: args.guidance },
+      delegateRunInput(args, target),
       {
         fetch,
         baseUrl,

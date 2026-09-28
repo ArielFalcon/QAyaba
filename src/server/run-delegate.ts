@@ -8,6 +8,8 @@ import type { RunMode, TestTarget } from "../types";
 export interface DelegateRunInput {
   app: string;
   sha: string;
+  /** Range start: the service's diff spans baseSha..sha (same meaning as the webhook and standalone paths). */
+  baseSha?: string;
   target: TestTarget;
   mode: RunMode;
   guidance?: string;
@@ -46,6 +48,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
     body: JSON.stringify({
       app: input.app,
       sha: input.sha,
+      ...(input.baseSha ? { baseSha: input.baseSha } : {}),
       target: input.target,
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),

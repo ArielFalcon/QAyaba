@@ -83,7 +83,7 @@ export type LoginOutcome =
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -434,9 +434,19 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     }
   }
 
+  /* Range start for a diff run (the diff spans baseSha..sha), validated like the sha: it reaches git as an argument. */
+  let baseSha: string | undefined;
+  if (typeof body.baseSha === "string" && body.baseSha.length > 0) {
+    if (!/^[0-9a-f]{7,40}$/i.test(body.baseSha)) {
+      json(res, 400, { error: "'baseSha' must be 7–40 hex characters" });
+      return true;
+    }
+    baseSha = body.baseSha;
+  }
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha);
   } catch (err) {
     json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
     return true;

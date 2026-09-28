@@ -50,6 +50,28 @@ test("delegateRun POSTs the run to the service, polls to completion, and returns
   assert.ok(seen.includes("done"), "progress updates must reach onUpdate");
 });
 
+function createBodyOf(input: Parameters<typeof delegateRun>[0]): Promise<Record<string, unknown>> {
+  let created: Record<string, unknown> = {};
+  const fetchStub = (async (_url: string, init?: RequestInit) => {
+    if ((init?.method ?? "GET") === "POST") {
+      created = JSON.parse(String(init!.body));
+      return new Response(JSON.stringify({ id: "run-1" }), { status: 202 });
+    }
+    return new Response(JSON.stringify({ id: "run-1", status: "done", verdict: "pass", passed: 1, failed: 0 }), { status: 200 });
+  }) as unknown as typeof fetch;
+  return delegateRun(input, { fetch: fetchStub, baseUrl: "http://localhost:8080", pollMs: 1 }).then(() => created);
+}
+
+test("delegateRun sends a baseSha so the service's diff spans baseSha..sha", async () => {
+  const body = await createBodyOf({ app: "demo", sha: "abc1234", baseSha: "def5678", target: "e2e", mode: "diff" });
+  assert.equal(body.baseSha, "def5678");
+});
+
+test("delegateRun sends no baseSha field when none is given", async () => {
+  const body = await createBodyOf({ app: "demo", sha: "abc1234", target: "e2e", mode: "diff" });
+  assert.equal("baseSha" in body, false);
+});
+
 test("delegateRun surfaces a service rejection (non-2xx create) as a clear error", async () => {
   const fetchStub = (async () =>
     new Response(JSON.stringify({ error: "app not found: 'ghost'" }), { status: 404 })) as unknown as typeof fetch;

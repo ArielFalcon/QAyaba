@@ -2010,6 +2010,9 @@
           "sha": {
             "type": "string"
           },
+          "baseSha": {
+            "type": "string"
+          },
           "ref": {
             "type": "string"
           },

@@ -681,6 +681,7 @@ export interface components {
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             sha?: string;
+            baseSha?: string;
             ref?: string;
             guidance?: string;
             shadow?: boolean;

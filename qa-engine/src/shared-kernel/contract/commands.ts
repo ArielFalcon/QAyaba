@@ -112,6 +112,8 @@ export const CreateRunInputSchema = z.object({
   target: TestTargetSchema,
   mode: RunModeSchema,
   sha: z.string().optional(),
+  /* diff mode: the range start — the run's diff spans baseSha..sha instead of the single commit at sha. Must be 7–40 hex characters. */
+  baseSha: z.string().optional(),
   ref: z.string().optional(),
   guidance: z.string().optional(),
   shadow: z.boolean().optional(),

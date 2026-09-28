@@ -414,6 +414,43 @@ test("POST /api/v1/runs is served and its response validates against the contrac
   CreateRunResultSchema.parse(JSON.parse(res.body));
 });
 
+test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff spans baseSha..sha", async () => {
+  let seenBaseSha: string | undefined;
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "def5678", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-range"; } }),
+  );
+  assert.equal(res.status, 202);
+  assert.equal(seenBaseSha, "def5678");
+});
+
+test("POST /api/v1/runs without a baseSha enqueues a plain single-commit run", async () => {
+  let seenBaseSha: string | undefined = "sentinel";
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-plain"; } }),
+  );
+  assert.equal(res.status, 202);
+  assert.equal(seenBaseSha, undefined);
+});
+
+test("POST /api/v1/runs rejects a baseSha that is not 7-40 hex characters (nothing is enqueued)", async () => {
+  let enqueued = false;
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "--upload-pack=evil", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: () => { enqueued = true; return "run-bad"; } }),
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.body, /baseSha/);
+  assert.equal(enqueued, false);
+});
+
 test("POST /api/runs accepts context mode", async () => {
   let seenMode = "";
   const res = mkRes();
