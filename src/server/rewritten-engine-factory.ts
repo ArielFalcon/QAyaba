@@ -905,7 +905,6 @@ export function buildRewrittenCompositionConfig(
       ? {
           authSession: new AuthSessionAdapter({
             env: process.env,
-            readSeedAuthSetup: () => readFileSync(join(root, "config", "e2e", "auth.setup.ts"), "utf8"),
             authDir,
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({

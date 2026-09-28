@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, cpSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 
@@ -35,12 +36,6 @@ const PLAYWRIGHT_CONFIG_SEED_REVISIONS: ReadonlySet<string> = new Set([
   "6ee7f15fd63364d4626877075c3782a425f1e29e22fa14a1709ca87aaaeb64be",
   "d665eb1d95e06d917b9ffbce2486f07b1ee12f5f73dc98400393cf6ca621d7ca",
   "35254a3ed113dd097aec01997cd864545fd2c222227f0841a3264c9978ae779a",
-]);
-
-/* sha256 of every auth.setup.ts seed revision shipped into watched repos, the current one included — same policy as the config above. */
-const AUTH_SETUP_SEED_REVISIONS: ReadonlySet<string> = new Set([
-  "f0026e081894e535c2c08506bb3b73d4023425313e4887917dd7ba368b1dcaa5",
-  "ca23fb2c283f97093a8c7f98693e051e9f6cd11d8db53ee495833d1883cfc749",
 ]);
 
 const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
@@ -292,7 +287,7 @@ export class SetupAdapter {
       return;
     }
     const existing = this.deps.fs.read(dest);
-    if (AUTH_SETUP_SEED_REVISIONS.has(sha256(existing))) this.followSeed("auth.setup.ts", dest, existing);
+    if (isStockAuthSetup(existing)) this.followSeed("auth.setup.ts", dest, existing);
   }
 
   /**

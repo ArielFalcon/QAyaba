@@ -30,8 +30,10 @@ When the seed locators miss the real login page, rewrite `e2e/auth.setup.ts`
 from that page. Import `{ test as setup }` from `@playwright/test`, not from
 `./fixtures`. Credentials stay `process.env.DEV_TEST_USER` and
 `process.env.DEV_TEST_PASS`. Never write the password into the spec. Delete the
-first-line seed marker (`/* qa-auth-setup-seed */`) when you rewrite the file;
-that marker is what still marks it as the stock seed. Wait until the password
+first-line seed marker (`/* qa-auth-setup-seed */`) when you rewrite the file.
+Only a byte-for-byte shipped seed is the stock seed: once you change a byte, the
+file is the app's own login, setup never replaces it, and a sign-in it cannot
+complete fails the run instead of running unauthenticated. Wait until the password
 field is hidden — cookies are often set on the redirect — and only then call
 `storageState`. `storageState` keeps cookies, localStorage, and IndexedDB.
 Session storage is not included; if this app keeps the session there, save and

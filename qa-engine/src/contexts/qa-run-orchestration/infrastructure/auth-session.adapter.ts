@@ -9,6 +9,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { AuthSession, AuthSessionPort, AuthSessionRequest } from "../application/ports/auth-session.port.ts";
@@ -20,8 +21,6 @@ export interface AuthSessionSpawnResult {
 
 export interface AuthSessionAdapterDeps {
   env: NodeJS.ProcessEnv;
-  /** The current auth.setup.ts seed. Read only when a form login must tell a stock copy from an app-owned one. */
-  readSeedAuthSetup(): string;
   /** Orchestrator-only directory (outside the mirror) auth material is written to and read from. */
   authDir: string;
   spawnSetup(specDir: string, env: Record<string, string>, signal?: AbortSignal): Promise<AuthSessionSpawnResult>;
@@ -120,11 +119,9 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
   }
 
+  /* The same predicate setup uses to decide whether it may replace the file: only a shipped seed is stock. */
   private isStock(specDir: string): boolean {
     const path = join(specDir, "auth.setup.ts");
-    if (!existsSync(path)) return true;
-    const body = readFileSync(path, "utf8");
-    /* The marker stays on every seed revision. Byte equality alone would treat an older seed as app-owned. */
-    return body.startsWith("/* qa-auth-setup-seed */") || body === this.deps.readSeedAuthSetup();
+    return !existsSync(path) || isStockAuthSetup(readFileSync(path, "utf8"));
   }
 }
