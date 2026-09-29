@@ -758,9 +758,11 @@ test("opening a pre-existing agent_turns table twice adds each efficiency column
       cost REAL
     );
   `);
+  /* Recent enough to survive the retention prune whatever day the suite runs. */
+  const recentTs = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   legacy
     .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
-    .run("run-legacy", "sess-legacy", "qa-generator", "2026-09-01T00:00:00.000Z", "old prompt", "old output");
+    .run("run-legacy", "sess-legacy", "qa-generator", recentTs, "old prompt", "old output");
   legacy.close();
 
   const previousPath = process.env.HISTORY_DB_PATH;
