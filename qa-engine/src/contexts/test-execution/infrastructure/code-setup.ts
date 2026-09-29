@@ -7,7 +7,7 @@ import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.t
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { sandboxSpawnOptions, prepareSandboxWorkdir, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
-import { codeTimeoutMs, detectCodeProject, DEFAULT_CODE_MODE_TIMEOUT_MS, MAX_TIMER_DELAY_MS, realCodeTimers, type CodeProject, type CodeTimers } from "./code-execution.runner.ts";
+import { codeTimeoutMs, detectCodeProject, realCodeTimers, TIMEOUT_BACKSTOP_GRACE_MS, type CodeProject, type CodeTimers } from "./code-execution.runner.ts";
 
 /* Bound on the install-failure output folded into the thrown error: enough to carry the real
    npm/pip/.../error, never enough to blow up an Issue/log line with a full dependency-tree dump. */
@@ -16,8 +16,6 @@ export const INSTALL_FAILURE_LOG_TAIL_CHARS = 4000;
 /* What is kept of each stream while the install runs. Twice the reported tail, so a secret straddling the cut of the reported tail is still whole when it is redacted, and an install that writes without limit cannot grow the orchestrator's memory. */
 export const INSTALL_OUTPUT_KEEP_CHARS = INSTALL_FAILURE_LOG_TAIL_CHARS * 2;
 
-/* The outer timeout is only the backstop for a `deps.install` that never settles on its own; the real install times out first, with the child's output attached. */
-const INSTALL_TIMEOUT_BACKSTOP_GRACE_MS = 1000;
 
 function tail(s: string, maxChars: number): string {
   return s.length <= maxChars ? s : `…[${s.length - maxChars} chars omitted]…\n${s.slice(-maxChars)}`;
@@ -42,8 +40,8 @@ export async function setupCodeProject(
   if (!project.install) return;
   if (opts?.signal?.aborted) throw new Error("code-mode install aborted by operator cancel");
 
-  const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
-  const backstopMs = Math.min(timeoutMs + INSTALL_TIMEOUT_BACKSTOP_GRACE_MS, MAX_TIMER_DELAY_MS);
+  /* The outer timeout is only the backstop for a `deps.install` that never settles on its own: it waits the grace longer than the install's own timeout (which the clamp keeps below the timer limit by that grace), so the real install times out first, with the child's output attached. */
+  const backstopMs = codeTimeoutMs(opts?.timeoutMs) + TIMEOUT_BACKSTOP_GRACE_MS;
   const timers = deps.timers ?? realCodeTimers;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {

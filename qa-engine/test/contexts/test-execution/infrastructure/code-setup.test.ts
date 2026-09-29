@@ -5,7 +5,7 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, INSTALL_OUTPUT_KEEP_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
-import { MAX_TIMER_DELAY_MS, type CodeProject, type CodeTimers } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
+import { DEFAULT_CODE_MODE_TIMEOUT_MS, MAX_TIMER_DELAY_MS, type CodeProject, type CodeTimers } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 
 /* A hung `npm ci`/`mvn`/`gradle` install must NOT block the sequential queue forever.
@@ -67,6 +67,31 @@ test("an install with a timeout beyond what a timer can hold never asks the cloc
   await createDefaultCodeSetupDeps(null, undefined, timers).install(project, tmpdir(), { timeoutMs: MAX_TIMER_DELAY_MS + 1_000 });
   assert.ok(delays.length > 0, "the install armed the clock");
   assert.ok(withinTimerLimit(delays), `a delay above the limit would fire the install's timeout at once (asked for ${JSON.stringify(delays)})`);
+});
+
+for (const requested of [Number.NaN, 0, -1_000]) {
+  test(`an install timeout of ${requested} is not taken literally: the default applies instead of firing the backstop at once`, async () => {
+    const project: CodeProject = { ecosystem: "node", install: { cmd: "npm", args: ["ci"] }, test: { cmd: "npm", args: ["test"] } };
+    const { timers, delays } = recordingTimers();
+    await setupCodeProject("/r", { detect: () => project, install: async () => {}, timers }, { timeoutMs: requested });
+    assert.equal(delays.length, 1, "the backstop armed the clock");
+    assert.ok(delays[0]! >= DEFAULT_CODE_MODE_TIMEOUT_MS && withinTimerLimit(delays), `the backstop waits at least the default install timeout (asked for ${JSON.stringify(delays)})`);
+  });
+}
+
+test("the install's own timer is always armed for strictly less time than its backstop, even for a timeout at the timer limit", async () => {
+  /* At the limit the backstop cannot wait longer than the timer holds, so the install's own timeout is what gives way:
+     when both fire in the same tick the backstop (armed first) would otherwise end the install without the child's output. */
+  const project: CodeProject = { ecosystem: "node", install: { cmd: process.execPath, args: ["-e", "process.exitCode = 0;"] }, test: { cmd: "npm", args: ["test"] } };
+  for (const requested of [MAX_TIMER_DELAY_MS - 500, MAX_TIMER_DELAY_MS, MAX_TIMER_DELAY_MS + 5_000]) {
+    const { timers, delays } = recordingTimers();
+    const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null, undefined, timers), detect: () => project };
+    await setupCodeProject(tmpdir(), deps, { timeoutMs: requested });
+    const [backstop, own] = delays;
+    assert.equal(delays.length, 2, "the backstop and the install's own timer both armed the clock");
+    assert.ok(own! < backstop!, `the install's own timer (${own}ms) must fire before its backstop (${backstop}ms) for a timeout of ${requested}ms`);
+    assert.ok(withinTimerLimit(delays), `no delay above what a timer can hold (asked for ${JSON.stringify(delays)})`);
+  }
 });
 
 test("setupCodeProject runs install only when there is an install command", async () => {

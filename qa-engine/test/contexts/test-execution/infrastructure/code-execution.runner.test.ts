@@ -21,6 +21,7 @@ import {
   type CodeExecuteDeps,
   type CodeTimers,
   MAX_TIMER_DELAY_MS,
+  DEFAULT_CODE_MODE_TIMEOUT_MS,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
 function existsFrom(paths: string[]): (p: string) => boolean {
@@ -313,6 +314,20 @@ test("a test-run timeout beyond what a timer can hold never asks the clock for m
   assert.ok(delays.length > 0, "the timeout race armed the clock");
   assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
 });
+
+/* setTimeout reads NaN, zero and a negative delay as 1 ms, so such a timeout would end the run before it began. */
+for (const requested of [Number.NaN, 0, -1_000]) {
+  test(`a test-run timeout of ${requested} is not taken literally: the default applies instead of firing at once`, async () => {
+    const { timers, delays } = recordingTimers();
+    const deps: CodeExecuteDeps = {
+      detect: () => nodeProject,
+      runTests: async () => ({ exitCode: 0, logs: "12 passing" }),
+      timers,
+    };
+    await runCodeTests("/r", { namespace: "qa-bot-x", timeoutMs: requested }, deps);
+    assert.deepEqual(delays, [DEFAULT_CODE_MODE_TIMEOUT_MS]);
+  });
+}
 
 test("non-zero exit => fail with the output tail as detail", async () => {
   const deps: CodeExecuteDeps = {
