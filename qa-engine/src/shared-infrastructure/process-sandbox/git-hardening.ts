@@ -12,11 +12,29 @@ export class UntrustedGitTreeError extends Error {
   }
 }
 
-/* Write access for anyone but the owner: the group (the sandbox user may share it) and every other user. */
-const WRITABLE_BEYOND_OWNER = 0o022;
+/* Write access for every user who is neither the owner nor in the file's group. */
+const WRITABLE_BY_OTHERS = 0o002;
+/* Write access for the file's group. */
+const WRITABLE_BY_GROUP = 0o020;
 
 function currentUid(): number | undefined {
   return typeof process.geteuid === "function" ? process.geteuid() : undefined;
+}
+
+function currentGid(): number | undefined {
+  return typeof process.getegid === "function" ? process.getegid() : undefined;
+}
+
+/* The group the unprivileged sandbox user runs as, when there is one (it may be the orchestrator's own group, even gid 0). */
+let sandboxGid: number | undefined;
+
+/**
+ * Names the group the sandbox user runs as, or undefined when there is no sandbox. The composition root calls it once
+ * with the identity it resolved. A git dir writable by that group is never trusted, even when the group is also the
+ * orchestrator's own: the sandbox could rewrite its config.
+ */
+export function setSandboxGroup(gid: number | undefined): void {
+  sandboxGid = gid;
 }
 
 function refuse(path: string, why: string): never {
@@ -52,9 +70,19 @@ function realPathOf(path: string): string {
   }
 }
 
-function assertOwnedAndClosed(path: string, stat: Stats, trustedUid: number | undefined): void {
+/**
+ * `path` (a git dir or its config) must be owned by the orchestrator and closed to everyone who could rewrite it: no
+ * user outside its group may write it, and neither may its group unless that group is the orchestrator's own and not
+ * the sandbox's. A host whose umask is 002 creates every git dir group-writable in the creating user's own group, which
+ * is the orchestrator's own group and nobody else's.
+ */
+function assertOwnedAndClosed(path: string, stat: Stats, gitPath: string, trustedUid: number | undefined, trustedGid: number | undefined): void {
   if (trustedUid !== undefined && stat.uid !== trustedUid) refuse(path, `owned by uid ${stat.uid}, not by the orchestrator (uid ${trustedUid})`);
-  if ((stat.mode & WRITABLE_BEYOND_OWNER) !== 0) refuse(path, "writable by its group or by any user");
+  const close = `close it with: chmod -R g-w ${gitPath}`;
+  if ((stat.mode & WRITABLE_BY_OTHERS) !== 0) refuse(path, `writable by any user (${close})`);
+  if ((stat.mode & WRITABLE_BY_GROUP) === 0) return;
+  if (trustedGid === undefined || stat.gid !== trustedGid) refuse(path, `writable by its group (gid ${stat.gid}), which is not the orchestrator's own (${close})`);
+  if (stat.gid === sandboxGid) refuse(path, `writable by its group (gid ${stat.gid}), which the sandbox user runs as (${close})`);
 }
 
 /** Where a hardened git call runs: the working copy and the git dir it was judged against, both as real paths. */
@@ -67,7 +95,8 @@ export interface TrustedGitTree {
 
 /**
  * Verify the git dir git would discover for `dir` (the nearest `.git` at or above it) is the orchestrator's own:
- * a real directory, and it and its config owned by the orchestrator and not writable by its group or anyone else.
+ * a real directory, and it and its config owned by the orchestrator and not writable by anyone else; its own group may
+ * write them (a umask-002 host creates them that way) unless the sandbox user runs as that group.
  * Returns the real paths the verdict is about, so the caller runs git on exactly those and not on the path it was given.
  *
  * A code/e2e run hands the working copy to the unprivileged sandbox user, and `.git` is chowned back to the
@@ -86,9 +115,10 @@ export interface TrustedGitTree {
  * walk does not vouch for. Watched-repo mirrors are plain clones, so a gitfile there is never legitimate.
  *
  * `trustedUid` is the owner the git dir must have: the orchestrator's effective uid unless a caller (a test)
- * names another. When the platform reports no uid, ownership is not judged.
+ * names another. When the platform reports no uid, ownership is not judged. `trustedGid` is the orchestrator's own
+ * group likewise; when the platform reports none, a group-writable git dir is refused.
  */
-export function resolveTrustedGitTree(dir: string, trustedUid: number | undefined = currentUid()): TrustedGitTree {
+export function resolveTrustedGitTree(dir: string, trustedUid: number | undefined = currentUid(), trustedGid: number | undefined = currentGid()): TrustedGitTree {
   const workDir = realPathOf(dir);
   for (let current = workDir; ; current = dirname(current)) {
     const gitPath = join(current, ".git");
@@ -96,12 +126,12 @@ export function resolveTrustedGitTree(dir: string, trustedUid: number | undefine
     if (stat) {
       if (stat.isSymbolicLink()) refuse(gitPath, "it is a symbolic link, not the orchestrator's own git dir");
       if (!stat.isDirectory()) refuse(gitPath, "it is a file that redirects git to another directory");
-      assertOwnedAndClosed(gitPath, stat, trustedUid);
+      assertOwnedAndClosed(gitPath, stat, gitPath, trustedUid, trustedGid);
       const configPath = join(gitPath, "config");
       const config = lstatOrNull(configPath);
       if (config) {
         if (!config.isFile()) refuse(configPath, "it is not a regular file");
-        assertOwnedAndClosed(configPath, config, trustedUid);
+        assertOwnedAndClosed(configPath, config, gitPath, trustedUid, trustedGid);
       }
       return { workDir, topLevel: current };
     }
@@ -110,8 +140,8 @@ export function resolveTrustedGitTree(dir: string, trustedUid: number | undefine
 }
 
 /** Refuses (UntrustedGitTreeError) unless the git dir for `dir` is the orchestrator's own. Every orchestrator write into, or delete inside, a working copy's `.git` calls this first: a planted symlink must never be written through. */
-export function assertTrustedGitTree(dir: string, trustedUid: number | undefined = currentUid()): void {
-  resolveTrustedGitTree(dir, trustedUid);
+export function assertTrustedGitTree(dir: string, trustedUid: number | undefined = currentUid(), trustedGid: number | undefined = currentGid()): void {
+  resolveTrustedGitTree(dir, trustedUid, trustedGid);
 }
 
 /* The mode git records for a submodule entry (a gitlink) in the index. */

@@ -16,7 +16,7 @@ import {
   type CodeTimers,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
-import { makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
+import { closeGitDir, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 function nodeTest(script: string): CodeProject {
   return {
@@ -127,6 +127,7 @@ test("the working-copy changes are listed even when git judges the tree owned by
   const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
   try {
     execFileSync("git", ["init", "-q"], { cwd: repo });
+    closeGitDir(repo);
     writeFileSync(join(repo, "generated.test.js"), "// a test the agent wrote\n");
     process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
     assert.deepEqual(gitWorkingChanges(repo), ["generated.test.js"]);
@@ -146,6 +147,7 @@ test("the working-copy changes are never read through a swapped git dir, and the
   const marker = join(root, "marker");
   try {
     execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
     writeFileSync(join(repo, "generated.test.js"), "// a test the agent wrote\n");
     const planted = join(root, "planted-git");
     cpSync(join(repo, ".git"), planted, { recursive: true });

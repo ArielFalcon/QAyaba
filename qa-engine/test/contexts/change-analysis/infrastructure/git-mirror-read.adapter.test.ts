@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { Sha } from "@kernel/sha.ts";
+import { closeGitDir } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 function runnerReturning(stdout: string, capture?: (r: SandboxedRunRequest) => void): SandboxedBinaryRunner {
   return { run: async (req) => { capture?.(req); return { exitCode: 0, stdout, stderr: "", timedOut: false }; } };
@@ -118,6 +119,8 @@ test("REAL merge commit: otherMessages() reaches the merged-branch commit (secon
       execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
 
     git("init", "-q");
+
+    closeGitDir(repo);
     git("config", "user.email", "t@t.com");
     git("config", "user.name", "t");
     writeFileSync(join(repo, "base.txt"), "base\n");
@@ -170,6 +173,7 @@ function twoCommitRepo(): { repo: string; baseSha: string; headSha: string } {
   const git = (...args: string[]): string =>
     execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
   git("init", "-q");
+  closeGitDir(repo);
   writeFileSync(join(repo, "a.txt"), "one\n");
   git("add", "a.txt");
   git("commit", "-qm", "chore: first");

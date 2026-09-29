@@ -15,6 +15,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildVcsPublish } from "./rewritten-engine-factory";
+import { closeGitDir } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 
 /* The bare git subcommand of an argv, skipping leading `-c <key> <value>` pairs (buildVcsPublish's
    commit/push decorations prepend -c flags) — mirrors rewritten-engine-factory.test.ts's own
@@ -56,6 +57,7 @@ function initRepo(): string {
   const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
   const git = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
   git("init", "-q");
+  closeGitDir(repo);
   git("config", "user.email", "t@t.com");
   git("config", "user.name", "t");
   writeFileSync(join(repo, "README.md"), "base\n");
@@ -183,6 +185,7 @@ test("e2e target: a TRACKED, agent-modified e2e/fixtures/creds.env is never publ
     const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
     const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
     gitSync("init", "-q");
+    closeGitDir(repo);
     gitSync("config", "user.email", "t@t.com");
     gitSync("config", "user.name", "t");
     writeFile(repo, "e2e/checkout.spec.ts", "test('x', () => {});\n");
@@ -224,6 +227,7 @@ test("code target: publish() surfaces revertedDenylisted when the tracked-file g
     const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
     const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
     gitSync("init", "-q");
+    closeGitDir(repo);
     gitSync("config", "user.email", "t@t.com");
     gitSync("config", "user.name", "t");
     writeFile(repo, "README.md", "base\n");
@@ -374,6 +378,7 @@ test("code target: a TRACKED, agent-modified Dockerfile/workflow file is never p
     const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
     const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
     gitSync("init", "-q");
+    closeGitDir(repo);
     gitSync("config", "user.email", "t@t.com");
     gitSync("config", "user.name", "t");
     writeFile(repo, "README.md", "base\n");
@@ -435,6 +440,7 @@ test("code target: a TRACKED Dockerfile DELETED by the agent is never published 
     const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
     const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
     gitSync("init", "-q");
+    closeGitDir(repo);
     gitSync("config", "user.email", "t@t.com");
     gitSync("config", "user.name", "t");
     writeFile(repo, "README.md", "base\n");
@@ -472,6 +478,7 @@ test("code target: a TRACKED workflow file TYPECHANGED into a symlink is never p
     const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
     const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
     gitSync("init", "-q");
+    closeGitDir(repo);
     gitSync("config", "user.email", "t@t.com");
     gitSync("config", "user.name", "t");
     writeFile(repo, "README.md", "base\n");
@@ -531,6 +538,7 @@ for (const { path: denyPath, original, tampered } of DENYLIST_TRACKED_MODIFY_CAS
       const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
       const gitSync = (...args: string[]): string => execFileSync("git", args, { cwd: repo, encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }).trim();
       gitSync("init", "-q");
+      closeGitDir(repo);
       gitSync("config", "user.email", "t@t.com");
       gitSync("config", "user.name", "t");
       writeFile(repo, "README.md", "base\n");

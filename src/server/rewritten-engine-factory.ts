@@ -107,7 +107,8 @@ import {
   defaultCodeValidateDeps,
 } from "../../qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks";
 import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
-import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrastructure/process-sandbox/sandbox";
+import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
@@ -506,6 +507,16 @@ export function appAuthDir(root: string, appName: string): string {
   return join(root, "data", "auth", appName);
 }
 
+/*
+ * The sandbox untrusted code runs as, or null when there is none. Its group is registered with the git hardening in the
+ * same step: a git dir that group can write is never trusted, even when it is also the orchestrator's own group.
+ */
+export function resolveCodeSandbox(env: NodeJS.ProcessEnv, resolve: (env: NodeJS.ProcessEnv) => Sandbox | null = resolveSandbox): Sandbox | null {
+  const sandbox = resolve(env);
+  setSandboxGroup(sandbox?.gid);
+  return sandbox;
+}
+
 export function buildRewrittenCompositionConfig(
   app: AppConfig,
   deps: RewrittenEngineFactoryDeps,
@@ -532,7 +543,7 @@ export function buildRewrittenCompositionConfig(
   const e2eDefaultTimeoutMs = e2eTimeoutMs(process.env);
   const pwActionTimeoutMs = process.env.PW_ACTION_TIMEOUT_MS;
 
-  const codeSandbox = resolveSandbox(process.env);
+  const codeSandbox = resolveCodeSandbox(process.env);
 
   const coveragePolicy = { mode: app.qa.changeCoverage?.mode ?? "signal", minRatio: app.qa.changeCoverage?.minRatio ?? 0.7 } as const;
   const sidekickTimeoutMs = resolveSidekickTimeoutMsFromEnv();

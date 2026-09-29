@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
-import { GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
@@ -48,6 +48,7 @@ test("hardenGitArgs opts only the verified working copy out of git's ownership c
   const repo = mkdtempSync(join(tmpdir(), "hardening-ownership-"));
   try {
     execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
     const out = hardenGitArgs(["status"], repo);
     assert.ok(out.includes(`safe.directory=${realpathSync(repo)}`), "the real path of the verified tree is the opt-out");
     assert.ok(!out.includes("safe.directory=*"));
@@ -60,6 +61,7 @@ test("the shell hardens a git call exactly like the engine does, for a call with
   const repo = mkdtempSync(join(tmpdir(), "hardening-parity-"));
   try {
     execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
     for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
       assert.deepEqual(engineHardenDetachedGitArgs(args), hardenDetachedGitArgs(args));
       assert.deepEqual(engineHardenGitArgs(args, repo), hardenGitArgs(args, repo));
@@ -570,6 +572,7 @@ test("realGit refuses a working copy whose git dir was swapped and never runs it
   const marker = join(root, "marker");
   try {
     execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
     writeFileSync(join(repo, "a.txt"), "x\n");
     const planted = join(root, "planted-git");
     cpSync(join(repo, ".git"), planted, { recursive: true });
@@ -591,6 +594,7 @@ test("realGit still runs against an ordinary working copy", async () => {
   const repo = mkdtempSync(join(tmpdir(), "realgit-ordinary-"));
   try {
     execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
     writeFileSync(join(repo, "a.txt"), "x\n");
     assert.match(await realGit(["status", "--porcelain"], repo), /a\.txt/);
   } finally {

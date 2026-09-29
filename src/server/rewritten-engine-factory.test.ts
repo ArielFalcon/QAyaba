@@ -4,15 +4,15 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
+import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
-import { GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -322,6 +322,7 @@ function specDirWithContextMap(written: string | undefined, committed?: string):
     execFileSync("git", ["-C", specDir, "-c", "user.email=qa@example.invalid", "-c", "user.name=qa", "-c", "commit.gpgsign=false", ...args], { stdio: "ignore" });
   };
   git("init", "-q");
+  closeGitDir(specDir);
   mkdirSync(join(specDir, ".qa"), { recursive: true });
   writeFileSync(join(specDir, "README.md"), "e2e\n");
   if (committed !== undefined) writeFileSync(join(specDir, ".qa", "context.json"), committed);
@@ -1417,6 +1418,22 @@ test("buildVcsPublish (code target) refuses to stage the whole tree when the san
     assert.equal(ranPlantedCommand(marker), false, "git entered the planted submodule");
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolving the code sandbox registers its group with the git hardening, so a git dir that group can write is not trusted", () => {
+  const repo = mkdtempSync(join(tmpdir(), "sandbox-group-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    chmodSync(join(repo, ".git"), 0o775); /* writable by the orchestrator's own group */
+    resolveCodeSandbox({}, () => ({ uid: 1002, gid: process.getegid!(), home: "/home/sandbox" }));
+    assert.throws(() => assertTrustedGitTree(repo), UntrustedGitTreeError);
+
+    resolveCodeSandbox({}, () => null);
+    assert.doesNotThrow(() => assertTrustedGitTree(repo), "no sandbox: the orchestrator's own group is trusted again");
+  } finally {
+    resolveCodeSandbox({}, () => null);
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 

@@ -11,10 +11,11 @@ import { join } from "node:path";
 import {
   assertTrustedGitTree,
   hardenGitArgs,
+  setSandboxGroup,
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
-import { makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
+import { closeGitDir, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
 
@@ -42,6 +43,7 @@ function withFixture(body: (f: Fixture) => void | Promise<void>): Promise<void> 
     git("commit", "-qm", "first");
     writeFileSync(join(repo, "a.txt"), "two\n");
     git("commit", "-qam", "second");
+    closeGitDir(repo); /* the ambient umask decides the modes git created; every test starts from an explicitly closed git dir */
     const result = body({ root, repo, marker, evil });
     if (result instanceof Promise) return result.finally(cleanup);
     cleanup();
@@ -128,18 +130,51 @@ test("a git dir anyone can write is refused: its config could be replaced", () =
     assert.throws(() => assertTrustedGitTree(f.repo), UntrustedGitTreeError);
   }));
 
-test("a repository config its group can write is refused like one anyone can write", () =>
+const ORCHESTRATOR_UID = process.geteuid!();
+const ORCHESTRATOR_GID = process.getegid!();
+
+test("a git dir and config writable by the orchestrator's own group are accepted, as a umask-002 host creates them", () =>
+  withFixture((f) => {
+    chmodSync(join(f.repo, ".git"), 0o775);
+    chmodSync(join(f.repo, ".git", "config"), 0o664);
+    assert.doesNotThrow(() => assertTrustedGitTree(f.repo));
+    assert.doesNotThrow(() => execFileSync("git", hardenGitArgs(["status", "--porcelain"], f.repo), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" }));
+  }));
+
+test("a repository config writable by a group other than the orchestrator's own is refused and named, with the command that closes it", () =>
   withFixture((f) => {
     chmodSync(join(f.repo, ".git", "config"), 0o664);
     assert.throws(
-      () => assertTrustedGitTree(f.repo),
-      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes(join(f.repo, ".git", "config")),
+      () => assertTrustedGitTree(f.repo, ORCHESTRATOR_UID, ORCHESTRATOR_GID + 1),
+      (err: unknown) =>
+        err instanceof UntrustedGitTreeError && err.message.includes(join(f.repo, ".git", "config")) && err.message.includes(`chmod -R g-w ${join(realpathSync(f.repo), ".git")}`),
     );
   }));
 
-test("a git dir its group can write is refused: the sandbox user may share the group", () =>
+test("a git dir writable by a group other than the orchestrator's own is refused: the sandbox user may share it", () =>
   withFixture((f) => {
     chmodSync(join(f.repo, ".git"), 0o775);
+    assert.throws(
+      () => assertTrustedGitTree(f.repo, ORCHESTRATOR_UID, ORCHESTRATOR_GID + 1),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes(`chmod -R g-w ${join(realpathSync(f.repo), ".git")}`),
+    );
+  }));
+
+test("a git dir writable by the group the sandbox runs as is refused even when that is the orchestrator's own group", () =>
+  withFixture((f) => {
+    chmodSync(join(f.repo, ".git"), 0o775);
+    setSandboxGroup(ORCHESTRATOR_GID);
+    try {
+      assert.throws(() => assertTrustedGitTree(f.repo), (err: unknown) => err instanceof UntrustedGitTreeError && /sandbox/.test(err.message));
+    } finally {
+      setSandboxGroup(undefined);
+    }
+    assert.doesNotThrow(() => assertTrustedGitTree(f.repo), "with no sandbox the orchestrator's own group is trusted again");
+  }));
+
+test("a git dir writable by any user stays refused whatever group owns it", () =>
+  withFixture((f) => {
+    chmodSync(join(f.repo, ".git"), 0o757);
     assert.throws(() => assertTrustedGitTree(f.repo), UntrustedGitTreeError);
   }));
 
