@@ -58,6 +58,22 @@ test("a session opened for each role reaches the OpenCode transport as that role
   }
 });
 
+test("an escalated sidekick session reaches the OpenCode transport as qa-sidekick on the model the engine asked for", async () => {
+  const opened: Array<{ agent: string; model?: string }> = [];
+  const raw: AgentDeps = {
+    open: async (agent, _cwd, opts) => {
+      opened.push({ agent, model: opts?.model });
+      return { id: "raw-1", prompt: async () => "ok", dispose: async () => {} };
+    },
+  };
+  const strategy = new OpenCodeRuntimeStrategy({ env: { OPENCODE_API_KEY: "k" }, depsFactory: async () => raw });
+  const runtime = engineRuntime(new SingleAgentFacade(strategy, configFor("opencode")));
+
+  await (await runtime.openSession("sidekick", "/repo", { model: "opencode-go/escalated" })).dispose();
+
+  assert.deepEqual(opened, [{ agent: AGENT_NAME_FOR_ROLE.sidekick, model: "opencode-go/escalated" }]);
+});
+
 test("a session opened for each role reaches the Codex transport as that role", async () => {
   const started: CodexTransportStartInput[] = [];
   const strategy = new CodexRuntimeStrategy({

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { SingleAgentFacade, DualAgentFacade } from "./facades";
 import type { AgentRuntimeStrategy, AgentRole, AgentRuntimeConfig } from "./types";
 
-function strategy(provider: "opencode" | "codex", calls: AgentRole[]): AgentRuntimeStrategy {
+function strategy(provider: "opencode" | "codex", calls: AgentRole[], models: Array<string | undefined> = []): AgentRuntimeStrategy {
   return {
     provider,
     async health() {
@@ -14,8 +14,9 @@ function strategy(provider: "opencode" | "codex", calls: AgentRole[]): AgentRunt
         ? [{ id: "opencode-go/deepseek-v4-pro", label: "OpenCode Pro" }]
         : [{ id: "gpt-5.4", label: "GPT 5.4" }];
     },
-    async openSession(role) {
+    async openSession(role, _cwd, opts) {
       calls.push(role);
+      models.push(opts?.model);
       return {
         id: `${provider}-${role}`,
         async prompt() {
@@ -93,6 +94,36 @@ test("DualAgentFacade rejects an unknown agent name without opening any session"
   const facade = new DualAgentFacade({ opencode: strategy("opencode", openCalls), codex: strategy("codex", codexCalls) }, DUAL_CONFIG);
   await assert.rejects(() => facade.deps().open("qa-unmapped", "/tmp/repo"), /qa-unmapped/);
   assert.deepEqual([...openCalls, ...codexCalls], []);
+});
+
+test("SingleAgentFacade opens a session on the role assignment's model when the caller names none", async () => {
+  const models: Array<string | undefined> = [];
+  const deps = new SingleAgentFacade(strategy("opencode", [], models), SINGLE_OPENCODE_CONFIG).deps();
+  await (await deps.open("qa-sidekick", "/tmp/repo")).dispose();
+  assert.deepEqual(models, [SINGLE_OPENCODE_CONFIG.assignments.primary.model]);
+});
+
+test("SingleAgentFacade opens a session on the model the caller asked for, not the role assignment's", async () => {
+  const models: Array<string | undefined> = [];
+  const deps = new SingleAgentFacade(strategy("opencode", [], models), SINGLE_OPENCODE_CONFIG).deps();
+  await (await deps.open("qa-sidekick", "/tmp/repo", { model: "opencode-go/escalated" })).dispose();
+  assert.deepEqual(models, ["opencode-go/escalated"]);
+});
+
+test("DualAgentFacade opens a session on the role assignment's model when the caller names none", async () => {
+  const models: Array<string | undefined> = [];
+  const facade = new DualAgentFacade({ opencode: strategy("opencode", []), codex: strategy("codex", [], models) }, DUAL_CONFIG);
+  await (await facade.deps().open("qa-reviewer", "/tmp/repo")).dispose();
+  assert.deepEqual(models, [DUAL_CONFIG.assignments.reviewer.model]);
+});
+
+test("DualAgentFacade opens a session on the model the caller asked for, on the provider the role is assigned to", async () => {
+  const openModels: Array<string | undefined> = [];
+  const codexModels: Array<string | undefined> = [];
+  const facade = new DualAgentFacade({ opencode: strategy("opencode", [], openModels), codex: strategy("codex", [], codexModels) }, DUAL_CONFIG);
+  await (await facade.deps().open("qa-reviewer", "/tmp/repo", { model: "gpt-5.5" })).dispose();
+  assert.deepEqual(codexModels, ["gpt-5.5"]);
+  assert.deepEqual(openModels, []);
 });
 
 test("DualAgentFacade routes roles to their assigned provider strategies", async () => {
