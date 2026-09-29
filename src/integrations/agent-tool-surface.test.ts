@@ -42,8 +42,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentConfig } from "@opencode-ai/sdk";
-import { ROLE_TO_OPENCODE_AGENT } from "../agent-runtime/opencode-strategy";
-import { capabilitiesForRole } from "../agent-runtime/types";
+import { AGENT_NAME_FOR_ROLE, capabilitiesForRole } from "../agent-runtime/types";
 import type { AgentRole } from "../agent-runtime/types";
 
 /* The ONLY MCP servers the agents may reach. None of these runs the orchestrator's
@@ -375,7 +374,7 @@ test("read-only roles in the capability policy map to non-writable OpenCode agen
    */
   const { agents } = loadAgentConfig();
   let checkedReadOnly = 0;
-  for (const [role, agentName] of Object.entries(ROLE_TO_OPENCODE_AGENT)) {
+  for (const [role, agentName] of Object.entries(AGENT_NAME_FOR_ROLE)) {
     if (capabilitiesForRole(role as AgentRole).canWrite) continue;
     checkedReadOnly++;
     const agent = agents[agentName];
@@ -393,6 +392,13 @@ test("read-only roles in the capability policy map to non-writable OpenCode agen
      explorer, proposer).
    */
   assert.ok(checkedReadOnly >= 5, `expected >=5 read-only roles checked against opencode.json, got ${checkedReadOnly}`);
+});
+
+test("every role maps to an agent that opencode.json declares", () => {
+  const { agents } = loadAgentConfig();
+  for (const [role, agentName] of Object.entries(AGENT_NAME_FOR_ROLE)) {
+    assert.ok(agents[agentName], `role "${role}" maps to agent "${agentName}", which opencode.json does not declare`);
+  }
 });
 
 test("qa-explorer and qa-proposer keep serena (and engram for explorer) but deny playwright", () => {

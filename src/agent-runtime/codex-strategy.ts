@@ -16,12 +16,13 @@ import type { AgentOpenDescriptor, AgentTurnEvent, LiveActivity } from "../integ
 import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS } from "../integrations/opencode-client";
 import { extractJsonObjects } from "../integrations/verdict-parse";
 import type { RunEventBody } from "../contract/events";
-import type {
-  AgentModelInfo,
-  AgentProviderHealth,
-  AgentRole,
-  AgentRuntimeSession,
-  AgentRuntimeStrategy,
+import {
+  AGENT_NAME_FOR_ROLE,
+  type AgentModelInfo,
+  type AgentProviderHealth,
+  type AgentRole,
+  type AgentRuntimeSession,
+  type AgentRuntimeStrategy,
 } from "./types";
 
 
@@ -558,17 +559,9 @@ function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string
   ].join("\n");
 }
 
+/* The role's prompt is agent/roles/<agent name>.md; workerCode has no prompt of its own and reads the worker's. */
 export function rolePromptName(role: AgentRole): string {
-  if (role === "primary") return "qa-generator";
-  if (role === "reviewer") return "qa-reviewer";
-  if (role === "chat") return "qa-assistant";
-  if (role === "worker") return "qa-worker";
-  if (role === "workerCode") return "qa-worker";
-  if (role === "sidekick") return "qa-sidekick";
-  if (role === "reflector") return "qa-reflector";
-  if (role === "explorer") return "qa-explorer";
-  if (role === "proposer") return "qa-proposer";
-  return "qa-maintainer";
+  return AGENT_NAME_FOR_ROLE[role === "workerCode" ? "worker" : role];
 }
 
 function readPrompt(path: string): string {

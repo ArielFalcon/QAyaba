@@ -13,6 +13,7 @@ import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentTimeout } from "../integrations/opencode-client";
+import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
 
 import {
   withUsageSink,
@@ -146,19 +147,7 @@ export function resolveSidekickTimeoutMsFromEnv(): number | undefined {
 }
 
 export function roleToAgentName(role: AgentRole): string {
-  const map: Record<AgentRole, string> = {
-    primary: "qa-generator",
-    reviewer: "qa-reviewer",
-    chat: "qa-assistant",
-    worker: "qa-worker",
-    workerCode: "qa-worker-code",
-    sidekick: "qa-sidekick",
-    maintainer: "qa-maintainer",
-    reflector: "qa-reflector",
-    explorer: "qa-explorer",
-    proposer: "qa-proposer",
-  };
-  return map[role];
+  return AGENT_NAME_FOR_ROLE[role];
 }
 
 

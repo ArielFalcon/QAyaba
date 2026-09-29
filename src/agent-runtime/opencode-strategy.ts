@@ -11,12 +11,13 @@ import {
 } from "../integrations/opencode-client";
 import type { RunEventBody } from "../contract/events";
 import type { UsageSnapshot } from "../qa/usage";
-import type {
-  AgentModelInfo,
-  AgentProviderHealth,
-  AgentRole,
-  AgentRuntimeSession,
-  AgentRuntimeStrategy,
+import {
+  AGENT_NAME_FOR_ROLE,
+  type AgentModelInfo,
+  type AgentProviderHealth,
+  type AgentRole,
+  type AgentRuntimeSession,
+  type AgentRuntimeStrategy,
 } from "./types";
 
 interface OpenCodeRuntimeStrategyOptions {
@@ -30,19 +31,6 @@ interface OpenCodeRuntimeStrategyOptions {
   dispose?: () => void;
   configPath?: string;
 }
-
-export const ROLE_TO_OPENCODE_AGENT: Record<AgentRole, string> = {
-  primary: "qa-generator",
-  reviewer: "qa-reviewer",
-  chat: "qa-assistant",
-  worker: "qa-worker",
-  workerCode: "qa-worker-code",
-  sidekick: "qa-sidekick",
-  maintainer: "qa-maintainer",
-  reflector: "qa-reflector",
-  explorer: "qa-explorer",
-  proposer: "qa-proposer",
-};
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
@@ -92,7 +80,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     },
   ): Promise<AgentRuntimeSession> {
     const deps = await this.deps();
-    return deps.open(ROLE_TO_OPENCODE_AGENT[role], cwd, opts);
+    return deps.open(AGENT_NAME_FOR_ROLE[role], cwd, opts);
   }
 
   async startEventStream(
