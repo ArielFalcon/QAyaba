@@ -12,8 +12,9 @@ function activity(
   callId: string | undefined,
   kind: "analyzing" | "writing" | "command" | "subagent",
   status: "running" | "completed" = "completed",
+  target = "t",
 ): RunEventBody {
-  return { type: "agent.activity", kind, target: "t", status, ...(callId ? { callId } : {}) };
+  return { type: "agent.activity", kind, target, status, ...(callId ? { callId } : {}) };
 }
 
 test("splits grounding from first-pass activity using the PRE_GENERATION_GROUNDING_STEP_DETAIL window", () => {
@@ -85,4 +86,38 @@ test("commandCount and subagentCount reconcile with the coarse activity kinds", 
   const result = classifyRunEfficiency(events);
   assert.equal(result.firstPass.commandCount, 1);
   assert.equal(result.firstPass.subagentCount, 1);
+});
+
+test("a call repeats another only when it has the same kind and the same target", () => {
+  const events: RunEventBody[] = [
+    stepChanged("generate"),
+    activity("c1", "analyzing", "completed", "src/a.ts"),
+    activity("c2", "analyzing", "completed", "src/b.ts"),
+    activity("c3", "writing", "completed", "src/a.ts"),
+    activity("c4", "analyzing", "completed", "src/a.ts"),
+  ];
+  assert.equal(classifyRunEfficiency(events).firstPass.repeatedCallCount, 1, "only c4 repeats c1");
+});
+
+test("the grounding window belongs to the generate step only", () => {
+  const events: RunEventBody[] = [
+    stepChanged("retry", PRE_GENERATION_GROUNDING_STEP_DETAIL),
+    activity("c1", "analyzing"),
+  ];
+  const result = classifyRunEfficiency(events);
+  assert.equal(result.grounding.totalCalls, 0);
+  assert.equal(result.wholeRunExcludingGrounding.totalCalls, 1);
+});
+
+test("a step before generate never opens the first-pass window", () => {
+  const events: RunEventBody[] = [
+    stepChanged("setup"),
+    activity("c1", "analyzing"),
+    stepChanged("generate"),
+    activity("c2", "writing"),
+  ];
+  const result = classifyRunEfficiency(events);
+  assert.equal(result.firstPass.totalCalls, 1);
+  assert.equal(result.firstPass.writeCount, 1, "the first pass is the generate window's call, not the setup one");
+  assert.equal(result.wholeRunExcludingGrounding.totalCalls, 2);
 });
