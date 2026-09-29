@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -126,6 +126,21 @@ test("a git dir anyone can write is refused: its config could be replaced", () =
     assert.throws(() => assertTrustedGitTree(f.repo), UntrustedGitTreeError);
   }));
 
+test("a repository config its group can write is refused like one anyone can write", () =>
+  withFixture((f) => {
+    chmodSync(join(f.repo, ".git", "config"), 0o664);
+    assert.throws(
+      () => assertTrustedGitTree(f.repo),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes(join(f.repo, ".git", "config")),
+    );
+  }));
+
+test("a git dir its group can write is refused: the sandbox user may share the group", () =>
+  withFixture((f) => {
+    chmodSync(join(f.repo, ".git"), 0o775);
+    assert.throws(() => assertTrustedGitTree(f.repo), UntrustedGitTreeError);
+  }));
+
 test("a subdirectory is judged by the git dir git would discover for it, nearest first", () =>
   withFixture((f) => {
     const sub = join(f.repo, "e2e");
@@ -161,3 +176,68 @@ test("hardening a call with no working copy yet (a clone, an ls-remote) checks n
   assert.deepEqual(args.slice(-3), ["clone", "https://example.com/x.git", "/tmp/x"]);
   assert.ok(args.length > 3, "the hardening flags precede the subcommand");
 });
+
+/* A repository the sandbox controls, planted with a command git would run on `diff`; its config is writable by anyone,
+   which is how a same-user test tells it from the orchestrator's own (the real one is owned by the sandbox user). */
+function plantEvilRepo(f: Fixture): string {
+  const evilRoot = join(f.root, "sandbox-controlled");
+  execFileSync("git", ["clone", "-q", f.repo, evilRoot], { env: GIT_ENV, stdio: "ignore" });
+  execFileSync("git", ["config", "diff.external", f.evil], { cwd: evilRoot });
+  chmodSync(join(evilRoot, ".git", "config"), 0o666);
+  mkdirSync(join(evilRoot, "inner"));
+  return evilRoot;
+}
+
+test("a path that reaches another repository through a symlinked component is judged by the repository git really runs in", () =>
+  withFixture((f) => {
+    /* `up` lives in the trusted working copy but points into a directory of the sandbox's repository: judged by its
+       lexical parent the call looks trusted, while git, run in the real directory, discovers the planted repository. */
+    const evilRoot = plantEvilRepo(f);
+    const up = join(f.repo, "up");
+    symlinkSync(join(evilRoot, "inner"), up);
+
+    let refusal: unknown;
+    try {
+      execFileSync("git", hardenGitArgs(["diff", "HEAD~1", "HEAD"], up), { cwd: up, env: GIT_ENV, stdio: "ignore" });
+    } catch (err) {
+      refusal = err;
+    }
+    assert.equal(ranPlantedCommand(f), false, "the planted command in the repository behind the link never ran");
+    assert.ok(refusal instanceof UntrustedGitTreeError, "the call is refused before git starts, naming the repository it would really use");
+  }));
+
+test("git runs in the verified real directory whatever path or cwd the caller holds", () =>
+  withFixture((f) => {
+    const alias = join(f.root, "alias");
+    symlinkSync(f.repo, alias);
+    const top = execFileSync("git", hardenGitArgs(["rev-parse", "--show-toplevel"], alias), { cwd: f.root, env: GIT_ENV, encoding: "utf8" }).trim();
+    assert.equal(top, realpathSync(f.repo));
+  }));
+
+test("a working copy that does not exist yet is hardened without a git dir to judge", () =>
+  withFixture((f) => {
+    const notYet = join(f.root, "not", "cloned", "yet");
+    const args = hardenGitArgs(["status"], notYet);
+    assert.deepEqual(args.slice(-1), ["status"]);
+    assert.ok(args.includes(join(realpathSync(f.root), "not", "cloned", "yet")), "git is pointed at the resolved location");
+  }));
+
+/* Under GIT_TEST_ASSUME_DIFFERENT_OWNER git judges every tree owned by another user, as it does a working copy the
+   sandbox user owns. */
+const FOREIGN_OWNER_ENV = { ...GIT_ENV, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" };
+
+test("the working copy the check verified is opted out of git's ownership check", () =>
+  withFixture((f) => {
+    assert.doesNotThrow(() => execFileSync("git", hardenGitArgs(["status", "--porcelain"], f.repo), { cwd: f.repo, env: FOREIGN_OWNER_ENV, stdio: "ignore" }));
+  }));
+
+test("the ownership opt-out covers the verified working copy only: another repository reached with the same flags is still judged by git", () =>
+  withFixture((f) => {
+    const other = join(f.root, "other-repo");
+    execFileSync("git", ["init", "-q", other], { env: GIT_ENV, stdio: "ignore" });
+    /* Control: git itself refuses the foreign-owned tree when nothing opts it out. */
+    assert.throws(() => execFileSync("git", ["-C", other, "rev-parse", "--git-dir"], { env: FOREIGN_OWNER_ENV, stdio: "ignore" }));
+    /* The hardened flags for f.repo, then a redirect to the other tree: only f.repo may be trusted. */
+    const args = hardenGitArgs(["-C", other, "rev-parse", "--git-dir"], f.repo);
+    assert.throws(() => execFileSync("git", args, { cwd: f.repo, env: FOREIGN_OWNER_ENV, stdio: "ignore" }), "a wildcard opt-out would have trusted it too");
+  }));

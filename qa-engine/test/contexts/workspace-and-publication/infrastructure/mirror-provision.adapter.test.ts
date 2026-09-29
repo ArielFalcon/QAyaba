@@ -6,6 +6,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "@contexts/workspace-and-publication/infrastructure/mirror-provision.adapter.ts";
 
 /* exists: a boolean covers both the mirror dir and the stale-lock probe; a function lets a test
@@ -43,7 +47,7 @@ test("existing mirror: resets origin URL, fetches, force-checks out and cleans",
   const d = recorder((p) => !p.endsWith("index.lock"));
   await new MirrorProvisionAdapter(d).ensureMirror("org/app", "abc1234");
   assert.deepEqual(d.calls[0], ["remote", "set-url", "origin", "https://github.com/org/app.git"]);
-  assert.deepEqual(d.calls[1], ["fetch", "origin"]);
+  assert.deepEqual(d.calls[1], ["fetch", "--no-recurse-submodules", "origin"]);
   assert.deepEqual(d.calls[2], ["checkout", "-f", "abc1234"]);
   assert.deepEqual(d.calls[3], ["clean", "-fd", "-e", "node_modules"]);
 });
@@ -177,4 +181,28 @@ test("ensureMirrorAtBranch propagates git checkout failure", async () => {
     },
   };
   await assert.rejects(() => new MirrorProvisionAdapter(d).ensureMirrorAtBranch("org/app", "main"), /git checkout failed/);
+});
+
+/* The sandbox owns the mirror's directory, so it can replace the root-owned `.git` there with a link into a place it
+   controls; the lock removal must not follow that link. */
+test("a stale lock is never removed through a git dir the sandbox replaced with a symlink", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mirror-provision-swapped-git-"));
+  try {
+    const mirror = join(root, "org__app");
+    const elsewhere = join(root, "sandbox-controlled-git");
+    mkdirSync(mirror);
+    mkdirSync(elsewhere);
+    writeFileSync(join(elsewhere, "index.lock"), "");
+    symlinkSync(elsewhere, join(mirror, ".git"));
+    const d = recorder(existsSync);
+    d.root = root;
+    d.removeFile = (path) => rmSync(path, { force: true });
+
+    await assert.rejects(new MirrorProvisionAdapter(d).ensureMirror("org/app", "abc1234"), UntrustedGitTreeError);
+
+    assert.equal(existsSync(join(elsewhere, "index.lock")), true, "the file behind the link was not deleted");
+    assert.deepEqual(d.calls, [], "no git command ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

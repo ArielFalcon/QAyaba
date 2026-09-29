@@ -121,6 +121,45 @@ test("the working-copy changes are never read through a swapped git dir, and the
   }
 });
 
+/* The sandbox controls the submodule checkouts inside the working copy, including a git dir of their own whose filter
+   driver git would run as the orchestrator while it compares the submodule's files during a status. */
+test("the working-copy changes are listed without entering a submodule the sandbox controls", () => {
+  const root = mkdtempSync(join(tmpdir(), "code-mode-submodule-"));
+  const repo = join(root, "repo");
+  const origin = join(root, "sub-origin");
+  const marker = join(root, "marker");
+  const identity = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
+  const git = (cwd: string, ...args: string[]): void => void execFileSync("git", args, { cwd, env: identity, stdio: "ignore" });
+  try {
+    git(root, "init", "-q", origin);
+    writeFileSync(join(origin, "f.txt"), "a\n");
+    git(origin, "add", "f.txt");
+    git(origin, "commit", "-qm", "sub");
+    git(root, "init", "-q", repo);
+    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", origin, "sub");
+    git(repo, "commit", "-qm", "add submodule");
+    /* The sandbox swaps the submodule's git dir for a repository of its own, with a filter driver that records that it ran. */
+    const nested = join(repo, "sub", ".git");
+    rmSync(nested);
+    cpSync(join(repo, ".git", "modules", "sub"), nested, { recursive: true });
+    const config = readFileSync(join(nested, "config"), "utf8").split("\n").filter((line) => !line.includes("worktree")).join("\n");
+    writeFileSync(join(nested, "config"), config);
+    const evil = join(root, "evil.sh");
+    writeFileSync(evil, `#!/bin/sh\necho ran >> "${marker}"\nexit 0\n`, { mode: 0o755 });
+    git(join(repo, "sub"), "config", "filter.evil.clean", evil);
+    writeFileSync(join(repo, "sub", ".gitattributes"), "* filter=evil\n");
+    writeFileSync(join(repo, "sub", "f.txt"), "b\n"); /* same size, new content: git must run the filter to compare it */
+    writeFileSync(join(repo, "generated.test.js"), "// a test the agent wrote\n");
+
+    const changes = gitWorkingChanges(repo);
+
+    assert.ok(changes.includes("generated.test.js"), "the test the agent wrote is listed");
+    assert.equal(existsSync(marker), false, "the submodule's filter driver did not run as the orchestrator");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 /* A child script printing output whose final `keep` chars begin `cutOffset` chars into the secret's own line, then failing:
    the tail the runner keeps is cut through the secret. The secret travels base64-encoded so it is not in argv. */
 function scriptCuttingThroughSecret(keep: number, secret: string, cutOffset: number): string {

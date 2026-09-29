@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
@@ -34,16 +34,24 @@ function recorder(exists: boolean | ((path: string) => boolean)): MirrorDeps & {
   };
 }
 
-test("hardenGitArgs prepends hook + ownership hardening before the git subcommand", () => {
+test("hardenGitArgs prepends the hook hardening before the git subcommand and opts nothing out of git's ownership check without a working copy", () => {
   const out = hardenGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"], null);
-  /* Command-line hardening flags, in order, BEFORE the subcommand:
-     - core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard)
-     - safe.directory=* → tolerate a mirror chowned to the sandbox uid by a prior
-     e2e/code execution (git-as-root would else abort with
-     "detected dubious ownership" and crash the next run).
-   */
-  assert.deepEqual(out.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*"]);
+  /* core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard). */
+  assert.deepEqual(out.slice(0, 2), ["-c", "core.hooksPath=/dev/null"]);
+  assert.ok(!out.some((arg) => arg.startsWith("safe.directory")), "there is no verified working copy to opt out for");
   assert.deepEqual(out.slice(-4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
+});
+
+test("hardenGitArgs opts only the verified working copy out of git's ownership check, never a wildcard", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hardening-ownership-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    const out = hardenGitArgs(["status"], repo);
+    assert.ok(out.includes(`safe.directory=${realpathSync(repo)}`), "the real path of the verified tree is the opt-out");
+    assert.ok(!out.includes("safe.directory=*"));
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("the shell hardens a git call exactly like the engine does, for a call with no working copy and for one with", () => {
@@ -72,7 +80,7 @@ test("existing mirror: scrubs origin URL, fetches, force-checks out and cleans",
   const d = recorder((p) => !p.endsWith("index.lock"));
   await ensureMirror("org/app", "abc1234", d);
   assert.deepEqual(d.calls[0], ["remote", "set-url", "origin", "https://github.com/org/app.git"]);
-  assert.deepEqual(d.calls[1], ["fetch", "origin"]);
+  assert.deepEqual(d.calls[1], ["fetch", "--no-recurse-submodules", "origin"]);
   assert.deepEqual(d.calls[2], ["checkout", "-f", "abc1234"]);
   assert.deepEqual(d.calls[3], ["clean", "-fd", "-e", "node_modules"]);
 });
@@ -115,7 +123,7 @@ test("existing mirror: origin is reset to the tokenless URL before fetch (scrubs
     const d = recorder((p) => !p.endsWith("index.lock"));
     await ensureMirror("org/app", "abc1234", d);
     assert.deepEqual(d.calls[0], ["remote", "set-url", "origin", "https://github.com/org/app.git"]);
-    assert.deepEqual(d.calls[1], ["-c", INSTEADOF_FLAG, "fetch", "origin"]);
+    assert.deepEqual(d.calls[1], ["-c", INSTEADOF_FLAG, "fetch", "--no-recurse-submodules", "origin"]);
   } finally {
     delete process.env.GITHUB_TOKEN;
   }

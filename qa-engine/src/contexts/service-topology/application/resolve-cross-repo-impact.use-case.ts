@@ -39,7 +39,7 @@ export class ResolveCrossRepoImpactUseCase {
       /* Best-effort mirror-freshness fetch before the diff is read. exitCode/timedOut are unread — a failed fetch falls through with whatever is already on disk. */
       await this.runner.run({
         command: "git",
-        args: hardenGitArgs(["fetch", "origin"], mirrorDir),
+        args: hardenGitArgs(["fetch", "--no-recurse-submodules", "origin"], mirrorDir),
         cwd: mirrorDir,
         env: scrubEnv(),
         timeoutMs: FETCH_TIMEOUT_MS,

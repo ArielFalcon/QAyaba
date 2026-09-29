@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { assertTrustedGitTree } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
 
@@ -47,10 +48,12 @@ export class MirrorProvisionAdapter {
     if (!this.deps.exists(dir)) {
       await this.deps.git(["clone", this.deps.remoteUrl(repo), dir]);
     } else {
+      /* The sandbox owns the mirror's directory and can swap `.git` for a link: verify it before deleting inside it. */
+      assertTrustedGitTree(dir);
       const indexLock = join(dir, ".git", "index.lock");
       if (this.deps.exists(indexLock)) this.deps.removeFile(indexLock);
       await this.deps.git(["remote", "set-url", "origin", this.deps.remoteUrl(repo)], dir);
-      await this.deps.git(["fetch", "origin"], dir);
+      await this.deps.git(["fetch", "--no-recurse-submodules", "origin"], dir);
     }
     return dir;
   }

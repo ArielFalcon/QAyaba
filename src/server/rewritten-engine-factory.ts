@@ -111,7 +111,7 @@ import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/proces
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
-import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs } from "../integrations/repo-mirror";
+import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -178,9 +178,11 @@ const CODE_PUBLISH_EXCLUDES = [
 
 /*
  * Writes gitignore-style patterns to .git/info/exclude (LOCAL, never committed) — same real fs write
- * as publish.ts's own defaultPublishDeps.writeExcludes.
+ * as publish.ts's own defaultPublishDeps.writeExcludes. The sandbox owns the mirror's directory, so the git dir
+ * is verified as the orchestrator's own first: a `.git` swapped for a link must never be written through.
  */
 function writeExcludes(mirrorDir: string, patterns: readonly string[]): void {
+  assertTrustedGitTree(mirrorDir);
   const dir = join(mirrorDir, ".git", "info");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "exclude"), patterns.map((p) => `${p}\n`).join(""));
@@ -459,7 +461,7 @@ const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
 
 /* The mirror's git status for the spec dir's context map: any entry means this run wrote it. */
 const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
-  execFileSync("git", hardenGitArgs(["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"], specDir), {
+  execFileSync("git", hardenGitArgs(["status", "--porcelain", "--ignored", "--", ".qa/context.json"], specDir), {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim() !== "";

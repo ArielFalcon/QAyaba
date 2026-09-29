@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
@@ -11,7 +11,7 @@ import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
+import { defaultMirrorDeps, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -1373,6 +1373,26 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
   assert.equal(excludesWritten[0]?.dir, "/mirrors/org/app");
   assert.ok(excludesWritten[0]?.patterns.includes("node_modules/"), "e2e excludes must include node_modules/ (the documented `git add` failure this ordering fixes)");
   assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
+});
+
+test("buildVcsPublish never writes its local excludes through a git dir the sandbox replaced with a symlink", async () => {
+  const root = mkdtempSync(join(tmpdir(), "publish-swapped-git-"));
+  try {
+    const mirror = join(root, "mirror");
+    const sandboxGit = join(root, "sandbox-controlled-git");
+    mkdirSync(mirror);
+    mkdirSync(sandboxGit);
+    symlinkSync(sandboxGit, join(mirror, ".git"));
+    const { git, calls } = fakeGit(" M e2e/login.spec.ts");
+    const vcsWrite = buildVcsPublish(false, "diff", git);
+
+    await assert.rejects(vcsWrite.publish({ mirrorDir: mirror, branch: "qa-bot/abc1234", sha: "abc1234" }), UntrustedGitTreeError);
+
+    assert.equal(existsSync(join(sandboxGit, "info", "exclude")), false, "nothing was written through the link");
+    assert.equal(calls.length, 0, "no git command ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 /* config.sanitize must be the real sanitizeText, not an identity fallback. */

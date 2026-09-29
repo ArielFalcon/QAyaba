@@ -7,7 +7,7 @@
  */
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrossRepoImpactPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.ts";
@@ -138,13 +138,15 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
       runner,
     });
 
+    mkdirSync(join(MIRROR_DIR, ".git"), { recursive: true });
     await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]);
 
     assert.deepEqual(order, ["fetch", "blastRadius"], "the fetch must fire before the diff is read — otherwise a freshly-pushed trigger sha may not exist in a stale mirror");
     assert.equal(runner.calls.length, 1, "exactly one fetch call expected");
     assert.equal(runner.calls[0]?.command, "git");
-    assert.deepEqual(runner.calls[0]?.args.slice(-2), ["fetch", "origin"]);
-    assert.ok(runner.calls[0]?.args.includes("safe.directory=*"), "the mirror may belong to the sandbox user after a code-mode run, so the fetch opts out of git's ownership check like every other git call");
+    assert.deepEqual(runner.calls[0]?.args.slice(-3), ["fetch", "--no-recurse-submodules", "origin"], "the fetch refreshes this repo's refs only and never enters a submodule the sandbox controls");
+    assert.ok(runner.calls[0]?.args.includes(`safe.directory=${realpathSync(MIRROR_DIR)}`), "the mirror may belong to the sandbox user after a code-mode run, so the fetch opts that one verified tree out of git's ownership check");
+    assert.ok(!runner.calls[0]?.args.includes("safe.directory=*"), "no wildcard opt-out");
     assert.equal(runner.calls[0]?.cwd, MIRROR_DIR);
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
   });

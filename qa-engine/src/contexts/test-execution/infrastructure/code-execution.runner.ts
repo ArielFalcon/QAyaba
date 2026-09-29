@@ -234,10 +234,10 @@ export function effectiveChangedFiles(
   return listWrites ? listWrites(repoDir) : [];
 }
 
-/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Best-effort — a git failure yields [] (→ whole-repo fallback). A git dir that is not the orchestrator's (UntrustedGitTreeError) is never a soft failure: it means untrusted code replaced the repository, so it throws. */
+/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Submodules are ignored: the sandbox controls their checkouts and nested git dirs, a submodule entry is never a test the agent wrote, and git must not enter them here. Best-effort — a git failure yields [] (→ whole-repo fallback). A git dir that is not the orchestrator's (UntrustedGitTreeError) is never a soft failure: it means untrusted code replaced the repository, so it throws. */
 export function gitWorkingChanges(repoDir: string): string[] {
   try {
-    const out = execFileSync("git", hardenGitArgs(["status", "--porcelain"], repoDir), { cwd: repoDir, encoding: "utf8" });
+    const out = execFileSync("git", hardenGitArgs(["status", "--porcelain", "--ignore-submodules=all"], repoDir), { cwd: repoDir, encoding: "utf8" });
     return parsePorcelain(out);
   } catch (err) {
     if (err instanceof UntrustedGitTreeError) throw err;
