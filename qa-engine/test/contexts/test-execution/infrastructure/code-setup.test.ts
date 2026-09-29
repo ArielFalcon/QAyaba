@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
-import { setupCodeProject, createDefaultCodeSetupDeps, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
+import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
 import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 
@@ -120,6 +120,81 @@ test("install captures the tail of a large, multi-chunk child output without los
     () => deps.install(project, tmpdir()),
     (err: Error) => {
       assert.match(err.message, new RegExp(marker), "output split across many 'data' events must still be captured intact");
+      return true;
+    },
+  );
+});
+
+/* An install runs untrusted code: it can write without limit. The orchestrator must survive that,
+   keep the newest output, and still fail through the normal error path. */
+const FLOOD_LINE = "npm WARN deprecated flood-" + "line@1.0.0: use something else instead\\n";
+const FLOOD_UNTIL_KILLED =
+  `const chunk = '${FLOOD_LINE}'.repeat(1000);` +
+  "process.stdout.write('first-' + 'output-marker\\n');" +
+  "(function go() { process.stdout.write(chunk, go); })();";
+
+/* Room for the failure header, the echoed command and the omission note around the reported tail. */
+const ERROR_HEADER_ALLOWANCE = 2000;
+
+function nodeInstall(script: string): CodeProject {
+  return {
+    ecosystem: "node",
+    install: { cmd: process.execPath, args: ["-e", script] },
+    test: { cmd: "npm", args: ["test"] },
+  };
+}
+
+test("an install that floods output until the timeout still fails as a timeout and reports its newest output", { timeout: 30_000 }, async () => {
+  const project = nodeInstall(FLOOD_UNTIL_KILLED);
+  const deps: CodeSetupDeps = { ...createDefaultCodeSetupDeps(null), detect: () => project };
+  await assert.rejects(
+    () => setupCodeProject(tmpdir(), deps, { timeoutMs: 2500 }),
+    (err: Error) => {
+      assert.match(err.message, /timeout/i, "the failure is the install timeout, not a crash");
+      assert.match(err.message, /flood-line/, "the newest output reaches the caller");
+      assert.doesNotMatch(err.message, /first-output-marker/, "the oldest output was dropped, not kept");
+      assert.ok(err.message.length < INSTALL_FAILURE_LOG_TAIL_CHARS + ERROR_HEADER_ALLOWANCE, `the error stays bounded (was ${err.message.length} chars)`);
+      return true;
+    },
+  );
+});
+
+test("a failed install that wrote megabytes reports only its last lines", { timeout: 30_000 }, async () => {
+  const deps = createDefaultCodeSetupDeps(null);
+  const script =
+    "process.stdout.write('first-' + 'output-marker\\n');" +
+    `const chunk = '${FLOOD_LINE}'.repeat(1000);` +
+    "let written = 0;" +
+    "(function go() {" +
+    "  if (written++ < 600) return process.stdout.write(chunk, go);" +
+    "  process.stderr.write('last-' + 'output-marker\\n', () => process.exit(3));" +
+    "})();";
+  await assert.rejects(
+    () => deps.install(nodeInstall(script), tmpdir()),
+    (err: Error) => {
+      assert.match(err.message, /last-output-marker/);
+      assert.doesNotMatch(err.message, /first-output-marker/);
+      assert.ok(err.message.length < INSTALL_FAILURE_LOG_TAIL_CHARS + ERROR_HEADER_ALLOWANCE, `the error stays bounded (was ${err.message.length} chars)`);
+      return true;
+    },
+  );
+});
+
+test("a secret straddling the cut of the reported tail is redacted, not leaked as a fragment", async () => {
+  const deps = createDefaultCodeSetupDeps(null);
+  /* A 20-char access-key shape whose first 12 chars fall before the cut of the reported tail and last 8 after it.
+     Base64 keeps the key out of argv, so only real output capture can put it in the message. */
+  const keyB64 = "QUtJQUFCQ0RFRkdISUpLTE1OT1A=";
+  const script =
+    `const key = Buffer.from('${keyB64}','base64').toString();` +
+    "const line = 'npm WARN deprecated filler-package@1.0.0: use something else\\n';" +
+    "process.stderr.write(line.repeat(200) + key + ' x'.repeat(1996));" +
+    "process.exit(4)";
+  await assert.rejects(
+    () => deps.install(nodeInstall(script), tmpdir()),
+    (err: Error) => {
+      assert.doesNotMatch(err.message, /IJKLMNOP/, "no fragment of the key survives the cut");
+      assert.doesNotMatch(err.message, /AKIAABCDEFGH/, "the key is not shown whole either");
       return true;
     },
   );

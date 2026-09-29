@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { BoundedOutputTail } from "./bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
@@ -267,6 +268,9 @@ export interface CodeExecuteOptions {
 
 export const DEFAULT_CODE_MODE_TIMEOUT_MS = 600_000;
 
+/* What is kept of each stream of a code test run: enough for any real suite's report and summary, bounded because the repo under test is untrusted and may write without limit. */
+export const CODE_TEST_OUTPUT_KEEP_CHARS = 500_000;
+
 export function ranZeroTests(project: CodeProject, out: CodeRunOutput): boolean {
   const log = out.logs;
   const cmd = `${project.test.cmd} ${project.test.args.join(" ")}`;
@@ -412,8 +416,8 @@ export function createDefaultCodeExecuteDeps(
       new Promise((resolve) => {
         const { cmd, args } = project.test;
         const child = spawn(cmd, args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
-        let stdout = "";
-        let stderr = "";
+        const stdout = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
+        const stderr = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         let resolved = false;
 
         const finish = (result: CodeRunOutput) => {
@@ -426,20 +430,22 @@ export function createDefaultCodeExecuteDeps(
         const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
         const timer = setTimeout(() => {
           processKill.killTree(child);
-          finish({ exitCode: null, logs: `${stdout}\n${stderr}`, spawnError: `code-mode timeout after ${timeoutMs}ms` });
+          finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: `code-mode timeout after ${timeoutMs}ms` });
         }, timeoutMs);
 
         if (opts?.signal) {
           opts.signal.addEventListener("abort", () => {
             processKill.killTree(child);
-            finish({ exitCode: null, logs: `${stdout}\n${stderr}`, spawnError: "aborted by operator cancel" });
+            finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: "aborted by operator cancel" });
           }, { once: true });
         }
 
-        child.stdout.on("data", (d) => (stdout += d));
-        child.stderr.on("data", (d) => (stderr += d));
-        child.on("error", (err) => finish({ exitCode: null, logs: `${stderr}${stdout}`, spawnError: String(err) }));
-        child.on("close", (code) => finish({ exitCode: code, logs: `${stdout}\n${stderr}`.trim() }));
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (d: string) => stdout.append(d));
+        child.stderr.on("data", (d: string) => stderr.append(d));
+        child.on("error", (err) => finish({ exitCode: null, logs: `${stderr.text()}${stdout.text()}`, spawnError: String(err) }));
+        child.on("close", (code) => finish({ exitCode: code, logs: `${stdout.text()}\n${stderr.text()}`.trim() }));
       }),
   };
 }
