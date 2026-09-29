@@ -20,6 +20,7 @@ import { defaultMirrorDeps, authHeaderArgs, type MirrorDeps } from "../integrati
 import { github } from "../integrations/github";
 
 import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
+import { VcsWriteAdapter } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter";
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { AgentDeps } from "../integrations/opencode-client";
@@ -124,7 +125,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
       /* Step 1: Prepare working copy (clone/fetch + create branch) */
       const mirrorDeps = fx.mirrorDeps;
       await ensureMirrorSelf(maintainerWorkDir, mirrorDeps);
-      await mirrorDeps.git(["checkout", "-B", branchName], maintainerWorkDir);
+      await new VcsWriteAdapter(mirrorDeps.git).checkoutBranch(maintainerWorkDir, branchName);
 
 
       const session = await deps.open("qa-maintainer", maintainerWorkDir, {

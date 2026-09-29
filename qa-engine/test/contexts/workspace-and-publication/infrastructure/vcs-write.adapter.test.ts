@@ -38,7 +38,7 @@ test("checkoutBranch creates/resets the branch with checkout -B", async () => {
   const calls: string[][] = [];
   const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });
   await adapter.checkoutBranch("/m", "qa/e2e-abc1234");
-  assert.deepEqual(calls[0]?.slice(-3), ["checkout", "-B", "qa/e2e-abc1234"]);
+  assert.ok(["checkout", "-B", "qa/e2e-abc1234"].every((word) => calls[0]?.includes(word)), `the branch is created with checkout -B: ${JSON.stringify(calls[0])}`);
 });
 
 test("hasChanges returns true when git status --porcelain reports changes under the given pathspecs", async () => {
@@ -407,7 +407,7 @@ const plainGit = async (args: string[], cwd?: string): Promise<string> => execFi
 const hardenedGit = async (args: string[], cwd?: string): Promise<string> =>
   execFileSync("git", hardenGitArgs(args, cwd ?? "."), { cwd, env: GIT_ENV, encoding: "utf8" });
 
-function withPlantedSubmodule(options: { movePointer?: boolean }, body: (f: { repo: string; marker: string }) => Promise<void>): Promise<void> {
+function withPlantedSubmodule(options: { movePointer?: boolean; forceInspection?: boolean }, body: (f: { repo: string; marker: string }) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "vcs-write-gitlink-"));
   const { marker, command } = writeMarkerCommand(root);
   const fixture = makeGitlinkRepo(root);
@@ -417,6 +417,14 @@ function withPlantedSubmodule(options: { movePointer?: boolean }, body: (f: { re
 
 test("real git fixture: creating the branch never enters a submodule the sandbox populated", () =>
   withPlantedSubmodule({}, async ({ repo, marker }) => {
+    await new VcsWriteAdapter(plainGit).checkoutBranch(repo, "qa/e2e-abc1234");
+    assert.equal(ranPlantedCommand(marker), false, "checkout -B ran the planted filter");
+  }));
+
+/* The sandbox also owns the working copy's `.gitmodules`, and its `ignore = none` overrides a command-line
+   diff.ignoreSubmodules: a switch that reports the local changes it carries over walks into the submodule. */
+test("real git fixture: creating the branch never enters a submodule even when the sandbox's .gitmodules asks for it to be inspected", () =>
+  withPlantedSubmodule({ forceInspection: true }, async ({ repo, marker }) => {
     await new VcsWriteAdapter(plainGit).checkoutBranch(repo, "qa/e2e-abc1234");
     assert.equal(ranPlantedCommand(marker), false, "checkout -B ran the planted filter");
   }));

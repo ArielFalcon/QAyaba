@@ -102,9 +102,10 @@ export function indexedGitlinks(repo: string): string[] {
  * What the sandbox does with the empty directory of a committed gitlink: it puts a repository of its own there whose
  * config names `command` as a clean filter, applies the filter to every file, and edits a file to the same size so git
  * has to hash it again (which runs the filter). Any root git that enters the gitlink runs `command`.
- * With `movePointer` the nested repository's HEAD is also moved off the commit the gitlink records.
+ * With `movePointer` the nested repository's HEAD is also moved off the commit the gitlink records. With `forceInspection` the
+ * sandbox also writes a `.gitmodules` whose `ignore = none` asks git to inspect the submodule whatever a command line says.
  */
-export function plantNestedRepo(fixture: GitlinkRepo, command: string, options: { movePointer?: boolean } = {}): void {
+export function plantNestedRepo(fixture: GitlinkRepo, command: string, options: { movePointer?: boolean; forceInspection?: boolean } = {}): void {
   const nested = join(fixture.repo, "sub");
   execFileSync("git", ["clone", "-q", fixture.subSource, nested], { env: GIT_ENV, stdio: "ignore" });
   if (options.movePointer) git(nested, "commit", "--allow-empty", "-qm", "moved");
@@ -114,4 +115,5 @@ export function plantNestedRepo(fixture: GitlinkRepo, command: string, options: 
   writeFileSync(edited, "b\n");
   const later = new Date(Date.now() + 60_000);
   utimesSync(edited, later, later);
+  if (options.forceInspection) writeFileSync(join(fixture.repo, ".gitmodules"), '[submodule "sub"]\n\tpath = sub\n\turl = ../sub-source\n\tignore = none\n');
 }

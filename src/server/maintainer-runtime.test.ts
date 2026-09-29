@@ -131,6 +131,21 @@ test("refreshing the existing working copy never fetches into submodules", async
   for (const fetch of fetches) assert.ok(fetch.includes("--no-recurse-submodules"), `git ${fetch.join(" ")} may recurse into submodules`);
 });
 
+/* The maintainer agent writes this repository's working copy in place, so the branch is created the way the engine
+   creates a publish branch: through the one adapter that keeps git from walking into a submodule the agent populated. */
+test("the fix branch is created with checkout -B through the publish adapter's quiet switch", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "branch creation case" });
+  const gitCalls: string[][] = [];
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), gitCalls });
+
+  await runtime.triggerMaintainer();
+
+  const branchCall = gitCalls.find((args) => args.includes("checkout") && args.includes("-B"));
+  assert.ok(branchCall, "the working copy is put on a fix branch");
+  assert.ok(branchCall.includes("-q"), `a switch that reports local changes walks into submodules: git ${branchCall.join(" ")}`);
+});
+
 /* The gate blocks a fix over the change-size limits, so the agent must be told the same limits. */
 test("the maintainer agent is told the change-size limits the gate enforces", async () => {
   const root = freshRoot();

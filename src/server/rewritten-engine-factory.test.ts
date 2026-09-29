@@ -1237,7 +1237,7 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
   /* commit() always diffs tracked denylist paths before committing, including on e2e. */
   assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow the legacy contract's exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
-  assert.deepEqual(calls[1]?.slice(-3), ["checkout", "-B", "qa-bot/abc1234"], "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
+  assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)), "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
   assert.deepEqual(calls[2], ["add", "--", "e2e"], "e2e target stages ONLY the e2e/ pathspec, never the whole repo");
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
 });
@@ -1350,7 +1350,7 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED (no 
     const carriesAuthOrIdentity = (args: string[]): boolean => args.some((arg) => arg.startsWith("url.") || arg.startsWith("user."));
     assert.deepEqual(calls[0]?.slice(-2), ["--", "e2e"], "status scopes to the e2e pathspec");
     assert.equal(carriesAuthOrIdentity(calls[0] ?? []), false, "status must stay undecorated — legacy never decorated the change check");
-    assert.deepEqual(calls[1]?.slice(-3), ["checkout", "-B", "qa-bot/abc1234"]);
+    assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)));
     assert.equal(carriesAuthOrIdentity(calls[1] ?? []), false, "checkout must stay undecorated — a local branch op needs neither auth nor identity");
     assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare — legacy's add carried no -c flags (publish.ts:119)");
   });
