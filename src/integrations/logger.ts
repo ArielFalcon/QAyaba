@@ -8,6 +8,7 @@ import { finished } from "node:stream/promises";
 const LOG_DIR = process.env.QAYABA_LOG_DIR ?? join(qayabaDataDir(), "logs");
 const MAX_LOG_FILES = 5;
 const MAX_LOG_BYTES = 50 * 1024 * 1024;
+const OPEN_RETRY_MS = 30 * 1000;
 /* A file of unknown or unreachable owner written this recently may still be some process's active file. */
 const RECENT_WRITE_GRACE_MS = 60 * 60 * 1000;
 /* app-<timestamp>-p<pid>.log; files from before the owner pid was recorded have no -p<pid>. */
@@ -20,6 +21,9 @@ export interface JsonLoggerOptions {
   maxFiles: number;
   /* The active file rotates before a write would take it past this size; a single larger line gets a file of its own. */
   maxBytes?: number;
+  /* After a log file fails to open or fails while open, file writes are dropped (the console mirror
+     still prints) until this long has passed, then the next line tries a new file. */
+  openRetryMs?: number;
   now?: () => Date;
   /* Recorded in each file name so other processes sharing the directory can tell whose file it is. */
   pid?: number;
@@ -52,6 +56,7 @@ export function createJsonLogger({
   dir,
   maxFiles,
   maxBytes = MAX_LOG_BYTES,
+  openRetryMs = OPEN_RETRY_MS,
   now = () => new Date(),
   pid = process.pid,
   isProcessAlive = processIsAlive,
@@ -59,6 +64,7 @@ export function createJsonLogger({
   let stream: WriteStream | null = null;
   /* Counted in memory: the stream flushes asynchronously, so a stat of the file lags what was written. */
   let bytes = 0;
+  let retryOpenAtMs = Number.NEGATIVE_INFINITY;
   const draining = new Set<Promise<void>>();
 
   function openStream(): WriteStream {
@@ -74,11 +80,26 @@ export function createJsonLogger({
     return opened;
   }
 
-  function ensureStream(lineBytes: number): WriteStream {
-    if (!stream || stream.destroyed) {
+  /* Fail-open: null means no file can take this line right now; logJson still mirrors it to the
+     console, and each failed attempt is reported at most once per retry window. */
+  function ensureStream(lineBytes: number): WriteStream | null {
+    if (stream?.destroyed) {
+      /* Only a failure destroys the active stream (rotation and close() retire it first). Its 'error'
+         event arrives later, after the fd closes, so the window starts here: reopening on the very
+         next line would fail the same way. */
+      retryOpenAtMs = now().getTime() + openRetryMs;
+      stream = null;
+    }
+    if (stream) {
+      if (bytes > 0 && bytes + lineBytes > maxBytes) rotate(stream);
+      return stream;
+    }
+    if (now().getTime() < retryOpenAtMs) return null;
+    try {
       stream = openStream();
-    } else if (bytes > 0 && bytes + lineBytes > maxBytes) {
-      rotate(stream);
+    } catch (err) {
+      retryOpenAtMs = now().getTime() + openRetryMs;
+      console.error(`[logger] cannot open a log file in ${dir}; file logging paused for ${openRetryMs}ms: ${(err as Error).message}`);
     }
     return stream;
   }
@@ -143,8 +164,11 @@ export function createJsonLogger({
       };
       const line = JSON.stringify(entry) + "\n";
       const lineBytes = Buffer.byteLength(line);
-      ensureStream(lineBytes).write(line);
-      bytes += lineBytes;
+      const target = ensureStream(lineBytes);
+      if (target) {
+        target.write(line);
+        bytes += lineBytes;
+      }
       if (mirrorToConsole) {
         const consoleFn = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
         consoleFn(line.trimEnd());

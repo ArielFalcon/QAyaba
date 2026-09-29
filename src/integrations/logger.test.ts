@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJsonLogger, logJson } from "./logger";
@@ -160,6 +160,151 @@ test("a failed rotation keeps logging to the current file instead of throwing", 
     await logger.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* The retry window is driven by a clock the test moves by hand. */
+function manualClock(startMs = Date.UTC(2026, 0, 1)): { now: () => Date; advance: (ms: number) => void } {
+  let ms = startMs;
+  return { now: () => new Date(ms), advance: (by) => (ms += by) };
+}
+
+function reportsNaming(errors: { mock: { calls: { arguments: unknown[] }[] } }, dir: string): number {
+  return errors.mock.calls.filter((c) => c.arguments.some((a) => String(a).includes(dir))).length;
+}
+
+test("a log file that cannot be opened never makes logJson throw, and the line still reaches the console", (t) => {
+  const root = tempLogDir();
+  const dir = join(root, "logs");
+  const errors = t.mock.method(console, "error", () => {});
+  const printed = t.mock.method(console, "log", () => {});
+  try {
+    writeFileSync(dir, ""); /* a regular file where the log directory should be */
+    const logger = createJsonLogger({ dir, maxFiles: 5, now: manualClock().now });
+
+    assert.doesNotThrow(() => logger.logJson("info", "still visible", undefined, true));
+
+    assert.ok(printed.mock.calls.some((c) => String(c.arguments[0]).includes('"m":"still visible"')));
+    assert.equal(reportsNaming(errors, dir), 1, "the failure is reported with the directory it concerns");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed open is retried only once openRetryMs has passed, then file logging resumes", async (t) => {
+  const root = tempLogDir();
+  const dir = join(root, "logs");
+  const errors = t.mock.method(console, "error", () => {});
+  const clock = manualClock();
+  const openRetryMs = 1000;
+  try {
+    writeFileSync(dir, "");
+    const logger = createJsonLogger({ dir, maxFiles: 5, now: clock.now, openRetryMs });
+    logger.logJson("info", "blocked", undefined, false);
+
+    rmSync(dir); /* the directory could be created again, but the window has not passed */
+    clock.advance(openRetryMs - 1);
+    logger.logJson("info", "within the window", undefined, false);
+    assert.equal(existsSync(dir), false, "no open is attempted inside the retry window");
+    assert.equal(reportsNaming(errors, dir), 1);
+
+    clock.advance(1);
+    logger.logJson("info", "resumed", undefined, false);
+    await logger.close();
+    const written = appLogs(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("");
+    assert.match(written, /"m":"resumed"/);
+    assert.doesNotMatch(written, /within the window/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a log file that fails after opening starts the retry window instead of reopening on the next line", async (t) => {
+  const root = tempLogDir();
+  const dir = join(root, "logs");
+  const errors = t.mock.method(console, "error", () => {});
+  const clock = manualClock();
+  const openRetryMs = 1000;
+  const pid = 8001;
+  try {
+    /* A directory at the exact path of the next log file makes its asynchronous open fail. */
+    const nextFile = `app-${clock.now().toISOString().replace(/[:.]/g, "-")}-p${pid}.log`;
+    mkdirSync(join(dir, nextFile), { recursive: true });
+    const logger = createJsonLogger({ dir, maxFiles: 5, now: clock.now, openRetryMs, pid });
+    logger.logJson("info", "lost with its file", undefined, false);
+    await waitFor(() => errors.mock.calls.length > 0);
+    const reportedFailure = reportsNaming(errors, dir); /* the write failure names the file inside dir */
+
+    /* From here any open attempt fails synchronously, so every attempt is observable. */
+    rmSync(dir, { recursive: true, force: true });
+    writeFileSync(dir, "");
+    assert.doesNotThrow(() => logger.logJson("info", "within the window", undefined, false));
+    assert.equal(reportsNaming(errors, dir), reportedFailure, "no reopen is attempted inside the retry window");
+
+    clock.advance(openRetryMs);
+    assert.doesNotThrow(() => logger.logJson("info", "after the window", undefined, false));
+    assert.equal(reportsNaming(errors, dir), reportedFailure + 1, "the reopen is attempted once the window has passed");
+    await logger.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+type FsCallback = (err: Error | null, ...rest: unknown[]) => void;
+
+test("a log file whose write fails starts the retry window before its error event arrives", async (t) => {
+  const dir = tempLogDir();
+  const clock = manualClock();
+  const openRetryMs = 1000;
+  const logFds = new Set<number>();
+  let logFileOpenAttempts = 0;
+  let failedWrites = 0;
+  t.mock.method(console, "error", () => {});
+  /* fs doubles for a full disk: writes to a log file fail, and the fd close that precedes the stream's
+     'error' event never completes, holding the stream destroyed with its error not yet reported. */
+  const realOpen = fs.open.bind(fs) as unknown as (...args: unknown[]) => void;
+  const realWrite = fs.write.bind(fs) as unknown as (...args: unknown[]) => void;
+  const realClose = fs.close.bind(fs) as unknown as (...args: unknown[]) => void;
+  /* Counted when requested, not when completed: a stream requests its open on the next tick, so one
+     setImmediate later every attempt is visible, while a completed open would still be pending. */
+  t.mock.method(fs, "open", (path: unknown, ...rest: unknown[]) => {
+    const cb = rest.pop() as FsCallback;
+    const isLogFile = String(path).startsWith(dir);
+    if (isLogFile) logFileOpenAttempts++;
+    realOpen(path, ...rest, (err: Error | null, fd: number) => {
+      if (!err && isLogFile) logFds.add(fd);
+      cb(err, fd);
+    });
+  });
+  t.mock.method(fs, "write", (fd: number, ...rest: unknown[]) => {
+    if (!logFds.has(fd)) return realWrite(fd, ...rest);
+    const cb = rest.at(-1) as FsCallback;
+    setImmediate(() => {
+      cb(Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" }));
+      failedWrites++;
+    });
+  });
+  t.mock.method(fs, "close", (fd: number, ...rest: unknown[]) => {
+    if (!logFds.has(fd)) realClose(fd, ...rest);
+  });
+  try {
+    const logger = createJsonLogger({ dir, maxFiles: 5, now: clock.now, openRetryMs });
+    logger.logJson("info", "lost to a full disk", undefined, false);
+    await waitFor(() => failedWrites > 0);
+
+    logger.logJson("info", "within the window", undefined, false);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(logFileOpenAttempts, 1, "no new log file is opened inside the retry window");
+
+    clock.advance(openRetryMs);
+    logger.logJson("info", "after the window", undefined, false);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(logFileOpenAttempts, 2, "a new log file is opened once the window has passed");
+    /* Nothing may be in flight at teardown: the second write has failed only after its open completed. */
+    await waitFor(() => failedWrites === 2);
+  } finally {
+    for (const fd of logFds) fs.closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
