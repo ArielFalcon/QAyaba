@@ -148,3 +148,29 @@ test("a secret cut through by the kept-output bound never reaches the reported l
   assert.ok(detail.includes("ctx"), "the failure detail carries the surrounding output");
   assert.ok(!detail.includes(leakedHalf), "the back half of the cut secret is not in the Issue-bound failure detail");
 });
+
+/* A suite's evidence that tests ran can sit in the part of the output the kept-output bound drops: a Go `ok` line for an
+   early package, a Rust or Maven test count printed before a long tail of quieter output. A passing suite must not read
+   as "executed zero tests" (an inconclusive infra-error) because of how much it printed after that. */
+const NOISY_TAILS = [
+  { ecosystem: "go" as const, evidence: "ok  \\tgithub.com/acme/app/core\\t0.012s\\n", filler: "?   \\tgithub.com/acme/app/gen\\t[no test files]\\n" },
+  { ecosystem: "rust" as const, evidence: "running 5 tests\\n", filler: "running 0 tests\\n" },
+  { ecosystem: "maven" as const, evidence: "Tests run: 3, Failures: 0, Errors: 0, Skipped: 0\\n", filler: "[INFO] noisy plugin output line to push the evidence out\\n" },
+];
+
+for (const { ecosystem, evidence, filler } of NOISY_TAILS) {
+  test(`a passing ${ecosystem} suite that printed its test evidence before a long tail is still a pass`, { timeout: 30_000 }, async () => {
+    const script =
+      `process.stdout.write('${evidence}');` +
+      `const chunk = '${filler}'.repeat(10000);` +
+      "let written = 0;" +
+      "(function go() { if (written++ < 30) return process.stdout.write(chunk, go); process.stdout.write('done\\n'); })();";
+    const project: CodeProject = { ecosystem, install: null, test: { cmd: process.execPath, args: ["-e", script] } };
+    const deps = { ...createDefaultCodeExecuteDeps(null), detect: () => project, listWrites: () => [] };
+
+    const result = await runCodeTests(tmpdir(), { namespace: "run-1" }, deps);
+
+    assert.equal(result.verdict, "pass", `the suite passed; the evidence line is far outside the kept output (${result.logs.length} chars kept)`);
+    assert.ok(result.logs.includes("done"), "the newest output is still kept");
+  });
+}

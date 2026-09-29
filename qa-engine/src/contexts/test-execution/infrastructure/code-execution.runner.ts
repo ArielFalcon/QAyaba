@@ -8,6 +8,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { BoundedOutputTail } from "./bounded-output-tail.ts";
+import { TestRunEvidence, outputShowsTestsRan } from "./test-run-evidence.ts";
 import { hardenGitArgs, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
@@ -249,6 +250,8 @@ export interface CodeRunOutput {
   exitCode: number | null;
   logs: string;
   spawnError?: string;
+  /* True when the run's streamed output showed a test ran, seen before the kept output was bounded. Absent for a run that did not watch its stream; the kept logs are then all there is to read. */
+  sawTests?: boolean;
 }
 
 export interface CodeExecuteDeps {
@@ -276,10 +279,12 @@ export const CODE_TEST_OUTPUT_KEEP_CHARS = 500_000;
 export function ranZeroTests(project: CodeProject, out: CodeRunOutput): boolean {
   const log = out.logs;
   const cmd = `${project.test.cmd} ${project.test.args.join(" ")}`;
+  /* Evidence from the streamed output counts as well as the kept logs: the marker may sit in output the bound dropped. */
+  const testsRan = out.sawTests === true || outputShowsTestsRan(project.ecosystem, log);
 
   if (project.ecosystem === "python" && out.exitCode === 5) return true;
 
-  if (project.ecosystem === "go" && out.exitCode === 0 && /no test files/.test(log) && !/^ok\s/m.test(log)) return true;
+  if (project.ecosystem === "go" && out.exitCode === 0 && /no test files/.test(log) && !testsRan) return true;
 
   if (project.ecosystem === "node" && /(?:#|ℹ)\s*tests\s+0\b/.test(log)) return true;
 
@@ -287,9 +292,9 @@ export function ranZeroTests(project: CodeProject, out: CodeRunOutput): boolean 
 
   if (cmd.includes("npx mocha") && out.exitCode === 0 && /\b0 passing\b/.test(log)) return true;
 
-  if (project.ecosystem === "rust" && out.exitCode === 0 && /running 0 tests/.test(log) && !/running [1-9]\d* tests?/.test(log)) return true;
+  if (project.ecosystem === "rust" && out.exitCode === 0 && /running 0 tests/.test(log) && !testsRan) return true;
 
-  if (project.ecosystem === "maven" && out.exitCode === 0 && !/Tests run: [1-9]/.test(log)) return true;
+  if (project.ecosystem === "maven" && out.exitCode === 0 && !testsRan) return true;
 
   if (project.ecosystem === "gradle" && out.exitCode === 0 && /> Task :\S*[Tt]est\S*\s+(?:NO-SOURCE|SKIPPED)/.test(log)) return true;
 
@@ -420,6 +425,9 @@ export function createDefaultCodeExecuteDeps(
         const child = spawn(cmd, args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
         const stdout = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
         const stderr = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
+        const stdoutEvidence = new TestRunEvidence(project.ecosystem);
+        const stderrEvidence = new TestRunEvidence(project.ecosystem);
+        const sawTests = (): boolean => stdoutEvidence.sawTestsRan || stderrEvidence.sawTestsRan;
         let resolved = false;
 
         const finish = (result: CodeRunOutput) => {
@@ -432,22 +440,26 @@ export function createDefaultCodeExecuteDeps(
         const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
         const timer = setTimeout(() => {
           processKill.killTree(child);
-          finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: `code-mode timeout after ${timeoutMs}ms` });
+          finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: `code-mode timeout after ${timeoutMs}ms`, sawTests: sawTests() });
         }, timeoutMs);
 
         if (opts?.signal) {
           opts.signal.addEventListener("abort", () => {
             processKill.killTree(child);
-            finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: "aborted by operator cancel" });
+            finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: "aborted by operator cancel", sawTests: sawTests() });
           }, { once: true });
         }
 
         child.stdout.setEncoding("utf8");
         child.stderr.setEncoding("utf8");
-        child.stdout.on("data", (d: string) => stdout.append(d));
-        child.stderr.on("data", (d: string) => stderr.append(d));
+        child.stdout.on("data", (d: string) => { stdout.append(d); stdoutEvidence.feed(d); });
+        child.stderr.on("data", (d: string) => { stderr.append(d); stderrEvidence.feed(d); });
         child.on("error", (err) => finish({ exitCode: null, logs: `${stderr.text()}${stdout.text()}`, spawnError: String(err) }));
-        child.on("close", (code) => finish({ exitCode: code, logs: `${stdout.text()}\n${stderr.text()}`.trim() }));
+        child.on("close", (code) => {
+          stdoutEvidence.end();
+          stderrEvidence.end();
+          finish({ exitCode: code, logs: `${stdout.text()}\n${stderr.text()}`.trim(), sawTests: sawTests() });
+        });
       }),
   };
 }

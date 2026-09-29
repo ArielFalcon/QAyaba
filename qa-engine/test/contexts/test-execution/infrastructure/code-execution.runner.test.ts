@@ -363,6 +363,15 @@ test("go test that actually ran tests stays a pass (not over-flagged)", async ()
   assert.equal(run.verdict, "pass");
 });
 
+test("go test whose streamed output showed a passing package is a pass even when the kept logs show only packages without tests", async () => {
+  const project: CodeProject = { ecosystem: "go", install: null, test: { cmd: "go", args: ["test", "./..."] } };
+  const logs = "?   example/util   [no test files]";
+  const ran: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs, sawTests: true }) };
+  assert.equal((await runCodeTests("/r", { namespace: "qa-bot-gostream" }, ran)).verdict, "pass");
+  const didNot: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs, sawTests: false }) };
+  assert.equal((await runCodeTests("/r", { namespace: "qa-bot-gonone" }, didNot)).verdict, "infra-error", "with no evidence anywhere the run really executed zero tests");
+});
+
 test("detects a Maven project with -B (not -q, so surefire summary stays visible)", () => {
   const p = detectCodeProject("/r", fs(["pom.xml"]));
   assert.equal(p.ecosystem, "maven");
