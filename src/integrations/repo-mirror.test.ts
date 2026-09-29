@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
@@ -44,16 +44,23 @@ test("hardenGitArgs prepends the hook hardening before the git subcommand and op
   assert.deepEqual(out.slice(-4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
 });
 
-test("hardenGitArgs opts only the verified working copy out of git's ownership check, never a wildcard", () => {
-  const repo = mkdtempSync(join(tmpdir(), "hardening-ownership-"));
+test("hardenGitArgs opts only the verified working copy out of git's ownership check: another repository reached with the same flags is still judged by git", () => {
+  const root = mkdtempSync(join(tmpdir(), "hardening-ownership-"));
   try {
-    execFileSync("git", ["init", "-q", repo]);
-    closeGitDir(repo);
-    const out = hardenGitArgs(["status"], repo);
-    assert.ok(out.includes(`safe.directory=${realpathSync(repo)}`), "the real path of the verified tree is the opt-out");
-    assert.ok(!out.includes("safe.directory=*"));
+    const repo = join(root, "repo");
+    const other = join(root, "other");
+    for (const dir of [repo, other]) {
+      execFileSync("git", ["init", "-q", dir]);
+      closeGitDir(dir);
+    }
+    /* Under this variable git judges every tree foreign, as it does a working copy the sandbox user owns. */
+    const env = { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" };
+    assert.throws(() => execFileSync("git", ["-C", other, "rev-parse", "--git-dir"], { env, stdio: "ignore" }), "control: git itself refuses a foreign-owned tree");
+
+    assert.doesNotThrow(() => execFileSync("git", hardenGitArgs(["rev-parse", "--git-dir"], repo), { cwd: repo, env, stdio: "ignore" }), "the verified working copy is usable");
+    assert.throws(() => execFileSync("git", hardenGitArgs(["-C", other, "rev-parse", "--git-dir"], repo), { cwd: repo, env, stdio: "ignore" }), "the opt-out reached the other tree too");
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

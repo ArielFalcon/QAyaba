@@ -8,7 +8,7 @@
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrossRepoImpactPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.ts";
@@ -149,8 +149,14 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
     assert.equal(runner.calls.length, 1, "exactly one fetch call expected");
     assert.equal(runner.calls[0]?.command, "git");
     assert.deepEqual(runner.calls[0]?.args.slice(-3), ["fetch", "--no-recurse-submodules", "origin"], "the fetch refreshes this repo's refs only and never enters a submodule the sandbox controls");
-    assert.ok(runner.calls[0]?.args.includes(`safe.directory=${realpathSync(MIRROR_DIR)}`), "the mirror may belong to the sandbox user after a code-mode run, so the fetch opts that one verified tree out of git's ownership check");
-    assert.ok(!runner.calls[0]?.args.includes("safe.directory=*"), "no wildcard opt-out");
+    /* The mirror may belong to the sandbox user after a code-mode run: the fetch opts that one verified tree out of git's
+       ownership check and no other. Run the recorded hardening under a git that judges every tree foreign. */
+    const hardening = runner.calls[0]!.args.slice(0, -3);
+    const foreignOwner = { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" };
+    const other = join(tmpRoot, "other-repo");
+    execFileSync("git", ["init", "-q", other]);
+    assert.doesNotThrow(() => execFileSync("git", [...hardening, "rev-parse", "--git-dir"], { env: foreignOwner, stdio: "ignore" }), "the verified mirror is usable");
+    assert.throws(() => execFileSync("git", [...hardening, "-C", other, "rev-parse", "--git-dir"], { env: foreignOwner, stdio: "ignore" }), "the opt-out reached another tree too");
     assert.equal(runner.calls[0]?.cwd, MIRROR_DIR);
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
   });
