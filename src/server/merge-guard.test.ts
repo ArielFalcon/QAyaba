@@ -275,6 +275,14 @@ test("isProtectedPath flags the engine's git hardening, the definition repo-mirr
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts"), true);
 });
 
+test("isProtectedPath flags the helpers that bound what an untrusted child's output can hold in the orchestrator's memory", () => {
+  /* A flooding install or test run takes the orchestrator down if any of these stops bounding; the runners that use
+     them are protected, and each helper holds the bound itself. */
+  for (const helper of ["bounded-output-tail.ts", "bounded-line-reader.ts", "bounded-whole-output.ts"]) {
+    assert.equal(isProtectedPath(`qa-engine/src/shared-kernel/process-sandbox/${helper}`), true, helper);
+  }
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);

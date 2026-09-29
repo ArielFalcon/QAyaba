@@ -229,6 +229,10 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
   /* The single definition of the git hardening (hooks, ownership, config-driven execution, git-dir trust) that repo-mirror.ts re-exports and every qa-engine git call uses. */
   "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
+  /* The bounds every untrusted child's output passes through: without one, a flooding install or test run takes the orchestrator down with it. */
+  "qa-engine/src/shared-kernel/process-sandbox/bounded-output-tail.ts",
+  "qa-engine/src/shared-kernel/process-sandbox/bounded-line-reader.ts",
+  "qa-engine/src/shared-kernel/process-sandbox/bounded-whole-output.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */
