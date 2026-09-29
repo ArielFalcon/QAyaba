@@ -22,7 +22,7 @@ function normalizeLine(line: string): string {
 /* A unified diff shows a changed line behind a one-character `+` or `-` marker (a context line behind a
    space, which normalizing already trims). The file itself shows the line without the marker. */
 function withoutDiffMarker(line: string): string | null {
-  if (line.length === 0 || (line[0] !== "+" && line[0] !== "-")) return null;
+  if (line[0] !== "+" && line[0] !== "-") return null;
   return line.slice(1).trim();
 }
 
@@ -33,13 +33,13 @@ function withoutDiffMarker(line: string): string | null {
 export function sampleReadOutput(output: string): string[] {
   const sampled: string[] = [];
   let lineStart = 0;
-  while (lineStart <= output.length && sampled.length < PROVIDED_CONTEXT_SAMPLE_LINES) {
+  while (sampled.length < PROVIDED_CONTEXT_SAMPLE_LINES) {
     const newline = output.indexOf("\n", lineStart);
     const lineEnd = newline === -1 ? output.length : newline;
-    const carriageReturn = lineEnd > lineStart && output[lineEnd - 1] === "\r" ? 1 : 0;
-    const line = normalizeLine(output.slice(lineStart, lineEnd - carriageReturn));
+    const line = normalizeLine(output.slice(lineStart, lineEnd));
     if (line.length >= PROVIDED_CONTEXT_MIN_LINE_LENGTH) sampled.push(line);
-    lineStart = lineEnd + 1;
+    if (newline === -1) break;
+    lineStart = newline + 1;
   }
   return sampled;
 }

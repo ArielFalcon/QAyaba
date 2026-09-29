@@ -21,6 +21,19 @@ test("sampleReadOutput strips a pipe-style gutter", () => {
   assert.deepEqual(sampleReadOutput(output), ["export const longEnoughLine = 1;"]);
 });
 
+test("sampleReadOutput strips a multi-digit line number in every gutter style", () => {
+  const body = "const computedTotal = subtotal + tax;";
+  for (const gutter of ["   12\t", "123| ", "1042: "]) {
+    assert.deepEqual(sampleReadOutput(`${gutter}${body}`), [body], JSON.stringify(gutter));
+  }
+});
+
+test("sampleReadOutput keeps a digit followed by a colon or a pipe in the middle of a line", () => {
+  for (const line of ["switch (kind) { case 1: return one; }", "const flags = mask | 4 | otherMask;", "const ratio = width / 16: the aspect part;"]) {
+    assert.deepEqual(sampleReadOutput(line), [line]);
+  }
+});
+
 test("sampleReadOutput keeps a line of exactly the minimum length and drops one char shorter", () => {
   const keptLine = "k".repeat(PROVIDED_CONTEXT_MIN_LINE_LENGTH);
   const droppedLine = "d".repeat(PROVIDED_CONTEXT_MIN_LINE_LENGTH - 1);
@@ -38,6 +51,17 @@ test("indexPromptLines normalizes and filters short lines the same way as the sa
   const index = indexPromptLines(prompt);
   assert.equal(index.has("export const longEnoughLine = 1;"), true);
   assert.equal(index.has("x"), false);
+});
+
+test("indexPromptLines keeps a line of exactly the minimum length, plain or behind a diff marker, and drops a shorter one", () => {
+  const plain = "p".repeat(PROVIDED_CONTEXT_MIN_LINE_LENGTH);
+  const marked = "m".repeat(PROVIDED_CONTEXT_MIN_LINE_LENGTH);
+  const tooShort = "s".repeat(PROVIDED_CONTEXT_MIN_LINE_LENGTH - 1);
+  const index = indexPromptLines([plain, `+${marked}`, `-${tooShort}`].join("\n"));
+  assert.equal(index.has(plain), true, "a plain line of the minimum length");
+  assert.equal(index.has(marked), true, "the line behind the marker, of the minimum length");
+  assert.equal(index.has(`+${marked}`), true, "the marked line as written");
+  assert.equal(index.has(tooShort), false, "a line one character short of the minimum, behind a marker");
 });
 
 /* `count` distinct lines, each long enough to qualify for sampling. */
@@ -88,6 +112,12 @@ test("a read of lines the prompt's diff shows as added, removed or context is pr
   ].join("\n");
   const index = indexPromptLines(`## Diff\n${diff}\n`);
   assert.equal(isProvidedByPrompt(DIFF_LINES, index), true);
+});
+
+test("a read of a prompt line with its first character cut off is not provided by the prompt", () => {
+  const lines = qualifyingLines(PROVIDED_CONTEXT_MIN_SAMPLE_LINES, "prompt");
+  const index = indexPromptLines(lines.join("\n"));
+  assert.equal(isProvidedByPrompt(lines.map((line) => line.slice(1)), index), false);
 });
 
 test("a line that itself begins with a dash still matches when the prompt shows it verbatim", () => {
