@@ -52,6 +52,20 @@ export function isShellTool(tool: string): boolean {
   return SHELL_TOOLS.test(tool) || SERENA_SHELL_TOOLS.test(tool);
 }
 
+/* The input keys tools use for the file they touch: the native tools' `filePath`, `path`, `file` and `filename`, and Serena's `relative_path`. The one list every classifier reads, so a file touched through any of these tools is seen by all of them. */
+export const TOOL_PATH_KEYS = ["filePath", "path", "file", "filename", "relative_path"] as const;
+
+/** The file a tool call names in its input, as written (not resolved); undefined when it names none. */
+export function toolInputPath(input: unknown): string | undefined {
+  if (input === null || typeof input !== "object") return undefined;
+  const record = input as Record<string, unknown>;
+  for (const key of TOOL_PATH_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
 export function kindForTool(tool: string): AgentActivityKind {
   if (isWriteTool(tool)) return "writing";
   if (isShellTool(tool)) return "command";

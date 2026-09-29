@@ -97,6 +97,26 @@ export interface ReadWriteEvent {
   tool: string;
   /** cwd-resolved absolute path this call touched, when applicable. */
   path?: string;
+  /** For a read: which part of the file it asked for (readWindowOf); absent or "" is the whole file. */
+  window?: string;
+}
+
+/* The keys a read uses to ask for part of a file: the native tool's `offset`/`limit` and Serena's `start_line`/`end_line`. A start of 0 is the default (the top of the file), not a request for a window. */
+const WINDOW_START_KEYS = ["offset", "start_line"] as const;
+const WINDOW_SIZE_KEYS = ["limit", "end_line"] as const;
+
+/** Which part of a file a read asked for, as a stable string: "" for the whole file. Two reads of one path are the same read only if their windows are the same. */
+export function readWindowOf(input: unknown): string {
+  if (input === null || typeof input !== "object") return "";
+  const record = input as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of [...WINDOW_START_KEYS, ...WINDOW_SIZE_KEYS]) {
+    const value = record[key];
+    if (typeof value !== "number" && typeof value !== "string") continue;
+    if ((WINDOW_START_KEYS as readonly string[]).includes(key) && Number(value) === 0) continue;
+    parts.push(`${key}=${String(value)}`);
+  }
+  return parts.join(",");
 }
 
 /* A "content-read tool": read, or *_read, or read_file / *_read_file. */
@@ -109,25 +129,27 @@ export function isContentReadTool(tool: string): boolean {
 /**
  * Flags redundant reads (fine tracker only — the coarse
  * classifier has no raw paths to run this against). A content-read tool
- * re-reading a path already read, with no write to that path in between, is
- * redundant. A write to a specific path clears redundancy for that path only
- * (a write clears redundancy); a write with NO path
- * invalidates every previously-read path.
+ * re-reading the same window of a path already read, with no write to that path
+ * in between, is redundant; reading another window of it is new content. A
+ * write to a specific path clears redundancy for that path only (every window of
+ * it); a write with NO path invalidates every previously-read path.
  */
 export function detectRedundantReads(events: readonly ReadWriteEvent[]): ReadonlySet<string> {
   const calls = firstSeenInOrder(events);
-  const readPaths = new Set<string>();
+  const readWindows = new Map<string, Set<string>>();
   const redundant = new Set<string>();
 
   for (const call of calls) {
     if (call.bucket === CALL_BUCKETS.WRITE) {
-      if (call.path) readPaths.delete(call.path);
-      else readPaths.clear();
+      if (call.path) readWindows.delete(call.path);
+      else readWindows.clear();
       continue;
     }
     if (!call.path || !isContentReadTool(call.tool)) continue;
-    if (readPaths.has(call.path)) redundant.add(call.callId);
-    else readPaths.add(call.path);
+    const seen = readWindows.get(call.path) ?? new Set<string>();
+    const window = call.window ?? "";
+    if (seen.has(window)) redundant.add(call.callId);
+    else readWindows.set(call.path, seen.add(window));
   }
 
   return redundant;

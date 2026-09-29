@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   summarizeCallSequence,
   detectRedundantReads,
+  readWindowOf,
   type CallRecord,
   type ReadWriteEvent,
 } from "@contexts/generation/domain/call-sequence.ts";
@@ -135,4 +136,21 @@ test("read_file also counts as a content-read tool", () => {
     rw("c2", "read_file", "/a.ts", CALL_BUCKETS.CODE_READ),
   ]);
   assert.equal(redundant.has("c2"), true);
+});
+
+test("a read's window is empty for the whole file and names the requested lines otherwise", () => {
+  assert.equal(readWindowOf({ filePath: "/a.ts" }), "");
+  assert.equal(readWindowOf({ filePath: "/a.ts", offset: 0 }), "", "an offset of 0 is the top of the file, the default");
+  assert.equal(readWindowOf({ relative_path: "a.ts", start_line: 0 }), "");
+  assert.notEqual(readWindowOf({ filePath: "/a.ts", offset: 100, limit: 50 }), "");
+  assert.notEqual(readWindowOf({ relative_path: "a.ts", start_line: 10, end_line: 20 }), "");
+  assert.notEqual(readWindowOf({ filePath: "/a.ts", limit: 50 }), readWindowOf({ filePath: "/a.ts" }), "a limit alone is a window");
+  assert.notEqual(readWindowOf({ filePath: "/a.ts", offset: 100 }), readWindowOf({ filePath: "/a.ts", offset: 200 }));
+  assert.equal(readWindowOf(null), "");
+});
+
+test("reads of one path are redundant only when they asked for the same window", () => {
+  const read = (callId: string, window: string): ReadWriteEvent => ({ ...rw(callId, "read", "/a.ts", CALL_BUCKETS.CODE_READ), window });
+  const redundant = detectRedundantReads([read("c1", "offset=0,limit=100"), read("c2", "offset=100,limit=100"), read("c3", "offset=100,limit=100"), read("c4", "")]);
+  assert.deepEqual([...redundant], ["c3"]);
 });

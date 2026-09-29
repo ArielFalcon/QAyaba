@@ -14,6 +14,13 @@ test("routeEvent surfaces a completed write tool as a clean file basename", () =
   assert.equal(r.activities[0]!.text, "checkout.spec.ts");
 });
 
+test("routeEvent surfaces a completed Serena write as the file's basename", () => {
+  const r = routeEvent(partEvent({ type: "tool", tool: "create_text_file", state: { status: "completed", input: { relative_path: "e2e/flows/checkout.spec.ts" } } }), sessions());
+  assert.equal(r.activities.length, 1);
+  assert.equal(r.activities[0]!.kind, "file");
+  assert.equal(r.activities[0]!.text, "checkout.spec.ts");
+});
+
 test("routeEvent surfaces a completed bash tool as a command", () => {
   const r = routeEvent(partEvent({ type: "tool", tool: "bash", state: { status: "completed", input: { command: "npx playwright test --list" } } }), sessions());
   assert.equal(r.activities[0]!.kind, "command");

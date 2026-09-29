@@ -21,6 +21,16 @@ describe("mapCodexExecEvent", () => {
     }
   });
 
+  it("a Serena tool's relative_path names the target", () => {
+    const line = JSON.stringify({ type: "tool_use", name: "create_text_file", input: { relative_path: "e2e/flows/bar.spec.ts" } });
+    const ev = mapCodexExecEvent(line)[0]!;
+    assert.equal(ev.type, "agent.activity");
+    if (ev.type === "agent.activity") {
+      assert.equal(ev.kind, "writing");
+      assert.equal(ev.target, "bar.spec.ts");
+    }
+  });
+
   it("write tool maps to writing kind", () => {
     const line = JSON.stringify({ type: "tool_use", name: "write", input: { filePath: "/src/bar.spec.ts" } });
     const events = mapCodexExecEvent(line);

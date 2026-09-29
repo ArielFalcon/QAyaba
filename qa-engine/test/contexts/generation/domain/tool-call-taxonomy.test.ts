@@ -4,6 +4,7 @@ import {
   CALL_BUCKETS,
   bucketForTool,
   kindForTool,
+  toolInputPath,
   type AgentActivityKind,
 } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { AgentActivityKindSchema } from "@kernel/contract/events.ts";
@@ -110,4 +111,19 @@ test("a tool that merely contains an editing tool's name inside a longer word is
 test("the kinds kindForTool can return are exactly the kinds of the agent.activity run event", () => {
   const returnable: Record<AgentActivityKind, true> = { analyzing: true, writing: true, command: true, subagent: true };
   assert.deepEqual([...AgentActivityKindSchema.options].sort(), Object.keys(returnable).sort());
+});
+
+test("toolInputPath reads the file a tool names, whichever key the tool uses", () => {
+  assert.equal(toolInputPath({ filePath: "a/b.ts" }), "a/b.ts");
+  assert.equal(toolInputPath({ path: "a/c.ts" }), "a/c.ts");
+  assert.equal(toolInputPath({ file: "a/d.ts" }), "a/d.ts");
+  assert.equal(toolInputPath({ filename: "e.ts" }), "e.ts");
+  assert.equal(toolInputPath({ relative_path: "src/Orders.java" }), "src/Orders.java", "Serena's key");
+});
+
+test("toolInputPath skips empty and non-string values and answers undefined when the tool names no file", () => {
+  assert.equal(toolInputPath({ filePath: "", relative_path: "src/x.ts" }), "src/x.ts");
+  assert.equal(toolInputPath({ path: 7, command: "ls" }), undefined);
+  assert.equal(toolInputPath(null), undefined);
+  assert.equal(toolInputPath("not an object"), undefined);
 });

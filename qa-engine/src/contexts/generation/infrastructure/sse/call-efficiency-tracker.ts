@@ -13,10 +13,11 @@
  */
 import { resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
-import { bucketForTool, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
+import { bucketForTool, toolInputPath, type CallBucket } from "../../domain/tool-call-taxonomy.ts";
 import {
   detectRedundantReads,
   isContentReadTool,
+  readWindowOf,
   summarizeCallSequence,
   type CallRecord,
   type ReadWriteEvent,
@@ -40,6 +41,7 @@ interface TrackedCall {
   bucket: CallBucket;
   repeatKey: string;
   path?: string;
+  window?: string;
   /** Up to PROVIDED_CONTEXT_SAMPLE_LINES normalized lines of a completed content read. */
   sample?: string[];
 }
@@ -56,17 +58,9 @@ interface SessionState {
   eventsSinceFlush: number;
 }
 
-/* The input keys tools use for the file they touch; `relative_path` is Serena's. */
-const PATH_KEYS = ["filePath", "path", "file", "filename", "relative_path"] as const;
-
 function pathOf(input: unknown, cwd: string): string | undefined {
-  if (input === null || typeof input !== "object") return undefined;
-  const record = input as Record<string, unknown>;
-  for (const key of PATH_KEYS) {
-    const value = record[key];
-    if (typeof value === "string" && value) return resolve(cwd, value);
-  }
-  return undefined;
+  const named = toolInputPath(input);
+  return named === undefined ? undefined : resolve(cwd, named);
 }
 
 function newSession(cwd: string): SessionState {
@@ -87,7 +81,7 @@ function toCallRecord(call: TrackedCall): CallRecord {
 }
 
 function toReadWriteEvent(call: TrackedCall): ReadWriteEvent {
-  return { callId: call.callId, status: "completed", bucket: call.bucket, tool: call.tool, ...(call.path ? { path: call.path } : {}) };
+  return { callId: call.callId, status: "completed", bucket: call.bucket, tool: call.tool, ...(call.path ? { path: call.path } : {}), ...(call.window ? { window: call.window } : {}) };
 }
 
 export class CallEfficiencyTracker {
@@ -146,6 +140,7 @@ export class CallEfficiencyTracker {
     call.repeatKey = callFingerprint(part.tool, input);
     const path = pathOf(input, session.cwd);
     if (path) call.path = path;
+    call.window = readWindowOf(input);
 
     if (status === "completed" && isContentReadTool(part.tool) && typeof part.state?.output === "string") {
       call.sample = sampleReadOutput(part.state.output);

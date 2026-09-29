@@ -109,3 +109,22 @@ test("eventRunId resolves the run from a top-level or part-level sessionID", () 
   assert.equal(eventRunId({ type: "todo.updated", properties: { sessionID: "ghost" } }, SESSIONS), undefined);
   assert.equal(eventRunId({ type: "file.edited", properties: { file: "a.ts" } }, SESSIONS), undefined);
 });
+
+/* Serena names the file a tool touches `relative_path`. */
+test("a completed Serena write to a spec file emits writing + spec.written, and its target is the file", () => {
+  const out = mapValid(toolEvent({ status: "completed", input: { relative_path: "e2e/flows/checkout.spec.ts", content: "x" } }, { tool: "create_text_file" }));
+  assert.deepEqual(out, [
+    { type: "agent.activity", kind: "writing", target: "checkout.spec.ts", status: "completed" },
+    { type: "spec.written", file: "checkout.spec.ts" },
+  ]);
+});
+
+test("a running Serena read is labelled with the file's basename when the tool gave no title", () => {
+  const out = mapValid(toolEvent({ status: "running", input: { relative_path: "src/main/Orders.java" } }, { tool: "read_file" }));
+  assert.deepEqual(out, [{ type: "agent.activity", kind: "analyzing", target: "Orders.java", status: "running" }]);
+});
+
+test("a Serena write to a non-spec file emits no spec.written", () => {
+  const out = mapValid(toolEvent({ status: "completed", input: { relative_path: "src/Orders.java" } }, { tool: "replace_symbol_body" }));
+  assert.deepEqual(out.map((e) => (e as { type: string }).type), ["agent.activity"]);
+});

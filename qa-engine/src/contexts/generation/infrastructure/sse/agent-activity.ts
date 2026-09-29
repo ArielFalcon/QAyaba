@@ -1,6 +1,6 @@
 /* `ActivityKind` is declared locally below (mirrors src/types.ts's own 5-value union) — qa-engine never imports src/. Authoritative event shapes (from @opencode-ai/sdk types): message.part.updated → { part: Part, delta? } sessionID lives in part.sessionID part.type "tool" → { tool, state:{ status, input, title } } (write/edit/bash/…) part.type "patch" → { files: string[] } part.type "file" → { filename } part.type text/reasoning/step → PROSE → dropped (this was the broken `"file": "s`) todo.updated → { sessionID, todos: Todo[] } (each: content, status, priority, id) command.executed → { sessionID, name, arguments } file.edited → { file } (no sessionID — cannot be run-scoped) session.error → { sessionID?, error } The router demuxes by sessionID → runId and stays ADVISORY-ONLY. Raw model prose is never surfaced — only clean structured fields (the file written, the command run, the todo the agent is on). */
 
-import { isShellTool, isWriteTool } from "../../domain/tool-call-taxonomy.ts";
+import { isShellTool, isWriteTool, toolInputPath } from "../../domain/tool-call-taxonomy.ts";
 
 /** Mirrors src/types.ts's own ActivityKind exactly — declared locally (qa-engine never imports src/). It is the kind of an activity-list entry, not the 4-value kind of an `agent.activity` run event (`AgentActivityKind` in tool-call-taxonomy.ts). */
 export type ActivityKind = "file" | "command" | "todo" | "phase" | "error";
@@ -58,8 +58,8 @@ function fromPart(runId: string, part: PartLike | undefined): RoutedActivity[] {
     if (state.status !== "completed") return [];
     const input = (state.input ?? {}) as Record<string, unknown>;
     if (isWriteTool(tool)) {
-      const f = input.filePath ?? input.path ?? input.file ?? input.filename;
-      if (f) return [{ runId, kind: "file", text: basename(String(f)) }];
+      const f = toolInputPath(input);
+      if (f) return [{ runId, kind: "file", text: basename(f) }];
     }
     if (isShellTool(tool)) {
       const cmd = input.command ?? input.cmd ?? input.script;

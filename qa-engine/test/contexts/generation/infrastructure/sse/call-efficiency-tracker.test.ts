@@ -162,6 +162,32 @@ test("serena's relative_path identifies the file, so re-reading it with no write
   assert.equal(tracker.take("s1", "")?.redundantReadCount, 1);
 });
 
+test("reading different windows of the same file is not redundant, but re-reading the same window is", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts", offset: 0, limit: 100 });
+  runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/a.ts", offset: 100, limit: 100 });
+  runCall(tracker, "s1", "c3", "read", { filePath: "/mirrors/org__app/a.ts", offset: 200, limit: 100 });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 0, "three pages of one file are three reads of new content");
+  runCall(tracker, "s1", "c4", "read", { filePath: "/mirrors/org__app/a.ts", offset: 100, limit: 100 });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 1, "the second page again is redundant");
+});
+
+test("serena's line window is part of what a read asked for", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "serena_read_file", { relative_path: "src/a.ts", start_line: 0, end_line: 49 });
+  runCall(tracker, "s1", "c2", "serena_read_file", { relative_path: "src/a.ts", start_line: 50, end_line: 99 });
+  runCall(tracker, "s1", "c3", "serena_read_file", { relative_path: "src/a.ts", start_line: 50, end_line: 99 });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 1, "only the repeat of the same window");
+});
+
+test("a write to the file clears every window read of it", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts", offset: 0, limit: 100 });
+  runCall(tracker, "s1", "c2", "write", { filePath: "/mirrors/org__app/a.ts", content: "x" });
+  runCall(tracker, "s1", "c3", "read", { filePath: "/mirrors/org__app/a.ts", offset: 0, limit: 100 });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 0);
+});
+
 test("a serena edit of the file clears redundancy for a later read of that file only", () => {
   const tracker = tracked();
   runCall(tracker, "s1", "c1", "serena_read_file", { relative_path: "src/a.ts" });
