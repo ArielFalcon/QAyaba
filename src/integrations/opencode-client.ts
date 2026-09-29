@@ -4,7 +4,7 @@
  * control-plane wrappers. Domain/policy lives in qa-engine.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { RunMode } from "../types";
@@ -114,23 +114,52 @@ function getFallbackModel(agent: string): string | undefined {
   }
 }
 
+interface AgentsConfigEntry {
+  mtimeMs: number;
+  size: number;
+  /** The parsed file, or null when it could not be parsed (already reported). */
+  config: { agent?: Record<string, { maxSteps?: unknown } | undefined> } | null;
+}
+
+/* Parsed per file and per version of the file (modification time + size): a step limit is asked for on every turn. */
+const agentsConfigCache = new Map<string, AgentsConfigEntry>();
+
+function readAgentsConfig(configPath: string): AgentsConfigEntry["config"] {
+  let stats;
+  try {
+    stats = statSync(configPath);
+  } catch (err) {
+    agentsConfigCache.delete(configPath);
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error(`[qa] cannot read step limits from ${configPath}: ${err instanceof Error ? err.message : String(err)}; step-budget telemetry reports an unknown limit`);
+    }
+    return null;
+  }
+  const cached = agentsConfigCache.get(configPath);
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached.config;
+
+  let config: AgentsConfigEntry["config"] = null;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (err) {
+    console.error(`[qa] cannot read step limits from ${configPath}: ${err instanceof Error ? err.message : String(err)}; step-budget telemetry reports an unknown limit`);
+  }
+  agentsConfigCache.set(configPath, { mtimeMs: stats.mtimeMs, size: stats.size, config });
+  return config;
+}
+
 /*
  * The acting agent's step limit from opencode.json (`agent.<id>.maxSteps`) — the same limit the
  * OpenCode server enforces — so a turn's exhaustion is reported against the real budget, never a
- * hardcoded copy. Undefined when the file, the agent or a numeric limit is absent.
+ * hardcoded copy. Undefined when the file, the agent or a numeric limit is absent; a file that
+ * cannot be parsed is reported on the error log (once per version of the file) and reads as absent.
  */
 export function maxStepsFromConfig(
   agent: string,
   configPath: string = join(process.cwd(), "agents", "opencode.json"),
 ): number | undefined {
-  try {
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf8"));
-    const limit: unknown = raw.agent?.[agent]?.maxSteps;
-    return typeof limit === "number" ? limit : undefined;
-  } catch {
-    return undefined;
-  }
+  const limit: unknown = readAgentsConfig(configPath)?.agent?.[agent]?.maxSteps;
+  return typeof limit === "number" ? limit : undefined;
 }
 
 /*

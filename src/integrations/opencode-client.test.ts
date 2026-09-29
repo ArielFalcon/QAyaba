@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1266,8 +1266,36 @@ test("maxStepsFromConfig is undefined for an unknown agent, an agent with no lim
 });
 
 test("maxStepsFromConfig is undefined when the config file is missing or malformed", (t) => {
+  t.mock.method(console, "error", () => {});
   const { path, cleanup } = writeAgentsConfig("{ not json");
   t.after(cleanup);
   assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
   assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+});
+
+test("maxStepsFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the report names the file");
+});
+
+test("maxStepsFromConfig does not report a config file that is simply absent", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("maxStepsFromConfig follows the file when it changes", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an unchanged file keeps answering");
+
+  writeFileSync(path, JSON.stringify({ agent: { "qa-generator": { maxSteps: 20 } } }));
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(path, later, later);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 20);
 });
