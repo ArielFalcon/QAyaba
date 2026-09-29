@@ -112,17 +112,32 @@ leading-`./` strip was listed as an equivalent survivor, but a `./` past the sta
 of a directory name (`e2e/.env./secrets` loses its `.env.` segment without the anchor); a test now
 kills it, checked by applying the mutant by hand, which moves one survivor to killed.
 
+The merge-guard After column was re-run on 2026-09-30, after the protected-path list grew; its five
+survivors are the documented ones below. agent-efficiency (2026-09-30, 4 workers) is a new preset:
+**Before** is its first run against the suite as written, **After** the re-run once the 55 survivors
+were triaged. Most were real gaps and got behavior tests (which sightings a call sequence counts,
+read windows, tool-name anchors, prompt-line indexing and gutters, the coarse call identity and
+window steps, the call tracker's per-turn deltas). The equivalents were restructured away instead of
+listed: the tracker's event counter became a flag and a tracked call is built from its latest
+sighting (no placeholder identity, no sticky path guard); the call fingerprint serializes with the
+native JSON serializer and a key-sorting replacer; the read-window and path lookups use optional
+chaining instead of a type guard that primitives passed anyway; `sampleReadOutput` ends on its last
+line and no longer strips a carriage return the trim already strips. The six timeouts are all
+infinite-loop mutants of `sampleReadOutput`'s line scan (the loop body, the newline search, the
+break test and the step), so the preset has no documented survivors.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
 | fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 186 / 4 / 10 — 95% (93%) | — |
 | coordination | acceptance-report, pushback, orchestration-router, delegation-failure-class | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
-| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 300 / 2 / 5 — 98.37% (97.72%) | — |
+| merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 311 / 2 / 5 — 98.43% (97.8%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
+| agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 250 / 6 / 0 — 100% (97.66%) | — |
 
 ### Documented survivors
 
