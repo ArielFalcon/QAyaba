@@ -6,9 +6,9 @@
    sandbox.ts's resolveSandbox(env, ...)) instead of mutating process.env — no global env
    mutation / try-finally needed.
  */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -26,8 +26,12 @@ import {
   readFailureDumps,
   createDefaultE2eCleanupDeps,
   createDefaultE2eExecuteDeps,
+  E2E_STDERR_KEEP_CHARS,
+  MAX_STREAM_EVENT_LINE_CHARS,
+  type StreamEvent,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
@@ -905,4 +909,63 @@ test("createDefaultE2eExecuteDeps requires authDir — omitting it throws immedi
     /authDir/i,
     "createDefaultE2eExecuteDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
   );
+});
+
+/* The real runners spawn `npx playwright ...`. A stand-in `npx` first on PATH plays Playwright, so the process boundary
+   (pipes, exit, kill) is real while no browser is needed. */
+async function withStandInPlaywright<T>(script: string, body: (root: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "stand-in-npx-"));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(root, "playwright.cjs"), script);
+  writeFileSync(join(bin, "npx"), `#!/bin/sh\nexec "${process.execPath}" "${join(root, "playwright.cjs")}" "$@"\n`, { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    return await body(root);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a Playwright run that writes megabytes to stderr reports only the newest of it", { timeout: 30_000 }, async () => {
+  const script = "const l = 'browser log line that repeats\\n'.repeat(1000); let n = 0; (function go() { if (n++ < 300) return process.stderr.write(l, go); process.stderr.write('THE-END\\n'); })();";
+  await withStandInPlaywright(script, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const out = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
+    assert.match(out.logs, /THE-END/, "the newest stderr is kept");
+    assert.ok(out.logs.length < E2E_STDERR_KEEP_CHARS + 500, `the kept stderr stays bounded (was ${out.logs.length} chars)`);
+  });
+});
+
+test("a stream event line longer than any real event is skipped and the events around it still arrive", { timeout: 30_000 }, async () => {
+  const script = [
+    "const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n');",
+    "w({ e: 'begin', total: 2 });",
+    `process.stdout.write(JSON.stringify({ e: 'testend', title: 'x'.repeat(${MAX_STREAM_EVENT_LINE_CHARS} * 3), status: 'passed' }) + '\\n');`,
+    "w({ e: 'testend', title: 'after the long line', status: 'passed', d: 5 });",
+  ].join("");
+  await withStandInPlaywright(script, async (root) => {
+    const events: StreamEvent[] = [];
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns", onEvent: (ev) => events.push(ev) });
+    assert.deepEqual(events.map((e) => e.phase), ["begin", "testend"]);
+    const last = events[1];
+    assert.ok(last?.phase === "testend" && last.title === "after the long line", "the event after the overlong line is read normally");
+  });
+});
+
+test("orphan-data cleanup whose child writes more than a pipe buffer finishes instead of blocking until the timeout", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write('cleanup output\\n'.repeat(30000)); process.stderr.write('cleanup noise\\n'.repeat(30000));";
+  await withStandInPlaywright(script, async (root) => {
+    const warned = mock.method(console, "warn", () => {});
+    try {
+      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), join(root, "auth"));
+      await deps.runCleanup({ dir: root, baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 });
+      assert.equal(warned.mock.calls.some((c) => /timed out/.test(String(c.arguments[0]))), false, "the cleanup ended on its own, not by the timeout kill");
+    } finally {
+      warned.mock.restore();
+    }
+  });
 });

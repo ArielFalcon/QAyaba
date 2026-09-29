@@ -10,6 +10,7 @@ import {
   validateSpecs,
   type ValidateDeps,
   runCheck,
+  CHECK_OUTPUT_KEEP_CHARS,
   defaultValidateDeps,
   validateManifest,
   compileCommand,
@@ -109,6 +110,18 @@ test("runCheck flags a non-zero exit as a CODE failure, not infra", async () => 
   assert.equal(res.ok, false);
   assert.equal(res.infra, undefined); /* the tool ran and judged the code */
   assert.match(res.output, /TS2322/);
+});
+
+test("runCheck keeps only the newest output of a check that writes megabytes, and still judges its exit", { timeout: 30_000 }, async () => {
+  /* A check runs code the agent wrote (tsc/eslint config, `playwright --list` imports every spec), so its output is untrusted and unbounded. */
+  const script =
+    "const line = 'check output line that repeats\\n'.repeat(1000); let n = 0;" +
+    "(function go() { if (n++ < 300) return process.stdout.write(line, go); process.stderr.write('THE-END\\n'); process.exitCode = 2; })();";
+  const res = await runCheck(process.execPath, ["-e", script], process.cwd());
+  assert.equal(res.ok, false, "the exit status is still judged");
+  assert.equal(res.infra, undefined);
+  assert.match(res.output, /THE-END/, "the newest output is kept");
+  assert.ok(res.output.length < CHECK_OUTPUT_KEEP_CHARS + 500, `the kept output stays bounded (was ${res.output.length} chars)`);
 });
 
 test("runCheck flags a missing binary (ENOENT) as INFRA", async () => {

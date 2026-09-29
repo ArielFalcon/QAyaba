@@ -1,5 +1,8 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
@@ -1335,3 +1338,47 @@ test("defaultCaptureDomDeps is an inert placeholder — it must never silently c
   );
 });
 
+
+/* The capture script drives a browser against the app under test and prints one JSON document; the page content it
+   reports is not under the orchestrator's control, so the document can be arbitrarily large. A stand-in `node` first
+   on PATH plays the capture script so the process boundary (pipes, kill) is real while no browser is needed. */
+async function withStandInNode<T>(script: string, body: (root: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "stand-in-node-"));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(root, "capture.cjs"), script);
+  writeFileSync(join(bin, "node"), `#!/bin/sh\nexec "${process.execPath}" "${join(root, "capture.cjs")}" "$@"\n`, { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    return await body(root);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a DOM capture whose output passes the bound is killed and yields no snapshots, instead of being held and parsed", { timeout: 30_000 }, async () => {
+  const flood = "const line = 'x'.repeat(1000); (function go() { process.stdout.write(line, go); })();";
+  await withStandInNode(flood, async (root) => {
+    const warned = mock.method(console, "warn", () => {});
+    try {
+      const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+      const snaps = await deps.render(root, "http://localhost", ["/"]);
+      assert.deepEqual(snaps, [], "no grounding rather than a snapshot parsed from a truncated document");
+      assert.ok(warned.mock.calls.some((c) => /exceed/i.test(String(c.arguments[0]))), "the run says why there is no grounding");
+    } finally {
+      warned.mock.restore();
+    }
+  });
+});
+
+test("a DOM capture within the output bound still yields its snapshots", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"' }]));";
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home"]);
+    assert.equal(snaps.length, 1);
+    assert.equal(snaps[0]?.route, "/home");
+  });
+});

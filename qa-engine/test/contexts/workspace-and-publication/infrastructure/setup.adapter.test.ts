@@ -176,6 +176,17 @@ test("signal and timeoutMs are passed through to the runner request", async () =
   assert.equal(seen?.timeoutMs, 5_000);
 });
 
+test("the install runs with a bounded output tail: its lifecycle scripts are untrusted and its output is never read", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.ok(typeof seen?.outputKeepChars === "number" && seen.outputKeepChars > 0, "the runner is asked to keep only a tail of the install output");
+});
+
 test("a failing install still propagates its own error (not a timeout)", async () => {
   const fs = orchestrationFs({ hasPackageJson: true });
   const runner = fakeRunner(async () => okResult({ exitCode: 1, timedOut: false }));

@@ -7,10 +7,14 @@ import { join } from "node:path";
 import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
+import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 
 const processKill = new ProcessKillAdapter();
+
+/* The most a DOM capture run may print (one JSON document of every route's snapshot). The page content it reports is not under the orchestrator's control; a run that passes this is killed rather than held in memory and parsed truncated. */
+export const MAX_CAPTURE_OUTPUT_CHARS = 32 * 1024 * 1024;
 
 export interface NodeAttr {
   key: string;
@@ -563,7 +567,7 @@ const testIdAttr = process.env.PW_TEST_ID_ATTRIBUTE || "data-testid";
  * (publication-port.adapter.test.ts) — a caller that bypasses the type system still gets an
  * immediate, loud throw here, never a silent e2eDir default.
  */
-export function createCaptureDomDeps(authDir: string): CaptureDomDeps {
+export function createCaptureDomDeps(authDir: string, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS): CaptureDomDeps {
   if (!authDir) {
     throw new Error(
       "[qa] createCaptureDomDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under e2eDir, the agent-visible mirror).",
@@ -576,20 +580,37 @@ export function createCaptureDomDeps(authDir: string): CaptureDomDeps {
         const script = join(work, "capture.cjs");
         /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
         writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
-        let stdout = "";
+        const stdout = new BoundedWholeOutput(maxOutputChars);
         /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
         const child = spawn("node", [script], {
           cwd: e2eDir,
           env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
           detached: true,
+          /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
+          stdio: ["ignore", "pipe", "ignore"],
         });
         const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length));
-        child.stdout.on("data", (d) => (stdout += d.toString()));
-        const done = (snaps: RouteSnapshot[]): void => { clearTimeout(timer); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } resolve(snaps); };
+        let finished = false;
+        const done = (snaps: RouteSnapshot[]): void => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+          resolve(snaps);
+        };
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (d: string) => {
+          stdout.append(d);
+          if (!stdout.exceeded || finished) return;
+          processKill.killTree(child);
+          console.warn(`[qa] WARNING: DOM capture output exceeded ${maxOutputChars} chars — killed, no grounding this run.`);
+          done([]);
+        });
         child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
         child.on("close", () => {
+          if (finished) return;
           try {
-            const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
+            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };

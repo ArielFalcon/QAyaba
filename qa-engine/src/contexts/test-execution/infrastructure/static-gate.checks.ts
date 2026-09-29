@@ -5,6 +5,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
@@ -24,6 +25,9 @@ const processKill = new ProcessKillAdapter();
 
 
 export const DEFAULT_VALIDATE_CHECK_TIMEOUT_MS = 300_000;
+
+/* What is kept of a check's combined output: enough for any real tool report, bounded because the check runs code the agent wrote and may write without limit. */
+export const CHECK_OUTPUT_KEEP_CHARS = 500_000;
 
 export interface ValidateDeps {
   typecheck(specDir: string): Promise<CheckResult>;
@@ -110,7 +114,7 @@ export function runCheck(
   return new Promise((resolve) => {
     /* `detached: true` makes the child its own process-group leader so killTree can reap grandchildren (npx forks the real tool as a child of the child). */
     const child = spawn(cmd, args, { cwd: e2eDir, env: scrubEnv(), detached: true });
-    let out = "";
+    const out = new BoundedOutputTail(CHECK_OUTPUT_KEEP_CHARS);
     let settled = false;
     const settle = (res: CheckResult) => {
       if (settled) return;
@@ -122,10 +126,12 @@ export function runCheck(
       processKill.killTree(child);
       settle({ ok: false, output: `${cmd} ${args.join(" ")} timed out after ${timeoutMs}ms — killed`, infra: true });
     }, timeoutMs);
-    child.stdout.on("data", (d) => (out += d));
-    child.stderr.on("data", (d) => (out += d));
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => out.append(d));
+    child.stderr.on("data", (d: string) => out.append(d));
     child.on("error", (e) => settle({ ok: false, output: String(e), infra: true }));
-    child.on("close", (code) => settle({ ok: code === 0, output: out, infra: code === null ? true : undefined }));
+    child.on("close", (code) => settle({ ok: code === 0, output: out.text(), infra: code === null ? true : undefined }));
   });
 }
 

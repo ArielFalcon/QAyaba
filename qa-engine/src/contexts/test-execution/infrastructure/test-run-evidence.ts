@@ -1,5 +1,6 @@
 /* Positive evidence that a code-mode test run executed at least one test, collected while its output streams by. The kept output is bounded (bounded-output-tail.ts), so the line that proves tests ran (a Go `ok` line, a Rust or Maven test count) can already be dropped by the time the run ends; reading the kept text alone would then call a passing suite "executed zero tests". */
 
+import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
 import type { Ecosystem } from "./code-execution.runner.ts";
 
 /** The single-line marker a runner prints when it ran tests, per ecosystem that reports zero tests as a clean exit. Ecosystems absent here have no such marker. */
@@ -9,7 +10,7 @@ const TESTS_RAN_MARKER: Partial<Record<Ecosystem, RegExp>> = {
   maven: /Tests run: [1-9]/,
 };
 
-/* A line longer than this is not a runner's summary line; it is skipped instead of buffered, so a flood without line breaks cannot grow the scanner. */
+/* A line longer than this is not a runner's summary line; it is skipped instead of buffered. */
 const MAX_SCANNED_LINE_CHARS = 8192;
 
 /** True when one line of output is this ecosystem's marker that a test ran. */
@@ -25,10 +26,13 @@ export function outputShowsTestsRan(ecosystem: Ecosystem, output: string): boole
 /** Watches one output stream chunk by chunk. Memory stays bounded whatever the child writes. */
 export class TestRunEvidence {
   private sawTest = false;
-  private partialLine = "";
-  private skippingLongLine = false;
+  private readonly lines: BoundedLineReader;
 
-  constructor(private readonly ecosystem: Ecosystem) {}
+  constructor(private readonly ecosystem: Ecosystem) {
+    this.lines = new BoundedLineReader(MAX_SCANNED_LINE_CHARS, (line) => {
+      if (lineShowsTestsRan(this.ecosystem, line)) this.sawTest = true;
+    });
+  }
 
   get sawTestsRan(): boolean {
     return this.sawTest;
@@ -36,23 +40,12 @@ export class TestRunEvidence {
 
   feed(chunk: string): void {
     if (this.sawTest || TESTS_RAN_MARKER[this.ecosystem] === undefined) return;
-    const lines = (this.partialLine + chunk).split("\n");
-    this.partialLine = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!this.skippingLongLine && lineShowsTestsRan(this.ecosystem, line)) {
-        this.sawTest = true;
-        return;
-      }
-      this.skippingLongLine = false;
-    }
-    if (this.partialLine.length > MAX_SCANNED_LINE_CHARS) {
-      this.partialLine = "";
-      this.skippingLongLine = true;
-    }
+    this.lines.feed(chunk);
   }
 
   /** The stream closed: judge the last line, which had no line break after it. */
   end(): void {
-    this.feed("\n");
+    if (this.sawTest || TESTS_RAN_MARKER[this.ecosystem] === undefined) return;
+    this.lines.end();
   }
 }

@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
-import { BoundedOutputTail } from "./bounded-output-tail.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { sandboxSpawnOptions, prepareSandboxWorkdir, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";

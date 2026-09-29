@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BoundedOutputTail } from "@contexts/test-execution/infrastructure/bounded-output-tail.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 
 const KEEP = 100;
 

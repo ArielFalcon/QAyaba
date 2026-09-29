@@ -5,8 +5,12 @@ import type { ChildProcess } from "node:child_process";
 import type { ValueOraclePort, ValueOracleResult } from "../application/ports/index.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 
 const DEFAULT_MUTATION_TIMEOUT_MS = 600_000;
+
+/* What is kept of each output stream of a Stryker run. Only the last few hundred chars are ever reported, and the run executes the repo's own tests, so its output is untrusted and may be unbounded. */
+export const MUTATION_OUTPUT_KEEP_CHARS = 8_000;
 
 export function resolveStrykerCommand(): { cmd: string; args: string[] } {
   const root = process.env.QAYABA_ROOT ?? process.cwd();
@@ -180,8 +184,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
         detached: true,
       });
 
-      let stdout = "";
-      let stderr = "";
+      const stdout = new BoundedOutputTail(MUTATION_OUTPUT_KEEP_CHARS);
+      const stderr = new BoundedOutputTail(MUTATION_OUTPUT_KEEP_CHARS);
       let settled = false;
 
       if (input.onProgress && child.stdout) {
@@ -227,8 +231,8 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
         );
       }
 
-      child.stdout?.on("data", (d: Buffer) => (stdout += d.toString()));
-      child.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
+      child.stdout?.on("data", (d: Buffer) => stdout.append(d.toString()));
+      child.stderr?.on("data", (d: Buffer) => stderr.append(d.toString()));
 
       child.on("error", (err) => {
         finish({
@@ -254,7 +258,7 @@ export class StrykerMutationOracleAdapter implements ValueOraclePort {
             valueScore: null,
             mutantCount: null,
             killedCount: null,
-            details: `Stryker ran but produced no parseable report. Last output: ${(stderr || stdout).slice(0, 300)}`,
+            details: `Stryker ran but produced no parseable report. Last output: ${(stderr.text() || stdout.text()).slice(-300)}`,
           });
         }
       });

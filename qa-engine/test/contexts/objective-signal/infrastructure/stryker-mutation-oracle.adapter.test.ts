@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import {
   StrykerMutationOracleAdapter,
+  MUTATION_OUTPUT_KEEP_CHARS,
   selectMutateTargets,
   resolveStrykerCommand,
   type MutationOracleDeps,
@@ -147,6 +148,21 @@ describe("StrykerMutationOracleAdapter.measure", () => {
       assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
       assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
       assert.match(r.details, /no parseable report|No mutants/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the newest output of a run that wrote far more than it keeps, when Stryker produced no report", async () => {
+    const repo = tmpRepo();
+    writeFileSync(join(repo, "src", "index.ts"), "export const x = 1;");
+    try {
+      const noise = "stryker progress line\n".repeat(Math.ceil((MUTATION_OUTPUT_KEEP_CHARS * 4) / 22));
+      const adapter = new StrykerMutationOracleAdapter(deps({ spawn: mockSpawn({ exitCode: 1, stderr: `FIRST-OUTPUT-MARKER\n${noise}FINAL-OUTPUT-MARKER\n` }) }));
+      const r = await adapter.measure(br, repo, "qa-bot-abc");
+      assert.equal(r.valueScore, null);
+      assert.match(r.details, /FINAL-OUTPUT-MARKER/, "the details carry the last output");
+      assert.doesNotMatch(r.details, /FIRST-OUTPUT-MARKER/, "the oldest output was dropped, not kept");
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

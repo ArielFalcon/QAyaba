@@ -8,6 +8,9 @@ import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/proce
 
 export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
 
+/* The install runs the repo's own lifecycle scripts, which can write without limit; nothing reads its output beyond the exit status, so only a small newest tail is kept. */
+const E2E_INSTALL_OUTPUT_KEEP_CHARS = 16_000;
+
 export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do not edit) >>>";
 
 const FAILURE_CAPTURE_END_MARKER = "// <<< qa-failure-capture <<<\n";
@@ -380,6 +383,7 @@ export class SetupAdapter {
       cwd: e2eDir,
       env: scrubEnv({ extraAllowed: /^DEV_/ }),
       timeoutMs,
+      outputKeepChars: E2E_INSTALL_OUTPUT_KEEP_CHARS,
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
     if (result.timedOut) {

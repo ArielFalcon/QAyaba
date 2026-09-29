@@ -8,6 +8,8 @@ import type { QaCase, CaseStatus } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { BoundedLineReader } from "@kernel/process-sandbox/bounded-line-reader.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
@@ -18,6 +20,12 @@ import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
 export const DEFAULT_E2E_TIMEOUT_MS = 900_000;
 
 export const DEFAULT_CLEANUP_TIMEOUT_MS = 300_000;
+
+/* What is kept of a Playwright run's stderr: enough for any real run's log, bounded because the specs are agent-written code and may write without limit. */
+export const E2E_STDERR_KEEP_CHARS = 500_000;
+
+/* A stream event is one small JSON object on one line; a longer line is not an event and is skipped instead of buffered. */
+export const MAX_STREAM_EVENT_LINE_CHARS = 65_536;
 
 /** Resolves the effective e2e timeout: env.QA_E2E_TIMEOUT_MS when set to a positive number of milliseconds, the default otherwise. `env` is REQUIRED (no default) — the caller (the composition-root shell) must read process.env and pass it in once per composition; see this file's header for why (mirrors sandbox.ts's resolveSandbox(env, ...) precedent exactly). */
 export function e2eTimeoutMs(env: NodeJS.ProcessEnv): number {
@@ -397,6 +405,8 @@ export function createDefaultE2eCleanupDeps(processKill: ProcessKillPort = new P
           cwd: dir,
           env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_NAMESPACE: namespace, PW_CLEANUP: "1", ...(testIdAttribute ? { PW_TEST_ID_ATTRIBUTE: testIdAttribute } : {}) }),
           detached: true,
+          /* Nothing reads the cleanup's output. Piped and unread, it would block the child once the OS pipe buffer fills, and keep the pipes open to any descendant that outlives it. */
+          stdio: "ignore",
         });
         let settled = false;
         const settle = () => {
@@ -489,8 +499,11 @@ export function createDefaultE2eExecuteDeps(
           detached: true,
         });
 
-        let stderr = "";
-        let buf = "";
+        const stderr = new BoundedOutputTail(E2E_STDERR_KEEP_CHARS);
+        const events = new BoundedLineReader(MAX_STREAM_EVENT_LINE_CHARS, (line) => {
+          const ev = parseStreamEvent(line);
+          if (ev && onEvent) { try { onEvent(ev); } catch { /* advisory: never let the feed break the run */ } }
+        });
         let settled = false;
         const settle = (fn: () => void) => {
           if (settled) return;
@@ -503,28 +516,21 @@ export function createDefaultE2eExecuteDeps(
         const ms = timeoutMs ?? defaultTimeoutMs;
         const timer = setTimeout(() => {
           processKill.killTree(child);
-          settle(() => resolve({ report: {}, logs: `playwright runner timed out after ${ms}ms — killed\n${stderr}`, ran: false }));
+          settle(() => resolve({ report: {}, logs: `playwright runner timed out after ${ms}ms — killed\n${stderr.text()}`, ran: false }));
         }, ms);
 
         const onAbort = signal
           ? () => {
               processKill.killTree(child);
-              settle(() => resolve({ report: {}, logs: `playwright runner aborted by operator cancel — killed\n${stderr}`, ran: false }));
+              settle(() => resolve({ report: {}, logs: `playwright runner aborted by operator cancel — killed\n${stderr.text()}`, ran: false }));
             }
           : undefined;
         if (onAbort) signal!.addEventListener("abort", onAbort, { once: true });
 
-        child.stdout.on("data", (d) => {
-          buf += String(d);
-          let nl: number;
-          while ((nl = buf.indexOf("\n")) >= 0) {
-            const line = buf.slice(0, nl);
-            buf = buf.slice(nl + 1);
-            const ev = parseStreamEvent(line);
-            if (ev && onEvent) { try { onEvent(ev); } catch { /* advisory: never let the feed break the run */ } }
-          }
-        });
-        child.stderr.on("data", (d) => (stderr += d));
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (d: string) => events.feed(d));
+        child.stderr.on("data", (d: string) => stderr.append(d));
         child.on("error", (err) => { try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
         child.on("close", (code) => {
           let report: unknown = {};
@@ -536,7 +542,7 @@ export function createDefaultE2eExecuteDeps(
             ran = false;
           }
           try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
-          settle(() => resolve({ report, logs: stderr, ran, exitCode: code ?? undefined }));
+          settle(() => resolve({ report, logs: stderr.text(), ran, exitCode: code ?? undefined }));
         });
       }),
   };
