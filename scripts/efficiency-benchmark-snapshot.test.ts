@@ -274,6 +274,34 @@ test("a snapshot that measures fewer calls for a case than the existing one is r
   assert.equal(readSnapshot(dir, "baseline")!.takenAt, "2026-09-28T12:00:00.000Z");
 });
 
+test("a case re-registered to a different run that measured fewer calls replaces the old measurement", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "baseline", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("baseline", dir, () => source(), () => "2026-09-28T12:00:00.000Z"));
+  /* The improvement the benchmark exists to show: a newer run of the same case needed fewer calls. */
+  registerRun(dir, "baseline", "case-a", "run-2");
+  const leaner = takeSnapshot("baseline", dir, () => source({ events: events.slice(0, 5) }), () => "2026-09-29T12:00:00.000Z");
+  const oldCalls = readSnapshot(dir, "baseline")!.cases["case-a"]!.data!.coarse.firstPass.totalCalls;
+  assert.ok(leaner.cases["case-a"]!.data!.coarse.firstPass.totalCalls < oldCalls, "the new run measured fewer calls");
+
+  assert.doesNotThrow(() => writeSnapshot(dir, leaner));
+  const stored = readSnapshot(dir, "baseline")!.cases["case-a"]!;
+  assert.equal(stored.runId, "run-2");
+  assert.equal(stored.data!.coarse.firstPass.totalCalls, leaner.cases["case-a"]!.data!.coarse.firstPass.totalCalls);
+});
+
+test("a case re-registered to a different run whose data is gone is still refused rather than erasing the old measurement", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "baseline", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("baseline", dir, () => source(), () => "2026-09-28T12:00:00.000Z"));
+  registerRun(dir, "baseline", "case-a", "run-2");
+  const gone: RunDataSource = { events: () => [], outcome: () => undefined, record: () => undefined, turns: () => [] };
+  const unmeasured = takeSnapshot("baseline", dir, () => gone, () => "2026-09-29T12:00:00.000Z");
+
+  assert.throws(() => writeSnapshot(dir, unmeasured), /refusing to overwrite snapshot 'baseline'.*case-a/);
+  assert.equal(readSnapshot(dir, "baseline")!.cases["case-a"]!.runId, "run-1");
+});
+
 /* A run that is still going has neither an outcome nor a finished record; whatever its events hold now is a
    window that later events would change. */
 const inFlightSource = (status: RunRecord["status"] = "running"): RunDataSource => ({

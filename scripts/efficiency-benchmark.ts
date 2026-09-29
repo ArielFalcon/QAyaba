@@ -361,8 +361,10 @@ const measuredCalls = (data: CaseMeasurement | null | undefined): number =>
 /**
  * Writes the snapshot, but never one that holds less than the file it replaces: once the runs'
  * records age out, re-snapshotting would silently erase the only surviving measurements. A finished
- * run's calls never change, so a case counts as lost when it has no data any more or when its
- * measured calls dropped at all (events pruned one by one leave a partial window).
+ * run's calls never change, so a case counts as lost when it has no data any more or, for the SAME
+ * run, when its measured calls dropped at all (events pruned one by one leave a partial window). A
+ * case re-registered to a different run is a new measurement: fewer calls there is the improvement
+ * the benchmark exists to show, not a loss.
  */
 export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot): void {
   const existing = readSnapshot(resultsDir, snapshot.label);
@@ -370,8 +372,9 @@ export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot):
     const lost = Object.entries(existing.cases)
       .filter(([name, entry]) => {
         if (entry.data === null) return false;
-        const replacement = snapshot.cases[name]?.data;
-        return replacement == null || measuredCalls(replacement) < measuredCalls(entry.data);
+        const replacement = snapshot.cases[name];
+        if (replacement?.data == null) return true;
+        return replacement.runId === entry.runId && measuredCalls(replacement.data) < measuredCalls(entry.data);
       })
       .map(([name]) => name);
     if (lost.length > 0) {
