@@ -81,6 +81,32 @@ test("stepsUsed counts distinct step-start parts and stays null when none are se
   assert.equal(withoutSteps.take("s1", "")?.stepsUsed, null);
 });
 
+test("an event that is not a part update is ignored, whatever part it carries", () => {
+  const tracker = tracked();
+  tracker.record({ ...toolEvent("s1", "c1", "read", "completed", { filePath: "/mirrors/org__app/a.ts" }), type: "session.status" });
+  assert.equal(tracker.take("s1", ""), null);
+});
+
+test("a part that is not a tool part is not a call, whatever else it carries", () => {
+  const tracker = tracked();
+  const asText = toolEvent("s1", "c1", "read", "completed", { filePath: "/mirrors/org__app/a.ts" });
+  (asText.properties!.part as Record<string, unknown>).type = "text";
+  tracker.record(asText);
+  assert.equal(tracker.take("s1", ""), null);
+});
+
+test("a call seen only pending is not counted", () => {
+  const tracker = tracked();
+  tracker.record(toolEvent("s1", "c1", "read", "pending", { filePath: "/mirrors/org__app/a.ts" }));
+  assert.equal(tracker.take("s1", "")?.totalCalls, 0);
+});
+
+test("a call whose first sighting is an error never entered the sequence", () => {
+  const tracker = tracked();
+  tracker.record(toolEvent("s1", "c1", "read", "error", { filePath: "/mirrors/org__app/a.ts" }));
+  assert.equal(tracker.take("s1", "")?.totalCalls, 0);
+});
+
 test("a session that was never attached is ignored", () => {
   const tracker = new CallEfficiencyTracker();
   runCall(tracker, "stranger", "c1", "read", { filePath: "/a.ts" });
@@ -121,6 +147,26 @@ test("an exact duplicate (same tool, same input, any key order) is flagged; a di
   runCall(tracker, "s1", "c1", "grep", { pattern: "foo", path: "/mirrors/org__app/src" });
   runCall(tracker, "s1", "c2", "grep", { path: "/mirrors/org__app/src", pattern: "foo" });
   runCall(tracker, "s1", "c3", "grep", { pattern: "bar", path: "/mirrors/org__app/src" });
+  assert.equal(tracker.take("s1", "")?.duplicateCallCount, 1);
+});
+
+test("a call is identified by the input of its latest sighting", () => {
+  const tracker = tracked();
+  const path = "/mirrors/org__app/a.ts";
+  tracker.record(toolEvent("s1", "c1", "read", "running", {}));
+  tracker.record(toolEvent("s1", "c1", "read", "completed", { filePath: path }, "ok"));
+  runCall(tracker, "s1", "c2", "read", { filePath: path });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.duplicateCallCount, 1, "c2 is the same call as c1's completed input");
+  assert.equal(metrics?.redundantReadCount, 1, "c2 re-reads the file c1 read");
+});
+
+test("the input a call ends with when it errors identifies it", () => {
+  const tracker = tracked();
+  const path = "/mirrors/org__app/a.ts";
+  tracker.record(toolEvent("s1", "c1", "read", "running", {}));
+  tracker.record(toolEvent("s1", "c1", "read", "error", { filePath: path }));
+  runCall(tracker, "s1", "c2", "read", { filePath: path });
   assert.equal(tracker.take("s1", "")?.duplicateCallCount, 1);
 });
 
@@ -269,6 +315,47 @@ test("a read whose output the turn's prompt already contained counts as prompt-p
   assert.equal(metrics?.promptProvidedReadCount, 1);
 });
 
+test("each take reports only the steps opened since the session's previous flush", () => {
+  const tracker = tracked();
+  tracker.record(stepStart("s1", "step-a"));
+  tracker.record(stepStart("s1", "step-b"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 2);
+
+  for (const id of ["step-c", "step-d", "step-e"]) tracker.record(stepStart("s1", id));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 3);
+});
+
+test("each take reports only the duplicates that turn added", () => {
+  const tracker = tracked();
+  const path = "/mirrors/org__app/a.ts";
+  runCall(tracker, "s1", "c1", "read", { filePath: path });
+  runCall(tracker, "s1", "c2", "read", { filePath: path });
+  assert.equal(tracker.take("s1", "")?.duplicateCallCount, 1);
+
+  runCall(tracker, "s1", "c3", "read", { filePath: path });
+  assert.equal(tracker.take("s1", "")?.duplicateCallCount, 1, "the third identical call is one more duplicate, not the total so far");
+});
+
+test("only a read's output is sampled, and only once the read completed", () => {
+  const source = [
+    "export function calculateInvoiceTotal(items) {",
+    "  const subtotal = items.reduce((sum, item) => sum + item.price, 0);",
+    "  const tax = subtotal * TAX_RATE_FOR_REGION;",
+    "  return subtotal + tax + SHIPPING_FLAT_FEE;",
+    "}",
+  ];
+  const output = source.join("\n");
+  const prompt = `Here is the file:\n${source.join("\n")}\n`;
+
+  const grep = tracked();
+  runCall(grep, "s1", "c1", "grep", { pattern: "subtotal", path: "/mirrors/org__app/invoice.ts" }, output);
+  assert.equal(grep.take("s1", prompt)?.promptProvidedReadCount, 0, "a search that returned prompt lines is not a read of them");
+
+  const unfinished = tracked();
+  unfinished.record(toolEvent("s1", "c1", "read", "running", { filePath: "/mirrors/org__app/invoice.ts" }, output));
+  assert.equal(unfinished.take("s1", prompt)?.promptProvidedReadCount, 0, "a read that never completed has no final output to compare");
+});
+
 test("a fault while recording poisons only that session: its metrics are null, the others are intact", (t) => {
   t.mock.method(console, "error", () => {});
   const tracker = new CallEfficiencyTracker();
@@ -291,4 +378,19 @@ test("clear forgets a session so its later events are ignored", () => {
   tracker.clear("s1");
   runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/b.ts" });
   assert.equal(tracker.take("s1", ""), null);
+});
+
+test("a fault while recording is logged with the session and the cause", (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const tracker = tracked("session-under-test");
+  const input = {
+    get filePath(): string {
+      throw new Error("the input could not be read");
+    },
+  };
+  runCall(tracker, "session-under-test", "c1", "read", input);
+
+  const message = String(logged.mock.calls[0]?.arguments[0]);
+  assert.match(message, /session-under-test/);
+  assert.match(message, /the input could not be read/);
 });

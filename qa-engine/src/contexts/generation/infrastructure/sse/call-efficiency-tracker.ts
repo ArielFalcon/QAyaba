@@ -55,7 +55,8 @@ interface SessionState {
   stepStarts: Set<string>;
   flushedCalls: number;
   flushedSteps: number;
-  eventsSinceFlush: number;
+  /** Whether a step or tool event arrived since the previous flush; a turn with none has no metrics. */
+  sawEventSinceFlush: boolean;
 }
 
 function pathOf(input: unknown, cwd: string): string | undefined {
@@ -72,7 +73,7 @@ function newSession(cwd: string): SessionState {
     stepStarts: new Set(),
     flushedCalls: 0,
     flushedSteps: 0,
-    eventsSinceFlush: 0,
+    sawEventSinceFlush: false,
   };
 }
 
@@ -117,30 +118,30 @@ export class CallEfficiencyTracker {
   private apply(session: SessionState, part: PartLike): void {
     if (part.type === "step-start") {
       if (part.id) session.stepStarts.add(part.id);
-      session.eventsSinceFlush++;
+      session.sawEventSinceFlush = true;
       return;
     }
     if (part.type !== "tool" || !part.callID || !part.tool) return;
-    session.eventsSinceFlush++;
+    session.sawEventSinceFlush = true;
 
     const status = part.state?.status;
     if (status !== "running" && status !== "completed" && status !== "error") return;
 
     let call = session.calls.get(part.callID);
-    if (!call) {
-      /* A call counts from its first running/completed sighting; an error with no prior
-         running sighting never entered the sequence. */
-      if (status === "error") return;
-      call = { callId: part.callID, tool: part.tool, bucket: bucketForTool(part.tool), repeatKey: "" };
+    /* A call counts from its first running/completed sighting; an error with no prior
+       running sighting never entered the sequence. */
+    if (!call && status === "error") return;
+
+    /* A call is identified by its latest sighting's input. */
+    const input = part.state?.input;
+    const seen = { repeatKey: callFingerprint(part.tool, input), path: pathOf(input, session.cwd), window: readWindowOf(input) };
+    if (call) {
+      Object.assign(call, seen);
+    } else {
+      call = { callId: part.callID, tool: part.tool, bucket: bucketForTool(part.tool), ...seen };
       session.calls.set(part.callID, call);
       session.order.push(part.callID);
     }
-
-    const input = part.state?.input;
-    call.repeatKey = callFingerprint(part.tool, input);
-    const path = pathOf(input, session.cwd);
-    if (path) call.path = path;
-    call.window = readWindowOf(input);
 
     if (status === "completed" && isContentReadTool(part.tool) && typeof part.state?.output === "string") {
       call.sample = sampleReadOutput(part.state.output);
@@ -154,7 +155,7 @@ export class CallEfficiencyTracker {
    */
   take(sessionId: string, promptText: string): TurnCallMetrics | null {
     const session = this.sessions.get(sessionId);
-    if (!session || session.poisoned || session.eventsSinceFlush === 0) return null;
+    if (!session || session.poisoned || !session.sawEventSinceFlush) return null;
 
     const calls = session.order.map((id) => session.calls.get(id)!);
     const turnCalls = calls.slice(session.flushedCalls);
@@ -176,7 +177,7 @@ export class CallEfficiencyTracker {
 
     session.flushedCalls = calls.length;
     session.flushedSteps = session.stepStarts.size;
-    session.eventsSinceFlush = 0;
+    session.sawEventSinceFlush = false;
     return metrics;
   }
 }
