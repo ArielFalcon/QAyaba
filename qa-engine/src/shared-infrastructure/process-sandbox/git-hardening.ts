@@ -228,7 +228,8 @@ function sameDirectory(a: string, b: string): boolean {
  */
 function assertGitUsesVerifiedTree(tree: { workDir: string; topLevel: string }): void {
   const gitDir = join(tree.topLevel, ".git");
-  const reported = verificationGit(tree.topLevel, tree.workDir, ["rev-parse", "--show-toplevel"], `git cannot use the git dir at ${gitDir}`).trim();
+  /* Only git's own line ending goes: a directory name may end in whitespace. */
+  const reported = verificationGit(tree.topLevel, tree.workDir, ["rev-parse", "--show-toplevel"], `git cannot use the git dir at ${gitDir}`).replace(/\r?\n$/, "");
   if (!sameDirectory(reported, tree.topLevel)) {
     refuse(gitDir, `git would use the repository at ${reported} for ${tree.workDir}, not this one`);
   }

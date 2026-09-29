@@ -296,9 +296,9 @@ export const TIMEOUT_BACKSTOP_GRACE_MS = 1000;
 /* The longest wait a code-mode timeout gets: the longest a timer holds, less the grace its backstop adds on top. */
 const MAX_CODE_TIMEOUT_MS = MAX_TIMER_DELAY_MS - TIMEOUT_BACKSTOP_GRACE_MS;
 
-/** The wait a code-mode timeout really gets: the requested one, held to what a timer can hold with room for its backstop. An absent, NaN, zero or negative request gets the default: a timer reads such a delay as 1 ms, which would end the run before it began. The reported "timeout after Nms" is this value, so it says how long the run really waited. */
+/** The wait a code-mode timeout really gets: the requested one, held to what a timer can hold with room for its backstop. An absent, NaN, zero, negative or sub-millisecond request gets the default: a timer reads such a delay as 1 ms, which would end the run before it began. The reported "timeout after Nms" is this value, so it says how long the run really waited. */
 export function codeTimeoutMs(requestedMs: number | undefined): number {
-  const wanted = requestedMs !== undefined && requestedMs > 0 ? requestedMs : DEFAULT_CODE_MODE_TIMEOUT_MS;
+  const wanted = requestedMs !== undefined && requestedMs >= 1 ? requestedMs : DEFAULT_CODE_MODE_TIMEOUT_MS;
   return Math.min(wanted, MAX_CODE_TIMEOUT_MS);
 }
 

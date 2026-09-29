@@ -26,12 +26,7 @@ function runDepcruise(treeRoot: string): { ok: boolean; output: string } {
   }
 }
 
-test("no engine module uses the git hardening that verifies no working copy", () => {
-  const { ok, output } = runDepcruise(repoRoot);
-  assert.equal(ok, true, `dependency-cruiser reported a violation:\n${output}`);
-});
-
-test("no engine module builds git hardening flags of its own outside the two hardening modules", () => {
+test("no engine module uses the git hardening that verifies no working copy, or builds hardening flags of its own", () => {
   const { ok, output } = runDepcruise(repoRoot);
   assert.equal(ok, true, `dependency-cruiser reported a violation:\n${output}`);
 });

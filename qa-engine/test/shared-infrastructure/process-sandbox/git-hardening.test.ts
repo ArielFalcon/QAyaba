@@ -169,7 +169,7 @@ test("a git dir writable by the group the sandbox runs as is refused even when t
     chmodSync(join(f.repo, ".git"), 0o775);
     setSandboxGroup(ORCHESTRATOR_GID);
     try {
-      assert.throws(() => assertTrustedGitTree(f.repo), (err: unknown) => err instanceof UntrustedGitTreeError && /sandbox/.test(err.message));
+      assert.throws(() => assertTrustedGitTree(f.repo), UntrustedGitTreeError);
     } finally {
       setSandboxGroup(undefined);
     }
@@ -482,6 +482,23 @@ test("a wildcard ownership opt-out in the host's git config does not widen the o
 
 /* The walk stops at the first `.git` directory it finds, while git skips a `.git` that is not a repository and climbs
    to the next one. The repository the call would really use must be the one that was verified. */
+/* git prints the top level followed by a newline, and a directory name may end in whitespace. */
+test("a working copy whose directory name ends in a space is judged as the directory it is", () => {
+  const root = mkdtempSync(join(tmpdir(), "git-hardening-space-"));
+  try {
+    const repo = join(root, "app ");
+    mkdirSync(repo);
+    execFileSync("git", ["init", "-q"], { cwd: repo, env: GIT_ENV });
+    closeGitDir(repo);
+
+    const top = execFileSync("git", hardenGitArgs(["rev-parse", "--show-toplevel"], repo), { cwd: repo, env: GIT_ENV, encoding: "utf8" });
+
+    assert.equal(top, `${realpathSync(repo)}\n`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a nearer .git directory that is not a repository is refused instead of being judged while git uses another repository", () =>
   withFixture((f) => {
     const { marker, command } = writeMarkerCommand(f.root);

@@ -315,8 +315,8 @@ test("a test-run timeout beyond what a timer can hold never asks the clock for m
   assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
 });
 
-/* setTimeout reads NaN, zero and a negative delay as 1 ms, so such a timeout would end the run before it began. */
-for (const requested of [Number.NaN, 0, -1_000]) {
+/* setTimeout reads NaN, zero, a negative delay and a fraction of a millisecond as 1 ms, so such a timeout would end the run before it began. */
+for (const requested of [Number.NaN, 0, -1_000, 0.5]) {
   test(`a test-run timeout of ${requested} is not taken literally: the default applies instead of firing at once`, async () => {
     const { timers, delays } = recordingTimers();
     const deps: CodeExecuteDeps = {
