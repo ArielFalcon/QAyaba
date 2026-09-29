@@ -4,7 +4,9 @@ import {
   CALL_BUCKETS,
   bucketForTool,
   kindForTool,
+  type AgentActivityKind,
 } from "@contexts/generation/domain/tool-call-taxonomy.ts";
+import { AgentActivityKindSchema } from "@kernel/contract/events.ts";
 
 test("kindForTool classifies write, shell and subagent tools by their coarse kind", () => {
   assert.equal(kindForTool("write"), "writing");
@@ -103,4 +105,9 @@ test("serena's navigation tools stay reads and its memory tools stay memory", ()
 test("a tool that merely contains an editing tool's name inside a longer word is not a write", () => {
   assert.equal(bucketForTool("preplace_content"), CALL_BUCKETS.OTHER);
   assert.equal(bucketForTool("replace_content_preview"), CALL_BUCKETS.OTHER);
+});
+
+test("the kinds kindForTool can return are exactly the kinds of the agent.activity run event", () => {
+  const returnable: Record<AgentActivityKind, true> = { analyzing: true, writing: true, command: true, subagent: true };
+  assert.deepEqual([...AgentActivityKindSchema.options].sort(), Object.keys(returnable).sort());
 });

@@ -20,7 +20,7 @@ export interface CoarseRunEfficiency {
 
 type AgentActivityEvent = Extract<RunEventBody, { type: "agent.activity" }>;
 
-/* The coarse side only knows the 4-value ActivityKind, never the raw tool —
+/* The coarse side only knows the 4-value agent.activity kind, never the raw tool —
    "analyzing" cannot be refined into code_read/browser/memory without it, so
    it maps to `other`. write/command/subagent map one-to-one, as in the fine taxonomy. */
 function bucketForActivityKind(kind: AgentActivityEvent["kind"]): CallBucket {

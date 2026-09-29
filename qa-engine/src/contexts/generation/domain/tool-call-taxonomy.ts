@@ -3,13 +3,16 @@
  * (post-hoc run_events) classifiers, so counts derived from either path
  * reconcile by construction.
  *
- * `kindForTool` and its three regexes are ported VERBATIM from
- * `infrastructure/sse/agent-activity.ts` — that module now imports from here
- * instead of redefining them, so there is exactly one source of truth for
- * the coarse write/command/subagent/analyzing split.
+ * `kindForTool` classifies a raw tool name into the kind carried by the
+ * `agent.activity` run event; `activity-mapper.ts` maps every tool event through it.
+ * `isWriteTool` and `isShellTool` are its two predicates. The older activity
+ * router (`infrastructure/sse/agent-activity.ts`, whose own 5-value `ActivityKind`
+ * feeds the TUI activity list) asks the same predicates, so there is one
+ * definition of which tools write and which run commands.
  */
 
-export type ActivityKind = "analyzing" | "writing" | "command" | "subagent";
+/** The kind of an `agent.activity` run event; the same four values as `AgentActivityKindSchema` in the run-event contract. */
+export type AgentActivityKind = "analyzing" | "writing" | "command" | "subagent";
 
 export type CallBucket =
   | "code_read"
@@ -41,9 +44,17 @@ const SERENA_WRITE_TOOLS =
   /(^|_)(create_text_file|replace_symbol_body|insert_after_symbol|insert_before_symbol|replace_content|replace_regex|replace_lines|delete_lines|insert_at_line|rename_symbol)$/i;
 const SERENA_SHELL_TOOLS = /(^|_)execute_shell_command$/i;
 
-export function kindForTool(tool: string): ActivityKind {
-  if (WRITE_TOOLS.test(tool) || SERENA_WRITE_TOOLS.test(tool)) return "writing";
-  if (SHELL_TOOLS.test(tool) || SERENA_SHELL_TOOLS.test(tool)) return "command";
+export function isWriteTool(tool: string): boolean {
+  return WRITE_TOOLS.test(tool) || SERENA_WRITE_TOOLS.test(tool);
+}
+
+export function isShellTool(tool: string): boolean {
+  return SHELL_TOOLS.test(tool) || SERENA_SHELL_TOOLS.test(tool);
+}
+
+export function kindForTool(tool: string): AgentActivityKind {
+  if (isWriteTool(tool)) return "writing";
+  if (isShellTool(tool)) return "command";
   if (SUBAGENT_TOOLS.test(tool)) return "subagent";
   return "analyzing";
 }

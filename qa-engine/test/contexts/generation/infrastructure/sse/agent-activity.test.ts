@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { routeEvent, ActivityRouter } from "@contexts/generation/infrastructure/sse/agent-activity.ts";
+import { kindForTool } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 
 const sessions = () => new Map([["s1", "run-1"]]);
 
@@ -96,4 +97,17 @@ test("ActivityRouter forgets a session after unregister", () => {
   router.unregister("s1");
   assert.equal(router.route({ type: "command.executed", properties: { sessionID: "s1", name: "build", arguments: "" } }).length, 0);
   assert.equal(router.drops["unknown-session"], 1);
+});
+
+/* The router's feed and the run events' `agent.activity` kind classify the same tools: a tool the
+   taxonomy calls a write shows up as a file activity, one it calls a command as a command. */
+test("routeEvent classifies write and shell tools exactly as the tool taxonomy does", () => {
+  for (const tool of ["write", "edit", "apply_patch", "bash", "shell", "exec", "run", "read", "grep", "task"]) {
+    const routed = routeEvent(
+      partEvent({ type: "tool", tool, state: { status: "completed", input: { filePath: "src/a.ts", command: "ls" } } }),
+      sessions(),
+    ).activities[0]?.kind;
+    const expected = { writing: "file", command: "command", analyzing: undefined, subagent: undefined }[kindForTool(tool)];
+    assert.equal(routed, expected, tool);
+  }
 });
