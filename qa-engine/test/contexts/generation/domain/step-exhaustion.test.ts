@@ -2,12 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { detectStepExhaustion, MAX_STEPS_MARKER } from "@contexts/generation/domain/step-exhaustion.ts";
+import { detectStepExhaustion } from "@contexts/generation/domain/step-exhaustion.ts";
 
 const maxStepsFixture = readFileSync(
   fileURLToPath(new URL("./fixtures/opencode-max-steps-instruction.txt", import.meta.url)),
   "utf8",
 );
+const exhaustedOutputs = JSON.parse(
+  readFileSync(fileURLToPath(new URL("./fixtures/exhausted-turn-outputs.json", import.meta.url)), "utf8"),
+) as Array<{ source: string; text: string }>;
 const sseFixture = JSON.parse(
   readFileSync(
     fileURLToPath(
@@ -39,7 +42,56 @@ test("does not flag text that merely mentions steps without the exhaustion phras
   assert.equal(detectStepExhaustion("The maximum file size was reached."), false);
 });
 
-test("MAX_STEPS_MARKER is exported for reuse by the report's drift check", () => {
-  assert.equal(MAX_STEPS_MARKER instanceof RegExp, true);
-  assert.equal(MAX_STEPS_MARKER.test("MAXIMUM STEPS REACHED"), true);
+test("detects the step-limit notice in every recorded exhausted turn output", () => {
+  assert.ok(exhaustedOutputs.length > 0);
+  for (const { source, text } of exhaustedOutputs) {
+    assert.equal(detectStepExhaustion(text), true, `an exhausted turn was not detected: ${source}`);
+  }
 });
+
+test("detects the notice however the model words it, whichever of the two orders it uses", () => {
+  for (const text of [
+    "Maximum steps for this agent have been reached",
+    "Max steps reached before writing files",
+    '{"note":"Max steps reached … no spec authored"}',
+    "CRITICAL - MAXIMUM STEPS REACHED",
+    "The maximum number of steps allowed for this task has been reached.",
+    "I've reached the maximum number of steps.",
+  ]) {
+    assert.equal(detectStepExhaustion(text), true, text);
+  }
+});
+
+test("does not flag a generator verdict whose scenario names the words far apart", () => {
+  const verdict =
+    '{"specs":[{"objective":"Covers the maximum length validation on the name field",' +
+    '"steps":["open the form","type 51 characters","assert the dashboard is reached"]}]}';
+  assert.equal(detectStepExhaustion(verdict), false);
+});
+
+test("does not flag prose that mentions a maximum, test steps and a reached page in different sentences", () => {
+  const prose =
+    "The quantity input enforces its maximum of 10; test steps fill the field and submit, " +
+    "and the assertion verifies the cart page is reached.";
+  assert.equal(detectStepExhaustion(prose), false);
+});
+
+/* Behavioral bound, not a benchmark: a scan that backtracks over the whole text for every "maximum" takes minutes on a megabyte, a linear one takes milliseconds. */
+const LARGE_INPUT_CHARS = 1_000_000;
+const GENEROUS_SCAN_BUDGET_MS = 1000;
+
+for (const [label, unit] of [
+  ["maximum steps repeated", "maximum steps "],
+  ["maximum repeated", "maximum "],
+  ["maximum and steps interleaved", "maximum of steps and maximum "],
+  ["reached and maximum interleaved", "reached the maximum "],
+] as const) {
+  test(`scans a megabyte of ${label} in bounded time and reports no exhaustion`, () => {
+    const text = unit.repeat(Math.ceil(LARGE_INPUT_CHARS / unit.length));
+    const start = performance.now();
+    const detected = detectStepExhaustion(text);
+    const elapsedMs = performance.now() - start;
+    assert.equal(detected, false);
+    assert.ok(elapsedMs < GENEROUS_SCAN_BUDGET_MS, `the scan took ${Math.round(elapsedMs)} ms`);
+  });
+}

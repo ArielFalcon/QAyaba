@@ -9,7 +9,14 @@ container), via `strings` on the binary followed by a targeted grep for the
 step-limit template literal — this is the exact, verbatim system instruction
 OpenCode injects into the conversation once `maxSteps` is reached (source:
 the `StepLimitExceededError`/`SessionRunner` bundle chunk). It is the ground
-truth the pinned `MAX_STEPS_MARKER` ("maximum steps … reached",
-case-insensitive) is checked against, both for a true positive (this fixture)
-and — via the SSE fixture at `../../infrastructure/sse/fixtures/`, whose
+truth `detectStepExhaustion` is checked against, both for a true positive (this
+fixture) and — via the SSE fixture at `../../infrastructure/sse/fixtures/`, whose
 captured turn never hit the step limit — a true negative.
+
+## `exhausted-turn-outputs.json`
+
+Leading and closing excerpts of real `agent_turns.output_text` values from
+exhausted generator, sidekick and recovery turns, recorded 2026-09-28 from
+benchmark runs of a web app. App, feature and commit identifiers are replaced by
+placeholders; the step-limit wording is verbatim. They are the true positives
+that show how a model restates the notice in its own turn.
