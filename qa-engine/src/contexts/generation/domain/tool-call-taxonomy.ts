@@ -34,9 +34,16 @@ const WRITE_TOOLS = /^(write|edit|multiedit|create|apply_patch|patch)$/i;
 const SHELL_TOOLS = /^(bash|shell|run|exec)$/i;
 const SUBAGENT_TOOLS = /^(task|agent|subtask|dispatch)$/i;
 
+/* Serena's tools that change the working tree (whole-file, symbol, line and regex edits, renames) and
+   its shell tool. Like every MCP tool they may arrive as `<server>_<tool>`, so the server prefix is
+   tolerated. Serena's memory tools (write_memory, …) are not here: they never touch the tree. */
+const SERENA_WRITE_TOOLS =
+  /(^|_)(create_text_file|replace_symbol_body|insert_after_symbol|insert_before_symbol|replace_content|replace_regex|replace_lines|delete_lines|insert_at_line|rename_symbol)$/i;
+const SERENA_SHELL_TOOLS = /(^|_)execute_shell_command$/i;
+
 export function kindForTool(tool: string): ActivityKind {
-  if (WRITE_TOOLS.test(tool)) return "writing";
-  if (SHELL_TOOLS.test(tool)) return "command";
+  if (WRITE_TOOLS.test(tool) || SERENA_WRITE_TOOLS.test(tool)) return "writing";
+  if (SHELL_TOOLS.test(tool) || SERENA_SHELL_TOOLS.test(tool)) return "command";
   if (SUBAGENT_TOOLS.test(tool)) return "subagent";
   return "analyzing";
 }

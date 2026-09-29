@@ -154,6 +154,36 @@ test("a write with no path invalidates every read path", () => {
   assert.equal(tracker.take("s1", "")?.redundantReadCount, 0);
 });
 
+test("serena's relative_path identifies the file, so re-reading it with no write in between is redundant", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "serena_read_file", { relative_path: "src/a.ts" });
+  runCall(tracker, "s1", "c2", "serena_read_file", { relative_path: "src/a.ts", start_line: 0 });
+  runCall(tracker, "s1", "c3", "serena_read_file", { relative_path: "src/b.ts" });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 1);
+});
+
+test("a serena edit of the file clears redundancy for a later read of that file only", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "serena_read_file", { relative_path: "src/a.ts" });
+  runCall(tracker, "s1", "c2", "serena_read_file", { relative_path: "src/b.ts" });
+  runCall(tracker, "s1", "c3", "serena_replace_symbol_body", { relative_path: "src/a.ts", name_path: "run", body: "x" });
+  runCall(tracker, "s1", "c4", "serena_read_file", { relative_path: "src/a.ts" });
+  runCall(tracker, "s1", "c5", "serena_read_file", { relative_path: "src/b.ts" });
+  assert.equal(tracker.take("s1", "")?.redundantReadCount, 1, "only the untouched file's re-read is redundant");
+});
+
+test("serena edits count as writes: the calls before the first write stop at the first one", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "serena_find_symbol", { name_path_pattern: "run" });
+  runCall(tracker, "s1", "c2", "serena_read_file", { relative_path: "src/a.ts" });
+  runCall(tracker, "s1", "c3", "serena_create_text_file", { relative_path: "e2e/a.spec.ts", content: "x" });
+  runCall(tracker, "s1", "c4", "serena_insert_after_symbol", { relative_path: "e2e/a.spec.ts", name_path: "t", body: "y" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.callsBeforeFirstWrite, 2);
+  assert.equal(metrics?.writeCount, 2);
+  assert.equal(metrics?.buckets.write, 2);
+});
+
 test("calls before the first write, write count and buckets describe the turn", () => {
   const tracker = tracked();
   runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });

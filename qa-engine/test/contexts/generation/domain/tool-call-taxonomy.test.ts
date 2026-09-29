@@ -63,3 +63,44 @@ test("bucketForTool falls back to other for an analyzing tool matching none of t
   assert.equal(bucketForTool("webfetch"), CALL_BUCKETS.OTHER);
   assert.equal(bucketForTool("some_unknown_tool"), CALL_BUCKETS.OTHER);
 });
+
+/* Serena's editing tools are named by what they do to the working tree, whatever the server prefix. */
+const SERENA_EDIT_TOOLS = [
+  "create_text_file",
+  "replace_symbol_body",
+  "insert_after_symbol",
+  "insert_before_symbol",
+  "replace_content",
+  "replace_regex",
+  "replace_lines",
+  "delete_lines",
+  "insert_at_line",
+  "rename_symbol",
+];
+
+test("serena's editing tools are writes, bare or with a server prefix", () => {
+  for (const tool of SERENA_EDIT_TOOLS) {
+    for (const name of [tool, `serena_${tool}`, `mcp__serena__${tool}`]) {
+      assert.equal(kindForTool(name), "writing", name);
+      assert.equal(bucketForTool(name), CALL_BUCKETS.WRITE, name);
+    }
+  }
+});
+
+test("serena's shell tool is a command, bare or with a server prefix", () => {
+  for (const name of ["execute_shell_command", "serena_execute_shell_command"]) {
+    assert.equal(kindForTool(name), "command", name);
+    assert.equal(bucketForTool(name), CALL_BUCKETS.VALIDATE_RUN, name);
+  }
+});
+
+test("serena's navigation tools stay reads and its memory tools stay memory", () => {
+  assert.equal(bucketForTool("serena_get_symbols_overview"), CALL_BUCKETS.CODE_READ);
+  assert.equal(bucketForTool("serena_list_dir"), CALL_BUCKETS.CODE_READ);
+  assert.equal(bucketForTool("serena_write_memory"), CALL_BUCKETS.MEMORY);
+});
+
+test("a tool that merely contains an editing tool's name inside a longer word is not a write", () => {
+  assert.equal(bucketForTool("preplace_content"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("replace_content_preview"), CALL_BUCKETS.OTHER);
+});

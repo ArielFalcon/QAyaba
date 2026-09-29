@@ -55,7 +55,8 @@ interface SessionState {
   eventsSinceFlush: number;
 }
 
-const PATH_KEYS = ["filePath", "path", "file", "filename"] as const;
+/* The input keys tools use for the file they touch; `relative_path` is Serena's. */
+const PATH_KEYS = ["filePath", "path", "file", "filename", "relative_path"] as const;
 
 /** JSON with object keys sorted, so equal inputs stringify equally whatever their key order. */
 function stableStringify(value: unknown): string {
