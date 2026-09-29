@@ -2,11 +2,12 @@
    events and turns are pruned after 30 days. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   measureRun,
+  readRegistry,
   readSnapshot,
   registerRun,
   takeSnapshot,
@@ -189,4 +190,35 @@ test("a label that could escape the results directory is rejected", (t) => {
 
 test("reading a label with no snapshot yields null", (t) => {
   assert.equal(readSnapshot(resultsDir(t), "nothing-here"), null);
+});
+
+/* Replacing a file must be atomic: a reader that already has the old file open still sees the old, complete
+   content, and a crash mid-write can never leave a truncated file where the good one was. */
+test("writing a snapshot replaces the file atomically and leaves no temporary file behind", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "case-a", "run-1");
+  const first = takeSnapshot("after", dir, () => source(), () => "2026-09-28T12:00:00.000Z");
+  writeSnapshot(dir, first);
+  const reader = openSync(join(dir, "after.snapshot.json"), "r");
+  t.after(() => closeSync(reader));
+
+  writeSnapshot(dir, takeSnapshot("after", dir, () => source(), () => "2026-09-29T12:00:00.000Z"));
+
+  const seenByReader = JSON.parse(readFileSync(reader, "utf8")) as { takenAt: string };
+  assert.equal(seenByReader.takenAt, "2026-09-28T12:00:00.000Z", "the open file still holds the old snapshot in full");
+  assert.equal(readSnapshot(dir, "after")!.takenAt, "2026-09-29T12:00:00.000Z");
+  assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
+});
+
+test("registering a run replaces the label's registry atomically", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "case-a", "run-1");
+  const reader = openSync(join(dir, "after.runs.json"), "r");
+  t.after(() => closeSync(reader));
+
+  registerRun(dir, "after", "case-b", "run-2");
+
+  assert.deepEqual(JSON.parse(readFileSync(reader, "utf8")), { "case-a": "run-1" }, "the open file still holds the old registry in full");
+  assert.deepEqual(readRegistry(dir, "after"), { "case-a": "run-1", "case-b": "run-2" });
+  assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
 });

@@ -125,3 +125,19 @@ test("delegateRun tolerates a transient network error during polling and keeps w
   assert.equal(result.verdict, "pass");
   assert.ok(poll >= 2, "the poll must have retried after the transient error");
 });
+
+test("delegateRun hands the run id to onEnqueued as soon as the service accepts it, before any poll", async () => {
+  const events: string[] = [];
+  const fetchStub = (async (_url: string, init?: RequestInit) => {
+    if ((init?.method ?? "GET") === "POST") return new Response(JSON.stringify({ id: "run-7" }), { status: 202 });
+    events.push("poll");
+    return new Response(JSON.stringify({ id: "run-7", status: "done", verdict: "pass", passed: 1, failed: 0 }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  await delegateRun(
+    { app: "demo", sha: "abc1234", mode: "diff" },
+    { fetch: fetchStub, baseUrl: "http://localhost:8080", pollMs: 1, onEnqueued: (id) => events.push(`enqueued ${id}`) },
+  );
+
+  assert.deepEqual(events, ["enqueued run-7", "poll"]);
+});

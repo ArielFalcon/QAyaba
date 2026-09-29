@@ -24,6 +24,8 @@ export interface DelegateRunDeps {
   timeoutMs?: number;
   now?: () => number;
   onUpdate?: (rec: { status: string; step?: string }) => void;
+  /** Called with the run id the moment the service accepts the run, before waiting for it. */
+  onEnqueued?: (id: string) => void;
 }
 
 export interface DelegateRunResult {
@@ -62,6 +64,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
   }
   const id = typeof createBody.id === "string" ? createBody.id : "";
   if (!id) throw new Error("the service accepted the run but returned no run id");
+  deps.onEnqueued?.(id);
 
   const start = now();
   let last: DelegateRunResult = { id, status: "enqueued", verdict: null, passed: 0, failed: 0, timedOut: false };

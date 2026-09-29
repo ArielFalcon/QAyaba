@@ -12,7 +12,7 @@
  *   snapshot <label>                     freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json
  *   report <A> <B>                       compare two labels' snapshots
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -45,6 +45,9 @@ export interface EfficiencyBenchmarkCase {
   readonly target?: TestTarget;
   readonly guidance?: string;
 }
+
+/* The same commit-id rule the service applies to a run's sha and baseSha. */
+const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
 const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "complete", "exhaustive", "manual", "context"]);
 const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e", "code"]);
@@ -89,6 +92,10 @@ export function loadEfficiencyBenchmarkCases(
   for (const c of parsed) {
     if (seen.has(c.name)) throw new Error(`${path} has a duplicate case name '${c.name}' — results are keyed by case name`);
     seen.add(c.name);
+    if (!HEX_COMMIT_ID.test(c.sha)) throw new Error(`${path}: case '${c.name}' has an invalid sha ${JSON.stringify(c.sha)} — it must be 7–40 hex characters`);
+    if (c.baseSha !== undefined && !HEX_COMMIT_ID.test(c.baseSha)) {
+      throw new Error(`${path}: case '${c.name}' has an invalid baseSha ${JSON.stringify(c.baseSha)} — it must be 7–40 hex characters`);
+    }
   }
   return parsed;
 }
@@ -105,6 +112,18 @@ export function assertLabel(label: string): void {
 }
 
 const registryFile = (resultsDir: string, label: string): string => join(resultsDir, `${label}.runs.json`);
+
+/** Publishes the content by renaming a finished temporary file over the target, so a crash never leaves a half-written file where a good one was. */
+function writeFileAtomically(path: string, content: string): void {
+  const temporary = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, content, "utf8");
+    renameSync(temporary, path);
+  } catch (err) {
+    rmSync(temporary, { force: true });
+    throw err;
+  }
+}
 
 /** case name → run id, for a label. Empty when nothing was registered yet; a corrupt file throws. */
 export function readRegistry(resultsDir: string, label: string): Record<string, string> {
@@ -123,7 +142,7 @@ export function registerRun(resultsDir: string, label: string, caseName: string,
   const registry = readRegistry(resultsDir, label);
   registry[caseName] = runId;
   mkdirSync(resultsDir, { recursive: true });
-  writeFileSync(registryFile(resultsDir, label), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+  writeFileAtomically(registryFile(resultsDir, label), `${JSON.stringify(registry, null, 2)}\n`);
 }
 
 /* ── run ───────────────────────────────────────────────────────────────────────────── */
@@ -150,16 +169,25 @@ export interface RunBenchmarkResult {
   stopped?: { caseName: string; runId: string; reason: "timeout" };
 }
 
+/* How many times the benchmark's own just-finished run may still be listed on the queue before it counts as busy. */
+const OWN_RUN_DRAIN_CHECKS = 30;
+
 /* A benchmark must be the only work against DEV: the service's queue is the one sequential queue, so a
-   busy one means someone else's run would share the interval a case is measured over. */
-async function assertQueueIdle(service: BenchmarkService): Promise<void> {
+   busy one means someone else's run would share the interval a case is measured over. The benchmark's
+   own previous run may still be leaving the queue right after it reported done; that is waited out. */
+async function assertQueueIdle(service: BenchmarkService, ownRunId?: string): Promise<void> {
   const headers: Record<string, string> = service.token ? { Authorization: `Bearer ${service.token}` } : {};
-  const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
-  if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
-  const queue = QueueStatusSchema.parse(await res.json());
-  if (queue.running || queue.pending > 0) {
-    const running = queue.running ? `run ${queue.running.id} (${queue.running.app}) is running` : "no run is running";
-    throw new Error(`the queue is busy (${running}, ${queue.pending} pending) — a benchmark must be the only work against DEV; wait for it to drain`);
+  for (let check = 0; ; check++) {
+    const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
+    if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
+    const queue = QueueStatusSchema.parse(await res.json());
+    if (!queue.running && queue.pending === 0) return;
+    const draining = ownRunId !== undefined && queue.running?.id === ownRunId && queue.pending === 0 && check < OWN_RUN_DRAIN_CHECKS;
+    if (!draining) {
+      const running = queue.running ? `run ${queue.running.id} (${queue.running.app}) is running` : "no run is running";
+      throw new Error(`the queue is busy (${running}, ${queue.pending} pending) — a benchmark must be the only work against DEV; wait for it to drain`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, service.pollMs ?? 1500));
   }
 }
 
@@ -173,10 +201,11 @@ export async function runBenchmark(label: string, opts: RunBenchmarkOptions): Pr
   const cases = loadEfficiencyBenchmarkCases(opts.casesPath);
   const resultsDir = opts.resultsDir ?? defaultEfficiencyResultsDir();
   const log = opts.log ?? (() => {});
-  await assertQueueIdle(opts.service);
 
   const completed: RunBenchmarkResult["completed"] = [];
+  let previousRunId: string | undefined;
   for (const c of cases) {
+    await assertQueueIdle(opts.service, previousRunId);
     log(`[bench] ${label}: running case '${c.name}' (${c.app} @ ${c.sha}${c.baseSha ? ` from ${c.baseSha}` : ""})`);
     const result = await delegateRun(
       {
@@ -194,9 +223,10 @@ export async function runBenchmark(label: string, opts: RunBenchmarkOptions): Pr
         ...(opts.service.pollMs !== undefined ? { pollMs: opts.service.pollMs } : {}),
         ...(opts.service.timeoutMs !== undefined ? { timeoutMs: opts.service.timeoutMs } : {}),
         ...(opts.service.now ? { now: opts.service.now } : {}),
+        onEnqueued: (id) => registerRun(resultsDir, label, c.name, id),
       },
     );
-    registerRun(resultsDir, label, c.name, result.id);
+    previousRunId = result.id;
     if (result.timedOut) {
       log(`[bench] ${label}: case '${c.name}' (run ${result.id}) did not finish in time — stopping`);
       return { completed, stopped: { caseName: c.name, runId: result.id, reason: "timeout" } };
@@ -336,7 +366,7 @@ export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot):
     }
   }
   mkdirSync(resultsDir, { recursive: true });
-  writeFileSync(snapshotFile(resultsDir, snapshot.label), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  writeFileAtomically(snapshotFile(resultsDir, snapshot.label), `${JSON.stringify(snapshot, null, 2)}\n`);
 }
 
 /* ── report ────────────────────────────────────────────────────────────────────────── */
@@ -422,7 +452,7 @@ export function renderReport(comparison: Comparison): string {
 
 const USAGE = [
   "usage: npm run efficiency-benchmark -- <command>",
-  "  run <label>                        submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue",
+  "  run <label> [--timeout-minutes N] submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue; N is how long to wait for each case (default 30)",
   "  register <label> <case> <runId>    attach an already-finished run to a case of the label",
   "  snapshot <label>                   freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json",
   "  report <labelA> <labelB>           compare two labels' snapshots",
@@ -468,6 +498,27 @@ async function historySource(): Promise<(runId: string) => RunDataSource> {
   return () => source;
 }
 
+type RunArguments = { ok: true; label: string; timeoutMs?: number } | { ok: false; problem: string };
+
+/** `run <label>` with an optional `--timeout-minutes N` (a positive number). */
+function parseRunArguments(args: string[]): RunArguments {
+  const positional: string[] = [];
+  let timeoutMs: number | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "--timeout-minutes") {
+      positional.push(args[i]!);
+      continue;
+    }
+    const minutes = Number(args[++i]);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return { ok: false, problem: "error: --timeout-minutes needs a positive number of minutes" };
+    }
+    timeoutMs = minutes * 60_000;
+  }
+  if (positional.length !== 1) return { ok: false, problem: "error: run takes exactly one label" };
+  return { ok: true, label: positional[0]!, ...(timeoutMs !== undefined ? { timeoutMs } : {}) };
+}
+
 /** Returns the process exit code: 0 ok, 1 the command failed, 2 bad usage. */
 export async function main(argv: string[], opts: MainOptions = {}): Promise<number> {
   const out = opts.out ?? ((line: string) => console.log(line));
@@ -476,11 +527,18 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
   const [command, ...args] = argv;
 
   try {
-    if (command === "run" && args.length === 1) {
-      const result = await runBenchmark(args[0]!, {
+    if (command === "run") {
+      const parsed = parseRunArguments(args);
+      if (!parsed.ok) {
+        out(parsed.problem);
+        for (const line of USAGE.split("\n")) out(line);
+        return 2;
+      }
+      const baseService = opts.service ?? (await defaultService(env));
+      const result = await runBenchmark(parsed.label, {
         ...(opts.casesPath ? { casesPath: opts.casesPath } : {}),
         resultsDir,
-        service: opts.service ?? (await defaultService(env)),
+        service: parsed.timeoutMs !== undefined ? { ...baseService, timeoutMs: parsed.timeoutMs } : baseService,
         log: out,
       });
       for (const c of result.completed) out(`${c.caseName}: run ${c.runId} → ${c.verdict ?? "no verdict"}`);
@@ -488,7 +546,7 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
         out(`stopped at '${result.stopped.caseName}' (run ${result.stopped.runId}): it did not finish in time; later cases were not submitted`);
         return 1;
       }
-      out(`${result.completed.length} case(s) finished; now run: snapshot ${args[0]}`);
+      out(`${result.completed.length} case(s) finished; now run: snapshot ${parsed.label}`);
       return 0;
     }
 

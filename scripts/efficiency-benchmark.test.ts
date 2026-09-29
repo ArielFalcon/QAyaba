@@ -89,3 +89,29 @@ test("loadEfficiencyBenchmarkCases: rejects a case with an invalid mode value", 
   writeFileSync(badPath, JSON.stringify([{ name: "n", app: "a", sha: "s", mode: "not-a-real-mode" }]));
   assert.throws(() => loadEfficiencyBenchmarkCases(badPath), /must be a JSON array of EfficiencyBenchmarkCase objects/);
 });
+
+test("loadEfficiencyBenchmarkCases: rejects a sha or baseSha that is not a hex commit id, naming the case", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const bad of [
+    { name: "branch-name", app: "demo", sha: "main" },
+    { name: "too-short", app: "demo", sha: "abc12" },
+    { name: "shell-ish", app: "demo", sha: "abc1234; rm -rf /" },
+    { name: "bad-base", app: "demo", sha: "abc1234", baseSha: "HEAD~3" },
+  ]) {
+    const path = join(dir, "efficiency-cases.json");
+    writeFileSync(path, JSON.stringify([bad]));
+    assert.throws(() => loadEfficiencyBenchmarkCases(path), new RegExp(`case '${bad.name}'.*(sha|baseSha)`), bad.name);
+  }
+});
+
+test("loadEfficiencyBenchmarkCases: accepts abbreviated and full hex ids in either letter case", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "efficiency-cases.json");
+  writeFileSync(path, JSON.stringify([
+    { name: "short", app: "demo", sha: "abc1234" },
+    { name: "full", app: "demo", sha: "0123456789abcdef0123456789abcdef01234567", baseSha: "ABCDEF1" },
+  ]));
+  assert.deepEqual(loadEfficiencyBenchmarkCases(path).map((c) => c.name), ["short", "full"]);
+});

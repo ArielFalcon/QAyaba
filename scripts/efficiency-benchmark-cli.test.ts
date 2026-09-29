@@ -127,3 +127,42 @@ test("run exits 1 when the benchmark could not run (busy queue)", async (t) => {
   assert.equal(code, 1);
   assert.match(h.lines.join("\n"), /queue is busy/);
 });
+
+/* A service whose run never finishes, on a clock that advances one minute per look at it: how many looks
+   the benchmark makes before giving up shows how long it waits. */
+async function looksBeforeGivingUp(t: import("node:test").TestContext, argv: string[]): Promise<{ code: number; looks: number }> {
+  const h = harness(t);
+  writeFileSync(h.casesPath, JSON.stringify([{ name: "checkout", app: "demo", sha: "abc1234" }]));
+  let looks = 0;
+  let clock = 0;
+  const fetchStub = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    if (path === "/api/v1/queue") return new Response(JSON.stringify({ pending: 0, running: null }), { status: 200 });
+    if ((init?.method ?? "GET") === "POST") return new Response(JSON.stringify({ id: "run-1" }), { status: 202 });
+    looks++;
+    return new Response(JSON.stringify({ id: "run-1", status: "running" }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const code = await main(argv, {
+    resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out,
+    service: { fetch: fetchStub, baseUrl: "http://svc", pollMs: 1, now: () => (clock += 60_000) },
+  });
+  return { code, looks };
+}
+
+test("run waits longer for a case when given a longer per-case timeout, and keeps the default wait otherwise", async (t) => {
+  const byDefault = await looksBeforeGivingUp(t, ["run", "after"]);
+  const extended = await looksBeforeGivingUp(t, ["run", "after", "--timeout-minutes", "120"]);
+
+  assert.equal(byDefault.code, 1);
+  assert.equal(extended.code, 1);
+  assert.ok(extended.looks > byDefault.looks * 2, `the default gave up after ${byDefault.looks} looks, the extended one after ${extended.looks}`);
+});
+
+test("run refuses a per-case timeout that is not a positive number of minutes", async (t) => {
+  for (const bad of ["0", "-5", "soon", ""]) {
+    const h = harness(t);
+    const code = await main(["run", "after", "--timeout-minutes", bad], { resultsDir: h.resultsDir, out: h.out });
+    assert.equal(code, 2, `--timeout-minutes ${JSON.stringify(bad)}`);
+    assert.match(h.lines.join("\n"), /timeout-minutes/);
+  }
+});
