@@ -110,6 +110,19 @@ test("a run whose data has been pruned measures to null", () => {
   assert.equal(measureRun("run-gone", gone), null);
 });
 
+/* The run's outcome row is never pruned, while its events, run record and turns age out after 30 days:
+   what remains of an old run is an outcome and nothing to measure calls from. */
+const outcomeOnlySource = (): RunDataSource => ({
+  events: () => [],
+  outcome: () => outcome(),
+  record: () => undefined,
+  turns: () => [],
+});
+
+test("a run whose events are gone but whose outcome row remains is not measured as a run that made no calls", () => {
+  assert.equal(measureRun("run-old", outcomeOnlySource()), null);
+});
+
 function resultsDir(t: import("node:test").TestContext): string {
   const dir = mkdtempSync(join(tmpdir(), "efficiency-snapshot-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -221,4 +234,30 @@ test("registering a run replaces the label's registry atomically", (t) => {
   assert.deepEqual(JSON.parse(readFileSync(reader, "utf8")), { "case-a": "run-1" }, "the open file still holds the old registry in full");
   assert.deepEqual(readRegistry(dir, "after"), { "case-a": "run-1", "case-b": "run-2" });
   assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith(".tmp")), []);
+});
+
+test("re-snapshotting after the runs' events aged out keeps the measured snapshot instead of replacing it with empty windows", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "baseline", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("baseline", dir, () => source(), () => "2026-09-28T12:00:00.000Z"));
+  const measuredCalls = readSnapshot(dir, "baseline")!.cases["case-a"]!.data!.coarse.firstPass.totalCalls;
+  assert.ok(measuredCalls > 0);
+
+  const aged = takeSnapshot("baseline", dir, () => outcomeOnlySource(), () => "2026-11-01T12:00:00.000Z");
+
+  assert.throws(() => writeSnapshot(dir, aged), /refusing to overwrite snapshot 'baseline'.*case-a/);
+  assert.equal(readSnapshot(dir, "baseline")!.cases["case-a"]!.data!.coarse.firstPass.totalCalls, measuredCalls);
+});
+
+test("a snapshot whose measured window is empty never replaces one that measured calls, whatever its source", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "baseline", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("baseline", dir, () => source(), () => "2026-09-28T12:00:00.000Z"));
+  const emptyWindow = takeSnapshot("baseline", dir, () => source(), () => "2026-11-01T12:00:00.000Z");
+  const emptied = emptyWindow.cases["case-a"]!.data!.coarse;
+  for (const window of [emptied.firstPass, emptied.grounding, emptied.wholeRunExcludingGrounding]) {
+    Object.assign(window, { totalCalls: 0, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, subagentCount: 0, repeatedCallCount: 0 });
+  }
+
+  assert.throws(() => writeSnapshot(dir, emptyWindow), /refusing to overwrite snapshot 'baseline'.*case-a/);
 });

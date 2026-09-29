@@ -302,12 +302,16 @@ function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRec
   return generatorTurns.some((t) => detectStepExhaustion(t.outputText));
 }
 
-/** The run's coarse efficiency and guardrails, or null when none of its records remain. */
+/**
+ * The run's coarse efficiency and guardrails, or null when its events are gone. A run's outcome row
+ * outlives its events, its record and its turns, so an old run can still have guardrails; without the
+ * events its calls cannot be measured, and an empty window would read as a run that made no calls.
+ */
 export function measureRun(runId: string, source: RunDataSource): CaseMeasurement | null {
   const events = source.events(runId);
+  if (events.length === 0) return null;
   const outcome = source.outcome(runId);
   const record = source.record(runId);
-  if (events.length === 0 && !outcome && !record) return null;
   return {
     coarse: classifyRunEfficiency(events),
     exhausted: generatorExhausted(outcome, source.turns(runId)),
@@ -349,15 +353,23 @@ export function readSnapshot(resultsDir: string, label: string): EfficiencySnaps
   return parsed;
 }
 
+const measuredCalls = (data: CaseMeasurement | null | undefined): number =>
+  data ? data.coarse.firstPass.totalCalls + data.coarse.grounding.totalCalls + data.coarse.wholeRunExcludingGrounding.totalCalls : 0;
+
 /**
  * Writes the snapshot, but never one that holds less than the file it replaces: once the runs'
- * records age out, re-snapshotting would silently erase the only surviving measurements.
+ * records age out, re-snapshotting would silently erase the only surviving measurements. A case
+ * counts as lost when it has no data any more, or when its measured calls dropped to none.
  */
 export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot): void {
   const existing = readSnapshot(resultsDir, snapshot.label);
   if (existing) {
     const lost = Object.entries(existing.cases)
-      .filter(([name, entry]) => entry.data !== null && snapshot.cases[name]?.data == null)
+      .filter(([name, entry]) => {
+        if (entry.data === null) return false;
+        const replacement = snapshot.cases[name]?.data;
+        return replacement == null || (measuredCalls(entry.data) > 0 && measuredCalls(replacement) === 0);
+      })
       .map(([name]) => name);
     if (lost.length > 0) {
       throw new Error(
