@@ -339,3 +339,46 @@ test("a committed gitlink whose directory is empty or gone does not stop git, an
     rmSync(join(repo, "sub"), { recursive: true });
     assert.doesNotThrow(() => hardenGitArgs(["status", "--porcelain"], repo), "a missing directory holds nothing to enter");
   }));
+
+test("a wildcard ownership opt-out in the host's git config does not widen the one the hardened flags grant", () =>
+  withFixture((f) => {
+    const other = join(f.root, "other-repo");
+    execFileSync("git", ["init", "-q", other], { env: GIT_ENV, stdio: "ignore" });
+    const wildcardConfig = join(f.root, "wildcard-gitconfig");
+    writeFileSync(wildcardConfig, "[safe]\n\tdirectory = *\n");
+    const env = { ...FOREIGN_OWNER_ENV, GIT_CONFIG_GLOBAL: wildcardConfig };
+    /* Control: with the host's wildcard in place git trusts every tree, the foreign-owned one included. */
+    assert.doesNotThrow(() => execFileSync("git", ["-C", other, "rev-parse", "--git-dir"], { env, stdio: "ignore" }));
+
+    const args = hardenGitArgs(["-C", other, "rev-parse", "--git-dir"], f.repo);
+
+    assert.throws(() => execFileSync("git", args, { cwd: f.repo, env, stdio: "ignore" }), "the host's wildcard trusted the other tree too");
+    assert.doesNotThrow(() => execFileSync("git", hardenGitArgs(["status", "--porcelain"], f.repo), { cwd: f.repo, env, stdio: "ignore" }), "the verified working copy itself is still usable");
+  }));
+
+/* The walk stops at the first `.git` directory it finds, while git skips a `.git` that is not a repository and climbs
+   to the next one. The repository the call would really use must be the one that was verified. */
+test("a nearer .git directory that is not a repository is refused instead of being judged while git uses another repository", () =>
+  withFixture((f) => {
+    const { marker, command } = writeMarkerCommand(f.root);
+    execFileSync("git", ["config", "filter.planted.clean", command], { cwd: f.repo });
+    writeFileSync(join(f.repo, ".gitattributes"), "* filter=planted\n");
+    writeFileSync(join(f.repo, "a.txt"), "zzz\n"); /* changed, so a status has to hash it through the filter */
+    const sub = join(f.repo, "sub");
+    mkdirSync(join(sub, ".git"), { recursive: true });
+    chmodSync(join(sub, ".git"), 0o755);
+
+    assert.throws(
+      () => hardenGitArgs(["status", "--porcelain"], sub),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes(realpathSync(f.repo)),
+    );
+    assert.equal(ranMarker(marker), false, "the check itself never runs a filter");
+  }));
+
+test("a git dir that git cannot use at all is refused rather than left to fail inside the git call", () =>
+  withFixture((f) => {
+    const lone = join(f.root, "lone");
+    mkdirSync(join(lone, ".git"), { recursive: true });
+    chmodSync(join(lone, ".git"), 0o755);
+    assert.throws(() => hardenGitArgs(["status"], lone), UntrustedGitTreeError);
+  }));

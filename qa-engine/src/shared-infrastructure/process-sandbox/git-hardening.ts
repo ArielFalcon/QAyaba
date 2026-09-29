@@ -1,7 +1,7 @@
 /* Git hardening for every git call the engine makes on an untrusted, sandbox-touched working copy. The single definition: src/integrations/repo-mirror.ts re-exports it for the shell's own git calls. */
 
 import { execFileSync } from "node:child_process";
-import { lstatSync, realpathSync, type Stats } from "node:fs";
+import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 /** Thrown when the git dir git would use for a working copy is not the orchestrator's own. Never swallow it into an empty result: it means untrusted code may have replaced the repository. */
@@ -150,18 +150,57 @@ const GITLINK_MODE = "160000";
 /* Room for the index listing of a very large repository; a listing that still overflows is refused, never truncated. */
 const LS_FILES_MAX_BUFFER = 512 * 1024 * 1024;
 
-/** The paths, relative to `topLevel`, of the submodule entries in its index. Reads the index only: no submodule is entered and no filter runs. */
-function committedGitlinks(topLevel: string): string[] {
-  let listing: string;
+/**
+ * Opts exactly one tree out of git's ownership check. The empty value first clears every entry a system or global
+ * config lists (a `*` there would otherwise trust every tree, and make the narrowing below moot), then the one
+ * verified tree is named.
+ */
+function ownershipFlags(topLevel: string): string[] {
+  return ["-c", "safe.directory=", "-c", `safe.directory=${topLevel}`];
+}
+
+/** Runs a read-only git query in `cwd` under the hardening flags and the ownership opt-out for the verified `topLevel`; any failure refuses. */
+function verificationGit(topLevel: string, cwd: string, args: string[], failure: string): string {
   try {
-    listing = execFileSync("git", [...baseGitHardeningFlags(), "-c", `safe.directory=${topLevel}`, "-C", topLevel, "ls-files", "--stage", "-z"], {
+    return execFileSync("git", [...baseGitHardeningFlags(), ...ownershipFlags(topLevel), "-C", cwd, ...args], {
       encoding: "utf8",
       maxBuffer: LS_FILES_MAX_BUFFER,
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
-    return refuse(topLevel, `its submodule entries cannot be listed (${(err as NodeJS.ErrnoException).code ?? "git failed"})`);
+    const { code, stderr } = err as NodeJS.ErrnoException & { stderr?: string };
+    const detail = typeof stderr === "string" && stderr.trim() !== "" ? stderr.trim().split("\n")[0] : (code ?? "git failed");
+    return refuse(cwd, `${failure} (${detail})`);
   }
+}
+
+function sameDirectory(a: string, b: string): boolean {
+  try {
+    const first = statSync(a);
+    const second = statSync(b);
+    return first.dev === second.dev && first.ino === second.ino;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The walk stops at the first `.git` directory it finds, but git skips a `.git` that is not a repository and climbs to
+ * the next one, so a nearer directory that merely looks like a git dir could have the walk judge one repository while
+ * git runs in another. Asks git itself which worktree it would use for `workDir` and refuses unless it is the one the
+ * walk verified.
+ */
+function assertGitUsesVerifiedTree(tree: { workDir: string; topLevel: string }): void {
+  const gitDir = join(tree.topLevel, ".git");
+  const reported = verificationGit(tree.topLevel, tree.workDir, ["rev-parse", "--show-toplevel"], `git cannot use the git dir at ${gitDir}`).trim();
+  if (!sameDirectory(reported, tree.topLevel)) {
+    refuse(gitDir, `git would use the repository at ${reported} for ${tree.workDir}, not this one`);
+  }
+}
+
+/** The paths, relative to `topLevel`, of the submodule entries in its index. Reads the index only: no submodule is entered and no filter runs. */
+function committedGitlinks(topLevel: string): string[] {
+  const listing = verificationGit(topLevel, topLevel, ["ls-files", "--stage", "-z"], "its submodule entries cannot be listed");
   const gitlinks: string[] = [];
   for (const entry of listing.split("\0")) {
     const tab = entry.indexOf("\t");
@@ -208,7 +247,8 @@ export function baseGitHardeningFlags(): string[] {
  * - safe.directory=<the verified worktree top level> — a code/e2e run hands the working copy to the unprivileged
  *   sandbox uid, so git run as the orchestrator would reject the tree ("dubious ownership") on the next run. Only the
  *   tree assertTrustedGitTree judged is opted out, so another repository reached with the same flags keeps git's own
- *   ownership check instead of being trusted with a wildcard. (A submodule git enters itself is not covered by that
+ *   ownership check instead of being trusted with a wildcard. An empty `safe.directory=` precedes it: it clears the
+ *   entries the system and global config list, so a `*` there cannot make the narrowing moot. (A submodule git enters itself is not covered by that
  *   check at all, since git names its git dir explicitly: a working copy whose committed submodule directory holds
  *   a `.git` is refused before any git runs, and a call whose answer does not depend on submodule state also passes
  *   --ignore-submodules, or --no-recurse-submodules for a fetch.)
@@ -220,7 +260,10 @@ export function baseGitHardeningFlags(): string[] {
 export function hardenGitArgs(args: readonly string[], workDir: string): string[] {
   if (typeof workDir !== "string") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
   const tree = resolveTrustedGitTree(workDir);
-  if (tree.topLevel !== null) assertNoPlantedSubmoduleRepositories(tree.topLevel);
-  const ownership = tree.topLevel === null ? [] : ["-c", `safe.directory=${tree.topLevel}`];
+  if (tree.topLevel !== null) {
+    assertGitUsesVerifiedTree({ workDir: tree.workDir, topLevel: tree.topLevel });
+    assertNoPlantedSubmoduleRepositories(tree.topLevel);
+  }
+  const ownership = tree.topLevel === null ? [] : ownershipFlags(tree.topLevel);
   return [...baseGitHardeningFlags(), ...ownership, "-C", tree.workDir, ...args];
 }
