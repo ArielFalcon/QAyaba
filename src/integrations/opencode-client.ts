@@ -97,69 +97,108 @@ export {
 };
 export type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent, UsageSnapshot };
 
-/*
- * Read fallback model mapping from opencode.json (root-level key). Keeps the
- * fallback logic in one place so the orchestrator can retry with a different
- * model when the primary is unavailable. Opt-in: absent `model_fallback` key
- * (the default) means no fallback — the primary error propagates unchanged.
- */
-function getFallbackModel(agent: string): string | undefined {
-  try {
-    const configPath = join(process.cwd(), "agents", "opencode.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf8"));
-    return raw.model_fallback?.[agent] as string | undefined;
-  } catch {
-    return undefined;
-  }
+interface AgentsConfig {
+  agent?: Record<string, { maxSteps?: unknown } | undefined>;
+  model_fallback?: Record<string, unknown>;
 }
 
 interface AgentsConfigEntry {
   mtimeMs: number;
   size: number;
   /** The parsed file, or null when it could not be parsed (already reported). */
-  config: { agent?: Record<string, { maxSteps?: unknown } | undefined> } | null;
+  config: AgentsConfig | null;
+  /** Settings of this version of the file already reported as unusable, so each is reported once. */
+  reported: Set<string>;
 }
 
-/* Parsed per file and per version of the file (modification time + size): a step limit is asked for on every turn. */
-const agentsConfigCache = new Map<string, AgentsConfigEntry>();
+const DEFAULT_AGENTS_CONFIG_PATH = (): string => join(process.cwd(), "agents", "opencode.json");
 
-function readAgentsConfig(configPath: string): AgentsConfigEntry["config"] {
+/* Parsed per file and per version of the file (modification time + size): the step limit is asked for on every turn, the fallback model on every prompt. */
+const agentsConfigCache = new Map<string, AgentsConfigEntry>();
+/* The last failure to even inspect a file, per file, so a file that stays unreadable is reported once and not on every turn. */
+const agentsConfigStatFailures = new Map<string, string>();
+
+function reportAgentsConfigProblem(configPath: string, problem: string): void {
+  console.error(`[qa] agent config ${configPath}: ${problem}`);
+}
+
+function readAgentsConfigEntry(configPath: string): AgentsConfigEntry | null {
   let stats;
   try {
     stats = statSync(configPath);
+    agentsConfigStatFailures.delete(configPath);
   } catch (err) {
     agentsConfigCache.delete(configPath);
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error(`[qa] cannot read step limits from ${configPath}: ${err instanceof Error ? err.message : String(err)}; step-budget telemetry reports an unknown limit`);
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      agentsConfigStatFailures.delete(configPath);
+    } else if (agentsConfigStatFailures.get(configPath) !== String(code)) {
+      agentsConfigStatFailures.set(configPath, String(code));
+      reportAgentsConfigProblem(configPath, `cannot be read (${err instanceof Error ? err.message : String(err)}); step limits and fallback models read as absent`);
     }
     return null;
   }
   const cached = agentsConfigCache.get(configPath);
-  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached.config;
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached;
 
-  let config: AgentsConfigEntry["config"] = null;
+  let config: AgentsConfig | null = null;
   try {
     config = JSON.parse(readFileSync(configPath, "utf8"));
   } catch (err) {
-    console.error(`[qa] cannot read step limits from ${configPath}: ${err instanceof Error ? err.message : String(err)}; step-budget telemetry reports an unknown limit`);
+    reportAgentsConfigProblem(configPath, `cannot be parsed (${err instanceof Error ? err.message : String(err)}); step limits and fallback models read as absent`);
   }
-  agentsConfigCache.set(configPath, { mtimeMs: stats.mtimeMs, size: stats.size, config });
-  return config;
+  const entry: AgentsConfigEntry = { mtimeMs: stats.mtimeMs, size: stats.size, config, reported: new Set() };
+  agentsConfigCache.set(configPath, entry);
+  return entry;
+}
+
+/* Reports a setting of the current version of the file that is present but unusable, once. */
+function reportUnusableSetting(entry: AgentsConfigEntry, configPath: string, key: string, problem: string): void {
+  if (entry.reported.has(key)) return;
+  entry.reported.add(key);
+  reportAgentsConfigProblem(configPath, problem);
+}
+
+/*
+ * The fallback model for `agent` from opencode.json's root-level `model_fallback` map, so the orchestrator can
+ * retry with a different model when the primary is unavailable. Opt-in: an absent key means no fallback and the
+ * primary error propagates unchanged. A file that cannot be parsed, or an entry that is not a model name, is
+ * reported on the error log (once per version of the file) and reads as absent.
+ */
+export function fallbackModelFromConfig(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): string | undefined {
+  const entry = readAgentsConfigEntry(configPath);
+  const model: unknown = entry?.config?.model_fallback?.[agent];
+  if (model === undefined) return undefined;
+  if (typeof model !== "string" || model.length === 0) {
+    reportUnusableSetting(entry!, configPath, `model_fallback.${agent}`, `model_fallback for '${agent}' is not a model name (${JSON.stringify(model)}); no fallback is used`);
+    return undefined;
+  }
+  return model;
+}
+
+function getFallbackModel(agent: string): string | undefined {
+  return fallbackModelFromConfig(agent);
 }
 
 /*
  * The acting agent's step limit from opencode.json (`agent.<id>.maxSteps`) — the same limit the
  * OpenCode server enforces — so a turn's exhaustion is reported against the real budget, never a
- * hardcoded copy. Undefined when the file, the agent or a numeric limit is absent; a file that
- * cannot be parsed is reported on the error log (once per version of the file) and reads as absent.
+ * hardcoded copy. Undefined when the file, the agent or a limit is absent; a file that cannot be
+ * parsed, or a limit that is not a number, is reported on the error log (once per version of the
+ * file) and reads as absent.
  */
 export function maxStepsFromConfig(
   agent: string,
-  configPath: string = join(process.cwd(), "agents", "opencode.json"),
+  configPath: string = DEFAULT_AGENTS_CONFIG_PATH(),
 ): number | undefined {
-  const limit: unknown = readAgentsConfig(configPath)?.agent?.[agent]?.maxSteps;
-  return typeof limit === "number" ? limit : undefined;
+  const entry = readAgentsConfigEntry(configPath);
+  const limit: unknown = entry?.config?.agent?.[agent]?.maxSteps;
+  if (limit === undefined) return undefined;
+  if (typeof limit !== "number") {
+    reportUnusableSetting(entry!, configPath, `agent.${agent}.maxSteps`, `maxSteps for '${agent}' is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
+    return undefined;
+  }
+  return limit;
 }
 
 /*

@@ -20,6 +20,7 @@ import {
   AgentDeps,
   askAssistant,
   maxStepsFromConfig,
+  fallbackModelFromConfig,
 } from "./opencode-client";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -1298,4 +1299,61 @@ test("maxStepsFromConfig follows the file when it changes", (t) => {
   const later = new Date(Date.now() + 60_000);
   utimesSync(path, later, later);
   assert.equal(maxStepsFromConfig("qa-generator", path), 20);
+});
+
+test("maxStepsFromConfig reports a non-numeric limit loudly, once per version of the file, naming the agent and the file", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-y": { maxSteps: "many" } } });
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-y", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an agent with a valid limit is unaffected");
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  const report = String(errors.mock.calls[0]!.arguments[0]);
+  assert.match(report, /qa-y/);
+  assert.match(report, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("maxStepsFromConfig stays silent for an agent that simply sets no limit", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-x": {} } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-x", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-unknown", path), undefined);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("a config file that cannot be inspected for a reason other than being absent is reported once, not on every turn", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path: aFile, cleanup } = writeAgentsConfig({});
+  t.after(cleanup);
+  const unreadable = join(aFile, "opencode.json"); /* a file where a directory is expected: stat fails with ENOTDIR, not ENOENT */
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", unreadable), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+});
+
+test("fallbackModelFromConfig reads the fallback model of the agent from the same config file", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": "opencode-go/other-model" }, agent: { "qa-generator": { maxSteps: 50 } } });
+  t.after(cleanup);
+  assert.equal(fallbackModelFromConfig("qa-generator", path), "opencode-go/other-model");
+  assert.equal(fallbackModelFromConfig("qa-reviewer", path), undefined, "no fallback is opt-in per agent");
+  assert.equal(fallbackModelFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+});
+
+test("fallbackModelFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  assert.equal(maxStepsFromConfig("qa-generator", path), undefined, "the step limit read shares the same cached parse");
+  assert.equal(errors.mock.callCount(), 1, "one report for the file, whichever setting asked");
+});
+
+test("fallbackModelFromConfig reports a fallback that is not a model name, once, instead of using it", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": 7 } });
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1);
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-generator/);
 });
