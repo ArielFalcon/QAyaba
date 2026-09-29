@@ -1,6 +1,5 @@
 /* qa-engine/test/contexts/test-execution/infrastructure/code-setup.test.ts
-   Behavioral tests for the code-mode install step, moved from src/qa/code-runner.test.ts
-   file; only the import path changes.
+   Behavioral tests for the code-mode install step.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -52,16 +51,16 @@ test("setupCodeProject prepares the sandbox workdir even for a null-install ecos
    process-sandbox/sandboxed-binary-runner.adapter.test.ts (process.execPath as a controlled
    fake "install" command, no PATH lookup surprises, no real npm needed).
 
-   Before this fix, a failed install reported ONLY `exit ${code}` — the child's own stdout/stderr
-   were spawned as unread pipes, so the actual npm/pip/... error (dependency conflict, network
-   failure, EACCES, ...) was silently discarded, and an install writing enough output could block
-   on a full, unread pipe buffer instead of finishing.
+   A failed install must report the child's own stdout/stderr tail, not only `exit ${code}`: the
+   actual npm/pip/... error (dependency conflict, network failure, EACCES, ...) is what the caller
+   needs, and an install writing more than the OS pipe buffer must be drained, not left to block on
+   a full, unread pipe.
  */
 test("a failed install surfaces a sanitized, bounded tail of the child's output instead of only the exit code", async () => {
   const deps = createDefaultCodeSetupDeps(null);
   /* The plaintext failure reason and the fake secret are base64-encoded INSIDE the child script
      and decoded only at runtime, so they never appear as literal argv text — the error message's
-     `cmd ${args.join(" ")}` echo (already present before this fix) cannot accidentally satisfy
+     `cmd ${args.join(" ")}` echo in the error message cannot accidentally satisfy
      these assertions; only genuine stderr capture can.
      "npm ERR! peer dep conflict for left-pad" -> bnBtIEVSUiEgcGVlciBkZXAgY29uZmxpY3QgZm9yIGxlZnQtcGFk
      "AKIAABCDEFGHIJKLMNOP" (fake AWS access key shape)   -> QUtJQUFCQ0RFRkdISUpLTE1OT1A=
@@ -104,8 +103,7 @@ test("install captures the tail of a large, multi-chunk child output without los
       cmd: process.execPath,
       /* ~200KB of filler shaped like real npm log lines (several times over any 'data' event's
          chunk size, forcing multiple accumulation rounds), followed by a marker at the very end —
-         before this fix, stdout/stderr were never read at all, so nothing (not even the marker)
-         would reach the caller. Spaces/`@`/`:`/newlines deliberately break up any 40+-char
+         the marker reaches the caller only if the output was actually read. Spaces/`@`/`:`/newlines deliberately break up any 40+-char
          alphanumeric run so the filler itself is never mistaken for a base64-looking secret by
          sanitizeText (unlike a flat run of one repeated letter). */
       args: [

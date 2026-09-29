@@ -42,13 +42,12 @@ test("sandboxSpawnOptions: passthrough env when no sandbox; uid/gid + redirected
   assert.equal(opts.env.PATH, "/usr/bin");
 });
 
-/* Root-cause regression for the code-mode install EACCES: `npm run start` injects
-   npm_config_cache=/root/.npm (and siblings) into every child process. Before this fix,
-   sandboxSpawnOptions only overrode HOME/USER/LOGNAME, so the sandboxed child still tried to
-   write to root's own cache directory it cannot own -> EACCES -> `npm ci` exit 243. The rule is
+/* A sandboxed install must not write into root's own directories: `npm run start` injects
+   npm_config_cache=/root/.npm (and siblings) into every child process, and a child that kept them
+   would try to write to a cache directory it cannot own (EACCES, `npm ci` exit 243). The rule is
    general: ANY inherited package-manager config var (npm_config_*, PNPM_, YARN_, COREPACK_,
-   CARGO_, GRADLE_, MAVEN_, PIP_, ...) whose value sits under the parent's HOME must be rebased
-   onto the sandbox's own (writable) home, not just npm's cache var specifically. */
+   CARGO_, GRADLE_, MAVEN_, PIP_, ...) whose value sits under the parent's HOME is rebased onto the
+   sandbox's own (writable) home, not just npm's cache var specifically. */
 test("sandboxSpawnOptions rebases root-home package-manager config paths onto the sandbox home", () => {
   const env = {
     HOME: "/root",

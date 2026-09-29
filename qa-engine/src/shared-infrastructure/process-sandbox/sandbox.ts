@@ -58,18 +58,18 @@ function rebaseUnderHome(value: string, fromHome: string, toHome: string): strin
 
 /** Spawn options that drop to the sandbox: the uid/gid plus a HOME pointing at the sandbox's own
  * writable home (so toolchain caches — ~/.m2, ~/.gradle, ~/.cache, ~/.cargo — never touch root's),
- * merged onto the scrubbed env. When `sandbox` is null this is just the scrubbed env (unchanged),
- * so the spawn runs exactly as before.
+ * merged onto the scrubbed env. When `sandbox` is null this is just the scrubbed env, unchanged, so
+ * the spawn runs as the current user.
  *
- * Root cause this closes: `npm run start` (or any lifecycle-script parent) injects vars like
- * `npm_config_cache=/root/.npm` into every child process; before this rule only HOME/USER/LOGNAME
- * were overridden, so the sandboxed child still tried to write into root's own, unreadable-to-it
- * cache dir -> EACCES. The rule is deliberately ecosystem-agnostic: ANY package-manager config var
- * (the same prefix family `scrubEnv` already allows through — npm_config_, PIP_, CARGO_, GRADLE_,
- * MAVEN_, PNPM_, YARN_, COREPACK_, ...) whose value sits under the PARENT's home is rebased onto
- * the sandbox's own home, never onto vars outside that family (PATH must keep pointing at the
- * real, world-readable node/npm install, not a nonexistent path under the sandbox home). A
- * legitimate, non-home-relative setting (a private registry URL, a flag) is left untouched. */
+ * `npm run start` (or any lifecycle-script parent) injects vars like `npm_config_cache=/root/.npm`
+ * into every child process. Overriding only HOME/USER/LOGNAME would leave the sandboxed child
+ * writing into root's own cache dir, which it cannot access (EACCES). So the rule is
+ * ecosystem-agnostic: ANY package-manager config var (the same prefix family `scrubEnv` already
+ * allows through — npm_config_, PIP_, CARGO_, GRADLE_, MAVEN_, PNPM_, YARN_, COREPACK_, ...) whose
+ * value sits under the PARENT's home is rebased onto the sandbox's own home, never onto vars
+ * outside that family (PATH must keep pointing at the real, world-readable node/npm install, not a
+ * nonexistent path under the sandbox home). A legitimate, non-home-relative setting (a private
+ * registry URL, a flag) is left untouched. */
 export function sandboxSpawnOptions(
   base: Record<string, string>,
   sandbox: Sandbox | null,
