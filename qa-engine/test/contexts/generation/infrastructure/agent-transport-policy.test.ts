@@ -822,6 +822,7 @@ test("an explorer-style session (runId, liveObservation false) persists its turn
 const SAMPLE_CALL_METRICS = {
   totalCalls: 7,
   stepsUsed: 3,
+  observationComplete: true,
   callsBeforeFirstWrite: 5,
   writeCount: 1,
   redundantReadCount: 2,
@@ -986,4 +987,216 @@ test("createAgentDeps: no turn sink fires when the caller supplies neither a run
   const out = await session.prompt("do the thing");
   assert.equal(out, "no telemetry");
   assert.equal(persistCalls, 0, "no runId and no onTurn override means no telemetry sink fires at all");
+});
+
+/* An agent turn as the raw transport returns it: what each attempt sent, in order, beside the collaborators' calls. */
+interface AttemptLog {
+  events: string[];
+}
+
+function attemptLoggingTransport(log: AttemptLog, promptResults: Array<() => Promise<{ parts: Array<{ type: string; text?: string }> }>>): RawAgentTransport {
+  let call = 0;
+  return makeRawTransport({
+    createSession: async () => ({ id: "sess-attempts" }),
+    promptSession: async (args) => {
+      log.events.push(args.model ? `prompt:${args.model.modelID}` : "prompt");
+      const next = promptResults[Math.min(call++, promptResults.length - 1)]!;
+      return next();
+    },
+  });
+}
+
+const okParts = (text = "done") => async () => ({ parts: [{ type: "text", text }] });
+
+test("createAgentDeps: each attempt is prepared before its prompt is sent, and a fallback retry is prepared as the next attempt", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  resetCircuit();
+  const log: AttemptLog = { events: [] };
+  const raw = attemptLoggingTransport(log, [async () => { throw new Error("transient"); }, okParts()]);
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => "opencode-go/fallback-model",
+    prepareAttempt: async (sessionId, attempt) => { log.events.push(`prepare:${sessionId}:${attempt}`); },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt");
+  assert.deepEqual(log.events, ["prepare:sess-attempts:0", "prompt", "prepare:sess-attempts:1", "prompt:fallback-model"]);
+});
+
+test("createAgentDeps: the prompt waits for the attempt to be prepared", async () => {
+  resetCircuit();
+  const log: AttemptLog = { events: [] };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const raw = attemptLoggingTransport(log, [okParts()]);
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    prepareAttempt: async () => { log.events.push("prepare-started"); await gate; log.events.push("prepare-done"); },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  const prompting = session.prompt("the turn prompt");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(log.events, ["prepare-started"], "nothing is sent while the attempt is still being prepared");
+  release();
+  await prompting;
+  assert.deepEqual(log.events, ["prepare-started", "prepare-done", "prompt"]);
+});
+
+test("createAgentDeps: a failing preparation is logged, the prompt still runs, and the turn's steps are unobserved", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const turn = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }),
+    prepareAttempt: async () => { throw new Error("tracker unreachable"); },
+  });
+  assert.equal(turn.callMetrics?.stepsUsed, null, "the count cannot be trusted when the attempt was not prepared");
+  assert.equal(turn.callMetrics?.observationComplete, false);
+  assert.equal(turn.stepBudget?.exhausted, null, "and so neither can a step-count exhaustion");
+  assert.equal(turn.callMetrics?.totalCalls, SAMPLE_CALL_METRICS.totalCalls, "the calls the tracker did see are still reported");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, /tracker unreachable/);
+});
+
+test("createAgentDeps: a failing preparation still lets the notice in the final step mark the turn exhausted", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const turn = await promptWithCollaborators("The maximum number of steps allowed for this task has been reached.", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }),
+    prepareAttempt: async () => { throw new Error("tracker unreachable"); },
+  });
+  assert.equal(turn.stepBudget?.exhausted, true);
+});
+
+type PromptOpts = NonNullable<Parameters<Awaited<ReturnType<AgentDeps["open"]>>["prompt"]>[1]>;
+type TurnStats = Parameters<NonNullable<PromptOpts["onTurnStats"]>>[0];
+
+async function promptWithStats(
+  parts: Array<{ type: string; text?: string }>,
+  collaborators: Partial<Parameters<typeof createAgentDeps>[1]>,
+  promptOpts: PromptOpts | undefined,
+  open: { descriptor?: { runId: string } } = { descriptor: { runId: "run-stats" } },
+): Promise<{ returned: string; persisted: AgentTurnEvent[] }> {
+  resetCircuit();
+  const raw = makeRawTransport({ createSession: async () => ({ id: "sess-stats" }), promptSession: async () => ({ parts }) });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), ...collaborators });
+  const session = await deps.open("qa-generator", "/tmp", open);
+  const returned = await session.prompt("the turn prompt", promptOpts);
+  return { returned, persisted };
+}
+
+test("createAgentDeps: the stats handed to the caller equal the values persisted for the turn, field by field", async () => {
+  const seen: TurnStats[] = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "all specs written" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50, writeCount: 4 }) },
+    { onTurnStats: (stats) => seen.push(stats) },
+  );
+  const row = persisted[0]!;
+  const stats = seen[0]!;
+  assert.equal(seen.length, 1);
+  assert.equal(stats.maxSteps, row.stepBudget?.maxSteps);
+  assert.equal(stats.exhausted, row.stepBudget?.exhausted);
+  assert.equal(stats.stepsUsed, row.callMetrics?.stepsUsed);
+  assert.equal(stats.writeCount, row.callMetrics?.writeCount);
+  assert.equal(stats.observationComplete, row.callMetrics?.observationComplete);
+  assert.equal(stats.exhausted, true, "the values are the real ones, not a matching pair of defaults");
+  assert.equal(stats.writeCount, 4);
+});
+
+test("createAgentDeps: the tracker is flushed once and the same flush feeds the persisted turn and the caller", async () => {
+  let flushes = 0;
+  const seen: number[] = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "done" }],
+    {
+      maxStepsFor: () => 50,
+      /* A flush is destructive: only the first one sees the turn. */
+      takeTurnCalls: () => (flushes++ === 0 ? { ...SAMPLE_CALL_METRICS, stepsUsed: 9 } : null),
+    },
+    { onTurnStats: (stats) => { if (stats.stepsUsed !== null) seen.push(stats.stepsUsed); } },
+  );
+  assert.equal(persisted[0]!.callMetrics?.stepsUsed, 9);
+  assert.deepEqual(seen, [9]);
+});
+
+test("createAgentDeps: the caller gets stats even when no turn sink is listening", async () => {
+  const seen: Array<{ exhausted: boolean | null; maxSteps: number | null }> = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "done" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) },
+    { onTurnStats: (stats) => seen.push({ exhausted: stats.exhausted, maxSteps: stats.maxSteps }) },
+    {},
+  );
+  assert.equal(persisted.length, 0);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.maxSteps, 50);
+  assert.equal(seen[0]!.exhausted, false);
+});
+
+test("createAgentDeps: an unobserved turn hands the caller unknown stats, never zeros", async () => {
+  const seen: TurnStats[] = [];
+  await promptWithStats(
+    [{ type: "text", text: "done" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => null },
+    { onTurnStats: (stats) => seen.push(stats) },
+  );
+  const stats = seen[0]!;
+  assert.equal(stats.stepsUsed, null);
+  assert.equal(stats.writeCount, null);
+  assert.equal(stats.exhausted, null);
+  assert.equal(stats.observationComplete, false);
+  assert.equal(stats.maxSteps, 50);
+});
+
+test("createAgentDeps: no stats are handed out by a transport that has no step budget concept", async () => {
+  let called = false;
+  await promptWithStats([{ type: "text", text: "done" }], {}, { onTurnStats: () => { called = true; } });
+  assert.equal(called, false);
+});
+
+test("createAgentDeps: a failing stats callback is logged and leaves the prompt result and the persisted turn intact", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const { returned, persisted } = await promptWithStats(
+    [{ type: "text", text: "the answer" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) },
+    { onTurnStats: () => { throw new Error("callback exploded"); } },
+  );
+  assert.equal(returned, "the answer");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, false);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, /callback exploded/);
+});
+
+const STEPPED_PARTS = [
+  { type: "step-start" },
+  { type: "reasoning", text: "thinking about hit max steps. " },
+  { type: "text", text: "first step text. " },
+  { type: "step-start" },
+  { type: "text", text: '{"specs":[]}' },
+];
+
+test("createAgentDeps: finalStepOnly returns the text of the last step alone, and the persisted output is unchanged", async () => {
+  const { returned, persisted } = await promptWithStats(STEPPED_PARTS, {}, { finalStepOnly: true });
+  assert.equal(returned, '{"specs":[]}');
+  assert.equal(persisted[0]!.outputText, "thinking about hit max steps. first step text. {\"specs\":[]}");
+});
+
+test("createAgentDeps: without finalStepOnly the whole turn's text is returned", async () => {
+  const { returned } = await promptWithStats(STEPPED_PARTS, {}, undefined);
+  assert.equal(returned, "thinking about hit max steps. first step text. {\"specs\":[]}");
+});
+
+test("createAgentDeps: finalStepOnly on a turn whose final step wrote no text returns nothing, not an earlier step's text", async () => {
+  const { returned, persisted } = await promptWithStats(
+    [{ type: "step-start" }, { type: "text", text: '{"specs":["a.spec.ts"]}' }, { type: "step-start" }, { type: "tool" }],
+    {},
+    { finalStepOnly: true },
+  );
+  assert.equal(returned, "");
+  assert.match(persisted[0]!.outputText, /a\.spec\.ts/, "the persisted output still holds the whole turn");
 });

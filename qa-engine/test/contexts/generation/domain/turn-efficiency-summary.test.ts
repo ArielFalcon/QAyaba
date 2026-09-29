@@ -34,10 +34,12 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     redundantReadCount: 1,
     promptProvidedReadCount: 1,
     stepsUsed: 4,
+    observationComplete: true,
   });
 
   assert.equal(metrics.totalCalls, 2);
   assert.equal(metrics.stepsUsed, 4);
+  assert.equal(metrics.observationComplete, true);
   assert.equal(metrics.callsBeforeFirstWrite, 1);
   assert.equal(metrics.writeCount, 1);
   assert.equal(metrics.redundantReadCount, 1);
@@ -58,9 +60,11 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     redundantReadCount: 0,
     promptProvidedReadCount: 0,
     stepsUsed: null,
+    observationComplete: false,
   });
   assert.equal(metrics.duplicateCallCount, 1);
   assert.equal(metrics.stepsUsed, null);
+  assert.equal(metrics.observationComplete, false);
 });
 
 test("buildTurnStepBudget reads exhaustion from the final step's text and the observed step count, and passes maxSteps through", () => {

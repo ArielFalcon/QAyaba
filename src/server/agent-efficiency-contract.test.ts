@@ -36,6 +36,7 @@ function turnEvent(runId: string, overrides: Partial<AgentTurnEvent> = {}): Agen
 const measuredMetrics = {
   totalCalls: 12,
   stepsUsed: 9,
+  observationComplete: true,
   callsBeforeFirstWrite: 10,
   writeCount: 1,
   redundantReadCount: 2,

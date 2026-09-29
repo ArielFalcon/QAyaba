@@ -2,7 +2,7 @@
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { ActivityRouter, type ActivityKind } from "./agent-activity.ts";
 import { mapOpencodeEvent, eventRunId } from "./activity-mapper.ts";
-import { callEfficiencyTracker } from "./call-efficiency-tracker.ts";
+import { callEfficiencyTracker, type StreamLifecycleSink, type StreamToken } from "./call-efficiency-tracker.ts";
 import { notifySessionActivity } from "../agent-transport-policy.ts";
 
 export interface LiveActivity {
@@ -14,7 +14,12 @@ export interface LiveActivity {
 }
 
 export interface RawEventStreamOpener {
-  open(directory: string, signal?: AbortSignal): Promise<AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined>;
+  /** `onSseError` is called when the underlying connection fails and the SDK is about to reconnect on its own, which the returned iterable never shows. */
+  open(
+    directory: string,
+    signal?: AbortSignal,
+    onSseError?: (error: unknown) => void,
+  ): Promise<AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined>;
 }
 
 let rawOpener: RawEventStreamOpener | undefined;
@@ -30,72 +35,91 @@ export function setRawEventStreamOpener(opener: RawEventStreamOpener): () => voi
 
 export const activityRouter = new ActivityRouter();
 
-async function startScopedEventStream(
+/* The event every OpenCode event connection opens with. */
+const SERVER_CONNECTED = "server.connected";
+
+/**
+ * One connection of a directory's event stream: announces it to `lifecycle` under a token of its own
+ * (opening before the opener is asked, connected by each `server.connected`, interrupted when the SDK
+ * reports a connection error it then silently retries) and closes it however it ends — an opener
+ * that throws (the error still propagates to the reconnect loop), no stream, a clean end, an abort or
+ * an iteration error (logged, not thrown).
+ */
+export async function startScopedEventStream(
   directory: string,
   onActivity: (a: LiveActivity) => void,
   signal?: AbortSignal,
   onRunEvent?: (runId: string, body: RunEventBody) => void,
+  lifecycle: StreamLifecycleSink = callEfficiencyTracker,
 ): Promise<void> {
   if (!rawOpener) {
     throw new Error(
       "EventStreamManager: no RawEventStreamOpener wired — the composition root must call setRawEventStreamOpener before opening any stream",
     );
   }
-  const stream = await rawOpener.open(directory, signal);
-  if (!stream) {
-    console.warn(`[qa] SSE event stream returned no stream (${directory})`);
-    return;
-  }
-
+  const token: StreamToken = Symbol(`event-stream ${directory}`);
+  lifecycle.streamOpening(directory, token);
   try {
-    for await (const event of stream) {
-      if (signal?.aborted) break;
+    const stream = await rawOpener.open(directory, signal, () => lifecycle.streamInterrupted(directory, token));
+    if (!stream) {
+      console.warn(`[qa] SSE event stream returned no stream (${directory})`);
+      return;
+    }
 
-      const evt = event as { type?: string; properties?: Record<string, unknown> };
-      if (!evt.type) continue;
+    try {
+      for await (const event of stream) {
+        if (signal?.aborted) break;
 
-      const raw = { type: evt.type, properties: evt.properties };
+        const evt = event as { type?: string; properties?: Record<string, unknown> };
+        if (!evt.type) continue;
 
-      const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
-      /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
-      if (rawPart?.sessionID) notifySessionActivity(rawPart.sessionID);
-      /* Measure-only call-efficiency tracking; never throws (a fault poisons only that session's metrics) and feeds no decision. */
-      callEfficiencyTracker.record(raw);
+        const raw = { type: evt.type, properties: evt.properties };
 
-      if (onRunEvent) {
-        const rid = eventRunId(raw, activityRouter.sessionMap());
-        if (rid) {
-          for (const body of mapOpencodeEvent(raw, activityRouter.sessionMap(), activityRouter.workerMap())) {
-            try { onRunEvent(rid, body); } catch { /* advisory */ }
+        const rawPart = raw.properties?.part as { sessionID?: string } | undefined;
+        /* Notify the liveness watchdog for this session: any event proves the agent is alive. Advisory-only: if the sessionID is not in the registry (no watchdog) this is a no-op. Runs BEFORE the tracker so nothing the measurement does can starve the watchdog (a stall abort would change the run's outcome). */
+        if (rawPart?.sessionID) notifySessionActivity(rawPart.sessionID);
+        /* The first event of every connection: the stream is live (a second one on the same stream means it reconnected and may have lost events). */
+        if (raw.type === SERVER_CONNECTED) lifecycle.streamConnected(directory, token);
+        /* Call-efficiency tracking; never throws (a fault poisons only that session's metrics) and never disturbs the stream. */
+        callEfficiencyTracker.record(raw);
+
+        if (onRunEvent) {
+          const rid = eventRunId(raw, activityRouter.sessionMap());
+          if (rid) {
+            for (const body of mapOpencodeEvent(raw, activityRouter.sessionMap(), activityRouter.workerMap())) {
+              try { onRunEvent(rid, body); } catch { /* advisory */ }
+            }
           }
         }
-      }
 
-      const activities = activityRouter.route(raw);
+        const activities = activityRouter.route(raw);
 
-      for (const activity of activities) {
-        let shown = activity.text;
-        if (activity.kind === "command") {
-          const parts = shown.split(/\s+/);
-          if (parts.length > 4) shown = parts.slice(0, 4).join(" ") + " …";
+        for (const activity of activities) {
+          let shown = activity.text;
+          if (activity.kind === "command") {
+            const parts = shown.split(/\s+/);
+            if (parts.length > 4) shown = parts.slice(0, 4).join(" ") + " …";
+          }
+          const icon = activity.kind === "file" ? "✎" : activity.kind === "command" ? "⚙" : activity.kind === "error" ? "⚠" : "▸";
+          const label = activity.kind === "file" ? `wrote ${shown}` : shown;
+          onActivity({
+            runId: activity.runId,
+            kind: activity.kind,
+            text: activity.text,
+            ...(activity.status ? { status: activity.status } : {}),
+            display: `[qa] ${icon} ${label}`,
+          });
         }
-        const icon = activity.kind === "file" ? "✎" : activity.kind === "command" ? "⚙" : activity.kind === "error" ? "⚠" : "▸";
-        const label = activity.kind === "file" ? `wrote ${shown}` : shown;
-        onActivity({
-          runId: activity.runId,
-          kind: activity.kind,
-          text: activity.text,
-          ...(activity.status ? { status: activity.status } : {}),
-          display: `[qa] ${icon} ${label}`,
-        });
       }
-    }
-  } catch (err) {
-    if (!signal?.aborted) {
-      console.warn(`[qa] SSE event stream error (${directory}): ${err instanceof Error ? err.message : String(err)}`);
+    } catch (err) {
+      if (!signal?.aborted) {
+        console.warn(`[qa] SSE event stream error (${directory}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } finally {
+      console.log(`[qa] SSE event stream closed (${directory})`);
     }
   } finally {
-    console.log(`[qa] SSE event stream closed (${directory})`);
+    lifecycle.streamClosed(directory, token);
   }
 }
 

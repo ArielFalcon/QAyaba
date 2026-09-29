@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import {
+  CallEfficiencyTracker,
+  OBSERVATION_READY_TIMEOUT_MS,
+  type StreamToken,
+  type TrackerTimer,
+} from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import type { RawOpencodeEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
 
 const CWD = "/mirrors/org__app";
@@ -35,8 +40,18 @@ function stepStart(sessionID: string, id: string): RawOpencodeEvent {
   return { type: "message.part.updated", properties: { part: { id, sessionID, messageID: "msg_1", type: "step-start" } } };
 }
 
+/** Opens and connects a stream for the directory, the way the event loop does, and returns its token. */
+function liveStream(tracker: CallEfficiencyTracker, directory = CWD): StreamToken {
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(directory, token);
+  tracker.streamConnected(directory, token);
+  return token;
+}
+
+/** A tracker whose directory stream is live when the session attaches, so its steps are observed completely. */
 function tracked(sessionId = "s1"): CallEfficiencyTracker {
   const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
   tracker.attach(sessionId, CWD);
   return tracker;
 }
@@ -393,4 +408,320 @@ test("a fault while recording is logged with the session and the cause", (t) => 
   const message = String(logged.mock.calls[0]?.arguments[0]);
   assert.match(message, /session-under-test/);
   assert.match(message, /the input could not be read/);
+});
+
+/* A timer the test drives by hand, so the readiness bound is tested without waiting. */
+class ManualTimer implements TrackerTimer {
+  private elapsed = 0;
+  private nextHandle = 1;
+  private readonly pending = new Map<number, { at: number; callback: () => void }>();
+
+  setTimeout(callback: () => void, ms: number): number {
+    const handle = this.nextHandle++;
+    this.pending.set(handle, { at: this.elapsed + ms, callback });
+    return handle;
+  }
+
+  clearTimeout(handle: unknown): void {
+    this.pending.delete(handle as number);
+  }
+
+  advance(ms: number): void {
+    this.elapsed += ms;
+    for (const [handle, timer] of [...this.pending]) {
+      if (timer.at <= this.elapsed) {
+        this.pending.delete(handle);
+        timer.callback();
+      }
+    }
+  }
+
+  get scheduled(): number {
+    return this.pending.size;
+  }
+}
+
+/* Resolves to whether the promise has settled by the time the microtask queue drains. */
+async function settled(promise: Promise<unknown>): Promise<boolean> {
+  let done = false;
+  void promise.then(() => { done = true; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  return done;
+}
+
+const stepIds = (...ids: string[]) => ids;
+
+function recordSteps(tracker: CallEfficiencyTracker, sessionId: string, ids: string[]): void {
+  for (const id of ids) tracker.record(stepStart(sessionId, id));
+}
+
+test("a session attached to a live stream has its steps observed completely", () => {
+  const tracker = tracked();
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.stepsUsed, 2);
+  assert.equal(metrics?.observationComplete, true);
+});
+
+test("a session attached before its stream is live reports no step count and an incomplete observation, but keeps its calls", () => {
+  const tracker = new CallEfficiencyTracker();
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.stepsUsed, null);
+  assert.equal(metrics?.observationComplete, false);
+  assert.equal(metrics?.totalCalls, 1);
+});
+
+test("a stream that is still opening does not count as live for an attaching session", () => {
+  const tracker = new CallEfficiencyTracker();
+  tracker.streamOpening(CWD, Symbol("stream"));
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("an interrupted stream makes the turn in flight incomplete, and the next attempt is observed again once the stream reconnects", async () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  tracker.attach("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  tracker.streamInterrupted(CWD, token);
+  tracker.streamConnected(CWD, token);
+  recordSteps(tracker, "s1", stepIds("c"));
+  const interrupted = tracker.take("s1", "");
+  assert.equal(interrupted?.stepsUsed, null, "the steps seen before the drop are unknowable");
+  assert.equal(interrupted?.observationComplete, false);
+
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("d", "e"));
+  const next = tracker.take("s1", "");
+  assert.equal(next?.stepsUsed, 2, "counts are not disabled after one blip");
+  assert.equal(next?.observationComplete, true);
+});
+
+test("a stream interrupted while it was waiting to connect delays the attempt until it connects", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(CWD, token);
+  tracker.attach("s1", CWD);
+  const prepared = tracker.prepareAttempt("s1", 0);
+  tracker.streamInterrupted(CWD, token);
+  assert.equal(await settled(prepared), false, "an interruption is not readiness");
+  tracker.streamConnected(CWD, token);
+  await prepared;
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 1);
+});
+
+test("a second connected event on a live stream marks the turn in flight incomplete", () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a"));
+  tracker.streamConnected(CWD, token);
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.stepsUsed, null);
+  assert.equal(metrics?.observationComplete, false);
+});
+
+test("closing the current stream mid-turn makes the turn incomplete", () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  tracker.streamClosed(CWD, token);
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("a gap on one directory's stream leaves the sessions of other directories complete", () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  liveStream(tracker, "/mirrors/other");
+  tracker.attach("here", CWD);
+  tracker.attach("there", "/mirrors/other");
+  recordSteps(tracker, "here", stepIds("a"));
+  recordSteps(tracker, "there", stepIds("b"));
+  tracker.streamInterrupted(CWD, token);
+  assert.equal(tracker.take("here", "")?.stepsUsed, null);
+  assert.equal(tracker.take("there", "")?.stepsUsed, 1);
+});
+
+test("a gap makes every session attached to the directory incomplete", () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  tracker.attach("s1", CWD);
+  tracker.attach("s2", CWD);
+  recordSteps(tracker, "s1", stepIds("a"));
+  recordSteps(tracker, "s2", stepIds("b"));
+  tracker.streamInterrupted(CWD, token);
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+  assert.equal(tracker.take("s2", "")?.stepsUsed, null);
+});
+
+test("events of a stream that is no longer the directory's current one change nothing", () => {
+  const tracker = new CallEfficiencyTracker();
+  const stale: StreamToken = Symbol("stale");
+  tracker.streamOpening(CWD, stale);
+  const current = liveStream(tracker);
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a"));
+
+  tracker.streamInterrupted(CWD, stale);
+  tracker.streamConnected(CWD, stale);
+  tracker.streamClosed(CWD, stale);
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 1, "a stale stream's lifecycle leaves the live one untouched");
+
+  tracker.streamClosed(CWD, current);
+  recordSteps(tracker, "s1", stepIds("b"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null, "the current stream's close still counts");
+});
+
+test("a stream that replaces an unclosed one starts over as opening and makes in-flight turns incomplete", () => {
+  const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  recordSteps(tracker, "s1", stepIds("a"));
+  tracker.streamOpening(CWD, Symbol("replacement"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+
+  tracker.attach("s2", CWD);
+  recordSteps(tracker, "s2", stepIds("b"));
+  assert.equal(tracker.take("s2", "")?.stepsUsed, null, "the replacement has not connected yet");
+});
+
+test("a session attached after the stream connected inherits its liveness, and one attached after it closed does not", () => {
+  const tracker = new CallEfficiencyTracker();
+  const token = liveStream(tracker);
+  tracker.attach("early", CWD);
+  recordSteps(tracker, "early", stepIds("a"));
+  assert.equal(tracker.take("early", "")?.stepsUsed, 1);
+
+  tracker.streamClosed(CWD, token);
+  tracker.attach("late", CWD);
+  recordSteps(tracker, "late", stepIds("b"));
+  assert.equal(tracker.take("late", "")?.stepsUsed, null);
+});
+
+test("preparing an attempt for a session that was never attached returns at once and schedules nothing", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  tracker.streamOpening(CWD, Symbol("stream"));
+  await tracker.prepareAttempt("stranger", 0);
+  assert.equal(timer.scheduled, 0);
+});
+
+test("preparing an attempt with no stream for the directory returns at once, leaving the attempt incomplete", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  tracker.attach("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+  assert.equal(timer.scheduled, 0);
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("preparing an attempt on a live stream makes it complete, and only the first attempt of a prompt is ever complete", async () => {
+  const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 1);
+
+  await tracker.prepareAttempt("s1", 0);
+  await tracker.prepareAttempt("s1", 1);
+  recordSteps(tracker, "s1", stepIds("b", "c"));
+  const fallback = tracker.take("s1", "");
+  assert.equal(fallback?.stepsUsed, null, "a fallback attempt re-runs the prompt: the steps of both cannot be told apart");
+  assert.equal(fallback?.observationComplete, false);
+});
+
+test("an attempt prepared while the stream is opening waits for it to connect and is then complete", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(CWD, token);
+  tracker.attach("s1", CWD);
+
+  const prepared = tracker.prepareAttempt("s1", 0);
+  assert.equal(await settled(prepared), false);
+  tracker.streamConnected(CWD, token);
+  await prepared;
+  assert.equal(timer.scheduled, 0, "the wait's timer is cleared once the stream connects");
+  recordSteps(tracker, "s1", stepIds("a", "b"));
+  const metrics = tracker.take("s1", "");
+  assert.equal(metrics?.stepsUsed, 2);
+  assert.equal(metrics?.observationComplete, true);
+});
+
+test("an attempt prepared while the stream is opening stops waiting at the readiness bound and stays incomplete", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  tracker.streamOpening(CWD, Symbol("stream"));
+  tracker.attach("s1", CWD);
+
+  const prepared = tracker.prepareAttempt("s1", 0);
+  timer.advance(OBSERVATION_READY_TIMEOUT_MS - 1);
+  assert.equal(await settled(prepared), false, "still waiting just before the bound");
+  timer.advance(1);
+  assert.equal(await settled(prepared), true, "released at the bound");
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("a stream that closes while an attempt waits for it releases the attempt at once, incomplete", async () => {
+  const timer = new ManualTimer();
+  const tracker = new CallEfficiencyTracker({ timer });
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(CWD, token);
+  tracker.attach("s1", CWD);
+
+  const prepared = tracker.prepareAttempt("s1", 0);
+  tracker.streamClosed(CWD, token);
+  await prepared;
+  assert.equal(timer.scheduled, 0);
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("a gap after the stream connected but before the waiting attempt continues leaves the attempt incomplete", async () => {
+  const tracker = new CallEfficiencyTracker({ timer: new ManualTimer() });
+  const token: StreamToken = Symbol("stream");
+  tracker.streamOpening(CWD, token);
+  tracker.attach("s1", CWD);
+  const prepared = tracker.prepareAttempt("s1", 0);
+  tracker.streamConnected(CWD, token);
+  tracker.streamInterrupted(CWD, token);
+  await prepared;
+  recordSteps(tracker, "s1", stepIds("a"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, null);
+});
+
+test("the steps of an abandoned attempt never reach the next prompt's count", async () => {
+  const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("a", "b", "c"));
+  /* the prompt was abandoned (timeout, abort): no take() */
+  await tracker.prepareAttempt("s1", 0);
+  recordSteps(tracker, "s1", stepIds("d"));
+  assert.equal(tracker.take("s1", "")?.stepsUsed, 1);
+});
+
+test("preparing an attempt keeps the calls of an abandoned attempt in the next turn's counts", async () => {
+  const tracker = new CallEfficiencyTracker();
+  liveStream(tracker);
+  tracker.attach("s1", CWD);
+  await tracker.prepareAttempt("s1", 0);
+  runCall(tracker, "s1", "c1", "read", { filePath: "/mirrors/org__app/a.ts" });
+  await tracker.prepareAttempt("s1", 0);
+  runCall(tracker, "s1", "c2", "read", { filePath: "/mirrors/org__app/b.ts" });
+  assert.equal(tracker.take("s1", "")?.totalCalls, 2);
 });

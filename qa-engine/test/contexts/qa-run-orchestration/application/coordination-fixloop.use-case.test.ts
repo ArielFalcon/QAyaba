@@ -27,6 +27,7 @@ import {
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
+import { scriptedGeneration } from "../../../support/generation-output.ts";
 const MIRROR = "/tmp/qa-fixloop";
 const SPEC_DIR = `${MIRROR}/e2e`;
 
@@ -125,7 +126,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -183,7 +184,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -234,7 +235,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -306,7 +307,7 @@ test("an app login keeps FixLoop regen on the lead and never opens a sidekick se
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: failOnceThenPass(),
   });
@@ -353,7 +354,7 @@ test("a FixLoop sidekick whose claimed files are not on disk falls back to the l
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: failOnceThenPass(),
   });
@@ -397,7 +398,7 @@ test("a FixLoop sidekick reporting an unmet criterion is blocked and the regen f
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: failOnceThenPass(),
   });
@@ -441,7 +442,7 @@ test("a FixLoop sidekick reporting an unmet criterion is blocked and the regen f
 test("a FixLoop sidekick result without an acceptance report is recorded as a pushback contract finding", async () => {
   ensureFixedSpec();
   const ports = basePorts({
-    generate: async () => ({ specs: ["lead.spec.ts"], approved: true }),
+    generate: async () => (scriptedGeneration({ specs: ["lead.spec.ts"], approved: true })),
     execute: failOnceThenPass(),
   });
   const tel = new CoordinationTelemetryRecorder();
@@ -490,7 +491,7 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
     wallClockBudgetMs: 0,
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;

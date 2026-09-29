@@ -23,6 +23,7 @@ import type {
 import { ok } from "@kernel/result.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 
+import { scriptedGeneration } from "../../../support/generation-output.ts";
 /* so the adapter's own scenario tests are apples-to-apples with the use-case's own 10-scenario
    parity: same green-pr fixture semantics (scenarioApp needsReview:true, makeDeps({}) — generate()
    approved:true with 1 spec, execute() a clean pass, no coverage config, not shadow, onFailure
@@ -51,7 +52,7 @@ function stubPorts(overrides: Partial<{
     classify: overrides.classify ?? (async () => ({ action: "generate", reason: "diff touches src/x.ts", diff: "" })),
   };
   const generation: GenerationPort = {
-    generate: overrides.generate ?? (async () => ({ specs: ["a.spec.ts"], approved: true })),
+    generate: overrides.generate ?? (async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true }))),
   };
   const review: ReviewPort = {
     review: overrides.review ?? (async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true })),
@@ -152,7 +153,7 @@ const tenScenarios: TenScenarioCase[] = [
     scenario: "fail-issue",
     overrides: {
       execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
-      generate: async () => ({ specs: ["a.spec.ts"], approved: true }),
+      generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
     },
     config: baseConfig,
     input: {},
@@ -173,7 +174,7 @@ const tenScenarios: TenScenarioCase[] = [
      */
     scenario: "no-op-skip",
     overrides: {
-      generate: async () => ({ specs: [], approved: true }),
+      generate: async () => (scriptedGeneration({ specs: [], approved: true })),
     },
     config: baseConfig,
     input: {},
@@ -235,7 +236,7 @@ const tenScenarios: TenScenarioCase[] = [
      */
     scenario: "context",
     overrides: {
-      generate: async () => ({ specs: [".qa/context.json"], approved: true, note: "built map" }),
+      generate: async () => (scriptedGeneration({ specs: [".qa/context.json"], approved: true, note: "built map" })),
     },
     config: baseConfig,
     input: { mode: "context" },
@@ -335,7 +336,7 @@ test("valueScore is forwarded into the returned RunOutcome, not hardcoded null",
 test("errorClass is forwarded into the returned RunOutcome, not hardcoded null", async () => {
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" }], logs: "x" }),
-    generate: async () => ({ specs: ["a.spec.ts"], approved: true }),
+    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
   });
   const adapter = new RewrittenOrchestratorAdapter({ ...ports, config: baseConfig });
 

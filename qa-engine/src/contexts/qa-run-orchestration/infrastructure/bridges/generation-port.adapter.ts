@@ -1,7 +1,7 @@
 /* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). reexploreNavigations is omitted; FixLoop treats absent as 0. AbortSignal is forwarded into openSession. */
 
 import type { Objective } from "@kernel/objective.ts";
-import type { GenerationPort, GenerationEnrichment, RetrievedRule } from "../../application/ports/index.ts";
+import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
@@ -85,16 +85,6 @@ export interface GenerationPortCollaborators {
   readSpecSource?: (absolutePath: string) => Promise<string>;
 }
 
-export interface GenerationPortResult {
-  specs: string[];
-  approved: boolean;
-  note?: string;
-  specSources?: string[];
-  /* parsed: forwarded from GenerateTestsUseCase — FALSE means the agent runtime emitted no parseable verdict (empty/errored session), so the orchestrator can distinguish a genuine agent no-op from a runtime failure instead of silently skipping. See GenerationResult.parsed's own doc. */
-  parsed?: boolean;
-  specMetas?: { flow?: string; objective?: string }[];
-}
-
 export class GenerationPortAdapter implements GenerationPort {
   constructor(
     private readonly useCase: GenerateTestsUseCase,
@@ -102,7 +92,7 @@ export class GenerationPortAdapter implements GenerationPort {
     private readonly collaborators: GenerationPortCollaborators = {},
   ) {}
 
-  async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationPortResult> {
+  async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
     const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
     const input: OpencodeRunInput = {
       repo: this.ctx.repo,
@@ -151,11 +141,14 @@ export class GenerationPortAdapter implements GenerationPort {
 
     const generated = await this.useCase.generate(input, { ...(signal ? { signal } : {}) });
 
-    const result: GenerationPortResult = {
+    const result: GenerationOutput = {
       specs: generated.specs,
+      end: generated.end,
+      reviewed: generated.reviewed,
       approved: generated.approved,
       ...(generated.note !== undefined ? { note: generated.note } : {}),
       ...(generated.parsed !== undefined ? { parsed: generated.parsed } : {}),
+      ...(generated.turn ? { turn: generated.turn } : {}),
       ...(generated.specMetas?.length
         ? { specMetas: generated.specMetas.map((m) => ({ flow: m.flow, objective: m.objective })) }
         : {}),

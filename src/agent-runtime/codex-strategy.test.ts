@@ -210,6 +210,42 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding", () => {
     );
     await session.dispose();
   });
+
+  it("finalStepOnly: true → the returned text drops reasoning wrappers, while the persisted turn keeps the whole output", async () => {
+    const { transport } = makeCapturingTransport();
+    const strategy = new CodexRuntimeStrategy({
+      transport,
+      promptRoot: "/nonexistent/prompts",
+      env: { CODEX_API_KEY: "test-key" },
+    });
+    const persisted: string[] = [];
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-final-step", role: "primary" as const },
+      onTurn: (t) => { persisted.push(t.outputText); },
+    });
+
+    const result = await session.prompt("say hello", { finalStepOnly: true });
+
+    assert.ok(!result.includes("<think>"), `finalStepOnly must strip <think>…</think> wrappers. Got: ${result}`);
+    assert.ok(result.includes("final answer text"), `finalStepOnly must keep the answer. Got: ${result}`);
+    assert.equal(persisted.length, 1);
+    assert.ok(persisted[0]!.includes("internal reasoning step"), "the persisted output is unchanged by finalStepOnly");
+    await session.dispose();
+  });
+
+  it("a Codex turn never calls the stats callback: it has no step concept", async () => {
+    const { transport } = makeCapturingTransport();
+    const strategy = new CodexRuntimeStrategy({
+      transport,
+      promptRoot: "/nonexistent/prompts",
+      env: { CODEX_API_KEY: "test-key" },
+    });
+    let called = false;
+    const session = await strategy.openSession("primary", "/tmp", {});
+    await session.prompt("say hello", { finalStepOnly: true, onTurnStats: () => { called = true; } });
+    assert.equal(called, false);
+    await session.dispose();
+  });
 });
 
 describe("CodexRuntimeStrategy.startEventStream", () => {

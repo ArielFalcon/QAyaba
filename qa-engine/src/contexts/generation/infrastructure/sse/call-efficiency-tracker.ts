@@ -5,11 +5,22 @@
  * a turn's prompt resolves, `take()` returns that turn's `TurnCallMetrics` — the
  * delta since the same session's previous flush.
  *
- * Measure-only and isolated: it tracks only sessions attached through
- * `registerRunSession`, never feeds any decision (the progress gate's
- * reexplore counter is deliberately NOT fed from here), and a fault while
- * recording poisons that ONE session (its metrics become null) instead of
- * throwing into the SSE loop or the prompt path.
+ * Isolated: it tracks only sessions attached through `registerRunSession`, never feeds the
+ * progress gate (whose reexplore counter is deliberately NOT fed from here), and a fault while
+ * recording poisons that ONE session (its metrics become null) instead of throwing into the SSE
+ * loop or the prompt path.
+ *
+ * `stepsUsed` feeds the exhaustion decision: an incomplete observation yields `null`, never an
+ * undercount. A turn's steps are complete only when the event stream for its directory was live
+ * for the whole attempt. Each stream reports its lifecycle with a token (the directory's current
+ * stream is the last one opened; events from any other token are ignored): opening, connected
+ * (the first `server.connected`), interrupted (the SDK's own error callback, before it silently
+ * reconnects) and closed. Anything that can lose events is a gap for every session attached to
+ * that directory: an interruption, a second `server.connected` on a live stream, a close, a
+ * stream replaced before it closed. `prepareAttempt` opens each attempt: it waits, bounded, for
+ * a stream that is still opening, and only a fresh first attempt on a live stream is complete.
+ * A half-open connection that has not errored by the time `take()` runs can still undercount;
+ * the exhaustion notice in the final step remains the veto for that case.
  */
 import { resolve } from "node:path";
 import type { RawOpencodeEvent } from "./activity-mapper.ts";
@@ -46,8 +57,41 @@ interface TrackedCall {
   sample?: string[];
 }
 
+/** How long an attempt waits for its directory's stream to connect before it is observed incompletely. */
+export const OBSERVATION_READY_TIMEOUT_MS = 5_000;
+
+/** Identifies one stream connection attempt of a directory; only the directory's latest token is heard. */
+export type StreamToken = symbol;
+
+export interface TrackerTimer {
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const realTimer: TrackerTimer = {
+  setTimeout: globalThis.setTimeout.bind(globalThis),
+  clearTimeout: globalThis.clearTimeout.bind(globalThis),
+};
+
+/** What the event loop tells the tracker about the stream it runs, so a session's step count knows when events may have been lost. */
+export interface StreamLifecycleSink {
+  streamOpening(directory: string, token: StreamToken): void;
+  streamConnected(directory: string, token: StreamToken): void;
+  streamInterrupted(directory: string, token: StreamToken): void;
+  streamClosed(directory: string, token: StreamToken): void;
+}
+
+interface DirectoryStream {
+  token: StreamToken;
+  state: "opening" | "live" | "interrupted";
+  /** Attempts waiting for the stream to connect; each is told whether it did. */
+  waiters: Set<(live: boolean) => void>;
+}
+
 interface SessionState {
   cwd: string;
+  /** Whether every step of the attempt in flight was observed. */
+  stepsComplete: boolean;
   poisoned: boolean;
   /** Distinct callIds in the order they were first seen running or completed. */
   order: string[];
@@ -64,9 +108,10 @@ function pathOf(input: unknown, cwd: string): string | undefined {
   return named === undefined ? undefined : resolve(cwd, named);
 }
 
-function newSession(cwd: string): SessionState {
+function newSession(cwd: string, stepsComplete: boolean): SessionState {
   return {
     cwd,
+    stepsComplete,
     poisoned: false,
     order: [],
     calls: new Map(),
@@ -85,16 +130,102 @@ function toReadWriteEvent(call: TrackedCall): ReadWriteEvent {
   return { callId: call.callId, status: "completed", bucket: call.bucket, tool: call.tool, ...(call.path ? { path: call.path } : {}), ...(call.window ? { window: call.window } : {}) };
 }
 
-export class CallEfficiencyTracker {
+export class CallEfficiencyTracker implements StreamLifecycleSink {
   private readonly sessions = new Map<string, SessionState>();
+  private readonly streams = new Map<string, DirectoryStream>();
+  private readonly timer: TrackerTimer;
 
-  /** Starts tracking a session; events for any session not attached here are ignored. `cwd` resolves relative tool paths. */
+  constructor(options: { timer?: TrackerTimer } = {}) {
+    this.timer = options.timer ?? realTimer;
+  }
+
+  /** Starts tracking a session; events for any session not attached here are ignored. `cwd` resolves relative tool paths. The session inherits the liveness of its directory's stream. */
   attach(sessionId: string, cwd: string): void {
-    this.sessions.set(sessionId, newSession(cwd));
+    this.sessions.set(sessionId, newSession(cwd, this.streams.get(cwd)?.state === "live"));
   }
 
   clear(sessionId: string): void {
     this.sessions.delete(sessionId);
+  }
+
+  /** A stream that opens replaces any earlier one of the directory (which may not have closed yet), so attempts already in flight lose their footing. */
+  streamOpening(directory: string, token: StreamToken): void {
+    this.markGap(directory);
+    this.streams.set(directory, { token, state: "opening", waiters: this.streams.get(directory)?.waiters ?? new Set() });
+  }
+
+  streamConnected(directory: string, token: StreamToken): void {
+    const stream = this.currentStream(directory, token);
+    if (!stream) return;
+    if (stream.state === "live") {
+      this.markGap(directory);
+      return;
+    }
+    stream.state = "live";
+    this.releaseWaiters(stream, true);
+  }
+
+  streamInterrupted(directory: string, token: StreamToken): void {
+    const stream = this.currentStream(directory, token);
+    if (!stream) return;
+    stream.state = "interrupted";
+    this.markGap(directory);
+  }
+
+  streamClosed(directory: string, token: StreamToken): void {
+    const stream = this.currentStream(directory, token);
+    if (!stream) return;
+    this.streams.delete(directory);
+    this.markGap(directory);
+    this.releaseWaiters(stream, false);
+  }
+
+  /**
+   * Opens an attempt of a prompt on the session. The attempt is incomplete unless it is the first
+   * one (a fallback attempt re-runs the prompt, so its steps and the first attempt's cannot be
+   * told apart) and its directory's stream is live — waiting, bounded, for one still opening.
+   * Steps of an earlier, abandoned attempt never reach this prompt's count. A session that was
+   * never attached has nothing to observe.
+   */
+  async prepareAttempt(sessionId: string, attempt: number): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    session.stepsComplete = false;
+    if (attempt > 0) return;
+    session.flushedSteps = session.stepStarts.size;
+    const stream = this.streams.get(session.cwd);
+    if (stream?.state === "live") session.stepsComplete = true;
+    else if (stream?.state === "opening") await this.waitForLive(stream, (live) => { session.stepsComplete = live; });
+  }
+
+  private currentStream(directory: string, token: StreamToken): DirectoryStream | undefined {
+    const stream = this.streams.get(directory);
+    return stream?.token === token ? stream : undefined;
+  }
+
+  /** Events may have been lost: every attempt in flight on this directory is incomplete. */
+  private markGap(directory: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.cwd === directory) session.stepsComplete = false;
+    }
+  }
+
+  private releaseWaiters(stream: DirectoryStream, live: boolean): void {
+    for (const settle of [...stream.waiters]) settle(live);
+  }
+
+  /** Resolves once the stream connects, closes or the readiness bound passes; `onSettled` runs at that very moment, before anything else can happen to the stream. */
+  private waitForLive(stream: DirectoryStream, onSettled: (live: boolean) => void): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const settle = (live: boolean): void => {
+        this.timer.clearTimeout(handle);
+        stream.waiters.delete(settle);
+        onSettled(live);
+        resolve();
+      };
+      const handle = this.timer.setTimeout(() => settle(false), OBSERVATION_READY_TIMEOUT_MS);
+      stream.waiters.add(settle);
+    });
   }
 
   /** Never throws: a fault poisons only the affected session. */
@@ -172,7 +303,8 @@ export class CallEfficiencyTracker {
       buckets: turnCalls.map((call) => call.bucket),
       redundantReadCount: turnCalls.filter((call) => redundant.has(call.callId)).length,
       promptProvidedReadCount: turnCalls.filter((call) => call.sample && isProvidedByPrompt(call.sample, promptIndex)).length,
-      stepsUsed: newSteps > 0 ? newSteps : null,
+      stepsUsed: session.stepsComplete && newSteps > 0 ? newSteps : null,
+      observationComplete: session.stepsComplete,
     });
 
     session.flushedCalls = calls.length;

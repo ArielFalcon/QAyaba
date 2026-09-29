@@ -1,14 +1,17 @@
-/* Generate-tests use case. Review is fail-closed: an unparseable verdict is approved:false. A parse miss (parsed:false) is distinct from an explicit rejection. One bounded generator repair and one bounded reviewer repair. */
-import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
+/* Generate-tests use case. Review is fail-closed: an unparseable verdict is approved:false. A parse miss (parsed:false) is distinct from an explicit rejection. One bounded generator repair and one bounded reviewer repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
+import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type {
   PromptRenderingPort,
   VerdictParserPort,
   ManifestRepositoryPort,
   PromptBudgetPort,
   ManifestEntry,
+  GeneratorDeliverable,
 } from "./ports/index.ts";
 import type { OpencodeRunInput, ReviewInput } from "./ports/generation-ports.ts";
+import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -30,9 +33,14 @@ export interface GenerationResult {
   specMetas?: ManifestEntry[];
   approved: boolean;
   reviewed: boolean;
+  /** For a generation that ended without specs, the explanation the run records: the agent's own reason for a declared no-op, otherwise what happened, what the turn measured and the end of its output. */
   note?: string;
-  /* parsed: did the GENERATOR emit a parseable closing verdict at all (VerdictParserPort.parseGenerator's own `parsed`)? FALSE means the agent runtime returned no usable output — an empty/errored session (provider quota exhausted, timeout, model refusal, runtime outage), NOT a deliberate agent no-op. The orchestrator uses this to keep the "approved + zero specs -> skipped" no-op invariant from swallowing a runtime failure into a silent "no test-worthy change" skip (surface-integration-errors -loudly invariant). */
+  /* parsed: did the GENERATOR emit a parseable closing verdict at all (VerdictParserPort.parseGenerator's own `parsed`)? FALSE means the agent runtime returned no usable output — an empty/errored session (provider quota exhausted, timeout, model refusal, runtime outage), NOT a deliberate agent no-op. */
   parsed?: boolean;
+  /** How the generation ended. Only a declared no-op is a decision to write nothing; a generation that ran out of steps or decided nothing never reads as one. */
+  end: GenerationEndKind;
+  /** What the generation's MAIN turn measured, when its runtime can measure a turn (Codex cannot). */
+  turn?: AgentTurnStats;
 }
 
 export interface GenerateOpts {
@@ -55,17 +63,25 @@ export class GenerateTestsUseCase {
       descriptor: { runId: input.runId, role: "qa-generator" },
     });
     let generatorOutput: string;
+    let mainTurn: AgentTurnStats | undefined;
+    let repairTurn: AgentTurnStats | undefined;
     try {
-      const result = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes });
+      /* The verdict is read from the final step's text alone: what the agent recalled or quoted on the way is not its conclusion. */
+      const result = await session.prompt(assembled.text, {
+        sectionSizes: assembled.sectionSizes,
+        finalStepOnly: true,
+        onTurnStats: (stats) => { mainTurn = stats; },
+      });
       generatorOutput = result.output;
 
-      if (repair) {
+      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request. */
+      if (repair && mainTurn?.exhausted !== true) {
         const genCheck = repair.checkGenerator(generatorOutput);
         if (!genCheck.valid) {
           opts?.onRepair?.();
           const repairResult = await session.prompt(
             repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-            { isRepair: true },
+            { isRepair: true, finalStepOnly: true, onTurnStats: (stats) => { repairTurn = stats; } },
           );
           generatorOutput = repairResult.output;
         }
@@ -73,6 +89,9 @@ export class GenerateTestsUseCase {
     } finally {
       await session.dispose();
     }
+    /* Only a turn known to have hit its limit counts: an unknown exhaustion is not exhaustion. */
+    const mainExhausted = mainTurn?.exhausted === true;
+    const repairExhausted = repairTurn?.exhausted === true;
 
     /* Spec paths are suite-relative (as the runner reports failing files); a code-target run has no suite dir to resolve names against. */
     const specDir = `${input.mirrorDir}/${input.e2eRelDir}`;
@@ -91,13 +110,22 @@ export class GenerateTestsUseCase {
     }));
     const reconciledEntries = input.target === "code" ? rawEntries : await manifest.reconcile(specDir, rawEntries);
 
+    const end = classifyGenerationEnd({
+      specCount: deliverable.specs.length,
+      parsed: deliverable.parsed !== false,
+      noopReason: deliverable.noopReason,
+      exhausted: mainExhausted || repairExhausted,
+    });
+    const note = noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
+    const outcome = { end, note, ...(mainTurn ? { turn: mainTurn } : {}) };
+
     if (!input.needsReview) {
       return {
         specs: deliverable.specs,
         reviewed: false,
         approved: true,
-        note: deliverable.note,
         parsed: deliverable.parsed,
+        ...outcome,
       };
     }
 
@@ -160,8 +188,23 @@ export class GenerateTestsUseCase {
       specMetas: reconciledEntries,
       reviewed: true,
       approved,
-      note: approved ? undefined : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
       parsed: deliverable.parsed,
+      ...outcome,
+      note: approved ? outcome.note : (reviewJudgment.rationale ?? "the reviewer did not approve the E2E tests"),
     };
+  }
+}
+
+/** The note a generation carries: an explanation for the ends that stop a run without specs, otherwise whatever the agent noted. */
+function noteFor(end: GenerationEndKind, deliverable: GeneratorDeliverable, turn: AgentTurnStats | undefined, repairExhausted: boolean): string | undefined {
+  switch (end) {
+    case GENERATION_END.DECLARED_NOOP:
+      return renderGenerationNote({ end, noopReason: deliverable.noopReason ?? "" });
+    case GENERATION_END.EXHAUSTED:
+    case GENERATION_END.UNDECIDED_EMPTY:
+      return renderGenerationNote({ end, ...(turn ? { turn } : {}), outputTail: deliverable.outputTail ?? "", repairExhausted });
+    case GENERATION_END.DELIVERED:
+    case GENERATION_END.NO_VERDICT:
+      return deliverable.note;
   }
 }

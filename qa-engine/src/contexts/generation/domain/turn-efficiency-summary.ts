@@ -19,7 +19,10 @@ export interface TurnStepBudget {
 
 export interface TurnCallMetrics {
   totalCalls: number;
+  /** Steps the turn opened; null unless every one of them was observed. */
   stepsUsed: number | null;
+  /** Whether the turn's tool calls and steps were all observed. Held in memory for the turn's stats; not persisted. */
+  observationComplete: boolean;
   callsBeforeFirstWrite: number;
   writeCount: number;
   redundantReadCount: number;
@@ -52,6 +55,7 @@ export interface BuildTurnCallMetricsInput {
   redundantReadCount: number;
   promptProvidedReadCount: number;
   stepsUsed: number | null;
+  observationComplete: boolean;
 }
 
 /** Assembles the pinned `TurnCallMetrics` shape from a `CallSequenceSummary`
@@ -61,6 +65,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
   return {
     totalCalls: input.sequence.totalCalls,
     stepsUsed: input.stepsUsed,
+    observationComplete: input.observationComplete,
     callsBeforeFirstWrite: input.sequence.callsBeforeFirstWrite,
     writeCount: input.sequence.writeCount,
     redundantReadCount: input.redundantReadCount,

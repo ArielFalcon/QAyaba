@@ -15,6 +15,7 @@ import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTre
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { Sha } from "@kernel/sha";
@@ -1535,6 +1536,118 @@ test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
   }
+});
+
+/*
+ * The stats seam end to end: a real transport (createAgentDeps over a fake raw transport) under the
+ * same wrapper chain the factory composes, driven by the composed generation use case. The tracker is
+ * a destructive fake — only the first flush sees the turn — so the callback's stats and the persisted
+ * turn can agree only if the transport flushed once and handed the same values to both.
+ */
+async function generateThroughTransport(
+  parts: Array<{ type: string; text?: string }>,
+  tracker: { take: () => import("@contexts/generation/domain/turn-efficiency-summary").TurnCallMetrics | null },
+  maxSteps: number,
+): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildRewrittenCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+  const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
+  const base = createAgentDeps(
+    {
+      createSession: async () => ({ id: `factory-stats-session-${Math.random().toString(36).slice(2)}` }),
+      promptSession: async () => ({ parts }),
+      abortSession: async () => {},
+      deleteSession: async () => {},
+    },
+    {
+      defaultPromptTimeoutMs: 5_000,
+      getFallbackModel: () => undefined,
+      persistTurn: (turn) => persisted.push(turn),
+      takeTurnCalls: () => tracker.take(),
+      maxStepsFor: () => maxSteps,
+    },
+  );
+  const config = buildRewrittenCompositionConfig(
+    cfg("factory-turn-stats"),
+    {
+      getAgentDeps: () =>
+        withUsageSink(
+          withStallWatchdog(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession }), { stallMs: 180_000 }),
+        ),
+    },
+    "qa-bot-abc1234-runStats",
+    { mode: "diff" },
+  );
+  const result = await config.generationUseCase.generate({
+    repo: "org/demo",
+    sha: "abc1234",
+    diff: "d",
+    mirrorDir: "/mirrors/org/app",
+    e2eRelDir: "e2e",
+    namespace: "ns",
+    needsReview: false,
+    target: "e2e",
+    mode: "diff",
+    appName: "factory-turn-stats",
+    runId: "run-factory-stats",
+  });
+  return { result, persisted };
+}
+
+const CALL_METRICS = {
+  totalCalls: 9,
+  stepsUsed: 30,
+  observationComplete: true,
+  callsBeforeFirstWrite: 9,
+  writeCount: 0,
+  redundantReadCount: 1,
+  duplicateCallCount: 0,
+  promptProvidedReadCount: 0,
+  buckets: { code_read: 9, browser: 0, write: 0, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+};
+
+test("a generation's stats and the turn persisted for it carry the same values, through the whole wrapper chain and a tracker that can be flushed once", async () => {
+  let flushes = 0;
+  const { result, persisted } = await generateThroughTransport(
+    [{ type: "step-start" }, { type: "text", text: "Maximum steps for this agent have been reached." }],
+    { take: () => (flushes++ === 0 ? CALL_METRICS : null) },
+    30,
+  );
+  const row = persisted.find((t) => !t.isRepair)!;
+  assert.ok(result.turn, "the stats reached the use case's result");
+  assert.equal(result.turn.maxSteps, row.stepBudget?.maxSteps);
+  assert.equal(result.turn.stepsUsed, row.callMetrics?.stepsUsed);
+  assert.equal(result.turn.exhausted, row.stepBudget?.exhausted);
+  assert.equal(result.turn.writeCount, row.callMetrics?.writeCount);
+  assert.equal(result.turn.observationComplete, row.callMetrics?.observationComplete);
+  assert.equal(result.turn.stepsUsed, CALL_METRICS.stepsUsed, "the values are the flushed ones, not defaults");
+  assert.equal(result.turn.exhausted, true);
+});
+
+test("a generation that ran out of steps ends exhausted and is never sent a repair, through the whole wrapper chain", async () => {
+  const { result, persisted } = await generateThroughTransport(
+    [{ type: "step-start" }, { type: "text", text: "Maximum steps for this agent have been reached." }],
+    { take: () => CALL_METRICS },
+    30,
+  );
+  assert.equal(result.end, "exhausted");
+  assert.equal(persisted.filter((t) => t.isRepair).length, 0, "the exhausted session was not asked to re-emit its verdict");
+  assert.match(result.note ?? "", /30\/30/);
+});
+
+test("only the final step's text is read as the generator's verdict, through the whole wrapper chain", async () => {
+  const { result } = await generateThroughTransport(
+    [
+      { type: "step-start" },
+      { type: "text", text: '{"specs":["flows/earlier.spec.ts"]}' },
+      { type: "step-start" },
+      { type: "reasoning", text: "the previous turn hit max steps" },
+      { type: "text", text: '{"specs":["flows/final.spec.ts"]}' },
+    ],
+    { take: () => ({ ...CALL_METRICS, stepsUsed: 2 }) },
+    30,
+  );
+  assert.deepEqual(result.specs, ["flows/final.spec.ts"]);
+  assert.equal(result.end, "delivered");
+  assert.equal(result.turn?.exhausted, false, "the reasoning that recalls hitting max steps is not the turn's ending");
 });
 
 test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompositionConfig directly) composes the SAME wrap chain end-to-end", () => {

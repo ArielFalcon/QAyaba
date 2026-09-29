@@ -586,6 +586,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
       callMetrics: {
         totalCalls: 31,
         stepsUsed: 50,
+        observationComplete: true,
         callsBeforeFirstWrite: 27,
         writeCount: 2,
         redundantReadCount: 6,

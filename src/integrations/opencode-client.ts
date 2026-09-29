@@ -257,17 +257,26 @@ export function disposeSharedClient(): void {
 }
 
 
-const rawEventStreamOpener: RawEventStreamOpener = {
-  open: async (directory, signal) => {
-    const client = await getEventClient();
-    /* Forward the caller's AbortSignal into the SDK's own fetch-based SSE options (not the
-       `{ directory }` query parameters) so detach()/closeAll() actually tears down the
-       underlying HTTP connection instead of only stopping this side from consuming it. */
-    const result = await client.event.subscribe({ directory }, { signal });
-    return result.stream as AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined;
-  },
-};
-setRawEventStreamOpener(rawEventStreamOpener);
+/* What the raw event-stream opener needs from the SDK, injected so its use of the SDK's stream options is testable over a faked network. */
+export interface EventStreamOpenerDeps {
+  getEventClient(): Promise<Pick<Awaited<ReturnType<typeof getEventClient>>, "event">>;
+}
+
+export function createRawEventStreamOpener(deps: EventStreamOpenerDeps): RawEventStreamOpener {
+  return {
+    open: async (directory, signal, onSseError) => {
+      const client = await deps.getEventClient();
+      /* Forward the caller's AbortSignal into the SDK's own fetch-based SSE options (not the
+         `{ directory }` query parameters) so detach()/closeAll() actually tears down the
+         underlying HTTP connection instead of only stopping this side from consuming it.
+         The SDK reconnects a failed connection by itself and never surfaces the failure through
+         the returned iterable; `onSseError` is the only place the drop is visible. */
+      const result = await client.event.subscribe({ directory }, { signal, ...(onSseError ? { onSseError } : {}) });
+      return result.stream as AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined;
+    },
+  };
+}
+setRawEventStreamOpener(createRawEventStreamOpener({ getEventClient }));
 
 
 export function getOpenSessions(): ReturnType<typeof engineGetOpenSessions> {
@@ -484,6 +493,7 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     getFallbackModel,
     persistTurn: saveAgentTurnEvent,
     takeTurnCalls: (sessionId, promptText) => callEfficiencyTracker.take(sessionId, promptText),
+    prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: maxStepsFromConfig,
   });
 }

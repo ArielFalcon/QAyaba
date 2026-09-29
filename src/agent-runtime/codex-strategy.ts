@@ -294,6 +294,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * Used by chat/Q&A so the operator receives only the final answer without reasoning traces.
          */
         const output = promptOpts?.textOnly ? stripCodexReasoningWrappers(rawOutput) : rawOutput;
+        /*
+         * finalStepOnly: the caller wants what the agent concluded with, not the reasoning it wrote on
+         * the way. `codex exec` returns only its final message, so the same wrapper stripping is all
+         * there is to do. The persisted turn is unchanged by it.
+         */
+        const returned = promptOpts?.finalStepOnly ? stripCodexReasoningWrappers(rawOutput) : output;
         if (effectiveOnTurn) {
           effectiveOnTurn({
             runId: opts?.descriptor?.runId ?? null,
@@ -318,7 +324,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             callMetrics: null,
           });
         }
-        return output;
+        return returned;
       },
       dispose: () => session.dispose(),
     };

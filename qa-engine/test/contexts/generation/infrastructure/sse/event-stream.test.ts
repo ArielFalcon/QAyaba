@@ -7,13 +7,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   startEventStreamWithReconnect,
+  startScopedEventStream,
   startActivitySink,
   registerRunSession,
   unregisterRunSession,
   EventStreamManager,
   setRawEventStreamOpener,
 } from "@contexts/generation/infrastructure/sse/event-stream.ts";
-import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import {
+  callEfficiencyTracker,
+  type StreamLifecycleSink,
+  type StreamToken,
+} from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import { registerSessionWatchdogNotify, unregisterSessionWatchdogNotify } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 
 test("startEventStreamWithReconnect retries after a stream error until aborted", async () => {
@@ -255,4 +260,134 @@ test("a tracking fault on one session neither starves any session's watchdog nor
   assert.deepEqual(notified, ["bad", "good", "bad", "good"], "every event must keep its watchdog alive, whatever the tracker does");
   assert.equal(badMetrics, null);
   assert.equal(goodMetrics!.totalCalls, 2);
+});
+
+interface LifecycleCall {
+  kind: "opening" | "connected" | "interrupted" | "closed";
+  directory: string;
+  token: StreamToken;
+}
+
+/** Records the stream lifecycle a scoped stream reports, in order. */
+class RecordingLifecycle implements StreamLifecycleSink {
+  readonly calls: LifecycleCall[] = [];
+  streamOpening(directory: string, token: StreamToken): void { this.calls.push({ kind: "opening", directory, token }); }
+  streamConnected(directory: string, token: StreamToken): void { this.calls.push({ kind: "connected", directory, token }); }
+  streamInterrupted(directory: string, token: StreamToken): void { this.calls.push({ kind: "interrupted", directory, token }); }
+  streamClosed(directory: string, token: StreamToken): void { this.calls.push({ kind: "closed", directory, token }); }
+  get kinds(): string[] { return this.calls.map((c) => c.kind); }
+}
+
+const DIR = "/m/lifecycle";
+const connectedEvent = { type: "server.connected", properties: {} };
+
+async function runScopedStream(
+  opener: (lifecycle: RecordingLifecycle) => RawEventStreamOpenerOpen,
+  signal?: AbortSignal,
+): Promise<RecordingLifecycle> {
+  const lifecycle = new RecordingLifecycle();
+  const restore = setRawEventStreamOpener({ open: opener(lifecycle) });
+  try {
+    await startScopedEventStream(DIR, () => {}, signal, undefined, lifecycle);
+  } finally {
+    restore();
+  }
+  return lifecycle;
+}
+
+type RawEventStreamOpenerOpen = Parameters<typeof setRawEventStreamOpener>[0]["open"];
+
+function streamOf(events: unknown[]): AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> {
+  return (async function* () {
+    for (const event of events) yield event as { type?: string; properties?: Record<string, unknown> };
+  })();
+}
+
+test("a stream that runs to a clean end is opened, connected by its first event and closed, all under one token", async () => {
+  const lifecycle = await runScopedStream(() => async () => streamOf([connectedEvent, toolPartEvent("s", "c1", "read", {})]));
+  assert.deepEqual(lifecycle.kinds, ["opening", "connected", "closed"]);
+  assert.equal(new Set(lifecycle.calls.map((c) => c.token)).size, 1);
+  assert.ok(lifecycle.calls.every((c) => c.directory === DIR));
+});
+
+test("the stream is reported opening before the opener is asked for it, so a waiting attempt can see it", async () => {
+  let seenWhenOpening: string[] = [];
+  await runScopedStream((lifecycle) => async () => {
+    seenWhenOpening = lifecycle.kinds;
+    return streamOf([]);
+  });
+  assert.deepEqual(seenWhenOpening, ["opening"]);
+});
+
+test("every connection reports its own token", async () => {
+  const first = await runScopedStream(() => async () => streamOf([connectedEvent]));
+  const second = await runScopedStream(() => async () => streamOf([connectedEvent]));
+  assert.notEqual(first.calls[0]!.token, second.calls[0]!.token);
+});
+
+test("a second connected event on the same stream is reported again", async () => {
+  const lifecycle = await runScopedStream(() => async () => streamOf([connectedEvent, connectedEvent]));
+  assert.deepEqual(lifecycle.kinds, ["opening", "connected", "connected", "closed"]);
+});
+
+test("a stream that the opener cannot open is closed under its token and the opener's error still propagates", async () => {
+  const lifecycle = new RecordingLifecycle();
+  const restore = setRawEventStreamOpener({ open: async () => { throw new Error("opener down"); } });
+  try {
+    await assert.rejects(() => startScopedEventStream(DIR, () => {}, undefined, undefined, lifecycle), /opener down/);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(lifecycle.kinds, ["opening", "closed"]);
+  assert.equal(lifecycle.calls[0]!.token, lifecycle.calls[1]!.token);
+});
+
+test("an opener that returns no stream still closes the stream it announced", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  const lifecycle = await runScopedStream(() => async () => undefined);
+  assert.deepEqual(lifecycle.kinds, ["opening", "closed"]);
+});
+
+test("a stream aborted mid-way is closed", async () => {
+  const controller = new AbortController();
+  const lifecycle = await runScopedStream(
+    () => async () =>
+      (async function* () {
+        yield connectedEvent;
+        controller.abort();
+        yield toolPartEvent("s", "c1", "read", {});
+      })(),
+    controller.signal,
+  );
+  assert.deepEqual(lifecycle.kinds, ["opening", "connected", "closed"]);
+});
+
+test("a stream whose iteration fails is closed, and the failure is logged rather than thrown", async (t) => {
+  const warned = t.mock.method(console, "warn", () => {});
+  const lifecycle = await runScopedStream(
+    () => async () =>
+      (async function* () {
+        yield connectedEvent;
+        throw new Error("socket reset");
+      })(),
+  );
+  assert.deepEqual(lifecycle.kinds, ["opening", "connected", "closed"]);
+  assert.match(String(warned.mock.calls[0]?.arguments[0]), /socket reset/);
+});
+
+test("a stream attempted before an opener is wired throws without announcing anything", async () => {
+  const lifecycle = new RecordingLifecycle();
+  const restoreEmpty = setRawEventStreamOpener({ open: async () => undefined });
+  restoreEmpty(); /* the previously wired opener (none) is put back */
+  await assert.rejects(() => startScopedEventStream(DIR, () => {}, undefined, undefined, lifecycle), /no RawEventStreamOpener wired/);
+  assert.deepEqual(lifecycle.kinds, []);
+});
+
+test("the opener is handed a callback that reports the stream interrupted under its token", async () => {
+  const lifecycle = await runScopedStream(() => async (_directory, _signal, onSseError) => {
+    onSseError?.(new Error("connection reset"));
+    return streamOf([connectedEvent]);
+  });
+  assert.deepEqual(lifecycle.kinds, ["opening", "interrupted", "connected", "closed"]);
+  assert.equal(new Set(lifecycle.calls.map((c) => c.token)).size, 1);
 });

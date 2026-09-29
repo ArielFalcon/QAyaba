@@ -2,6 +2,7 @@
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resilience/circuit-breaker.ts";
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
+import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "./sanitize-text.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
 import { finalStepText } from "../domain/step-exhaustion.ts";
@@ -44,10 +45,7 @@ export interface AgentTurnEvent {
 
 export interface AgentSession {
   id: string;
-  prompt(
-    text: string,
-    opts?: { textOnly?: boolean; round?: number; isRepair?: boolean; sectionSizes?: Record<string, number> | null },
-  ): Promise<string>;
+  prompt(text: string, opts?: AgentPromptOpts): Promise<string>;
   dispose(): Promise<void>;
   selfTimed?: boolean;
 }
@@ -202,6 +200,12 @@ export interface AgentDepsCollaborators {
    * (null when the session was not observed). Shell-injected: this module cannot import the SSE tracker (event-stream.ts already imports this one).
    */
   takeTurnCalls?(sessionId: string, promptText: string): TurnCallMetrics | null;
+  /**
+   * Opens attempt `attempt` (0 for the primary model, 1 for the fallback retry) of a prompt on the session, before it is sent:
+   * the tracker decides there whether that attempt's steps can be observed completely, waiting a bounded time for its event stream
+   * if need be. A failure is logged and leaves the attempt unobserved. Shell-injected like takeTurnCalls.
+   */
+  prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
   /** The agent's configured step limit (agents/opencode.json `agent.<id>.maxSteps`), or undefined when it has none. Shell-injected like getFallbackModel. */
   maxStepsFor?(agent: string): number | undefined;
 }
@@ -229,6 +233,10 @@ function measureOrNull<T>(label: string, measure: () => T): T | null {
  * The provider key is a sentinel no agent role uses.
  */
 const TRANSPORT_BREAKER_KEY = "<agent-transport>";
+
+/* A prompt runs on the primary model first (attempt 0) and, when that faults transiently, once more on the fallback model (attempt 1). */
+const PRIMARY_ATTEMPT = 0;
+const FALLBACK_ATTEMPT = 1;
 
 async function countingTransportFailure<T>(call: () => Promise<T>): Promise<T> {
   try {
@@ -275,6 +283,20 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
 
       let _round = 0;
 
+      /* Opens an attempt on the tracker; false when that failed, so the attempt's steps are known to be unobserved. */
+      const prepareAttempt = (sessionId: string, attempt: number): Promise<boolean> => {
+        if (!collab.prepareAttempt) return Promise.resolve(true);
+        return Promise.resolve()
+          .then(() => collab.prepareAttempt!(sessionId, attempt))
+          .then(
+            () => true,
+            (err: unknown) => {
+              console.error(`[qa] turn efficiency: preparing attempt ${attempt} failed, its steps are unobserved: ${err instanceof Error ? err.message : String(err)}`);
+              return false;
+            },
+          );
+      };
+
       return {
         id,
         prompt: (text, promptOpts) =>
@@ -283,12 +305,15 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
               checkCircuit(TRANSPORT_BREAKER_KEY);
               checkCircuit(breakerRole);
               const thisRound = _round++;
-              const runPrompt = (modelOverride?: string) => {
+              const runPrompt = (attempt: number, modelOverride?: string) => {
                 const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
-                return countingTransportFailure(() =>
-                  raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
-                )
-                  .then((res) => {
+                return prepareAttempt(id, attempt)
+                  .then((observed) =>
+                    countingTransportFailure(() =>
+                      raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
+                    ).then((res) => ({ res, observed })),
+                  )
+                  .then(({ res, observed }) => {
                     recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
                     if (res.agentError) {
                       throw agentErrorToInfra(res.agentError);
@@ -306,16 +331,18 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       opts?.onUsage?.(snapshot);
                     }
                     const outputRaw = extractText(res.parts, promptOpts);
-                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer reads these same values. */
-                    const callMetrics = collab.takeTurnCalls
+                    const finalText = finalStepText(res.parts);
+                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
+                    const flushed = collab.takeTurnCalls
                       ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text))
                       : null;
+                    const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
                     const stepBudget = collab.maxStepsFor
                       ? measureOrNull("step budget", () =>
                           buildTurnStepBudget({
                             maxSteps: collab.maxStepsFor!(agent) ?? null,
                             stepsUsed: callMetrics?.stepsUsed ?? null,
-                            finalStepText: finalStepText(res.parts),
+                            finalStepText: finalText,
                           }),
                         )
                       : null;
@@ -345,19 +372,33 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       };
                       effectiveOnTurn(turnEvent);
                     }
-                    return outputRaw;
+                    if (stepBudget && promptOpts?.onTurnStats) {
+                      const stats: AgentTurnStats = {
+                        maxSteps: stepBudget.maxSteps,
+                        stepsUsed: callMetrics?.stepsUsed ?? null,
+                        exhausted: stepBudget.exhausted,
+                        writeCount: callMetrics?.writeCount ?? null,
+                        observationComplete: callMetrics?.observationComplete ?? false,
+                      };
+                      try {
+                        promptOpts.onTurnStats(stats);
+                      } catch (err) {
+                        console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
+                      }
+                    }
+                    return promptOpts?.finalStepOnly ? finalText : outputRaw;
                   })
                   .catch((err) => {
                     recordCircuitFailure(breakerRole);
                     throw err;
                   });
               };
-              return runPrompt(opts?.model).catch((err) => {
+              return runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
                 if (opts?.signal?.aborted || isInfraError(err)) throw err;
                 const fallback = collab.getFallbackModel(agent);
                 if (fallback) {
                   console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
-                  return runPrompt(fallback);
+                  return runPrompt(FALLBACK_ATTEMPT, fallback);
                 }
                 throw err;
               });

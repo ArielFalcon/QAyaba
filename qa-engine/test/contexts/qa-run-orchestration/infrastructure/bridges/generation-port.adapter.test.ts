@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { Objective } from "@kernel/objective.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
@@ -75,6 +76,50 @@ test("generate() delegates to GenerateTestsUseCase and maps GenerationResult ont
   assert.deepEqual(result.specs, ["flows/checkout.spec.ts"]);
   assert.equal(result.approved, true);
   assert.equal(result.note, "ok");
+});
+
+const STATIC_CONTEXT = {
+  repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+  namespace: "qa-bot-abc1234", target: "e2e" as TestTarget, mode: "diff" as const, diff: "",
+};
+const CHECKOUT = [Objective.of({ flow: "checkout", objective: "user can checkout", targets: [] })];
+
+test("generate() forwards how the generation ended and that no reviewer ran when generation is not reviewed", async () => {
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: false });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.end, GENERATION_END.DELIVERED);
+  assert.equal(result.reviewed, false);
+  assert.equal(result.approved, true, "the flag stays, but reviewed says it is not a reviewer's approval");
+});
+
+test("generate() forwards that a reviewer ran when generation is reviewed", async () => {
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: true });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.reviewed, true);
+  assert.equal(result.approved, true);
+});
+
+test("generate() forwards an exhausted generation's end, its note and the main turn's stats", async () => {
+  const ports = fakeGenerationPorts();
+  const exhausting: GenerationPorts = {
+    ...ports,
+    runtime: {
+      openSession: async () => ({
+        prompt: async (_text: string, opts?: { onTurnStats?: (s: { maxSteps: number | null; stepsUsed: number | null; exhausted: boolean | null; writeCount: number | null; observationComplete: boolean }) => void }) => {
+          opts?.onTurnStats?.({ maxSteps: 30, stepsUsed: 30, exhausted: true, writeCount: 0, observationComplete: true });
+          return { output: "Maximum steps for this agent have been reached." };
+        },
+        dispose: async () => {},
+      }),
+    } as unknown as GenerationPorts["runtime"],
+    verdicts: { ...ports.verdicts, parseGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
+  };
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT, needsReview: false });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.end, GENERATION_END.EXHAUSTED);
+  assert.equal(result.turn?.stepsUsed, 30);
+  assert.equal(result.turn?.writeCount, 0);
+  assert.match(result.note ?? "", /30\/30/);
 });
 
 test("generate() surfaces approved:false with a note when the reviewer rejects (needsReview:true)", async () => {

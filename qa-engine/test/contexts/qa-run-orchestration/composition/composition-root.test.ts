@@ -23,6 +23,7 @@ import { join } from "node:path";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
+import { GENERATION_END } from "@kernel/generation-end.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -49,7 +50,7 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
       diff: async () => "diff --git a/src/x.ts b/src/x.ts",
     },
     generationUseCase: {
-      generate: async () => ({ specs: ["a.spec.ts"], approved: true, reviewed: false }),
+      generate: async () => ({ specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED }),
     },
     reviewRuntime: {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
@@ -678,7 +679,7 @@ test("wireBridges hardcodes needsReview:false into the generation ctx even when 
     generationUseCase: {
       generate: async (input: { needsReview?: boolean }) => {
         seenNeedsReview.push(input.needsReview === true);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -721,7 +722,7 @@ test("buildProduction(rewritten) wires groundingCollaborators.buildContextPack i
     generationUseCase: {
       generate: async (input) => {
         seenContextPacks.push(input.contextPack);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -804,7 +805,7 @@ test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory co
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -831,7 +832,7 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when codebase
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies codebaseMemory */
@@ -867,7 +868,7 @@ test("buildProduction(rewritten) degrades structuralSignal to no section when th
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -929,7 +930,7 @@ test("buildProduction(rewritten) wires serviceLinks when a serviceTopology colla
       generationUseCase: {
         generate: async (input) => {
           seenServiceLinks.push(input.serviceLinks);
-          return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+          return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
         },
       },
     });
@@ -960,7 +961,7 @@ test("buildProduction(rewritten) leaves serviceLinks undefined when serviceTopol
     generationUseCase: {
       generate: async (input) => {
         seenEnrichments.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies serviceTopology */
@@ -996,7 +997,7 @@ test("buildProduction(rewritten) threads cfg.triggerService into OpencodeRunInpu
     generationUseCase: {
       generate: async (input) => {
         seenServices.push(input.service);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -1023,7 +1024,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.service entirely absent
     generationUseCase: {
       generate: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies triggerService */
@@ -1061,7 +1062,7 @@ test("buildProduction(rewritten) threads cfg.services into OpencodeRunInput.serv
     generationUseCase: {
       generate: async (input) => {
         seenServicesList.push(input.services);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -1091,7 +1092,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absen
     generationUseCase: {
       generate: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies services */
@@ -1241,6 +1242,7 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
           specs: ["ambiguous.spec.ts"],
           approved: true,
           reviewed: false,
+          end: GENERATION_END.DELIVERED,
         }),
       },
       preExecGroundingCollaborators: {

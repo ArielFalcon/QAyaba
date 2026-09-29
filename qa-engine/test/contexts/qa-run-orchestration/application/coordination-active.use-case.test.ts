@@ -29,6 +29,7 @@ import {
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
+import { scriptedGeneration } from "../../../support/generation-output.ts";
 const MIRROR = "/tmp/qa-active";
 const SPEC_DIR = `${MIRROR}/e2e`;
 
@@ -116,7 +117,7 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
@@ -158,7 +159,7 @@ test("app login keeps generation on the lead and does not open a sidekick sessio
   let opened = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -202,7 +203,7 @@ test("active pre-generate falls back when sidekick JSON claims files missing on 
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -246,7 +247,7 @@ test("active pre-generate falls back to lead GenerationPort when sidekick needs-
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -283,7 +284,7 @@ test("active without enabled points never calls sidekick", async () => {
   let sidekickCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -320,7 +321,7 @@ test("active without enabled points never calls sidekick", async () => {
 test("active pre-generate passes escalated model into sidekick execute", async () => {
   ensureSidekickFile();
   let seenModel: string | undefined;
-  const ports = basePorts(async () => ({ specs: ["lead.spec.ts"], approved: true }));
+  const ports = basePorts(async () => (scriptedGeneration({ specs: ["lead.spec.ts"], approved: true })));
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async (_role, _cwd, opts) => {

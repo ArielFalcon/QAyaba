@@ -15,6 +15,8 @@ import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
+import type { GenerationEndKind } from "@kernel/generation-end.ts";
+import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -188,17 +190,41 @@ export interface GenerationEnrichment {
    */
   crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
 }
+/**
+ * What one generation hands the run. `end` says how it ended: with specs the run continues;
+ * without them, only a declared no-op is a decision, and the other ends say why nothing was
+ * written. `reviewed` is whether an independent reviewer looked at the specs: `approved` is
+ * that reviewer's verdict only when it is true — otherwise it is a placeholder, and the run must
+ * read it through `reviewerApprovalOf`. `note` explains an end that wrote nothing.
+ * `specSources` is just-generated spec text for selector checks; absent/empty is never
+ * fabricated. `specMetas` is the flow/objective projection for publication; absent/empty omits
+ * the "tested" section. `parsed` is false only when no verdict JSON could be parsed. `turn` is
+ * what the generation's main turn measured, when its runtime can measure a turn.
+ */
+export interface GenerationOutput {
+  specs: string[];
+  end: GenerationEndKind;
+  reviewed: boolean;
+  approved: boolean;
+  note?: string;
+  specSources?: string[];
+  parsed?: boolean;
+  specMetas?: { flow?: string; objective?: string }[];
+  turn?: AgentTurnStats;
+}
+
+/** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */
+export function reviewerApprovalOf(generation: Pick<GenerationOutput, "reviewed" | "approved">): boolean | undefined {
+  return generation.reviewed ? generation.approved : undefined;
+}
+
 export interface GenerationPort {
   /**
    * `signal` interrupts in-flight generation on cancel. `diff` is the real
    * per-run commit diff (diff mode only); absent falls back to the adapter's
    * static per-run value. `enrichment` is independently absent-safe.
-   * `specSources` is just-generated spec text for selector checks; absent/empty
-   * is never fabricated. `specMetas` is the flow/objective projection for
-   * publication; absent/empty omits the "tested" section.
-   * `parsed` is false only when no verdict JSON could be parsed.
    */
-  generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<{ specs: string[]; approved: boolean; note?: string; specSources?: string[]; parsed?: boolean; specMetas?: { flow?: string; objective?: string }[] }>;
+  generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
 }
 /**
  * `priorCorrections` lets the next review judge convergence on previously

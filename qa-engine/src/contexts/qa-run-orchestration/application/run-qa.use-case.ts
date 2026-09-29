@@ -17,9 +17,11 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
 import type {
   ChangeAnalysisPort,
   GenerationPort,
+  GenerationOutput,
   ReviewPort,
   ValidationPort,
   ExecutionPort,
@@ -52,6 +54,9 @@ import type {
   RelevanceBias,
 } from "./ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER } from "./ports/index.ts";
+
+/* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
+type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
@@ -807,16 +812,10 @@ export class RunQaUseCase {
      * empty fail open to GenerationPort. FixLoop regen is a separate enabled point.
      */
     this.deps.observer?.onStep("generate", generating ? undefined : "regression: running the existing suite, not generating");
-    let generated: {
-      specs: string[];
-      approved: boolean;
-      note?: string;
-      specSources?: string[];
-      parsed?: boolean;
-      specMetas?: { flow?: string; objective?: string }[];
-    };
+    /* A regression run generates nothing: a stand-in with no generation end, never one a generation could return. */
+    let generated: GenerationOutput | RegressionStandIn;
     if (!generating) {
-      generated = { specs: [], approved: true };
+      generated = { specs: [], approved: true, reviewed: false, end: null };
     } else {
       let fromSidekick: typeof generated | undefined;
       const honorDelegate = shouldHonorActiveDelegation({
@@ -894,6 +893,8 @@ export class RunQaUseCase {
             });
             fromSidekick = {
               specs,
+              end: GENERATION_END.DELIVERED,
+              reviewed: false,
               approved: true,
               parsed: true,
               note: delegation.summary,

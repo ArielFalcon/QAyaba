@@ -21,7 +21,10 @@ import {
   askAssistant,
   maxStepsFromConfig,
   fallbackModelFromConfig,
+  createRawEventStreamOpener,
 } from "./opencode-client";
+import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
+import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
@@ -1393,4 +1396,65 @@ test("fallbackModelFromConfig reports a fallback that is not a model name, once,
   for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
   assert.equal(errors.mock.callCount(), 1);
   assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-generator/);
+});
+
+/*
+ * The real opener over the real SDK stream client, with only the network faked: a connection that
+ * delivers its first event and then resets. The SDK retries such a failure by itself, so the
+ * iterable never ends or throws; the error callback is the only place the drop is visible.
+ */
+const RECONNECTS_BEFORE_GIVING_UP = 3;
+
+/* `giveUp` ends the SDK's endless retrying after a few connections, so a missing error callback fails the test instead of hanging the suite. */
+async function resettingEventClient(giveUp: () => void): Promise<{ event: { subscribe: unknown } }> {
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
+  const encoder = new TextEncoder();
+  let connections = 0;
+  const connect = async (): Promise<Response> => {
+    if (++connections >= RECONNECTS_BEFORE_GIVING_UP) giveUp();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        if (pulls === 1) controller.enqueue(encoder.encode('retry: 1\ndata: {"type":"server.connected","properties":{}}\n\n'));
+        else controller.error(new Error("connection reset"));
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  return createOpencodeClient({ baseUrl: "http://agents.invalid:4096", fetch: connect as typeof fetch }) as never;
+}
+
+test("the real opener hands the SDK's error callback through, so a connection reset the SDK retries on its own is reported", async () => {
+  const controller = new AbortController();
+  const opener = createRawEventStreamOpener({ getEventClient: async () => (await resettingEventClient(() => controller.abort())) as never });
+  const errors: string[] = [];
+  const stream = await opener.open("/m/reset", controller.signal, (error) => {
+    errors.push(error instanceof Error ? error.message : String(error));
+    controller.abort();
+  });
+  const types: Array<string | undefined> = [];
+  for await (const event of stream!) types.push(event.type);
+  assert.deepEqual(types, ["server.connected"]);
+  assert.deepEqual(errors, ["connection reset"]);
+});
+
+test("a connection reset on the real stream client reaches the stream lifecycle as an interruption under the stream's own token", async () => {
+  const calls: Array<{ kind: string; token: StreamToken }> = [];
+  const controller = new AbortController();
+  const lifecycle: StreamLifecycleSink = {
+    streamOpening: (_d, token) => calls.push({ kind: "opening", token }),
+    streamConnected: (_d, token) => calls.push({ kind: "connected", token }),
+    streamInterrupted: (_d, token) => { calls.push({ kind: "interrupted", token }); controller.abort(); },
+    streamClosed: (_d, token) => calls.push({ kind: "closed", token }),
+  };
+  const opener = createRawEventStreamOpener({ getEventClient: async () => (await resettingEventClient(() => controller.abort())) as never });
+  const restore = setRawEventStreamOpener(opener);
+  try {
+    await startScopedEventStream("/m/reset", () => {}, controller.signal, undefined, lifecycle);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(calls.map((c) => c.kind), ["opening", "connected", "interrupted", "closed"]);
+  assert.equal(new Set(calls.map((c) => c.token)).size, 1);
 });
