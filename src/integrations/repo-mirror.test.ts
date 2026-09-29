@@ -5,7 +5,8 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, sy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
-import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
+import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
    clear both to isolate the logic (token-bearing tests set GITHUB_TOKEN per-test).
@@ -35,7 +36,7 @@ function recorder(exists: boolean | ((path: string) => boolean)): MirrorDeps & {
 }
 
 test("hardenGitArgs prepends the hook hardening before the git subcommand and opts nothing out of git's ownership check without a working copy", () => {
-  const out = hardenGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"], null);
+  const out = hardenDetachedGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"]);
   /* core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard). */
   assert.deepEqual(out.slice(0, 2), ["-c", "core.hooksPath=/dev/null"]);
   assert.ok(!out.some((arg) => arg.startsWith("safe.directory")), "there is no verified working copy to opt out for");
@@ -59,7 +60,7 @@ test("the shell hardens a git call exactly like the engine does, for a call with
   try {
     execFileSync("git", ["init", "-q", repo]);
     for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
-      assert.deepEqual(engineHardenGitArgs(args, null), hardenGitArgs(args, null));
+      assert.deepEqual(engineHardenDetachedGitArgs(args), hardenDetachedGitArgs(args));
       assert.deepEqual(engineHardenGitArgs(args, repo), hardenGitArgs(args, repo));
     }
   } finally {

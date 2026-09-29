@@ -51,6 +51,13 @@ module.exports = {
       to: { path: "contexts/workspace-and-publication" },
     },
     {
+      name: "no-detached-git-hardening-in-engine",
+      severity: "error",
+      comment: "Every git call the engine makes on a working copy goes through hardenGitArgs, which verifies the git dir first. The hardening that verifies nothing (a clone, an ls-remote) lives in its own module and is for the shell, which owns such calls. The allowlist of engine importers is empty by design: a git call in the engine that seems to need it has a working copy to pass to hardenGitArgs.",
+      from: { path: "^qa-engine/src/" },
+      to: { path: "^qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening\\.ts$" },
+    },
+    {
       // migration-tier-1-2, Slice 5 (corrected judgment-day round-1: the prior comment's "ONLY
       // sanctioned src<->qa-engine bridge" framing was stale/inaccurate). The direction actually
       // enforced here is ONE-WAY: qa-engine/src/ may never import src/ (below). The OPPOSITE

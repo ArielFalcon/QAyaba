@@ -113,10 +113,16 @@ export function assertTrustedGitTree(dir: string, trustedUid: number | undefined
   resolveTrustedGitTree(dir, trustedUid);
 }
 
+/** The command-line flags every hardened git call carries, with or without a working copy. */
+export function baseGitHardeningFlags(): string[] {
+  return ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"];
+}
+
 /**
- * Hardened argv for a git call. `workDir` is the working copy the call runs in, or null for a call with none yet
- * (a clone, an ls-remote); a working copy whose git dir is not the orchestrator's throws UntrustedGitTreeError
- * before any git process starts.
+ * Hardened argv for a git call that runs in `workDir`, the working copy: a working copy whose git dir is not the
+ * orchestrator's throws UntrustedGitTreeError before any git process starts. `workDir` is required, and a caller with
+ * none (null, undefined) is refused: the only git calls that have no working copy yet (a clone, an ls-remote) use
+ * hardenDetachedGitArgs, a separate module the engine may not import.
  *
  * The flags are COMMAND-LINE `-c` overrides, which a repo's own .git/config cannot override, and which git passes on
  * to the child processes it starts (submodule status):
@@ -125,17 +131,18 @@ export function assertTrustedGitTree(dir: string, trustedUid: number | undefined
  * - safe.bareRepository=explicit — a bare repository planted in a subdirectory is never discovered implicitly.
  * - safe.directory=<the verified worktree top level> — a code/e2e run hands the working copy to the unprivileged
  *   sandbox uid, so git run as the orchestrator would reject the tree ("dubious ownership") on the next run. Only the
- *   tree assertTrustedGitTree judged is opted out, so a nested repository or submodule keeps git's own ownership
- *   check instead of being trusted with a wildcard.
+ *   tree assertTrustedGitTree judged is opted out, so another repository reached with the same flags keeps git's own
+ *   ownership check instead of being trusted with a wildcard. (A submodule git enters itself is not covered by that
+ *   check at all, since git names its git dir explicitly: a call whose answer does not depend on submodule state
+ *   passes --ignore-submodules=all, or --no-recurse-submodules for a fetch.)
  * - -C <the real path of workDir> — git runs in the directory that was verified, not in whatever the path the caller
  *   holds resolves to by the time git starts. A caller's own `-C` or `cwd` for the same directory is redundant.
  * There is deliberately no override for diff.external: an empty value makes git try to run "" and fail, so the
  * config itself is what has to be trusted.
  */
-export function hardenGitArgs(args: readonly string[], workDir: string | null): string[] {
-  const flags = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"];
-  if (workDir === null) return [...flags, ...args];
+export function hardenGitArgs(args: readonly string[], workDir: string): string[] {
+  if (typeof workDir !== "string") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
   const tree = resolveTrustedGitTree(workDir);
   const ownership = tree.topLevel === null ? [] : ["-c", `safe.directory=${tree.topLevel}`];
-  return [...flags, ...ownership, "-C", tree.workDir, ...args];
+  return [...baseGitHardeningFlags(), ...ownership, "-C", tree.workDir, ...args];
 }

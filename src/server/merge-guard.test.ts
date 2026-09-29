@@ -283,6 +283,23 @@ test("isProtectedPath flags the helpers that bound what an untrusted child's out
   }
 });
 
+test("isProtectedPath flags the bounded runners and the git call sites an untrusted working copy reaches", () => {
+  /* Each runs or reads what untrusted code wrote: the runners bound its output, the git readers and the fetch run git
+     against a working copy the sandbox owns. Loosening any of them reopens what the protected helpers close. */
+  const files = [
+    "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/test-run-evidence.ts",
+    "qa-engine/src/contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts",
+    "qa-engine/src/contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
+    "qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening.ts",
+  ];
+  for (const file of files) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, file);
+  }
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);

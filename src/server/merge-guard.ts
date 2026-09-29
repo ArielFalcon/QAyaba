@@ -229,6 +229,14 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
   /* The single definition of the git hardening (hooks, ownership, config-driven execution, git-dir trust) that repo-mirror.ts re-exports and every qa-engine git call uses. */
   "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
+  /* The hardening for git calls with no working copy yet; the arch gate keeps the engine from importing it, so a git call on a working copy cannot slip past the git-dir check. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening.ts",
+  /* The runners and git call sites that handle what untrusted code wrote: the check and lint runner and the mutation runner bound their child's output, the evidence scanner reads it line by line before the bound, and the git readers and the cross-repo fetch run git on a sandbox-owned working copy. */
+  "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
+  "qa-engine/src/contexts/test-execution/infrastructure/test-run-evidence.ts",
+  "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
+  "qa-engine/src/contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts",
+  "qa-engine/src/contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
   /* The bounds every untrusted child's output passes through: without one, a flooding install or test run takes the orchestrator down with it. */
   "qa-engine/src/shared-kernel/process-sandbox/bounded-output-tail.ts",
   "qa-engine/src/shared-kernel/process-sandbox/bounded-line-reader.ts",

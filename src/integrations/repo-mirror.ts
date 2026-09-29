@@ -11,9 +11,12 @@ import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { InfraError } from "../errors";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
 import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 
 /* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
 export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+/* The one variant with no working copy to verify (a clone, an ls-remote): the shell owns such calls, the engine may not import it. */
+export { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 
 
 const redactionPort = new RedactionPortAdapter();
@@ -166,7 +169,7 @@ function scrubGitError(err: Error & { cmd?: string }): Error {
 
 export const realGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", hardenGitArgs(args, cwd ?? null), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
+    execFile("git", cwd === undefined ? hardenDetachedGitArgs(args) : hardenGitArgs(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
       if (!err) {
         resolve(stdout.toString());
         return;

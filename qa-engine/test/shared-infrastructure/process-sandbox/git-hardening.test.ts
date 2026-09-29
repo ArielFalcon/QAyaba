@@ -13,6 +13,7 @@ import {
   hardenGitArgs,
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
+import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
 
@@ -53,7 +54,7 @@ const ranPlantedCommand = (f: Fixture): boolean => existsSync(f.marker) && readF
 
 /* Run git the way a hardened caller does; the error (if any) is the caller's to see. */
 function hardenedGit(f: Fixture, cwd: string, ...args: string[]): void {
-  execFileSync("git", hardenGitArgs(args, null), { cwd, env: GIT_ENV, stdio: "ignore" });
+  execFileSync("git", hardenGitArgs(args, cwd), { cwd, env: GIT_ENV, stdio: "ignore" });
 }
 
 test("a regular working copy owned by the trusted user is accepted", () =>
@@ -171,10 +172,17 @@ test("a bare repository that is implicitly discovered in a subdirectory is not u
     assert.equal(ranPlantedCommand(f), false);
   }));
 
-test("hardening a call with no working copy yet (a clone, an ls-remote) checks nothing and still carries the flags", () => {
-  const args = hardenGitArgs(["clone", "https://example.com/x.git", "/tmp/x"], null);
+test("hardening a call with no working copy yet (a clone, an ls-remote) checks nothing and still carries the hook hardening", () => {
+  const args = hardenDetachedGitArgs(["clone", "https://example.com/x.git", "/tmp/x"]);
   assert.deepEqual(args.slice(-3), ["clone", "https://example.com/x.git", "/tmp/x"]);
-  assert.ok(args.length > 3, "the hardening flags precede the subcommand");
+  assert.ok(args.includes("core.hooksPath=/dev/null"), "the hardening flags precede the subcommand");
+  assert.ok(!args.includes("-C") && !args.some((arg) => arg.startsWith("safe.directory")), "with no working copy there is nothing to point git at or to opt out");
+});
+
+test("a call that names no working copy is refused instead of being hardened as if there were none", () => {
+  for (const missing of [null, undefined]) {
+    assert.throws(() => hardenGitArgs(["status"], missing as unknown as string), TypeError);
+  }
 });
 
 /* A repository the sandbox controls, planted with a command git would run on `diff`; its config is writable by anyone,
