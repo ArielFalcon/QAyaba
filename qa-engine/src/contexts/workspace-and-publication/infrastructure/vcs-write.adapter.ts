@@ -9,6 +9,10 @@ export interface VcsCommitResult {
 }
 
 type Git = (args: string[], cwd?: string) => Promise<string>;
+
+/* A submodule directory belongs to the sandbox, which can plant a repository in it whose config names a command. Reporting a submodule's dirty content (or refreshing it on checkout) makes git enter it and run that command as the orchestrator; a pointer moved off its recorded commit is still reported, without entering it. */
+const IGNORED_SUBMODULE_STATE = "dirty";
+
 type WriteExcludesFn = (dir: string, patterns: readonly string[]) => void | Promise<void>;
 
 export class VcsWriteAdapter implements VcsWritePort {
@@ -73,11 +77,11 @@ export class VcsWriteAdapter implements VcsWritePort {
   }
 
   async checkoutBranch(dir: string, branch: string): Promise<void> {
-    await this.git(["checkout", "-B", branch], dir);
+    await this.git(["-c", `diff.ignoreSubmodules=${IGNORED_SUBMODULE_STATE}`, "checkout", "-B", branch], dir);
   }
 
   async hasChanges(dir: string, pathspecs: readonly string[]): Promise<boolean> {
-    const status = await this.git(["status", "--porcelain", "--", ...pathspecs], dir);
+    const status = await this.git(["status", "--porcelain", `--ignore-submodules=${IGNORED_SUBMODULE_STATE}`, "--", ...pathspecs], dir);
     return status.trim().length > 0;
   }
 

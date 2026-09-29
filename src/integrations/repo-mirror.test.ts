@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
@@ -234,6 +235,29 @@ test("listChangedSpecs passes --untracked-files=all so first-run specs in an unt
   const specs = await listChangedSpecs("/dir", "e2e", d);
   assert.deepEqual(specs, ["flows/login.spec.ts"]);
   assert.ok(d.calls[0]?.includes("--untracked-files=all"), "git status must pass --untracked-files=all");
+});
+
+test("listChangedSpecs never enters a submodule the sandbox populated inside the folder it scans", async () => {
+  /* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there; root git that
+     enters it runs the filter its config names. */
+  const root = mkdtempSync(join(tmpdir(), "list-specs-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command);
+    writeFileSync(join(fixture.repo, "new.spec.ts"), "test('x', () => {});\n");
+    const d: MirrorDeps = {
+      root,
+      exists: () => true,
+      removeFile: () => {},
+      git: async (args, cwd) => execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8" }),
+    };
+
+    assert.deepEqual(await listChangedSpecs(fixture.repo, ".", d), ["new.spec.ts"]);
+    assert.equal(ranPlantedCommand(marker), false, "the status ran the planted filter");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("getCommitsBehind rejects a non-hex sha before spawning git (injection defense)", async () => {

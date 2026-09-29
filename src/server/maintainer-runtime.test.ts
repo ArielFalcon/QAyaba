@@ -55,9 +55,10 @@ interface Spies {
   gateCmds: string[];
 }
 
-function harness(opts: { root: string; autonomous: boolean; promptReturn: string; onPrompt?: (prompt: string) => void }) {
+function harness(opts: { root: string; autonomous: boolean; promptReturn: string; onPrompt?: (prompt: string) => void; gitCalls?: string[][] }) {
   const calls: Spies = { createPR: 0, performSwap: 0, exit: [], gateCmds: [] };
   const git = async (args: string[]): Promise<string> => {
+    opts.gitCalls?.push(args);
     if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n";
     if (args[0] === "diff" && args[1] === "--numstat") return "1\t0\tsrc/foo.ts\n"; /* 1 file/1 line, unprotected */
     return "";
@@ -113,6 +114,21 @@ test("the maintainer agent is told every protected path before it writes a fix",
   for (const path of PROTECTED_PATHS) {
     assert.ok(prompt.includes(path), `the maintainer prompt must name protected path ${path}`);
   }
+});
+
+/* The working copy of this repository is written by the maintainer agent; a fetch that recursed into submodules would
+   enter checkouts the agent controls. */
+test("refreshing the existing working copy never fetches into submodules", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "fetch recursion case" });
+  const gitCalls: string[][] = [];
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), gitCalls });
+
+  await runtime.triggerMaintainer();
+
+  const fetches = gitCalls.filter((args) => args.includes("fetch"));
+  assert.ok(fetches.length > 0, "the existing working copy is refreshed with a fetch");
+  for (const fetch of fetches) assert.ok(fetch.includes("--no-recurse-submodules"), `git ${fetch.join(" ")} may recurse into submodules`);
 });
 
 /* The gate blocks a fix over the change-size limits, so the agent must be told the same limits. */

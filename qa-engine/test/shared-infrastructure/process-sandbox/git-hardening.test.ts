@@ -14,6 +14,7 @@ import {
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
+import { makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
 
@@ -248,4 +249,58 @@ test("the ownership opt-out covers the verified working copy only: another repos
     /* The hardened flags for f.repo, then a redirect to the other tree: only f.repo may be trusted. */
     const args = hardenGitArgs(["-C", other, "rev-parse", "--git-dir"], f.repo);
     assert.throws(() => execFileSync("git", args, { cwd: f.repo, env: FOREIGN_OWNER_ENV, stdio: "ignore" }), "a wildcard opt-out would have trusted it too");
+  }));
+
+/* A committed gitlink is a submodule entry. The mirror never checks submodules out, so its directory is empty; the
+   sandbox owns it and can put a repository of its own there. Root git that enters it spawns a child with GIT_DIR set
+   explicitly (git's ownership check is skipped), and that child runs the planted config's filter as the orchestrator. */
+function withGitlinkRepo(body: (f: { root: string; repo: string; marker: string; command: string; fixture: ReturnType<typeof makeGitlinkRepo> }) => void): void {
+  const root = mkdtempSync(join(tmpdir(), "git-hardening-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    body({ root, repo: fixture.repo, marker, command, fixture });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a repository the sandbox planted inside a committed gitlink is refused before any git runs, naming the planted git dir", () =>
+  withGitlinkRepo(({ repo, marker, command, fixture }) => {
+    plantNestedRepo(fixture, command);
+    for (const args of [["status", "--porcelain"], ["add", "--", "."], ["checkout", "-B", "b"], ["diff", "--find-renames", "HEAD"]]) {
+      assert.throws(
+        () => hardenGitArgs(args, repo),
+        (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes(join(repo, "sub", ".git")),
+        `git ${args[0]} must not be started`,
+      );
+    }
+    assert.equal(ranMarker(marker), false, "the check never enters the planted repository");
+  }));
+
+test("a gitfile the sandbox planted inside a committed gitlink is refused like a planted git dir", () =>
+  withGitlinkRepo(({ repo, root }) => {
+    writeFileSync(join(repo, "sub", ".git"), `gitdir: ${join(root, "elsewhere")}\n`);
+    assert.throws(() => hardenGitArgs(["status"], repo), UntrustedGitTreeError);
+  }));
+
+test("a dangling symlink the sandbox planted as the git dir of a committed gitlink is refused", () =>
+  withGitlinkRepo(({ repo, root }) => {
+    symlinkSync(join(root, "does-not-exist"), join(repo, "sub", ".git"));
+    assert.throws(() => hardenGitArgs(["status"], repo), UntrustedGitTreeError);
+  }));
+
+test("a planted repository inside a committed gitlink is refused for a call that runs in a subdirectory of the working copy", () =>
+  withGitlinkRepo(({ repo, marker, command, fixture }) => {
+    plantNestedRepo(fixture, command);
+    assert.throws(() => hardenGitArgs(["status"], join(repo, "e2e")), UntrustedGitTreeError);
+    assert.equal(ranMarker(marker), false);
+  }));
+
+test("a committed gitlink whose directory is empty or gone does not stop git, and the hardened status runs", () =>
+  withGitlinkRepo(({ repo }) => {
+    assert.doesNotThrow(() => hardenGitArgs(["status", "--porcelain"], repo), "an unpopulated gitlink directory is how a clone leaves it");
+    assert.equal(execFileSync("git", hardenGitArgs(["status", "--porcelain"], repo), { cwd: repo, env: GIT_ENV, encoding: "utf8" }).trim(), "");
+    rmSync(join(repo, "sub"), { recursive: true });
+    assert.doesNotThrow(() => hardenGitArgs(["status", "--porcelain"], repo), "a missing directory holds nothing to enter");
   }));

@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VcsWriteAdapter } from "@contexts/workspace-and-publication/infrastructure/vcs-write.adapter.ts";
 import { WriteConfinementService } from "@contexts/workspace-and-publication/domain/write-confinement.service.ts";
+import { hardenGitArgs, UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
+import { GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 test("commit stages the files and commits with the message", async () => {
   const calls: string[][] = [];
@@ -36,7 +38,7 @@ test("checkoutBranch creates/resets the branch with checkout -B", async () => {
   const calls: string[][] = [];
   const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });
   await adapter.checkoutBranch("/m", "qa/e2e-abc1234");
-  assert.deepEqual(calls[0], ["checkout", "-B", "qa/e2e-abc1234"]);
+  assert.deepEqual(calls[0]?.slice(-3), ["checkout", "-B", "qa/e2e-abc1234"]);
 });
 
 test("hasChanges returns true when git status --porcelain reports changes under the given pathspecs", async () => {
@@ -55,7 +57,8 @@ test("hasChanges scopes the status check to the exact pathspecs (never the whole
   const calls: string[][] = [];
   const adapter = new VcsWriteAdapter(async (args) => { calls.push(args); return ""; });
   await adapter.hasChanges("/m", ["e2e"]);
-  assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"]);
+  assert.equal(calls[0]?.[0], "status");
+  assert.deepEqual(calls[0]?.slice(-2), ["--", "e2e"]);
 });
 
 test("writeExcludes writes gitignore-style patterns to .git/info/exclude (local, never committed)", async () => {
@@ -396,3 +399,42 @@ test("real git fixture: a legitimate tracked-modified (M status) file survives â
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+/* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there. Root git that
+   enters it runs the filter that repository's config names. The plain git fn makes the argv the adapter builds the
+   only protection under test; the hardened one adds the working-copy check every real call goes through. */
+const plainGit = async (args: string[], cwd?: string): Promise<string> => execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8" });
+const hardenedGit = async (args: string[], cwd?: string): Promise<string> =>
+  execFileSync("git", hardenGitArgs(args, cwd ?? "."), { cwd, env: GIT_ENV, encoding: "utf8" });
+
+function withPlantedSubmodule(options: { movePointer?: boolean }, body: (f: { repo: string; marker: string }) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), "vcs-write-gitlink-"));
+  const { marker, command } = writeMarkerCommand(root);
+  const fixture = makeGitlinkRepo(root);
+  plantNestedRepo(fixture, command, options);
+  return body({ repo: fixture.repo, marker }).finally(() => rmSync(root, { recursive: true, force: true }));
+}
+
+test("real git fixture: creating the branch never enters a submodule the sandbox populated", () =>
+  withPlantedSubmodule({}, async ({ repo, marker }) => {
+    await new VcsWriteAdapter(plainGit).checkoutBranch(repo, "qa/e2e-abc1234");
+    assert.equal(ranPlantedCommand(marker), false, "checkout -B ran the planted filter");
+  }));
+
+test("real git fixture: the whole-tree change check never enters a submodule the sandbox populated", () =>
+  withPlantedSubmodule({}, async ({ repo, marker }) => {
+    await new VcsWriteAdapter(plainGit).hasChanges(repo, ["."]);
+    assert.equal(ranPlantedCommand(marker), false, "status ran the planted filter");
+  }));
+
+test("real git fixture: a submodule pointer moved off its recorded commit still counts as a change", () =>
+  withPlantedSubmodule({ movePointer: true }, async ({ repo, marker }) => {
+    assert.equal(await new VcsWriteAdapter(plainGit).hasChanges(repo, ["."]), true);
+    assert.equal(ranPlantedCommand(marker), false);
+  }));
+
+test("real git fixture: staging the whole tree is refused when the sandbox populated a committed gitlink, and git never starts", () =>
+  withPlantedSubmodule({}, async ({ repo, marker }) => {
+    await assert.rejects(new VcsWriteAdapter(hardenedGit).commit(repo, "test: qa", ["."]), UntrustedGitTreeError);
+    assert.equal(ranPlantedCommand(marker), false, "add ran the planted filter");
+  }));

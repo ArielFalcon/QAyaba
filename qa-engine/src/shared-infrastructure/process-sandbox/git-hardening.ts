@@ -1,5 +1,6 @@
 /* Git hardening for every git call the engine makes on an untrusted, sandbox-touched working copy. The single definition: src/integrations/repo-mirror.ts re-exports it for the shell's own git calls. */
 
+import { execFileSync } from "node:child_process";
 import { lstatSync, realpathSync, type Stats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -113,6 +114,51 @@ export function assertTrustedGitTree(dir: string, trustedUid: number | undefined
   resolveTrustedGitTree(dir, trustedUid);
 }
 
+/* The mode git records for a submodule entry (a gitlink) in the index. */
+const GITLINK_MODE = "160000";
+
+/* Room for the index listing of a very large repository; a listing that still overflows is refused, never truncated. */
+const LS_FILES_MAX_BUFFER = 512 * 1024 * 1024;
+
+/** The paths, relative to `topLevel`, of the submodule entries in its index. Reads the index only: no submodule is entered and no filter runs. */
+function committedGitlinks(topLevel: string): string[] {
+  let listing: string;
+  try {
+    listing = execFileSync("git", [...baseGitHardeningFlags(), "-c", `safe.directory=${topLevel}`, "-C", topLevel, "ls-files", "--stage", "-z"], {
+      encoding: "utf8",
+      maxBuffer: LS_FILES_MAX_BUFFER,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (err) {
+    return refuse(topLevel, `its submodule entries cannot be listed (${(err as NodeJS.ErrnoException).code ?? "git failed"})`);
+  }
+  const gitlinks: string[] = [];
+  for (const entry of listing.split("\0")) {
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    if (entry.startsWith(`${GITLINK_MODE} `)) gitlinks.push(entry.slice(tab + 1));
+  }
+  return gitlinks;
+}
+
+/**
+ * Refuses (UntrustedGitTreeError) when a committed submodule directory of the working copy holds a `.git` of any kind.
+ * A watched repository can commit a gitlink; the mirror is a plain clone that never checks a submodule out, so the
+ * gitlink's directory is empty, and the sandbox that owns the working copy can put a repository of its own in it. Root
+ * git that then walks the tree (status, diff, add, checkout, ...) starts a child inside it with GIT_DIR named
+ * explicitly, so git's ownership check never applies, and that child runs the filter or fsmonitor command the planted
+ * config names as the orchestrator. Some calls can be told not to look (--ignore-submodules); `add` cannot, so no git
+ * runs on a working copy that holds a planted one.
+ */
+function assertNoPlantedSubmoduleRepositories(topLevel: string): void {
+  for (const gitlink of committedGitlinks(topLevel)) {
+    const nested = join(topLevel, gitlink, ".git");
+    if (lstatOrNull(nested) !== null) {
+      refuse(nested, `it sits inside the submodule directory ${gitlink}, which a working copy here never checks out: the sandbox planted it, and git would run its config as the orchestrator. Remove ${join(topLevel, gitlink)} to recover`);
+    }
+  }
+}
+
 /** The command-line flags every hardened git call carries, with or without a working copy. */
 export function baseGitHardeningFlags(): string[] {
   return ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"];
@@ -133,8 +179,9 @@ export function baseGitHardeningFlags(): string[] {
  *   sandbox uid, so git run as the orchestrator would reject the tree ("dubious ownership") on the next run. Only the
  *   tree assertTrustedGitTree judged is opted out, so another repository reached with the same flags keeps git's own
  *   ownership check instead of being trusted with a wildcard. (A submodule git enters itself is not covered by that
- *   check at all, since git names its git dir explicitly: a call whose answer does not depend on submodule state
- *   passes --ignore-submodules=all, or --no-recurse-submodules for a fetch.)
+ *   check at all, since git names its git dir explicitly: a working copy whose committed submodule directory holds
+ *   a `.git` is refused before any git runs, and a call whose answer does not depend on submodule state also passes
+ *   --ignore-submodules, or --no-recurse-submodules for a fetch.)
  * - -C <the real path of workDir> — git runs in the directory that was verified, not in whatever the path the caller
  *   holds resolves to by the time git starts. A caller's own `-C` or `cwd` for the same directory is redundant.
  * There is deliberately no override for diff.external: an empty value makes git try to run "" and fail, so the
@@ -143,6 +190,7 @@ export function baseGitHardeningFlags(): string[] {
 export function hardenGitArgs(args: readonly string[], workDir: string): string[] {
   if (typeof workDir !== "string") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
   const tree = resolveTrustedGitTree(workDir);
+  if (tree.topLevel !== null) assertNoPlantedSubmoduleRepositories(tree.topLevel);
   const ownership = tree.topLevel === null ? [] : ["-c", `safe.directory=${tree.topLevel}`];
   return [...baseGitHardeningFlags(), ...ownership, "-C", tree.workDir, ...args];
 }

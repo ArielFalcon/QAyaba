@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WriteConfinementAdapter, type WriteConfinementAdapterDeps } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts";
+import { makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinementAdapterDeps {
   return {
@@ -901,5 +902,50 @@ test("real git fixture: a thrown error mid-pairing (git diff fails right after g
     assert.ok(status.includes(" D e2e/existing.spec.ts"), "the deletion must be untouched — the throw happened before the restore step ever ran");
   } finally {
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there. Root git that
+   enters it runs the filter that repository's config names, so the calls under test must not enter it. The git fn
+   is plain git: the protection under test is the argv the adapter builds, not the hardening around it. */
+for (const isCode of [false, true]) {
+  test(`real git fixture: the status and rename detection never enter a submodule the sandbox populated, and a moved pointer is still reverted (${isCode ? "code" : "e2e"} target)`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
+    try {
+      const { marker, command } = writeMarkerCommand(root);
+      const fixture = makeGitlinkRepo(root);
+      const repo = fixture.repo;
+      plantNestedRepo(fixture, command, { movePointer: true });
+      /* A tracked file deleted and an untracked copy of it: the pair that makes the adapter ask git for rename detection. */
+      const kept = isCode ? "a.txt" : "e2e/spec.ts";
+      const moved = isCode ? "Dockerfile" : "moved-copy.txt";
+      writeFileSync(join(repo, moved), readFileSync(join(repo, kept)));
+      unlinkSync(join(repo, kept));
+      const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: () => false });
+
+      await adapter.enforce(repo, isCode);
+
+      assert.equal(ranPlantedCommand(marker), false, "no git call of the confinement pass ran the planted filter");
+      assert.ok(existsSync(join(repo, kept)), "the tracked file that was deleted is restored");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("real git fixture: a submodule pointer moved off its recorded commit is still reverted as a stray change (e2e target)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command, { movePointer: true });
+    const adapter = new WriteConfinementAdapter({ git: realGitFn(fixture.repo), realpath: realpathSync, isSymlink: () => false });
+
+    const result = await adapter.enforce(fixture.repo, false);
+
+    assert.deepEqual(result.reverted, ["sub"]);
+    assert.equal(ranPlantedCommand(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

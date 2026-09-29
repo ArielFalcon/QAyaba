@@ -4,6 +4,9 @@ import { WriteConfinementService, type GitRename } from "../domain/write-confine
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
 
+/* A submodule directory belongs to the sandbox, which can plant a repository in it whose config names a command. Reporting a submodule's dirty content makes git enter it and run that command as the orchestrator; a pointer moved off its recorded commit is still reported, without entering it. */
+const IGNORE_SUBMODULE_CONTENT = "--ignore-submodules=dirty";
+
 export interface WriteConfinementAdapterDeps {
   git: Git;
   realpath(p: string): string;
@@ -26,7 +29,7 @@ export class WriteConfinementAdapter {
       return { strays: 0, dangerous: 0, reverted: [] };
     }
 
-    const out = await this.deps.git(["status", "--porcelain", "--untracked-files=all"], mirrorDir);
+    const out = await this.deps.git(["status", "--porcelain", "--untracked-files=all", IGNORE_SUBMODULE_CONTENT], mirrorDir);
     const changes = this.classifier.parseStatusOutput(out);
     const { tracked, untracked, dangerousByPath } = this.classifier.classifyStrays(changes, isCode);
 
@@ -61,7 +64,7 @@ export class WriteConfinementAdapter {
       try {
         await this.deps.git(["add", "-N", "--", ...untracked], mirrorDir);
         const diffOut = await this.deps.git(
-          ["diff", "--find-renames", "-M50%", "--diff-filter=R", "--name-status", "HEAD"],
+          ["diff", "--find-renames", "-M50%", "--diff-filter=R", "--name-status", IGNORE_SUBMODULE_CONTENT, "HEAD"],
           mirrorDir,
         );
         gitRenames = parseRenameNameStatus(diffOut, (raw) => this.classifier.decodeGitPath(raw));

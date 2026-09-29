@@ -131,7 +131,7 @@ export async function getCommitDiff(dir: string, sha: string, deps: MirrorDeps, 
  * directories and lists each file, so the specs are seen on the first run too.
  */
 export async function listChangedSpecs(dir: string, e2eRelDir: string, deps: MirrorDeps): Promise<string[]> {
-  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--", e2eRelDir], dir);
+  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty", "--", e2eRelDir], dir);
   return out
     .split("\n")
     .filter((l) => l.length > 3)  /* "XY path" — 2 status chars + a space + the path */

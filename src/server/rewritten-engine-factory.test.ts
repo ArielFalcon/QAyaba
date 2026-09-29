@@ -11,7 +11,8 @@ import { enqueueTrackedRun } from "./runner";
 import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { defaultMirrorDeps, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -1235,7 +1236,7 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
   /* commit() always diffs tracked denylist paths before committing, including on e2e. */
   assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow the legacy contract's exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
-  assert.deepEqual(calls[1], ["checkout", "-B", "qa-bot/abc1234"], "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
+  assert.deepEqual(calls[1]?.slice(-3), ["checkout", "-B", "qa-bot/abc1234"], "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
   assert.deepEqual(calls[2], ["add", "--", "e2e"], "e2e target stages ONLY the e2e/ pathspec, never the whole repo");
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
 });
@@ -1345,8 +1346,11 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED (no 
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
-    assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "status must stay bare — legacy never decorated the change check");
-    assert.deepEqual(calls[1], ["checkout", "-B", "qa-bot/abc1234"], "checkout must stay bare — a local branch op needs neither auth nor identity");
+    const carriesAuthOrIdentity = (args: string[]): boolean => args.some((arg) => arg.startsWith("url.") || arg.startsWith("user."));
+    assert.deepEqual(calls[0]?.slice(-2), ["--", "e2e"], "status scopes to the e2e pathspec");
+    assert.equal(carriesAuthOrIdentity(calls[0] ?? []), false, "status must stay undecorated — legacy never decorated the change check");
+    assert.deepEqual(calls[1]?.slice(-3), ["checkout", "-B", "qa-bot/abc1234"]);
+    assert.equal(carriesAuthOrIdentity(calls[1] ?? []), false, "checkout must stay undecorated — a local branch op needs neither auth nor identity");
     assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare — legacy's add carried no -c flags (publish.ts:119)");
   });
 });
@@ -1358,7 +1362,7 @@ test("buildVcsPublish (code target): changes anywhere -> stages the whole tree p
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
 
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
-  assert.deepEqual(calls[0], ["status", "--porcelain", "--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
+  assert.deepEqual(calls[0]?.slice(-2), ["--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
   assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree, matching legacy's publishCode(mirrorDir, ...) — never just e2e/");
 });
 
@@ -1372,7 +1376,7 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
   assert.equal(excludesWritten.length, 1);
   assert.equal(excludesWritten[0]?.dir, "/mirrors/org/app");
   assert.ok(excludesWritten[0]?.patterns.includes("node_modules/"), "e2e excludes must include node_modules/ (the documented `git add` failure this ordering fixes)");
-  assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
+  assert.equal(subcommandOf(calls[0] ?? []), "status", "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
 });
 
 test("buildVcsPublish never writes its local excludes through a git dir the sandbox replaced with a symlink", async () => {
@@ -1390,6 +1394,27 @@ test("buildVcsPublish never writes its local excludes through a git dir the sand
 
     assert.equal(existsSync(join(sandboxGit, "info", "exclude")), false, "nothing was written through the link");
     assert.equal(calls.length, 0, "no git command ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildVcsPublish (code target) refuses to stage the whole tree when the sandbox populated a committed gitlink, and no git command runs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "publish-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command);
+    writeFileSync(join(fixture.repo, "orders.test.ts"), "test('x', () => {});\n");
+    const git = async (args: string[], cwd?: string): Promise<string> => {
+      const dir = cwd ?? fixture.repo;
+      return execFileSync("git", hardenGitArgs(args, dir), { cwd: dir, env: GIT_ENV, encoding: "utf8" });
+    };
+    const vcsWrite = buildVcsPublish(true, "diff", git);
+
+    await assert.rejects(vcsWrite.publish({ mirrorDir: fixture.repo, branch: "qa-bot/def5678", sha: "def5678" }), UntrustedGitTreeError);
+
+    assert.equal(ranPlantedCommand(marker), false, "git entered the planted submodule");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

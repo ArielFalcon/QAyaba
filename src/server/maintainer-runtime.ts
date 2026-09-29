@@ -99,7 +99,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     if (!mdeps.exists(dir)) {
       await mdeps.git([...authHeaderArgs(), "clone", url, dir]);
     } else {
-      await mdeps.git([...authHeaderArgs(), "fetch", "origin"], dir);
+      await mdeps.git([...authHeaderArgs(), "fetch", "--no-recurse-submodules", "origin"], dir);
       await mdeps.git(["checkout", "-f", "main"], dir);
       await mdeps.git(["reset", "--hard", "origin/main"], dir);
     }

@@ -7,6 +7,7 @@
  */
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
+import { closeGitDir } from "../../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 /* ── shared fixtures ─────────────────────────────────────────────────────────────────────────────
    A REAL on-disk temp directory, not a mock path — the mirror-existence check is real (existsSync),
@@ -138,7 +140,8 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
       runner,
     });
 
-    mkdirSync(join(MIRROR_DIR, ".git"), { recursive: true });
+    execFileSync("git", ["init", "-q", MIRROR_DIR]);
+    closeGitDir(MIRROR_DIR);
     await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]);
 
     assert.deepEqual(order, ["fetch", "blastRadius"], "the fetch must fire before the diff is read — otherwise a freshly-pushed trigger sha may not exist in a stale mirror");
