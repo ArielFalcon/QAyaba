@@ -27,6 +27,8 @@ export interface MirrorDeps {
   git: Git;
   exists(path: string): boolean;
   removeFile(path: string): void;
+  /** Deletes a directory tree without following a link inside it: how a mirror the git hardening refuses is recovered. */
+  removeTree?(path: string): void;
   root?: string;
 }
 
@@ -78,6 +80,7 @@ function toProvisionDeps(deps: MirrorDeps): MirrorProvisionDeps {
     root: deps.root ?? workdirRoot(),
     exists: deps.exists,
     removeFile: deps.removeFile,
+    ...(deps.removeTree ? { removeTree: deps.removeTree } : {}),
     remoteUrl: tokenlessUrl,
     git: (args, cwd) => (args[0] === "clone" || args[0] === "fetch" ? deps.git([...authHeaderArgs(), ...args], cwd) : deps.git(args, cwd)),
   };
@@ -208,6 +211,8 @@ export const defaultMirrorDeps: MirrorDeps = {
   git: realGit,
   exists: existsSync,
   removeFile: (path) => rmSync(path, { force: true }),
+  /* rmSync deletes a link inside the tree (or the tree's own path being one) as the link, never what it points to. */
+  removeTree: (path) => rmSync(path, { recursive: true, force: true }),
 };
 
 /*

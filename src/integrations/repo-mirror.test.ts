@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
-import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
-import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
+import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
    clear both to isolate the logic (token-bearing tests set GITHUB_TOKEN per-test).
@@ -630,5 +630,115 @@ test("realGit still runs against an ordinary working copy", async () => {
     assert.match(await realGit(["status", "--porcelain"], repo), /a\.txt/);
   } finally {
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* ── A mirror the sandbox left in a state the hardening refuses recovers on the next run ─────────────────
+   The mirror is a regenerable cache: the run deletes it and clones afresh, never running git inside it. */
+
+interface RemoteFixture {
+  root: string;
+  mirrors: string;
+  /** The commit before the gitlink `x` exists, and the commit that adds it. */
+  plain: string;
+  withGitlink: string;
+  deps: MirrorDeps;
+  restore(): void;
+}
+
+function makeRemote(): RemoteFixture {
+  const root = mkdtempSync(join(tmpdir(), "mirror-heal-"));
+  const git = (cwd: string, ...args: string[]): string => execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const source = join(root, "source");
+  git(root, "init", "-q", "-b", "main", source);
+  writeFileSync(join(source, "a.txt"), "a\n");
+  git(source, "add", "a.txt");
+  git(source, "commit", "-qm", "plain");
+  const plain = git(source, "rev-parse", "HEAD");
+  git(source, "update-index", "--add", "--cacheinfo", `160000,${plain},x`);
+  git(source, "commit", "-qm", "adds the gitlink x");
+  const withGitlink = git(source, "rev-parse", "HEAD");
+  execFileSync("git", ["clone", "-q", "--bare", source, join(root, "remote", "org", "app.git")], { env: GIT_ENV, stdio: "ignore" });
+  const previousBase = process.env.GIT_REMOTE_BASE;
+  process.env.GIT_REMOTE_BASE = `file://${join(root, "remote")}`;
+  const mirrors = join(root, "mirrors");
+  const deps: MirrorDeps = {
+    ...defaultMirrorDeps,
+    root: mirrors,
+    git: (args, cwd) => defaultMirrorDeps.git(cwd === undefined ? ["-c", "protocol.file.allow=always", ...args] : args, cwd),
+  };
+  return {
+    root,
+    mirrors,
+    plain,
+    withGitlink,
+    deps,
+    restore: () => {
+      if (previousBase === undefined) delete process.env.GIT_REMOTE_BASE;
+      else process.env.GIT_REMOTE_BASE = previousBase;
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+test("a mirror where the sandbox planted a repository at a path the next commit turns into a gitlink is recovered, and nothing planted runs", async () => {
+  const f = makeRemote();
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    const { marker, command } = writeMarkerCommand(f.root);
+    makeEmbeddedRepo(join(mirror, "x"), command);
+
+    const recovered = await ensureMirror("org/app", f.withGitlink, f.deps);
+
+    assert.equal(recovered, mirror);
+    assert.equal(ranPlantedCommand(marker), false, "the planted filter ran");
+    assert.equal(existsSync(join(mirror, "x", ".git")), false, "the planted repository is gone");
+    assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: mirror, encoding: "utf8" }).trim(), f.withGitlink);
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "", "the recovered mirror is usable");
+  } finally {
+    f.restore();
+  }
+});
+
+test("a mirror left holding a gitlink over an embedded repository (staged by an earlier version) is recovered on the next run", async () => {
+  const f = makeRemote();
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    makeEmbeddedRepo(join(mirror, "tmp-fixture-repo"));
+    execFileSync("git", ["add", "--", "."], { cwd: mirror, env: GIT_ENV, stdio: "ignore" }); /* what the unguarded add did */
+    assert.deepEqual(indexedGitlinks(mirror), ["tmp-fixture-repo"]);
+    await assert.rejects(realGit(["status"], mirror), UntrustedGitTreeError, "control: the wedged mirror is refused");
+
+    await ensureMirror("org/app", f.plain, f.deps);
+
+    assert.equal(existsSync(join(mirror, "tmp-fixture-repo")), false);
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "");
+  } finally {
+    f.restore();
+  }
+});
+
+test("a mirror directory replaced by a link is removed as the link, never through it, and the mirror is cloned afresh", async () => {
+  const f = makeRemote();
+  const outside = mkdtempSync(join(tmpdir(), "mirror-heal-outside-"));
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    writeFileSync(join(outside, "precious.txt"), "keep\n");
+    const planted = join(f.root, "planted");
+    cpSync(mirror, planted, { recursive: true });
+    makeEmbeddedRepo(join(planted, "tmp-fixture-repo"));
+    execFileSync("git", ["add", "--", "."], { cwd: planted, env: GIT_ENV, stdio: "ignore" }); /* a wedged copy: the recovery has to act */
+    symlinkSync(outside, join(planted, "link-out"));
+    rmSync(mirror, { recursive: true });
+    symlinkSync(planted, mirror);
+
+    await ensureMirror("org/app", f.plain, f.deps);
+
+    assert.equal(readFileSync(join(outside, "precious.txt"), "utf8"), "keep\n", "the directory behind the link was deleted through it");
+    assert.equal(lstatSync(mirror).isSymbolicLink(), false, "the mirror is a real directory again");
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "");
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+    f.restore();
   }
 });
