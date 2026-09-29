@@ -5,7 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as engineHardening from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
@@ -13,11 +14,12 @@ import {
   assertTrustedGitTree,
   hardenGitArgs,
   setSandboxGroup,
+  setVerificationTimeout,
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
 import { InfraError } from "../../../src/shared-kernel/domain-error.ts";
-import { closeGitDir, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
+import { closeGitDir, git, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
 
@@ -560,4 +562,90 @@ test("git saying it cannot use the git dir stays a refusal of the tree", () =>
     withFakeGit('echo "fatal: not a git repository (or any of the parent directories): .git" >&2\nexit 128', () => {
       assert.throws(() => hardenGitArgs(["status"], f.repo), UntrustedGitTreeError);
     });
+  }));
+
+/* The verification queries run synchronously in front of every git call the server makes. A stalled filesystem must
+   not freeze the whole process, and a listing that cannot have changed is not asked for again. */
+test("a git query that never returns is cut off and reported as an infrastructure failure", () =>
+  withFixture((f) => {
+    withFakeGit("exec sleep 3", () => {
+      setVerificationTimeout(1);
+      try {
+        assert.throws(() => hardenGitArgs(["status"], f.repo), isInfra);
+      } finally {
+        setVerificationTimeout(undefined);
+      }
+    });
+  }));
+
+/* A stand-in git that records every call, then runs the real one. */
+function withLoggingGit(body: (calls: () => string[]) => void): void {
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const bin = mkdtempSync(join(tmpdir(), "logging-git-"));
+  const log = join(bin, "calls.log");
+  const previousPath = process.env.PATH;
+  try {
+    writeFileSync(join(bin, "git"), `#!/bin/sh\necho "$@" >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${previousPath}`;
+    body(() => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []));
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
+const listingsOf = (calls: string[]): number => calls.filter((line) => line.includes("ls-files --stage")).length;
+const HOUR_AGO = new Date(Date.now() - 3_600_000);
+const ageIndex = (repo: string): void => utimesSync(join(repo, ".git", "index"), HOUR_AGO, HOUR_AGO);
+
+test("the submodule listing is not asked of git again while the index has not changed", () =>
+  withFixture((f) => {
+    ageIndex(f.repo);
+    withLoggingGit((calls) => {
+      hardenGitArgs(["status"], f.repo);
+      hardenGitArgs(["status"], f.repo);
+      hardenGitArgs(["diff"], f.repo);
+      assert.equal(listingsOf(calls()), 1);
+    });
+  }));
+
+test("an index written moments ago is never served from the listing cache", () =>
+  withFixture((f) => {
+    withLoggingGit((calls) => {
+      hardenGitArgs(["status"], f.repo);
+      hardenGitArgs(["status"], f.repo);
+      assert.equal(listingsOf(calls()), 2, "a same-tick rewrite cannot be told apart by its timestamp");
+    });
+  }));
+
+test("a gitlink added to the index after the listing was cached is seen, and a repository planted in it is refused", () =>
+  withGitlinkRepo(({ repo, fixture, command }) => {
+    ageIndex(repo);
+    hardenGitArgs(["status"], repo); /* caches the listing: only `sub` */
+    execFileSync("git", ["update-index", "--add", "--cacheinfo", `160000,${fixture.subSha},later`], { cwd: repo, env: GIT_ENV });
+    ageIndex(repo); /* the rewrite is old enough to be cached again, so only the index's identity can tell it changed */
+    makeEmbeddedRepo(join(repo, "later"), command);
+
+    assert.throws(() => hardenGitArgs(["status"], repo), UntrustedGitTreeError);
+  }));
+
+test("an index rewritten to the same size and timestamp is still noticed", () =>
+  withGitlinkRepo(({ repo, command }) => {
+    const indexPath = join(repo, ".git", "index");
+    ageIndex(repo);
+    hardenGitArgs(["status"], repo); /* caches the listing: only `sub` */
+    /* The same index with the gitlink renamed to a path of the same length (and the trailing checksum redone), put in place the way git does: a new file renamed over the old one. */
+    const bytes = readFileSync(indexPath);
+    const at = bytes.lastIndexOf("sub\0");
+    assert.ok(at > 0, "the gitlink's path is in the index");
+    bytes.write("sug", at);
+    createHash("sha1").update(bytes.subarray(0, bytes.length - 20)).digest().copy(bytes, bytes.length - 20);
+    const rewritten = join(repo, ".git", "index.rewritten");
+    writeFileSync(rewritten, bytes);
+    assert.deepEqual(execFileSync("git", ["ls-files", "--stage"], { cwd: repo, env: { ...GIT_ENV, GIT_INDEX_FILE: rewritten }, encoding: "utf8" }).includes("\tsug"), true, "the rewritten index is one git accepts");
+    renameSync(rewritten, indexPath);
+    ageIndex(repo); /* the same timestamp as before */
+    makeEmbeddedRepo(join(repo, "sug"), command);
+
+    assert.throws(() => hardenGitArgs(["status"], repo), UntrustedGitTreeError);
   }));

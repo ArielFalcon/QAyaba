@@ -160,6 +160,15 @@ const GITLINK_MODE = "160000";
 /* Room for the index listing of a very large repository; a listing that still overflows is refused, never truncated. */
 const LS_FILES_MAX_BUFFER = 512 * 1024 * 1024;
 
+/* A verification query runs synchronously in front of every git call the server makes: one that never returns (a stalled filesystem) must fail the call, not freeze the process. */
+const DEFAULT_VERIFICATION_TIMEOUT_MS = 30_000;
+let verificationTimeoutMs = DEFAULT_VERIFICATION_TIMEOUT_MS;
+
+/** Overrides how long a verification query may run, or restores the default with undefined. */
+export function setVerificationTimeout(ms: number | undefined): void {
+  verificationTimeoutMs = ms ?? DEFAULT_VERIFICATION_TIMEOUT_MS;
+}
+
 /**
  * Opts exactly one tree out of git's ownership check. The empty value first clears every entry a system or global
  * config lists (a `*` there would otherwise trust every tree, and make the narrowing below moot), then the one
@@ -169,8 +178,8 @@ function ownershipFlags(topLevel: string): string[] {
   return ["-c", "safe.directory=", "-c", `safe.directory=${topLevel}`];
 }
 
-/* Errors that mean the machine could not run git at all, whatever the working copy holds: no binary, no memory, no processes or descriptors, no space, an oversized listing. */
-const ENVIRONMENT_ERRNO: ReadonlySet<string> = new Set(["ENOENT", "ENOMEM", "EAGAIN", "ENOBUFS", "EMFILE", "ENFILE", "E2BIG", "ENOSPC", "EIO"]);
+/* Errors that mean the machine could not run git at all, whatever the working copy holds: no binary, no memory, no processes or descriptors, no space, an oversized listing, a query that never returned. */
+const ENVIRONMENT_ERRNO: ReadonlySet<string> = new Set(["ENOENT", "ENOMEM", "EAGAIN", "ENOBUFS", "EMFILE", "ENFILE", "E2BIG", "ENOSPC", "EIO", "ETIMEDOUT"]);
 /* What git itself prints when the machine, not the repository, is the problem. */
 const ENVIRONMENT_STDERR = /out of memory|memory exhausted|cannot allocate memory|resource temporarily unavailable|too many open files|no space left on device|unable to fork|cannot fork|could not fork/i;
 
@@ -186,11 +195,13 @@ function verificationGit(topLevel: string, cwd: string, args: string[], failure:
       encoding: "utf8",
       maxBuffer: LS_FILES_MAX_BUFFER,
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: verificationTimeoutMs,
+      killSignal: "SIGKILL",
     });
   } catch (err) {
     const { code, signal, stderr } = err as NodeJS.ErrnoException & { signal?: string | null; stderr?: string };
     const firstLine = typeof stderr === "string" && stderr.trim() !== "" ? stderr.trim().split("\n")[0] : undefined;
-    const detail = firstLine ?? (typeof signal === "string" ? `killed by ${signal}` : (code ?? "git failed"));
+    const detail = code === "ETIMEDOUT" ? `timed out after ${verificationTimeoutMs}ms` : (firstLine ?? (typeof signal === "string" ? `killed by ${signal}` : (code ?? "git failed")));
     if ((typeof code === "string" && ENVIRONMENT_ERRNO.has(code)) || typeof signal === "string" || (firstLine !== undefined && ENVIRONMENT_STDERR.test(firstLine))) {
       throw new InfraError(`git could not run to verify ${quoted(cwd)}: ${quoted(detail)}`, { cause: err });
     }
@@ -200,8 +211,9 @@ function verificationGit(topLevel: string, cwd: string, args: string[], failure:
 
 function sameDirectory(a: string, b: string): boolean {
   try {
-    const first = statSync(a);
-    const second = statSync(b);
+    /* bigint: an inode number above 2^53 must not compare equal to a neighbour after rounding. */
+    const first = statSync(a, { bigint: true });
+    const second = statSync(b, { bigint: true });
     return first.dev === second.dev && first.ino === second.ino;
   } catch {
     return false;
@@ -222,14 +234,43 @@ function assertGitUsesVerifiedTree(tree: { workDir: string; topLevel: string }):
   }
 }
 
-/** The paths, relative to `topLevel`, of the submodule entries in its index. Reads the index only: no submodule is entered and no filter runs. */
-function committedGitlinks(topLevel: string): string[] {
+/* An index rewritten this recently could be rewritten again within the same timestamp tick with no stat field changing (git's own "racily clean" case), so a listing read from it is never cached. */
+const INDEX_SETTLE_MS = 2_000;
+const GITLINK_CACHE_MAX_ENTRIES = 32;
+const gitlinkCache = new Map<string, { identity: string; gitlinks: readonly string[] }>();
+
+/**
+ * What identifies the state of `topLevel`'s index: the device, inode, size and modification time (in nanoseconds) of the
+ * file. Git replaces the index by renaming a new file over it, so a rewrite changes the inode; the sandbox cannot write
+ * the root-owned git dir, so only the orchestrator's own git changes it. null when the index is missing or too recent to
+ * tell a same-tick rewrite from no change.
+ */
+function indexIdentity(topLevel: string): string | null {
+  try {
+    const stat = statSync(join(topLevel, ".git", "index"), { bigint: true });
+    if (Date.now() - Number(stat.mtimeNs / 1_000_000n) < INDEX_SETTLE_MS) return null;
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+  } catch {
+    return null;
+  }
+}
+
+/** The paths, relative to `topLevel`, of the submodule entries in its index. Reads the index only: no submodule is entered and no filter runs. The listing is remembered for as long as the index is unchanged. */
+function committedGitlinks(topLevel: string): readonly string[] {
+  const identity = indexIdentity(topLevel);
+  const cached = gitlinkCache.get(topLevel);
+  if (identity !== null && cached?.identity === identity) return cached.gitlinks;
   const listing = verificationGit(topLevel, topLevel, ["ls-files", "--stage", "-z"], "its submodule entries cannot be listed");
   const gitlinks: string[] = [];
   for (const entry of listing.split("\0")) {
     const tab = entry.indexOf("\t");
     if (tab < 0) continue;
     if (entry.startsWith(`${GITLINK_MODE} `)) gitlinks.push(entry.slice(tab + 1));
+  }
+  gitlinkCache.delete(topLevel);
+  if (identity !== null) {
+    if (gitlinkCache.size >= GITLINK_CACHE_MAX_ENTRIES) gitlinkCache.delete(gitlinkCache.keys().next().value as string);
+    gitlinkCache.set(topLevel, { identity, gitlinks });
   }
   return gitlinks;
 }
