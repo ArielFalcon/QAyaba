@@ -107,11 +107,11 @@ const WINDOW_SIZE_KEYS = ["limit", "end_line"] as const;
 
 /** Which part of a file a read asked for, as a stable string: "" for the whole file. Two reads of one path are the same read only if their windows are the same. */
 export function readWindowOf(input: unknown): string {
-  if (input === null || typeof input !== "object") return "";
-  const record = input as Record<string, unknown>;
+  /* A non-object input has none of the window keys; a lookup on it answers undefined. */
+  const record = input as Record<string, unknown> | null | undefined;
   const parts: string[] = [];
   for (const key of [...WINDOW_START_KEYS, ...WINDOW_SIZE_KEYS]) {
-    const value = record[key];
+    const value = record?.[key];
     if (typeof value !== "number" && typeof value !== "string") continue;
     if ((WINDOW_START_KEYS as readonly string[]).includes(key) && Number(value) === 0) continue;
     parts.push(`${key}=${String(value)}`);

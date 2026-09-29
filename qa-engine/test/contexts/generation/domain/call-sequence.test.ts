@@ -23,6 +23,23 @@ test("a call counts once, at its first running/completed sighting", () => {
   assert.equal(summary.totalCalls, 2);
 });
 
+test("a call still running when the turn ended counts once", () => {
+  const summary = summarizeCallSequence([
+    call("c1", "running", CALL_BUCKETS.CODE_READ),
+    call("c1", "running", CALL_BUCKETS.CODE_READ),
+  ]);
+  assert.equal(summary.totalCalls, 1);
+});
+
+test("a call is the one its first counted sighting describes, however its later sightings differ", () => {
+  const summary = summarizeCallSequence([
+    call("c1", "running", CALL_BUCKETS.CODE_READ, "read:/a.ts"),
+    call("c1", "completed", CALL_BUCKETS.CODE_READ, "read:/b.ts"),
+    call("c2", "completed", CALL_BUCKETS.CODE_READ, "read:/a.ts"),
+  ]);
+  assert.equal(summary.repeatedCallCount, 1, "c2 repeats what c1 first was");
+});
+
 test("a call seen only pending or only error never counts", () => {
   const summary = summarizeCallSequence([
     call("c1", "pending", CALL_BUCKETS.CODE_READ),
@@ -130,6 +147,24 @@ test("only content-read tools (matching the content-read pattern) participate in
   assert.equal(redundant.size, 0);
 });
 
+test("a tool that merely starts with the word read is not a content-read tool", () => {
+  for (const tool of ["reader", "read_memory", "readdir"]) {
+    const redundant = detectRedundantReads([
+      rw("c1", tool, "/a.ts", CALL_BUCKETS.CODE_READ),
+      rw("c2", tool, "/a.ts", CALL_BUCKETS.CODE_READ),
+    ]);
+    assert.equal(redundant.size, 0, tool);
+  }
+});
+
+test("a read with no recorded window and a read of the whole file are the same read", () => {
+  const redundant = detectRedundantReads([
+    rw("c1", "read", "/a.ts", CALL_BUCKETS.CODE_READ),
+    { ...rw("c2", "read", "/a.ts", CALL_BUCKETS.CODE_READ), window: "" },
+  ]);
+  assert.deepEqual([...redundant], ["c2"]);
+});
+
 test("read_file also counts as a content-read tool", () => {
   const redundant = detectRedundantReads([
     rw("c1", "read_file", "/a.ts", CALL_BUCKETS.CODE_READ),
@@ -147,6 +182,19 @@ test("a read's window is empty for the whole file and names the requested lines 
   assert.notEqual(readWindowOf({ filePath: "/a.ts", limit: 50 }), readWindowOf({ filePath: "/a.ts" }), "a limit alone is a window");
   assert.notEqual(readWindowOf({ filePath: "/a.ts", offset: 100 }), readWindowOf({ filePath: "/a.ts", offset: 200 }));
   assert.equal(readWindowOf(null), "");
+});
+
+test("a read's window follows numeric strings the way it follows numbers, and a non-object input asks for the whole file", () => {
+  assert.notEqual(readWindowOf({ filePath: "/a.ts", offset: "100" }), "");
+  assert.equal(readWindowOf({ filePath: "/a.ts", offset: "0" }), "", "a start of \"0\" is the default too");
+  assert.equal(readWindowOf({ filePath: "/a.ts", offset: "100" }), readWindowOf({ filePath: "/a.ts", offset: 100 }));
+  assert.equal(readWindowOf("offset=5"), "");
+  assert.equal(readWindowOf(undefined), "");
+  assert.equal(readWindowOf(42), "");
+});
+
+test("two different windows never share an identity, even when a value spells out the other's key", () => {
+  assert.notEqual(readWindowOf({ offset: "5limit=9" }), readWindowOf({ offset: 5, limit: 9 }));
 });
 
 test("reads of one path are redundant only when they asked for the same window", () => {
