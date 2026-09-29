@@ -24,6 +24,17 @@ test("PARITY: parseGenerator on a valid generator verdict matches legacy parseVe
   assert.equal(got.note, legacy.note);
 });
 
+test("PARITY: parseGenerator reads a declared no-op's reason the way the legacy parser does, and never reads `approved` as one", () => {
+  const adapter = makeRealAdapter();
+  const declared = JSON.stringify({ specs: [], noop: { reason: "nothing worth an E2E test" } });
+  assert.equal(adapter.parseGenerator(declared).noopReason, "nothing worth an E2E test");
+  assert.equal(adapter.parseGenerator(declared).noopReason, parseVerdict(declared).noopReason);
+  for (const undecided of ['{"specs":[],"approved":true}', '{"approved":true}', '{"specs":[],"noop":{"reason":"  "}}']) {
+    assert.equal("noopReason" in adapter.parseGenerator(undecided), false, undecided);
+    assert.equal(parseVerdict(undecided).noopReason, undefined, undecided);
+  }
+});
+
 test("PARITY: parseGenerator on a parse miss is fail-closed — matches legacy parsed:false output", () => {
   const text = "the agent wrote prose with no JSON verdict";
   const adapter = makeRealAdapter();

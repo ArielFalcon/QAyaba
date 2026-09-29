@@ -16,6 +16,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
+import { buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { GENERATION_END } from "@kernel/generation-end";
+import { parseVerdict } from "../integrations/verdict-parse";
+import { checkGeneratorVerdict } from "../integrations/verdict-validate";
 
 /* Resolve repo root relative to this test file (src/agent-runtime/ → two levels up) */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
@@ -329,6 +334,58 @@ describe("prompt-sync drift guard", () => {
       }
       assert.deepEqual(verdict.specMetas.map((m) => m.file), verdict.specs, `${rel}: specMetas[].file names the same paths`);
     }
+  });
+
+  /* The JSON examples of a generator prompt's Final output section, in order. */
+  const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"];
+  const finalOutputExamples = (rel: string): string[] => {
+    const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
+    return [...finalOutput.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? "");
+  };
+  const endOfExample = (example: string) => {
+    const verdict = parseVerdict(example);
+    return classifyGenerationEnd({
+      specCount: verdict.specs.length,
+      parsed: verdict.parsed,
+      noopReason: verdict.noopReason,
+      exhausted: false,
+    });
+  };
+
+  it("in both qa-generator.md copies the first Final output example delivers specs and every other one declares a no-op, as the real parser and validator read them", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const examples = finalOutputExamples(rel);
+      assert.ok(examples.length >= 2, `${rel}: the Final output section carries a delivery example and a no-op example`);
+      examples.forEach((example, index) => {
+        assert.equal(checkGeneratorVerdict(example).valid, true, `${rel}: example ${index + 1} passes the validator`);
+        assert.equal(
+          endOfExample(example),
+          index === 0 ? GENERATION_END.DELIVERED : GENERATION_END.DECLARED_NOOP,
+          `${rel}: example ${index + 1}`,
+        );
+      });
+    }
+  });
+
+  it("no example in either qa-generator.md copy reports an approval", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      for (const example of finalOutputExamples(rel)) {
+        assert.equal("approved" in (JSON.parse(example) as object), false, `${rel}: ${example}`);
+      }
+    }
+  });
+
+  it("the context-mode prompt's closing example delivers its map and reports no approval", () => {
+    const text = buildContextTask({
+      repo: "org/app",
+      sha: "abc1234",
+      e2eRelDir: "e2e",
+      mode: "context",
+    } as Parameters<typeof buildContextTask>[0]);
+    const example = text.trim().split("\n").at(-1) ?? "";
+    assert.equal("approved" in (JSON.parse(example) as object), false);
+    assert.equal(checkGeneratorVerdict(example).valid, true);
+    assert.equal(endOfExample(example), GENERATION_END.DELIVERED);
   });
 
   it("AGENTS.md Global rules section matches between agents/ and agent/", () => {

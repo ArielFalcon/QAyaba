@@ -262,17 +262,34 @@ export const SpecMetaSchema = z.object({
   targets: z.array(z.string()).default([]),
 });
 
+/* A generator's decision to write nothing, with the reason it gives. */
+const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
+
 /*
  * The GENERATOR's deliverable. It does not self-report `approved` — the independent
- * reviewer is the authoritative gate — so its closing JSON is just the specs it wrote plus
- * optional per-spec metadata. An EMPTY specs array is a valid no-op (nothing worth testing),
- * so `specs` is required-but-may-be-empty. A stray `approved` field is ignored (stripped).
+ * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
+ * optional per-spec metadata. An EMPTY specs array is a decision only when it carries a
+ * reasoned `noop` ({"specs":[],"noop":{"reason":"…"}}): silence is not a decision, and neither is
+ * `approved`, which is ignored (stripped). A `noop` beside real specs is not read at all.
  */
-export const GeneratorVerdictSchema = z.object({
-  specs: z.array(z.string()),
-  specMetas: z.array(SpecMetaSchema).optional(),
-  note: z.string().optional(),
-});
+export const GeneratorVerdictSchema = z
+  .object({
+    specs: z.array(z.string()),
+    specMetas: z.array(SpecMetaSchema).optional(),
+    note: z.string().optional(),
+    noop: z.unknown().optional(),
+  })
+  .superRefine((verdict, ctx) => {
+    if (verdict.specs.length > 0 || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    ctx.addIssue({
+      code: "custom",
+      path: ["noop"],
+      message:
+        verdict.noop === undefined
+          ? 'an empty "specs" list is only a decision with a "noop" object: {"noop":{"reason":"why nothing was written"}}'
+          : 'a "noop" needs a non-empty text "reason"',
+    });
+  });
 
 export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 

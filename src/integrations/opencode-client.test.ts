@@ -242,6 +242,43 @@ test("parseVerdict reads the new generator contract (specs, no approved) — app
   assert.equal(v.specMetas?.length, 1);
 });
 
+test("parseVerdict reads a declared no-op's reason", () => {
+  const v = parseVerdict('done.\n{"specs":[],"noop":{"reason":"The diff only renames an internal helper."}}');
+  assert.equal(v.parsed, true);
+  assert.deepEqual(v.specs, []);
+  assert.equal(v.noopReason, "The diff only renames an internal helper.");
+});
+
+test("parseVerdict trims a no-op's reason and reads a blank or missing one as no decision", () => {
+  assert.equal(parseVerdict('{"specs":[],"noop":{"reason":"  because  "}}').noopReason, "because");
+  for (const noop of ['{"reason":"   "}', "{}", "true", '"because"', '{"reason":5}']) {
+    const v = parseVerdict(`{"specs":[],"noop":${noop}}`);
+    assert.equal(v.parsed, true, noop);
+    assert.equal(v.noopReason, undefined, noop);
+  }
+});
+
+test("parseVerdict finds a closing verdict that carries only a no-op", () => {
+  const v = parseVerdict('{"noop":{"reason":"nothing to test"}}');
+  assert.equal(v.parsed, true);
+  assert.equal(v.noopReason, "nothing to test");
+});
+
+test("parseVerdict never reads `approved` as a no-op decision", () => {
+  for (const text of ['{"approved":true}', '{"approved":true,"specs":[]}']) {
+    const v = parseVerdict(text);
+    assert.equal(v.parsed, true, text);
+    assert.deepEqual(v.specs, [], text);
+    assert.equal(v.noopReason, undefined, text);
+  }
+});
+
+test("parseVerdict reads the specs and the reason of a verdict that carries both", () => {
+  const v = parseVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}');
+  assert.deepEqual(v.specs, ["a.spec.ts"]);
+  assert.equal(v.noopReason, "also nothing");
+});
+
 test("parseVerdict handles a verdict with a NESTED object (regression: old regex truncated it)", () => {
   const v = parseVerdict('done.\n{"approved": true, "specs": ["a.spec.ts"], "meta": {"changeRef": {"sha": "x"}}}');
   assert.equal(v.parsed, true);

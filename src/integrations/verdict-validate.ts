@@ -142,7 +142,8 @@ export interface RepairInstructionOpts {
 export function repairInstruction(kind: "generator" | "reviewer", issues: string[], opts?: RepairInstructionOpts): string {
   const shape =
     kind === "generator"
-      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string}`
+      ? `{"specs": string[], "specMetas"?: [{"file","flow","objective","targets": string[]}], "note"?: string, "noop"?: {"reason": string}}` +
+        `\nIf you wrote no specs, "specs" is [] and "noop" gives the reason.`
       : `{"approved": boolean, "rationale": string, "corrections": string[]}`;
   const tail = opts?.priorResponseTail ? stripFrameMarkers(opts.priorResponseTail).trim() : "";
   const tailBlock = tail

@@ -201,12 +201,20 @@ End with a single JSON block, with no text after it:
 }
 ```
 
+If nothing in this change is worth an E2E test, write no specs and end with this block instead —
+the reason is what makes an empty list a decision:
+
+```json
+{ "specs": [], "noop": { "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
+```
+
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
   separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
   here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
 - `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
   for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
-  `specMetas[].file` uses the same path. An EMPTY list is a valid no-op (nothing in this change is
-  worth an E2E test) — never invent tests to fill it.
+  `specMetas[].file` uses the same path. An empty list is a decision only together with
+  `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it. An empty list
+  with no reason is not a decision, and `approved` never stands in for one.
 - `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
   only"), otherwise "".

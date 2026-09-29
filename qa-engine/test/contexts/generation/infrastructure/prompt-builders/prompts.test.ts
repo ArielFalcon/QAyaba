@@ -1940,6 +1940,13 @@ test("buildContextTask: its output contract reports the map relative to the suit
   assert.deepEqual(contract.specs, [".qa/context.json"]);
 });
 
+/* Approval is the independent reviewer's call, and `approved` is not a no-op signal: no generator prompt asks for it. */
+test("buildContextTask: its output contract does not ask the generator for an approval", () => {
+  const text = buildContextTask(mkInput({ mode: "context" }));
+  const contract = JSON.parse(text.trim().split("\n").at(-1) ?? "") as Record<string, unknown>;
+  assert.equal("approved" in contract, false);
+});
+
 test("buildContextTask: describes each microservice path as a staged contract snapshot, never a mirrored working copy, and prefixes hints with contracts/", () => {
   const text = buildContextTask(mkInput({
     mode: "context",

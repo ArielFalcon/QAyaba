@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 
 test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
   const adapter = new VerdictParserAdapter({
@@ -60,6 +61,54 @@ test("parseGenerator forwards parsed + specMetas (WRAP-2 fail-closed + WRAP-1 ma
   const d = adapter.parseGenerator("verdict text");
   assert.equal(d.parsed, true);                 /* WRAP-2: the #1 fail-closed invariant — a port that dropped it would be undefined here */
   assert.deepEqual(d.specMetas, specMetas);     /* WRAP-1: drives the disk-reconciled manifest upsert — gutted-impl-proof */
+});
+
+const NO_REVIEWER = () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }) as never;
+const SECRET = "sk-abcdefghijklmnopqrstuvwxyz1234";
+
+function adapterReading(verdict: Record<string, unknown>): VerdictParserAdapter {
+  return new VerdictParserAdapter({ parseVerdict: () => ({ parsed: true, specs: [], ...verdict }) as never, parseReviewerVerdict: NO_REVIEWER } as never);
+}
+
+test("parseGenerator forwards the generator's no-op reason", () => {
+  const d = adapterReading({ noopReason: "The diff only renames an internal helper." }).parseGenerator("verdict text");
+  assert.equal(d.noopReason, "The diff only renames an internal helper.");
+});
+
+test("parseGenerator leaves the no-op reason out when the verdict gave none", () => {
+  const d = adapterReading({}).parseGenerator("verdict text");
+  assert.equal("noopReason" in d, false);
+});
+
+test("parseGenerator redacts secrets in the no-op reason before it leaves the adapter", () => {
+  const d = adapterReading({ noopReason: `Nothing to test; the key ${SECRET} was in the diff.` }).parseGenerator("verdict text");
+  assert.doesNotMatch(d.noopReason ?? "", /sk-abcdefghijklmnopqrstuvwxyz1234/);
+  assert.match(d.noopReason ?? "", /\[REDACTED\]/);
+  assert.match(d.noopReason ?? "", /^Nothing to test/);
+});
+
+test("parseGenerator bounds the no-op reason to the note bound, keeping its start", () => {
+  const d = adapterReading({ noopReason: `START ${"r".repeat(GENERATION_NOTE_MAX_CHARS * 3)}` }).parseGenerator("verdict text");
+  assert.ok((d.noopReason ?? "").length <= GENERATION_NOTE_MAX_CHARS);
+  assert.ok((d.noopReason ?? "").startsWith("START"));
+});
+
+test("parseGenerator forwards the end of the output, redacted, and bounded to the note bound", () => {
+  const text = `HEAD ${"lorem ".repeat(GENERATION_NOTE_MAX_CHARS)} key ${SECRET} THE-END`;
+  const d = adapterReading({}).parseGenerator(text);
+  const tail = d.outputTail ?? "";
+  assert.ok(tail.length <= GENERATION_NOTE_MAX_CHARS, `${tail.length} chars`);
+  assert.ok(tail.endsWith("THE-END"));
+  assert.ok(!tail.includes("HEAD"));
+  assert.doesNotMatch(tail, /sk-abcdefghijklmnopqrstuvwxyz1234/);
+  assert.match(tail, /\[REDACTED\]/);
+});
+
+test("parseGenerator forwards a short output whole and no tail for an empty one", () => {
+  assert.equal(adapterReading({}).parseGenerator("short output").outputTail, "short output");
+  for (const blank of ["", "  \n "]) {
+    assert.equal("outputTail" in adapterReading({}).parseGenerator(blank), false, JSON.stringify(blank));
+  }
 });
 
 test("parseGenerator on a parse MISS is fail-closed (parsed:false, specs ?? [] = [])", () => {

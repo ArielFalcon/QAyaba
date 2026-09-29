@@ -8,9 +8,35 @@ test("checkGeneratorVerdict accepts a well-formed generator block", () => {
   assert.deepEqual(c.issues, []);
 });
 
-test("checkGeneratorVerdict accepts an EMPTY specs list (valid no-op skip)", () => {
-  const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
+test("checkGeneratorVerdict accepts an empty specs list that carries a reasoned no-op", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"noop":{"reason":"nothing in this change is worth an E2E test"}}');
   assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects an empty specs list with no no-op decision, naming the missing field", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
+  assert.equal(c.valid, false);
+  assert.ok(c.issues.some((i) => i.includes("noop")), `issues should name the missing decision: ${c.issues.join("; ")}`);
+});
+
+test("checkGeneratorVerdict does not read `approved` as a decision: empty specs, approved true, no reason is invalid", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"approved":true}');
+  assert.equal(c.valid, false);
+  assert.ok(c.issues.some((i) => i.includes("noop")), c.issues.join("; "));
+});
+
+test("checkGeneratorVerdict rejects a no-op whose reason is missing, blank or not text", () => {
+  for (const noop of ["{}", '{"reason":"   "}', '{"reason":""}', '{"reason":7}', "true", '"because"']) {
+    const c = checkGeneratorVerdict(`{"specs":[],"noop":${noop}}`);
+    assert.equal(c.valid, false, noop);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${noop}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a no-op that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}').valid, true);
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":true}').valid, true);
 });
 
 test("checkGeneratorVerdict accepts specMetas without targets (targets default to [])", () => {
@@ -268,6 +294,11 @@ test("repairInstruction names the generator shape and the specific issues", () =
   assert.match(msg, /specs/);
   assert.match(msg, /expected array/);
   assert.match(msg, /ONLY the closing JSON/i);
+});
+
+test("repairInstruction offers the generator the no-op decision and never offers it to the reviewer", () => {
+  assert.match(repairInstruction("generator", ["specs: expected array"]), /noop/);
+  assert.doesNotMatch(repairInstruction("reviewer", ["approved: required"]), /noop/);
 });
 
 test("repairInstruction names the reviewer shape", () => {
