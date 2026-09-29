@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { UntrustedGitTreeError } from "@kernel/domain-error.ts";
 import { ContextMapCapturePortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/context-map-capture-port.adapter.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 
@@ -124,4 +125,29 @@ test("capture(): a map whose origin cannot be told is not saved, and the failure
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("capture(): an untrusted git dir found while asking whether the run wrote the map is not swallowed as an off-path failure", async () => {
+  const swallowed: unknown[] = [];
+  const adapter = new ContextMapCapturePortAdapter(
+    () => {},
+    () => { throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/.git: it is a symbolic link"); },
+    (err) => void swallowed.push(err),
+  );
+
+  await assert.rejects(adapter.capture("/mirrors/org__app/e2e", "demo", "deadbeef1"), UntrustedGitTreeError);
+  assert.deepEqual(swallowed, []);
+});
+
+test("capture(): any other failure to tell whether the run wrote the map stays an off-path failure", async () => {
+  const swallowed: unknown[] = [];
+  const adapter = new ContextMapCapturePortAdapter(
+    () => {},
+    () => { throw new Error("git status failed"); },
+    (err) => void swallowed.push(err),
+  );
+
+  await adapter.capture("/mirrors/org__app/e2e", "demo", "deadbeef1");
+
+  assert.equal(swallowed.length, 1);
 });

@@ -9,7 +9,8 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { TestRunEvidence, outputShowsTestsRan } from "./test-run-evidence.ts";
-import { hardenGitArgs, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
@@ -240,7 +241,7 @@ export function gitWorkingChanges(repoDir: string): string[] {
     const out = execFileSync("git", hardenGitArgs(["status", "--porcelain", "--ignore-submodules=all"], repoDir), { cwd: repoDir, encoding: "utf8" });
     return parsePorcelain(out);
   } catch (err) {
-    if (err instanceof UntrustedGitTreeError) throw err;
+    rethrowIfUntrusted(err);
     return [];
   }
 }

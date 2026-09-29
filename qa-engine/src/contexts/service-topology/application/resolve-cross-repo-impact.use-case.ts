@@ -4,7 +4,8 @@ import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
-import { hardenGitArgs, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { ServiceLink } from "../domain/index.ts";
 import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
@@ -75,7 +76,7 @@ export class ResolveCrossRepoImpactUseCase {
 
       return { impactedLinks };
     } catch (err) {
-      if (err instanceof UntrustedGitTreeError) throw err;
+      rethrowIfUntrusted(err);
       console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, advisory-only):", err);
       return null;
     }

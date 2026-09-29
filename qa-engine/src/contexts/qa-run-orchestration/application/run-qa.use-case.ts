@@ -98,7 +98,7 @@ import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
-import { UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
@@ -399,6 +399,8 @@ export class RunQaUseCase {
           reverted: [...(confinementAcc?.reverted ?? []), ...result.reverted],
         };
       } catch (err) {
+        /* A git dir that is not the orchestrator's is a security refusal, never a fault to isolate. */
+        rethrowIfUntrusted(err);
         /*
          * Log loudly, never throw, never alter the verdict or block publish. A thrown
          * enforce() means this call's counts are unknowable — increment dangerous
@@ -649,7 +651,7 @@ export class RunQaUseCase {
       try {
         crossRepoImpact = await this.deps.crossRepoImpact.resolve(input.triggerRepo, input.sha.toString(), resolvedServiceLinks);
       } catch (err) {
-        if (err instanceof UntrustedGitTreeError) throw err;
+        rethrowIfUntrusted(err);
         console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
       }
     }
@@ -2253,6 +2255,7 @@ export class RunQaUseCase {
     try {
       await this.deps.mirrorGc.prune(mirrorDir);
     } catch (err) {
+      rethrowIfUntrusted(err); /* a git dir that is not the orchestrator's is a security refusal, never a fault to isolate */
       console.error(
         `[qa] mirror gc FAILED (fault-isolated — run continues, never blocks publish): ${err instanceof Error ? err.message : String(err)}`,
       );

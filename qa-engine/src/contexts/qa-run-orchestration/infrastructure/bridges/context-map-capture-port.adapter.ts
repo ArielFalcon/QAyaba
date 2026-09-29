@@ -1,5 +1,6 @@
-/* ContextMapCapturePortAdapter: fail-open write side of the FE<->BE architecture map. Never throws. */
+/* ContextMapCapturePortAdapter: fail-open write side of the FE<->BE architecture map. Never throws, except for an untrusted git dir (UntrustedGitTreeError), which is a security refusal. */
 
+import { rethrowIfUntrusted } from "@kernel/domain-error.ts";
 import type { ContextMapCapturePort } from "../../application/ports/index.ts";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import { loadContextMapFromDisk } from "./pre-generation-grounding-port.adapter.ts";
@@ -35,6 +36,7 @@ export class ContextMapCapturePortAdapter implements ContextMapCapturePort {
       if (!map) return;
       this.saveFn(app, sha, map);
     } catch (err) {
+      rethrowIfUntrusted(err); /* a git dir that is not the orchestrator's is a security refusal, not an off-path failure */
       this.onError(err);
     }
   }

@@ -5645,6 +5645,18 @@ test("confinement wiring: fault isolation — a thrown enforce() is caught, logg
   );
 });
 
+test("confinement wiring: an untrusted git dir found by enforce() fails the run instead of being fault-isolated", async () => {
+  let publishCallCount = 0;
+  const { ports } = stubPorts({
+    publish: async () => { publishCallCount++; return { outcome: "pr: https://example.test/pr/1" }; },
+  });
+  const confinement = makeFakeConfinement(() => new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/.git: it is a symbolic link"));
+  const useCase = new RunQaUseCase({ ...ports, confinement, config: baseConfig });
+
+  await assert.rejects(useCase.run({ ...baseInput, runId: "confinement-untrusted-git" }), UntrustedGitTreeError);
+  assert.equal(publishCallCount, 0, "nothing is published from a working copy whose git dir is not the orchestrator's own");
+});
+
 test("confinement wiring: successful results across every enforce() call are MERGED into one gateSignals.confinement summary (summed/concatenated, never overwritten)", async () => {
   let callIndex = 0;
   const { ports, savedOutcomes } = stubPorts();
@@ -5931,6 +5943,14 @@ test("mirrorGc wiring: fault isolation — a thrown prune() is caught, logged, a
 
   assert.equal(out.decision.verdict, "pass", "a mirror-gc failure must never alter the run's verdict");
   assert.equal(publishCallCount, 1, "publish() must have already completed — prune() runs strictly after it");
+});
+
+test("mirrorGc wiring: an untrusted git dir found by prune() fails the run instead of being fault-isolated", async () => {
+  const { ports } = stubPorts();
+  const mirrorGc = makeFakeMirrorGc(() => new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/.git: it is a symbolic link"));
+  const useCase = new RunQaUseCase({ ...ports, mirrorGc, config: baseConfig });
+
+  await assert.rejects(useCase.run({ ...baseInput, runId: "mirror-gc-untrusted-git" }), UntrustedGitTreeError);
 });
 
 test("mirrorGc wiring: a non-pr verdict (fail/issue) also triggers prune() once, after publish() resolves", async () => {
