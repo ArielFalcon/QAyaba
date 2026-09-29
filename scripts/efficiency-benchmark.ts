@@ -93,7 +93,8 @@ export function loadEfficiencyBenchmarkCases(
     if (seen.has(c.name)) throw new Error(`${path} has a duplicate case name '${c.name}' — results are keyed by case name`);
     seen.add(c.name);
     if (!HEX_COMMIT_ID.test(c.sha)) throw new Error(`${path}: case '${c.name}' has an invalid sha ${JSON.stringify(c.sha)} — it must be 7–40 hex characters`);
-    if (c.baseSha !== undefined && !HEX_COMMIT_ID.test(c.baseSha)) {
+    /* An empty baseSha is no range, as the service reads it. */
+    if (c.baseSha !== undefined && c.baseSha !== "" && !HEX_COMMIT_ID.test(c.baseSha)) {
       throw new Error(`${path}: case '${c.name}' has an invalid baseSha ${JSON.stringify(c.baseSha)} — it must be 7–40 hex characters`);
     }
   }
@@ -169,26 +170,17 @@ export interface RunBenchmarkResult {
   stopped?: { caseName: string; runId: string; reason: "timeout" };
 }
 
-/* How many times the benchmark's own just-finished run may still be listed on the queue before it counts as busy. */
-const OWN_RUN_DRAIN_CHECKS = 30;
-
 /* A benchmark must be the only work against DEV: the service's queue is the one sequential queue, so a
-   busy one means someone else's run would share the interval a case is measured over. The benchmark's
-   own previous run may still be leaving the queue right after it reported done; that is waited out. */
-async function assertQueueIdle(service: BenchmarkService, ownRunId?: string): Promise<void> {
+   busy one means someone else's run would share the interval a case is measured over. The queue's
+   `pending` counts the running job too, so an idle queue is exactly one with nothing running and nothing pending. */
+async function assertQueueIdle(service: BenchmarkService): Promise<void> {
   const headers: Record<string, string> = service.token ? { Authorization: `Bearer ${service.token}` } : {};
-  for (let check = 0; ; check++) {
-    const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
-    if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
-    const queue = QueueStatusSchema.parse(await res.json());
-    if (!queue.running && queue.pending === 0) return;
-    const draining = ownRunId !== undefined && queue.running?.id === ownRunId && queue.pending === 0 && check < OWN_RUN_DRAIN_CHECKS;
-    if (!draining) {
-      const running = queue.running ? `run ${queue.running.id} (${queue.running.app}) is running` : "no run is running";
-      throw new Error(`the queue is busy (${running}, ${queue.pending} pending) — a benchmark must be the only work against DEV; wait for it to drain`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, service.pollMs ?? 1500));
-  }
+  const res = await service.fetch(`${service.baseUrl}/api/v1/queue`, { headers });
+  if (!res.ok) throw new Error(`could not read the service's queue (HTTP ${res.status})`);
+  const queue = QueueStatusSchema.parse(await res.json());
+  if (!queue.running && queue.pending === 0) return;
+  const running = queue.running ? `run ${queue.running.id} (${queue.running.app}) is running` : "no run is running";
+  throw new Error(`the queue is busy (${running}, ${queue.pending} pending) — a benchmark must be the only work against DEV; wait for it to drain`);
 }
 
 /**
@@ -203,9 +195,8 @@ export async function runBenchmark(label: string, opts: RunBenchmarkOptions): Pr
   const log = opts.log ?? (() => {});
 
   const completed: RunBenchmarkResult["completed"] = [];
-  let previousRunId: string | undefined;
   for (const c of cases) {
-    await assertQueueIdle(opts.service, previousRunId);
+    await assertQueueIdle(opts.service);
     log(`[bench] ${label}: running case '${c.name}' (${c.app} @ ${c.sha}${c.baseSha ? ` from ${c.baseSha}` : ""})`);
     const result = await delegateRun(
       {
@@ -226,7 +217,6 @@ export async function runBenchmark(label: string, opts: RunBenchmarkOptions): Pr
         onEnqueued: (id) => registerRun(resultsDir, label, c.name, id),
       },
     );
-    previousRunId = result.id;
     if (result.timedOut) {
       log(`[bench] ${label}: case '${c.name}' (run ${result.id}) did not finish in time — stopping`);
       return { completed, stopped: { caseName: c.name, runId: result.id, reason: "timeout" } };
@@ -258,10 +248,12 @@ export interface CaseMeasurement {
   guardrails: CaseGuardrails;
 }
 
-/** `data` is null when the run's records are gone (retention) or were never there. */
+/** `data` is null when the run's records are gone (retention) or were never there, or when the run had not finished (`notFinished`). */
 export interface SnapshotEntry {
   runId: string;
   data: CaseMeasurement | null;
+  /** The run was still going when the snapshot was taken, so nothing was measured: snapshot again once it has finished. */
+  notFinished?: true;
 }
 
 /** Numbers and ids only — never prompt, output or event text. */
@@ -302,16 +294,23 @@ function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRec
   return generatorTurns.some((t) => detectStepExhaustion(t.outputText));
 }
 
+/* A run's outcome is written when it ends, and its record is marked done then: without either, its events are
+   still growing and any window measured from them is not the run's. */
+function runFinished(outcome: RunOutcome | undefined, record: RunRecord | undefined): boolean {
+  return outcome !== undefined || record?.status === "done";
+}
+
 /**
- * The run's coarse efficiency and guardrails, or null when its events are gone. A run's outcome row
- * outlives its events, its record and its turns, so an old run can still have guardrails; without the
- * events its calls cannot be measured, and an empty window would read as a run that made no calls.
+ * The run's coarse efficiency and guardrails, or null when its events are gone or the run has not finished.
+ * A run's outcome row outlives its events, its record and its turns, so an old run can still have guardrails;
+ * without the events its calls cannot be measured, and an empty window would read as a run that made no calls.
  */
 export function measureRun(runId: string, source: RunDataSource): CaseMeasurement | null {
-  const events = source.events(runId);
-  if (events.length === 0) return null;
   const outcome = source.outcome(runId);
   const record = source.record(runId);
+  if (!runFinished(outcome, record)) return null;
+  const events = source.events(runId);
+  if (events.length === 0) return null;
   return {
     coarse: classifyRunEfficiency(events),
     exhausted: generatorExhausted(outcome, source.turns(runId)),
@@ -337,7 +336,10 @@ export function takeSnapshot(
 ): EfficiencySnapshot {
   const cases: Record<string, SnapshotEntry> = {};
   for (const [caseName, runId] of Object.entries(readRegistry(resultsDir, label))) {
-    cases[caseName] = { runId, data: measureRun(runId, sourceFor(runId)) };
+    const source = sourceFor(runId);
+    const record = source.record(runId);
+    const notFinished = record !== undefined && !runFinished(source.outcome(runId), record);
+    cases[caseName] = { runId, data: measureRun(runId, source), ...(notFinished ? { notFinished: true as const } : {}) };
   }
   return { label, takenAt: now(), cases };
 }
@@ -358,8 +360,9 @@ const measuredCalls = (data: CaseMeasurement | null | undefined): number =>
 
 /**
  * Writes the snapshot, but never one that holds less than the file it replaces: once the runs'
- * records age out, re-snapshotting would silently erase the only surviving measurements. A case
- * counts as lost when it has no data any more, or when its measured calls dropped to none.
+ * records age out, re-snapshotting would silently erase the only surviving measurements. A finished
+ * run's calls never change, so a case counts as lost when it has no data any more or when its
+ * measured calls dropped at all (events pruned one by one leave a partial window).
  */
 export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot): void {
   const existing = readSnapshot(resultsDir, snapshot.label);
@@ -368,7 +371,7 @@ export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot):
       .filter(([name, entry]) => {
         if (entry.data === null) return false;
         const replacement = snapshot.cases[name]?.data;
-        return replacement == null || (measuredCalls(entry.data) > 0 && measuredCalls(replacement) === 0);
+        return replacement == null || measuredCalls(replacement) < measuredCalls(entry.data);
       })
       .map(([name]) => name);
     if (lost.length > 0) {
@@ -383,7 +386,7 @@ export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot):
 
 /* ── report ────────────────────────────────────────────────────────────────────────── */
 
-export type CaseView = { status: "missing" } | { status: "measured"; data: CaseMeasurement };
+export type CaseView = { status: "missing"; notFinished?: true } | { status: "measured"; data: CaseMeasurement };
 
 export interface ReportRow {
   caseName: string;
@@ -400,8 +403,9 @@ export interface Comparison {
 }
 
 function viewOf(snapshot: EfficiencySnapshot, caseName: string): CaseView {
-  const data = snapshot.cases[caseName]?.data;
-  return data ? { status: "measured", data } : { status: "missing" };
+  const entry = snapshot.cases[caseName];
+  if (entry?.data) return { status: "measured", data: entry.data };
+  return entry?.notFinished ? { status: "missing", notFinished: true } : { status: "missing" };
 }
 
 const GUARDRAIL_NAMES: ReadonlyArray<keyof CaseGuardrails> = [
@@ -448,7 +452,7 @@ export function renderReport(comparison: Comparison): string {
     lines.push(`case: ${row.caseName}`);
     for (const [label, view] of [[comparison.labelA, row.a], [comparison.labelB, row.b]] as const) {
       if (view.status === "missing") {
-        lines.push(`  ${label}: MISSING — no recorded data for this case`);
+        lines.push(`  ${label}: MISSING — ${view.notFinished ? "the run had not finished when the snapshot was taken" : "no recorded data for this case"}`);
         continue;
       }
       lines.push(`  ${label}:`);
@@ -578,7 +582,8 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
       writeSnapshot(resultsDir, snapshot);
       const entries = Object.values(snapshot.cases);
       const measured = entries.filter((e) => e.data !== null).length;
-      out(`snapshot '${label}' written: ${measured} case(s) measured, ${entries.length - measured} with no recorded data (missing)`);
+      const notFinished = entries.filter((e) => e.notFinished).length;
+      out(`snapshot '${label}' written: ${measured} case(s) measured, ${entries.length - measured - notFinished} with no recorded data (missing)${notFinished > 0 ? `, ${notFinished} not finished (snapshot again once they have)` : ""}`);
       return 0;
     }
 

@@ -261,3 +261,58 @@ test("a snapshot whose measured window is empty never replaces one that measured
 
   assert.throws(() => writeSnapshot(dir, emptyWindow), /refusing to overwrite snapshot 'baseline'.*case-a/);
 });
+
+test("a snapshot that measures fewer calls for a case than the existing one is refused, not only one that measures none", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "baseline", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("baseline", dir, () => source(), () => "2026-09-28T12:00:00.000Z"));
+  /* Some of the run's events have since been pruned: what is left is a partial window. */
+  const partial = takeSnapshot("baseline", dir, () => source({ events: events.slice(0, 5) }), () => "2026-11-01T12:00:00.000Z");
+  assert.ok(partial.cases["case-a"]!.data !== null, "the partial window still measures something");
+
+  assert.throws(() => writeSnapshot(dir, partial), /refusing to overwrite snapshot 'baseline'.*case-a/);
+  assert.equal(readSnapshot(dir, "baseline")!.takenAt, "2026-09-28T12:00:00.000Z");
+});
+
+/* A run that is still going has neither an outcome nor a finished record; whatever its events hold now is a
+   window that later events would change. */
+const inFlightSource = (status: RunRecord["status"] = "running"): RunDataSource => ({
+  events: () => events.slice(0, 4),
+  outcome: () => undefined,
+  record: () => record({ status }),
+  turns: () => [],
+});
+
+test("a run that has not finished is not measured", () => {
+  assert.equal(measureRun("run-1", inFlightSource("running")), null);
+  assert.equal(measureRun("run-1", inFlightSource("enqueued")), null);
+});
+
+test("a run with an outcome is finished even when its record is gone, and a done record is finished without an outcome", () => {
+  assert.notEqual(measureRun("run-1", source({ record: undefined as unknown as RunRecord })), null);
+  assert.notEqual(measureRun("run-1", { events: () => events, outcome: () => undefined, record: () => record({ status: "done" }), turns: () => [] }), null);
+});
+
+test("a snapshot reports a run that has not finished as not finished, apart from a run whose data is gone", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "going", "run-1");
+  registerRun(dir, "after", "pruned", "run-2");
+  const gone: RunDataSource = { events: () => [], outcome: () => undefined, record: () => undefined, turns: () => [] };
+  const sources: Record<string, RunDataSource> = { "run-1": inFlightSource(), "run-2": gone };
+
+  const snapshot = takeSnapshot("after", dir, (runId) => sources[runId]!, () => "2026-09-28T12:00:00.000Z");
+
+  assert.deepEqual(snapshot.cases.going, { runId: "run-1", data: null, notFinished: true });
+  assert.deepEqual(snapshot.cases.pruned, { runId: "run-2", data: null });
+});
+
+test("a snapshot taken while a run was going can be replaced once the run has finished", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "case-a", "run-1");
+  writeSnapshot(dir, takeSnapshot("after", dir, () => inFlightSource(), () => "2026-09-28T12:00:00.000Z"));
+
+  const finished = takeSnapshot("after", dir, () => source(), () => "2026-09-28T13:00:00.000Z");
+
+  assert.doesNotThrow(() => writeSnapshot(dir, finished));
+  assert.notEqual(readSnapshot(dir, "after")!.cases["case-a"]!.data, null);
+});

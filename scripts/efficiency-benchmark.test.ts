@@ -115,3 +115,11 @@ test("loadEfficiencyBenchmarkCases: accepts abbreviated and full hex ids in eith
   ]));
   assert.deepEqual(loadEfficiencyBenchmarkCases(path).map((c) => c.name), ["short", "full"]);
 });
+
+test("loadEfficiencyBenchmarkCases: an empty baseSha means no range, as the service reads it", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "efficiency-cases.json");
+  writeFileSync(path, JSON.stringify([{ name: "no-range", app: "demo", sha: "abc1234", baseSha: "" }]));
+  assert.deepEqual(loadEfficiencyBenchmarkCases(path).map((c) => c.name), ["no-range"]);
+});

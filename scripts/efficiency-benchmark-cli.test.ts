@@ -52,6 +52,16 @@ test("snapshot freezes the label's registered runs and says how many cases have 
   assert.match(h.lines.join("\n"), /1 case.*measured/);
 });
 
+test("snapshot says how many runs had not finished, so they are not mistaken for pruned ones", async (t) => {
+  const h = harness(t);
+  registerRun(h.resultsDir, "baseline", "checkout", "run-1");
+  const going: RunDataSource = { ...source(), outcome: () => undefined, record: () => ({ id: "r", app: "demo", sha: "abc1234", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" }) as RunRecord };
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, out: h.out, sourceFor: () => going, now: () => "2026-09-28T12:00:00.000Z" });
+  assert.equal(code, 0);
+  assert.match(h.lines.join("\n"), /1 not finished/);
+  assert.equal(readSnapshot(h.resultsDir, "baseline")!.cases.checkout!.notFinished, true);
+});
+
 test("snapshot of a label with nothing registered is an error, not an empty snapshot", async (t) => {
   const h = harness(t);
   const code = await main(["snapshot", "empty"], { resultsDir: h.resultsDir, out: h.out, sourceFor: () => source() });

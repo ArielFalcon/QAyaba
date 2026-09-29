@@ -112,3 +112,13 @@ test("a grounding window that did record calls reports them", () => {
   const groundingLine = text.split("\n").find((l) => l.trim().startsWith("grounding:"));
   assert.match(groundingLine!, /calls 7/);
 });
+
+test("a case whose run had not finished when the snapshot was taken says so instead of reading as pruned", () => {
+  const baseline = snapshot("baseline", { checkout: measurement() });
+  const after: EfficiencySnapshot = { label: "after", takenAt: "2026-09-28T12:00:00.000Z", cases: { checkout: { runId: "after-run-0", data: null, notFinished: true } } };
+
+  const text = renderReport(compareSnapshots(baseline, after));
+
+  assert.match(text, /after[^\n]*not finished/i);
+  assert.doesNotMatch(text, /after[^\n]*no recorded data/i);
+});

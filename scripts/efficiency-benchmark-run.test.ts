@@ -16,12 +16,13 @@ interface FakeService {
 
 /** A control API that runs one run at a time and fails the moment a second run is submitted while another is unfinished. */
 function fakeService(opts: {
+  /** The service's queue counts the running job among `pending`, so a running job is never reported with pending 0. */
   queue?: { pending: number; running: { id: string; app: string } | null };
   neverFinish?: boolean;
   /** The queue reads busy with someone else's run once this many runs have finished. */
   busyAfterFinished?: number;
-  /** After a run finishes, the queue keeps listing it as running for this many reads. */
-  drainReads?: number;
+  /** After a run finishes, the queue keeps listing it (running, pending 1) for this many reads. */
+  stillListedReads?: number;
   /** Polling a submitted run is rejected as unauthorized. */
   rejectPolls?: boolean;
 } = {}): FakeService {
@@ -30,17 +31,17 @@ function fakeService(opts: {
   let counter = 0;
   let finished = 0;
   let lastFinishedId = "";
-  let drainReadsLeft = 0;
+  let stillListedReadsLeft = 0;
   service.fetch = (async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
     const method = init?.method ?? "GET";
     if (path === "/api/v1/queue") {
       if (opts.busyAfterFinished !== undefined && finished >= opts.busyAfterFinished) {
-        return new Response(JSON.stringify({ pending: 0, running: { id: "run-someone-else", app: "other" } }), { status: 200 });
+        return new Response(JSON.stringify({ pending: 1, running: { id: "run-someone-else", app: "other" } }), { status: 200 });
       }
-      if (drainReadsLeft > 0) {
-        drainReadsLeft--;
-        return new Response(JSON.stringify({ pending: 0, running: { id: lastFinishedId, app: "demo" } }), { status: 200 });
+      if (stillListedReadsLeft > 0) {
+        stillListedReadsLeft--;
+        return new Response(JSON.stringify({ pending: 1, running: { id: lastFinishedId, app: "demo" } }), { status: 200 });
       }
       return new Response(JSON.stringify(opts.queue ?? { pending: 0, running: null }), { status: 200 });
     }
@@ -62,7 +63,7 @@ function fakeService(opts: {
         active = null;
         finished++;
         lastFinishedId = id;
-        drainReadsLeft = opts.drainReads ?? 0;
+        stillListedReadsLeft = opts.stillListedReads ?? 0;
         return new Response(JSON.stringify({ id, status: "done", verdict: "pass", passed: 1, failed: 0 }), { status: 200 });
       }
       return new Response(JSON.stringify({ id: active.id, status: "running" }), { status: 200 });
@@ -135,7 +136,7 @@ test("a malformed case file fails loudly and nothing is submitted", async (t) =>
 
 test("a busy queue is refused before anything is submitted", async (t) => {
   const { casesPath, resultsDir } = workspace(t, threeCases);
-  const service = fakeService({ queue: { pending: 0, running: { id: "run-other", app: "demo" } } });
+  const service = fakeService({ queue: { pending: 1, running: { id: "run-other", app: "demo" } } });
 
   await assert.rejects(
     runBenchmark("after", { casesPath, resultsDir, service: { fetch: service.fetch, baseUrl: "http://svc", pollMs: 1 } }),
@@ -196,13 +197,16 @@ test("the queue is checked again before every case, and a case is not submitted 
   assert.deepEqual(readRegistry(resultsDir, "after"), { "auth-range": "run-1" });
 });
 
-test("the benchmark's own just-finished run still draining from the queue does not count as someone else's work", async (t) => {
+test("a queue that still lists the benchmark's own finished run is busy like any other: the next case is not submitted onto it", async (t) => {
   const { casesPath, resultsDir } = workspace(t, threeCases);
-  const service = fakeService({ drainReads: 2 });
+  const service = fakeService({ stillListedReads: 1 });
 
-  const result = await runBenchmark("after", { casesPath, resultsDir, service: { fetch: service.fetch, baseUrl: "http://svc", pollMs: 1 } });
+  await assert.rejects(
+    runBenchmark("after", { casesPath, resultsDir, service: { fetch: service.fetch, baseUrl: "http://svc", pollMs: 1 } }),
+    /queue is busy.*run-1/,
+  );
 
-  assert.deepEqual(result.completed.map((c) => c.caseName), ["auth-range", "checkout", "search"]);
+  assert.equal(service.posts.length, 1, "the second case must not be submitted while the queue still lists a run");
 });
 
 test("a case file with a malformed sha runs nothing", async (t) => {
