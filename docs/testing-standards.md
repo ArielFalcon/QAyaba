@@ -124,7 +124,17 @@ native JSON serializer and a key-sorting replacer; the read-window and path look
 chaining instead of a type guard that primitives passed anyway; `sampleReadOutput` ends on its last
 line and no longer strips a carriage return the trim already strips. The six timeouts are all
 infinite-loop mutants of `sampleReadOutput`'s line scan (the loop body, the newline search, the
-break test and the step), so the preset has no documented survivors.
+break test and the step), so the preset has no documented survivors. Its After column was re-run
+after the exhaustion predicate gained the final-step text and the tri-state decision: 274 killed, 6
+timeouts (the same six), no survivors.
+
+generation-end (2026-09-30, 4 workers) is a new preset over the pure end classification with its
+note, the run terminal it maps to and the learning gates. **Before** is its first run; every survivor
+was a real gap or dead code: a step count against no limit, an empty tail's dangling label, the
+note's lead and the separator before its tail (now pinned as structure — the note opens with text
+before its facts and sets the tail apart — never as wording), and the note's bound handling, whose
+fallback branches the note's own size made unreachable and which were restructured away instead of
+listed. **After** is the re-run; it has no documented survivors.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -137,7 +147,8 @@ break test and the step), so the preset has no documented survivors.
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
-| agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 250 / 6 / 0 — 100% (97.66%) | — |
+| agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 274 / 6 / 0 — 100% (97.86%) | — |
+| generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 68 / 0 / 0 — 100% (100%) | — |
 
 ### Documented survivors
 

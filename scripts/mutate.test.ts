@@ -54,6 +54,21 @@ test("the agent-efficiency preset mutates the pure classification modules and th
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the generation-end preset mutates exactly the classifier, the terminal mapping and the learning gates, against their own tests", () => {
+  const preset = PRESETS["generation-end"];
+  assert.ok(preset, "the generation-end preset exists");
+  const sources = preset.mutate.map(sourcePathOf);
+  assert.deepEqual(sources, [
+    "qa-engine/src/contexts/generation/domain/generation-end.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/generation-end-terminal.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/learning-gates.ts",
+  ]);
+  for (const module of ["generation-end", "generation-end-terminal", "learning-gates"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",

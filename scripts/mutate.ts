@@ -155,6 +155,22 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "generation-end": {
+    description: "generation end: classification of how a generation ended, its note, the run terminal it maps to, and the learning gates",
+    mutate: [
+      `${GEN}/domain/generation-end.ts`,
+      `${ORCH}/domain/helpers/generation-end-terminal.ts`,
+      `${ORCH}/domain/helpers/learning-gates.ts`,
+    ],
+    tests: [
+      `${GEN_TEST}/domain/generation-end.test.ts`,
+      `${ORCH_TEST}/domain/helpers/generation-end-terminal.test.ts`,
+      `${ORCH_TEST}/domain/helpers/learning-gates.test.ts`,
+      `${ORCH_TEST}/domain/helpers/error-class.test.ts`,
+      `${ORCH_TEST}/domain/helpers/should-distill-learning.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

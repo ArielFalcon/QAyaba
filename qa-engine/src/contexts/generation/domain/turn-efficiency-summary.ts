@@ -6,14 +6,15 @@
 
 import { CALL_BUCKETS, type CallBucket } from "./tool-call-taxonomy.ts";
 import type { CallSequenceSummary } from "./call-sequence.ts";
-import { detectStepExhaustion } from "./step-exhaustion.ts";
+import { stepExhaustionState, type StepExhaustionInput } from "./step-exhaustion.ts";
 
 export { CALL_BUCKETS };
 export type { CallBucket };
 
 export interface TurnStepBudget {
   maxSteps: number | null;
-  exhausted: boolean;
+  /** True: the turn hit its step limit. False: known not to have. Null: unknown (no complete count and no notice) — never read as false. */
+  exhausted: boolean | null;
 }
 
 export interface TurnCallMetrics {
@@ -70,8 +71,8 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
 }
 
 /** Resolves a turn's step budget: `maxSteps` is passed through as given
- *  (null for Codex), `exhausted` is detected from the turn's own output
- *  text via the shared step-limit marker. */
-export function buildTurnStepBudget(maxSteps: number | null, outputText: string): TurnStepBudget {
-  return { maxSteps, exhausted: detectStepExhaustion(outputText) };
+ *  (null for Codex), `exhausted` is the tri-state `stepExhaustionState`
+ *  reads from the final step's text and the observed step count. */
+export function buildTurnStepBudget(input: StepExhaustionInput): TurnStepBudget {
+  return { maxSteps: input.maxSteps, exhausted: stepExhaustionState(input) };
 }

@@ -19,7 +19,6 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "@kernel/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/domain/coarse-run-efficiency.ts";
-import { detectStepExhaustion } from "@contexts/generation/domain/step-exhaustion.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
@@ -243,7 +242,7 @@ export interface CaseGuardrails {
 
 export interface CaseMeasurement {
   coarse: CoarseRunEfficiency;
-  /** Whether a generator turn hit the step limit; null for Codex (no step budget) and for a run with no generator turn. */
+  /** Whether a generator turn hit the step limit; null for Codex (no step budget), for a run with no generator turn, and while any generator turn's exhaustion is unknown. */
   exhausted: boolean | null;
   guardrails: CaseGuardrails;
 }
@@ -286,12 +285,18 @@ function executePass(record: RunRecord | undefined): boolean | null {
   return passed > 0 && failed === 0;
 }
 
-/* Exhaustion is read from the generator's own output, the same marker the live tracker uses. */
+/*
+ * Whether the generator hit its step limit: the exhaustion the transport persisted for every one of its
+ * turns (main and repair; the planner's objective turn is not the generator's). One exhausted turn makes
+ * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
+ * turn leaves it unknown.
+ */
 function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRecord[]): boolean | null {
   if (outcome?.gateSignals.usage?.primaryProvider === "codex") return null;
   const generatorTurns = turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
   if (generatorTurns.length === 0) return null;
-  return generatorTurns.some((t) => detectStepExhaustion(t.outputText));
+  if (generatorTurns.some((t) => t.exhausted === true)) return true;
+  return generatorTurns.every((t) => t.exhausted === false) ? false : null;
 }
 
 /* A run's outcome is written when it ends, and its record is marked done then: without either, its events are

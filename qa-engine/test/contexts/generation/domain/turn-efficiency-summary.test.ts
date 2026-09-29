@@ -63,17 +63,27 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
   assert.equal(metrics.stepsUsed, null);
 });
 
-test("buildTurnStepBudget detects exhaustion from the turn's own output text and passes maxSteps through", () => {
-  const exhausted = buildTurnStepBudget(50, "CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.");
+test("buildTurnStepBudget reads exhaustion from the final step's text and the observed step count, and passes maxSteps through", () => {
+  const noticeText = "CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.";
+  const exhausted = buildTurnStepBudget({ maxSteps: 50, stepsUsed: null, finalStepText: noticeText });
   assert.equal(exhausted.maxSteps, 50);
   assert.equal(exhausted.exhausted, true);
 
-  const notExhausted = buildTurnStepBudget(50, "Here is the summary of the work completed in this turn.");
+  const byCount = buildTurnStepBudget({ maxSteps: 50, stepsUsed: 50, finalStepText: "Here is the summary." });
+  assert.equal(byCount.exhausted, true);
+
+  const notExhausted = buildTurnStepBudget({ maxSteps: 50, stepsUsed: 12, finalStepText: "Here is the summary of the work completed in this turn." });
   assert.equal(notExhausted.exhausted, false);
 });
 
-test("buildTurnStepBudget passes a null maxSteps through unchanged (Codex has no step limit)", () => {
-  const budget = buildTurnStepBudget(null, "any output text");
+test("buildTurnStepBudget leaves exhaustion unknown when the count is unknown and there is no notice", () => {
+  const budget = buildTurnStepBudget({ maxSteps: 50, stepsUsed: null, finalStepText: "Here is the summary." });
+  assert.equal(budget.maxSteps, 50);
+  assert.equal(budget.exhausted, null);
+});
+
+test("buildTurnStepBudget passes a null maxSteps through unchanged (Codex has no step limit) and stays unknown", () => {
+  const budget = buildTurnStepBudget({ maxSteps: null, stepsUsed: null, finalStepText: "any output text" });
   assert.equal(budget.maxSteps, null);
-  assert.equal(budget.exhausted, false);
+  assert.equal(budget.exhausted, null);
 });

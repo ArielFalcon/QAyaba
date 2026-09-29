@@ -12,6 +12,8 @@ export const ERROR_CLASSES = [
   "E-REVIEWER-REJECTED",
   "E-VALUE-SURVIVED",
   "E-INFRA",
+  "E-STEP-BUDGET",
+  "E-NO-DECISION",
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];

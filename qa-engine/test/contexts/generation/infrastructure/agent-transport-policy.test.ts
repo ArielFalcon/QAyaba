@@ -831,13 +831,14 @@ const SAMPLE_CALL_METRICS = {
 };
 
 async function promptWithCollaborators(
-  outputText: string,
+  output: string | Array<{ type: string; text?: string }>,
   collaborators: Partial<Parameters<typeof createAgentDeps>[1]>,
 ): Promise<AgentTurnEvent> {
   resetCircuit();
+  const parts = typeof output === "string" ? [{ type: "text", text: output }] : output;
   const raw = makeRawTransport({
     createSession: async () => ({ id: "sess-efficiency" }),
-    promptSession: async () => ({ parts: [{ type: "text", text: outputText }] }),
+    promptSession: async () => ({ parts }),
   });
   const persisted: AgentTurnEvent[] = [];
   const deps = createAgentDeps(raw, {
@@ -848,7 +849,8 @@ async function promptWithCollaborators(
   });
   const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-eff" } });
   const returned = await session.prompt("the turn prompt");
-  assert.equal(returned, outputText, "efficiency measurement must never alter the agent's output");
+  const expectedOutput = parts.map((p) => p.text ?? "").join("");
+  assert.equal(returned, expectedOutput, "efficiency measurement must never alter the agent's output");
   assert.equal(persisted.length, 1);
   return persisted[0]!;
 }
@@ -865,26 +867,89 @@ test("createAgentDeps: the turn event carries the tracker's call metrics for tha
   assert.deepEqual(turn.callMetrics, SAMPLE_CALL_METRICS);
 });
 
-test("createAgentDeps: the step budget resolves maxSteps from the acting agent and detects exhaustion in the output", async () => {
+const NOTICE_TEXT = "CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.";
+
+test("createAgentDeps: the step budget resolves maxSteps from the acting agent and detects exhaustion in the final step's text", async () => {
   const asked: string[] = [];
-  const exhausted = await promptWithCollaborators("CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.", {
+  const exhausted = await promptWithCollaborators(NOTICE_TEXT, {
     maxStepsFor: (agent) => {
       asked.push(agent);
       return 50;
     },
   });
   assert.deepEqual(asked, ["qa-generator"]);
-  assert.deepEqual(exhausted.stepBudget, { maxSteps: 50, exhausted: true });
-
-  const finished = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50 });
-  assert.deepEqual(finished.stepBudget, { maxSteps: 50, exhausted: false });
+  assert.equal(exhausted.stepBudget?.maxSteps, 50);
+  assert.equal(exhausted.stepBudget?.exhausted, true);
 });
 
-test("createAgentDeps: an agent without a configured step limit still reports exhaustion, with a null maxSteps", async () => {
+test("createAgentDeps: a complete step count below the limit and no notice is known not exhausted", async () => {
+  const finished = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 12 }),
+  });
+  assert.equal(finished.stepBudget?.maxSteps, 50);
+  assert.equal(finished.stepBudget?.exhausted, false);
+});
+
+test("createAgentDeps: a step count that reached the limit is exhausted even without the notice", async () => {
+  const turn = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }),
+  });
+  assert.equal(turn.stepBudget?.exhausted, true);
+});
+
+test("createAgentDeps: an unknown step count and no notice leaves exhaustion unknown, never false", async () => {
+  const noTracker = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50 });
+  assert.equal(noTracker.stepBudget?.exhausted, null);
+
+  const unobserved = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50, takeTurnCalls: () => null });
+  assert.equal(unobserved.stepBudget?.exhausted, null);
+});
+
+test("createAgentDeps: the notice quoted in an earlier step's reasoning does not exhaust a turn that finished", async () => {
+  const turn = await promptWithCollaborators(
+    [
+      { type: "step-start" },
+      { type: "reasoning", text: "The prior turn hit max steps during exploration." },
+      { type: "text", text: '{"specs":["e2e/flows/a.spec.ts"]}' },
+    ],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 4 }) },
+  );
+  assert.equal(turn.stepBudget?.exhausted, false);
+  assert.match(turn.outputText, /hit max steps/, "the persisted output still carries the reasoning");
+});
+
+test("createAgentDeps: an agent without a configured step limit still reports exhaustion by the notice, with a null maxSteps", async () => {
   const turn = await promptWithCollaborators("The maximum number of steps allowed for this task has been reached.", {
     maxStepsFor: () => undefined,
   });
-  assert.deepEqual(turn.stepBudget, { maxSteps: null, exhausted: true });
+  assert.equal(turn.stepBudget?.maxSteps, null);
+  assert.equal(turn.stepBudget?.exhausted, true);
+
+  const quiet = await promptWithCollaborators("all specs written", { maxStepsFor: () => undefined });
+  assert.equal(quiet.stepBudget?.exhausted, null);
+});
+
+test("createAgentDeps: the tracker is flushed once per resolved prompt even when no turn sink is listening", async () => {
+  resetCircuit();
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-silent" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }),
+  });
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return SAMPLE_CALL_METRICS;
+    },
+    maxStepsFor: () => 50,
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt");
+  assert.deepEqual(flushes, [{ sessionId: "sess-silent", promptText: "the turn prompt" }]);
 });
 
 test("createAgentDeps: without efficiency collaborators the turn's step budget and call metrics are null, never fabricated", async () => {

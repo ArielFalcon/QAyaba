@@ -16,7 +16,7 @@ import {
 } from "./efficiency-benchmark.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
-import type { RunOutcome, RunRecord } from "../src/types.ts";
+import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
 const activity = (callId: string, kind: "analyzing" | "writing" | "command" | "subagent"): RunEventBody => ({
@@ -55,7 +55,7 @@ const generatorTurn = (outputText: string, overrides: Partial<AgentTurnRecord> =
 });
 
 function source(over: Partial<{ events: RunEventBody[]; outcome: RunOutcome; record: RunRecord; turns: AgentTurnRecord[] }> = {}): RunDataSource {
-  const data = { events, outcome: outcome(), record: record(), turns: [generatorTurn("all done")], ...over };
+  const data = { events, outcome: outcome(), record: record(), turns: [generatorTurn("all done", { exhausted: false })], ...over };
   return { events: () => data.events, outcome: () => data.outcome, record: () => data.record, turns: () => data.turns };
 }
 
@@ -88,18 +88,45 @@ test("an unmeasured coverage or an absent reviewer verdict stays null, never a f
   assert.equal(guardrails.reviewerApproved, null);
 });
 
-test("exhaustion is detected in the generator's output, and is false for a generator that finished", () => {
-  const exhausted = measureRun("run-1", source({
-    turns: [generatorTurn("CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.")],
-  }))!;
-  assert.equal(exhausted.exhausted, true);
-  assert.equal(measureRun("run-1", source())!.exhausted, false);
+const exhaustedOf = (...turns: AgentTurnRecord[]): boolean | null => measureRun("run-1", source({ turns }))!.exhausted;
+const withExhausted = (exhausted: boolean | null, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord =>
+  generatorTurn("output", { exhausted, ...overrides });
+const repair = { isRepair: true, round: 1 } as const;
+
+test("exhaustion is the persisted value of the generator's turns: any exhausted turn makes the run exhausted, every turn known finished does not", () => {
+  assert.equal(exhaustedOf(withExhausted(true)), true);
+  assert.equal(exhaustedOf(withExhausted(false)), false);
+  assert.equal(exhaustedOf(withExhausted(false), withExhausted(true, repair)), true);
+  assert.equal(exhaustedOf(withExhausted(true), withExhausted(false, repair)), true);
+  assert.equal(exhaustedOf(withExhausted(false), withExhausted(false, repair)), false);
+});
+
+test("exhaustion stays unknown when any generator turn's exhaustion is unknown and none is exhausted", () => {
+  assert.equal(exhaustedOf(withExhausted(null)), null);
+  assert.equal(exhaustedOf(withExhausted(false), withExhausted(null, repair)), null);
+  assert.equal(exhaustedOf(withExhausted(null), withExhausted(false, repair)), null);
+  assert.equal(exhaustedOf(generatorTurn("older row without the column")), null);
+});
+
+test("exhaustion is known from an exhausted turn even when another turn's is unknown", () => {
+  assert.equal(exhaustedOf(withExhausted(true), withExhausted(null, repair)), true);
+});
+
+test("exhaustion is read from what was persisted, never re-derived from the turn's text", () => {
+  const notice = "The maximum number of steps allowed for this task has been reached.";
+  assert.equal(exhaustedOf(generatorTurn(notice, { exhausted: false })), false);
+  assert.equal(exhaustedOf(generatorTurn("all done", { exhausted: true })), true);
+});
+
+test("the planner's turn and other roles' turns do not count towards the generator's exhaustion", () => {
+  assert.equal(exhaustedOf(withExhausted(true, { objective: PLANNER_OBJECTIVE }), withExhausted(false)), false);
+  assert.equal(exhaustedOf(withExhausted(true, { role: "qa-sidekick" }), withExhausted(false)), false);
 });
 
 test("exhaustion is null for a Codex primary (no step budget) and when the run has no generator turn", () => {
   const codex = measureRun("run-1", source({
     outcome: outcome({ usage: { tokens: { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, complete: false, primaryProvider: "codex" } }),
-    turns: [generatorTurn("The maximum number of steps allowed for this task has been reached.")],
+    turns: [withExhausted(true)],
   }))!;
   assert.equal(codex.exhausted, null);
   assert.equal(measureRun("run-1", source({ turns: [] }))!.exhausted, null);

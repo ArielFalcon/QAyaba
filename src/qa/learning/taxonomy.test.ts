@@ -7,8 +7,10 @@ import {
 } from "./taxonomy";
 
 describe("ERROR_CLASSES", () => {
-  it("covers all 11 error classes", () => {
-    assert.equal(ERROR_CLASSES.length, 11);
+  it("lists each class once, including the two an agent's generation end can name", () => {
+    assert.equal(new Set(ERROR_CLASSES).size, ERROR_CLASSES.length);
+    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-STEP-BUDGET"));
+    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-NO-DECISION"));
   });
 
   it("E-INFRA is present and excludable from learning", () => {

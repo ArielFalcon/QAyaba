@@ -3,14 +3,20 @@ import assert from "node:assert/strict";
 /* these two copies must stay byte-compatible; engine cannot import src/ */
 /* expected values are a frozen oracle from the deleted twin — do not rebase them to silence a failure */
 import {
+  ERROR_CLASSES,
   errorClassFromVerdict,
   errorClassFromCorrections,
   resolveErrorClass,
 } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import {
+  ERROR_CLASSES as LEGACY_ERROR_CLASSES,
   errorClassFromVerdict as legacyErrorClassFromVerdict,
   errorClassFromCorrections as legacyErrorClassFromCorrections,
 } from "../../../../../../src/qa/learning/taxonomy.ts";
+
+test("PARITY: both copies list the same error classes in the same order", () => {
+  assert.deepEqual([...ERROR_CLASSES], [...LEGACY_ERROR_CLASSES]);
+});
 
 function legacyResolveErrorClass(input: {
   verdict: string;

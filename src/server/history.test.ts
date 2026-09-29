@@ -628,6 +628,16 @@ test("saveAgentTurnEvent keeps an unknown step limit (null) apart from a known e
   assert.equal(saved!.stepsUsed, null);
 });
 
+test("saveAgentTurnEvent keeps a turn whose exhaustion is unknown apart from one known not exhausted, and reads it back as unknown", () => {
+  const runId = "run-event-unknown-exhaustion-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-unknown", stepBudget: { maxSteps: 50, exhausted: null } }));
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-known", stepBudget: { maxSteps: 50, exhausted: false } }));
+  const turns = getAgentTurns(runId);
+  assert.equal(turns.find((t) => t.sessionId === "s-unknown")!.exhausted, null);
+  assert.equal(turns.find((t) => t.sessionId === "s-known")!.exhausted, false);
+  assert.equal(turns.find((t) => t.sessionId === "s-unknown")!.maxSteps, 50);
+});
+
 test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
   const turn = makeTurn({ runId: null, sessionId: "sess-no-run" });
   /* Should not throw — null runId is explicitly valid (e.g. maintainer, chat sessions). */

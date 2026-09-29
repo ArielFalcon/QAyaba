@@ -1,22 +1,73 @@
-[
-  {
-    "source": "generator turn, leading text: the model restates the step-limit notice as a heading and bold sentence",
-    "text": "I must respond with text only, no tool calls. Summarize work done, remaining tasks, recommendations.## Maximum steps reached — work summary\n\n**Maximum steps for this agent have been reached.** I cannot make further tool calls. Here is the state of the work:\n\n### What was accomplished (exploration/verification phase)\n\n1. **Harness reviewed**: `e2e/fixtures.ts`, `playwright.config.ts`, `cleanup.spec.ts`.\n"
-  },
-  {
-    "source": "generator turn, leading text: the notice is the first sentence",
-    "text": "Maximum steps for this agent have been reached. I must respond with text only — no further tool calls.\n\n## Summary of work accomplished\n\n**Task**: Generate E2E Playwright tests for commit <sha> (<app>) — the <feature> feature on the <view>.\n\n**Completed so far**:\n1. **Oriented on the harness**: Read `e2e/fixtures.ts`.\n"
-  },
-  {
-    "source": "generator turn, closing verdict JSON: the notice appears only inside the JSON note, after a long summary",
-    "text": "I've reached the maximum number of steps. I must respond with text only — no tool calls. Let me summarize what was accomplished and what remains.\n\n## Closing verdict\n\n```json\n{\n  \"specs\": [],\n  \"specMetas\": [],\n  \"note\": \"Max steps reached before writing files; no spec authored. Ground truth verified live: <finding>.\"\n}\n```\n"
-  },
-  {
-    "source": "sidekick turn: lower-case, no punctuation before the notice",
-    "text": "The maximum steps have been reached. I need to provide a text-only response summarizing the work done so far, remaining tasks, and recommendations. I should also include the DelegationResult JSON contract as required by the task brief — but I cannot write the spec file since tools are disabled. Let me summarize honestly.\n"
-  },
-  {
-    "source": "recovery turn: the model quotes the notice from its system message",
-    "text": "The system says maximum steps reached and I must respond with text only. But the user's last message asked me to re-emit ONLY the closing JSON block. However, the system message now says tools are disabled and I must respond with text only, summarizing work.\n"
-  }
-]
+{
+  "outputs": [
+    {
+      "source": "generator turn, leading text: the model restates the step-limit notice as a heading and bold sentence",
+      "exhausted": true,
+      "text": "I must respond with text only, no tool calls. Summarize work done, remaining tasks, recommendations.## Maximum steps reached — work summary\n\n**Maximum steps for this agent have been reached.** I cannot make further tool calls. Here is the state of the work:\n\n### What was accomplished (exploration/verification phase)\n\n1. **Harness reviewed**: `e2e/fixtures.ts`, `playwright.config.ts`, `cleanup.spec.ts`.\n"
+    },
+    {
+      "source": "generator turn, leading text: the notice is the first sentence",
+      "exhausted": true,
+      "text": "Maximum steps for this agent have been reached. I must respond with text only — no further tool calls.\n\n## Summary of work accomplished\n\n**Task**: Generate E2E Playwright tests for commit <sha> (<app>) — the <feature> feature on the <view>.\n\n**Completed so far**:\n1. **Oriented on the harness**: Read `e2e/fixtures.ts`.\n"
+    },
+    {
+      "source": "generator turn, closing verdict JSON: the notice appears only inside the JSON note, after a long summary",
+      "exhausted": true,
+      "text": "I've reached the maximum number of steps. I must respond with text only — no tool calls. Let me summarize what was accomplished and what remains.\n\n## Closing verdict\n\n```json\n{\n  \"specs\": [],\n  \"specMetas\": [],\n  \"note\": \"Max steps reached before writing files; no spec authored. Ground truth verified live: <finding>.\"\n}\n```\n"
+    },
+    {
+      "source": "sidekick turn: lower-case, no punctuation before the notice",
+      "exhausted": true,
+      "text": "The maximum steps have been reached. I need to provide a text-only response summarizing the work done so far, remaining tasks, and recommendations. I should also include the DelegationResult JSON contract as required by the task brief — but I cannot write the spec file since tools are disabled. Let me summarize honestly.\n"
+    },
+    {
+      "source": "recovery turn: the model quotes the notice from its system message",
+      "exhausted": true,
+      "text": "The system says maximum steps reached and I must respond with text only. But the user's last message asked me to re-emit ONLY the closing JSON block. However, the system message now says tools are disabled and I must respond with text only, summarizing work.\n"
+    },
+    {
+      "source": "generator turn, closing verdict JSON: a scenario names a maximum length and a reached page in different fields",
+      "exhausted": false,
+      "text": "{\n  \"specs\": [\n    \"e2e/flows/<feature>.spec.ts\"\n  ],\n  \"specMetas\": [\n    {\n      \"file\": \"e2e/flows/<feature>.spec.ts\",\n      \"flow\": \"<flow>\",\n      \"objective\": \"Covers the maximum length validation on the name field\",\n      \"targets\": [\n        \"<symbol>\"\n      ],\n      \"steps\": [\n        \"open the form\",\n        \"type 51 characters\",\n        \"assert the dashboard is reached\"\n      ]\n    }\n  ],\n  \"note\": \"One spec written; the form and the dashboard were grounded live.\"\n}"
+    },
+    {
+      "source": "acknowledgement turn: states its step allowance and progress without reaching the limit",
+      "exhausted": false,
+      "text": "Understood. The maximum is 30 steps; I have used 12 so far and will finish before the limit is reached."
+    }
+  ],
+  "turns": [
+    {
+      "source": "recovery turn: the reasoning recalls that the earlier turn hit max steps, the text is the closing verdict",
+      "parts": [
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "reasoning",
+          "text": "I need to emit the closing verdict JSON. But I haven't actually written the spec files. The prior turn hit max steps during exploration. The recovery prompt asks to re-emit only the closing JSON block. I should emit a verdict reflecting what exists. Nothing was written — but the recovery expects a verdict. The honest verdict: empty specs with a note explaining the run was cut short during exploration, before writing specs."
+        },
+        {
+          "type": "text",
+          "text": "{\"specs\": [], \"specMetas\": [], \"note\": \"Run was cut off during exploration before any spec was written — the flows folder is empty and the auth setup is still the stock seed. Verified live: <finding>. Remaining work for a follow-up run: <remaining steps>.\"}"
+        }
+      ]
+    },
+    {
+      "source": "generator turn: the reasoning quotes the no-op example, the text is the declared no-op",
+      "parts": [
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "reasoning",
+          "text": "The output contract says an empty list is only a decision when a reason comes with it: {\"specs\":[],\"noop\":{\"reason\":\"...\"}}. This diff only renames an internal helper, so nothing needs a test and I will declare the no-op."
+        },
+        {
+          "type": "text",
+          "text": "{\"specs\":[],\"noop\":{\"reason\":\"The diff only renames an internal helper; no user-visible behavior changes.\"}}"
+        }
+      ]
+    }
+  ]
+}

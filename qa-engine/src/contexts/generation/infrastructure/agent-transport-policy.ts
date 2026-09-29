@@ -4,6 +4,7 @@ import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watc
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
 import { sanitizeText } from "./sanitize-text.ts";
 import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
+import { finalStepText } from "../domain/step-exhaustion.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -35,7 +36,7 @@ export interface AgentTurnEvent {
   cost: number | null;
   ts: string;
   sectionSizes: Record<string, number> | null;
-  /** Step limit and whether the turn hit it. Null when the runtime has no step-budget concept (Codex) or the measurement failed. */
+  /** Step limit and whether the turn hit it (its `exhausted` is null while unknown). Null when the runtime has no step-budget concept (Codex) or the measurement failed. */
   stepBudget: TurnStepBudget | null;
   /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
   callMetrics: TurnCallMetrics | null;
@@ -305,6 +306,19 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       opts?.onUsage?.(snapshot);
                     }
                     const outputRaw = extractText(res.parts, promptOpts);
+                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer reads these same values. */
+                    const callMetrics = collab.takeTurnCalls
+                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text))
+                      : null;
+                    const stepBudget = collab.maxStepsFor
+                      ? measureOrNull("step budget", () =>
+                          buildTurnStepBudget({
+                            maxSteps: collab.maxStepsFor!(agent) ?? null,
+                            stepsUsed: callMetrics?.stepsUsed ?? null,
+                            finalStepText: finalStepText(res.parts),
+                          }),
+                        )
+                      : null;
                     /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
                     if (effectiveOnTurn) {
                       const sanitizedOutput = sanitizeText(outputRaw).text;
@@ -326,13 +340,8 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                         cost: res.cost ?? null,
                         ts: new Date().toISOString(),
                         sectionSizes: promptOpts?.sectionSizes ?? null,
-                        /* Exhaustion is read from the SANITIZED output: the same text the post-hoc classifier sees. */
-                        stepBudget: collab.maxStepsFor
-                          ? measureOrNull("step budget", () => buildTurnStepBudget(collab.maxStepsFor!(agent) ?? null, sanitizedOutput))
-                          : null,
-                        callMetrics: collab.takeTurnCalls
-                          ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text))
-                          : null,
+                        stepBudget,
+                        callMetrics,
                       };
                       effectiveOnTurn(turnEvent);
                     }
