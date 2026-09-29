@@ -14,7 +14,7 @@ import { detectCodeProject, DEFAULT_CODE_MODE_TIMEOUT_MS, type CodeProject } fro
 export const INSTALL_FAILURE_LOG_TAIL_CHARS = 4000;
 
 /* What is kept of each stream while the install runs. Twice the reported tail, so a secret straddling the cut of the reported tail is still whole when it is redacted, and an install that writes without limit cannot grow the orchestrator's memory. */
-const INSTALL_OUTPUT_KEEP_CHARS = INSTALL_FAILURE_LOG_TAIL_CHARS * 2;
+export const INSTALL_OUTPUT_KEEP_CHARS = INSTALL_FAILURE_LOG_TAIL_CHARS * 2;
 
 /* The outer timeout is only the backstop for a `deps.install` that never settles on its own; the real install times out first, with the child's output attached. */
 const INSTALL_TIMEOUT_BACKSTOP_GRACE_MS = 1000;

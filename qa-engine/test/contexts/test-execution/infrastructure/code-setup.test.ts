@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
-import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
+import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, INSTALL_OUTPUT_KEEP_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
 import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 
@@ -193,6 +193,31 @@ test("a secret straddling the cut of the reported tail is redacted, not leaked a
     (err: Error) => {
       assert.doesNotMatch(err.message, /IJKLMNOP/, "no fragment of the key survives the cut");
       assert.doesNotMatch(err.message, /AKIAABCDEFGH/, "the key is not shown whole either");
+      return true;
+    },
+  );
+});
+
+/* Redaction shortens the kept output, so the reported tail can reach back to the very start of what the bound kept. If that
+   start is the back half of a secret the bound cut through, it must not be shown. The output is mostly secret lines, so
+   redacting it leaves far less than the reported tail. */
+test("a secret cut through by the kept-output bound is not shown when redaction leaves the whole kept output in the report", async () => {
+  const deps = createDefaultCodeSetupDeps(null);
+  const secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"; /* 40 chars */
+  const leakedHalf = secret.slice(-20);
+  const script = [
+    `const keep = ${INSTALL_OUTPUT_KEEP_CHARS}, secret = Buffer.from('${Buffer.from(secret).toString("base64")}', 'base64').toString(), off = 20;`,
+    "const line = 'token=' + secret + '\\n';",
+    "const suffix = keep - (line.length - (6 + off));",
+    "const m = Math.floor(suffix / line.length), r = suffix - m * line.length;",
+    "process.stderr.write('filler\\n'.repeat(50) + line + line.repeat(m) + (r > 0 ? 'y'.repeat(r - 1) + '\\n' : ''));",
+    "process.exitCode = 4;",
+  ].join(" ");
+  await assert.rejects(
+    () => deps.install(nodeInstall(script), tmpdir()),
+    (err: Error) => {
+      assert.match(err.message, new RegExp(REDACTED.replace(/[[\]]/g, "\\$&")), "the redacted output after the cut line is reported");
+      assert.ok(!err.message.includes(leakedHalf), "the back half of the cut secret is not in the report");
       return true;
     },
   );

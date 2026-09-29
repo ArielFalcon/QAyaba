@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDefaultCodeExecuteDeps,
+  runCodeTests,
   runCodeCoverage,
   gitWorkingChanges,
   CODE_TEST_OUTPUT_KEEP_CHARS,
@@ -118,4 +119,32 @@ test("the working-copy changes are never read through a swapped git dir, and the
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+/* A child script printing output whose final `keep` chars begin `cutOffset` chars into the secret's own line, then failing:
+   the tail the runner keeps is cut through the secret. The secret travels base64-encoded so it is not in argv. */
+function scriptCuttingThroughSecret(keep: number, secret: string, cutOffset: number): string {
+  return [
+    `const keep = ${keep}, secret = Buffer.from('${Buffer.from(secret).toString("base64")}', 'base64').toString(), off = ${cutOffset};`,
+    "const line = 'token=' + secret + '\\n';",
+    "const suffix = keep - (line.length - (6 + off));",
+    "const q = Math.floor(suffix / 4), r = suffix - 4 * q;",
+    "process.stdout.write('filler\\n'.repeat(50) + line + 'ctx\\n'.repeat(q - 1) + 'y'.repeat(r + 3) + '\\n');",
+    "process.exitCode = 1;",
+  ].join(" ");
+}
+
+test("a secret cut through by the kept-output bound never reaches the reported logs or the failure detail", { timeout: 30_000 }, async () => {
+  const secret = "ghp_" + "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ"; /* 40 chars */
+  const leakedHalf = secret.slice(-20);
+  const deps = { ...createDefaultCodeExecuteDeps(null), detect: () => nodeTest(scriptCuttingThroughSecret(CODE_TEST_OUTPUT_KEEP_CHARS, secret, 20)), listWrites: () => [] };
+
+  const result = await runCodeTests(tmpdir(), { namespace: "run-1" }, deps);
+
+  assert.equal(result.verdict, "fail");
+  assert.ok(result.logs.includes("ctx"), "the output around the cut line did reach the logs");
+  assert.ok(!result.logs.includes(leakedHalf), "the back half of the cut secret is not in the logs");
+  const detail = result.cases[0]?.detail ?? "";
+  assert.ok(detail.includes("ctx"), "the failure detail carries the surrounding output");
+  assert.ok(!detail.includes(leakedHalf), "the back half of the cut secret is not in the Issue-bound failure detail");
 });
