@@ -22,6 +22,7 @@ import {
   type ReadWriteEvent,
 } from "../../domain/call-sequence.ts";
 import { indexPromptLines, isProvidedByPrompt, sampleReadOutput } from "../../domain/provided-context.ts";
+import { callFingerprint } from "./call-fingerprint.ts";
 import { buildTurnCallMetrics, type TurnCallMetrics } from "../../domain/turn-efficiency-summary.ts";
 
 interface PartLike {
@@ -57,19 +58,6 @@ interface SessionState {
 
 /* The input keys tools use for the file they touch; `relative_path` is Serena's. */
 const PATH_KEYS = ["filePath", "path", "file", "filename", "relative_path"] as const;
-
-/** JSON with object keys sorted, so equal inputs stringify equally whatever their key order. */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
 
 function pathOf(input: unknown, cwd: string): string | undefined {
   if (input === null || typeof input !== "object") return undefined;
@@ -155,7 +143,7 @@ export class CallEfficiencyTracker {
     }
 
     const input = part.state?.input;
-    call.repeatKey = `${part.tool}\u0000${stableStringify(input ?? null)}`;
+    call.repeatKey = callFingerprint(part.tool, input);
     const path = pathOf(input, session.cwd);
     if (path) call.path = path;
 
