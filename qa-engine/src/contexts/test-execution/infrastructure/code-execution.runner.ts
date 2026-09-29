@@ -258,6 +258,8 @@ export interface CodeExecuteDeps {
   detect(repoDir: string): CodeProject;
   runTests(project: CodeProject, repoDir: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<CodeRunOutput>;
   listWrites?(repoDir: string): string[];
+  /* The clock for the overall timeout race; the real one when absent. */
+  timers?: CodeTimers;
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). */
   recordAudit?(runId: string, detection: SecretDetection): void;
 }
@@ -272,6 +274,25 @@ export interface CodeExecuteOptions {
 }
 
 export const DEFAULT_CODE_MODE_TIMEOUT_MS = 600_000;
+
+/* setTimeout treats a delay above 2^31-1 ms as 1 ms, so a timeout beyond that would fire at once. */
+export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/** The clock every code-mode timeout runs on. Production uses the real one; a test injects one that records the delays it is asked for, so no test waits on real time. */
+export interface CodeTimers {
+  setTimeout(callback: () => void, delayMs: number): ReturnType<typeof setTimeout>;
+  clearTimeout(handle: ReturnType<typeof setTimeout> | undefined): void;
+}
+
+export const realCodeTimers: CodeTimers = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => clearTimeout(handle),
+};
+
+/** The wait a code-mode timeout really gets: the requested one (the default when absent), held to what a timer can hold. The reported "timeout after Nms" is this value, so it says how long the run really waited. */
+export function codeTimeoutMs(requestedMs: number | undefined): number {
+  return Math.min(requestedMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS, MAX_TIMER_DELAY_MS);
+}
 
 /* What is kept of each stream of a code test run: enough for any real suite's report and summary, bounded because the repo under test is untrusted and may write without limit. */
 export const CODE_TEST_OUTPUT_KEEP_CHARS = 500_000;
@@ -335,23 +356,24 @@ export async function runCodeTests(
   }
 
   const runPromise = deps.runTests(project, repoDir, { signal: opts.signal, timeoutMs: opts.timeoutMs });
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
+  const timeoutMs = codeTimeoutMs(opts.timeoutMs);
   const timeoutResult: CodeRunOutput = {
     exitCode: null,
     logs: "",
     spawnError: `code-mode timeout after ${timeoutMs}ms`,
   };
 
+  const timers = deps.timers ?? realCodeTimers;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<CodeRunOutput>((resolve) => {
-    timer = setTimeout(() => resolve(timeoutResult), timeoutMs);
+    timer = timers.setTimeout(() => resolve(timeoutResult), timeoutMs);
   });
 
   let out: CodeRunOutput;
   try {
     out = await Promise.race([runPromise, timeoutPromise]);
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
 
 
@@ -415,8 +437,10 @@ function headTail(s: string, maxChars: number): string {
 export function createDefaultCodeExecuteDeps(
   sandbox: Sandbox | null,
   processKill: ProcessKillPort = new ProcessKillAdapter(),
+  timers: CodeTimers = realCodeTimers,
 ): CodeExecuteDeps {
   return {
+    timers,
     detect: (repoDir) => detectCodeProject(repoDir),
     listWrites: (repoDir) => gitWorkingChanges(repoDir),
     runTests: (project, repoDir, opts) =>
@@ -433,12 +457,12 @@ export function createDefaultCodeExecuteDeps(
         const finish = (result: CodeRunOutput) => {
           if (resolved) return;
           resolved = true;
-          clearTimeout(timer);
+          timers.clearTimeout(timer);
           resolve(result);
         };
 
-        const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
-        const timer = setTimeout(() => {
+        const timeoutMs = codeTimeoutMs(opts?.timeoutMs);
+        const timer = timers.setTimeout(() => {
           processKill.killTree(child);
           finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: `code-mode timeout after ${timeoutMs}ms`, sawTests: sawTests() });
         }, timeoutMs);
@@ -496,6 +520,7 @@ export async function runCodeCoverage(
   sandbox: Sandbox | null,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
   processKill: ProcessKillPort = new ProcessKillAdapter(),
+  timers: CodeTimers = realCodeTimers,
 ): Promise<void> {
   if (opts?.signal?.aborted) return;
   const c8Bin = resolveC8Bin();
@@ -508,13 +533,13 @@ export async function runCodeCoverage(
     const finish = () => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(() => {
+    const timer = timers.setTimeout(() => {
       processKill.killTree(child);
       finish();
-    }, opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS);
+    }, codeTimeoutMs(opts?.timeoutMs));
     opts?.signal?.addEventListener("abort", () => {
       processKill.killTree(child);
       finish();

@@ -5,7 +5,7 @@ import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, INSTALL_OUTPUT_KEEP_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
-import type { CodeProject } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
+import { MAX_TIMER_DELAY_MS, type CodeProject, type CodeTimers } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 import { REDACTED } from "@kernel/ports/redaction.port.ts";
 
 /* A hung `npm ci`/`mvn`/`gradle` install must NOT block the sequential queue forever.
@@ -37,11 +37,36 @@ test("the install backstop's message states how long it actually waited, which i
   assert.ok(waited > timeoutMs && waited <= timeoutMs + 5_000, `the message names the wait that actually elapsed (said ${waited}ms)`);
 });
 
-test("a timeout near the timer limit does not make the backstop fire at once", async () => {
+/* A clock that records the delays it is asked for and never fires: nothing here waits on real time. */
+function recordingTimers(): { timers: CodeTimers; delays: number[] } {
+  const delays: number[] = [];
+  const timers: CodeTimers = {
+    setTimeout: (_callback, delayMs) => {
+      delays.push(delayMs);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {},
+  };
+  return { timers, delays };
+}
+
+const withinTimerLimit = (delays: number[]): boolean => delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS);
+
+test("a timeout near the timer limit never makes the install backstop ask the clock for more than it can hold", async () => {
   const project: CodeProject = { ecosystem: "node", install: { cmd: "npm", args: ["ci"] }, test: { cmd: "npm", args: ["test"] } };
-  const deps: CodeSetupDeps = { detect: () => project, install: () => new Promise((resolve) => setTimeout(resolve, 100)) };
-  /* setTimeout treats a delay above 2^31-1 ms as 1 ms. */
-  await assert.doesNotReject(() => setupCodeProject("/r", deps, { timeoutMs: 2 ** 31 - 500 }));
+  const { timers, delays } = recordingTimers();
+  const deps: CodeSetupDeps = { detect: () => project, install: async () => {}, timers };
+  await setupCodeProject("/r", deps, { timeoutMs: MAX_TIMER_DELAY_MS - 500 });
+  assert.ok(delays.length > 0, "the backstop armed the clock");
+  assert.ok(withinTimerLimit(delays), `a delay above the limit would fire the backstop at once (asked for ${JSON.stringify(delays)})`);
+});
+
+test("an install with a timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
+  const project: CodeProject = { ecosystem: "node", install: { cmd: process.execPath, args: ["-e", "process.exitCode = 0;"] }, test: { cmd: "npm", args: ["test"] } };
+  const { timers, delays } = recordingTimers();
+  await createDefaultCodeSetupDeps(null, undefined, timers).install(project, tmpdir(), { timeoutMs: MAX_TIMER_DELAY_MS + 1_000 });
+  assert.ok(delays.length > 0, "the install armed the clock");
+  assert.ok(withinTimerLimit(delays), `a delay above the limit would fire the install's timeout at once (asked for ${JSON.stringify(delays)})`);
 });
 
 test("setupCodeProject runs install only when there is an install command", async () => {

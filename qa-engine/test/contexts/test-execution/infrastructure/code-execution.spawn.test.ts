@@ -11,7 +11,9 @@ import {
   runCodeCoverage,
   gitWorkingChanges,
   CODE_TEST_OUTPUT_KEEP_CHARS,
+  MAX_TIMER_DELAY_MS,
   type CodeProject,
+  type CodeTimers,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
 function nodeTest(script: string): CodeProject {
@@ -73,6 +75,43 @@ test("coverage of a suite that writes far more than a pipe buffer still finishes
     writeFileSync(join(repo, "noisy-suite.js"), "process.stdout.write('coverage noise line\\n'.repeat(50000));");
     await runCodeCoverage(repo, null, { timeoutMs: 15_000 });
     assert.ok(existsSync(join(repo, "coverage", "lcov.info")), "the run finished and its coverage report was written, instead of being killed at the timeout");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* A clock that records the delays it is asked for and never fires: the real child ends on its own, and nothing waits on real time. */
+function recordingTimers(): { timers: CodeTimers; delays: number[] } {
+  const delays: number[] = [];
+  const timers: CodeTimers = {
+    setTimeout: (_callback, delayMs) => {
+      delays.push(delayMs);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {},
+  };
+  return { timers, delays };
+}
+
+const BEYOND_TIMER_LIMIT_MS = MAX_TIMER_DELAY_MS + 1_000;
+
+test("a test run with a timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
+  const { timers, delays } = recordingTimers();
+  const out = await createDefaultCodeExecuteDeps(null, undefined, timers).runTests(nodeTest("process.exitCode = 0;"), tmpdir(), { timeoutMs: BEYOND_TIMER_LIMIT_MS });
+  assert.equal(out.exitCode, 0);
+  assert.ok(delays.length > 0, "the run armed the clock");
+  assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
+});
+
+test("a coverage run with a timeout beyond what a timer can hold never asks the clock for more than it can hold", { timeout: 60_000 }, async () => {
+  const repo = mkdtempSync(join(tmpdir(), "coverage-timer-limit-"));
+  try {
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "node quick-suite.js" } }));
+    writeFileSync(join(repo, "quick-suite.js"), "process.exitCode = 0;");
+    const { timers, delays } = recordingTimers();
+    await runCodeCoverage(repo, null, { timeoutMs: BEYOND_TIMER_LIMIT_MS }, undefined, timers);
+    assert.ok(delays.length > 0, "the run armed the clock");
+    assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

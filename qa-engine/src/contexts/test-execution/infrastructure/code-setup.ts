@@ -7,7 +7,7 @@ import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.t
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { sandboxSpawnOptions, prepareSandboxWorkdir, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
-import { detectCodeProject, DEFAULT_CODE_MODE_TIMEOUT_MS, type CodeProject } from "./code-execution.runner.ts";
+import { codeTimeoutMs, detectCodeProject, DEFAULT_CODE_MODE_TIMEOUT_MS, MAX_TIMER_DELAY_MS, realCodeTimers, type CodeProject, type CodeTimers } from "./code-execution.runner.ts";
 
 /* Bound on the install-failure output folded into the thrown error: enough to carry the real
    npm/pip/.../error, never enough to blow up an Issue/log line with a full dependency-tree dump. */
@@ -19,9 +19,6 @@ export const INSTALL_OUTPUT_KEEP_CHARS = INSTALL_FAILURE_LOG_TAIL_CHARS * 2;
 /* The outer timeout is only the backstop for a `deps.install` that never settles on its own; the real install times out first, with the child's output attached. */
 const INSTALL_TIMEOUT_BACKSTOP_GRACE_MS = 1000;
 
-/* setTimeout treats a delay above 2^31-1 ms as 1 ms, which would fire the backstop at once. */
-const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
-
 function tail(s: string, maxChars: number): string {
   return s.length <= maxChars ? s : `…[${s.length - maxChars} chars omitted]…\n${s.slice(-maxChars)}`;
 }
@@ -31,6 +28,8 @@ export interface CodeSetupDeps {
   install(project: CodeProject, repoDir: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void>;
   /* Hands the working copy to the unprivileged sandbox user BEFORE any untrusted spawn. Runs for every code-mode run — including the null-install ecosystems (Maven/Gradle/Rust) whose first untrusted spawn is the test itself — so it must execute before the install-null early return. */
   prepareWorkdir?(repoDir: string): void;
+  /* The clock for the install backstop; the real one when absent. */
+  timers?: CodeTimers;
 }
 
 export async function setupCodeProject(
@@ -45,14 +44,15 @@ export async function setupCodeProject(
 
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
   const backstopMs = Math.min(timeoutMs + INSTALL_TIMEOUT_BACKSTOP_GRACE_MS, MAX_TIMER_DELAY_MS);
+  const timers = deps.timers ?? realCodeTimers;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`code-mode install timeout after ${backstopMs}ms`)), backstopMs);
+    timer = timers.setTimeout(() => reject(new Error(`code-mode install timeout after ${backstopMs}ms`)), backstopMs);
   });
   try {
     await Promise.race([deps.install(project, repoDir, opts), timeoutPromise]);
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
 }
 
@@ -60,8 +60,10 @@ export async function setupCodeProject(
 export function createDefaultCodeSetupDeps(
   sandbox: Sandbox | null,
   processKill: ProcessKillPort = new ProcessKillAdapter(),
+  timers: CodeTimers = realCodeTimers,
 ): CodeSetupDeps {
   return {
+    timers,
     detect: (repoDir) => detectCodeProject(repoDir),
     prepareWorkdir: (repoDir) => prepareSandboxWorkdir(repoDir, sandbox),
     install: (project, repoDir, opts) =>
@@ -88,11 +90,11 @@ export function createDefaultCodeSetupDeps(
         const settle = (err?: Error) => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
+          timers.clearTimeout(timer);
           err ? reject(err) : resolve();
         };
-        const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
-        const timer = setTimeout(() => {
+        const timeoutMs = codeTimeoutMs(opts?.timeoutMs);
+        const timer = timers.setTimeout(() => {
           processKill.killTree(child);
           settle(new Error(`code-mode install timeout after ${timeoutMs}ms${outputDetail()}`));
         }, timeoutMs);

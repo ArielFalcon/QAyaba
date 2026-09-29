@@ -19,6 +19,8 @@ import {
   type DetectDeps,
   type CodeProject,
   type CodeExecuteDeps,
+  type CodeTimers,
+  MAX_TIMER_DELAY_MS,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
 function existsFrom(paths: string[]): (p: string) => boolean {
@@ -285,6 +287,31 @@ test("exit code 0 => pass with one synthetic case", async () => {
   assert.equal(run.passed, true);
   assert.equal(run.cases.length, 1);
   assert.deepEqual(cases, ["pass"]);
+});
+
+/* A clock that records the delays it is asked for and never fires: nothing here waits on real time. */
+function recordingTimers(): { timers: CodeTimers; delays: number[] } {
+  const delays: number[] = [];
+  const timers: CodeTimers = {
+    setTimeout: (_callback, delayMs) => {
+      delays.push(delayMs);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {},
+  };
+  return { timers, delays };
+}
+
+test("a test-run timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
+  const { timers, delays } = recordingTimers();
+  const deps: CodeExecuteDeps = {
+    detect: () => nodeProject,
+    runTests: async () => ({ exitCode: 0, logs: "12 passing" }),
+    timers,
+  };
+  await runCodeTests("/r", { namespace: "qa-bot-x", timeoutMs: MAX_TIMER_DELAY_MS + 1_000 }, deps);
+  assert.ok(delays.length > 0, "the timeout race armed the clock");
+  assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
 });
 
 test("non-zero exit => fail with the output tail as detail", async () => {
