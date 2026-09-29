@@ -57,10 +57,10 @@ export const TOOL_PATH_KEYS = ["filePath", "path", "file", "filename", "relative
 
 /** The file a tool call names in its input, as written (not resolved); undefined when it names none. */
 export function toolInputPath(input: unknown): string | undefined {
-  if (input === null || typeof input !== "object") return undefined;
-  const record = input as Record<string, unknown>;
+  /* A non-object input names no file; a lookup on it answers undefined. */
+  const record = input as Record<string, unknown> | null | undefined;
   for (const key of TOOL_PATH_KEYS) {
-    const value = record[key];
+    const value = record?.[key];
     if (typeof value === "string" && value) return value;
   }
   return undefined;

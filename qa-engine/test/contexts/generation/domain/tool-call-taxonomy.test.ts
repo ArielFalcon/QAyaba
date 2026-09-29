@@ -108,6 +108,20 @@ test("a tool that merely contains an editing tool's name inside a longer word is
   assert.equal(bucketForTool("replace_content_preview"), CALL_BUCKETS.OTHER);
 });
 
+test("a tool whose name merely contains a write, shell or subagent word keeps the analyzing kind", () => {
+  for (const tool of ["todowrite", "rewrite", "writer", "editor", "subshell", "runner", "executor", "multitask", "taskboard", "agents", "execute_shell_command_preview"]) {
+    assert.equal(kindForTool(tool), "analyzing", tool);
+  }
+});
+
+test("a tool whose name merely starts with a code-read or memory word is not a code_read or memory tool", () => {
+  assert.equal(bucketForTool("readonly_mode"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("globals"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("summarize_memory_usage"), CALL_BUCKETS.OTHER);
+  assert.equal(bucketForTool("write_memory"), CALL_BUCKETS.MEMORY, "serena's write_memory never touches the tree");
+  assert.equal(kindForTool("write_memory"), "analyzing");
+});
+
 test("kindForTool answers only kinds the agent.activity run event accepts, and every kind that event accepts is one it can answer", () => {
   const answered = new Set<AgentActivityKind>(["write", "bash", "task", "read", "an_unknown_tool"].map(kindForTool));
   for (const kind of answered) assert.doesNotThrow(() => AgentActivityKindSchema.parse(kind));
@@ -127,4 +141,6 @@ test("toolInputPath skips empty and non-string values and answers undefined when
   assert.equal(toolInputPath({ path: 7, command: "ls" }), undefined);
   assert.equal(toolInputPath(null), undefined);
   assert.equal(toolInputPath("not an object"), undefined);
+  assert.equal(toolInputPath(undefined), undefined);
+  assert.equal(toolInputPath(42), undefined);
 });
