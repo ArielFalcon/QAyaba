@@ -550,8 +550,9 @@ export interface CrossRepoImpact {
 }
 /**
  * Advisory impacted-link narrowing. Fires only on cross-repo runs
- * (triggerRepo present and a resolved link targets it). Never throws: failure
- * degrades to null and whole-link rendering falls back.
+ * (triggerRepo present and a resolved link targets it). Failure degrades to null
+ * and whole-link rendering falls back, except UntrustedGitTreeError (untrusted
+ * code replaced the mirror's git dir), which is thrown and fails the run.
  */
 export interface CrossRepoImpactPort {
   resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null>;

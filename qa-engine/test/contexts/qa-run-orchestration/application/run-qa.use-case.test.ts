@@ -4,6 +4,7 @@ import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { Sha } from "@kernel/sha.ts";
+import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
   ChangeAnalysisPort,
   GenerationPort,
@@ -5239,6 +5240,26 @@ test("anti-inert integration proof — a recording CrossRepoImpactPort fake obse
   assert.equal(invocations[0]?.triggerSha, "def5678");
   assert.deepEqual(invocations[0]?.links, [link]);
   assert.notEqual(out.decision.verdict, "infra-error", "a wired crossRepoImpact collaborator must never destabilize the run");
+});
+
+test("a crossRepoImpact port that reports an untrusted git dir fails the run loudly instead of degrading to no impact", async () => {
+  const link: ServiceLink = {
+    from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" },
+    to: { repo: "org/orders-svc", file: "src/routes.ts", symbol: "getOrder" },
+    transport: "http",
+    confidence: 1,
+    source: "openapi",
+  };
+  const crossRepoImpact: CrossRepoImpactPort = {
+    resolve: async () => {
+      throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__orders-svc/.git: it is a symbolic link");
+    },
+  };
+  const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [link], drift: [] }) };
+  const { ports } = stubPorts({});
+  const useCase = new RunQaUseCase({ ...ports, serviceLinks, crossRepoImpact, config: baseConfig });
+
+  await assert.rejects(useCase.run({ ...baseInput, runId: "cross-repo-untrusted-git", triggerRepo: "org/orders-svc", sha: Sha.of("def5678") }), UntrustedGitTreeError);
 });
 
 /* the fix-loop generation closure's own specSources return, and failureDomSnapshot. Before this

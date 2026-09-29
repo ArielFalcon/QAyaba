@@ -21,6 +21,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
 import { closeGitDir } from "../../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
+import { UntrustedGitTreeError } from "../../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 
 /* ── shared fixtures ─────────────────────────────────────────────────────────────────────────────
    A REAL on-disk temp directory, not a mock path — the mirror-existence check is real (existsSync),
@@ -154,7 +155,7 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
   });
 
-  test("a mirror whose git dir the sandbox swapped is never fetched and yields no impact", async () => {
+  test("a mirror whose git dir the sandbox swapped is never fetched, and resolving fails loudly instead of yielding no impact", async () => {
     const swapped = join(tmpRoot, "swapped-mirror");
     mkdirSync(swapped, { recursive: true });
     const elsewhere = join(tmpRoot, "sandbox-controlled-git");
@@ -168,14 +169,12 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
       codeGraph: new FakeCodeGraph(),
       runner,
     });
-    const logged = mock.method(console, "error", () => {});
-    try {
-      assert.equal(await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]), null);
-      assert.equal(runner.calls.length, 0, "git never started against the swapped git dir");
-      assert.match(String(logged.mock.calls[0]?.arguments.join(" ")), /swapped-mirror/, "the refusal is logged with the offending path, not swallowed silently");
-    } finally {
-      logged.mock.restore();
-    }
+
+    await assert.rejects(
+      adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes("swapped-mirror"),
+    );
+    assert.equal(runner.calls.length, 0, "git never started against the swapped git dir");
   });
 });
 

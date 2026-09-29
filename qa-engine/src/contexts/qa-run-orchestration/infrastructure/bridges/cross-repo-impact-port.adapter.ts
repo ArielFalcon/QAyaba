@@ -1,4 +1,4 @@
-/* CrossRepoImpactPort. No static app context — every call is per-triggerRepo. Fail-open: the use-case never throws; this adapter adds no further try/catch. Port-local types are structurally identical to the domain VOs (plain assignment, no double-cast). */
+/* CrossRepoImpactPort. No static app context — every call is per-triggerRepo. Fail-open: the use-case degrades every error to null except UntrustedGitTreeError, which it rethrows; this adapter adds no further try/catch. Port-local types are structurally identical to the domain VOs (plain assignment, no double-cast). */
 
 import type { CrossRepoImpactPort, CrossRepoImpact, ServiceLink } from "../../application/ports/index.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";

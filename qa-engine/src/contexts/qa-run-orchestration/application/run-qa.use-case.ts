@@ -98,6 +98,7 @@ import type { ReflectorPort, ReflectionInput, ProcessAuditPort } from "@contexts
 import { detectArchetype } from "@contexts/cross-run-learning/domain/distill-rule.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "../domain/helpers/derive-cycle-backstop.ts";
+import { UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 
 /* Same minRatio the coverage policy uses for the E-COVERAGE-GAP band. */
 const DEFAULT_MIN_COVERAGE_RATIO = 0.7;
@@ -635,7 +636,8 @@ export class RunQaUseCase {
 
     /*
      * Only on cross-repo runs. The .some() pre-filter skips the await when no
-     * resolved link targets triggerRepo. Throw is fail-open.
+     * resolved link targets triggerRepo. A throw is fail-open, except an untrusted git dir (the mirror was replaced by
+     * untrusted code), which fails the run.
      */
     let crossRepoImpact: CrossRepoImpact | null = null;
     if (
@@ -647,6 +649,7 @@ export class RunQaUseCase {
       try {
         crossRepoImpact = await this.deps.crossRepoImpact.resolve(input.triggerRepo, input.sha.toString(), resolvedServiceLinks);
       } catch (err) {
+        if (err instanceof UntrustedGitTreeError) throw err;
         console.error("[qa] WARNING: cross-repo impact resolution failed (non-fatal, generation continues without it):", err);
       }
     }
