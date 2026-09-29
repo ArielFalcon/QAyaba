@@ -122,23 +122,31 @@ test("generate() omits specSources when no readSpecSource collaborator is inject
   assert.equal(result.specSources, undefined);
 });
 
-test("generate() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded", async () => {
-  callEfficiencyTracker.attach("sess-navigation-heavy", "/mirrors/org/app");
-  for (let i = 0; i < 25; i++) {
-    callEfficiencyTracker.record({
-      type: "message.part.updated",
-      properties: {
-        part: {
-          id: `prt-${i}`, sessionID: "sess-navigation-heavy", messageID: "m", type: "tool", callID: `call-${i}`,
-          tool: "playwright_browser_navigate", state: { status: "completed", input: { url: `http://dev/${i}` }, output: "ok" },
-        },
+test("generate() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded during the turn", async (t) => {
+  const sessionId = "sess-navigation-heavy";
+  t.after(() => callEfficiencyTracker.clear(sessionId));
+  /* The stream of tool events a real turn produces, recorded while the generator turn runs. */
+  const runtime = {
+    openSession: async () => ({
+      prompt: async () => {
+        callEfficiencyTracker.attach(sessionId, "/mirrors/org/app");
+        for (let i = 0; i < 25; i++) {
+          callEfficiencyTracker.record({
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: `prt-${i}`, sessionID: sessionId, messageID: "m", type: "tool", callID: `call-${i}`,
+                tool: "playwright_browser_navigate", state: { status: "completed", input: { url: `http://dev/${i}` }, output: "ok" },
+              },
+            },
+          });
+        }
+        return { output: "generator-json" };
       },
-    });
-  }
-  assert.equal(callEfficiencyTracker.take("sess-navigation-heavy", "")?.totalCalls, 25);
-  callEfficiencyTracker.clear("sess-navigation-heavy");
-
-  const useCase = new GenerateTestsUseCase(fakeGenerationPorts());
+      dispose: async () => {},
+    }),
+  } as unknown as GenerationPorts["runtime"];
+  const useCase = new GenerateTestsUseCase({ ...fakeGenerationPorts(), runtime });
   const adapter = new GenerationPortAdapter(useCase, {
     repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
     namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
@@ -147,6 +155,7 @@ test("generate() never reports re-exploration counts, however much navigation th
   const result = await adapter.generate([], "/mirrors/org/app/e2e");
 
   assert.equal("reexploreNavigations" in result, false, "measuring calls must not activate the progress gate's re-exploration signal");
+  assert.equal(callEfficiencyTracker.take(sessionId, "")?.totalCalls, 25, "the tracker really held the navigation the signal could have been fed with");
 });
 
 /* already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the
