@@ -19,6 +19,9 @@ export const INSTALL_OUTPUT_KEEP_CHARS = INSTALL_FAILURE_LOG_TAIL_CHARS * 2;
 /* The outer timeout is only the backstop for a `deps.install` that never settles on its own; the real install times out first, with the child's output attached. */
 const INSTALL_TIMEOUT_BACKSTOP_GRACE_MS = 1000;
 
+/* setTimeout treats a delay above 2^31-1 ms as 1 ms, which would fire the backstop at once. */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
 function tail(s: string, maxChars: number): string {
   return s.length <= maxChars ? s : `…[${s.length - maxChars} chars omitted]…\n${s.slice(-maxChars)}`;
 }
@@ -41,12 +44,10 @@ export async function setupCodeProject(
   if (opts?.signal?.aborted) throw new Error("code-mode install aborted by operator cancel");
 
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
+  const backstopMs = Math.min(timeoutMs + INSTALL_TIMEOUT_BACKSTOP_GRACE_MS, MAX_TIMER_DELAY_MS);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`code-mode install timeout after ${timeoutMs}ms`)),
-      timeoutMs + INSTALL_TIMEOUT_BACKSTOP_GRACE_MS,
-    );
+    timer = setTimeout(() => reject(new Error(`code-mode install timeout after ${backstopMs}ms`)), backstopMs);
   });
   try {
     await Promise.race([deps.install(project, repoDir, opts), timeoutPromise]);

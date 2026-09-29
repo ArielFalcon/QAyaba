@@ -1,7 +1,7 @@
 /* qa-engine/test/contexts/test-execution/infrastructure/code-setup.test.ts
    Behavioral tests for the code-mode install step.
  */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { setupCodeProject, createDefaultCodeSetupDeps, INSTALL_FAILURE_LOG_TAIL_CHARS, INSTALL_OUTPUT_KEEP_CHARS, type CodeSetupDeps } from "@contexts/test-execution/infrastructure/code-setup.ts";
@@ -15,6 +15,33 @@ test("code-mode install that hangs is killed by timeout (does not block the queu
   const project: CodeProject = { ecosystem: "node", install: { cmd: "npm", args: ["ci"] }, test: { cmd: "npm", args: ["test"] } };
   const deps: CodeSetupDeps = { detect: () => project, install: () => new Promise(() => {}) }; /* never resolves */
   await assert.rejects(() => setupCodeProject("/r", deps, { timeoutMs: 100 }), /timeout/i);
+});
+
+/* The backstop is the only timer that decides for an install that never settles on its own. */
+test("the install backstop's message states how long it actually waited, which is longer than the install's own timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const project: CodeProject = { ecosystem: "node", install: { cmd: "npm", args: ["ci"] }, test: { cmd: "npm", args: ["test"] } };
+  const deps: CodeSetupDeps = { detect: () => project, install: () => new Promise(() => {}) };
+  const timeoutMs = 50;
+  const settled: { error?: Error } = {};
+  const failure = (): Error | undefined => settled.error;
+  const run = setupCodeProject("/r", deps, { timeoutMs }).catch((err: Error) => { settled.error = err; });
+
+  t.mock.timers.tick(timeoutMs);
+  await Promise.resolve();
+  assert.equal(failure(), undefined, "the install's own timeout has passed but the backstop waits a little longer");
+  t.mock.timers.tick(5_000);
+  await run;
+
+  const waited = Number(/after (\d+)ms/.exec(failure()?.message ?? "")?.[1]);
+  assert.ok(waited > timeoutMs && waited <= timeoutMs + 5_000, `the message names the wait that actually elapsed (said ${waited}ms)`);
+});
+
+test("a timeout near the timer limit does not make the backstop fire at once", async () => {
+  const project: CodeProject = { ecosystem: "node", install: { cmd: "npm", args: ["ci"] }, test: { cmd: "npm", args: ["test"] } };
+  const deps: CodeSetupDeps = { detect: () => project, install: () => new Promise((resolve) => setTimeout(resolve, 100)) };
+  /* setTimeout treats a delay above 2^31-1 ms as 1 ms. */
+  await assert.doesNotReject(() => setupCodeProject("/r", deps, { timeoutMs: 2 ** 31 - 500 }));
 });
 
 test("setupCodeProject runs install only when there is an install command", async () => {
@@ -191,6 +218,7 @@ test("a secret straddling the cut of the reported tail is redacted, not leaked a
   await assert.rejects(
     () => deps.install(nodeInstall(script), tmpdir()),
     (err: Error) => {
+      assert.match(err.message, /filler-package/, "the output around the key did reach the message");
       assert.doesNotMatch(err.message, /IJKLMNOP/, "no fragment of the key survives the cut");
       assert.doesNotMatch(err.message, /AKIAABCDEFGH/, "the key is not shown whole either");
       return true;
