@@ -3,15 +3,10 @@
 import { execFileSync } from "node:child_process";
 import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { InfraError, UntrustedGitTreeError } from "../../shared-kernel/domain-error.ts";
 import { baseGitHardeningFlags } from "./git-hardening-flags.ts";
 
-/** Thrown when the git dir git would use for a working copy is not the orchestrator's own. Never swallow it into an empty result: it means untrusted code may have replaced the repository. */
-export class UntrustedGitTreeError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UntrustedGitTreeError";
-  }
-}
+export { UntrustedGitTreeError };
 
 /* Write access for every user who is neither the owner nor in the file's group. */
 const WRITABLE_BY_OTHERS = 0o002;
@@ -38,8 +33,22 @@ export function setSandboxGroup(gid: number | undefined): void {
   sandboxGid = gid;
 }
 
+/* Longest stretch of one path or reason quoted in an error: a repository can name its files as long as the filesystem allows. */
+const MAX_QUOTED_LENGTH = 400;
+
+/**
+ * Text quoted in an error message. Paths (a submodule's, a nested repository's, the real path a link resolves to) come
+ * from the repository the sandbox controls, and the message reaches logs, the run record and the operator's screen:
+ * control characters (a newline, an ANSI escape) are escaped so they cannot forge a line or steer a reader, and the
+ * length is capped.
+ */
+function quoted(text: string): string {
+  const escaped = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (char) => `\\u{${char.charCodeAt(0).toString(16)}}`);
+  return escaped.length > MAX_QUOTED_LENGTH ? `${escaped.slice(0, MAX_QUOTED_LENGTH)}...` : escaped;
+}
+
 function refuse(path: string, why: string): never {
-  throw new UntrustedGitTreeError(`refusing to run git on ${path}: ${why}`);
+  throw new UntrustedGitTreeError(`refusing to run git on ${quoted(path)}: ${quoted(why)}`);
 }
 
 /** null when the entry does not exist (or a parent is not a directory); any other failure means the entry cannot be judged, so it is refused. */
@@ -160,7 +169,17 @@ function ownershipFlags(topLevel: string): string[] {
   return ["-c", "safe.directory=", "-c", `safe.directory=${topLevel}`];
 }
 
-/** Runs a read-only git query in `cwd` under the hardening flags and the ownership opt-out for the verified `topLevel`; any failure refuses. */
+/* Errors that mean the machine could not run git at all, whatever the working copy holds: no binary, no memory, no processes or descriptors, no space, an oversized listing. */
+const ENVIRONMENT_ERRNO: ReadonlySet<string> = new Set(["ENOENT", "ENOMEM", "EAGAIN", "ENOBUFS", "EMFILE", "ENFILE", "E2BIG", "ENOSPC", "EIO"]);
+/* What git itself prints when the machine, not the repository, is the problem. */
+const ENVIRONMENT_STDERR = /out of memory|memory exhausted|cannot allocate memory|resource temporarily unavailable|too many open files|no space left on device|unable to fork|cannot fork|could not fork/i;
+
+/**
+ * Runs a read-only git query in `cwd` under the hardening flags and the ownership opt-out for the verified `topLevel`.
+ * A failure that says the machine could not run git (no binary, no memory, killed by a signal) is an InfraError: it
+ * says nothing about the working copy, and a refusal of the tree is acted on (a refused mirror is deleted and cloned
+ * again), so a transient fault must not pass for one. Any other failure refuses: git will not use this git dir.
+ */
 function verificationGit(topLevel: string, cwd: string, args: string[], failure: string): string {
   try {
     return execFileSync("git", [...baseGitHardeningFlags(), ...ownershipFlags(topLevel), "-C", cwd, ...args], {
@@ -169,8 +188,12 @@ function verificationGit(topLevel: string, cwd: string, args: string[], failure:
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (err) {
-    const { code, stderr } = err as NodeJS.ErrnoException & { stderr?: string };
-    const detail = typeof stderr === "string" && stderr.trim() !== "" ? stderr.trim().split("\n")[0] : (code ?? "git failed");
+    const { code, signal, stderr } = err as NodeJS.ErrnoException & { signal?: string | null; stderr?: string };
+    const firstLine = typeof stderr === "string" && stderr.trim() !== "" ? stderr.trim().split("\n")[0] : undefined;
+    const detail = firstLine ?? (typeof signal === "string" ? `killed by ${signal}` : (code ?? "git failed"));
+    if ((typeof code === "string" && ENVIRONMENT_ERRNO.has(code)) || typeof signal === "string" || (firstLine !== undefined && ENVIRONMENT_STDERR.test(firstLine))) {
+      throw new InfraError(`git could not run to verify ${quoted(cwd)}: ${quoted(detail)}`, { cause: err });
+    }
     return refuse(cwd, `${failure} (${detail})`);
   }
 }

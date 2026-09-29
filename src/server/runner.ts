@@ -19,6 +19,7 @@ import { isInfraError } from "../errors";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
+import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
@@ -381,18 +382,29 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        * "infrastructure, ignore".
        */
       const infra = isInfraError(err);
-      const note = infra ? msg : `unexpected internal error (not infrastructure — investigate): ${msg}`;
+      /*
+       * A working copy whose git dir is not the orchestrator's own is a SECURITY REFUSAL: nothing ran, so the
+       * verdict is inconclusive, but it is neither a transient infrastructure fault nor a code defect. It is loud
+       * and has its own note. It opens NO maintainer incident: the incident summary is fed to the maintainer's
+       * model prompt, and the refusal names paths the sandboxed repository controls.
+       */
+      const refusal = isUntrustedGitTreeError(err);
+      const note = refusal
+        ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
+        : infra
+          ? msg
+          : `unexpected internal error (not infrastructure — investigate): ${msg}`;
       updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
-      console.error(`[qa] run ${infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
+      console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
 
       /*
-       * Only a genuine infrastructure condition is exempt from a maintainer-eligible incident
+       * Only a genuine infrastructure condition or a security refusal is exempt from a maintainer-eligible incident
        * (it must not trigger an autonomous self-modification for a non-code fault). An unexpected
        * internal error DOES record an incident so the failure is visible and not swallowed.
        */
-      if (!infra) {
+      if (!infra && !refusal) {
         recordIncident({ source: "qa-generator", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
       }
     }

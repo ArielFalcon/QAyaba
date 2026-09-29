@@ -16,6 +16,7 @@ import {
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
+import { InfraError } from "../../../src/shared-kernel/domain-error.ts";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
@@ -314,6 +315,51 @@ test("a repository the sandbox planted inside a committed gitlink is refused bef
     assert.equal(ranMarker(marker), false, "the check never enters the planted repository");
   }));
 
+/* The refusal reaches logs, the run record and the operator's screen. The path it names comes from the repository the
+   sandbox controls, so it must not be able to forge a line, drive the terminal, or fill a screen. */
+test("the refusal for a planted repository names a path full of control characters only in escaped form", () => {
+  const root = mkdtempSync(join(tmpdir(), "git-hardening-hostile-name-"));
+  try {
+    const fixture = makeGitlinkRepo(root);
+    const hostile = "evil\nrefusing to run git on /trusted\u001b[31m-name";
+    execFileSync("git", ["update-index", "--add", "--cacheinfo", `160000,${fixture.subSha},${hostile}`], { cwd: fixture.repo });
+    execFileSync("git", ["commit", "-qm", "hostile gitlink"], { cwd: fixture.repo, env: GIT_ENV });
+    closeGitDir(fixture.repo);
+    mkdirSync(join(fixture.repo, hostile, ".git"), { recursive: true });
+
+    assert.throws(
+      () => hardenGitArgs(["status"], fixture.repo),
+      (err: unknown) => {
+        assert.ok(err instanceof UntrustedGitTreeError);
+        assert.doesNotMatch(err.message, /[\u0000-\u001f\u007f-\u009f]/, "a control character reached the message");
+        assert.ok(err.message.includes("evil"), "the message still names the path it refused");
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the refusal for a planted repository under a very long gitlink path stays short", () => {
+  const root = mkdtempSync(join(tmpdir(), "git-hardening-long-name-"));
+  try {
+    const fixture = makeGitlinkRepo(root);
+    const long = Array.from({ length: 5 }, () => "d".repeat(150)).join("/");
+    execFileSync("git", ["update-index", "--add", "--cacheinfo", `160000,${fixture.subSha},${long}`], { cwd: fixture.repo });
+    execFileSync("git", ["commit", "-qm", "long gitlink"], { cwd: fixture.repo, env: GIT_ENV });
+    closeGitDir(fixture.repo);
+    mkdirSync(join(fixture.repo, long, ".git"), { recursive: true });
+
+    assert.throws(
+      () => hardenGitArgs(["status"], fixture.repo),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.length < 2000,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a gitfile the sandbox planted inside a committed gitlink is refused like a planted git dir", () =>
   withGitlinkRepo(({ repo, root }) => {
     writeFileSync(join(repo, "sub", ".git"), `gitdir: ${join(root, "elsewhere")}\n`);
@@ -462,3 +508,56 @@ test("a git dir that git cannot use at all is refused rather than left to fail i
 test("the module the engine imports offers no way to build the hardening flags without verifying a working copy", () => {
   assert.equal("baseGitHardeningFlags" in engineHardening, false);
 });
+
+/* The verification queries run git themselves. A machine that cannot run git (no binary, no memory, the process killed)
+   says nothing about the working copy, so it is an infrastructure failure, never a claim that the tree is untrusted:
+   a security refusal is acted on (the recovery deletes the mirror), a transient fault must not be. Fake git binaries
+   sit on PATH: the process boundary is the only double. */
+function withFakeGit(script: string, body: () => void): void {
+  const bin = mkdtempSync(join(tmpdir(), "fake-git-"));
+  const previousPath = process.env.PATH;
+  try {
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:${previousPath}`;
+    body();
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
+const isInfra = (err: unknown): boolean => err instanceof InfraError;
+
+test("git running out of memory while verifying is an infrastructure failure, not an untrusted tree", () =>
+  withFixture((f) => {
+    withFakeGit('echo "fatal: Out of memory, malloc failed (tried to allocate 4096 bytes)" >&2\nexit 128', () => {
+      assert.throws(() => hardenGitArgs(["status"], f.repo), isInfra);
+    });
+  }));
+
+test("git killed by a signal while verifying is an infrastructure failure, not an untrusted tree", () =>
+  withFixture((f) => {
+    withFakeGit("kill -9 $$", () => {
+      assert.throws(() => hardenGitArgs(["status"], f.repo), isInfra);
+    });
+  }));
+
+test("a missing git binary is an infrastructure failure, not an untrusted tree", () =>
+  withFixture((f) => {
+    const empty = mkdtempSync(join(tmpdir(), "no-git-"));
+    const previousPath = process.env.PATH;
+    try {
+      process.env.PATH = empty;
+      assert.throws(() => hardenGitArgs(["status"], f.repo), isInfra);
+    } finally {
+      process.env.PATH = previousPath;
+      rmSync(empty, { recursive: true, force: true });
+    }
+  }));
+
+test("git saying it cannot use the git dir stays a refusal of the tree", () =>
+  withFixture((f) => {
+    withFakeGit('echo "fatal: not a git repository (or any of the parent directories): .git" >&2\nexit 128', () => {
+      assert.throws(() => hardenGitArgs(["status"], f.repo), UntrustedGitTreeError);
+    });
+  }));

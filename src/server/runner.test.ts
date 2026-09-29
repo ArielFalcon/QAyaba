@@ -16,7 +16,7 @@ import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import { AgentTimeoutError } from "@kernel/domain-error";
+import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
 import { getIncidents } from "./maintainer";
 
 const cfg = (name: string): AppConfig => ({
@@ -109,6 +109,40 @@ test("an agent call that exceeded its deadline finalizes as infrastructure, not 
   assert.equal(r.verdict, "infra-error");
   assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
   assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
+});
+
+/* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note, and
+   never a maintainer trigger (the incident summary is fed to the maintainer's model prompt, and the refusal names
+   paths the repository controls). */
+test("a run refused because the working copy's git dir is untrusted is finalized as a security refusal, not an internal crash, and opens no maintainer incident", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/sub/.git: it sits inside the submodule directory sub");
+    },
+  };
+  const incidentsBefore = getIncidents().length;
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    const id = enqueueTrackedRun(
+      queue,
+      { app: "runner-untrusted-git-tree", sha: "abc1234", target: "code", mode: "diff", source: "webhook" },
+      { loadApp: cfg, engineFactory: () => port },
+    );
+    await queue.drain();
+    const r = getRecord(id)!;
+    assert.equal(r.status, "done");
+    assert.equal(r.verdict, "infra-error", "the run is inconclusive: no test ran");
+    assert.match(r.note ?? "", /security refusal/i);
+    assert.match(r.note ?? "", /org__app\/sub\/\.git/, "the operator is told which path was refused");
+    assert.doesNotMatch(r.note ?? "", /unexpected internal error|investigate/i);
+    assert.equal(getIncidents().length, incidentsBefore, "a refusal names repository-controlled paths and must never reach the maintainer's prompt");
+    assert.ok(errors.some((line) => /security refusal/i.test(line)), "the refusal is logged loudly");
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("a context-map run is an e2e context-mode run at the given sha, from a manual source, never tied to a service repo", async () => {
