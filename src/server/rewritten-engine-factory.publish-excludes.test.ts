@@ -11,10 +11,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildVcsPublish } from "./rewritten-engine-factory";
+import { buildConfinement, buildVcsPublish } from "./rewritten-engine-factory";
 import { realGit } from "../integrations/repo-mirror";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 
@@ -629,6 +629,20 @@ test("code target: a repository left under the working copy is not published as 
     writeFile(repo, "src/more.test.ts", "test('y', () => {});\n");
     const second = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/embedded2", sha: "embedded2" });
     assert.equal(second.changed, true, "the working copy was left unusable by the first publish");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("the confinement pass as production wires it removes a repository left under the working copy", async () => {
+  const repo = initRepo();
+  try {
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+
+    const result = await buildConfinement().enforce(repo, true);
+
+    assert.equal(existsSync(join(repo, "tmp-fixture-repo")), false);
+    assert.deepEqual(result.reverted, ["tmp-fixture-repo/"]);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

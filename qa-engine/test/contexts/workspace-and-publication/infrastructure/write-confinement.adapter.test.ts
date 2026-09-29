@@ -6,7 +6,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WriteConfinementAdapter, type WriteConfinementAdapterDeps } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts";
-import { makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
+import { hardenGitArgs } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
+import { GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinementAdapterDeps {
   return {
@@ -947,5 +948,64 @@ test("real git fixture: a submodule pointer moved off its recorded commit is sti
     assert.equal(ranPlantedCommand(marker), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* A repository left inside the working copy (a test that runs `git init` under the tree, a git dependency directory,
+   or the sandbox's own doing) is never legitimate test output, and staging it would record a gitlink that leaves the
+   working copy unusable. It is removed like any other stray, without following a link inside it. */
+const removeDirectory = (path: string): void => rmSync(path, { recursive: true, force: true });
+const realFsDeps = (repo: string): WriteConfinementAdapterDeps => ({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } }, removeDirectory });
+
+for (const isCode of [false, true]) {
+  test(`real git fixture: an embedded repository is removed from disk and reported, and the legitimate spec survives (${isCode ? "code" : "e2e"} target)`, async () => {
+    const repo = initRepo();
+    try {
+      const nested = isCode ? "tmp-fixture-repo" : "e2e/fixture-repo";
+      makeEmbeddedRepo(join(repo, nested));
+      writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('y', () => {});\n");
+
+      const result = await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, isCode);
+
+      assert.equal(existsSync(join(repo, nested)), false, "the embedded repository was left in the working copy");
+      assert.ok(result.reverted.includes(`${nested}/`), `the removal is reported: ${JSON.stringify(result.reverted)}`);
+      assert.ok(result.strays >= 1);
+      assert.ok(existsSync(join(repo, "e2e", "new.spec.ts")), "a legitimate test file was removed with it");
+      execFileSync("git", hardenGitArgs(["add", "--", "."], repo), { cwd: repo, env: GIT_ENV, stdio: "ignore" });
+      assert.deepEqual(indexedGitlinks(repo), []);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+}
+
+test("real git fixture: removing an embedded repository never follows a link inside it", async () => {
+  const repo = initRepo();
+  const outside = mkdtempSync(join(tmpdir(), "qa-confinement-outside-"));
+  try {
+    writeFileSync(join(outside, "precious.txt"), "keep\n");
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+    symlinkSync(outside, join(repo, "tmp-fixture-repo", "link-out"));
+
+    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, true);
+
+    assert.equal(existsSync(join(repo, "tmp-fixture-repo")), false);
+    assert.equal(readFileSync(join(outside, "precious.txt"), "utf8"), "keep\n", "the directory behind the link was deleted through it");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("real git fixture: an embedded repository that cannot be removed fails the pass loudly instead of being staged later", async () => {
+  const repo = initRepo();
+  try {
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+    const { removeDirectory: _unwired, ...withoutRemoval } = realFsDeps(repo);
+
+    await assert.rejects(new WriteConfinementAdapter(withoutRemoval).enforce(repo, true), /tmp-fixture-repo/);
+    assert.equal(existsSync(join(repo, "tmp-fixture-repo")), true);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });

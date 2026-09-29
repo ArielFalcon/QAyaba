@@ -1,5 +1,5 @@
 /* Tracked strays revert via staged-aware `git restore --staged --worktree --source=HEAD` (a plain checkout would leave a staged-new stray). Untracked strays: `git clean -f`. A symlink whose realpath escapes mirrorDir is dangerous and reverted in both targets (code-mode stages `.`). Git errors throw here; RunQaUseCase fail-opens around enforce(). */
-import { join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { WriteConfinementService, type GitRename } from "../domain/write-confinement.service.ts";
 
 export type Git = (args: string[], cwd?: string) => Promise<string>;
@@ -11,6 +11,8 @@ export interface WriteConfinementAdapterDeps {
   git: Git;
   realpath(p: string): string;
   isSymlink(p: string): boolean;
+  /** Deletes a directory tree without following a link inside it. Unwired, a working copy holding an embedded repository fails the pass loudly. */
+  removeDirectory?(path: string): void;
 }
 
 export interface ConfinementResult {
@@ -30,7 +32,11 @@ export class WriteConfinementAdapter {
     }
 
     const out = await this.deps.git(["status", "--porcelain", "--untracked-files=all", IGNORE_SUBMODULE_CONTENT], mirrorDir);
-    const changes = this.classifier.parseStatusOutput(out);
+    const parsed = this.classifier.parseStatusOutput(out);
+    /* With every untracked file listed, an untracked directory is a repository of its own: git never enters it. */
+    const embedded = parsed.filter((c) => c.xy === "??" && c.path.endsWith("/")).map((c) => c.path);
+    this.removeEmbeddedRepositories(mirrorDir, embedded);
+    const changes = parsed.filter((c) => !embedded.includes(c.path));
     const { tracked, untracked, dangerousByPath } = this.classifier.classifyStrays(changes, isCode);
 
     const escapes: string[] = [];
@@ -85,10 +91,27 @@ export class WriteConfinementAdapter {
     }
 
     return {
-      strays: tracked.length + untracked.length + restoredDeleted.length,
+      strays: embedded.length + tracked.length + untracked.length + restoredDeleted.length,
       dangerous: new Set([...dangerousByPath, ...escapes]).size,
-      reverted: [...tracked, ...untracked, ...restoredDeleted],
+      reverted: [...embedded, ...tracked, ...untracked, ...restoredDeleted],
     };
+  }
+
+  /* A repository under the working copy is never legitimate test output, and staging it records a gitlink that leaves the working copy unusable, so it goes like any other stray. */
+  private removeEmbeddedRepositories(mirrorDir: string, embedded: readonly string[]): void {
+    if (embedded.length === 0) return;
+    const remove = this.deps.removeDirectory;
+    if (!remove) throw new Error(`the working copy holds an embedded repository (${embedded.join(", ")}) and nothing is wired to remove it`);
+    const mirrorReal = this.deps.realpath(mirrorDir) + sep;
+    for (const path of embedded) {
+      const target = join(mirrorDir, path);
+      /* git reports paths under the working copy; one that names anything else is never deleted. */
+      if (isAbsolute(path) || path.split("/").includes("..") || !`${this.deps.realpath(dirname(target))}${sep}`.startsWith(mirrorReal)) {
+        throw new Error(`refusing to remove the embedded repository ${JSON.stringify(path)}: it does not resolve inside the working copy`);
+      }
+      console.error(`[qa] write-confinement: removing the embedded repository ${JSON.stringify(path)} (a repository under the working copy would be staged as a gitlink)`);
+      remove(target);
+    }
   }
 }
 

@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
 import { readFile } from "node:fs/promises";
-import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
@@ -260,7 +260,8 @@ export function buildConfinement(
     }
   },
 ): WriteConfinementAdapter {
-  return new WriteConfinementAdapter({ git, realpath, isSymlink });
+  /* rmSync deletes a link inside the tree, never what it points to. */
+  return new WriteConfinementAdapter({ git, realpath, isSymlink, removeDirectory: (path) => rmSync(path, { recursive: true, force: true }) });
 }
 
 
