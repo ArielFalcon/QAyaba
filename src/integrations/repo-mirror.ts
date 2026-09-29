@@ -10,6 +10,10 @@ import { join } from "node:path";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { InfraError } from "../errors";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
+import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+
+/* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
+export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 
 
 const redactionPort = new RedactionPortAdapter();
@@ -154,28 +158,6 @@ export async function getHeadSha(dir: string, deps: MirrorDeps): Promise<string>
   return (await deps.git(["rev-parse", "HEAD"], dir)).trim();
 }
 
-/*
- * Prepend the orchestrator's git hardening as COMMAND-LINE `-c` overrides (which a repo's own
- * .git/config cannot override) before the caller's subcommand. Two concerns, both stemming from
- * operating on UNTRUSTED, sandbox-touched working copies:
- * - core.hooksPath=/dev/null — a commit/checkout would otherwise run the repo's hooks AS THE
- * ORCHESTRATOR (root); a sandbox-planted `.git/hooks/pre-commit` is a root-RCE escape. The
- * orchestrator never relies on a repo's hooks, so disabling them is uniformly safe.
- * - safe.directory=* — after an e2e/code run the orchestrator chowns the working copy to the
- * unprivileged sandbox uid (to execute untrusted specs). git-as-root then aborts the NEXT
- * run's ops with "detected dubious ownership" (CVE-2022-24765 guard). These are the
- * orchestrator's own mirror dirs and hooks are already disabled above, so opting out of the
- * ownership check is safe and keeps the mirror reusable across privilege-dropped runs.
- * SCOPE CAVEAT: `*` is intentionally broad (this pure helper has no path context) and ALL git
- * callers go through here. That is acceptable because every current caller operates only on the
- * orchestrator's own mirror dirs under MIRROR_DIR with hooks disabled; a future caller for a
- * DIFFERENT context should scope this to a specific path (`safe.directory=<dir>`) instead.
- */
-export function hardenGitArgs(args: readonly string[]): string[] {
-  return ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*", ...args];
-}
-
-
 function scrubGitError(err: Error & { cmd?: string }): Error {
   err.message = redactionPort.redactText(err.message);
   if (typeof err.cmd === "string") err.cmd = redactionPort.redactText(err.cmd);
@@ -184,7 +166,7 @@ function scrubGitError(err: Error & { cmd?: string }): Error {
 
 export const realGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", hardenGitArgs(args), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
+    execFile("git", hardenGitArgs(args, cwd ?? null), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
       if (!err) {
         resolve(stdout.toString());
         return;

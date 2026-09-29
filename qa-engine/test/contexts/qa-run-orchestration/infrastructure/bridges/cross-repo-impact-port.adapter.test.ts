@@ -5,9 +5,9 @@
    fail-open branch (absent mirror, unindexed mirror, empty diff, no matches, thrown exceptions).
    Zero mirror/VCS/code-graph calls when no link matches.
  */
-import { test, describe, before, after } from "node:test";
+import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrossRepoImpactPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.ts";
@@ -147,6 +147,30 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
     assert.ok(runner.calls[0]?.args.includes("safe.directory=*"), "the mirror may belong to the sandbox user after a code-mode run, so the fetch opts out of git's ownership check like every other git call");
     assert.equal(runner.calls[0]?.cwd, MIRROR_DIR);
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
+  });
+
+  test("a mirror whose git dir the sandbox swapped is never fetched and yields no impact", async () => {
+    const swapped = join(tmpRoot, "swapped-mirror");
+    mkdirSync(swapped, { recursive: true });
+    const elsewhere = join(tmpRoot, "sandbox-controlled-git");
+    mkdirSync(elsewhere, { recursive: true });
+    symlinkSync(elsewhere, join(swapped, ".git"));
+    const runner = new RecordingRunner();
+    const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/resources/api-definition.yaml"]);
+    const adapter = makeAdapter({
+      mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: swapped }),
+      vcs: new FakeVcs(blast),
+      codeGraph: new FakeCodeGraph(),
+      runner,
+    });
+    const logged = mock.method(console, "error", () => {});
+    try {
+      assert.equal(await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]), null);
+      assert.equal(runner.calls.length, 0, "git never started against the swapped git dir");
+      assert.match(String(logged.mock.calls[0]?.arguments.join(" ")), /swapped-mirror/, "the refusal is logged with the offending path, not swallowed silently");
+    } finally {
+      logged.mock.restore();
+    }
   });
 });
 

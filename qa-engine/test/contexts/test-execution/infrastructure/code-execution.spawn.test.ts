@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -92,5 +92,30 @@ test("the working-copy changes are listed even when git judges the tree owned by
     if (previous === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
     else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = previous;
     rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* The sandbox owns the working copy and can swap the root-owned `.git` for one of its own; its config would plant
+   a command that git runs as the orchestrator. A `.git` that is a link to such a directory is the swap a test
+   user can build without root. */
+test("the working-copy changes are never read through a swapped git dir, and the planted command does not run", () => {
+  const root = mkdtempSync(join(tmpdir(), "code-mode-swapped-git-"));
+  const repo = join(root, "repo");
+  const marker = join(root, "marker");
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    writeFileSync(join(repo, "generated.test.js"), "// a test the agent wrote\n");
+    const planted = join(root, "planted-git");
+    cpSync(join(repo, ".git"), planted, { recursive: true });
+    const evil = join(root, "evil.sh");
+    writeFileSync(evil, `#!/bin/sh\necho ran >> "${marker}"\nexit 0\n`, { mode: 0o755 });
+    execFileSync("git", ["config", "--file", join(planted, "config"), "core.fsmonitor", evil]);
+    rmSync(join(repo, ".git"), { recursive: true });
+    symlinkSync(planted, join(repo, ".git"));
+
+    assert.throws(() => gitWorkingChanges(repo), /git dir|\.git/i, "a git dir that is not the orchestrator's is a loud error, never an empty change list");
+    assert.equal(existsSync(marker) && readFileSync(marker, "utf8").includes("ran"), false, "git never ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

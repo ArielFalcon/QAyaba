@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
 
@@ -31,20 +35,27 @@ function recorder(exists: boolean | ((path: string) => boolean)): MirrorDeps & {
 }
 
 test("hardenGitArgs prepends hook + ownership hardening before the git subcommand", () => {
-  const out = hardenGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"]);
-  /* Two command-line hardening flags, in order, BEFORE the subcommand:
+  const out = hardenGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"], null);
+  /* Command-line hardening flags, in order, BEFORE the subcommand:
      - core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard)
      - safe.directory=* → tolerate a mirror chowned to the sandbox uid by a prior
      e2e/code execution (git-as-root would else abort with
      "detected dubious ownership" and crash the next run).
    */
   assert.deepEqual(out.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*"]);
-  assert.deepEqual(out.slice(4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
+  assert.deepEqual(out.slice(-4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
 });
 
-test("the engine's git hardening twin hardens a git call exactly like hardenGitArgs", () => {
-  for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
-    assert.deepEqual(engineHardenGitArgs(args), hardenGitArgs(args));
+test("the shell hardens a git call exactly like the engine does, for a call with no working copy and for one with", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hardening-parity-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
+      assert.deepEqual(engineHardenGitArgs(args, null), hardenGitArgs(args, null));
+      assert.deepEqual(engineHardenGitArgs(args, repo), hardenGitArgs(args, repo));
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 
@@ -514,5 +525,42 @@ test("realGit scrubs the raw GITHUB_TOKEN value (no x-access-token prefix) from 
   } finally {
     if (previousToken === undefined) delete process.env.GITHUB_TOKEN;
     else process.env.GITHUB_TOKEN = previousToken;
+  }
+});
+
+/* The sandbox owns a working copy after a code/e2e run and can swap the root-owned `.git` for one of its own;
+   its config would plant a command git runs as the orchestrator on the next call (checkout, status, publish). */
+test("realGit refuses a working copy whose git dir was swapped and never runs its planted command", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const root = mkdtempSync(join(tmpdir(), "realgit-swapped-git-"));
+  const repo = join(root, "repo");
+  const marker = join(root, "marker");
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    writeFileSync(join(repo, "a.txt"), "x\n");
+    const planted = join(root, "planted-git");
+    cpSync(join(repo, ".git"), planted, { recursive: true });
+    const evil = join(root, "evil.sh");
+    writeFileSync(evil, `#!/bin/sh\necho ran >> "${marker}"\nexit 0\n`, { mode: 0o755 });
+    execFileSync("git", ["config", "--file", join(planted, "config"), "core.fsmonitor", evil]);
+    rmSync(join(repo, ".git"), { recursive: true });
+    symlinkSync(planted, join(repo, ".git"));
+
+    await assert.rejects(() => realGit(["status", "--porcelain"], repo), /git dir|\.git/i);
+    assert.equal(existsSync(marker) && readFileSync(marker, "utf8").includes("ran"), false, "git never ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("realGit still runs against an ordinary working copy", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const repo = mkdtempSync(join(tmpdir(), "realgit-ordinary-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    writeFileSync(join(repo, "a.txt"), "x\n");
+    assert.match(await realGit(["status", "--porcelain"], repo), /a\.txt/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });

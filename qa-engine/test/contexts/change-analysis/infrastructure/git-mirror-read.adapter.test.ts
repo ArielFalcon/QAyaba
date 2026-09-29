@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
@@ -190,6 +190,32 @@ test("a working tree git considers owned by another user still yields its diff, 
     assert.deepEqual(others, [], "the head's own message is not an 'other' message, and the range is readable");
     assert.match(await adapter.diff(Sha.of(headSha), { baseSha: Sha.of(baseSha) }), /b\.txt/, "the range diff against an explicit base");
   } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* The sandbox owns the working copy and can swap the root-owned `.git` for one of its own. Its config would plant
+   a command (here diff.external) that git runs as the orchestrator while reading the diff. */
+test("a swapped git dir is refused by every read and its planted diff command never runs", async () => {
+  const { repo, baseSha, headSha } = twoCommitRepo();
+  const scratch = mkdtempSync(join(tmpdir(), "qa-swapped-git-"));
+  const marker = join(scratch, "marker");
+  try {
+    const planted = join(scratch, "planted-git");
+    cpSync(join(repo, ".git"), planted, { recursive: true });
+    const evil = join(scratch, "evil.sh");
+    writeFileSync(evil, `#!/bin/sh\necho ran >> "${marker}"\nexit 0\n`, { mode: 0o755 });
+    execFileSync("git", ["config", "--file", join(planted, "config"), "diff.external", evil]);
+    rmSync(join(repo, ".git"), { recursive: true });
+    symlinkSync(planted, join(repo, ".git"));
+
+    const adapter = new GitMirrorReadAdapter(repo, realGitRunner);
+    await assert.rejects(() => adapter.diff(Sha.of(headSha)), /git dir|\.git/i);
+    await assert.rejects(() => adapter.message(Sha.of(headSha)), /git dir|\.git/i);
+    await assert.rejects(() => adapter.otherMessages(Sha.of(headSha), { baseSha: Sha.of(baseSha) }), /git dir|\.git/i);
+    assert.equal(existsSync(marker) && readFileSync(marker, "utf8").includes("ran"), false, "git never ran against the swapped git dir");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
   }
 });

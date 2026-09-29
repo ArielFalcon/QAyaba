@@ -269,9 +269,9 @@ test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/
   assert.equal(isProtectedPath("src/agent-runtime/config.ts"), true);
 });
 
-test("isProtectedPath flags the engine's git-hardening twin of repo-mirror.ts's hardenGitArgs", () => {
-  /* Its flags keep a sandbox-planted hook from running as the orchestrator and keep a sandbox-owned
-     working copy readable; dropping either silently reopens what hardenGitArgs closes. */
+test("isProtectedPath flags the engine's git hardening, the definition repo-mirror.ts re-exports as hardenGitArgs", () => {
+  /* Its flags keep a sandbox-planted hook or config-named command from running as the orchestrator, and its git-dir
+     check stops a sandbox-swapped .git from being trusted; dropping either silently reopens what it closes. */
   assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts"), true);
 });
 

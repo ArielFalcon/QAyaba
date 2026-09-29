@@ -459,7 +459,7 @@ const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
 
 /* The mirror's git status for the spec dir's context map: any entry means this run wrote it. */
 const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
-  execFileSync("git", hardenGitArgs(["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"]), {
+  execFileSync("git", hardenGitArgs(["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"], specDir), {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim() !== "";

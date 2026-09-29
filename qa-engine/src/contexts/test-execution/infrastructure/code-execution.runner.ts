@@ -8,7 +8,7 @@ import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { BoundedOutputTail } from "./bounded-output-tail.ts";
-import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { hardenGitArgs, UntrustedGitTreeError } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
@@ -233,12 +233,13 @@ export function effectiveChangedFiles(
   return listWrites ? listWrites(repoDir) : [];
 }
 
-/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Best-effort — any git failure yields [] (→ whole-repo fallback), never throws. */
+/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Best-effort — a git failure yields [] (→ whole-repo fallback). A git dir that is not the orchestrator's (UntrustedGitTreeError) is never a soft failure: it means untrusted code replaced the repository, so it throws. */
 export function gitWorkingChanges(repoDir: string): string[] {
   try {
-    const out = execFileSync("git", hardenGitArgs(["status", "--porcelain"]), { cwd: repoDir, encoding: "utf8" });
+    const out = execFileSync("git", hardenGitArgs(["status", "--porcelain"], repoDir), { cwd: repoDir, encoding: "utf8" });
     return parsePorcelain(out);
-  } catch {
+  } catch (err) {
+    if (err instanceof UntrustedGitTreeError) throw err;
     return [];
   }
 }
