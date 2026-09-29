@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as engineHardening from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import {
   assertTrustedGitTree,
   hardenGitArgs,
@@ -215,8 +216,8 @@ test("hardening a call with no working copy yet (a clone, an ls-remote) checks n
   assert.ok(!args.includes("-C") && !args.some((arg) => arg.startsWith("safe.directory")), "with no working copy there is nothing to point git at or to opt out");
 });
 
-test("a call that names no working copy is refused instead of being hardened as if there were none", () => {
-  for (const missing of [null, undefined]) {
+test("a call that names no working copy is refused instead of being hardened as if there were none, and an empty path is not the process's own directory", () => {
+  for (const missing of [null, undefined, ""]) {
     assert.throws(() => hardenGitArgs(["status"], missing as unknown as string), TypeError);
   }
 });
@@ -382,3 +383,7 @@ test("a git dir that git cannot use at all is refused rather than left to fail i
     chmodSync(join(lone, ".git"), 0o755);
     assert.throws(() => hardenGitArgs(["status"], lone), UntrustedGitTreeError);
   }));
+
+test("the module the engine imports offers no way to build the hardening flags without verifying a working copy", () => {
+  assert.equal("baseGitHardeningFlags" in engineHardening, false);
+});

@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { lstatSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { baseGitHardeningFlags } from "./git-hardening-flags.ts";
 
 /** Thrown when the git dir git would use for a working copy is not the orchestrator's own. Never swallow it into an empty result: it means untrusted code may have replaced the repository. */
 export class UntrustedGitTreeError extends Error {
@@ -228,15 +229,10 @@ function assertNoPlantedSubmoduleRepositories(topLevel: string): void {
   }
 }
 
-/** The command-line flags every hardened git call carries, with or without a working copy. */
-export function baseGitHardeningFlags(): string[] {
-  return ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"];
-}
-
 /**
  * Hardened argv for a git call that runs in `workDir`, the working copy: a working copy whose git dir is not the
  * orchestrator's throws UntrustedGitTreeError before any git process starts. `workDir` is required, and a caller with
- * none (null, undefined) is refused: the only git calls that have no working copy yet (a clone, an ls-remote) use
+ * none (null, undefined, an empty string, which would resolve to the process's own directory) is refused: the only git calls that have no working copy yet (a clone, an ls-remote) use
  * hardenDetachedGitArgs, a separate module the engine may not import.
  *
  * The flags are COMMAND-LINE `-c` overrides, which a repo's own .git/config cannot override, and which git passes on
@@ -258,7 +254,7 @@ export function baseGitHardeningFlags(): string[] {
  * config itself is what has to be trusted.
  */
 export function hardenGitArgs(args: readonly string[], workDir: string): string[] {
-  if (typeof workDir !== "string") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
+  if (typeof workDir !== "string" || workDir === "") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
   const tree = resolveTrustedGitTree(workDir);
   if (tree.topLevel !== null) {
     assertGitUsesVerifiedTree({ workDir: tree.workDir, topLevel: tree.topLevel });

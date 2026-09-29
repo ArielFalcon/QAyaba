@@ -31,6 +31,11 @@ test("no engine module uses the git hardening that verifies no working copy", ()
   assert.equal(ok, true, `dependency-cruiser reported a violation:\n${output}`);
 });
 
+test("no engine module builds git hardening flags of its own outside the two hardening modules", () => {
+  const { ok, output } = runDepcruise(repoRoot);
+  assert.equal(ok, true, `dependency-cruiser reported a violation:\n${output}`);
+});
+
 test("an engine module importing the git hardening that verifies no working copy is caught by the rule", () => {
   const treeRoot = mkdtempSync(join(tmpdir(), "git-hardening-working-copy-"));
   try {
@@ -51,6 +56,37 @@ test("an engine module importing the git hardening that verifies no working copy
 
     assert.equal(ok, false, "depcruise must report a violation for the engine module using the unverified hardening");
     assert.match(output, /no-detached-git-hardening-in-engine:\s*qa-engine\/src\/contexts\/probe\/leaky-git-call\.ts/, `expected the rule to name the offending module, got:\n${output}`);
+  } finally {
+    rmSync(treeRoot, { recursive: true, force: true });
+  }
+});
+
+/* The flags alone are the hardening minus the working-copy verification: an engine module holding them can run git on a
+   sandbox-touched working copy without the git dir ever being judged. */
+test("an engine module importing the bare git hardening flags is caught by the rule, and the two hardening modules may", () => {
+  const treeRoot = mkdtempSync(join(tmpdir(), "git-hardening-flags-"));
+  try {
+    const tsconfig = JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: "ESNext", moduleResolution: "bundler", allowImportingTsExtensions: true } });
+    const sandbox = "qa-engine/src/shared-infrastructure/process-sandbox";
+    const files: Record<string, string> = {
+      "tsconfig.json": tsconfig,
+      "qa-engine/tsconfig.json": tsconfig,
+      [`${sandbox}/git-hardening-flags.ts`]: "export const baseGitHardeningFlags = (): string[] => [];\n",
+      [`${sandbox}/git-hardening.ts`]: 'import { baseGitHardeningFlags } from "./git-hardening-flags.ts";\nexport const hardenGitArgs = (args: string[]): string[] => [...baseGitHardeningFlags(), ...args];\n',
+      [`${sandbox}/detached-git-hardening.ts`]: 'import { baseGitHardeningFlags } from "./git-hardening-flags.ts";\nexport const hardenDetachedGitArgs = (args: string[]): string[] => [...baseGitHardeningFlags(), ...args];\n',
+      "qa-engine/src/contexts/probe/leaky-flags-call.ts": 'import { baseGitHardeningFlags } from "../../shared-infrastructure/process-sandbox/git-hardening-flags.ts";\nexport const argv = [...baseGitHardeningFlags(), "status"];\n',
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(treeRoot, rel)), { recursive: true });
+      writeFileSync(join(treeRoot, rel), content);
+    }
+    copyFileSync(join(repoRoot, CONFIG_REL), join(treeRoot, CONFIG_REL));
+
+    const { ok, output } = runDepcruise(treeRoot);
+
+    assert.equal(ok, false, "depcruise must report a violation for the engine module using the bare flags");
+    assert.match(output, /no-git-hardening-flags-outside-hardening:\s*qa-engine\/src\/contexts\/probe\/leaky-flags-call\.ts/, `expected the rule to name the offending module, got:\n${output}`);
+    assert.doesNotMatch(output, /no-git-hardening-flags-outside-hardening:\s*qa-engine\/src\/shared-infrastructure\/process-sandbox\/(detached-)?git-hardening\.ts/, "the two hardening modules are the flags' only legitimate importers");
   } finally {
     rmSync(treeRoot, { recursive: true, force: true });
   }

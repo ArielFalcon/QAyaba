@@ -229,6 +229,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
   /* The single definition of the git hardening (hooks, ownership, config-driven execution, git-dir trust) that repo-mirror.ts re-exports and every qa-engine git call uses. */
   "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
+  /* The hardening flags themselves (hooks, fsmonitor, bare repositories): the arch gate lets only the two hardening modules import them, so no engine module can run git with the flags but without the working-copy check. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening-flags.ts",
   /* The hardening for git calls with no working copy yet; the arch gate keeps the engine from importing it, so a git call on a working copy cannot slip past the git-dir check. */
   "qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening.ts",
   /* The runners and git call sites that handle what untrusted code wrote: the check and lint runner and the mutation runner bound their child's output, the evidence scanner reads it line by line before the bound, and the git readers and the cross-repo fetch run git on a sandbox-owned working copy. */

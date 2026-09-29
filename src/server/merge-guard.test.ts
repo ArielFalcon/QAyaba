@@ -293,6 +293,7 @@ test("isProtectedPath flags the bounded runners and the git call sites an untrus
     "qa-engine/src/contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts",
     "qa-engine/src/contexts/service-topology/application/resolve-cross-repo-impact.use-case.ts",
     "qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening.ts",
+    "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening-flags.ts",
   ];
   for (const file of files) {
     assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);

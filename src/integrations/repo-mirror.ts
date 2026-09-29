@@ -167,9 +167,27 @@ function scrubGitError(err: Error & { cmd?: string }): Error {
   return err;
 }
 
+/*
+ * The git commands with no working copy to run in yet: the clone that creates one and the ls-remote that asks a remote.
+ * Any other command called without a working copy would silently get the hardening that verifies nothing and run in the
+ * process's own directory, so it is refused instead.
+ */
+const WORKING_COPY_FREE_COMMANDS: ReadonlySet<string> = new Set(["clone", "ls-remote"]);
+
+function hardenedArgsFor(args: string[], cwd: string | undefined): string[] {
+  if (cwd !== undefined) return hardenGitArgs(args, cwd);
+  let i = 0;
+  while (args[i] === "-c") i += 2; /* leading `-c key=value` pairs (auth, protocol) precede the command */
+  const command = args[i];
+  if (command === undefined || !WORKING_COPY_FREE_COMMANDS.has(command)) {
+    throw new TypeError(`git ${command ?? "(no command)"} runs in a working copy: name it instead of running it unverified`);
+  }
+  return hardenDetachedGitArgs(args);
+}
+
 export const realGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", cwd === undefined ? hardenDetachedGitArgs(args) : hardenGitArgs(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
+    execFile("git", hardenedArgsFor(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
       if (!err) {
         resolve(stdout.toString());
         return;

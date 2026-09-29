@@ -589,6 +589,30 @@ test("realGit refuses a working copy whose git dir was swapped and never runs it
   }
 });
 
+test("realGit refuses a command that needs a working copy when none is named, instead of running it unverified in the process's own directory", async () => {
+  const { realGit } = await import("./repo-mirror");
+  await assert.rejects(realGit(["status", "--porcelain"]), TypeError);
+});
+
+test("realGit still runs the commands that have no working copy yet: a clone and an ls-remote", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const root = mkdtempSync(join(tmpdir(), "realgit-detached-"));
+  try {
+    const source = join(root, "source");
+    execFileSync("git", ["init", "-q", source]);
+    writeFileSync(join(source, "a.txt"), "x\n");
+    execFileSync("git", ["add", "a.txt"], { cwd: source });
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.com", "commit", "-qm", "first"], { cwd: source });
+    const copy = join(root, "copy");
+
+    await realGit(["-c", "protocol.file.allow=always", "clone", "-q", source, copy]);
+    assert.ok(existsSync(join(copy, "a.txt")), "the clone ran");
+    assert.match(await realGit(["ls-remote", source]), /HEAD/, "the ls-remote ran");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("realGit still runs against an ordinary working copy", async () => {
   const { realGit } = await import("./repo-mirror");
   const repo = mkdtempSync(join(tmpdir(), "realgit-ordinary-"));
