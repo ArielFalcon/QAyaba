@@ -16,7 +16,7 @@ import {
   UntrustedGitTreeError,
 } from "../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import { hardenDetachedGitArgs } from "../../../src/shared-infrastructure/process-sandbox/detached-git-hardening.ts";
-import { closeGitDir, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
+import { closeGitDir, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand as ranMarker, writeMarkerCommand } from "./git-fixtures.ts";
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" };
 
@@ -339,6 +339,81 @@ test("a committed gitlink whose directory is empty or gone does not stop git, an
     assert.equal(execFileSync("git", hardenGitArgs(["status", "--porcelain"], repo), { cwd: repo, env: GIT_ENV, encoding: "utf8" }).trim(), "");
     rmSync(join(repo, "sub"), { recursive: true });
     assert.doesNotThrow(() => hardenGitArgs(["status", "--porcelain"], repo), "a missing directory holds nothing to enter");
+  }));
+
+/* A repository left under the working copy that is not a committed submodule (a test that runs `git init` inside the
+   tree, a git dependency directory, or the sandbox's own doing). Staging the tree records it as a gitlink, and from
+   then on the guard refuses every call on that working copy. */
+test("staging the whole tree leaves an embedded repository out of the index, so the working copy stays usable", () =>
+  withFixture((f) => {
+    const { marker, command } = writeMarkerCommand(f.root);
+    makeEmbeddedRepo(join(f.repo, "tmp-fixture-repo"), command);
+    mkdirSync(join(f.repo, "e2e"));
+    writeFileSync(join(f.repo, "e2e", "new.spec.ts"), "legit\n");
+
+    execFileSync("git", hardenGitArgs(["add", "--", "."], f.repo), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.deepEqual(indexedGitlinks(f.repo), [], "the embedded repository was staged as a gitlink");
+    assert.match(execFileSync("git", hardenGitArgs(["diff", "--cached", "--name-only"], f.repo), { cwd: f.repo, env: GIT_ENV, encoding: "utf8" }), /e2e\/new\.spec\.ts/, "the legitimate file is still staged, and git still runs");
+    assert.equal(ranMarker(marker), false, "adding never entered the embedded repository");
+  }));
+
+test("staging a path list leaves an embedded repository out even when the caller names it", () =>
+  withFixture((f) => {
+    makeEmbeddedRepo(join(f.repo, "tmp-fixture-repo"));
+    writeFileSync(join(f.repo, "b.txt"), "b\n");
+
+    execFileSync("git", hardenGitArgs(["add", "-N", "--", "tmp-fixture-repo/", "b.txt"], f.repo), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.deepEqual(indexedGitlinks(f.repo), []);
+    assert.doesNotThrow(() => hardenGitArgs(["status"], f.repo));
+  }));
+
+test("a nested repository nested inside untracked directories is left out of the index too", () =>
+  withFixture((f) => {
+    makeEmbeddedRepo(join(f.repo, "fixtures", "deep", "inner"));
+    writeFileSync(join(f.repo, "fixtures", "keep.txt"), "keep\n");
+
+    execFileSync("git", hardenGitArgs(["add", "--", "."], f.repo), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.deepEqual(indexedGitlinks(f.repo), []);
+    assert.match(execFileSync("git", ["ls-files"], { cwd: f.repo, encoding: "utf8" }), /fixtures\/keep\.txt/);
+  }));
+
+/* The guard looks at the index before the call; a repository the sandbox puts into a committed gitlink's directory
+   afterwards must not be entered either. */
+test("staging the whole tree never enters a committed gitlink that the sandbox populated after the check", () =>
+  withGitlinkRepo(({ repo, marker, command, fixture }) => {
+    const args = hardenGitArgs(["add", "--", "."], repo); /* the guard sees an empty submodule directory */
+    plantNestedRepo(fixture, command);
+
+    execFileSync("git", args, { cwd: repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.equal(ranMarker(marker), false, "add ran the planted filter");
+  }));
+
+test("an embedded repository is left out when the add runs in a subdirectory of the working copy", () =>
+  withFixture((f) => {
+    makeEmbeddedRepo(join(f.repo, "e2e", "fixture-repo"));
+    writeFileSync(join(f.repo, "e2e", "new.spec.ts"), "legit\n");
+
+    execFileSync("git", hardenGitArgs(["add", "--", "."], join(f.repo, "e2e")), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.deepEqual(indexedGitlinks(f.repo), []);
+    assert.match(execFileSync("git", ["ls-files"], { cwd: f.repo, encoding: "utf8" }), /e2e\/new\.spec\.ts/);
+  }));
+
+test("a committed gitlink whose name holds glob characters excludes only itself, never legitimate files", () =>
+  withFixture((f) => {
+    const subSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.repo, encoding: "utf8" }).trim();
+    execFileSync("git", ["update-index", "--add", "--cacheinfo", `160000,${subSha},*.ts`], { cwd: f.repo });
+    execFileSync("git", ["commit", "-qm", "gitlink with a glob name"], { cwd: f.repo, env: GIT_ENV });
+    closeGitDir(f.repo);
+    writeFileSync(join(f.repo, "legit.ts"), "export {};\n");
+
+    execFileSync("git", hardenGitArgs(["add", "--", "."], f.repo), { cwd: f.repo, env: GIT_ENV, stdio: "ignore" });
+
+    assert.match(execFileSync("git", ["ls-files"], { cwd: f.repo, encoding: "utf8" }), /legit\.ts/, "the glob-named gitlink swallowed a legitimate file");
   }));
 
 test("a wildcard ownership opt-out in the host's git config does not widen the one the hardened flags grant", () =>

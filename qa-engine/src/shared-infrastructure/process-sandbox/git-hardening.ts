@@ -212,6 +212,31 @@ function committedGitlinks(topLevel: string): string[] {
 }
 
 /**
+ * The untracked repositories under `topLevel`: directories holding a `.git` (a directory or a gitfile) that are not in
+ * the index. Git lists such a directory as one entry with a trailing slash and never enters it, so this reads no
+ * repository's config and runs no filter. Ignored directories are not listed: `git add` skips them too.
+ */
+function embeddedRepositories(topLevel: string): string[] {
+  const listing = verificationGit(topLevel, topLevel, ["ls-files", "--others", "--exclude-standard", "-z"], "its untracked entries cannot be listed");
+  return listing
+    .split("\0")
+    .filter((entry) => entry.endsWith("/"))
+    .map((entry) => entry.slice(0, -1));
+}
+
+/** The first word of a git argv that is not an option: its subcommand, after any leading `-c key=value` or `-C path` pairs. */
+function subcommandOf(args: readonly string[]): string | undefined {
+  let i = 0;
+  while (args[i] === "-c" || args[i] === "-C") i += 2;
+  return args[i];
+}
+
+/** Pathspecs that keep `add` out of each directory, relative to the worktree top level and matched literally: a repository's name is its own, whatever glob characters it holds. */
+function pathspecExcludes(directories: readonly string[]): string[] {
+  return directories.map((directory) => `:(top,exclude,literal)${directory}`);
+}
+
+/**
  * Refuses (UntrustedGitTreeError) when a committed submodule directory of the working copy holds a `.git` of any kind.
  * A watched repository can commit a gitlink; the mirror is a plain clone that never checks a submodule out, so the
  * gitlink's directory is empty, and the sandbox that owns the working copy can put a repository of its own in it. Root
@@ -220,8 +245,8 @@ function committedGitlinks(topLevel: string): string[] {
  * config names as the orchestrator. Some calls can be told not to look (--ignore-submodules); `add` cannot, so no git
  * runs on a working copy that holds a planted one.
  */
-function assertNoPlantedSubmoduleRepositories(topLevel: string): void {
-  for (const gitlink of committedGitlinks(topLevel)) {
+function assertNoPlantedSubmoduleRepositories(topLevel: string, gitlinks: readonly string[]): void {
+  for (const gitlink of gitlinks) {
     const nested = join(topLevel, gitlink, ".git");
     if (lstatOrNull(nested) !== null) {
       refuse(nested, `it sits inside the submodule directory ${gitlink}, which a working copy here never checks out: the sandbox planted it, and git would run its config as the orchestrator. Remove ${join(topLevel, gitlink)} to recover`);
@@ -250,16 +275,23 @@ function assertNoPlantedSubmoduleRepositories(topLevel: string): void {
  *   --ignore-submodules, or --no-recurse-submodules for a fetch.)
  * - -C <the real path of workDir> — git runs in the directory that was verified, not in whatever the path the caller
  *   holds resolves to by the time git starts. A caller's own `-C` or `cwd` for the same directory is redundant.
+ * - `add` never enters a submodule or a nested repository: every committed gitlink and every untracked repository is
+ *   excluded by pathspec. Staging one would record it as a gitlink, and the working copy would then be refused for good
+ *   (the check above refuses any call once a gitlink holds a `.git`); and a repository the sandbox puts into a
+ *   committed gitlink's directory after the check still cannot be entered by the call.
  * There is deliberately no override for diff.external: an empty value makes git try to run "" and fail, so the
  * config itself is what has to be trusted.
  */
 export function hardenGitArgs(args: readonly string[], workDir: string): string[] {
   if (typeof workDir !== "string" || workDir === "") throw new TypeError("hardenGitArgs needs the working copy the git call runs in");
   const tree = resolveTrustedGitTree(workDir);
+  let callArgs = [...args];
   if (tree.topLevel !== null) {
     assertGitUsesVerifiedTree({ workDir: tree.workDir, topLevel: tree.topLevel });
-    assertNoPlantedSubmoduleRepositories(tree.topLevel);
+    const gitlinks = committedGitlinks(tree.topLevel);
+    assertNoPlantedSubmoduleRepositories(tree.topLevel, gitlinks);
+    if (subcommandOf(args) === "add") callArgs = [...callArgs, ...pathspecExcludes([...gitlinks, ...embeddedRepositories(tree.topLevel)])];
   }
   const ownership = tree.topLevel === null ? [] : ownershipFlags(tree.topLevel);
-  return [...baseGitHardeningFlags(), ...ownership, "-C", tree.workDir, ...args];
+  return [...baseGitHardeningFlags(), ...ownership, "-C", tree.workDir, ...callArgs];
 }

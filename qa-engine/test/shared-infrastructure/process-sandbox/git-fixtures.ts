@@ -71,6 +71,34 @@ export function makeGitlinkRepo(root: string): GitlinkRepo {
 }
 
 /**
+ * A repository of its own inside a working copy, as a test that runs `git init` under the tree (or a git dependency
+ * directory) leaves behind: one commit, and, with `command`, a clean filter that records that it ran plus a same-size
+ * edit that makes git hash the file again.
+ */
+export function makeEmbeddedRepo(dir: string, command?: string): void {
+  mkdirSync(dir, { recursive: true });
+  git(dir, "init", "-q");
+  writeFileSync(join(dir, "f.txt"), "a\n");
+  git(dir, "add", "f.txt");
+  git(dir, "commit", "-qm", "embedded");
+  if (command === undefined) return;
+  git(dir, "config", "filter.planted.clean", command);
+  writeFileSync(join(dir, ".gitattributes"), "* filter=planted\n");
+  const edited = join(dir, "f.txt");
+  writeFileSync(edited, "b\n");
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(edited, later, later);
+}
+
+/** The paths the index records as submodule entries (mode 160000), as plain git reports them. */
+export function indexedGitlinks(repo: string): string[] {
+  return git(repo, "ls-files", "--stage")
+    .split("\n")
+    .filter((line) => line.startsWith("160000 "))
+    .map((line) => line.slice(line.indexOf("\t") + 1));
+}
+
+/**
  * What the sandbox does with the empty directory of a committed gitlink: it puts a repository of its own there whose
  * config names `command` as a clean filter, applies the filter to every file, and edits a file to the same size so git
  * has to hash it again (which runs the filter). Any root git that enters the gitlink runs `command`.

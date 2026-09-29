@@ -15,7 +15,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildVcsPublish } from "./rewritten-engine-factory";
-import { closeGitDir } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { realGit } from "../integrations/repo-mirror";
+import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 
 /* The bare git subcommand of an argv, skipping leading `-c <key> <value>` pairs (buildVcsPublish's
    commit/push decorations prepend -c flags) — mirrors rewritten-engine-factory.test.ts's own
@@ -600,6 +601,34 @@ test("context target: no changes to context.json -> reports changed:false even w
     const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/contexttest2", sha: "contexttest2" });
 
     assert.equal(result.changed, false, "a context-mode publish must only observe changes to e2e/.qa/context.json, not the wider e2e/ tree");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* ── a repository left under the working copy ──────────────────────────────────────────────────── */
+
+/* The production git fn (hardened, verifying the working copy first) with only the push intercepted. */
+function hardenedGitNoPush(): (args: string[], cwd?: string) => Promise<string> {
+  return async (args, cwd) => (subcommandOf(args) === "push" ? "" : realGit(args, cwd));
+}
+
+test("code target: a repository left under the working copy is not published as a gitlink, and the next publish still works", async () => {
+  const repo = initRepo();
+  try {
+    writeFile(repo, "src/orders.test.ts", "test('x', () => {});\n");
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+
+    const vcsWrite = buildVcsPublish(true, "diff", hardenedGitNoPush());
+    const first = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/embedded1", sha: "embedded1" });
+
+    assert.equal(first.changed, true);
+    assert.ok(committedPaths(repo).includes("src/orders.test.ts"), "the legitimate test is still published");
+    assert.deepEqual(indexedGitlinks(repo), [], "the embedded repository was recorded as a gitlink");
+
+    writeFile(repo, "src/more.test.ts", "test('y', () => {});\n");
+    const second = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/embedded2", sha: "embedded2" });
+    assert.equal(second.changed, true, "the working copy was left unusable by the first publish");
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
