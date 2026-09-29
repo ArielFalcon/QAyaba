@@ -2,6 +2,7 @@ import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { VcsReadPort } from "../application/ports/index.ts";
 
@@ -17,7 +18,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
       : `${sha.value}^`;
     const r = await this.runner.run({
       command: "git",
-      args: ["diff", "--no-color", baseRef, sha.value],
+      args: hardenGitArgs(["diff", "--no-color", baseRef, sha.value]),
       cwd: this.repoDir,
       env: scrubEnv(),
     });
@@ -28,7 +29,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
   }
 
   async message(sha: Sha): Promise<string> {
-    const r = await this.runner.run({ command: "git", args: ["log", "-1", "--format=%B", sha.value], cwd: this.repoDir, env: scrubEnv() });
+    const r = await this.runner.run({ command: "git", args: hardenGitArgs(["log", "-1", "--format=%B", sha.value]), cwd: this.repoDir, env: scrubEnv() });
     return r.stdout.trim();
   }
 
@@ -43,7 +44,7 @@ export class GitMirrorReadAdapter implements VcsReadPort {
     /* Per-commit records `<hash>%x00<message>%x00`. NUL delimiters mean a multi-line body cannot be mistaken for a record boundary. */
     const r = await this.runner.run({
       command: "git",
-      args: ["log", `${opts.baseSha.value}..${sha.value}`, "--format=%H%x00%B%x00"],
+      args: hardenGitArgs(["log", `${opts.baseSha.value}..${sha.value}`, "--format=%H%x00%B%x00"]),
       cwd: this.repoDir,
       env: scrubEnv(),
     });

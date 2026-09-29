@@ -1,12 +1,14 @@
 /* Behavioral tests over the REAL spawning code-mode execution (createDefaultCodeExecuteDeps), the actual process boundary: process.execPath stands in for the repo's test command so no real package manager is needed. The repo under test is untrusted code, so its output is untrusted too. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDefaultCodeExecuteDeps,
   runCodeCoverage,
+  gitWorkingChanges,
   CODE_TEST_OUTPUT_KEEP_CHARS,
   type CodeProject,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
@@ -71,6 +73,24 @@ test("coverage of a suite that writes far more than a pipe buffer still finishes
     await runCodeCoverage(repo, null, { timeoutMs: 15_000 });
     assert.ok(existsSync(join(repo, "coverage", "lcov.info")), "the run finished and its coverage report was written, instead of being killed at the timeout");
   } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* A code-mode run hands the working copy to the unprivileged sandbox user, so git run as the orchestrator
+   judges it owned by someone else ("dubious ownership"). GIT_TEST_ASSUME_DIFFERENT_OWNER makes git apply
+   that same check to a copy this test's own user created. */
+test("the working-copy changes are listed even when git judges the tree owned by another user", () => {
+  const repo = mkdtempSync(join(tmpdir(), "code-mode-other-owner-"));
+  const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    writeFileSync(join(repo, "generated.test.js"), "// a test the agent wrote\n");
+    process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
+    assert.deepEqual(gitWorkingChanges(repo), ["generated.test.js"]);
+  } finally {
+    if (previous === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+    else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = previous;
     rmSync(repo, { recursive: true, force: true });
   }
 });

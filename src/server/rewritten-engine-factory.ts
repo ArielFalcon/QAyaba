@@ -110,7 +110,7 @@ import { resolveSandbox } from "../../qa-engine/src/shared-infrastructure/proces
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
 import { RedactionPortAdapter, recordAudit } from "../orchestrator/sanitizer";
-import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs } from "../integrations/repo-mirror";
+import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { SqliteLearningRepository, type LearningStore } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -470,7 +470,7 @@ const storeFreshContextMap: ContextMapSave = (app, sha, map) => {
 
 /* The mirror's git status for the spec dir's context map: any entry means this run wrote it. */
 const contextMapWrittenThisRun: ContextMapWrittenThisRun = (specDir) =>
-  execFileSync("git", ["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"], {
+  execFileSync("git", hardenGitArgs(["-C", specDir, "status", "--porcelain", "--ignored", "--", ".qa/context.json"]), {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim() !== "";

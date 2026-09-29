@@ -227,6 +227,8 @@ export const PROTECTED_PATHS: string[] = [
   "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
   "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
   "qa-engine/src/shared-infrastructure/process-sandbox/sandbox.ts",
+  /* The engine-side twin of repo-mirror.ts's hardenGitArgs (core.hooksPath, safe.directory) for the git reads qa-engine makes itself. */
+  "qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts",
 
   "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts",
   /* 4. build/topology the canary cannot verify (image rebuild only) */

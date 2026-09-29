@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { hardenGitArgs as engineHardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
@@ -39,6 +40,12 @@ test("hardenGitArgs prepends hook + ownership hardening before the git subcomman
    */
   assert.deepEqual(out.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*"]);
   assert.deepEqual(out.slice(4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
+});
+
+test("the engine's git hardening twin hardens a git call exactly like hardenGitArgs", () => {
+  for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
+    assert.deepEqual(engineHardenGitArgs(args), hardenGitArgs(args));
+  }
 });
 
 test("clones, force-checks out and cleans when the working copy does not exist", async () => {

@@ -4,6 +4,7 @@ import type { BlastRadius } from "../../../shared-kernel/blast-radius.ts";
 import { Sha } from "../../../shared-kernel/sha.ts";
 import type { CodeGraphPort } from "../../../shared-kernel/ports/code-graph.port.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { ServiceLink } from "../domain/index.ts";
 import { MATCH_TIER, type CrossRepoImpact, type ImpactedLink } from "../domain/cross-repo-impact.ts";
@@ -38,7 +39,7 @@ export class ResolveCrossRepoImpactUseCase {
       /* Best-effort mirror-freshness fetch before the diff is read. exitCode/timedOut are unread — a failed fetch falls through with whatever is already on disk. */
       await this.runner.run({
         command: "git",
-        args: ["fetch", "origin"],
+        args: hardenGitArgs(["fetch", "origin"]),
         cwd: mirrorDir,
         env: scrubEnv(),
         timeoutMs: FETCH_TIMEOUT_MS,

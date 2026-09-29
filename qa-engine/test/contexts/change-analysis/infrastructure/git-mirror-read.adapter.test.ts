@@ -156,3 +156,40 @@ test("REAL merge commit: otherMessages() reaches the merged-branch commit (secon
     rmSync(repo, { recursive: true, force: true });
   }
 });
+
+/* A code-mode run hands the working tree to the unprivileged sandbox user. The next run of the same
+   repo reads the diff as the orchestrator: git then judges the tree to belong to someone else
+   ("dubious ownership") and refuses to read it unless the caller opts out. GIT_TEST_ASSUME_DIFFERENT_OWNER
+   makes git apply that same check to a tree this test's own user created. */
+const differentOwnerGitRunner: SandboxedBinaryRunner = {
+  run: (req) => realGitRunner.run({ ...req, env: { ...req.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" } }),
+};
+
+function twoCommitRepo(): { repo: string; baseSha: string; headSha: string } {
+  const repo = mkdtempSync(join(tmpdir(), "qa-ownership-"));
+  const git = (...args: string[]): string =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t.com" } }).trim();
+  git("init", "-q");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  git("add", "a.txt");
+  git("commit", "-qm", "chore: first");
+  const baseSha = git("rev-parse", "HEAD");
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  git("add", "b.txt");
+  git("commit", "-qm", "feat: second");
+  return { repo, baseSha, headSha: git("rev-parse", "HEAD") };
+}
+
+test("a working tree git considers owned by another user still yields its diff, message and range messages", async () => {
+  const { repo, baseSha, headSha } = twoCommitRepo();
+  try {
+    const adapter = new GitMirrorReadAdapter(repo, differentOwnerGitRunner);
+    assert.match(await adapter.diff(Sha.of(headSha)), /b\.txt/, "the diff of the head commit against its parent");
+    assert.equal(await adapter.message(Sha.of(headSha)), "feat: second");
+    const others = await adapter.otherMessages(Sha.of(headSha), { baseSha: Sha.of(baseSha) });
+    assert.deepEqual(others, [], "the head's own message is not an 'other' message, and the range is readable");
+    assert.match(await adapter.diff(Sha.of(headSha), { baseSha: Sha.of(baseSha) }), /b\.txt/, "the range diff against an explicit base");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});

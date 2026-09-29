@@ -380,6 +380,28 @@ for (const [label, enqueueContextRun] of [
   });
 }
 
+/* After a code-mode run the working copy belongs to the unprivileged sandbox user, so git run as the
+   orchestrator judges it owned by someone else ("dubious ownership"). GIT_TEST_ASSUME_DIFFERENT_OWNER
+   makes git apply that same check to a copy this test's own user created. */
+test("a context run that stores a new map is captured even when git judges the working copy owned by another user", async () => {
+  const app = cfg(`factory-contextmap-other-owner-${Math.random().toString(36).slice(2)}`);
+  const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
+  markContextStale(app.name);
+  const specDir = specDirWithContextMap(JSON.stringify(fresh));
+  const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+  process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
+  try {
+    const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+    await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+  } finally {
+    if (previous === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+    else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = previous;
+    rmSync(specDir, { recursive: true, force: true });
+  }
+  assert.equal(isContextStale(app.name), false, "the map was stored, so the flag that condemned the old one is disarmed");
+  assert.deepEqual(loadStoredContextMap(app.name)?.data.routes, [{ path: "/fresh" }]);
+});
+
 test("a context run that stores no map (missing or invalid) keeps the stale flag armed", async () => {
   const app = cfg(`factory-contextmap-no-capture-${Math.random().toString(36).slice(2)}`);
   markContextStale(app.name);

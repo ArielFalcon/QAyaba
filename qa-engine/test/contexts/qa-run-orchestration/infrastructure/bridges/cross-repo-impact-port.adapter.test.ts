@@ -143,7 +143,8 @@ describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
     assert.deepEqual(order, ["fetch", "blastRadius"], "the fetch must fire before the diff is read — otherwise a freshly-pushed trigger sha may not exist in a stale mirror");
     assert.equal(runner.calls.length, 1, "exactly one fetch call expected");
     assert.equal(runner.calls[0]?.command, "git");
-    assert.deepEqual(runner.calls[0]?.args, ["fetch", "origin"]);
+    assert.deepEqual(runner.calls[0]?.args.slice(-2), ["fetch", "origin"]);
+    assert.ok(runner.calls[0]?.args.includes("safe.directory=*"), "the mirror may belong to the sandbox user after a code-mode run, so the fetch opts out of git's ownership check like every other git call");
     assert.equal(runner.calls[0]?.cwd, MIRROR_DIR);
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
   });

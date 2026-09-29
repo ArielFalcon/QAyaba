@@ -269,6 +269,12 @@ test("isProtectedPath flags repo-mirror.ts, codex-strategy.ts and agent-runtime/
   assert.equal(isProtectedPath("src/agent-runtime/config.ts"), true);
 });
 
+test("isProtectedPath flags the engine's git-hardening twin of repo-mirror.ts's hardenGitArgs", () => {
+  /* Its flags keep a sandbox-planted hook from running as the orchestrator and keep a sandbox-owned
+     working copy readable; dropping either silently reopens what hardenGitArgs closes. */
+  assert.equal(isProtectedPath("qa-engine/src/shared-infrastructure/process-sandbox/git-hardening.ts"), true);
+});
+
 test("every file under the security-sensitive surface is either protected or explicitly reviewed as not-sensitive", () => {
   const unclassified = unclassifiedUnder(repoRoot, SECURITY_SENSITIVE_SURFACE_ROOTS);
   assert.deepEqual(unclassified, [], `unclassified security-sensitive file(s) — add each to PROTECTED_PATHS or NOT_SECURITY_SENSITIVE: ${JSON.stringify(unclassified)}`);
