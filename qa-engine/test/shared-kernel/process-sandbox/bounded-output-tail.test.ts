@@ -84,6 +84,39 @@ test("a flood with no line break keeps nothing rather than a fragment, and still
   assert.match(tail.text(), /later line/, "output after the flood is kept");
 });
 
+test("the rest of a line whose start was dropped never reaches the kept text, however the chunks split", () => {
+  const tail = new BoundedOutputTail(20);
+  /* One append drops everything, ending in the middle of a secret's line; the next chunk continues that same line. */
+  tail.append(`${"B".repeat(35)}password=hunter2-FIRSTHALF`);
+  tail.append("SECONDHALF\nok\n");
+  const shown = tail.text();
+  assert.doesNotMatch(shown, /SECONDHALF/, "the back half of the dropped line is dropped with it");
+  assert.doesNotMatch(shown, /FIRSTHALF/);
+  assert.ok(shown.endsWith("ok\n"), "the lines after the continued line are kept");
+});
+
+test("a line continued over several chunks after everything was dropped is dropped whole, and every char is counted", () => {
+  const tail = new BoundedOutputTail(20);
+  const dropped = `${"B".repeat(35)}password=hunter2-FIRSTHALF`;
+  tail.append(dropped);
+  tail.append("MIDDLE");
+  tail.append("-STILL-THE-SAME-LINE");
+  tail.append("TAIL\r\nnext\n");
+  const shown = tail.text();
+  assert.doesNotMatch(shown, /MIDDLE|STILL|TAIL/);
+  assert.ok(shown.endsWith("next\n"));
+  const total = dropped.length + "MIDDLE".length + "-STILL-THE-SAME-LINE".length + "TAIL\r\n".length + "next\n".length;
+  const kept = shown.split("…\n")[1]!;
+  assert.equal(tail.omittedChars + kept.length, total);
+});
+
+test("a chunk that starts a new line after a dropped complete line is kept", () => {
+  const tail = new BoundedOutputTail(20);
+  tail.append(`${"B".repeat(50)}\n`);
+  tail.append("fresh line\n");
+  assert.ok(tail.text().endsWith("fresh line\n"));
+});
+
 test("an empty tail renders as an empty string", () => {
   assert.equal(new BoundedOutputTail(KEEP).text(), "");
 });
