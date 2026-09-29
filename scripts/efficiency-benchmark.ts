@@ -393,7 +393,7 @@ function measuredLines(data: CaseMeasurement): string[] {
   return [
     `first pass: ${windowLine(data.coarse.firstPass)}`,
     `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
-    `grounding: calls ${data.coarse.grounding.totalCalls}`,
+    `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (explorer unobserved)" : `calls ${data.coarse.grounding.totalCalls}`}`,
     `generator: step limit ${yesNo(data.exhausted, "hit", "not hit")}`,
     `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")}`,
   ];

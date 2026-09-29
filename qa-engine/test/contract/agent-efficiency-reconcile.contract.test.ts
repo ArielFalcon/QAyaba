@@ -1,6 +1,8 @@
 /* The fine (in-session SSE tracker) and coarse (persisted run_events) classifiers must agree on the
-   metrics they share, and both must leave the pre-generation grounding sub-step out. Repeated-call
-   counts are deliberately NOT compared: the coarse side only has a (kind, target) proxy for them. */
+   metrics they share. The explorer's session is not observed in production (it is never registered
+   for live observation), so its calls reach neither classifier and the grounding window stays empty.
+   Repeated-call counts are deliberately NOT compared: the coarse side only has a (kind, target) proxy
+   for them. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CallEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
@@ -29,7 +31,8 @@ const stepStart = (sessionID: string, id: string): RawOpencodeEvent => ({
   properties: { part: { id, sessionID, messageID: "m", type: "step-start" } },
 });
 
-/* The explorer session investigates first (the grounding sub-step), then the generator works. */
+/* The explorer session investigates first (the grounding sub-step), then the generator works. Only the
+   generator session is attached and registered, as in production. */
 const explorerEvents: RawOpencodeEvent[] = [
   stepStart(EXPLORER, "step-e1"),
   ...toolLifecycle(EXPLORER, "e1", "read", { filePath: `${CWD}/src/a.ts` }),
@@ -47,7 +50,7 @@ const generatorEvents: RawOpencodeEvent[] = [
 ];
 
 function coarseRunEvents(): RunEventBody[] {
-  const sessions = new Map([[EXPLORER, RUN_ID], [GENERATOR, RUN_ID]]);
+  const sessions = new Map([[GENERATOR, RUN_ID]]);
   const step = (detail?: string): RunEventBody => ({ type: "step.changed", step: "generate", ...(detail ? { detail } : {}) });
   return [
     step(PRE_GENERATION_GROUNDING_STEP_DETAIL),
@@ -73,14 +76,14 @@ test("fine and coarse classifiers agree on calls, calls before the first write, 
   assert.equal(fine!.buckets.subagent, coarse.subagentCount);
 });
 
-test("the grounding sub-step is excluded from both classifiers", () => {
+test("an unobserved explorer adds nothing to either classifier, so the grounding window stays empty", () => {
   const tracker = new CallEfficiencyTracker();
   tracker.attach(GENERATOR, CWD);
   for (const event of [...explorerEvents, ...generatorEvents]) tracker.record(event);
   const fine = tracker.take(GENERATOR, "");
   const coarse = classifyRunEfficiency(coarseRunEvents());
 
-  assert.equal(coarse.grounding.totalCalls, 2, "the explorer's calls land in the grounding window");
+  assert.equal(coarse.grounding.totalCalls, 0, "the explorer's calls never reach the persisted events");
   assert.equal(coarse.wholeRunExcludingGrounding.totalCalls, fine!.totalCalls);
   assert.equal(coarse.firstPass.totalCalls, fine!.totalCalls);
 });

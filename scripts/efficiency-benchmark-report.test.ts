@@ -93,3 +93,22 @@ test("a run that hit the step limit is reported as such", () => {
   assert.match(text, /step limit hit/);
   assert.match(text, /step limit not hit/);
 });
+
+/* The explorer's session is not observed, so its calls never reach the persisted run events: an empty
+   grounding window means "not measured", never "the explorer made no calls". */
+test("an empty grounding window reads as not measured, never as zero calls", () => {
+  const text = renderReport(compareSnapshots(snapshot("a", { c: measurement() }), snapshot("b", { c: measurement() })));
+  const groundingLine = text.split("\n").find((l) => l.trim().startsWith("grounding:"));
+  assert.ok(groundingLine, "the report must say something about grounding");
+  assert.match(groundingLine, /n\/a/);
+  assert.match(groundingLine, /explorer unobserved/);
+  assert.doesNotMatch(groundingLine, /calls 0/);
+});
+
+test("a grounding window that did record calls reports them", () => {
+  const observed = measurement();
+  observed.coarse.grounding = summary({ totalCalls: 7 });
+  const text = renderReport(compareSnapshots(snapshot("a", { c: observed }), snapshot("b", { c: observed })));
+  const groundingLine = text.split("\n").find((l) => l.trim().startsWith("grounding:"));
+  assert.match(groundingLine!, /calls 7/);
+});
