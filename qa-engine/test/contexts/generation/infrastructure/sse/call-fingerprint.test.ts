@@ -18,6 +18,28 @@ test("a different tool or a different input has a different fingerprint", () => 
 
 test("a tool name cannot be traded against the start of the input", () => {
   assert.notEqual(callFingerprint("ab", "c"), callFingerprint("a", "bc"));
+  assert.notEqual(callFingerprint("a", 12), callFingerprint("a1", 2), "a number input starts where the name could end");
+});
+
+test("inputs that differ only inside an array have different fingerprints, and an array's order matters", () => {
+  assert.notEqual(callFingerprint("read", { paths: ["a.ts"] }), callFingerprint("read", { paths: ["b.ts"] }));
+  assert.notEqual(callFingerprint("read", { paths: ["a.ts", "b.ts"] }), callFingerprint("read", { paths: ["b.ts", "a.ts"] }));
+  assert.notEqual(callFingerprint("t", [1, 2]), callFingerprint("t", [12]), "two elements are not one longer number");
+});
+
+test("a value is never confused with a structurally similar one of another type", () => {
+  assert.notEqual(callFingerprint("t", "ab"), callFingerprint("t", { 0: "a", 1: "b" }));
+  assert.notEqual(callFingerprint("t", ["a"]), callFingerprint("t", { 0: "a" }));
+  assert.notEqual(callFingerprint("t", 1), callFingerprint("t", "1"));
+  assert.notEqual(callFingerprint("t", null), callFingerprint("t", "null"));
+});
+
+test("nested objects are order-insensitive at every depth and their members stay attached to their keys", () => {
+  assert.equal(
+    callFingerprint("t", { outer: { z: 1, a: { y: 2, b: 3 } }, list: [{ q: 1, p: 2 }] }),
+    callFingerprint("t", { list: [{ p: 2, q: 1 }], outer: { a: { b: 3, y: 2 }, z: 1 } }),
+  );
+  assert.notEqual(callFingerprint("t", { a: 1, b: 2 }), callFingerprint("t", { a: 2, b: 1 }));
 });
 
 test("a call with no input and a call with a null input are the same call", () => {

@@ -5,23 +5,17 @@
  */
 import { createHash } from "node:crypto";
 
-/** JSON with object keys sorted, so equal inputs stringify equally whatever their key order. */
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
+/** Rebuilds every object with its keys sorted, so equal inputs serialize equally whatever their key order. */
+function withSortedKeys(_key: string, value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(record).sort().map((key) => [key, record[key]]));
 }
 
 export function callFingerprint(tool: string, input: unknown): string {
   return createHash("sha256")
     .update(tool)
     .update("\u0000")
-    .update(stableStringify(input ?? null))
+    .update(JSON.stringify(input ?? null, withSortedKeys))
     .digest("hex");
 }
