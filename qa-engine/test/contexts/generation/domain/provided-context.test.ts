@@ -67,3 +67,44 @@ test("isProvidedByPrompt is true at exactly PROVIDED_CONTEXT_MATCH_RATIO of the 
   assert.equal(isProvidedByPrompt(exactlyEnough, index), true);
   assert.equal(isProvidedByPrompt(oneShort, index), false);
 });
+
+/* The prompt carries the commit's diff: added and removed lines wear a `+`/`-` marker and context lines
+   a leading space, none of which a read of the file itself shows. */
+const DIFF_LINES = [
+  "const total = items.reduce((sum, item) => sum + item.price, 0);",
+  "if (total > FREE_SHIPPING_THRESHOLD) applyFreeShipping(order);",
+  "export function checkout(order: Order): Receipt {",
+  "return buildReceipt(order, total);",
+];
+
+test("a read of lines the prompt's diff shows as added, removed or context is provided by the prompt", () => {
+  const diff = [
+    "diff --git a/src/checkout.ts b/src/checkout.ts",
+    "@@ -10,4 +10,4 @@",
+    ` ${DIFF_LINES[2]}`,
+    `+  ${DIFF_LINES[0]}`,
+    `-  ${DIFF_LINES[1]}`,
+    `+  ${DIFF_LINES[3]}`,
+  ].join("\n");
+  const index = indexPromptLines(`## Diff\n${diff}\n`);
+  assert.equal(isProvidedByPrompt(DIFF_LINES, index), true);
+});
+
+test("a line that itself begins with a dash still matches when the prompt shows it verbatim", () => {
+  const bullets = qualifyingLines(PROVIDED_CONTEXT_MIN_SAMPLE_LINES, "prompt").map((line) => `- ${line}`);
+  const index = indexPromptLines(bullets.join("\n"));
+  assert.equal(isProvidedByPrompt(sampleReadOutput(bullets.join("\n")), index), true);
+});
+
+test("sampleReadOutput reads lines whatever the line ending and keeps a last line with no newline", () => {
+  const first = "the first line is long enough to sample";
+  const last = "the last line has no newline after it";
+  assert.deepEqual(sampleReadOutput(`${first}\r\n${last}`), [first, last]);
+  assert.deepEqual(sampleReadOutput(`${first}\n${last}`), [first, last]);
+  assert.deepEqual(sampleReadOutput(""), []);
+});
+
+test("sampleReadOutput takes its sample from the start of an output far larger than the sample", () => {
+  const lines = Array.from({ length: PROVIDED_CONTEXT_SAMPLE_LINES * 500 }, (_, i) => `line ${i} of a very large read output`);
+  assert.deepEqual(sampleReadOutput(lines.join("\n")), lines.slice(0, PROVIDED_CONTEXT_SAMPLE_LINES));
+});
