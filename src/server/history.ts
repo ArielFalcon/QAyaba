@@ -1247,6 +1247,9 @@ function percentile(values: number[], p: number): number | null {
   return sorted[Math.max(0, idx)] ?? null;
 }
 
+/* The agent_turns.role the explorer's turns are stored under (both runtimes). */
+const EXPLORER_TURN_ROLE = "qa-explorer";
+
 export function computeTelemetryAnalysis(app: string, windowDays?: number): TelemetryAnalysis {
   ensureDb();
 
@@ -1271,7 +1274,10 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     : `SELECT * FROM run_outcomes WHERE app = ? ORDER BY at ASC`;
   const outcomeRows = db.prepare(outcomesQuery).all(...(cutoff ? [app, cutoff] : [app])) as Array<Record<string, unknown>>;
 
-  const runCount = new Set(turnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
+  /* The run-level figures below describe the roles recorded before the explorer's turns were persisted; the explorer shows up only in byRole and the efficiency view. */
+  const runTurnRows = turnRows.filter((r) => r.role !== EXPLORER_TURN_ROLE);
+
+  const runCount = new Set(runTurnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
 
   /* Group turns by role for per-role stats. */
   const byRoleMap = new Map<string, { promptBytes: number[]; cacheRatios: number[]; turnCount: number }>();
@@ -1310,12 +1316,12 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   const groundingPresence = generatorFirstRounds.length > 0 ? groundedCount / generatorFirstRounds.length : null;
 
   /* Repair fraction: in-session repair turns / total turns. */
-  const repairCount = turnRows.filter((r) => r.is_repair).length;
-  const repairFraction = turnRows.length > 0 ? repairCount / turnRows.length : null;
+  const repairCount = runTurnRows.filter((r) => r.is_repair).length;
+  const repairFraction = runTurnRows.length > 0 ? repairCount / runTurnRows.length : null;
 
   /* Turns per run: group by run_id, count turns. */
   const turnsByRun = new Map<string, number>();
-  for (const row of turnRows) {
+  for (const row of runTurnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
     turnsByRun.set(rid, (turnsByRun.get(rid) ?? 0) + 1);
   }
@@ -1323,7 +1329,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
   /* Wall-clock per run: first/last ts per run_id → span in seconds. */
   const wallClocksByRun = new Map<string, { first: number; last: number }>();
-  for (const row of turnRows) {
+  for (const row of runTurnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
     const ts = new Date(row.ts as string).getTime();
     if (!Number.isFinite(ts)) continue;

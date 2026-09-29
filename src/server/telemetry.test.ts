@@ -240,6 +240,84 @@ describe("computeTelemetryAnalysis — turns per run and wall-clock", () => {
   });
 });
 
+/* The explorer's turns are persisted so the per-role and efficiency views can show them, but the
+   existing run-level figures keep the meaning they had before: they describe the roles that
+   were recorded then (generator, reviewer, worker ...), never the explorer. */
+describe("computeTelemetryAnalysis — the explorer is exposed only by role and efficiency views", () => {
+  const explorerTurn = (runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord =>
+    turn(runId, { role: "qa-explorer", ...overrides });
+
+  it("leaves the turns-per-run and repair figures as they were without the explorer's turns", () => {
+    const app = uniqueApp("tel-explorer-legacy");
+    const runId = `run-explorer-legacy-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(turn(runId, { isRepair: true }));
+    saveAgentTurn(explorerTurn(runId));
+    saveAgentTurn(explorerTurn(runId));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.medianTurnsPerRun, 2, "the run's two generator turns, not its four turns");
+    assert.equal(analysis.repairFraction, 1 / 2, "one repair among the two generator turns");
+  });
+
+  it("does not stretch the wall-clock span to the explorer's turns, before or after the generator's", () => {
+    const app = uniqueApp("tel-explorer-wall");
+    const runId = `run-explorer-wall-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    const t0 = Date.now();
+    saveAgentTurn(explorerTurn(runId, { ts: new Date(t0 - 60_000).toISOString() }));
+    saveAgentTurn(turn(runId, { ts: new Date(t0).toISOString() }));
+    saveAgentTurn(turn(runId, { ts: new Date(t0 + 5_000).toISOString() }));
+    saveAgentTurn(explorerTurn(runId, { ts: new Date(t0 + 90_000).toISOString() }));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.medianWallClockSec, 5);
+    assert.equal(analysis.p95WallClockSec, 5);
+  });
+
+  it("does not count a run that only has explorer turns", () => {
+    const app = uniqueApp("tel-explorer-only");
+    const withGenerator = `run-explorer-gen-${Date.now()}`;
+    const explorerOnly = `run-explorer-only-${Date.now()}`;
+    saveRunOutcome(outcome(withGenerator, app));
+    saveRunOutcome(outcome(explorerOnly, app));
+    saveAgentTurn(turn(withGenerator));
+    saveAgentTurn(explorerTurn(explorerOnly));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.runCount, 1);
+    assert.equal(analysis.medianTurnsPerRun, 1);
+  });
+
+  it("still reports the explorer's turns in the per-role view", () => {
+    const app = uniqueApp("tel-explorer-byrole");
+    const runId = `run-explorer-byrole-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(explorerTurn(runId, { promptBytes: 900 }));
+
+    const explorer = computeTelemetryAnalysis(app).byRole.find((r) => r.role === "qa-explorer");
+
+    assert.ok(explorer, "the explorer appears in byRole");
+    assert.equal(explorer.turnCount, 1);
+    assert.equal(explorer.medianPromptBytes, 900);
+  });
+
+  it("counts an exhausted explorer turn in the exhausted rate", () => {
+    const app = uniqueApp("tel-explorer-exhausted");
+    const runId = `run-explorer-exhausted-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, { exhausted: false }));
+    saveAgentTurn(explorerTurn(runId, { exhausted: true }));
+
+    assert.equal(computeTelemetryAnalysis(app).efficiency.exhaustedRate, 1 / 2);
+  });
+});
+
 describe("computeTelemetryAnalysis — windowDays filtering", () => {
   it("windowDays=1 excludes turns older than 1 day", () => {
     const app = uniqueApp("tel-win");
