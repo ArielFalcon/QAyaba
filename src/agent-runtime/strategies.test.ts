@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { CodexExecTransport, CodexRuntimeStrategy, SupervisorExecTransport, codexExecArgs, codexExecEnv, defaultCodexTransport } from "./codex-strategy";
 import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForLegacyAgent } from "./types";
+import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import { getAgentTurns } from "../server/history";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
 
@@ -315,4 +317,22 @@ test("codexExecEnv passes only Codex/runtime-safe env vars to the headless agent
   assert.equal(env.WEBHOOK_SECRET, undefined);
   assert.equal(env.QA_API_TOKEN, undefined);
   assert.equal(env.OPENCODE_API_KEY, undefined);
+});
+
+test("the explorer session the engine opens is recorded under the agent name the role table gives the explorer", async () => {
+  const recordedAs: Array<string | undefined> = [];
+  const runtime: AgentRuntimePort = {
+    openSession: async (_role, _cwd, opts) => {
+      recordedAs.push(opts?.descriptor?.role);
+      return { prompt: async () => ({ output: "" }), dispose: async () => {} };
+    },
+  };
+  const adapter = new ExplorerBriefSessionAdapter(
+    { repo: "org/demo", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", appName: "demo", timeoutMs: 1_000 },
+    { runtime, parseBrief: () => null },
+  );
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "abc1234" });
+
+  assert.deepEqual(recordedAs, [AGENT_NAME_FOR_ROLE.explorer]);
 });

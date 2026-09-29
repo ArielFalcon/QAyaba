@@ -13,6 +13,7 @@ import { dirname } from "node:path";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { CommitIntent, ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import { buildExplorerPrompt } from "./prompt-builders/prompts.ts";
 
 export interface ExplorerBriefStaticContext {
@@ -84,7 +85,7 @@ export class ExplorerBriefSessionAdapter {
          * window relative to today's behavior, a change out of scope here.
          */
         descriptor: {
-          role: "qa-explorer",
+          role: EXPLORER_AGENT_NAME,
           ...(args.runId ? { runId: args.runId } : {}),
           liveObservation: false,
         },

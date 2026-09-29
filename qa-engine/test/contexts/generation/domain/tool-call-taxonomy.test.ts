@@ -108,9 +108,10 @@ test("a tool that merely contains an editing tool's name inside a longer word is
   assert.equal(bucketForTool("replace_content_preview"), CALL_BUCKETS.OTHER);
 });
 
-test("the kinds kindForTool can return are exactly the kinds of the agent.activity run event", () => {
-  const returnable: Record<AgentActivityKind, true> = { analyzing: true, writing: true, command: true, subagent: true };
-  assert.deepEqual([...AgentActivityKindSchema.options].sort(), Object.keys(returnable).sort());
+test("kindForTool answers only kinds the agent.activity run event accepts, and every kind that event accepts is one it can answer", () => {
+  const answered = new Set<AgentActivityKind>(["write", "bash", "task", "read", "an_unknown_tool"].map(kindForTool));
+  for (const kind of answered) assert.doesNotThrow(() => AgentActivityKindSchema.parse(kind));
+  for (const kind of AgentActivityKindSchema.options) assert.ok(answered.has(kind), `no tool classifies as '${kind}'`);
 });
 
 test("toolInputPath reads the file a tool names, whichever key the tool uses", () => {

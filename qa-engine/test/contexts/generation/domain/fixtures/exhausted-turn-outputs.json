@@ -5,11 +5,11 @@
   },
   {
     "source": "generator turn, leading text: the notice is the first sentence",
-    "text": "Maximum steps for this agent have been reached. I must respond with text only — no further tool calls.\n\n## Summary of work accomplished\n\n**Task**: Generate E2E Playwright tests for commit <sha> (<app>) — the \"premium price-tier\" feature on the Product detail view.\n\n**Completed so far**:\n1. **Oriented on the harness**: Read `e2e/fixtures.ts`.\n"
+    "text": "Maximum steps for this agent have been reached. I must respond with text only — no further tool calls.\n\n## Summary of work accomplished\n\n**Task**: Generate E2E Playwright tests for commit <sha> (<app>) — the <feature> feature on the <view>.\n\n**Completed so far**:\n1. **Oriented on the harness**: Read `e2e/fixtures.ts`.\n"
   },
   {
     "source": "generator turn, closing verdict JSON: the notice appears only inside the JSON note, after a long summary",
-    "text": "I've reached the maximum number of steps. I must respond with text only — no tool calls. Let me summarize what was accomplished and what remains.\n\n## Closing verdict\n\n```json\n{\n  \"specs\": [],\n  \"specMetas\": [],\n  \"note\": \"Max steps reached before writing files; no spec authored. Ground truth verified live: the subtitle is the page's only p.lead.\"\n}\n```\n"
+    "text": "I've reached the maximum number of steps. I must respond with text only — no tool calls. Let me summarize what was accomplished and what remains.\n\n## Closing verdict\n\n```json\n{\n  \"specs\": [],\n  \"specMetas\": [],\n  \"note\": \"Max steps reached before writing files; no spec authored. Ground truth verified live: <finding>.\"\n}\n```\n"
   },
   {
     "source": "sidekick turn: lower-case, no punctuation before the notice",

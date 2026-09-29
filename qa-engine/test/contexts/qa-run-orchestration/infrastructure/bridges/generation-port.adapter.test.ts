@@ -128,6 +128,8 @@ test("generate() never reports re-exploration counts, however much navigation th
   /* The stream of tool events a real turn produces, recorded while the generator turn runs. */
   const runtime = {
     openSession: async () => ({
+      /* A real session carries its id, which is what anything that reads the tracker per session would use. */
+      id: sessionId,
       prompt: async () => {
         callEfficiencyTracker.attach(sessionId, "/mirrors/org/app");
         for (let i = 0; i < 25; i++) {

@@ -1,3 +1,4 @@
+import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent } from "../integrations/opencode-client";
 import type { LiveActivity } from "../integrations/opencode-client";
 import type { UsageSnapshot } from "../qa/usage";
@@ -108,7 +109,7 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   sidekick: "qa-sidekick",
   maintainer: "qa-maintainer",
   reflector: "qa-reflector",
-  explorer: "qa-explorer",
+  explorer: EXPLORER_AGENT_NAME,
   proposer: "qa-proposer",
 };
 

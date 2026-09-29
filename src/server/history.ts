@@ -23,6 +23,7 @@ import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/lear
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
 
 const redactionPort = new RedactionPortAdapter();
@@ -1247,9 +1248,6 @@ function percentile(values: number[], p: number): number | null {
   return sorted[Math.max(0, idx)] ?? null;
 }
 
-/* The agent_turns.role the explorer's turns are stored under (both runtimes). */
-const EXPLORER_TURN_ROLE = "qa-explorer";
-
 export function computeTelemetryAnalysis(app: string, windowDays?: number): TelemetryAnalysis {
   ensureDb();
 
@@ -1274,8 +1272,8 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     : `SELECT * FROM run_outcomes WHERE app = ? ORDER BY at ASC`;
   const outcomeRows = db.prepare(outcomesQuery).all(...(cutoff ? [app, cutoff] : [app])) as Array<Record<string, unknown>>;
 
-  /* The run-level figures below describe the roles recorded before the explorer's turns were persisted; the explorer shows up only in byRole and the efficiency view. */
-  const runTurnRows = turnRows.filter((r) => r.role !== EXPLORER_TURN_ROLE);
+  /* The run-level figures below (turn counts, wall-clock, repair fraction) cover the generation and review turns; the explorer appears only in byRole and the efficiency view. */
+  const runTurnRows = turnRows.filter((r) => r.role !== EXPLORER_AGENT_NAME);
 
   const runCount = new Set(runTurnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
 

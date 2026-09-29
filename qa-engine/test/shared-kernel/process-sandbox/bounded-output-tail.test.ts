@@ -87,3 +87,12 @@ test("a flood with no line break keeps nothing rather than a fragment, and still
 test("an empty tail renders as an empty string", () => {
   assert.equal(new BoundedOutputTail(KEEP).text(), "");
 });
+
+test("a cut through the middle of a surrogate pair never leaves half a character at the head of the kept text", () => {
+  const tail = new BoundedOutputTail(KEEP);
+  /* The emoji is two UTF-16 units; the bound cuts between them. */
+  tail.append(`x\n${"L".repeat(28)}😀${"r".repeat(KEEP - 12)}\nnext line\n`);
+  const kept = tail.text().split("…\n")[1]!;
+  assert.doesNotThrow(() => encodeURIComponent(kept), "no lone surrogate in the kept text (encoding one throws)");
+  assert.ok(kept.includes("next line"), "the lines after the cut were kept");
+});
