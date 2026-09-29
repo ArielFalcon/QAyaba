@@ -1,9 +1,12 @@
 /* Behavioral tests over the REAL spawning code-mode execution (createDefaultCodeExecuteDeps), the actual process boundary: process.execPath stands in for the repo's test command so no real package manager is needed. The repo under test is untrusted code, so its output is untrusted too. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createDefaultCodeExecuteDeps,
+  runCodeCoverage,
   CODE_TEST_OUTPUT_KEEP_CHARS,
   type CodeProject,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
@@ -57,4 +60,17 @@ test("multi-byte characters split across pipe reads are decoded intact", { timeo
   const out = await deps.runTests(nodeTest(script), tmpdir());
   assert.equal(out.exitCode, 0);
   assert.doesNotMatch(out.logs, /�/, "a character cut by a read boundary must not turn into a replacement character");
+});
+
+test("coverage of a suite that writes far more than a pipe buffer still finishes instead of stalling on unread output", { timeout: 60_000 }, async () => {
+  const repo = mkdtempSync(join(tmpdir(), "coverage-noisy-suite-"));
+  try {
+    /* The suite writes ~1 MB, many pipe buffers' worth of output that nobody reads unless the runner drains it. */
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ scripts: { test: "node noisy-suite.js" } }));
+    writeFileSync(join(repo, "noisy-suite.js"), "process.stdout.write('coverage noise line\\n'.repeat(50000));");
+    await runCodeCoverage(repo, null, { timeoutMs: 15_000 });
+    assert.ok(existsSync(join(repo, "coverage", "lcov.info")), "the run finished and its coverage report was written, instead of being killed at the timeout");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });

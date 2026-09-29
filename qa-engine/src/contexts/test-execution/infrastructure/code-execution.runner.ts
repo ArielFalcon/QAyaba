@@ -505,6 +505,9 @@ export async function runCodeCoverage(
       processKill.killTree(child);
       finish();
     }, { once: true });
+    /* Nothing here reads the output, but an unread pipe blocks a suite that writes more than the OS pipe buffer until the timeout kills it, and the report is never written. Discarding it costs no memory. */
+    child.stdout?.resume();
+    child.stderr?.resume();
     child.on("error", finish);
     child.on("close", finish);
   });
