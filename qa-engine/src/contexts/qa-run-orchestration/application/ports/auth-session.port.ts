@@ -12,6 +12,8 @@ export interface AuthDeclaration {
   passwordEnv?: string;
   certEnv?: string;
   certPassEnv?: string;
+  /** A path on the app's own origin where its login form lives; tried before the ladder's own guesses. Form logins only. */
+  loginPath?: string;
 }
 
 export interface AuthSessionRequest {
@@ -23,10 +25,17 @@ export interface AuthSessionRequest {
   phase: "pre-generate" | "pre-execute";
 }
 
+/** How a login was settled and how long it took, for measurement. Only discovery reports it so far. */
+export interface AuthResolution {
+  method: "discovery" | "seed" | "authored" | "mtls";
+  ms: number;
+}
+
 export interface AuthSession {
   storageStatePath?: string;
   clientCertPath?: string;
   unauthored: boolean;
+  resolution?: AuthResolution;
 }
 
 export interface AuthSessionContext {
