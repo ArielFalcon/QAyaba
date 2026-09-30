@@ -140,15 +140,14 @@ function skipFixtures(path: string, reason: string): undefined {
 function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
   const path = join(specDir, FIXTURES_FILE);
   try {
-    const before = lstatSync(path);
-    if (!before.isFile()) return skipFixtures(path, "not a regular file");
-    if (before.size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, `larger than ${MAX_FIXTURES_FILE_BYTES} bytes`);
+    /* Judged by what it is before it is opened: opening a named pipe for reading waits for a writer that never comes. */
+    if (!lstatSync(path).isFile()) return skipFixtures(path, "not a regular file");
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     let source: string;
     try {
-      const opened = fstatSync(fd);
-      if (!opened.isFile() || opened.size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, "not a small regular file");
-      const buffer = Buffer.alloc(opened.size);
+      const { size } = fstatSync(fd);
+      if (size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, `larger than ${MAX_FIXTURES_FILE_BYTES} bytes`);
+      const buffer = Buffer.alloc(size);
       const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
       source = buffer.toString("utf8", 0, bytesRead);
     } finally {
@@ -165,8 +164,8 @@ function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
 
 function readAttributeFact(testIdAttribute: string | undefined): string | undefined {
   if (testIdAttribute === undefined) return undefined;
-  const cleaned = sanitizeText(testIdAttribute).text;
-  if (cleaned === testIdAttribute && isSafeAttributeName(cleaned)) return cleaned;
+  /* A plain attribute name that redaction would still change is secret-shaped: it is left out, never passed on redacted. */
+  if (isSafeAttributeName(testIdAttribute) && sanitizeText(testIdAttribute).text === testIdAttribute) return testIdAttribute;
   console.warn("[qa] WARNING: harness facts: the configured test-id attribute is not a plain attribute name — left out this run (non-blocking).");
   return undefined;
 }

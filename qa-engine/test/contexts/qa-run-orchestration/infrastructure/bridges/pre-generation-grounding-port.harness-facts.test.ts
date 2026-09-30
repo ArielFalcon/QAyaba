@@ -1,6 +1,7 @@
 /* Harness facts are computed from the spec directory the run is grounded on (the per-run checkout), never from the static composition-time directory. They are best-effort: a fixtures file that cannot be scanned is never a reason to fail the run or to hand the agent a substitute instruction. */
 import { test, mock, after } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -162,6 +163,55 @@ test("a fixtures file at the size cap made of unclosed export lists is read in b
       const elapsedMs = performance.now() - started;
       assert.equal(result.harnessFacts?.fixtures, undefined);
       assert.ok(elapsedMs < 2000, `reading took ${elapsedMs.toFixed(0)} ms`);
+    },
+  );
+});
+
+test("a fixtures file of exactly the size cap is still read, and one byte more is not", async () => {
+  const head = "export const test = 1;\n";
+  const padded = (bytes: number): string => head + " ".repeat(bytes - Buffer.byteLength(head));
+  await withSuite(
+    (dir) => writeFileSync(join(dir, "fixtures.ts"), padded(MAX_FIXTURES_FILE_BYTES)),
+    async (dir) => {
+      assert.deepEqual((await groundWith(dir)).result.harnessFacts?.fixtures?.exports, ["test"]);
+    },
+  );
+  await withSuite(
+    (dir) => writeFileSync(join(dir, "fixtures.ts"), padded(MAX_FIXTURES_FILE_BYTES + 1)),
+    async (dir) => {
+      assert.equal((await groundWith(dir)).result.harnessFacts?.fixtures, undefined);
+    },
+  );
+});
+
+/* Opening a named pipe for reading waits for a writer that never comes, so the file is judged by what it is before it is ever opened. */
+test("a fixtures file that is a named pipe is skipped without being opened", async () => {
+  await withSuite(
+    (dir) => execFileSync("mkfifo", [join(dir, "fixtures.ts")]),
+    async (dir) => {
+      const { result, warnings } = await groundWith(dir);
+      assert.equal(result.harnessFacts?.fixtures, undefined);
+      assert.ok(warnings.some((w) => /fixtures/i.test(w)));
+    },
+  );
+});
+
+test("the test-id attribute is a fact even when there is no fixtures file, and is the only one", async () => {
+  await withSuite(
+    () => undefined,
+    async (dir) => {
+      assert.deepEqual((await groundWith(dir, "data-cy")).result.harnessFacts, { testIdAttribute: "data-cy" });
+    },
+  );
+});
+
+test("a test-id attribute that is a plain name but would need redaction is left out and warned about", async () => {
+  await withSuite(
+    () => undefined,
+    async (dir) => {
+      const { result, warnings } = await groundWith(dir, "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+      assert.equal(result.harnessFacts?.testIdAttribute, undefined);
+      assert.ok(warnings.some((w) => /test-id attribute/i.test(w)));
     },
   );
 });

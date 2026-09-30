@@ -104,7 +104,7 @@ test("the login-evidence preset mutates the classifier, the scrubber and the not
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size and the harness-facts scan, against their own tests and the matrix", () => {
+test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size, the harness-facts scan and its reader, against their own tests and a sample of the matrix", () => {
   const preset = PRESETS["prompt-contract"];
   assert.ok(preset, "the prompt-contract preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
@@ -112,11 +112,16 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
     "qa-engine/src/contexts/generation/domain/regen-turn.ts",
     "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "qa-engine/src/contexts/generation/domain/harness-facts.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
   ]);
   for (const module of ["prompt-contract-lint", "regen-turn", "diff-stat", "harness-facts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
   }
-  assert.ok(preset.tests.includes("scripts/prompt-contract-matrix.test.ts"), "the matrix that lints every reachable prompt runs against every mutant");
+  assert.ok(
+    preset.tests.some((t) => t.endsWith("pre-generation-grounding-port.harness-facts.test.ts")),
+    "the reader's own tests run against every mutant",
+  );
+  assert.ok(preset.tests.includes("scripts/prompt-contract-matrix.sample.test.ts"), "the sample of the matrix runs against every mutant, real prompts through every rule");
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 

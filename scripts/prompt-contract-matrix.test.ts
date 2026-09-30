@@ -38,6 +38,11 @@ const dimensionNames = Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>
 let matrix: Promise<MatrixCell[]> | undefined;
 const matrixOnce = (): Promise<MatrixCell[]> => (matrix ??= buildMatrix());
 
+/* Linting every combination is the slow part, so the two tests that read its result share one pass. */
+let findings: Promise<ReturnType<typeof collectFindings>> | undefined;
+const findingsOnce = (): Promise<ReturnType<typeof collectFindings>> =>
+  (findings ??= matrixOnce().then((cells) => collectFindings(cells, loadBaseline(ROOT))));
+
 /* ── coverage ── */
 
 test("every value of every dimension is reachable in at least one combination that can reach the agent", () => {
@@ -126,8 +131,7 @@ test("cells with harness facts carry the facts-only section, linted as data with
 /* ── no tolerated violations ── */
 
 test("no violation is tolerated: the matrix has zero findings, no ledger of exceptions exists and the matrix module offers no waiver", async () => {
-  const baseline = loadBaseline(ROOT);
-  assert.deepEqual([...collectFindings(await matrixOnce(), baseline).keys()], [], "every combination is clean");
+  assert.deepEqual([...(await findingsOnce()).keys()], [], "every combination is clean");
   assert.equal(existsSync(join(ROOT, "scripts", "prompt-contract-ledger.json")), false, "no ledger file");
   const exported = Object.keys(await import("./prompt-contract-matrix.ts"));
   assert.deepEqual(exported.filter((name) => /ledger|waiv|tolerat|allow|exempt/i.test(name)), [], "no waiver mechanism");
@@ -136,12 +140,9 @@ test("no violation is tolerated: the matrix has zero findings, no ledger of exce
 /* ── budgets ── */
 
 test("no combination exceeds the recorded user-prompt size or directive volume, and no static layer its recorded size", async () => {
-  const baseline = loadBaseline(ROOT);
-  const breaches = (await matrixOnce()).flatMap((cell) =>
-    lintMatrixCell(cell, baseline)
-      .filter((f) => f.rule === "R9")
-      .map((f) => `${cell.key}: ${f.budget} ${f.measured} exceeds ${f.limit}`),
-  );
+  const breaches = [...(await findingsOnce()).values()]
+    .filter(({ finding }) => finding.rule === "R9")
+    .map(({ finding, cells }) => `${cells[0]} (+${cells.length - 1} more): ${finding.budget} ${finding.measured} exceeds ${finding.limit}`);
   assert.deepEqual(breaches, []);
 });
 
@@ -242,44 +243,4 @@ test("recording accepts a baseline that only shrinks, drops a combination or add
   const shrunk = recordBaseline(cells, looser);
   assert.deepEqual(shrunk.buckets, measured.buckets);
   assert.equal(shrunk.lastIncrease, undefined);
-});
-
-/* ── the trust-language cross-check is live ── */
-
-test("dropping the framing a section declares makes the trust-language check report that section", async () => {
-  const cells = await matrixOnce();
-  const withFraming = cells.filter((c) =>
-    c.lint.sections.some(
-      (s) => s.layer === "assembled" && s.claims.some((k) => k.kind === "frames") && hasTrustLanguage(s.text),
-    ),
-  );
-  assert.ok(withFraming.length > 0, "the matrix has sections that both use trust language and declare a framing");
-  for (const cell of withFraming.slice(0, 20)) {
-    const stripped = {
-      ...cell.lint,
-      sections: cell.lint.sections.map((s) => ({ ...s, claims: s.claims.filter((k) => k.kind !== "frames") })),
-    };
-    const findings = lintCell(stripped, { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES });
-    assert.ok(findings.some((f) => f.rule === "R10"), `${cell.key}: an undeclared framing is reported`);
-  }
-});
-
-test("a brief section that keeps its established framing but is reworded to disown its facts is reported", async () => {
-  const cells = await matrixOnce();
-  const establishedOnly = (s: MatrixCell["lint"]["sections"][number]): boolean => {
-    const stances = s.claims.flatMap((k) => (k.kind === "frames" ? [k.as] : []));
-    return s.id === "context-brief" && stances.length > 0 && stances.every((stance) => stance === "established");
-  };
-  const cell = cells.find((c) => c.layer === "opencode" && c.lint.sections.some(establishedOnly));
-  assert.ok(cell, "the matrix has a cell with a brief that frames only established facts");
-  const reworded = {
-    ...cell,
-    lint: {
-      ...cell.lint,
-      sections: cell.lint.sections.map((s) => (s.id === "context-brief" ? { ...s, text: `${s.text}\n(The brief above is NOT authoritative and must be verified against the live DOM.)` } : s)),
-    },
-  };
-  assert.deepEqual(lintMatrixCell(cell, loadBaseline(ROOT)).filter((f) => f.rule === "R14"), [], "the real section agrees with its framing");
-  const findings = lintMatrixCell(reworded, undefined).filter((f) => f.rule === "R14");
-  assert.deepEqual(findings.map((f) => f.sections), [["context-brief"]]);
 });

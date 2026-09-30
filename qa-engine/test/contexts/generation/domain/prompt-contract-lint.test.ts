@@ -242,6 +242,10 @@ test("the rows of a captured DOM tree are data: a section that provides a tree c
   const scaffold = sec("task", [], { text: `  ${LONG_LINE}` });
   const tree = sec("tree", [provides("dom-live")], { text: `  ${LONG_LINE}` });
   assert.deepEqual(lintCell(cell([scaffold, tree])), [], "a tree's row is never the other half of a duplicate");
+  for (const claims of [[provides("risks")], [frames("dom-live", "established")], [directs("consult", "dom-live")]]) {
+    const notATree = cell([sec("a", claims, { text: `  ${LONG_LINE}` }), sec("b", [], { text: `  ${LONG_LINE}` })]);
+    assert.equal(lintCell(notATree).filter((f) => f.rule === "R7").length, 1, "a section that provides no tree keeps its indented lines as scaffold");
+  }
   const flushInTree = sec("tree", [provides("dom-live")], { text: LONG_LINE });
   assert.equal(lintCell(cell([sec("task", [], { text: LONG_LINE }), flushInTree])).length, 1, "only its indented lines are rows; a flush line is scaffold");
 });
@@ -594,6 +598,25 @@ test("the same words inside a fenced block are captured data and refer to nothin
   assert.deepEqual(lintCell(cell([sec("task", [], { text: "```ts\nnot the tree above\n```\nnow the tree above" })]), references).map((f) => f.rule), ["R13"], "prose after the fence closes counts again");
 });
 
+test("a fence is recognised whatever follows its backticks or precedes them, and a hash inside a line is no title", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  const referring = "the tree above";
+  for (const [open, close] of [["```ts", "```"], ["   ```", "   ```"]] as const) {
+    assert.deepEqual(lintCell(cell([sec("task", [], { text: `${open}\n${referring}\n${close}` })]), references), [], JSON.stringify(open));
+  }
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: `${referring} is item # 3` })]), references).map((f) => f.rule), ["R13"], "a hash after other words starts no title");
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: `#hash ${referring}` })]), references).map((f) => f.rule), ["R13"], "a hash with no space after it is no title");
+});
+
+test("a title is a line of one to six hashes and a space, indented by at most three spaces", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  for (const title of ["# The tree above", "###### The tree above", "  ## The tree above", "   ### The tree above"]) {
+    assert.deepEqual(lintCell(cell([sec("task", [], { text: `${title}\nplain` })]), references), [], JSON.stringify(title));
+  }
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "####### the tree above" })]), references).map((f) => f.rule), ["R13"], "seven hashes are no title");
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "    # the tree above" })]), references).map((f) => f.rule), ["R13"], "four spaces of indent make it code, not a title");
+});
+
 test("captured verbatim data and the static layer are not judged for references", () => {
   const references = { artifactReferences: [TREE_REFERENCE] };
   const text = "the tree above";
@@ -614,6 +637,7 @@ test("a section that declares only an established framing must not say its fact 
     "The brief above is NOT authoritative; the code wins.",
     "This is non-authoritative context.",
     "Verify before trusting any of it.",
+    "Verify before trust: it is unchecked.",
     "Every symbol here must be verified against the code.",
   ]) {
     const findings = lintCell(cell([sec("context-brief", [provides("blast-radius"), frames("blast-radius", "established")], { text })]));

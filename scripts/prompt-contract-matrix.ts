@@ -413,12 +413,12 @@ function wireShellBriefRenderer(): void {
 }
 
 /* Every combination that can reach the agent is linted for contradictions and duplicates and measured against the budget recorded for its bucket. */
-export async function buildMatrix(root: string = ROOT): Promise<MatrixCell[]> {
+export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[] = allValidSpecs()): Promise<MatrixCell[]> {
   wireShellBriefRenderer();
   const layers: StaticLayerName[] = ["opencode", "codex"];
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
   const cells: MatrixCell[] = [];
-  for (const spec of allValidSpecs()) {
+  for (const spec of specs) {
     const input = await buildInput(spec);
     /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
     const assembled = buildPromptAssembled(input, { budgetBytes: 0 });

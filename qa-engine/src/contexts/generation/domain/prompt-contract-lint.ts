@@ -385,18 +385,22 @@ function isProvided(cell: LintCell, provider: ArtifactReference["provider"]): bo
     : provider.facts.some((fact) => providersOf(cell, fact).length > 0);
 }
 
+/* A markdown title line. */
+const HEADING_LINE = /^\s{0,3}#{1,6}\s/;
+
 /* The prompt's own words: a section's titles and the fenced blocks of captured data it embeds refer to nothing. */
 function proseOf(text: string): string {
   let inFence = false;
-  const prose: string[] = [];
-  for (const line of text.split("\n")) {
-    if (line.trimStart().startsWith("```")) {
-      inFence = !inFence;
-      continue;
-    }
-    if (!inFence && !/^\s{0,3}#{1,6}\s/.test(line)) prose.push(line);
-  }
-  return prose.join("\n");
+  return text
+    .split("\n")
+    .filter((line) => {
+      if (line.trimStart().startsWith("```")) {
+        inFence = !inFence;
+        return false;
+      }
+      return !inFence && !HEADING_LINE.test(line);
+    })
+    .join("\n");
 }
 
 /* R13: an assembled section that refers to an artifact (the tree above, the brief, the diff, a named section) needs that artifact in the cell; a directive must never point at something the prompt does not carry. */
