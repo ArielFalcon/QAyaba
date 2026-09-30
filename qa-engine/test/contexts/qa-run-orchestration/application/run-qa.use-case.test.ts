@@ -6901,7 +6901,7 @@ test("a seed that signed in does not flag generation to rewrite auth.setup.ts", 
 
 /* ── How a generation ended decides how the run ends ───────────────────────────────────────────── */
 
-const EXHAUSTED_NOTE = "Step budget exhausted with no spec written (steps 30/30; writes 0). Output tail: the harness was reviewed.";
+const EXHAUSTED_NOTE = "Step budget exhausted with no spec reported (steps 30/30; writes 0). Output tail: the harness was reviewed.";
 const EXHAUSTED_TURN = { maxSteps: 30, stepsUsed: 30, exhausted: true, writeCount: 0, observationComplete: true };
 
 interface EndRun {

@@ -234,7 +234,7 @@ test("live views never claim to show mock data", async () => {
 });
 
 test("an infra-error run with no specs is never called a valid no-op, and its note is what the operator reads", async () => {
-  const note = "Step budget exhausted with no spec written (steps 30/30; writes 0).";
+  const note = "Step budget exhausted with no spec reported (steps 30/30; writes 0).";
   const h = await loadConsole({
     withConsole: true,
     token: "t",

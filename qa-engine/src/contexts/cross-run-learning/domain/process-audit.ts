@@ -71,7 +71,7 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         kind: "recurring-step-exhaustion",
         disposition: "observe",
         severity: "warn",
-        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the agent keeps running out of steps before writing any spec; visibility only, never an engine fix.`,
+        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the agent keeps running out of steps without reporting any spec; visibility only, never an engine fix.`,
         evidence,
       });
     } else if (ENGINE_DEFECT_CLASSES.has(recurringCls)) {

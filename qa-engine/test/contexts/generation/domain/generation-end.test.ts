@@ -115,6 +115,18 @@ test("an exhausted repair turn is named in the note, and a main-turn exhaustion 
   assert.doesNotMatch(fromMain, /repair/i);
 });
 
+test("an exhausted note whose turn wrote files never claims that nothing was written", () => {
+  const nothingWritten = /\bno specs? (?:was |were |has been |had been )?written\b|\bnothing (?:was |had been )?written\b|\bwrote nothing\b/i;
+  for (const repairExhausted of [false, true]) {
+    for (const observationComplete of [true, false]) {
+      const turn = { ...STEPS_FACTS, writeCount: 4, observationComplete };
+      const note = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn, outputTail: OUTPUT_TAIL, repairExhausted });
+      assert.doesNotMatch(note, nothingWritten, `repair=${repairExhausted} complete=${observationComplete}`);
+      assert.match(note, /writes:? (?:>=\s?)?4\b/, `repair=${repairExhausted} complete=${observationComplete}`);
+    }
+  }
+});
+
 test("an undecided note and an exhausted note differ", () => {
   const exhausted = renderGenerationNote({ end: GENERATION_END.EXHAUSTED, turn: STEPS_FACTS, outputTail: OUTPUT_TAIL });
   const undecided = renderGenerationNote({ end: GENERATION_END.UNDECIDED_EMPTY, turn: STEPS_FACTS, outputTail: OUTPUT_TAIL });

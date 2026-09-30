@@ -76,8 +76,8 @@ function leadFor(input: NoteWithoutSpecs): string {
     return "The generator returned no specs and no no-op decision, even after one repair";
   }
   return input.repairExhausted
-    ? "Step budget exhausted in the repair turn with no spec written"
-    : "Step budget exhausted with no spec written";
+    ? "Step budget exhausted in the repair turn with no spec reported"
+    : "Step budget exhausted with no spec reported";
 }
 
 /**
