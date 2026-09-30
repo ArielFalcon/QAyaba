@@ -378,3 +378,65 @@ test("a snapshot taken while a run was going can be replaced once the run has fi
   assert.doesNotThrow(() => writeSnapshot(dir, finished));
   assert.notEqual(readSnapshot(dir, "after")!.cases["case-a"]!.data, null);
 });
+
+/* ── per generator turn ── */
+
+const measuredTurn = (round: number, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord =>
+  generatorTurn("done", {
+    round,
+    promptBytes: 5000 + round,
+    totalCalls: 10 + round,
+    callsBeforeFirstWrite: 6 + round,
+    redundantReadCount: 2,
+    promptProvidedReadCount: 1,
+    pathProvidedReadCount: 3,
+    callBuckets: { code_read: 4, memory: 2, browser: 1, write: 1, validate_run: 0, subagent: 0, other: 0 },
+    exhausted: false,
+    ...overrides,
+  });
+
+test("each generator turn is measured on its own, with the content-provided and the path-provided reads apart", () => {
+  const measured = measureRun("run-1", source({ turns: [measuredTurn(0), measuredTurn(1)] }))!;
+  assert.deepEqual(measured.turns, [
+    { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2 },
+    { round: 1, promptBytes: 5001, totalCalls: 11, callsBeforeFirstWrite: 7, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2 },
+  ]);
+});
+
+test("a figure a turn did not record stays null, never a fabricated zero", () => {
+  const bare = generatorTurn("done", { round: 0, promptBytes: 900 });
+  const measured = measureRun("run-1", source({ turns: [bare] }))!;
+  assert.deepEqual(measured.turns, [
+    { round: 0, promptBytes: 900, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null },
+  ]);
+});
+
+test("only the generator's own turns are measured: not the planner's objective turn and not another role's", () => {
+  const planner = measuredTurn(0, { objective: PLANNER_OBJECTIVE });
+  const reviewer = measuredTurn(0, { role: "qa-reviewer" });
+  const measured = measureRun("run-1", source({ turns: [planner, reviewer, measuredTurn(2)] }))!;
+  assert.deepEqual(measured.turns?.map((t) => t.round), [2]);
+});
+
+test("a run with no generator turn has no per-turn measurements", () => {
+  const measured = measureRun("run-1", source({ turns: [measuredTurn(0, { role: "qa-reviewer" })] }))!;
+  assert.equal("turns" in measured, false);
+  assert.equal("turns" in measureRun("run-1", source({ turns: [] }))!, false);
+});
+
+test("the guardrails and the coarse windows are exactly what they were without the per-turn figures", () => {
+  const withTurns = measureRun("run-1", source({ turns: [measuredTurn(0)] }))!;
+  const without = measureRun("run-1", source({ turns: [generatorTurn("all done", { exhausted: false })] }))!;
+  assert.deepEqual(withTurns.guardrails, without.guardrails);
+  assert.deepEqual(withTurns.coarse, without.coarse);
+});
+
+test("a snapshot carries the per-turn figures as numbers only", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "checkout", "run-1");
+  const snapshot = takeSnapshot("after", dir, () => source({ turns: [measuredTurn(0)] }), () => "2026-09-28T12:00:00.000Z");
+  writeSnapshot(dir, snapshot);
+  const written = readFileSync(join(dir, "after.snapshot.json"), "utf8");
+  assert.equal(readSnapshot(dir, "after")?.cases.checkout?.data?.turns?.[0]?.pathProvidedReadCount, 3);
+  assert.doesNotMatch(written, /promptText|outputText/);
+});

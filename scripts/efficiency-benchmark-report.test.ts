@@ -143,3 +143,23 @@ test("a case whose run had not finished when the snapshot was taken says so inst
   assert.match(text, /after[^\n]*not finished/i);
   assert.doesNotMatch(text, /after[^\n]*no recorded data/i);
 });
+
+test("per-turn figures are reported one line per turn, with the content-provided and path-provided reads apart", () => {
+  const withTurns: CaseMeasurement = {
+    ...measurement(),
+    turns: [
+      { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2 },
+      { round: 1, promptBytes: 4000, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null },
+    ],
+  };
+  const text = renderReport(compareSnapshots(snapshot("before", { checkout: measurement() }), snapshot("after", { checkout: withTurns })));
+  const lines = text.split("\n").filter((l) => l.includes("turn round"));
+  assert.equal(lines.length, 2);
+  assert.match(lines[0] ?? "", /round 0: prompt 5000 B · calls 10 · before 1st write 6 · redundant reads 2 · reads provided by content 1 · by path 3 · code reads 4 · memory 2/);
+  assert.match(lines[1] ?? "", /round 1: prompt 4000 B · calls n\/a/, "an unrecorded figure reads as unknown, never as zero");
+});
+
+test("a snapshot taken before turns were measured renders exactly as it did, with no turn line", () => {
+  const text = renderReport(compareSnapshots(snapshot("before", { checkout: measurement() }), snapshot("after", { checkout: measurement() })));
+  assert.doesNotMatch(text, /turn round/);
+});

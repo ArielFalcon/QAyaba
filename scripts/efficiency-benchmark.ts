@@ -19,6 +19,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "@kernel/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/domain/coarse-run-efficiency.ts";
+import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
@@ -242,8 +243,23 @@ export interface CaseGuardrails {
   errorClass: string | null;
 }
 
+/** One generator turn, in numbers only. A figure the turn did not record is null, never a fabricated zero. The two prompt-provided read counts are kept apart: one is decided by content the prompt contained, the other by a path the prompt listed. */
+export interface TurnMeasurement {
+  round: number;
+  promptBytes: number | null;
+  totalCalls: number | null;
+  callsBeforeFirstWrite: number | null;
+  redundantReadCount: number | null;
+  promptProvidedReadCount: number | null;
+  pathProvidedReadCount: number | null;
+  codeRead: number | null;
+  memory: number | null;
+}
+
 export interface CaseMeasurement {
   coarse: CoarseRunEfficiency;
+  /** The generator's turns one by one. Absent for a run with no generator turn and for a snapshot taken before turns were measured. */
+  turns?: TurnMeasurement[];
   /** Whether a generator turn hit the step limit; null for Codex (no step budget), for a run with no generator turn, and while any generator turn's exhaustion is unknown. */
   exhausted: boolean | null;
   guardrails: CaseGuardrails;
@@ -293,9 +309,28 @@ function executePass(record: RunRecord | undefined): boolean | null {
  * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
  * turn leaves it unknown.
  */
+/* The generator's own turns, main and repair: not the planner's objective turn and not another role's. */
+function generatorTurnsOf(turns: AgentTurnRecord[]): AgentTurnRecord[] {
+  return turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
+}
+
+function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
+  return {
+    round: t.round,
+    promptBytes: t.promptBytes,
+    totalCalls: t.totalCalls ?? null,
+    callsBeforeFirstWrite: t.callsBeforeFirstWrite ?? null,
+    redundantReadCount: t.redundantReadCount ?? null,
+    promptProvidedReadCount: t.promptProvidedReadCount ?? null,
+    pathProvidedReadCount: t.pathProvidedReadCount ?? null,
+    codeRead: t.callBuckets?.[CALL_BUCKETS.CODE_READ] ?? null,
+    memory: t.callBuckets?.[CALL_BUCKETS.MEMORY] ?? null,
+  };
+}
+
 function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRecord[]): boolean | null {
   if (outcome?.gateSignals.usage?.primaryProvider === "codex") return null;
-  const generatorTurns = turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
+  const generatorTurns = generatorTurnsOf(turns);
   if (generatorTurns.length === 0) return null;
   if (generatorTurns.some((t) => t.exhausted === true)) return true;
   return generatorTurns.every((t) => t.exhausted === false) ? false : null;
@@ -318,9 +353,12 @@ export function measureRun(runId: string, source: RunDataSource): CaseMeasuremen
   if (!runFinished(outcome, record)) return null;
   const events = source.events(runId);
   if (events.length === 0) return null;
+  const turns = source.turns(runId);
+  const generatorTurns = generatorTurnsOf(turns);
   return {
     coarse: classifyRunEfficiency(events),
-    exhausted: generatorExhausted(outcome, source.turns(runId)),
+    ...(generatorTurns.length > 0 ? { turns: generatorTurns.map(turnMeasurement) } : {}),
+    exhausted: generatorExhausted(outcome, turns),
     guardrails: {
       verdict: outcome?.verdict ?? record?.verdict ?? null,
       specsProduced: specsProduced(events, record),
@@ -448,9 +486,14 @@ function windowLine(w: CoarseRunEfficiency["firstPass"]): string {
   return `calls ${w.totalCalls} · before 1st write ${w.callsBeforeFirstWrite} · writes ${w.writeCount} · commands ${w.commandCount} · subagents ${w.subagentCount}`;
 }
 
+function turnLine(t: TurnMeasurement): string {
+  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)}`;
+}
+
 function measuredLines(data: CaseMeasurement): string[] {
   const g = data.guardrails;
   return [
+    ...(data.turns ?? []).map(turnLine),
     `first pass: ${windowLine(data.coarse.firstPass)}`,
     `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
     `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (explorer unobserved)" : `calls ${data.coarse.grounding.totalCalls}`}`,
