@@ -488,7 +488,7 @@ async function main(): Promise<void> {
   }
   const findings = collectFindings(cells);
   for (const [key, { finding, cells: where }] of [...findings].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    console.log(`${key}\t${finding.detail ?? ""}\t(${where.length} cells)`);
+    console.log(`${key}\t${finding.fact ?? ""}\t(${where.length} cells)`);
   }
   console.log(`${findings.size} unique findings over ${cells.length} cell/layer combinations`);
 }

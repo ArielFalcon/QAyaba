@@ -6,9 +6,8 @@ export interface DiffStat {
   removed: number;
 }
 
-/* Lines a unified diff uses to introduce a file before its first hunk; they are not content lines. */
-const FILE_HEADER_RE =
-  /^(?:diff --git |index |--- |\+\+\+ |new file mode|deleted file mode|old mode|new mode|similarity index|dissimilarity index|rename from|rename to|copy from|copy to|Binary files )/;
+/* The two lines that name a file's old and new side before its first hunk. They start like a removed and an added line but are not content; every other header line starts with a letter. */
+const FILE_SIDE_RE = /^(?:--- |\+\+\+ )/;
 
 export function diffStat(input: { diff: string; changedFiles?: readonly string[] }): DiffStat {
   let added = 0;
@@ -25,7 +24,7 @@ export function diffStat(input: { diff: string; changedFiles?: readonly string[]
       inHunk = true;
       continue;
     }
-    if (!inHunk && FILE_HEADER_RE.test(line)) continue;
+    if (!inHunk && FILE_SIDE_RE.test(line)) continue;
     if (line.startsWith("+")) added++;
     else if (line.startsWith("-")) removed++;
   }

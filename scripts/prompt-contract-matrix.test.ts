@@ -1,7 +1,7 @@
 /* The prompt-contract matrix: every run shape that can reach the generator, assembled with the real builders and linted against both static role layers. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -90,57 +90,14 @@ test("a cell's assembled sections reproduce the assembled prompt exactly", async
   }
 });
 
-/* ── findings ── */
+/* ── no tolerated violations ── */
 
-const LEDGER_PATH = join(ROOT, "scripts", "prompt-contract-ledger.json");
-
-interface LedgerEntry {
-  key: string;
-  fix: string;
-}
-
-function loadLedger(): LedgerEntry[] {
-  return (JSON.parse(readFileSync(LEDGER_PATH, "utf8")) as { entries: LedgerEntry[] }).entries;
-}
-
-/* Findings the ledger does not record, and ledger entries no cell produces any more. */
-function diffLedger(found: ReadonlySet<string>, ledger: readonly LedgerEntry[]): { unrecorded: string[]; stale: string[] } {
-  const recorded = new Set(ledger.map((e) => e.key));
-  return {
-    unrecorded: [...found].filter((k) => !recorded.has(k)).sort(),
-    stale: [...recorded].filter((k) => !found.has(k)).sort(),
-  };
-}
-
-test("a ledger entry no cell produces any more is reported as stale, and a finding it does not record as unrecorded", () => {
-  const ledger: LedgerEntry[] = [
-    { key: "R1|a|b", fix: "x" },
-    { key: "R2|c|d", fix: "x" },
-  ];
-  assert.deepEqual(diffLedger(new Set(["R1|a|b", "R7|e|f"]), ledger), { unrecorded: ["R7|e|f"], stale: ["R2|c|d"] });
-  assert.deepEqual(diffLedger(new Set(["R1|a|b", "R2|c|d"]), ledger), { unrecorded: [], stale: [] });
-});
-
-test("every finding of the matrix is recorded in the ledger, and every ledger entry is still produced", async () => {
+test("no violation is tolerated: the matrix has zero findings, no ledger of exceptions exists and the matrix module offers no waiver", async () => {
   const baseline = loadBaseline(ROOT);
-  const found = new Set(collectFindings(await matrixOnce(), baseline).keys());
-  const { unrecorded, stale } = diffLedger(found, loadLedger());
-  assert.deepEqual(unrecorded, [], "a new contract violation must be fixed, not recorded");
-  assert.deepEqual(stale, [], "a fixed violation must be removed from the ledger");
-});
-
-test("ledger keys are the rule plus the sorted section ids, unique and sorted, each tagged with the change that clears it", () => {
-  const ledger = loadLedger();
-  const keys = ledger.map((e) => e.key);
-  assert.equal(new Set(keys).size, keys.length, "no duplicate entry");
-  assert.deepEqual(keys, [...keys].sort(), "entries are sorted by key");
-  for (const entry of ledger) {
-    const [rule, ...sections] = entry.key.split("|");
-    assert.match(rule ?? "", /^R\d+$/, entry.key);
-    assert.ok(sections.length >= 1, entry.key);
-    assert.deepEqual(sections, [...sections].sort(), `${entry.key}: section ids are sorted`);
-    assert.ok(entry.fix.length > 0, `${entry.key}: tagged with the change that clears it`);
-  }
+  assert.deepEqual([...collectFindings(await matrixOnce(), baseline).keys()], [], "every combination is clean");
+  assert.equal(existsSync(join(ROOT, "scripts", "prompt-contract-ledger.json")), false, "no ledger file");
+  const exported = Object.keys(await import("./prompt-contract-matrix.ts"));
+  assert.deepEqual(exported.filter((name) => /ledger|waiv|tolerat|allow|exempt/i.test(name)), [], "no waiver mechanism");
 });
 
 /* ── budgets ── */
@@ -150,7 +107,7 @@ test("no combination exceeds the recorded user-prompt size or directive volume",
   const breaches = (await matrixOnce()).flatMap((cell) =>
     lintMatrixCell(cell, baseline)
       .filter((f) => f.rule === "R9")
-      .map((f) => `${cell.key}: ${f.detail}`),
+      .map((f) => `${cell.key}: ${f.budget} ${f.measured} exceeds ${f.limit}`),
   );
   assert.deepEqual(breaches, []);
 });

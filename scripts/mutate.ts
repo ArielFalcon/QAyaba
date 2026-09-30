@@ -208,6 +208,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     tests: ["src/server/onboarding/patch-app-yaml.test.ts", "src/server/app-admin.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "prompt-contract": {
+    description: "prompt contract: the claims lint, the regeneration predicate and the diff size, with the matrix that lints every reachable generator prompt",
+    mutate: [`${GEN}/domain/prompt-contract-lint.ts`, `${GEN}/domain/regen-turn.ts`, `${GEN}/domain/diff-stat.ts`],
+    tests: [
+      `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
+      `${GEN_TEST}/domain/regen-turn.test.ts`,
+      `${GEN_TEST}/domain/diff-stat.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.regen.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.scaffold.test.ts`,
+      "scripts/prompt-contract-matrix.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

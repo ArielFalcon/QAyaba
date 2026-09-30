@@ -192,6 +192,22 @@ removed or replaced as a value. Machinery for paths deeper than one block was re
 path here has more) and a guard that the first write already performs was removed. **After** is the
 re-run; its one survivor is documented below.
 
+prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
+twelve rules and its two lexicons), the single regeneration predicate and the diff size, run against
+their own tests, the two prompt-builder seam tests that drive the predicate and the size line, and the
+matrix that lints every reachable generator prompt. **Before** is its first run. Most of its 60
+survivors were the free-text `detail` string of a finding, which a test could only pin as prose, so a
+finding now carries structured numbers instead (the bytes a pair duplicates; what a budget measured
+against its limit). The real gaps got behavior tests: the sections of a finding named sorted, the
+minimum duplicate line and fences that name their language or are indented, the login rule's three
+conditions, a facts-only section that also carries a plain claim, a hunk header with trailing context,
+findings ordered by key as text. The equivalents were restructured away: pair loops became pair
+generators, the guards that skipped work with no effect were dropped, a reference to a heading is
+split out of the text instead of glued shut, and the harness-facts section id is typed as a fact so
+the mutant that empties it cannot compile. **After** is the re-run; it has no documented survivors.
+Its one timeout is load: the mutant that makes every line a fence marker is killed by seven of the
+lint's own tests when they run directly.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -208,6 +224,7 @@ re-run; its one survivor is documented below.
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat | 259 / 5 / 60 — 81.48% (79.94%) | 252 / 1 / 0 — 100% (99.6%) | — |
 
 ### Login discovery script (manual triangulation)
 

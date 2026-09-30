@@ -85,11 +85,14 @@ export interface LintFinding {
   /* Section ids the finding names: the offending pair, or the single offending section; empty for a cell-level budget breach. */
   sections: readonly string[];
   fact?: FactId;
-  detail?: string;
+  /* The numbers behind a size finding: duplicated bytes (R7), or what a budget measured against its limit (R9). */
+  measured?: number;
+  limit?: number;
+  budget?: "bytes" | "directives";
 }
 
 export const APP_LOGIN_SECTION_ID = "app-login";
-export const HARNESS_FACTS_SECTION_ID = "harness-facts";
+export const HARNESS_FACTS_SECTION_ID = "harness-facts" satisfies FactId;
 
 /* Facts that exactly one section may provide: a second copy is a duplicated source of truth. */
 const SINGLE_SOURCE_FACTS: readonly FactId[] = ["blast-radius", "risks", "fe-be-links", "dom-live", "api-operations"];
@@ -152,63 +155,34 @@ function providersOf(cell: LintCell, fact: FactId): string[] {
   );
 }
 
-function allPairs(ids: readonly string[]): Array<[string, string]> {
-  const pairs: Array<[string, string]> = [];
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) pairs.push([ids[i]!, ids[j]!]);
-  }
-  return pairs;
+/* Every unordered pair of the items, each once, in list order. */
+function allPairs<T>(items: readonly T[]): Array<[T, T]> {
+  return items.flatMap((first, i): Array<[T, T]> => items.slice(i + 1).map((second) => [first, second]));
 }
 
 /* R1: at most one section frames a fact. A second framing is a contradiction when the stance differs and a duplicate owner when it does not. */
 function ruleSingleFraming(cell: LintCell): LintFinding[] {
-  const findings: LintFinding[] = [];
-  const framed = new Map<FactId, Array<{ section: string; as: string }>>();
+  const framed = new Map<FactId, string[]>();
   for (const section of cell.sections) {
     for (const claim of section.claims) {
-      if (claim.kind !== "frames") continue;
-      const list = framed.get(claim.fact) ?? [];
-      list.push({ section: section.id, as: claim.as });
-      framed.set(claim.fact, list);
+      if (claim.kind === "frames") framed.set(claim.fact, [...(framed.get(claim.fact) ?? []), section.id]);
     }
   }
-  for (const [fact, framings] of framed) {
-    for (let i = 0; i < framings.length; i++) {
-      for (let j = i + 1; j < framings.length; j++) {
-        const a = framings[i]!;
-        const b = framings[j]!;
-        findings.push({
-          rule: "R1",
-          fact,
-          sections: uniqueSorted([a.section, b.section]),
-          detail: a.as === b.as ? `framed twice as ${a.as}` : `framed as ${a.as} and as ${b.as}`,
-        });
-      }
-    }
-  }
-  return findings;
+  return [...framed].flatMap(([fact, owners]) =>
+    allPairs(owners).map(([a, b]) => ({ rule: "R1" as const, fact, sections: uniqueSorted([a, b]) })),
+  );
 }
 
 /* R2: single-source facts have one provider; landmarks and a DOM tree never coexist. */
 function ruleSingleProvider(cell: LintCell): LintFinding[] {
-  const findings: LintFinding[] = [];
-  for (const fact of SINGLE_SOURCE_FACTS) {
-    for (const [a, b] of allPairs(providersOf(cell, fact))) {
-      findings.push({ rule: "R2", fact, sections: [a, b], detail: `${fact} provided twice` });
-    }
-  }
+  const duplicated = SINGLE_SOURCE_FACTS.flatMap((fact) =>
+    allPairs(providersOf(cell, fact)).map(([a, b]) => ({ rule: "R2" as const, fact, sections: [a, b] })),
+  );
   const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
-  for (const landmarks of providersOf(cell, "landmarks")) {
-    for (const tree of trees) {
-      findings.push({
-        rule: "R2",
-        fact: "landmarks",
-        sections: uniqueSorted([landmarks, tree]),
-        detail: "landmark hints alongside a DOM tree",
-      });
-    }
-  }
-  return findings;
+  const hintsBesideTree = providersOf(cell, "landmarks").flatMap((landmarks) =>
+    trees.map((tree) => ({ rule: "R2" as const, fact: "landmarks" as const, sections: uniqueSorted([landmarks, tree]) })),
+  );
+  return [...duplicated, ...hintsBesideTree];
 }
 
 /* R3: never direct a read of a fact that is already provided; never consult a fact nothing provides. */
@@ -220,20 +194,10 @@ function ruleDirectivesAgainstProviders(cell: LintCell): LintFinding[] {
       const providers = providersOf(cell, claim.target);
       if (claim.action === "read" || claim.action === "orient") {
         for (const provider of providers) {
-          findings.push({
-            rule: "R3",
-            fact: claim.target,
-            sections: uniqueSorted([section.id, provider]),
-            detail: `directs ${claim.action} of ${claim.target} while it is provided`,
-          });
+          findings.push({ rule: "R3", fact: claim.target, sections: uniqueSorted([section.id, provider]) });
         }
       } else if (claim.action === "consult" && providers.length === 0) {
-        findings.push({
-          rule: "R3",
-          fact: claim.target,
-          sections: [section.id],
-          detail: `consults ${claim.target}, which nothing provides`,
-        });
+        findings.push({ rule: "R3", fact: claim.target, sections: [section.id] });
       }
     }
   }
@@ -243,38 +207,33 @@ function ruleDirectivesAgainstProviders(cell: LintCell): LintFinding[] {
 /* R4: a regeneration turn carries no orientation, repo analysis or diff re-embed. */
 function ruleRegenTurn(cell: LintCell): LintFinding[] {
   if (!cell.regen) return [];
-  const findings: LintFinding[] = [];
-  for (const section of cell.sections) {
-    for (const claim of section.claims) {
-      if (claim.kind === "directs" && (claim.action === "analyze-repo" || claim.action === "orient")) {
-        findings.push({ rule: "R4", sections: [section.id], detail: `regeneration directs ${claim.action}` });
-      }
-      if (claim.kind === "provides" && claim.fact === "diff") {
-        findings.push({ rule: "R4", sections: [section.id], detail: "regeneration re-embeds the diff" });
-      }
-    }
-  }
-  return findings;
+  return cell.sections
+    .filter((section) =>
+      section.claims.some(
+        (c) =>
+          (c.kind === "directs" && (c.action === "analyze-repo" || c.action === "orient")) ||
+          (c.kind === "provides" && c.fact === "diff"),
+      ),
+    )
+    .map((section) => ({ rule: "R4" as const, sections: [section.id] }));
 }
 
 /* R5: selectors are never derived from source code. */
 function ruleNoDeriveFromCode(cell: LintCell): LintFinding[] {
   return cell.sections
     .filter((s) => s.claims.some((c) => c.kind === "directs" && c.action === "derive-from-code"))
-    .map((s) => ({ rule: "R5" as const, sections: [s.id], detail: "directs deriving from code" }));
+    .map((s) => ({ rule: "R5" as const, sections: [s.id] }));
 }
 
 /* R6: a facts-only section carries data, never a directive, a framing or directive language. */
 function ruleFactsOnly(cell: LintCell): LintFinding[] {
-  const findings: LintFinding[] = [];
-  for (const section of cell.sections) {
-    if (!section.factsOnly) continue;
-    const hasClaim = section.claims.some((c) => c.kind === "directs" || c.kind === "frames");
-    if (hasClaim || countDirectives(section.text) > 0) {
-      findings.push({ rule: "R6", sections: [section.id], detail: "facts-only section carries a directive or framing" });
-    }
-  }
-  return findings;
+  return cell.sections
+    .filter(
+      (s) =>
+        s.factsOnly &&
+        (s.claims.some((c) => c.kind === "directs" || c.kind === "frames") || countDirectives(s.text) > 0),
+    )
+    .map((s) => ({ rule: "R6" as const, sections: [s.id] }));
 }
 
 function duplicateCandidateLines(text: string): string[] {
@@ -299,34 +258,24 @@ function ruleDuplicateLines(cell: LintCell): LintFinding[] {
   for (const section of cell.sections) {
     if (section.verbatim) continue;
     for (const line of new Set(duplicateCandidateLines(section.text))) {
-      const set = owners.get(line) ?? new Set<string>();
-      set.add(section.id);
-      owners.set(line, set);
+      owners.set(line, (owners.get(line) ?? new Set<string>()).add(section.id));
     }
   }
-  const duplicatedBytes = new Map<string, number>();
+  const duplicatedBytes = new Map<string, { sections: [string, string]; total: number }>();
   for (const [line, ids] of owners) {
-    if (ids.size < 2) continue;
-    for (const [a, b] of allPairs(uniqueSorted([...ids]))) {
-      const key = `${a}\u0000${b}`;
-      duplicatedBytes.set(key, (duplicatedBytes.get(key) ?? 0) + bytes(line));
+    for (const pair of allPairs(uniqueSorted([...ids]))) {
+      const key = JSON.stringify(pair);
+      duplicatedBytes.set(key, { sections: pair, total: (duplicatedBytes.get(key)?.total ?? 0) + bytes(line) });
     }
   }
-  return [...duplicatedBytes].map(([key, total]) => {
-    const [a, b] = key.split("\u0000") as [string, string];
-    return { rule: "R7" as const, sections: [a, b], detail: `${total} duplicated bytes` };
-  });
+  return [...duplicatedBytes.values()].map(({ sections, total }) => ({ rule: "R7" as const, sections, measured: total }));
 }
 
 /* R8: the static layer holds unconditional craft rules and never names an artifact that only some prompts assemble. */
-function ruleStaticNamesNoArtifact(cell: LintCell, names: readonly string[]): LintFinding[] {
-  const findings: LintFinding[] = [];
-  for (const section of cell.sections) {
-    if (section.layer !== "static") continue;
-    const hit = names.find((name) => name && section.text.includes(name));
-    if (hit) findings.push({ rule: "R8", sections: [section.id], detail: `static text names the assembled artifact "${hit}"` });
-  }
-  return findings;
+function ruleStaticNamesNoArtifact(cell: LintCell, names: readonly string[] | undefined): LintFinding[] {
+  return cell.sections
+    .filter((s) => s.layer === "static" && names?.some((name) => name && s.text.includes(name)))
+    .map((s) => ({ rule: "R8" as const, sections: [s.id] }));
 }
 
 /* R9: the assembled prompt stays inside its recorded size and directive budget. */
@@ -334,50 +283,38 @@ function ruleBudget(cell: LintCell, budget: LintBudget | undefined): LintFinding
   if (!budget) return [];
   const assembled = cell.sections.filter((s) => s.layer === "assembled");
   const findings: LintFinding[] = [];
-  if (budget.maxAssembledBytes !== undefined) {
-    const total = assembled.reduce((sum, s) => sum + bytes(s.text), 0);
-    if (total > budget.maxAssembledBytes) {
-      findings.push({ rule: "R9", sections: [], detail: `${total} assembled bytes exceed the ${budget.maxAssembledBytes} budget` });
-    }
-  }
-  if (budget.maxDirectives !== undefined) {
-    const total = assembled.filter((s) => !s.verbatim).reduce((sum, s) => sum + countDirectives(s.text), 0);
-    if (total > budget.maxDirectives) {
-      findings.push({ rule: "R9", sections: [], detail: `${total} directive hits exceed the ${budget.maxDirectives} budget` });
-    }
-  }
+  const check = (kind: "bytes" | "directives", measured: number, limit: number | undefined): void => {
+    if (limit !== undefined && measured > limit) findings.push({ rule: "R9", sections: [], budget: kind, measured, limit });
+  };
+  check("bytes", assembled.reduce((sum, s) => sum + bytes(s.text), 0), budget.maxAssembledBytes);
+  check("directives", assembled.filter((s) => !s.verbatim).reduce((sum, s) => sum + countDirectives(s.text), 0), budget.maxDirectives);
   return findings;
 }
 
-function withoutNames(text: string, names: readonly string[]): string {
-  return names.reduce((acc, name) => (name ? acc.split(name).join("") : acc), text);
+/* The pieces of the text between references to sections by their heading: a reference is not trust language, and removing it must not glue the words around it into a new one. */
+function outsideReferences(text: string, headingNames: readonly string[] | undefined): string[] {
+  return headingNames?.reduce((pieces, name) => (name ? pieces.flatMap((piece) => piece.split(name)) : pieces), [text]) ?? [text];
 }
 
 /* R10: an assembled section that talks about trust must declare the framing it applies. Naming another section by its heading is a reference, not a framing, and captured data (a diff) may say anything, so verbatim sections are not judged. */
-function ruleTrustNeedsFraming(cell: LintCell, headingNames: readonly string[]): LintFinding[] {
+function ruleTrustNeedsFraming(cell: LintCell, headingNames: readonly string[] | undefined): LintFinding[] {
   return cell.sections
     .filter(
       (s) =>
         s.layer === "assembled" &&
         !s.verbatim &&
-        hasTrustLanguage(withoutNames(s.text, headingNames)) &&
+        outsideReferences(s.text, headingNames).some(hasTrustLanguage) &&
         !s.claims.some((c) => c.kind === "frames"),
     )
-    .map((s) => ({ rule: "R10" as const, sections: [s.id], detail: "trust language without a declared framing" }));
+    .map((s) => ({ rule: "R10" as const, sections: [s.id] }));
 }
 
 /* R11: the runtime-signals directive only belongs where no DOM tree is available. */
 function ruleRuntimeSignalsOnlyWithoutTree(cell: LintCell): LintFinding[] {
   const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
-  if (trees.length === 0) return [];
-  const findings: LintFinding[] = [];
-  for (const section of cell.sections) {
-    if (!section.claims.some((c) => c.kind === "directs" && c.action === "use-runtime-signals")) continue;
-    for (const tree of trees) {
-      findings.push({ rule: "R11", sections: uniqueSorted([section.id, tree]), detail: "runtime signals directed while a DOM tree is provided" });
-    }
-  }
-  return findings;
+  return cell.sections
+    .filter((s) => s.claims.some((c) => c.kind === "directs" && c.action === "use-runtime-signals"))
+    .flatMap((s) => trees.map((tree) => ({ rule: "R11" as const, sections: uniqueSorted([s.id, tree]) })));
 }
 
 /* R12: the login section never sends the agent to the pack's live DOM, which may not include the login page. */
@@ -388,7 +325,7 @@ function ruleLoginNotPackDependent(cell: LintCell): LintFinding[] {
         s.id === APP_LOGIN_SECTION_ID &&
         s.claims.some((c) => c.kind === "directs" && c.action === "consult" && c.target === "dom-live"),
     )
-    .map((s) => ({ rule: "R12" as const, sections: [s.id], detail: "login section consults the pack's live DOM" }));
+    .map((s) => ({ rule: "R12" as const, sections: [s.id] }));
 }
 
 export function lintCell(cell: LintCell, options: LintOptions = {}): readonly LintFinding[] {
@@ -400,15 +337,15 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleNoDeriveFromCode(cell),
     ...ruleFactsOnly(cell),
     ...ruleDuplicateLines(cell),
-    ...ruleStaticNamesNoArtifact(cell, options.assembledArtifactNames ?? []),
+    ...ruleStaticNamesNoArtifact(cell, options.assembledArtifactNames),
     ...ruleBudget(cell, options.budget),
-    ...ruleTrustNeedsFraming(cell, options.assembledArtifactNames ?? []),
+    ...ruleTrustNeedsFraming(cell, options.assembledArtifactNames),
     ...ruleRuntimeSignalsOnlyWithoutTree(cell),
     ...ruleLoginNotPackDependent(cell),
   ];
-  return findings.sort((a, b) => {
-    const ka = findingKey(a);
-    const kb = findingKey(b);
-    return ka < kb ? -1 : ka > kb ? 1 : (a.fact ?? "") < (b.fact ?? "") ? -1 : (a.fact ?? "") > (b.fact ?? "") ? 1 : 0;
-  });
+  /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
+  return findings
+    .map((finding) => ({ finding, order: `${findingKey(finding)}\u0001${String(finding.fact)}` }))
+    .sort((a, b) => (a.order < b.order ? -1 : 1))
+    .map(({ finding }) => finding);
 }

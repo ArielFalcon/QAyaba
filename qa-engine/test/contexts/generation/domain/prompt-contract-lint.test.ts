@@ -346,3 +346,167 @@ test("the lexicons detect directive and trust language case-insensitively", () =
   assert.equal(hasTrustLanguage("plain facts: a=1, b=2"), false);
   assert.equal(hasTrustLanguage("this map is non-authoritative"), true);
 });
+
+/* ── what each finding reports, exactly ── */
+
+test("a finding names its sections sorted, whatever order the sections and claims came in", () => {
+  const reversed = (fact: Extract<PromptClaim, { kind: "provides" }>["fact"]) => [sec("b", [provides(fact)]), sec("a", [provides(fact)])];
+  assert.deepEqual(lintCell(cell(reversed("risks"))).map((f) => f.sections), [["a", "b"]], "R2");
+  assert.deepEqual(
+    lintCell(cell([sec("b", [frames("risks", "established")]), sec("a", [frames("risks", "established")])])).map((f) => f.sections),
+    [["a", "b"]],
+    "R1",
+  );
+  assert.deepEqual(
+    lintCell(cell([sec("z-task", [directs("read", "arch-map")]), sec("a-map", [provides("arch-map")])])).map((f) => f.sections),
+    [["a-map", "z-task"]],
+    "R3",
+  );
+  assert.deepEqual(
+    lintCell(cell([sec("z-rules", [directs("use-runtime-signals")]), sec("a-tree", [provides("dom-live")])])).map((f) => f.sections),
+    [["a-tree", "z-rules"]],
+    "R11",
+  );
+  assert.deepEqual(
+    lintCell(cell([sec("z-brief", [provides("landmarks")]), sec("a-tree", [provides("dom-live")])])).map((f) => f.sections),
+    [["a-tree", "z-brief"]],
+    "landmarks",
+  );
+  assert.deepEqual(
+    lintCell(cell([sec("z", [], { text: LONG_LINE }), sec("a", [], { text: LONG_LINE })])).map((f) => f.sections),
+    [["a", "z"]],
+    "R7",
+  );
+});
+
+test("findings come out ordered by key and then by fact, so a result is comparable across runs", () => {
+  const twoFacts = cell([
+    sec("b", [provides("risks"), provides("blast-radius")]),
+    sec("a", [provides("risks"), provides("blast-radius")]),
+    sec("c", [directs("derive-from-code")]),
+  ]);
+  const findings = lintCell(twoFacts);
+  assert.deepEqual(findings.map((f) => [findingKey(f), f.fact]), [
+    ["R2|a|b", "blast-radius"],
+    ["R2|a|b", "risks"],
+    ["R5|c", undefined],
+  ]);
+});
+
+test("two different pairs of sections are never mistaken for one whose ids concatenate alike", () => {
+  const first = "First shared line that is long enough to count as one";
+  const second = "Second shared line that is long enough to count too";
+  const findings = lintCell(
+    cell([
+      sec("ab", [], { text: first }),
+      sec("c", [], { text: first }),
+      sec("a", [], { text: second }),
+      sec("bc", [], { text: second }),
+    ]),
+  );
+  const byPair = new Map(findings.map((f) => [f.sections.join("+"), f.measured]));
+  assert.equal(findings.length, 2);
+  assert.equal(byPair.get("a+bc"), Buffer.byteLength(second));
+  assert.equal(byPair.get("ab+c"), Buffer.byteLength(first));
+});
+
+test("a duplicated line reports the bytes it duplicates, summed over the shared lines of a pair", () => {
+  const other = "Another line that is long enough to count as one";
+  const findings = lintCell(
+    cell([
+      sec("a", [], { text: `${LONG_LINE}\n${other}\nonly a` }),
+      sec("b", [], { text: `${LONG_LINE}\n${other}` }),
+      sec("c", [], { text: LONG_LINE }),
+    ]),
+  );
+  const byPair = new Map(findings.map((f) => [f.sections.join("+"), f.measured]));
+  assert.equal(byPair.get("a+b"), Buffer.byteLength(LONG_LINE) + Buffer.byteLength(other));
+  assert.equal(byPair.get("a+c"), Buffer.byteLength(LONG_LINE));
+  assert.equal(byPair.get("b+c"), Buffer.byteLength(LONG_LINE));
+  assert.equal(findings.length, 3);
+});
+
+test("a line of exactly the minimum size counts as a duplicate and one byte less does not", () => {
+  const atLimit = "x".repeat(40);
+  assert.equal(lintCell(cell([sec("a", [], { text: atLimit }), sec("b", [], { text: atLimit })])).length, 1);
+  const below = "x".repeat(39);
+  assert.equal(lintCell(cell([sec("a", [], { text: below }), sec("b", [], { text: below })])).length, 0);
+});
+
+test("a fence that names its language, or is indented, still hides the lines inside it", () => {
+  for (const [open, close] of [["```ts", "```"], ["   ```", "   ```"], ["```", "```"]] as const) {
+    const fenced = `${open}\n${LONG_LINE}\n${close}`;
+    assert.deepEqual(lintCell(cell([sec("a", [], { text: fenced }), sec("b", [], { text: fenced })])), [], JSON.stringify(open));
+  }
+  const closedThenLive = `\`\`\`\n${LONG_LINE}\n\`\`\`\n${LONG_LINE}`;
+  assert.equal(lintCell(cell([sec("a", [], { text: closedThenLive }), sec("b", [], { text: LONG_LINE })])).length, 1, "a line after the fence closes counts again");
+});
+
+test("findings are ordered by key as text, so a later rule's finding can come before an earlier rule's", () => {
+  const mixed = cell([
+    sec("a", [provides("risks")]),
+    sec("b", [provides("risks")]),
+    sec("t", [], { text: "this is authoritative" }),
+  ]);
+  assert.deepEqual(lintCell(mixed).map(findingKey), ["R10|t", "R2|a|b"], "R10 sorts before R2 as text, though rule R2 runs first");
+});
+
+test("findings that share a key are ordered by their fact, whatever order the rules found them in", () => {
+  const both = cell([
+    sec("b", [provides("risks"), provides("fe-be-links")]),
+    sec("a", [provides("risks"), provides("fe-be-links")]),
+  ]);
+  assert.deepEqual(lintCell(both).map((f) => f.fact), ["fe-be-links", "risks"]);
+});
+
+test("a budget breach reports what was measured against the limit, for the bytes and for the directives separately", () => {
+  const text = "You MUST do it. Never skip. ".repeat(20);
+  const bytes = Buffer.byteLength(text, "utf8");
+  const directives = countDirectives(text);
+  const both = lintCell(cell([sec("task", [], { text })]), { budget: { maxAssembledBytes: bytes - 1, maxDirectives: directives - 1 } });
+  assert.deepEqual(both, [
+    { rule: "R9", sections: [], budget: "bytes", measured: bytes, limit: bytes - 1 },
+    { rule: "R9", sections: [], budget: "directives", measured: directives, limit: directives - 1 },
+  ]);
+  assert.deepEqual(lintCell(cell([sec("task", [], { text })]), { budget: {} }), [], "no limit, no breach");
+});
+
+/* ── what each rule leaves alone ── */
+
+test("directing an action that is neither a read, an orientation nor a consultation is not judged against providers", () => {
+  for (const action of ["analyze-repo", "state-outcome", "derive-from-code", "use-runtime-signals"] as const) {
+    const findings = lintCell(cell([sec("task", [directs(action, "arch-map")])]));
+    assert.deepEqual(findings.filter((f) => f.rule === "R3"), [], action);
+  }
+});
+
+test("a facts-only section is flagged for a directive even when it also carries a plain provides claim", () => {
+  const section = sec(HARNESS_FACTS_SECTION_ID, [provides("harness-facts"), directs("state-outcome")], { factsOnly: true });
+  assert.deepEqual(lintCell(cell([section])).map((f) => f.rule), ["R6"]);
+  const onlyProvides = sec(HARNESS_FACTS_SECTION_ID, [provides("harness-facts")], { factsOnly: true, text: "a=1" });
+  assert.deepEqual(lintCell(cell([onlyProvides])), []);
+});
+
+test("a section that is not facts-only may carry directives and framings freely", () => {
+  assert.deepEqual(lintCell(cell([sec("task", [directs("read", "arch-map"), frames("diff", "established")], { text: "You MUST never stop" })])), []);
+});
+
+test("the login rule judges only the login section, and only a consultation of the live DOM", () => {
+  assert.deepEqual(lintCell(cell([sec("dom", [provides("dom-live")]), sec("task", [directs("consult", "dom-live")])])), [], "another section may consult it");
+  assert.deepEqual(lintCell(cell([sec("dom", [provides("dom-failure")]), sec(APP_LOGIN_SECTION_ID, [directs("consult", "dom-failure")])])), [], "another fact");
+  assert.deepEqual(lintCell(cell([sec(APP_LOGIN_SECTION_ID, [directs("orient", "dom-live")]), sec("dom", [provides("dom-live")])])).map((f) => f.rule), ["R3"], "another action is only judged by the provider rule");
+});
+
+test("an empty artifact name never matches, and a heading reference never glues the words around it into a trust word", () => {
+  const staticText = sec("role", [], { layer: "static", text: "anything at all" });
+  assert.deepEqual(lintCell(cell([staticText]), { assembledArtifactNames: [""] }), []);
+  const glued = sec("fix", [], { text: "the trus[NAME]ted tree" });
+  assert.deepEqual(lintCell(cell([glued]), { assembledArtifactNames: ["[NAME]"] }), [], "removing the reference must not spell a trust word");
+  assert.deepEqual(lintCell(cell([sec("fix", [], { text: "a trusted tree" })]), { assembledArtifactNames: [""] }).map((f) => f.rule), ["R10"]);
+});
+
+test("the trust lexicon matches the plain and the past form of trust but not a longer word", () => {
+  assert.equal(hasTrustLanguage("trust this tree"), true);
+  assert.equal(hasTrustLanguage("a trusted tree"), true);
+  assert.equal(hasTrustLanguage("a trustworthy tree"), false);
+});
