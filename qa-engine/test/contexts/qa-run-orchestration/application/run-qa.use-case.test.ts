@@ -1,11 +1,16 @@
 import { mock, test } from "node:test";
 import { inspect } from "node:util";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
+import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
+import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { Sha } from "@kernel/sha.ts";
@@ -56,6 +61,7 @@ import { GenerateTestsUseCase, type GenerationPorts } from "@contexts/generation
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 import { scriptedGeneration } from "../../../support/generation-output.ts";
+import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 /* Ports through the full lifecycle. NO inline IO, NO prompt strings, NO learning side-effects on
    the verdict path (LearningPort.fold is off-path). Drives the SAME stub shapes scenarios.ts
    provides for the equivalent runPipeline scenario.
@@ -7041,6 +7047,167 @@ test("a seed that signed in does not flag generation to rewrite auth.setup.ts", 
   const { useCase, enrichments } = authSeedRun({ unauthoredAtGenerate: false });
   await useCase.run({ ...baseInput, runId: "auth-seed-signed-in" });
   assert.notEqual(enrichments[0]?.authSeedUnauthored, true);
+});
+
+/* ── The real auth adapter under the run: what leaves a failed login, and when generation is told to write the login ─────── */
+
+const ACCOUNT = { user: "qa.bot+tester@demo.example", pass: 'p w0rd&"<x>%+/' };
+/* Every way a page, a URL, a form body and a JSON body echo the account back, each written out by hand. */
+const ACCOUNT_ECHOES = [
+  ACCOUNT.user, "qa.bot%2Btester%40demo.example", "QA.BOT+TESTER@DEMO.EXAMPLE",
+  ACCOUNT.pass, "p%20w0rd%26%22%3Cx%3E%25%2B%2F", "p+w0rd%26%22%3Cx%3E%25%2B%2F", 'p w0rd&\\"<x>%+/',
+];
+const SIGNED_IN_EVIDENCE = { requests: [{ method: "POST", pathname: "/api/session", status: 200 }], passwordGone: true, freshContextChecked: true, freshContextPasswordGone: true, storageStateWritten: true, finalPath: "/home" };
+
+interface DiscoveryRunOptions {
+  discover?: (input: LoginDiscoveryInput) => LoginDiscoveryResult;
+  /** What the stock seed does when it runs; by default it does not sign in. */
+  seed?: (env: Record<string, string>) => { exitCode: number; logs: string };
+  redact?: (text: string) => string;
+}
+
+/* The real adapter, with a fake discovery child and a fake seed spawn at the process boundary. */
+function discoveryRun(opts: DiscoveryRunOptions) {
+  const authDir = mkdtempSync(join(tmpdir(), "rq-auth-"));
+  const seen = { generated: 0, executed: 0, published: 0, seeded: 0, enrichments: [] as Array<GenerationEnrichment | undefined>, thrown: [] as unknown[] };
+  const { ports, savedOutcomes } = stubPorts({
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      seen.generated += 1;
+      seen.enrichments.push(enrichment);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    publish: async () => { seen.published += 1; return { outcome: "pr" }; },
+  });
+  const adapter = new AuthSessionAdapter({
+    env: { QA_USER: ACCOUNT.user, QA_PASS: ACCOUNT.pass },
+    authDir,
+    ...(opts.discover
+      ? { discovery: { discoverLogin: async (input) => opts.discover!(input), redact: opts.redact ?? ((text: string) => text) } }
+      : {}),
+    spawnSetup: async (_specDir, env) => {
+      seen.seeded += 1;
+      return (opts.seed ?? (() => ({ exitCode: 1, logs: "seed did not sign in" })))(env);
+    },
+  });
+  const { observer, events } = fakeObserver();
+  const useCase = new RunQaUseCase({
+    ...ports,
+    observer,
+    config: baseConfig,
+    authSession: {
+      prepare: async (req, signal) => {
+        try {
+          return await adapter.prepare(req, signal);
+        } catch (error) {
+          seen.thrown.push(error);
+          throw error;
+        }
+      },
+    },
+    authContext: { baseUrl: "https://dev.example", auth: FORM_AUTH },
+  });
+  return { run: (runId: string) => useCase.run({ ...baseInput, runId }), seen, savedOutcomes, events, cleanup: () => rmSync(authDir, { recursive: true, force: true }) };
+}
+
+const signsInAndWrites = (input: LoginDiscoveryInput): LoginDiscoveryResult => {
+  writeFileSync(input.storageStatePath, "{\"cookies\":[]}");
+  return scriptedLoginEvidence(SIGNED_IN_EVIDENCE);
+};
+const seedSignsIn = (env: Record<string, string>): { exitCode: number; logs: string } => {
+  writeFileSync(env.PW_STORAGE_STATE!, "{\"cookies\":[]}");
+  return { exitCode: 0, logs: "" };
+};
+
+test("a failed login leaks the account through no sink: not the thrown error, the note, the persisted note, the log events or the console", async () => {
+  const errorLog = mock.method(console, "error", () => {});
+  const harness = discoveryRun({
+    discover: () => {
+      const echoed = `sink-marker ${ACCOUNT_ECHOES.join(" | ")}`;
+      return scriptedLoginEvidence({
+        firstAlert: echoed,
+        firstPageError: echoed,
+        firstNewException: echoed,
+        pageErrorCount: 1,
+        finalPath: `/login/${ACCOUNT_ECHOES[1]}`,
+        ladder: ["/", `/x/${ACCOUNT_ECHOES[4]}`],
+        requests: [{ method: "POST", pathname: `/api/${ACCOUNT_ECHOES[4]}/session`, status: 401 }],
+      });
+    },
+  });
+  try {
+    const out = await harness.run("discovery-hygiene");
+    const thrown = harness.seen.thrown[0];
+    assert.ok(thrown instanceof AuthPreconditionError, "the login ended the run as a precondition");
+    const sinks = {
+      "thrown note": thrown.note,
+      "thrown message": thrown.message,
+      "note": out.note ?? "",
+      "persisted note": harness.savedOutcomes[0]?.note ?? "",
+      "log events": harness.events.flatMap((event) => (event.type === "log.line" ? [event.text] : [])).join("\n"),
+      "console": errorLog.mock.calls.map((call) => call.arguments.map((a) => (typeof a === "string" ? a : inspect(a))).join(" ")).join("\n"),
+    };
+    for (const [name, text] of Object.entries(sinks)) {
+      /* Every sink but the log events carries the note itself: the page text is there, with the account taken out of it. */
+      if (name !== "log events") assert.ok(text.includes("sink-marker"), `${name} carries the scrubbed page text, not nothing`);
+      for (const echo of ACCOUNT_ECHOES) assert.equal(text.toLowerCase().includes(echo.toLowerCase()), false, `${name} leaked ${echo}`);
+    }
+  } finally {
+    errorLog.mock.restore();
+    harness.cleanup();
+  }
+});
+
+test("wrong credentials, evidenced by a rejected submit, end the run as a precondition before the generator is touched", async () => {
+  const harness = discoveryRun({ discover: () => scriptedLoginEvidence() });
+  try {
+    const out = await harness.run("discovery-wrong-credentials");
+    assert.equal(out.decision.verdict, "infra-error");
+    assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+    assert.equal(harness.savedOutcomes[0]?.errorClass, ERROR_CLASS.PRECONDITION);
+    assert.ok((harness.savedOutcomes[0]?.note ?? "").includes(PRECONDITION_KIND.CREDENTIALS_REJECTED));
+    assert.deepEqual([harness.seen.generated, harness.seen.executed, harness.seen.published, harness.seen.seeded], [0, 0, 0, 0]);
+    assert.equal(out.decision.sideEffect, "none", "no Issue is opened in the watched repo");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("the shell's redaction is applied to the note the run persists", async () => {
+  const harness = discoveryRun({
+    discover: () => scriptedLoginEvidence({ firstAlert: "canary-7f3a shown by the page" }),
+    redact: (text) => text.replaceAll("canary-7f3a", "[gone]"),
+  });
+  try {
+    await harness.run("discovery-redaction");
+    const note = harness.savedOutcomes[0]?.note ?? "";
+    assert.ok(note.includes("[gone]"), "the redaction ran over the note");
+    assert.equal(note.includes("canary-7f3a"), false);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("generation is told to write the login only when discovery proved nothing and the seed did not sign in", async () => {
+  const rows: Array<{ name: string; opts: DiscoveryRunOptions; unauthored: boolean }> = [
+    { name: "discovery confirmed the login", opts: { discover: signsInAndWrites }, unauthored: false },
+    { name: "discovery submitted nothing and the seed signs in", opts: { discover: () => scriptedLoginEvidence({ requests: [] }), seed: seedSignsIn }, unauthored: false },
+    { name: "discovery submitted nothing and the seed does not sign in", opts: { discover: () => scriptedLoginEvidence({ requests: [] }) }, unauthored: true },
+    { name: "discovery submitted and could not confirm it (no seed may submit again)", opts: { discover: () => scriptedLoginEvidence({ requests: [], inFlightAtDeadline: true }), seed: seedSignsIn }, unauthored: true },
+    { name: "discovery crashed after submitting", opts: { discover: () => ({ crashed: true, attempted: true }), seed: seedSignsIn }, unauthored: true },
+    { name: "discovery is not wired and the seed signs in", opts: { seed: seedSignsIn }, unauthored: false },
+    { name: "discovery is not wired and the seed does not sign in", opts: {}, unauthored: true },
+  ];
+  for (const row of rows) {
+    const harness = discoveryRun(row.opts);
+    try {
+      await harness.run("discovery-unauthored");
+      assert.equal(harness.seen.generated, 1, row.name);
+      assert.equal(harness.seen.enrichments[0]?.authSeedUnauthored === true, row.unauthored, row.name);
+    } finally {
+      harness.cleanup();
+    }
+  }
 });
 
 /* ── How a generation ended decides how the run ends ───────────────────────────────────────────── */
