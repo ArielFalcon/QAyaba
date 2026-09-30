@@ -4846,6 +4846,37 @@ test("4b.4: a throwing structuralSignal port degrades to NO staticSignal, never 
   }
 });
 
+/* The brief already carries the distilled blast radius: computing the structural signal too costs process spawns and
+   would put a second, advisory copy of the same fact in the prompt. */
+test("the structural signal port is not invoked when grounding produced a brief, and still is when it did not", async () => {
+  const BRIEF = {
+    builtForSha: "abc1234",
+    objective: "test the checkout flow",
+    blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "pays" }],
+  };
+  const calls: string[] = [];
+  const structuralSignal: StructuralSignalPort = { render: async () => { calls.push("render"); return "## Structural blast radius\ncontent"; } };
+  const capturedSignals: Array<string | undefined> = [];
+  const build = (ground: () => Promise<Record<string, unknown>>) => {
+    const { ports } = stubPorts({ ground });
+    ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      capturedSignals.push(enrichment?.staticSignal);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    };
+    return new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
+  };
+
+  await build(async () => ({ contextBrief: BRIEF })).run({ ...baseInput, runId: "structural-gate-brief" });
+  assert.deepEqual(calls, [], "a brief supplies the blast radius, so the graph is never queried");
+  assert.ok(capturedSignals.length > 0 && capturedSignals.every((s) => s === undefined), "and no signal reaches generation");
+
+  calls.length = 0;
+  capturedSignals.length = 0;
+  await build(async () => ({})).run({ ...baseInput, runId: "structural-gate-no-brief" });
+  assert.deepEqual(calls, ["render"], "without a brief the signal is computed once");
+  assert.ok(capturedSignals.every((s) => typeof s === "string"));
+});
+
 /* With structuralSignal absent (today's composition default), the verdict/side-effect must be
    byte-identical to every pre-existing characterization scenario this same suite already pins
    elsewhere in this file — a targeted spot-check, not a re-run of the full golden suite.

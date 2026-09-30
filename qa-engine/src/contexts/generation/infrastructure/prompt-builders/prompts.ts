@@ -192,7 +192,7 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     hasLinks || hasDrift
       ? [
           "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
@@ -664,7 +664,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const task = buildTask(input, { mapInjected, blastRadiusSupplied });
 
-  const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
+  /* The brief already carries the distilled blast radius; the advisory structural copy of it only appears when there is no brief. */
+  const staticSignalContent = input.staticSignal && isGenerationMode && !input.contextBrief ? input.staticSignal : "";
   const staticSignalClaims: PromptClaim[] = staticSignalContent
     ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
     : [];
@@ -694,7 +695,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     (hasServiceLinks || hasContractDrift) && isGenerationMode
       ? [
           "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasServiceLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {

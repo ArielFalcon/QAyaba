@@ -147,6 +147,16 @@ test("every cell is passed through sanitizeText (secrets redacted)", () => {
   assert.match(out, /REDACTED/);
 });
 
+test("the block is advisory data: it asks for no verification of its own contents", () => {
+  const out = renderBlastRadiusSignal({
+    impacted: [{ file: "src/Foo.java", symbol: "save" }],
+    callers: [{ file: "src/Caller.java", symbol: "handle" }],
+    coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }],
+  });
+  assert.match(out, /advisory/i, "it still says what it is");
+  assert.doesNotMatch(out, /\bverif/i);
+});
+
 test("an all-CodeGraphUnavailable composition (every collaborator absent) still renders an empty string", () => {
   /* Mirrors what StructuralSignalPortAdapter passes when every CodeGraphPort method returned err(...):
      empty arrays for every field, same as the true all-empty case.

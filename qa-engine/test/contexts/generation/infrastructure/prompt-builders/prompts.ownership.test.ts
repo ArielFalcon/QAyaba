@@ -188,3 +188,32 @@ test("the map's framing is a staleness statement only: it directs nothing", () =
   assert.equal(claimsOf(a, "arch-map").some((c) => c.kind === "directs"), false);
   assert.equal(countDirectives(renderArchitectureContext(MAP) ?? ""), 0);
 });
+
+/* ── the advisory riders ── */
+
+const SIGNAL = "## Structural blast radius\n- `save` (src/Foo.java)";
+
+test("the structural signal is assembled only when no brief is in the prompt", () => {
+  assert.equal(buildPromptAssembled(mkInput({ contextBrief: BRIEF, staticSignal: SIGNAL })).sectionSizes["static-signal"], undefined);
+  assert.equal(buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: SIGNAL })).sectionSizes["static-signal"], undefined);
+  assert.ok(buildPromptAssembled(mkInput({ staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
+  assert.ok(buildPromptAssembled(mkInput({ contextPack: DOM_PACK, staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
+});
+
+test("the cross-service links are advisory data: they ask for no verification of their own contents", () => {
+  const link = {
+    from: { repo: "org/app", file: "src/cart.client.ts", symbol: "applyCoupon" },
+    to: { repo: "org/orders", file: "src/Orders.java", symbol: "OrdersController.applyCoupon" },
+    transport: "http" as const,
+    contractRef: "POST /cart/coupon",
+    confidence: 0.9,
+    source: "openapi-join",
+  };
+  const text = buildPromptAssembled(mkInput({ serviceLinks: [link] })).text;
+  const start = text.indexOf("## Cross-service links");
+  assert.ok(start >= 0, "the section is rendered");
+  const next = text.indexOf("\n## ", start + 1);
+  const section = text.slice(start, next === -1 ? undefined : next);
+  assert.match(section, /advisory/i, "it still says what it is");
+  assert.doesNotMatch(section, /\bverif/i);
+});

@@ -683,7 +683,8 @@ export class RunQaUseCase {
      * the matching graph.
      */
     let blastRadiusSignal = "";
-    if (this.deps.structuralSignal) {
+    /* A brief already carries the distilled blast radius, so the graph is not queried and a second, advisory copy never reaches the prompt. */
+    if (this.deps.structuralSignal && !groundingContextBrief) {
       try {
         blastRadiusSignal = await this.deps.structuralSignal.render(workspace.specDir, runBlastRadius);
       } catch (err) {
