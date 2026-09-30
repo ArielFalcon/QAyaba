@@ -270,11 +270,12 @@ const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
  * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
  * optional per-spec metadata. An EMPTY specs array is a decision only when it carries a
  * reasoned `noop` ({"specs":[],"noop":{"reason":"…"}}): silence is not a decision, and neither is
- * `approved`, which is ignored (stripped). A `noop` beside real specs is not read at all.
+ * `approved`, which is ignored (stripped). A missing `specs` is an empty list, so a reasoned `noop`
+ * alone is a decision, exactly as `parseVerdict` reads it. A `noop` beside real specs is not read at all.
  */
 export const GeneratorVerdictSchema = z
   .object({
-    specs: z.array(z.string()),
+    specs: z.array(z.string()).default([]),
     specMetas: z.array(SpecMetaSchema).optional(),
     note: z.string().optional(),
     noop: z.unknown().optional(),

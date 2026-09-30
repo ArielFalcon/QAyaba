@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "./verdict-validate";
+import { parseVerdict } from "./verdict-parse";
 
 test("checkGeneratorVerdict accepts a well-formed generator block", () => {
   const c = checkGeneratorVerdict('done.\n{"specs":["login.spec.ts"],"specMetas":[{"file":"login.spec.ts","flow":"login","objective":"valid creds reach the dashboard","targets":["AuthService.login"]}],"note":""}');
@@ -37,6 +38,25 @@ test("checkGeneratorVerdict rejects a no-op whose reason is missing, blank or no
 test("checkGeneratorVerdict ignores a no-op that sits beside real specs, even a malformed one", () => {
   assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}').valid, true);
   assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":true}').valid, true);
+});
+
+test("a reasoned no-op with no specs key is a valid declared no-op, for the parser and the validator alike", () => {
+  const text = '{"noop":{"reason":"nothing in this change is worth an E2E test"}}';
+  const parsed = parseVerdict(text);
+  assert.equal(parsed.parsed, true);
+  assert.deepEqual(parsed.specs, []);
+  assert.equal(parsed.noopReason, "nothing in this change is worth an E2E test");
+  const c = checkGeneratorVerdict(text);
+  assert.equal(c.valid, true, c.issues.join("; "));
+});
+
+test("a no-op that carries no reason is no decision, for the parser and the validator alike, whether or not a specs key sits beside it", () => {
+  for (const noop of ["{}", '{"reason":"   "}', '{"reason":7}', "true", '"because"']) {
+    for (const text of [`{"noop":${noop}}`, `{"specs":[],"noop":${noop}}`]) {
+      assert.equal(parseVerdict(text).noopReason, undefined, text);
+      assert.equal(checkGeneratorVerdict(text).valid, false, text);
+    }
+  }
 });
 
 test("checkGeneratorVerdict accepts specMetas without targets (targets default to [])", () => {
