@@ -177,8 +177,8 @@ no request and nothing in flight, is a login that cannot complete; a recurring o
 or a request sent leaves the outcome to the request rules), and the note began to name that
 exception: 129 killed, no survivors. It was re-run a last time after that rule began to need the
 form's own submit event, a session was no longer called unpersistable while the login was still in
-flight, and the scrubber learned the `encodeURI` spelling and a backslash read as a slash in a path:
-136 killed, no survivors.
+flight or with no request of the login seen, and the scrubber learned the `encodeURI` spelling and a
+backslash read as a slash in a path: 141 killed, no survivors.
 
 patch-app-yaml (2026-09-30, 4 workers) is a new preset over the module that edits an app's YAML in
 place, run against its own tests and the update use case that drives it. **Before** is its first run;
@@ -206,7 +206,7 @@ re-run; its one survivor is documented below.
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
-| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 136 / 0 / 0 — 100% (100%) | — |
+| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 
 ### Login discovery script (manual triangulation)

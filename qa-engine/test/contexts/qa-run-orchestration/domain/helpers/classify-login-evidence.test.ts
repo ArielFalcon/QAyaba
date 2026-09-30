@@ -74,6 +74,7 @@ const ROWS: readonly Row[] = [
   /* session-not-persistable: the password went but a fresh context shows it again */
   { name: "a password that is gone but shows again in a fresh context is session-not-persistable", evidence: { ...SIGNED_IN, freshContextPasswordGone: false, storageStateWritten: true }, outcome: failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE) },
   { name: "a password that is gone but shows again in a fresh context, with the login still in flight, is not concluded", evidence: { ...SIGNED_IN, freshContextPasswordGone: false, inFlightAtDeadline: true }, outcome: inconclusive(true) },
+  { name: "a password that is gone but shows again in a fresh context, with no request of the login seen, is not concluded", evidence: { ...SIGNED_IN, requests: [], freshContextPasswordGone: false }, outcome: inconclusive(true) },
   { name: "a fresh context that was never opened proves nothing, so the session is not called unpersistable", evidence: { ...SIGNED_IN, freshContextChecked: false, freshContextPasswordGone: false, storageStateWritten: true }, outcome: inconclusive(true) },
 
   /* password still visible: credentials-rejected / login-did-not-complete need a submit-time request and none in flight */

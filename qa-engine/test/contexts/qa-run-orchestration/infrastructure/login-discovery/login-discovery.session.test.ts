@@ -99,3 +99,11 @@ test("a submit control that is disabled on the page the submit landed on is not 
   assert.equal(evidenceOf(run).passwordGone, true);
   assert.equal(evidenceOf(run).submitDisabled, false);
 });
+
+test("a login whose request the child cannot tell from the app's other traffic, and that leaves no session, is not called unpersistable", async () => {
+  const unreadable = { method: "POST", url: "/api/session", postData: "{}", status: 200 };
+  const run = await runLoginDiscovery({ site: signedInSite({ requests: [unreadable], persists: false }) });
+  assert.deepEqual(evidenceOf(run).requests, []);
+  assert.equal(evidenceOf(run).freshContextPasswordGone, false);
+  assert.deepEqual(outcomeOf(run), { status: "inconclusive", attempted: true });
+});
