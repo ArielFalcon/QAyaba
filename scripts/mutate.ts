@@ -171,6 +171,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "precondition-verdict": {
+    description: "auth precondition: the typed error, the run terminal it maps to, and the class consumers that keep it out of learning",
+    mutate: [`${ORCH}/domain/auth-precondition.ts`, `${ORCH}/domain/helpers/precondition-terminal.ts`],
+    tests: [
+      `${ORCH_TEST}/domain/auth-precondition.test.ts`,
+      `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
+      `${ORCH_TEST}/domain/helpers/error-class.test.ts`,
+      `${ORCH_TEST}/domain/helpers/error-class-parity.test.ts`,
+      `${ORCH_TEST}/domain/helpers/learning-gates.test.ts`,
+      `${LEARN_TEST}/process-audit.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

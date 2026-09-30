@@ -141,6 +141,13 @@ before its facts and sets the tail apart — never as wording), and the note's b
 fallback branches the note's own size made unreachable and which were restructured away instead of
 listed. **After** is the re-run; it has no documented survivors.
 
+precondition-verdict (2026-09-30, 4 workers) is a new preset over the typed auth precondition error and
+the run terminal it maps to, run against their own tests and the class consumers' (error-class and its
+parity, learning-gates, process-audit). **Before** is its first run; the one survivor was the error's
+`name` string literal, restructured away (the name is the class's own, `new.target.name`) with the
+behavior pinned instead of the literal: an error prints under a name of its own, apart from a generic
+one. **After** is the re-run; it has no documented survivors.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -154,6 +161,7 @@ listed. **After** is the re-run; it has no documented survivors.
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
+| precondition-verdict | auth-precondition, precondition-terminal | 4 / 0 / 1 — 80% (80%) | 4 / 0 / 0 — 100% (100%) | — |
 
 ### Documented survivors
 

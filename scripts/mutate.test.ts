@@ -69,6 +69,19 @@ test("the generation-end preset mutates exactly the classifier, the terminal map
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the precondition-verdict preset mutates the typed precondition error and its terminal, against their own tests and the class consumers'", () => {
+  const preset = PRESETS["precondition-verdict"];
+  assert.ok(preset, "the precondition-verdict preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), [
+    "qa-engine/src/contexts/qa-run-orchestration/domain/auth-precondition.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/precondition-terminal.ts",
+  ]);
+  for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class-parity", "learning-gates", "process-audit"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",
