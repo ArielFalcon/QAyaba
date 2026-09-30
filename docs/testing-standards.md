@@ -131,7 +131,10 @@ the call tracker learned its stream's liveness (gaps, stream tokens, the bounded
 attempt from ever being released, so its test never finishes; the four survivors of the first run
 were the default timer's two wrapper functions (now the global timer bound directly), an equivalent
 guard (restructured away) and a release order the following gap made unobservable (reordered so a
-test sees it).
+test sees it). It was re-run once more after the tracker took the prompt's provided paths: 306
+killed, 14 timeouts, no survivors. The one survivor of that run was the default of the new argument,
+an empty list no test could tell from any other, so the argument is optional now and its absence
+reads as no listed paths.
 
 generation-end (2026-09-30, 4 workers) is a new preset over the pure end classification with its
 note, the run terminal it maps to and the learning gates. **Before** is its first run; every survivor
@@ -193,9 +196,10 @@ path here has more) and a guard that the first write already performs was remove
 re-run; its one survivor is documented below.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
-twelve rules and its two lexicons), the single regeneration predicate and the diff size, run against
-their own tests, the two prompt-builder seam tests that drive the predicate and the size line, and the
-matrix that lints every reachable generator prompt. **Before** is its first run. Most of its 60
+twelve rules and its two lexicons), the single regeneration predicate, the diff size and the
+harness-facts export scan, run against their own tests, the three prompt-builder seam tests that drive
+the predicate, the size line and the facts section, and the matrix that lints every reachable generator
+prompt. **Before** is its first run, over the lint, the predicate and the diff size. Most of its 60
 survivors were the free-text `detail` string of a finding, which a test could only pin as prose, so a
 finding now carries structured numbers instead (the bytes a pair duplicates; what a budget measured
 against its limit). The real gaps got behavior tests: the sections of a finding named sorted, the
@@ -204,9 +208,19 @@ conditions, a facts-only section that also carries a plain claim, a hunk header 
 findings ordered by key as text. The equivalents were restructured away: pair loops became pair
 generators, the guards that skipped work with no effect were dropped, a reference to a heading is
 split out of the text instead of glued shut, and the harness-facts section id is typed as a fact so
-the mutant that empties it cannot compile. **After** is the re-run; it has no documented survivors.
-Its one timeout is load: the mutant that makes every line a fence marker is killed by seven of the
-lint's own tests when they run directly.
+the mutant that empties it cannot compile. The export scan joined the preset later and its first run
+left 49 survivors of its own (367 killed, 14 timeouts, 49 survived over the extended preset). They
+were real gaps (whitespace between the tokens of a declaration, an export list or a namespace
+re-export written without spaces, a type-only entry with an alias, a malformed entry, the order of
+names across the three kinds of export, a comment or literal that is never closed, an escaped
+backslash before a closing quote, a comment standing between two tokens, the length bound of an
+attribute name) or equivalents that were restructured away: the hand-rolled scanner for comments and
+literals became one regular expression, an export entry is matched by a single pattern that leaves a
+type-only entry out by construction, and source order comes from match positions rather than a
+seeded list. **After** is the re-run over the extended preset; it has no documented survivors. Its
+one timeout is load: the mutant that splits a section into single characters instead of lines slows
+the matrix past the mutation timeout, and seven of the lint's own tests kill it when they run
+directly.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -219,12 +233,12 @@ lint's own tests when they run directly.
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
-| agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
+| agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat | 259 / 5 / 60 — 81.48% (79.94%) | 252 / 1 / 0 — 100% (99.6%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts | 259 / 5 / 60 — 81.48% (79.94%) | 375 / 1 / 0 — 100% (99.73%) | — |
 
 ### Login discovery script (manual triangulation)
 
