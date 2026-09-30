@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { classifyLoginEvidence, renderLoginEvidence } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
 import { PAGE_TEXT_MAX } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.page-readers.ts";
 import {
   STUB_PASS,
@@ -9,6 +10,7 @@ import {
   loginRequest,
   runLoginDiscovery,
   stayingSite,
+  type DiscoveryRun,
   type StubSite,
 } from "../../../../support/login-discovery-harness.ts";
 
@@ -151,4 +153,38 @@ test("a user name that is the start of the password is removed with the whole pa
   const seen = evidenceOf(run).firstNewException ?? "";
   assert.equal(seen.includes("secret"), false);
   assert.equal(seen.includes("-1"), false);
+});
+
+/* The note a failed login ends the run with, rendered from what the child printed, with the account handed to the renderer. */
+function noteOf(run: DiscoveryRun): string {
+  const evidence = evidenceOf(run);
+  const outcome = classifyLoginEvidence(evidence);
+  assert.equal(outcome.status, "failed", "the login failed, so there is a note");
+  return renderLoginEvidence(outcome.kind, evidence, [STUB_USER, STUB_PASS]);
+}
+
+test("the note of a session that cannot be kept never carries a hash token from the address the submit ended on", async () => {
+  const landing = "/#access_token=eyJhbGciOi.tok-marker.sig&state=1";
+  const run = await runLoginDiscovery({ site: { ...landingOn(landing), submit: { requests: [loginRequest({ status: 200 })], landing, persists: false } } });
+  const note = noteOf(run);
+  assert.equal(note.includes("tok-marker"), false);
+  assert.ok(note.includes("ended on /"), "the note still says where the submit ended");
+});
+
+test("the note of a login that did not complete never carries a password that sat in a request's path", async () => {
+  const url = `/api/session/${encodeURIComponent(STUB_PASS)}`;
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ url, postData: "{}", status: 500 })] }) });
+  const note = noteOf(run);
+  assert.equal(note.includes(STUB_PASS), false);
+  assert.equal(note.includes(encodeURIComponent(STUB_PASS)), false);
+  assert.ok(note.includes("POST /api/session/"));
+});
+
+test("the note of a rejected login never carries the start of a password the page cut in the middle", async () => {
+  const head = "see https://x.stub.test/";
+  const tail = " retry with ";
+  const kept = STUB_PASS.slice(0, 5);
+  const text = head + "a".repeat(PAGE_TEXT_MAX - kept.length - head.length - tail.length) + tail + kept;
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest()], after: { ...loginForm(), alerts: [text] } }) });
+  assert.equal(noteOf(run).includes(kept.slice(0, 3)), false);
 });

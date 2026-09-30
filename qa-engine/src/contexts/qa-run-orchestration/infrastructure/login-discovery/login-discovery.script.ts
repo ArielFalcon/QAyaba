@@ -12,9 +12,10 @@
  * arrives as JSON in PW_LOGIN_INPUT. The child never fills or submits on a page whose origin is not
  * the app's (checked after every read of a page, before each field is typed and before the submit, and a
  * form or base address that points elsewhere is no login form), never submits twice, and asks the
- * browser for no trace, screenshot, video or HAR. Every
- * text it lets out (a page error, an alert, an exception) is scrubbed of the account by exact value in
- * every spelling BEFORE it is cut to its bound. The one in-page reader returns plain data.
+ * browser for no trace, screenshot, video or HAR. Every text it lets out (a page error, an alert, an
+ * exception, a path) is scrubbed of the account by exact value in every spelling BEFORE it is cut to its
+ * bound, and the address the browser ends on keeps a hash only as a route. The in-page readers, in
+ * login-discovery.page-readers.ts, return plain data.
  * This module is a protected path: a change here decides where the account is typed.
  */
 
