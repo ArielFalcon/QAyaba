@@ -166,6 +166,15 @@ test("isProtectedPath flags the auth-material adapter and its port contract", ()
   assert.equal(isProtectedPath("qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts"), true);
 });
 
+/* The module that scrubs a login's credentials out of the note and log line a failed login leaves
+   behind: weakening it leaks the account into the run history, the logs and any Issue text. It is an
+   exact entry, so the helpers beside it stay autonomously editable. */
+test("isProtectedPath flags the login evidence scrubber and only that helper", () => {
+  const helpers = "qa-engine/src/contexts/qa-run-orchestration/domain/helpers";
+  assert.equal(isProtectedPath(`${helpers}/login-evidence.ts`), true);
+  assert.equal(isProtectedPath(`${helpers}/error-class.ts`), false);
+});
+
 /* three control-plane auth files were BOTH unscanned (not
    under a SECURITY_SENSITIVE_SURFACE_ROOTS root) AND unprotected — a weakening edit to any of them
    passed silently. auth.ts mints/validates the HMAC session token; github-auth.ts is the push/admin

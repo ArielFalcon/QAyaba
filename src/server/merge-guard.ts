@@ -56,6 +56,12 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/qa-run-orchestration/application/ports/auth-session.port.ts",
   /*
+   * Scrubs the account's credentials out of the note and log line a failed login leaves behind
+   * (exact value, every spelling, before the cut). Weakening it leaks the account into the run
+   * history, the logs and any Issue text. An exact entry: the helpers beside it stay editable.
+   */
+  "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/login-evidence.ts",
+  /*
    * The login seed copied into every watched repo: it receives the app credentials in its env and
    * decides where the session is saved — an edit could log them or write the session back under
    * the agent-visible mirror.
