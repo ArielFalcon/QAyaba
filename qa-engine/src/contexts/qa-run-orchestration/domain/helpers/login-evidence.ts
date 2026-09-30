@@ -6,6 +6,10 @@
  * the account's user name and password by exact value in every spelling a URL, a form body or a
  * JSON body would give them, BEFORE the text is cut to its bound, so no prefix of a credential
  * survives a cut. This module is a protected path: weakening it leaks the account.
+ *
+ * Known residual, not covered: a decomposed (NFD) spelling of a composed (NFC) secret or the reverse,
+ * a JSON body that escapes `&`, `<` and `>` as `\u0026`-style sequences (Go), one that escapes `/`
+ * as `\/` (PHP), and any other encoding a server invents.
  */
 
 import { PRECONDITION_KIND, type PreconditionKind } from "../auth-precondition.ts";
@@ -125,22 +129,48 @@ export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   return inconclusive(true);
 }
 
+/* The runtime has `toWellFormed` (Node 20+); the ES2022 library the projects compile against does not declare it. */
+const toWellFormed = (text: string): string => (text as string & { toWellFormed(): string }).toWellFormed();
+
 /* Every way a URL, a form body or a JSON body (escaped, or ASCII-only escaped) spells a value back. */
 function spellingsOf(secret: string): string[] {
-  const form = new URLSearchParams({ k: secret }).toString().slice(2);
-  const json = JSON.stringify(secret).slice(1, -1);
+  /* A lone surrogate cannot be percent-encoded; the repaired form is what a server would have received. */
+  const wellFormed = toWellFormed(secret);
+  const form = new URLSearchParams({ k: wellFormed }).toString().slice(2);
+  const json = JSON.stringify(wellFormed).slice(1, -1);
   const asciiJson = json.replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-  return [secret, encodeURIComponent(secret), form, json, asciiJson];
+  return [secret, wellFormed, encodeURIComponent(wellFormed), form, json, asciiJson];
 }
 
+const escapeForRegExp = (literal: string): string => literal.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+
 /**
- * Removes every secret from the text by exact value, in every spelling. The longest spelling goes
- * first so a secret that contains another leaves no fragment of the longer one; an empty secret is
- * skipped (it would match between every character).
+ * Removes every secret from the text by exact value, in every spelling and whatever the case (a name
+ * echoed in capitals, percent or escape hex in either case). Every occurrence of every spelling is
+ * located on the ORIGINAL text, including the ones that overlap each other, and the stretches they
+ * cover are merged and replaced once, so a secret that contains or overlaps another leaves no
+ * fragment of either behind. An empty secret is skipped (it would match between every character).
  */
 export function scrubSecrets(text: string, secrets: readonly string[]): string {
-  const spellings = [...new Set(secrets.filter((secret) => secret !== "").flatMap(spellingsOf))].sort((a, b) => b.length - a.length);
-  return spellings.reduce((scrubbed, spelling) => scrubbed.split(spelling).join(REDACTED), text);
+  const spellings = new Set(secrets.filter((secret) => secret !== "").flatMap(spellingsOf));
+  const found: Array<[number, number]> = [];
+  for (const spelling of spellings) {
+    /* The lookahead finds occurrences that overlap one another; the capture is the text as it stands, whatever its case. */
+    const occurrence = new RegExp(`(?=(${escapeForRegExp(spelling)}))`, "giu");
+    for (const match of text.matchAll(occurrence)) found.push([match.index, match.index + (match[1] ?? "").length]);
+  }
+  found.sort((a, b) => a[0] - b[0]);
+  let scrubbed = "";
+  let copiedTo = 0;
+  for (const [start, end] of found) {
+    if (start >= copiedTo) {
+      scrubbed += text.slice(copiedTo, start) + REDACTED;
+      copiedTo = end;
+    } else if (end > copiedTo) {
+      copiedTo = end;
+    }
+  }
+  return scrubbed + text.slice(copiedTo);
 }
 
 /* The credentials come out first and the cut comes after, so a value straddling the cut vanishes whole. */
