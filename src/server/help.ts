@@ -116,7 +116,7 @@ Can be disabled per-app: qa.needsReview: false.
 - **fail** — test failures detected → GitHub Issue with sanitized logs
 - **flaky** — passes only after retries → quarantined (no Issue)
 - **invalid** — static checks fail (tsc/lint/manifest)
-- **infra-error** — the run could not reach a verdict, never a code bug: DEV unhealthy, a network issue or a crash; or, when the run says so, an agent that ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")})
+- **infra-error** — the run could not reach a verdict, never a code bug: DEV unhealthy, a network issue or a crash; or, when the run says so, an agent that ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")})
 - **skipped** — style-only commit, or the agent declared a no-op with a reason (nothing in the change worth an E2E test)
 
 ## Pipeline steps (what happens during a run)

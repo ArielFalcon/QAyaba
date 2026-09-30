@@ -14,6 +14,10 @@ describe("ERROR_CLASSES", () => {
     assert.ok((ERROR_CLASSES as readonly string[]).includes("E-NO-DECISION"));
   });
 
+  it("lists the precondition class, which is kept in step with the engine's own list", () => {
+    assert.ok((ERROR_CLASSES as readonly string[]).includes("E-PRECONDITION"));
+  });
+
   it("E-INFRA is present and excludable from learning", () => {
     assert(ERROR_CLASSES.includes("E-INFRA"));
   });
@@ -36,6 +40,12 @@ describe("infraErrorGloss", () => {
     assert.match(gloss, /engine/i);
   });
 
+  it("says the precondition class is a login the run could not complete, and not an engine-side condition", () => {
+    const gloss = infraErrorGloss("E-PRECONDITION");
+    assert.match(gloss, /login/i);
+    assert.doesNotMatch(gloss, /engine/i);
+  });
+
   it("never blames the DEV environment, whatever the class or its absence", () => {
     for (const errorClass of [...ERROR_CLASSES, null, undefined, "E-FUTURE-CLASS"]) {
       assert.doesNotMatch(infraErrorGloss(errorClass), /\bDEV\b/, String(errorClass));
@@ -43,8 +53,8 @@ describe("infraErrorGloss", () => {
   });
 
   it("gives each engine-side class its own wording, apart from the neutral one", () => {
-    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-INFRA")]);
-    assert.equal(wordings.size, 3);
+    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-PRECONDITION"), infraErrorGloss("E-INFRA")]);
+    assert.equal(wordings.size, 4);
     assert.equal(infraErrorGloss(null), infraErrorGloss("E-INFRA"));
     assert.equal(infraErrorGloss("E-FUTURE-CLASS"), infraErrorGloss("E-INFRA"));
   });

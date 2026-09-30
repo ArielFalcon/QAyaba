@@ -77,6 +77,7 @@ test("the assistant is told an infra-error can be the agent running out of steps
   const legend = buildRunChatContext();
   assert.ok(legend.includes(infraErrorGloss("E-STEP-BUDGET")));
   assert.ok(legend.includes(infraErrorGloss("E-NO-DECISION")));
+  assert.ok(legend.includes(infraErrorGloss("E-PRECONDITION")));
   const line = legend.split("\n").find((l) => l.startsWith("· infra-error")) ?? "";
   assert.notEqual(line, "");
   assert.doesNotMatch(line, /^· infra-error → DEV/);

@@ -23,6 +23,9 @@ const ENGINE_DEFECT_CLASSES = new Set<ErrorClass>(["E-STATIC"]);
 /* An agent that keeps running out of steps is an operating condition to watch (a prompt, a budget or a change too big for one turn), never an engine defect to patch or a map to rebuild: it is observed and nothing more. */
 const STEP_BUDGET_CLASS: ErrorClass = "E-STEP-BUDGET";
 
+/* A run that keeps ending on a login it could not complete is a condition of the app's setup (credentials, a login step no browser can finish): visible to an operator, never an engine defect and never an app-behavior gap a learned rule could close. */
+const PRECONDITION_CLASS: ErrorClass = "E-PRECONDITION";
+
 /** A minimal view of a learning rule — only the fields the audit reasons about. Narrowing here would be a silent behavioral risk (a real row failing to structurally satisfy this type), not a simplification. */
 export interface RuleView {
   id: string;
@@ -72,6 +75,14 @@ export function auditProcess(input: AuditInput): ProcessFinding[] {
         disposition: "observe",
         severity: "warn",
         summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the agent keeps running out of steps without reporting any spec; visibility only, never an engine fix.`,
+        evidence,
+      });
+    } else if (recurringCls === PRECONDITION_CLASS) {
+      findings.push({
+        kind: "recurring-precondition-failure",
+        disposition: "observe",
+        severity: "warn",
+        summary: `${recurringCls} ${RECUR_WINDOW} runs in a row — the run keeps ending before any test on the app's login; visibility only, never an engine fix or a learned rule.`,
         evidence,
       });
     } else if (ENGINE_DEFECT_CLASSES.has(recurringCls)) {

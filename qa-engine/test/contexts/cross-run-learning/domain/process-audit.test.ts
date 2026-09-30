@@ -72,6 +72,23 @@ test("two step-budget runs in a row are not yet a streak", () => {
   assert.deepEqual(auditProcess({ outcome: o, recent: [o, outcome({ errorClass: "E-STEP-BUDGET", sha: "b" }), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })], rules: [] }), []);
 });
 
+test("a recurring precondition failure is only observed, and is not read as an app-behavior gap", () => {
+  const precondition = (sha: string) => outcome({ errorClass: "E-PRECONDITION", verdict: "infra-error", sha });
+  const o = precondition("a");
+  const findings = auditProcess({ outcome: o, recent: [o, precondition("b"), precondition("c")], rules: [] });
+  assert.equal(findings.length, 1, "one finding: the streak itself");
+  assert.equal(findings[0]!.kind, "recurring-precondition-failure");
+  assert.equal(findings[0]!.disposition, "observe");
+  assert.match(findings[0]!.evidence, /E-PRECONDITION/);
+  assert.match(findings[0]!.summary, /E-PRECONDITION/);
+});
+
+test("two precondition failures in a row are not yet a streak", () => {
+  const precondition = (sha: string) => outcome({ errorClass: "E-PRECONDITION", verdict: "infra-error", sha });
+  const o = precondition("a");
+  assert.deepEqual(auditProcess({ outcome: o, recent: [o, precondition("b"), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })], rules: [] }), []);
+});
+
 test("a one-off errorClass does NOT fire engine-fix (one occurrence is noise, not a defect)", () => {
   const o = outcome({ errorClass: "E-STATIC" });
   const input: AuditInput = { outcome: o, recent: [o, outcome({ errorClass: "E-EXEC-FAIL" }), outcome({ errorClass: null })], rules: [] };

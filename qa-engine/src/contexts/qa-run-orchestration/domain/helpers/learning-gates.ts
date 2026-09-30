@@ -3,8 +3,8 @@ import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { ERROR_CLASS } from "./error-class.ts";
 import { shouldDistillLearning } from "./should-distill-learning.ts";
 
-/** Classes that teach the engine nothing: an outage, a flaky test, or a generation that decided nothing. */
-export const NON_LEARNING: ReadonlySet<string> = new Set([ERROR_CLASS.INFRA, ERROR_CLASS.FLAKY, ERROR_CLASS.NO_DECISION]);
+/** Classes that teach the engine nothing: an outage, a flaky test, a generation that decided nothing, or a login the run could not complete. */
+export const NON_LEARNING: ReadonlySet<string> = new Set([ERROR_CLASS.INFRA, ERROR_CLASS.FLAKY, ERROR_CLASS.NO_DECISION, ERROR_CLASS.PRECONDITION]);
 
 export interface LearningGateInput {
   /** `mainline` is a run that executed its suite; `terminal` ended earlier (before or without execution). */

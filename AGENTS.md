@@ -62,6 +62,7 @@ doppler run -- docker compose up --build   # prod: Doppler injects secrets
 9. **Decide** — green + reviewer-approved (+ coverage not blocking) → PR w/ auto-merge. Reviewer rejected, or `fail`/`invalid` → Issue. `flaky` → quarantine. Green with no `e2e/` changes → nothing.
 
 **Verdicts**: `pass | fail | flaky | invalid | infra-error | skipped`.
+An `infra-error` classed `E-PRECONDITION` means the app's login could not be completed before testing: recorded, never learned from, no Issue.
 
 ### Run modes (`--mode`, default `diff`)
 

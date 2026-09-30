@@ -24,7 +24,7 @@ export function buildRunChatContext(): string {
     "· fail   → test failures detected → GitHub Issue opened for the team",
     "· flaky  → passes only after retries → quarantined (no action needed)",
     "· invalid → static checks failed (compilation, linting, or metadata)",
-    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")})`,
+    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")})`,
     "· skipped → the commit needed no testing (style-only, or the agent declared a no-op with a reason)",
     "",
     "## Boundaries of this chat",

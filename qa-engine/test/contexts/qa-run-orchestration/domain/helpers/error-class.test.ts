@@ -32,3 +32,20 @@ test("every other generation end leaves the verdict-derived class untouched", ()
     assert.equal(resolveErrorClass({ ...BASE, verdict: "skipped", generationEnd }), null, String(generationEnd));
   }
 });
+
+test("a precondition failure resolves to the precondition class, ahead of whatever the verdict or a reviewer would name", () => {
+  for (const verdict of ["infra-error", "invalid", "fail", "flaky", "pass", "skipped"]) {
+    assert.equal(resolveErrorClass({ ...BASE, verdict, preconditionFailed: true }), ERROR_CLASS.PRECONDITION, verdict);
+  }
+  assert.equal(
+    resolveErrorClass({ ...BASE, verdict: "invalid", reviewerCorrections: ["[false-positive] asserts nothing"], preconditionFailed: true }),
+    ERROR_CLASS.PRECONDITION,
+  );
+});
+
+test("a run that did not fail a precondition keeps the class its verdict implies", () => {
+  for (const preconditionFailed of [false, undefined]) {
+    assert.equal(resolveErrorClass({ ...BASE, verdict: "infra-error", preconditionFailed }), ERROR_CLASS.INFRA, String(preconditionFailed));
+    assert.equal(resolveErrorClass({ ...BASE, verdict: "invalid", preconditionFailed }), "E-STATIC", String(preconditionFailed));
+  }
+});

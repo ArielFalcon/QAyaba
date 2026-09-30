@@ -149,6 +149,7 @@ a qa-engine `CompositionConfig`). Default `diff` mode shown:
    `infra-error`. `flaky` → quarantine. Green with no `e2e/` changes → nothing.
 
 **Verdicts** (`src/types.ts` `RunVerdict`): `pass | fail | flaky | invalid | infra-error | skipped`.
+An `infra-error` classed `E-PRECONDITION` means the app's login could not be completed before testing: recorded, never learned from, no Issue.
 
 **Shadow mode** (`qa.shadow: true` in app config) replaces every PR/Issue side
 effect with a log line — used to onboard a repo without dirtying it.

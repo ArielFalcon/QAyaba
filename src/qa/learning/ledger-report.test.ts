@@ -32,6 +32,14 @@ describe("renderLedgerReport — engine-side classes", () => {
   });
 });
 
+describe("renderLedgerReport — the precondition class", () => {
+  it("reads the precondition class in plain words, never as its E-… code", () => {
+    const out = renderLedgerReport([rule({ errorClass: "E-PRECONDITION", status: "active", confidence: "medium" })]);
+    assert.doesNotMatch(out, /E-PRECONDITION/);
+    assert.doesNotMatch(out, /\bE-[A-Z]/);
+  });
+});
+
 describe("renderLedgerReport — human-readable audit view", () => {
   it("renders a friendly empty state", () => {
     const out = renderLedgerReport([], { app: "portfolio" });

@@ -22,6 +22,7 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
   "E-INFRA": false,
   "E-STEP-BUDGET": true,
   "E-NO-DECISION": false,
+  "E-PRECONDITION": false,
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];
@@ -64,6 +65,12 @@ test("a step-budget exhaustion that ended the run folds and reflects", () => {
 
 test("an undecided generation never folds or reflects", () => {
   const gates = learningGates({ stage: "terminal", verdict: "infra-error", errorClass: ERROR_CLASS.NO_DECISION, ...OPEN });
+  assert.deepEqual(gates, { fold: false, reflect: false });
+});
+
+test("a precondition failure that ended the run never folds or reflects", () => {
+  assert.ok(NON_LEARNING.has(ERROR_CLASS.PRECONDITION));
+  const gates = learningGates({ stage: "terminal", verdict: "infra-error", errorClass: ERROR_CLASS.PRECONDITION, ...OPEN });
   assert.deepEqual(gates, { fold: false, reflect: false });
 });
 
