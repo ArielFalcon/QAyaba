@@ -15,6 +15,8 @@ export interface OnboardAuthInput {
   passwordEnv?: string;
   certEnv?: string;
   certPassEnv?: string;
+  /** Form logins only: a path on the app's own origin (see LoginPathSchema). */
+  loginPath?: string;
 }
 
 export interface OnboardInput {
@@ -62,6 +64,7 @@ export function buildYaml(input: OnboardInput): string {
     if (input.auth.passwordEnv) lines.push(`  passwordEnv: "${input.auth.passwordEnv}"`);
     if (input.auth.certEnv) lines.push(`  certEnv: "${input.auth.certEnv}"`);
     if (input.auth.certPassEnv) lines.push(`  certPassEnv: "${input.auth.certPassEnv}"`);
+    if (input.auth.kind === "form" && input.auth.loginPath) lines.push(`  loginPath: ${JSON.stringify(input.auth.loginPath)}`);
   }
 
   if (input.target !== "code" && input.services?.length) {

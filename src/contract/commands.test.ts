@@ -6,6 +6,7 @@ import {
   QaCaseSchema,
   CreateRunInputSchema,
   CreateAppInputSchema,
+  AppAuthInputSchema,
   CreateAppResultSchema,
   DeleteAppResultSchema,
   QueueStatusSchema,
@@ -191,4 +192,28 @@ test("a full RunRecord (every optional populated) parses", () => {
     stepStartedAt: "2026-01-01T00:00:00.000Z", at: "2026-01-01T00:00:01.000Z",
   };
   assert.doesNotThrow(() => RunRecordSchema.parse(record));
+});
+
+test("the app auth input accepts a login path on the app's own origin, and only for a form login", () => {
+  const form = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } as const;
+  for (const loginPath of ["/signin", "/", "/#/login"]) {
+    const parsed = AppAuthInputSchema.safeParse({ ...form, loginPath });
+    assert.equal(parsed.success && parsed.data.loginPath, loginPath);
+  }
+  assert.equal(AppAuthInputSchema.safeParse({ kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" }).success, false);
+});
+
+test("the app auth input rejects a login path that could leave the app's origin or is not one plain path", () => {
+  const form = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } as const;
+  for (const loginPath of ["//evil.example", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/" + "a".repeat(200)]) {
+    assert.equal(AppAuthInputSchema.safeParse({ ...form, loginPath }).success, false, JSON.stringify(loginPath));
+  }
+});
+
+test("create and update inputs carry the login path through their auth", () => {
+  const auth = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS", loginPath: "/signin" } as const;
+  const created = CreateAppInputSchema.parse({ repo: "org/r", auth });
+  const updated = UpdateAppInputSchema.parse({ auth });
+  assert.equal(created.auth?.loginPath, "/signin");
+  assert.equal(updated.auth?.loginPath, "/signin");
 });

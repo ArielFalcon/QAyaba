@@ -37,7 +37,7 @@ export interface AppYamlPatch {
 
 /* The auth keys only one kind uses. */
 const AUTH_KEYS_BY_KIND: Record<OnboardAuthInput["kind"], readonly (keyof OnboardAuthInput)[]> = {
-  form: ["usernameEnv", "passwordEnv"],
+  form: ["usernameEnv", "passwordEnv", "loginPath"],
   mtls: ["certEnv", "certPassEnv"],
 };
 const AUTH_FIELDS: readonly (keyof OnboardAuthInput)[] = ["usernameEnv", "passwordEnv", "certEnv", "certPassEnv"];
@@ -131,6 +131,8 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
       const value = auth[field];
       if (typeof value === "string" && value !== "") setString(["auth", field], value);
     }
+    /* Written even when empty, so validation refuses an empty path instead of the patch ignoring it. */
+    if (typeof auth.loginPath === "string") setString(["auth", "loginPath"], auth.loginPath);
     if (!hadAuth) setApart("auth");
   }
 

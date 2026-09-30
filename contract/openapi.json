@@ -2178,6 +2178,11 @@
           },
           "certPassEnv": {
             "type": "string"
+          },
+          "loginPath": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^\\/(?!\\/)\\S*$"
           }
         },
         "required": [

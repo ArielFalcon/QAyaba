@@ -724,6 +724,7 @@ export interface components {
             passwordEnv?: string;
             certEnv?: string;
             certPassEnv?: string;
+            loginPath?: string;
         };
         RepoInfo: {
             name: string;

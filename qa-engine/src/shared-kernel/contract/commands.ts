@@ -1,5 +1,6 @@
 
 import { z } from "zod";
+import { LoginPathSchema } from "../login-path";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
@@ -161,13 +162,20 @@ export const RepoInfoSchema = z.object({
   description: z.string().nullable(),
 });
 
-export const AppAuthInputSchema = z.object({
-  kind: z.enum(["form", "mtls"]),
-  usernameEnv: z.string().optional(),
-  passwordEnv: z.string().optional(),
-  certEnv: z.string().optional(),
-  certPassEnv: z.string().optional(),
-});
+export const AppAuthInputSchema = z
+  .object({
+    kind: z.enum(["form", "mtls"]),
+    usernameEnv: z.string().optional(),
+    passwordEnv: z.string().optional(),
+    certEnv: z.string().optional(),
+    certPassEnv: z.string().optional(),
+    /** A path on the app's own origin, for a form login whose page is not reachable by its links. */
+    loginPath: LoginPathSchema.optional(),
+  })
+  .refine((auth) => auth.kind === "form" || auth.loginPath === undefined, {
+    error: "loginPath is only valid for kind form",
+    path: ["loginPath"],
+  });
 
 export const CreateAppInputSchema = z.object({
   repo: z.string(),

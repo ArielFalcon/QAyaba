@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
 
 /*
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
@@ -168,6 +169,8 @@ export const AppConfigSchema = z
         passwordEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
         certEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
         certPassEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        /* Where the login page lives when it is not found by following the app's own links. Form logins only. */
+        loginPath: LoginPathSchema.optional(),
       })
       .optional(),
     code: z.boolean().optional(),
@@ -203,6 +206,10 @@ export const AppConfigSchema = z
   .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
     error: "auth.kind form requires usernameEnv and passwordEnv",
     path: ["auth"],
+  })
+  .refine((c) => c.auth?.kind !== "mtls" || c.auth.loginPath === undefined, {
+    error: "auth.loginPath is only valid for kind form",
+    path: ["auth", "loginPath"],
   })
   .refine((c) => c.auth?.kind !== "mtls" || (!!c.auth.certEnv && !!c.auth.certPassEnv), {
     error: "auth.kind mtls requires certEnv and certPassEnv",

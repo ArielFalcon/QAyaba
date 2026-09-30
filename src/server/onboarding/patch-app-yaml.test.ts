@@ -204,6 +204,24 @@ test("auth: a kind change drops the keys that only the old kind uses and keeps t
   assert.equal(backToForm["certPassEnv"], undefined);
 });
 
+test("auth: a login path is overwritten when supplied, kept when the patch names only kind and variables, and written even when empty so validation can refuse it", () => {
+  const withPath = CONFIG.replace("  futureOption: keep-me", '  loginPath: "/signin"\n  futureOption: keep-me');
+  const overwritten = raw(patchAppYaml(withPath, { auth: { kind: "form", loginPath: "/sign-in" } }))["auth"] as Record<string, unknown>;
+  assert.equal(overwritten["loginPath"], "/sign-in");
+  const kept = raw(patchAppYaml(withPath, { auth: { kind: "form", usernameEnv: "OTHER_USER", passwordEnv: "DEMO_PASS" } }))["auth"] as Record<string, unknown>;
+  assert.equal(kept["loginPath"], "/signin");
+  assert.equal(kept["usernameEnv"], "OTHER_USER");
+  const empty = raw(patchAppYaml(withPath, { auth: { kind: "form", loginPath: "" } }))["auth"] as Record<string, unknown>;
+  assert.equal(empty["loginPath"], "");
+});
+
+test("auth: switching to a client-certificate login drops the login path with the form keys", () => {
+  const withPath = CONFIG.replace("  futureOption: keep-me", '  loginPath: "/signin"\n  futureOption: keep-me');
+  const out = raw(patchAppYaml(withPath, { auth: { kind: "mtls", certEnv: "DEMO_CERT", certPassEnv: "DEMO_CERT_PASS" } }))["auth"] as Record<string, unknown>;
+  assert.equal(out["loginPath"], undefined);
+  assert.equal(out["kind"], "mtls");
+});
+
 test("clearAuth removes the auth block and leaves the rest alone", () => {
   const out = patchAppYaml(CONFIG, { clearAuth: true });
   assert.equal(raw(out)["auth"], undefined);

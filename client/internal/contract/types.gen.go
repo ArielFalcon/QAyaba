@@ -1130,11 +1130,42 @@ type AgentRestartResponse struct {
 	Health AgentProviderHealth `json:"health"`
 }
 
+// AgentTurnView defines model for AgentTurnView.
+type AgentTurnView struct {
+	CallBuckets             *map[string]float32 `json:"callBuckets"`
+	CallsBeforeFirstWrite   *int                `json:"callsBeforeFirstWrite"`
+	Cost                    *float32            `json:"cost"`
+	DuplicateCallCount      *int                `json:"duplicateCallCount"`
+	Exhausted               *bool               `json:"exhausted"`
+	IsRepair                bool                `json:"isRepair"`
+	MaxSteps                *int                `json:"maxSteps"`
+	Objective               *string             `json:"objective"`
+	OutputText              string              `json:"outputText"`
+	PromptBytes             int                 `json:"promptBytes"`
+	PromptProvidedReadCount *int                `json:"promptProvidedReadCount"`
+	PromptText              string              `json:"promptText"`
+	RedundantReadCount      *int                `json:"redundantReadCount"`
+	Role                    string              `json:"role"`
+	Round                   int                 `json:"round"`
+	RunId                   *string             `json:"runId"`
+	SessionId               string              `json:"sessionId"`
+	StepsUsed               *int                `json:"stepsUsed"`
+	TokensCacheRead         *float32            `json:"tokensCacheRead"`
+	TokensCacheWrite        *float32            `json:"tokensCacheWrite"`
+	TokensInput             *float32            `json:"tokensInput"`
+	TokensOutput            *float32            `json:"tokensOutput"`
+	TokensReasoning         *float32            `json:"tokensReasoning"`
+	TotalCalls              *int                `json:"totalCalls"`
+	Ts                      string              `json:"ts"`
+	WriteCount              *int                `json:"writeCount"`
+}
+
 // AppAuthInput defines model for AppAuthInput.
 type AppAuthInput struct {
 	CertEnv     *string          `json:"certEnv,omitempty"`
 	CertPassEnv *string          `json:"certPassEnv,omitempty"`
 	Kind        AppAuthInputKind `json:"kind"`
+	LoginPath   *string          `json:"loginPath,omitempty"`
 	PasswordEnv *string          `json:"passwordEnv,omitempty"`
 	UsernameEnv *string          `json:"usernameEnv,omitempty"`
 }
@@ -1147,6 +1178,38 @@ type AppService struct {
 	Openapi    *string `json:"openapi,omitempty"`
 	Repo       string  `json:"repo"`
 	VersionUrl *string `json:"versionUrl,omitempty"`
+}
+
+// AppTelemetryView defines model for AppTelemetryView.
+type AppTelemetryView struct {
+	App    string `json:"app"`
+	ByRole []struct {
+		MedianCacheHitRate *float32 `json:"medianCacheHitRate"`
+		MedianPromptBytes  *float32 `json:"medianPromptBytes"`
+		P95PromptBytes     *float32 `json:"p95PromptBytes"`
+		Role               string   `json:"role"`
+		TurnCount          int      `json:"turnCount"`
+	} `json:"byRole"`
+	Efficiency struct {
+		DuplicateRatio              *float32 `json:"duplicateRatio"`
+		ExhaustedRate               *float32 `json:"exhaustedRate"`
+		MedianCallsBeforeFirstWrite *float32 `json:"medianCallsBeforeFirstWrite"`
+		RedundantReadRatio          *float32 `json:"redundantReadRatio"`
+		TurnsMeasured               int      `json:"turnsMeasured"`
+	} `json:"efficiency"`
+	GeneratedAt         string   `json:"generatedAt"`
+	GroundingPresence   *float32 `json:"groundingPresence"`
+	MedianTurnsPerRun   *float32 `json:"medianTurnsPerRun"`
+	MedianWallClockSec  *float32 `json:"medianWallClockSec"`
+	P95WallClockSec     *float32 `json:"p95WallClockSec"`
+	RepairFraction      *float32 `json:"repairFraction"`
+	ReviewerConvergence struct {
+		ApproveRate          *float32 `json:"approveRate"`
+		AvgCorrectionsRound0 *float32 `json:"avgCorrectionsRound0"`
+		AvgCorrectionsRound1 *float32 `json:"avgCorrectionsRound1"`
+	} `json:"reviewerConvergence"`
+	RunCount   int  `json:"runCount"`
+	WindowDays *int `json:"windowDays"`
 }
 
 // AppView defines model for AppView.
@@ -1312,6 +1375,7 @@ type CreateAppResult struct {
 // CreateRunInput defines model for CreateRunInput.
 type CreateRunInput struct {
 	App      string               `json:"app"`
+	BaseSha  *string              `json:"baseSha,omitempty"`
 	Commits  *int                 `json:"commits,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
 	Mode     CreateRunInputMode   `json:"mode"`
@@ -1855,6 +1919,11 @@ type GetAppReportParams struct {
 
 // GetAppReportParamsFormat defines parameters for GetAppReport.
 type GetAppReportParamsFormat string
+
+// GetAppTelemetryParams defines parameters for GetAppTelemetry.
+type GetAppTelemetryParams struct {
+	Window *int `form:"window,omitempty" json:"window,omitempty"`
+}
 
 // GetAppTrendsParams defines parameters for GetAppTrends.
 type GetAppTrendsParams struct {

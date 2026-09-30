@@ -19,6 +19,27 @@ test("auth.kind form accepts env-var names", () => {
   assert.equal(cfg.auth?.usernameEnv, "QA_SHOP_TEST_USER");
 });
 
+const FORM_LOGIN = { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" } as const;
+
+test("auth.loginPath accepts a path on the app's own origin", () => {
+  for (const loginPath of ["/signin", "/", "/auth/login", "/#/login", "/login?next=/home"]) {
+    const cfg = AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } });
+    assert.equal(cfg.auth?.loginPath, loginPath);
+  }
+});
+
+test("auth.loginPath rejects anything that could leave the app's origin or is not one plain path", () => {
+  const tooLong = "/" + "a".repeat(200);
+  for (const loginPath of ["//evil.example", "//evil.example/login", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/sign\tin", tooLong]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } }), JSON.stringify(loginPath));
+  }
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath: "/" + "a".repeat(199) } }), "200 characters is allowed");
+});
+
+test("auth.loginPath is only for a form login", () => {
+  assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" } }));
+});
+
 test("auth is optional and code-mode stays valid without it", () => {
   const cfg = AppConfigSchema.parse({ ...base, code: true, dev: undefined });
   assert.equal(cfg.auth, undefined);

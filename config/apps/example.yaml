@@ -79,6 +79,9 @@ baseBranch: "main"             # target branch for the QA pull requests
 #   kind: form
 #   usernameEnv: QA_EXAMPLE_TEST_USER
 #   passwordEnv: QA_EXAMPLE_TEST_PASS
+#   # Optional, form only: where the login page lives when following the app's own links does
+#   # not reach it. A path on the app's own origin (e.g. /signin), never a URL or //host.
+#   loginPath: /signin
 
 # `dev` is REQUIRED for e2e apps (the default) and OMITTED for code-mode apps.
 dev:

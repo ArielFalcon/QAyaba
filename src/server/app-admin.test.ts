@@ -182,6 +182,44 @@ test("updateApp with a login that names only its kind and variables keeps the lo
   assert.equal(auth["futureOption"], "keep-me");
 });
 
+const SHOP_WITH_LOGIN_PATH = SHOP_YAML.replace("  futureOption: keep-me", '  loginPath: "/signin"\n  futureOption: keep-me');
+
+test("updateApp with a login that names only its kind and variables keeps the login path already declared", async () => {
+  const deps = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
+  const r = await updateApp({ name: "shop", auth: { kind: "form", usernameEnv: "SHOP_OTHER_USER", passwordEnv: "SHOP_PASS" } }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const auth = writtenConfig(deps)["auth"] as Record<string, unknown>;
+  assert.equal(auth["loginPath"], "/signin");
+  assert.equal(auth["usernameEnv"], "SHOP_OTHER_USER");
+});
+
+test("updateApp overwrites the login path when one is supplied, and a route that leaves the origin is refused", async () => {
+  const deps = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
+  const changed = await updateApp({ name: "shop", auth: { kind: "form", usernameEnv: "SHOP_USER", passwordEnv: "SHOP_PASS", loginPath: "/sign-in" } }, deps);
+  assert.equal(changed.ok, true, JSON.stringify(changed.errors));
+  assert.equal((writtenConfig(deps)["auth"] as Record<string, unknown>)["loginPath"], "/sign-in");
+
+  for (const loginPath of ["//evil.example", "https://evil.example/login", ""]) {
+    const refusing = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
+    const refused = await updateApp({ name: "shop", auth: { kind: "form", usernameEnv: "SHOP_USER", passwordEnv: "SHOP_PASS", loginPath } }, refusing);
+    assert.equal(refused.ok, false, JSON.stringify(loginPath));
+    assert.deepEqual(refusing.written, {}, JSON.stringify(loginPath));
+  }
+});
+
+test("only clearAuth removes a declared login path, and a switch to a client certificate drops it", async () => {
+  const cleared = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
+  await updateApp({ name: "shop", clearAuth: true }, cleared);
+  assert.equal(writtenConfig(cleared)["auth"], undefined);
+
+  const switched = makeDeps(withConfig(SHOP_WITH_LOGIN_PATH));
+  const r = await updateApp({ name: "shop", auth: { kind: "mtls", certEnv: "SHOP_CERT", certPassEnv: "SHOP_CERT_PASS" } }, switched);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const auth = writtenConfig(switched)["auth"] as Record<string, unknown>;
+  assert.equal(auth["kind"], "mtls");
+  assert.equal(auth["loginPath"], undefined);
+});
+
 test("updateApp of an unrelated field writes the config back as it was: comments, placeholders, tuning and blocks included", async () => {
   const deps = makeDeps(withConfig(SHOP_YAML));
   const r = await updateApp({ name: "shop", shadow: false }, deps);

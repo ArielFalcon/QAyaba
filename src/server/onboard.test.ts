@@ -119,6 +119,16 @@ test("buildYaml renders auth for form and omits it in code mode", () => {
   assert.doesNotMatch(code, /auth:/);
 });
 
+test("buildYaml renders a form login's path override, and never for a client-certificate login", () => {
+  const base = { name: "shop", repo: "org/shop-front", baseBranch: "main", baseUrl: "https://dev.shop.io", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa-shop" } as const;
+  const form = buildYaml({ ...base, auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS", loginPath: "/signin" } });
+  assert.match(form, /loginPath: "\/signin"/);
+  const mtls = buildYaml({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" } });
+  assert.doesNotMatch(mtls, /loginPath/);
+  const none = buildYaml({ ...base, auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } });
+  assert.doesNotMatch(none, /loginPath/);
+});
+
 test("buildYaml omits services when absent or in code mode", () => {
   const none = buildYaml({ name: "a", repo: "o/a", baseBranch: "main", baseUrl: "https://x", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa" });
   assert.doesNotMatch(none, /services:/);
