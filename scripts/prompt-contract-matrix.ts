@@ -42,6 +42,7 @@ import type {
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 import { codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
@@ -62,6 +63,12 @@ export const DIMENSIONS = {
   authSeedUnauthored: [false, true],
   serviceLinks: [false, true],
   harnessFacts: [false, true],
+  /* Whether the brief distilled any blast radius. */
+  briefBlast: ["filled", "empty"],
+  /* Whether the pack captured a live DOM; without one it holds the contracts alone. */
+  packDom: [true, false],
+  /* The change belongs to a microservice rather than to the frontend repo. */
+  service: [false, true],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -79,12 +86,19 @@ export function isValidSpec(spec: CellSpec): boolean {
     if (isCode || spec.structuralSignal || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
   }
   if (isCode) {
-    if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
+    if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service) return false;
     if (spec.grounding === "pack" || spec.grounding === "brief+pack") return false;
-    if (spec.phase === "regen-coverage" || spec.phase === "selector-fix") return false;
+    if (spec.phase === "selector-fix") return false;
   }
   if (spec.tree !== "none" && !regenWithTree) return false;
-  if (spec.structuralSignal && (spec.grounding === "brief" || spec.grounding === "brief+pack")) return false;
+  const hasBrief = spec.grounding === "brief" || spec.grounding === "brief+pack";
+  const hasPack = spec.grounding === "pack" || spec.grounding === "brief+pack";
+  if (spec.structuralSignal && hasBrief) return false;
+  if (spec.briefBlast === "empty" && !hasBrief) return false;
+  /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
+  if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
+  /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
+  if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
 }
 
@@ -104,43 +118,6 @@ export function allValidSpecs(): CellSpec[] {
   return [...everySpec()].filter(isValidSpec);
 }
 
-type Pair = string;
-
-/* Every pair of dimension values that co-occurs in at least one valid combination. */
-export function pairsOf(spec: CellSpec): Pair[] {
-  const out: Pair[] = [];
-  for (let i = 0; i < DIMENSION_NAMES.length; i++) {
-    for (let j = i + 1; j < DIMENSION_NAMES.length; j++) {
-      const a = DIMENSION_NAMES[i]!;
-      const b = DIMENSION_NAMES[j]!;
-      out.push(`${a}=${String(spec[a])}|${b}=${String(spec[b])}`);
-    }
-  }
-  return out;
-}
-
-/* Deterministic greedy all-pairs cover of the valid combinations: each pick takes the combination covering the most still-uncovered pairs (first in enumeration order on ties). */
-export function pairwiseSpecs(): CellSpec[] {
-  const candidates = allValidSpecs();
-  const uncovered = new Set<Pair>(candidates.flatMap(pairsOf));
-  const picked: CellSpec[] = [];
-  while (uncovered.size > 0) {
-    let best: CellSpec | undefined;
-    let bestGain = 0;
-    for (const candidate of candidates) {
-      const gain = pairsOf(candidate).filter((p) => uncovered.has(p)).length;
-      if (gain > bestGain) {
-        best = candidate;
-        bestGain = gain;
-      }
-    }
-    if (!best) break;
-    picked.push(best);
-    for (const p of pairsOf(best)) uncovered.delete(p);
-  }
-  return picked;
-}
-
 export function cellName(spec: CellSpec): string {
   const flags = [
     spec.contextMap ? "map" : "",
@@ -148,6 +125,9 @@ export function cellName(spec: CellSpec): string {
     spec.authSeedUnauthored ? "login" : "",
     spec.serviceLinks ? "links" : "",
     spec.harnessFacts ? "facts" : "",
+    spec.briefBlast === "empty" ? "noblast" : "",
+    spec.packDom ? "" : "nodom",
+    spec.service ? "service" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -208,6 +188,12 @@ const SERVICE_LINKS: ServiceLink[] = [
   },
 ];
 
+const SERVICE: NonNullable<OpencodeRunInput["service"]> = {
+  repo: "org/orders",
+  mirrorDir: "/mirrors/org__orders-staged",
+  openapi: "orders-api.yaml",
+};
+
 const HARNESS_FACTS: HarnessFacts = {
   testIdAttribute: "data-cy",
   fixtures: { file: "fixtures.ts", exports: ["test", "expect", "authenticate"] },
@@ -237,17 +223,20 @@ const packDeps: ContextPackDeps = {
 
 const CHANGED_FILES = ["src/app/cart/cart.service.ts", "src/app/cart/cart.component.ts"];
 
+const briefFor = (spec: CellSpec): ExplorationBrief => (spec.briefBlast === "empty" ? { ...BRIEF, blastRadius: [] } : BRIEF);
+
 async function buildPack(spec: CellSpec): Promise<string | undefined> {
+  const deps: ContextPackDeps = spec.packDom ? packDeps : { ...packDeps, captureDomForRoutes: async () => undefined };
   const { text } = await buildContextPack(
     {
-      ...(spec.grounding === "brief+pack" ? { brief: BRIEF } : {}),
+      ...(spec.grounding === "brief+pack" ? { brief: briefFor(spec) } : {}),
       ...(spec.contextMap ? { contextMap: CONTEXT_MAP } : {}),
       baseUrl: "http://localhost:3000",
       e2eDir: "/mirrors/org__app/e2e",
       prChangedFiles: CHANGED_FILES,
       routes: ["/cart"],
     },
-    packDeps,
+    deps,
   );
   return text;
 }
@@ -284,7 +273,7 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
     ...(spec.mode === "diff" || spec.mode === "manual" ? { existingSpecFiles: ["flows/cart.spec.ts"] } : {}),
   };
 
-  if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = BRIEF;
+  if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
   if (spec.grounding === "pack" || spec.grounding === "brief+pack") {
     const pack = await buildPack(spec);
     if (pack) input.contextPack = pack;
@@ -294,6 +283,7 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
   if (spec.authSeedUnauthored) input.authSeedUnauthored = true;
   if (spec.serviceLinks) input.serviceLinks = SERVICE_LINKS;
   if (spec.harnessFacts) input.harnessFacts = HARNESS_FACTS;
+  if (spec.service) input.service = SERVICE;
   if (spec.tree !== "none") {
     input.domSnapshot = TREE_TEXT;
     if (spec.tree === "failure") input.failureSourced = true;
@@ -382,9 +372,18 @@ export interface MatrixCell {
   staticBytes: number;
 }
 
-/* Combinations that differ only in the optional grounding they carry share a budget: the largest of the group. Tree and grounding stay in the key, so the shapes that exclude one another are budgeted apart. */
+/* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the block that is large by itself (the microservice change), stay in the key so they are budgeted apart. */
 export function bucketOf(spec: CellSpec): string {
-  return [spec.mode, spec.target, spec.phase, `tree-${spec.tree}`, spec.grounding].join("/");
+  return [
+    spec.mode,
+    spec.target,
+    spec.phase,
+    `tree-${spec.tree}`,
+    spec.grounding,
+    ...(spec.briefBlast === "empty" ? ["no-blast"] : []),
+    ...(spec.packDom ? [] : ["contracts-only"]),
+    ...(spec.service ? ["service"] : []),
+  ].join("/");
 }
 
 export interface CellMeasure {
@@ -535,7 +534,7 @@ export function recordBaseline(cells: readonly MatrixCell[], committed?: Baselin
 }
 
 export function lintMatrixCell(cell: MatrixCell, baseline?: Baseline): readonly LintFinding[] {
-  if (!baseline) return lintCell(cell.lint, { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES });
+  if (!baseline) return lintCell(cell.lint, { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES, artifactReferences: ARTIFACT_REFERENCES });
   const recorded = baseline.buckets[cell.bucket];
   /* A combination nobody recorded has no budget to hold it to; that is a failure to record it, never a reason to borrow the ceiling. */
   const unrecorded: LintFinding[] = recorded ? [] : [{ rule: "R9", sections: [], budget: "unrecorded" }];
@@ -543,6 +542,7 @@ export function lintMatrixCell(cell: MatrixCell, baseline?: Baseline): readonly 
     ...unrecorded,
     ...lintCell(cell.lint, {
       assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES,
+      artifactReferences: ARTIFACT_REFERENCES,
       budget: {
         ...(recorded ? { maxAssembledBytes: Math.min(baseline.globalUserPromptBytes, recorded.bytes), maxDirectives: recorded.directives } : {}),
         maxStaticBytes: baseline.staticLayers[cell.layer],

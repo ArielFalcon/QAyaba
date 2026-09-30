@@ -9,6 +9,7 @@ import {
   TRUST_LEXICON,
   APP_LOGIN_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
+  type ArtifactReference,
   type LintCell,
   type LintSection,
   type PromptClaim,
@@ -522,4 +523,61 @@ test("the trust lexicon matches the plain and the past form of trust but not a l
   assert.equal(hasTrustLanguage("trust this tree"), true);
   assert.equal(hasTrustLanguage("a trusted tree"), true);
   assert.equal(hasTrustLanguage("a trustworthy tree"), false);
+});
+
+/* ── a reference to an assembled artifact needs the artifact ── */
+
+const TREE_REFERENCE: ArtifactReference = {
+  artifact: "tree",
+  pattern: /\bthe tree above\b/i,
+  provider: { facts: ["dom-live", "dom-failure"] },
+};
+const LOGIN_REFERENCE: ArtifactReference = { artifact: "login", pattern: /\bApp login\b/, provider: { section: APP_LOGIN_SECTION_ID } };
+
+test("a section that refers to an artifact nothing in the cell provides is reported with the artifact it lacks", () => {
+  const findings = lintCell(cell([sec("fix", [], { text: "Fix it from the tree above." })]), { artifactReferences: [TREE_REFERENCE] });
+  assert.deepEqual(findings, [{ rule: "R13", sections: ["fix"], artifact: "tree" }]);
+});
+
+test("a reference is met by any section that provides one of the artifact's facts, including the referring section itself", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  for (const fact of ["dom-live", "dom-failure"] as const) {
+    const other = cell([sec("fix", [], { text: "Fix it from the tree above." }), sec("dom", [provides(fact)])]);
+    assert.deepEqual(lintCell(other, references), [], `provided by another section: ${fact}`);
+    const own = cell([sec("fix", [provides(fact)], { text: "Fix it from the tree above." })]);
+    assert.deepEqual(lintCell(own, references), [], `provided by the referring section: ${fact}`);
+  }
+  assert.deepEqual(lintCell(cell([sec("fix", [], { text: "Fix it from the tree above." }), sec("dom", [provides("risks")])]), references).map((f) => f.rule), ["R13"], "another fact does not meet it");
+});
+
+test("an artifact backed by a section is met by the section with that id and by nothing else", () => {
+  const references = { artifactReferences: [LOGIN_REFERENCE] };
+  const text = "See App login before you write.";
+  assert.deepEqual(lintCell(cell([sec("task", [], { text })]), references).map((f) => f.artifact), ["login"]);
+  assert.deepEqual(lintCell(cell([sec("task", [], { text }), sec(APP_LOGIN_SECTION_ID, [], { text: "steps" })]), references), []);
+});
+
+test("a heading line is a section's own title and refers to nothing, but the same words in its body do", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "## The tree above\nplain body" })]), references), []);
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "## Title\nlook at the tree above" })]), references).map((f) => f.rule), ["R13"]);
+});
+
+test("the same words inside a fenced block are captured data and refer to nothing", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "resolve every item:\n```\n- x is not in the tree above\n```" })]), references), []);
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "```ts\nnot the tree above\n```\nnow the tree above" })]), references).map((f) => f.rule), ["R13"], "prose after the fence closes counts again");
+});
+
+test("captured verbatim data and the static layer are not judged for references", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  const text = "the tree above";
+  assert.deepEqual(lintCell(cell([sec("diff", [], { text, verbatim: true })]), references), []);
+  assert.deepEqual(lintCell(cell([sec("role", [], { text, layer: "static" })]), references), []);
+});
+
+test("each missing artifact of a section is reported once, and the findings are ordered by artifact", () => {
+  const references = { artifactReferences: [LOGIN_REFERENCE, TREE_REFERENCE] };
+  const findings = lintCell(cell([sec("task", [], { text: "the tree above, the tree above and App login" })]), references);
+  assert.deepEqual(findings.map((f) => f.artifact), ["login", "tree"]);
 });

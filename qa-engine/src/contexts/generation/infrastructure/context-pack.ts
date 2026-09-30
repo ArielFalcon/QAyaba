@@ -210,11 +210,16 @@ export async function buildContextPack(
     return { text: undefined, domBytes: 0, contractBytes: 0 };
   }
 
+  /* The header names the sections the pack actually rendered: a pack with no DOM never mentions one. */
+  const held = [
+    ...(domSection ? ["the live DOM of the routes it covers"] : []),
+    ...(contractSection ? ["the API contracts relevant to this objective"] : []),
+  ].join(" and ");
   const packHeader = [
     `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
     "",
-    "The orchestrator built this pack deterministically before this session started. It holds the live DOM of the",
-    "routes it covers and the API contracts relevant to this objective.",
+    "The orchestrator built this pack deterministically before this session started.",
+    `It holds ${held}.`,
     "",
   ].join("\n");
 

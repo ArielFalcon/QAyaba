@@ -426,3 +426,29 @@ test("withoutPackSection reports no pack at all when the removed section was the
   const text = `## ${PACK_HEADINGS.pack}\n\nheader\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
   assert.equal(withoutPackSection(text, PACK_HEADINGS.liveDom), undefined);
 });
+
+/* The text above the first section: what the pack says about itself. */
+const packHeader = (text: string | undefined): string => (text ?? "").split(/^### /m)[0] ?? "";
+
+test("the pack's header names only the sections it holds", async () => {
+  const contractsOnly = await buildContextPack({ brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP }, stubContextPackDeps(undefined));
+  assert.ok(contractsOnly.text?.includes(`### ${PACK_HEADINGS.contracts}`), "the fixture holds contracts and no DOM");
+  assert.equal(contractsOnly.text?.includes(`### ${PACK_HEADINGS.liveDom}`), false);
+  assert.doesNotMatch(packHeader(contractsOnly.text), new RegExp(PACK_HEADINGS.liveDom, "i"), "a pack with no DOM does not describe a live DOM");
+  assert.match(packHeader(contractsOnly.text), /contracts/i);
+
+  const domOnly = await buildContextPack(
+    { routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/mirrors/e2e" },
+    stubContextPackDeps("button: Pay"),
+  );
+  assert.ok(domOnly.text?.includes(`### ${PACK_HEADINGS.liveDom}`), "the fixture holds a DOM and no contracts");
+  assert.doesNotMatch(packHeader(domOnly.text), /contracts/i, "a pack with no contracts does not describe any");
+  assert.match(packHeader(domOnly.text), new RegExp(PACK_HEADINGS.liveDom, "i"));
+
+  const both = await buildContextPack(
+    { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/mirrors/e2e" },
+    stubContextPackDeps("button: Pay"),
+  );
+  assert.match(packHeader(both.text), new RegExp(PACK_HEADINGS.liveDom, "i"));
+  assert.match(packHeader(both.text), /contracts/i);
+});

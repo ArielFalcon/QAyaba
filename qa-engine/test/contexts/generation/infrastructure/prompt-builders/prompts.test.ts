@@ -18,6 +18,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { OpencodeRunInput, ParallelWorkerInput, ReviewInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
@@ -37,8 +38,12 @@ setExplorationBriefCollaborators({
 /* Regeneration prompts must NOT command the agent to re-navigate / re-snapshot / re-activate
    serena when authoritative grounding (a Context Pack DOM excerpt or an injected a11y tree) is
    already in the prompt. They MUST keep commanding exploration when there is NO grounding (a
-   blind regen still needs to see the page). "Grounding present" = contextPack || domSnapshot.
+   blind regen still needs to see the page). "Grounding present" = a DOM tree is in the prompt: the
+   pack's live DOM section or an injected tree. A pack of contracts alone is not a tree.
  */
+
+const PACK_WITH_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (a11y tree)\nroute /owners:\n  button: Add Owner`;
+const PACK_CONTRACTS_ONLY = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.contracts}\n- \`listOwners\`: GET /owners`;
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
   return {
@@ -117,7 +122,7 @@ test("a seed that signed in adds no auth.setup.ts rewrite instruction", () => {
  */
 
 test("fix-loop: with grounding present and no failure DOM, the fix prompt does NOT command browser_navigate", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM here" }));
+  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_WITH_DOM }));
   assert.ok(
     !text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"),
     "grounded fix retry must not order a full re-navigation",
@@ -136,6 +141,11 @@ test("fix-loop: with NO grounding, the fix prompt STILL commands browser explora
   );
 });
 
+test("fix-loop: a pack of contracts alone grounds no selector, so the fix retry still explores the live page", () => {
+  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_CONTRACTS_ONLY }));
+  assert.ok(text.includes("Use browser_navigate + browser_snapshot to see the ACTUAL page"));
+});
+
 test("fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate framing", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: true }));
   assert.ok(text.includes("GROUND TRUTH AT FAILURE"), "failure-sourced retry keeps the ground-truth heading");
@@ -145,11 +155,11 @@ test("fix-loop: failureSourced retry keeps the GROUND TRUTH no-navigate framing"
   );
 });
 
-test("reviewer-corrections: with grounding present, do NOT command re-verify against the live DOM", () => {
-  const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], contextPack: "## Context Pack\n\nDOM here" }));
+test("reviewer-corrections: with grounding present, do NOT command re-verify against the live page", () => {
+  const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], contextPack: PACK_WITH_DOM }));
   assert.ok(
-    !text.includes("re-verify it against the live DOM with the Playwright MCP"),
-    "grounded reviewer-corrections must not order a live-DOM re-verification",
+    !/re-verify it against the live/.test(text),
+    "grounded reviewer-corrections must not order a live re-verification",
   );
   assert.ok(
     text.includes("Re-verify against the injected grounding"),
@@ -157,12 +167,14 @@ test("reviewer-corrections: with grounding present, do NOT command re-verify aga
   );
 });
 
-test("reviewer-corrections: with NO grounding, keep the live-DOM re-verify instruction", () => {
-  const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"] }));
-  assert.ok(
-    text.includes("re-verify it against the live DOM with the Playwright MCP"),
-    "a blind reviewer-corrections turn must still re-verify against the live DOM",
-  );
+test("reviewer-corrections: with NO grounding, keep the live re-verify instruction", () => {
+  for (const contextPack of [undefined, PACK_CONTRACTS_ONLY]) {
+    const text = buildPrompt(mkInput({ reviewCorrections: ["scope the selector"], ...(contextPack ? { contextPack } : {}) }));
+    assert.ok(
+      /re-verify it against the live page with the Playwright MCP/.test(text),
+      "a blind reviewer-corrections turn must still re-verify against the live page",
+    );
+  }
 });
 
 /* SECURITY CRITICAL: the reviewer agent has read/bash/glob on the ACTUAL repo files, not just the
@@ -283,7 +295,7 @@ test("working-rules: no pack AND no DOM keeps the explore-first mandate (blind r
 });
 
 test("coverage-enforce: with grounding present, instruct to resolve from grounding, not re-navigate", () => {
-  const text = buildPrompt(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: "## Context Pack\n\nDOM here" }));
+  const text = buildPrompt(mkInput({ coverageGap: "src/foo.ts:10-12", contextPack: PACK_WITH_DOM }));
   assert.ok(
     text.includes("Resolve any new selectors from the injected grounding"),
     "grounded coverage-enforce must point new selectors at the injected grounding",
@@ -319,7 +331,7 @@ test("a diff RE-gen prompt does NOT re-command the blast-radius scan (no contrad
    The agent must be explicitly told to navigate an uncovered route rather than guess blindly.
  */
 test("a grounded RE-gen prompt MANDATES navigating a route absent from the grounding (anti-blinding)", () => {
-  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: "## Context Pack\n\nDOM" }));
+  const text = buildPrompt(mkInput({ fixCases: [failingCase], contextPack: PACK_WITH_DOM }));
   assert.ok(
     text.includes("you MUST still browser_navigate that specific route"),
     "the agent must navigate an uncovered route, never guess its selectors from incomplete grounding",

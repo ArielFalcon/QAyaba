@@ -457,6 +457,16 @@ test("formatDomSnapshot gives a runtimeErrors route an ADVISORY warning but STIL
   assert.match(out, /button: Submit/, "its nodes MUST still be rendered — the route is a trusted grounding source, only app-health is advisory");
 });
 
+test("the advisory on a route whose app logged runtime errors carries no directive, so it cannot send the agent back to a route the tree already covers", () => {
+  const out = formatDomSnapshot([{
+    route: "/owners/new",
+    nodes: ["button: Submit"],
+    settled: true,
+    runtimeErrors: [{ type: "pageerror", text: "TypeError: undefined is not a function" }],
+  }]);
+  assert.equal(countDirectives(out), 0);
+});
+
 test("formatDomSnapshot warns on a route degraded via a redirect (finalUrl mismatch)", () => {
   const out = formatDomSnapshot([{
     route: "/owners/new",

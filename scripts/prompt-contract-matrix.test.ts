@@ -18,7 +18,6 @@ import {
   loadBaseline,
   loadStaticLayer,
   lintMatrixCell,
-  pairwiseSpecs,
   recordBaseline,
   splitAssembledSections,
   type Baseline,
@@ -41,26 +40,11 @@ const matrixOnce = (): Promise<MatrixCell[]> => (matrix ??= buildMatrix());
 
 /* ── coverage ── */
 
-test("the reference set covers every value of every dimension and every valid pair of values", () => {
+test("every value of every dimension is reachable in at least one combination that can reach the agent", () => {
   const valid = allValidSpecs();
-  const reference = pairwiseSpecs();
-  const pairOf = (spec: CellSpec, a: keyof CellSpec, b: keyof CellSpec): string => `${a}=${String(spec[a])}|${b}=${String(spec[b])}`;
-
   for (const dimension of dimensionNames) {
     for (const value of DIMENSIONS[dimension] as readonly unknown[]) {
-      assert.ok(
-        valid.some((s) => s[dimension] === value) === reference.some((s) => s[dimension] === value),
-        `${dimension}=${String(value)} is reachable exactly when the reference set exercises it`,
-      );
-    }
-  }
-  for (let i = 0; i < dimensionNames.length; i++) {
-    for (let j = i + 1; j < dimensionNames.length; j++) {
-      const a = dimensionNames[i]!;
-      const b = dimensionNames[j]!;
-      const reachable = new Set(valid.map((s) => pairOf(s, a, b)));
-      const covered = new Set(reference.map((s) => pairOf(s, a, b)));
-      assert.deepEqual([...reachable].filter((p) => !covered.has(p)), [], `every reachable ${a}/${b} pair is covered`);
+      assert.ok(valid.some((s) => s[dimension] === value), `${dimension}=${String(value)} is exercised by some combination`);
     }
   }
 });
@@ -69,11 +53,19 @@ test("only combinations that can reach the agent are in the matrix", () => {
   const valid = allValidSpecs();
   assert.ok(valid.length > 0 && valid.every(isValidSpec));
   assert.ok(valid.every((s) => s.mode !== "context" || (s.phase === "first" && s.grounding === "none" && s.tree === "none")));
-  assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts)));
+  assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts && !s.service)));
   assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
   assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack"));
+  assert.ok(valid.every((s) => s.briefBlast === "filled" || s.grounding === "brief" || s.grounding === "brief+pack"));
+  assert.ok(valid.every((s) => s.packDom || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.contextMap)));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
+});
+
+test("a code run can be asked to cover a change it already tested, but never to fix a selector", () => {
+  const codePhases = new Set(allValidSpecs().filter((s) => s.target === "code").map((s) => s.phase));
+  assert.ok(codePhases.has("regen-coverage"));
+  assert.equal(codePhases.has("selector-fix"), false);
 });
 
 test("the matrix holds every valid combination against both static layers", async () => {
@@ -88,12 +80,35 @@ test("the matrix holds every valid combination against both static layers", asyn
 
 test("a cell's assembled sections reproduce the assembled prompt exactly", async () => {
   setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
-  for (const spec of pairwiseSpecs()) {
+  for (const spec of allValidSpecs().filter((_, i) => i % 7 === 0)) {
     const assembled = buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
     const sections = splitAssembledSections(assembled);
     assert.equal(sections.map((s) => s.text).join("\n"), assembled.text, cellName(spec));
     assert.deepEqual(sections.map((s) => s.id), Object.keys(assembled.sectionSizes), cellName(spec));
   }
+});
+
+test("the shapes the matrix adds are really assembled: a pack with no DOM, a brief with no blast radius, and the service block", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const spec = (over: Partial<CellSpec>): CellSpec => ({
+    ...allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "brief+pack" && s.contextMap && !s.service && s.briefBlast === "filled" && s.packDom)!,
+    ...over,
+  });
+  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
+  const full = await claimsOf(spec({}));
+  assert.ok(full.some((c) => c.kind === "provides" && c.fact === "dom-live"));
+  assert.ok(full.some((c) => c.kind === "provides" && c.fact === "blast-radius"));
+
+  const contractsOnly = await claimsOf(spec({ packDom: false }));
+  assert.equal(contractsOnly.some((c) => c.kind === "provides" && c.fact === "dom-live"), false, "no live DOM without a DOM capture");
+  assert.ok(contractsOnly.some((c) => c.kind === "provides" && c.fact === "api-operations"), "the pack still holds the contracts");
+
+  const noBlast = await claimsOf(spec({ briefBlast: "empty" }));
+  assert.equal(noBlast.some((c) => c.kind === "provides" && c.fact === "blast-radius"), false);
+
+  const withService = await buildInput(spec({ service: true }));
+  assert.equal(withService.service?.repo !== undefined, true);
+  assert.equal((await buildInput(spec({}))).service, undefined);
 });
 
 test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {

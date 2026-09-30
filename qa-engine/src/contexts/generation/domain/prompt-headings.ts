@@ -10,6 +10,9 @@ export const PROMPT_HEADINGS = {
   explorationBrief: "Exploration brief",
   groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
   liveDevTree: "Live DEV accessibility tree",
+  crossServiceLinks: "Cross-service links",
+  appLogin: "App login",
+  harnessFacts: "Harness facts",
 } as const;
 
 /* The context pack's sections. */
@@ -30,4 +33,10 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.architectureContext,
   PROMPT_HEADINGS.groundTruthAtFailure,
   PROMPT_HEADINGS.liveDevTree,
+  PROMPT_HEADINGS.crossServiceLinks,
+  PROMPT_HEADINGS.appLogin,
+  PROMPT_HEADINGS.harnessFacts,
+  /* The phrases a directive uses for the brief and for grounding it points back at. */
+  "the brief",
+  "the grounding above",
 ];

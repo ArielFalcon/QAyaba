@@ -53,7 +53,7 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
   if (facts.fixtures?.exports.length) {
     lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
   }
-  return lines.length > 0 ? [`## Harness facts`, ...lines, ``].join("\n") : "";
+  return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
 }
 
 /* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
@@ -355,8 +355,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
   const memTarget = input.mode === "context" ? "context" : input.target;
-  /* Authoritative grounding (Context Pack DOM slice or injected a11y tree): regeneration must not command a re-navigation — the agent fixes from the injected grounding. */
-  const hasInjectedGrounding = isGenerationMode && Boolean(input.contextPack || input.domSnapshot);
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
 
@@ -372,7 +370,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const contextPackContent = packHasLiveDom && hasLiveTree ? (withoutPackSection(packText, PACK_HEADINGS.liveDom) ?? "") : packText;
   const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
   const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
-  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source. */
+  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source, and a regeneration fixes from it instead of re-navigating. A pack of contracts alone is not a tree. */
   const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
 
   const workingRulesLines: string[] = [
@@ -397,8 +395,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `  * Module with deps → integration test: real module + test doubles`,
           `  * Handler/endpoint → integration test: test client, real request, assert status + body`,
           `  * Trivial delegation/getter/setter → skip`,
-          `- Assert on BEHAVIOR, not implementation. Include edge cases from the diff.`,
-          `- One objective per test, derived from commit intent. Use realistic test data.`,
+          `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
+          `- One objective per test. Use realistic test data.`,
           `- Never write a test whose only assertion is "does not throw".`,
           `- COMPILE-CHECK before finishing: after writing/fixing the tests, compile them with the project's build tool (mvn -B test-compile · gradle testClasses · go vet ./... · cargo check --tests · npx tsc --noEmit) and FIX any errors BEFORE emitting your verdict. The orchestrator runs the suite only AFTER you finish — a compile failure costs a full regeneration round, so a clean compile is cheaper than a fix loop.`,
         ]
@@ -410,7 +408,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
           ...(packProvides("dom-live")
             ? [
-                `- A Context Pack (live DOM + contracts) was pushed into this prompt by the`,
+                `- A Context Pack (live DOM${packProvides("api-operations") ? " + contracts" : ""}) was pushed into this prompt by the`,
                 `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
                 `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use browser_navigate or`,
                 `  browser_snapshot on routes already covered in the pack.`,
@@ -529,12 +527,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `## ⚠ Lever-2 selector contradictions (DETERMINISTIC — resolve EVERY one)`,
           ``,
           `These selectors were checked against ${hasFailureTree ? "the captured failure-point tree above" : hasLiveTree ? "the captured tree above" : "the page's captured a11y tree"} and FAILED.`,
-          `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT in the captured tree`,
+          `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT ${treeInPrompt ? "in the captured tree" : "on the page"}`,
           `(the listed present roles are what IS there) — do NOT re-use it. Replace it with a role/name`,
-          `that appears in the tree, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
+          `${treeInPrompt ? "that appears in the tree" : "from the present roles listed"}, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
           `scope the locator to a unique parent. You MUST resolve every item before finishing:`,
           ``,
+          "```",
           ...input.selectorContradictions.map((c) => `- ${sanitizeText(c).text}`),
+          "```",
           ``,
         ].join("\n")
       : "";
@@ -559,7 +559,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               `failure. Fix the underlying error; do NOT rewrite or touch tests that passed the gate.`,
             ]
           : [
-              `The following tests FAILED during execution against DEV. Fix ONLY these`,
+              `The following tests FAILED during execution${isCode ? "" : " against DEV"}. Fix ONLY these`,
               `tests; do NOT rewrite or touch tests that passed.`,
             ]),
         ``,
@@ -583,9 +583,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
               `4. PRESERVE each test's objective and assertions — fix only what's broken`,
             ]
-          : hasInjectedGrounding
+          : treeInPrompt
           ? [
-              `Fix from the injected grounding above (Context Pack / DOM tree) — do NOT navigate to re-derive`,
+              `Fix from the injected grounding above (the DOM tree) — do NOT navigate to re-derive`,
               `a route it already covers; navigate ONLY a route absent from the injected grounding.`,
               GROUNDING_UNCOVERED_ESCAPE,
               `1. Read the test file to understand what it asserts`,
@@ -595,6 +595,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               `   - "locator.click: … not found" → the element doesn't exist; check role/label in the injected grounding`,
               `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
               `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+            ]
+          : isCode
+          ? [
+              `For each failure:`,
+              `1. Read the test file to understand what it asserts`,
+              `2. Read the code under test that the failure points at`,
+              `3. Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
               `4. PRESERVE each test's objective and assertions — fix only what's broken`,
             ]
           : [
@@ -623,9 +631,11 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
         `An independent reviewer REJECTED the previous specs. Fix EACH item below precisely;`,
         `do NOT rewrite specs that were not flagged.`,
-        hasInjectedGrounding
-          ? `Re-verify against the injected grounding above (Context Pack / DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
-          : `Where a fix concerns a selector or an assertion, re-verify it against the live DOM with the Playwright MCP before editing.`,
+        treeInPrompt
+          ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
+          : isCode
+          ? `Where a fix concerns an assertion, re-verify it against the code under test before editing.`
+          : `Where a fix concerns a selector or an assertion, re-verify it against the live page with the Playwright MCP before editing.`,
         ``,
 
         ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
@@ -641,7 +651,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         `tests so those lines are actually executed and asserted (covering ≠ asserting — assert the`,
         `behavior of the changed code, do not just touch the line):`,
         ``,
-        ...(hasInjectedGrounding
+        ...(treeInPrompt
           ? [
               `Resolve any new selectors from the injected grounding above — do NOT re-navigate routes it already covers.`,
               GROUNDING_UNCOVERED_ESCAPE,
@@ -657,15 +667,26 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ? [input.learnedRules, ``].join("\n")
     : "";
 
-  /* A re-generation turn must not re-orient; the blast radius is already in the grounding above. Suppress serena re-activation. */
+  /* The brief already carries the distilled blast radius; the advisory structural copy of it only appears when there is no brief. */
+  const staticSignalContent = input.staticSignal && isGenerationMode && !input.contextBrief ? input.staticSignal : "";
+  const staticSignalClaims: PromptClaim[] = staticSignalContent
+    ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
+    : [];
+
+  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries one (a brief with a blast radius, or the structural signal); otherwise it only forbids the re-skim. */
+  const blastRadiusGrounded = blastRadiusSupplied || staticSignalContent !== "";
   const regenDisciplineContent = isReGen
     ? [
         `## Re-generation turn — do NOT re-orient`,
         ``,
-        `Re-generation turn: the blast radius was already explored and distilled above. Do NOT re-activate`,
+        blastRadiusGrounded
+          ? `Re-generation turn: the blast radius was already explored and distilled above. Do NOT re-activate`
+          : `Re-generation turn: do NOT re-activate`,
         `serena, do NOT re-run find_referencing_symbols, do NOT re-skim the repository or re-read unchanged`,
-        `code. Work from the grounding already in this prompt and change only what the correction requires.`,
-        `(One exception: if a correction names a specific symbol that is NOT in the grounding above, read ONLY that symbol.)`,
+        blastRadiusGrounded
+          ? `code. Work from the grounding already in this prompt and change only what the correction requires.`
+          : `code. Change only what the correction requires.`,
+        `(One exception: if a correction names a specific symbol you have not seen, read ONLY that symbol.)`,
         ``,
       ].join("\n")
     : "";
@@ -675,8 +696,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const appLoginContent =
     input.authSeedUnauthored && isGenerationMode && !isCode
       ? [
-          `## App login`,
-          `App login is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
+          `## ${PROMPT_HEADINGS.appLogin}`,
+          `${PROMPT_HEADINGS.appLogin} is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
           `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
           `Import test from @playwright/test, not from ./fixtures.`,
           `Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.`,
@@ -687,12 +708,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       : "";
 
   const task = buildTask(input, { mapInjected, blastRadiusSupplied });
-
-  /* The brief already carries the distilled blast radius; the advisory structural copy of it only appears when there is no brief. */
-  const staticSignalContent = input.staticSignal && isGenerationMode && !input.contextBrief ? input.staticSignal : "";
-  const staticSignalClaims: PromptClaim[] = staticSignalContent
-    ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
-    : [];
 
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -718,7 +733,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const serviceLinksContent =
     (hasServiceLinks || hasContractDrift) && isGenerationMode
       ? [
-          "## Cross-service links (deterministic — from the stitcher, advisory)",
+          `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
           "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasServiceLinks

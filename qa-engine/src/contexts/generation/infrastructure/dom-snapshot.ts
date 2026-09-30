@@ -191,9 +191,9 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
       lines.push(`route ${s.route}: (${DEGRADED_ROUTE_LABEL})`);
       continue;
     }
-    /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it verifies live and does not blindly assert app-generated content. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
+    /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it asserts only what this tree shows and does not blindly assert app-generated content. The note is data, not a directive: the prompt forbids re-navigating a route the tree covers, so it must never send the agent back to the page. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
     const runtimeErrorAdvisory = hasRuntimeErrorSignal(s.runtimeErrors ?? [])
-      ? " (note: the app logged runtime errors — possibly a defect; verify live before asserting on app-generated content)"
+      ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
     const all = s.nodes ?? [];
     const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);

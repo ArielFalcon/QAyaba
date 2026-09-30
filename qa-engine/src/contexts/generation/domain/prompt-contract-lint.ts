@@ -74,19 +74,32 @@ export interface LintBudget {
   maxDirectives?: number;
 }
 
+/* How a directive refers to an artifact only some prompts assemble, and what must be in the cell for the reference to mean something. */
+export interface ArtifactReference {
+  artifact: string;
+  /* The words that refer to it. */
+  pattern: RegExp;
+  /* The artifact is provided when a section carries any of these facts, or has this id. */
+  provider: { facts: readonly FactId[] } | { section: string };
+}
+
 export interface LintOptions {
   budget?: LintBudget;
   /* Names of assembled artifacts (headings of the rendered sections); static text must not mention them. */
   assembledArtifactNames?: readonly string[];
+  /* References an assembled section may make only to an artifact the cell provides. */
+  artifactReferences?: readonly ArtifactReference[];
 }
 
-export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12";
+export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13";
 
 export interface LintFinding {
   rule: LintRule;
   /* Section ids the finding names: the offending pair, or the single offending section; empty for a cell-level budget breach. */
   sections: readonly string[];
   fact?: FactId;
+  /* The artifact a section refers to and the cell does not provide (R13). */
+  artifact?: string;
   /* The numbers behind a size finding: duplicated bytes (R7), or what a budget measured against its limit (R9). */
   measured?: number;
   limit?: number;
@@ -332,6 +345,38 @@ function ruleLoginNotPackDependent(cell: LintCell): LintFinding[] {
     .map((s) => ({ rule: "R12" as const, sections: [s.id] }));
 }
 
+function isProvided(cell: LintCell, provider: ArtifactReference["provider"]): boolean {
+  return "section" in provider
+    ? cell.sections.some((s) => s.id === provider.section)
+    : provider.facts.some((fact) => providersOf(cell, fact).length > 0);
+}
+
+/* The prompt's own words: a section's titles and the fenced blocks of captured data it embeds refer to nothing. */
+function proseOf(text: string): string {
+  let inFence = false;
+  const prose: string[] = [];
+  for (const line of text.split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence && !/^\s{0,3}#{1,6}\s/.test(line)) prose.push(line);
+  }
+  return prose.join("\n");
+}
+
+/* R13: an assembled section that refers to an artifact (the tree above, the brief, the diff, a named section) needs that artifact in the cell; a directive must never point at something the prompt does not carry. */
+function ruleReferencesNeedTheirArtifact(cell: LintCell, references: readonly ArtifactReference[] | undefined): LintFinding[] {
+  return cell.sections
+    .filter((s) => s.layer === "assembled" && !s.verbatim)
+    .flatMap((s) => {
+      const body = proseOf(s.text);
+      return (references ?? [])
+        .filter((ref) => ref.pattern.test(body) && !isProvided(cell, ref.provider))
+        .map((ref) => ({ rule: "R13" as const, sections: [s.id], artifact: ref.artifact }));
+    });
+}
+
 export function lintCell(cell: LintCell, options: LintOptions = {}): readonly LintFinding[] {
   const findings = [
     ...ruleSingleFraming(cell),
@@ -346,10 +391,11 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleTrustNeedsFraming(cell, options.assembledArtifactNames),
     ...ruleRuntimeSignalsOnlyWithoutTree(cell),
     ...ruleLoginNotPackDependent(cell),
+    ...ruleReferencesNeedTheirArtifact(cell, options.artifactReferences),
   ];
   /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
   return findings
-    .map((finding) => ({ finding, order: `${findingKey(finding)}\u0001${String(finding.fact)}` }))
+    .map((finding) => ({ finding, order: `${findingKey(finding)}\u0001${String(finding.fact)}\u0001${String(finding.artifact)}` }))
     .sort((a, b) => (a.order < b.order ? -1 : 1))
     .map(({ finding }) => finding);
 }
