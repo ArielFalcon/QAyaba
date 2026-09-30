@@ -640,3 +640,38 @@ test("no shed notice without budgetBytes option (phase-1 behaviour unchanged)", 
     "no shed notice must appear when budgetBytes is not provided",
   );
 });
+
+/* Claims: builders declare what a section provides, frames or directs; the assembler reports only what survived. */
+test("assemble: claims of the surviving sections are reported by section id", () => {
+  const rulesClaims = [{ kind: "directs", action: "state-outcome" }] as const;
+  const domClaims = [{ kind: "provides", fact: "dom-live" }] as const;
+  const { claims } = assemble([
+    section("rules", "stable-prefix", "RULES", { claims: rulesClaims }),
+    section("dom", "volatile", "DOM", { claims: domClaims }),
+    section("plain", "task", "PLAIN"),
+  ]);
+  assert.deepEqual(claims, { rules: rulesClaims, dom: domClaims });
+});
+
+test("assemble: a section shed by the byte budget contributes no claims", () => {
+  const rulesClaims = [{ kind: "directs", action: "state-outcome" }] as const;
+  const domClaims = [{ kind: "provides", fact: "dom-live" }] as const;
+  const sections = [
+    section("rules", "stable-prefix", "RULES", { claims: rulesClaims }),
+    section("dom", "volatile", "D".repeat(400), { claims: domClaims }),
+  ];
+  const { claims, sectionSizes } = assemble(sections, { budgetBytes: 40 });
+  assert.equal(sectionSizes["dom"], undefined, "the volatile section was shed");
+  assert.deepEqual(claims, { rules: rulesClaims });
+});
+
+test("assemble: a section dropped for exceeding its own cap contributes no claims", () => {
+  const { claims } = assemble([
+    section("huge", "volatile", "H".repeat(500), {
+      maxBytes: 100,
+      overflow: "drop",
+      claims: [{ kind: "provides", fact: "dom-live" }],
+    }),
+  ]);
+  assert.deepEqual(claims, {});
+});

@@ -1,7 +1,8 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
@@ -334,4 +335,55 @@ test("testIdAttribute on ContextPackInput is forwarded to captureDomForRoutes in
   );
 
   assert.equal(receivedTestIdAttribute, "data-cy", "testIdAttribute must be forwarded to captureDomForRoutes' input arg");
+});
+
+/* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
+const providedFacts = (claims: readonly PromptClaim[]): FactId[] =>
+  claims.flatMap((c) => (c.kind === "provides" ? [c.fact] : [])).sort();
+const framedFacts = (claims: readonly PromptClaim[]): FactId[] =>
+  claims.flatMap((c) => (c.kind === "frames" ? [c.fact] : [])).sort();
+
+test("deriveClaimsFromPackText: a pack with only a live DOM provides and frames only the live DOM", async () => {
+  const { text } = await buildContextPack(
+    { brief: { ...MINIMAL_BRIEF, blastRadius: [], feBe: undefined, risks: undefined }, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  const claims = deriveClaimsFromPackText(text ?? "");
+  assert.deepEqual(providedFacts(claims), ["dom-live"]);
+  assert.ok(framedFacts(claims).includes("dom-live"), "the live DOM is labeled ground truth by its own heading");
+  assert.deepEqual(framedFacts(claims).filter((f) => f !== "dom-live"), [], "no other fact is framed");
+});
+
+test("deriveClaimsFromPackText: every fact the pack renders is provided, and only those", async () => {
+  const { text } = await buildContextPack(
+    {
+      brief: MINIMAL_BRIEF,
+      contextMap: MINIMAL_CONTEXT_MAP,
+      baseUrl: "http://localhost:3000",
+      e2eDir: "/fake/e2e",
+    },
+    stubContextPackDeps("button: Submit"),
+  );
+  const claims = deriveClaimsFromPackText(text ?? "");
+  const rendered = new Set(providedFacts(claims));
+  assert.ok(rendered.has("dom-live"));
+  assert.ok(rendered.has("api-operations"), "the relevant API contracts");
+  assert.ok(rendered.has("blast-radius"), "the pack renders the brief's blast radius");
+  assert.equal(rendered.has("landmarks"), false);
+  assert.equal(rendered.has("arch-map"), false);
+});
+
+test("deriveClaimsFromPackText: claims follow the rendered content, not a fixed pack shape", async () => {
+  const domOnly = await buildContextPack({ brief: { ...MINIMAL_BRIEF, blastRadius: [] }, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, stubContextPackDeps("button: Submit"));
+  const blastOnly = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
+  const domClaims = providedFacts(deriveClaimsFromPackText(domOnly.text ?? ""));
+  const blastClaims = providedFacts(deriveClaimsFromPackText(blastOnly.text ?? ""));
+  assert.equal(domClaims.includes("blast-radius"), false);
+  assert.equal(blastClaims.includes("dom-live"), false);
+  assert.ok(blastClaims.includes("blast-radius"));
+});
+
+test("deriveClaimsFromPackText: text without any pack section yields no claims", () => {
+  assert.deepEqual(deriveClaimsFromPackText(""), []);
+  assert.deepEqual(deriveClaimsFromPackText("some unrelated text"), []);
 });

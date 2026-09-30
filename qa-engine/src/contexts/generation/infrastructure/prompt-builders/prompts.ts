@@ -14,12 +14,33 @@ import type {
   ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
+import { deriveClaimsFromPackText, PACK_HEADINGS } from "../context-pack.ts";
+import { claim, APP_LOGIN_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 
 export type { AssembledPrompt };
+
+/* Names of the sections this module assembles. The builders render them and the prompt-contract lint reads them, so static role text can be checked for naming an assembled artifact without re-typing a heading. */
+export const PROMPT_HEADINGS = {
+  workingRules: "Working rules",
+  architectureContext: "Architecture context",
+  explorationBrief: "Exploration brief",
+  groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
+  liveDevTree: "Live DEV accessibility tree",
+} as const;
+
+/* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */
+export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
+  PACK_HEADINGS.pack,
+  PACK_HEADINGS.liveDom,
+  PROMPT_HEADINGS.explorationBrief,
+  PROMPT_HEADINGS.architectureContext,
+  PROMPT_HEADINGS.groundTruthAtFailure,
+  PROMPT_HEADINGS.liveDevTree,
+];
 
 /* Throws loudly if a brief render is attempted before wiring — never a silent no-op (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires this before any run starts, and every test either wires it locally or never exercises `w.brief`/ `input.contextBrief` (renderBrief is only called when a brief is actually present). */
 let explorationBriefAdapter: ExplorationBriefAdapter | undefined;
@@ -326,7 +347,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
 
   const workingRulesLines: string[] = [
-    `## Working rules`,
+    `## ${PROMPT_HEADINGS.workingRules}`,
     ...(input.mode === "context"
       ? [
           `- This is a CONTEXT mode run: you are building the FE↔BE architecture map, not writing tests.`,
@@ -396,32 +417,34 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       : `- Review disabled for this run.`,
   ];
   const workingRulesContent = workingRulesLines.join("\n");
+  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode ? [claim.directs("use-runtime-signals")] : [];
 
-  const archMapContent = input.contextMap
-    ? [
-        renderArchitectureContext(
-          input.contextMap,
-          input.mode === "diff" ? input.intent?.changedFiles : undefined,
-          { suppressFeBeLinks: !!input.contextPack },
-        ) ?? "",
-        ``,
-      ].join("\n")
-    : "";
+  const archMap = input.contextMap
+    ? renderArchitectureContextParts(
+        input.contextMap,
+        input.mode === "diff" ? input.intent?.changedFiles : undefined,
+        { suppressFeBeLinks: !!input.contextPack },
+      )
+    : null;
+  const archMapContent = input.contextMap ? [archMap?.text ?? "", ``].join("\n") : "";
+  const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
 
+  const briefSuppressesFeBe = !!input.contextPack;
   const contextBriefContent = input.contextBrief
     ? [
-        renderBrief(input.contextBrief, { suppressFeBe: !!input.contextPack }),
+        renderBrief(input.contextBrief, { suppressFeBe: briefSuppressesFeBe }),
         `(The brief above distilled the blast radius — do NOT re-read that code. Verify selectors against the live DOM.)`,
         ``,
       ].join("\n")
     : "";
+  const contextBriefClaims: PromptClaim[] = input.contextBrief ? briefClaims(input.contextBrief, briefSuppressesFeBe) : [];
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
   const domContent = sanitizedDomSnapshot && isGenerationMode
     ? input.failureSourced
       ? [
-          `## GROUND TRUTH AT FAILURE`,
+          `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
           ``,
           `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix.`,
           `Do NOT use general knowledge of what tables, forms, or components usually contain.`,
@@ -442,7 +465,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ``,
         ].join("\n")
       : [
-          `## Live DEV accessibility tree (GROUND TRUTH for selectors — trust this over HTML intuition)`,
+          `## ${PROMPT_HEADINGS.liveDevTree} (GROUND TRUTH for selectors — trust this over HTML intuition)`,
           ``,
           `These are the roles + accessible names the browser ACTUALLY exposes for the target routes.`,
           `Lines may carry a trailing \`-> [attr=…]\` hint — it can show id=, name=, href, or type= as well as`,
@@ -466,6 +489,13 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
     : "";
 
+  const domClaims: PromptClaim[] =
+    domContent === ""
+      ? []
+      : input.failureSourced
+      ? [claim.provides("dom-failure"), claim.frames("dom-failure", "established")]
+      : [claim.provides("dom-live"), claim.frames("dom-live", "established")];
+
   /* VOLATILE: Lever-2 deterministic selector contradictions. Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
   const selectorContradictionsContent =
     input.selectorContradictions?.length && isGenerationMode
@@ -482,6 +512,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ``,
         ].join("\n")
       : "";
+
+  const selectorContradictionsClaims: PromptClaim[] = selectorContradictionsContent
+    ? [claim.directs("consult", "dom-failure")]
+    : [];
 
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
 
@@ -507,7 +541,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
         ...(input.failureSourced
           ? [
-              `The captured a11y tree at the failure point is injected ABOVE as "GROUND TRUTH AT FAILURE".`,
+              `The captured a11y tree at the failure point is injected ABOVE as "${PROMPT_HEADINGS.groundTruthAtFailure}".`,
               `1. Read the test file to understand what it asserts`,
               `2. Consult ONLY the GROUND TRUTH tree above — do NOT navigate or snapshot the live page.`,
               `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
@@ -549,6 +583,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
       ].join("\n")
     : "";
+
+  const fixContentClaims: PromptClaim[] = fixContent && input.failureSourced ? [claim.directs("consult", "dom-failure")] : [];
 
   /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
@@ -605,6 +641,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     : "";
 
   const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
+  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
 
   /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
   const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
@@ -624,9 +661,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  const taskContent = buildTask(input);
+  const appLoginClaims: PromptClaim[] = appLoginContent && input.contextPack ? [claim.directs("consult", "dom-live")] : [];
+
+  const task = buildTask(input);
 
   const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
+  const staticSignalClaims: PromptClaim[] = staticSignalContent
+    ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
+    : [];
 
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -670,6 +712,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
+  const serviceLinksClaims: PromptClaim[] = serviceLinksContent
+    ? [claim.provides("service-links"), claim.frames("service-links", "unverified")]
+    : [];
+
   const diffArchetypesContent =
     input.diffArchetypes?.length && isGenerationMode
       ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
@@ -697,10 +743,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   })();
 
   return assemble([
-    section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true }),
+    section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-    ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true })] : []),
-    ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2 })] : []),
+    ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
+    ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
     ...(() => {
       const specFiles = isGenerationMode && (input.mode === "diff" || input.mode === "manual")
         ? input.existingSpecFiles
@@ -712,24 +758,24 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n");
       return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2 })];
     })(),
-    ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3 })] : []),
-    ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3 })] : []),
+    ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
+    ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
     ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
-    ...(appLoginContent ? [section("app-login", "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
-    ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap" })] : []),
+    ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap", claims: appLoginClaims })] : []),
+    ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
     /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
-    ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1 })] : []),
-    ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2 })] : []),
-    ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3 })] : []),
+    ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
+    ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
+    ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
     /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
     ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
     ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
     ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
-    section("task", "task", taskContent, { priority: 1 }),
+    section("task", "task", task.text, { priority: 1, claims: task.claims }),
     ...(() => {
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
-      return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable" })] : [];
+      return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : [];
     })(),
   ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
 }
@@ -751,7 +797,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   ];
   if (input.domSnapshot && input.failureSourced) {
     parts.push(
-      `## GROUND TRUTH AT FAILURE`,
+      `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
       ``,
       `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix. Quote the`,
       `exact \`role: name\` line before writing any locator; an unquotable locator MUST be replaced.`,
@@ -805,6 +851,15 @@ export function renderArchitectureContext(
   changedFiles?: string[],
   opts: { suppressFeBeLinks?: boolean } = {},
 ): string | null {
+  return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
+}
+
+/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered. */
+export function renderArchitectureContextParts(
+  ctx: ArchitectureContext,
+  changedFiles?: string[],
+  opts: { suppressFeBeLinks?: boolean } = {},
+): { text: string; claims: PromptClaim[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -820,7 +875,7 @@ export function renderArchitectureContext(
   ).slice(0, MAX_ITEMS);
 
   const lines: string[] = [];
-  lines.push("## Architecture context (from e2e/.qa/context.json)");
+  lines.push(`## ${PROMPT_HEADINGS.architectureContext} (from e2e/.qa/context.json)`);
   lines.push(`Built at ${s(ctx.builtAtSha).slice(0, 7)} — the FE↔BE map this app's QA uses to cross the frontend→backend boundary.`);
   lines.push(
     "This map is a non-authoritative AID, extracted from source and possibly STALE or INCOMPLETE: " +
@@ -867,7 +922,24 @@ export function renderArchitectureContext(
   lines.push("to also consider the backend operations — a frontend change can break backend");
   lines.push("behaviour and vice-versa.");
   const out = lines.join("\n");
-  return out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out;
+  const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
+  if (ctx.api.length) claims.push(claim.provides("api-operations"));
+  if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
+  return { text: out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims };
+}
+
+/* What a rendered brief provides and how it frames it. The shell renderer labels the whole brief non-authoritative, so every fact it carries is framed unverified. */
+function briefClaims(brief: ExplorationBrief, suppressFeBe: boolean): PromptClaim[] {
+  const claims: PromptClaim[] = [];
+  const fact = (id: FactId): void => {
+    claims.push(claim.provides(id), claim.frames(id, "unverified"));
+  };
+  if (brief.blastRadius.length) fact("blast-radius");
+  if (brief.risks?.length) fact("risks");
+  if (brief.feBe?.length && !suppressFeBe) claims.push(claim.provides("fe-be-links"));
+  if (brief.contracts?.length) claims.push(claim.provides("contracts"));
+  if (brief.routes?.some((r) => r.domLandmarks?.length)) fact("landmarks");
+  return claims;
 }
 
 
@@ -949,9 +1021,14 @@ export function buildContextTask(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-function buildCodeTask(input: OpencodeRunInput): string {
+interface TaskParts {
+  text: string;
+  claims: PromptClaim[];
+}
+
+function buildCodeTask(input: OpencodeRunInput): TaskParts {
   if (input.mode === "manual") {
-    return [
+    const text = [
       `Generate or update UNIT/INTEGRATION tests for the source code of ${input.repo}, FOCUSED on:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
@@ -962,9 +1039,10 @@ function buildCodeTask(input: OpencodeRunInput): string {
       `Read the relevant source and the repo's existing tests (serena); match their framework and conventions.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
   }
   if (input.mode === "complete" || input.mode === "exhaustive") {
-    return [
+    const text = [
       input.mode === "exhaustive"
         ? `Audit and REGENERATE the source-code test suite of ${input.repo} from scratch.`
         : `Analyze the WHOLE repository ${input.repo} and grow its source-code test suite where it matters.`,
@@ -975,11 +1053,12 @@ function buildCodeTask(input: OpencodeRunInput): string {
         ? `Re-evaluate every existing test for correctness, value and necessity; remove or rewrite the trivial, false-positive, redundant or obsolete.`
         : `Generate tests ONLY for important UNCOVERED logic (the delta). Do not duplicate existing coverage.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo")] };
   }
 
   const intent = input.intent;
   const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  return [
+  const text = [
     `Generate or update UNIT/INTEGRATION tests for the source-code changes in commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
@@ -1000,12 +1079,13 @@ function buildCodeTask(input: OpencodeRunInput): string {
     `Test the changed logic DIRECTLY (no web, no browser, no Playwright): call the changed functions/`,
     `modules and assert behavior + edge cases. Match the repo's existing test framework and conventions.`,
   ].join("\n");
+  return { text, claims: [claim.provides("diff")] };
 }
 
-function buildTask(input: OpencodeRunInput): string {
+function buildTask(input: OpencodeRunInput): TaskParts {
   if (input.target === "code") return buildCodeTask(input);
   if (input.mode === "complete" || input.mode === "exhaustive") {
-    return [
+    const text = [
       input.mode === "exhaustive"
         ? `Audit and REGENERATE the entire E2E suite of ${input.repo} from scratch.`
         : `Analyze the WHOLE repository ${input.repo} and grow the E2E suite where it matters.`,
@@ -1022,9 +1102,10 @@ function buildTask(input: OpencodeRunInput): string {
         ? `3. Re-evaluate EVERY existing test for correctness, value and necessity (apply the test-value-review criteria): remove or rewrite tests that are trivial, false positives, redundant or obsolete. Ensure every important flow is covered — a fully re-evaluated suite, not a delta.`
         : `3. Generate tests ONLY for the important UNCOVERED flows (the delta over the existing suite). Do not duplicate existing coverage.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo")] };
   }
   if (input.mode === "manual") {
-    return [
+    const text = [
       `Generate/update E2E tests for ${input.repo}, FOCUSED on the following guidance:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
@@ -1035,8 +1116,9 @@ function buildTask(input: OpencodeRunInput): string {
       `Use serena to read the relevant code and the existing ${input.e2eRelDir}/ suite.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
   }
-  if (input.mode === "context") return buildContextTask(input);
+  if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
 
   const intent = input.intent;
   const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
@@ -1061,7 +1143,7 @@ function buildTask(input: OpencodeRunInput): string {
         `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
       ]
     : [];
-  return [
+  const text = [
     `Generate/update E2E tests for the flows affected by commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
@@ -1089,7 +1171,7 @@ function buildTask(input: OpencodeRunInput): string {
     `## Objective — commit to this BEFORE writing`,
     ACCEPTANCE_CRITERION_RULE,
     ``,
-    `## Architecture context`,
+    `## ${PROMPT_HEADINGS.architectureContext}`,
     `If ${input.e2eRelDir}/.qa/context.json exists, READ it to understand which routes and`,
     `API operations the changed files belong to. Use the feBe links to widen the blast`,
     `radius across the frontend→backend boundary: a frontend change may affect the`,
@@ -1114,6 +1196,9 @@ function buildTask(input: OpencodeRunInput): string {
         ]),
     ...serviceBlock,
   ].join("\n");
+  const claims: PromptClaim[] = [claim.directs("state-outcome"), claim.directs("read", "arch-map")];
+  if (!isReGen) claims.push(claim.directs("orient", "blast-radius"));
+  return { text, claims };
 }
 
 /* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */

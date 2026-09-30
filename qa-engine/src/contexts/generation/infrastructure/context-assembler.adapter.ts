@@ -1,3 +1,4 @@
+import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 export type SectionRole = "stable-prefix" | "semi-stable" | "volatile" | "task" | "critical-recap";
 
@@ -11,12 +12,16 @@ export interface Section {
   overflow: "summarize" | "drop";
   language: "scaffold" | "verbatim";
   shedAs?: SectionRole;
+  claims?: readonly PromptClaim[];
 }
 
 export interface AssembledPrompt {
   text: string;
   sectionSizes: Record<string, number>;
+  claims: Record<string, readonly PromptClaim[]>;
 }
+
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims">>;
 
 export interface AssembleOpts {
   budgetBytes?: number;
@@ -27,7 +32,7 @@ type SectionFn = (
   id: string,
   role: SectionRole,
   content: string | (() => string),
-  opts?: Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs">>,
+  opts?: SectionOpts,
 ) => Section;
 
 export class ContextAssemblerAdapter {
@@ -44,7 +49,7 @@ export class ContextAssemblerAdapter {
     id: string,
     role: SectionRole,
     content: string | (() => string),
-    opts?: Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs">>,
+    opts?: SectionOpts,
   ): Section {
     return this.sectionFn(id, role, content, opts);
   }

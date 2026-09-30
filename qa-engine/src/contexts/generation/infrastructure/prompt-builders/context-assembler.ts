@@ -1,6 +1,7 @@
 
 
 import { ContextAssemblerAdapter } from "@contexts/generation/infrastructure/context-assembler.adapter.ts";
+import type { PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 export interface AssembleOpts {
   /* Global byte budget for the assembled prompt. When provided and positive, the assembler sheds lowest-priority sections until the total fits within this limit. 0 or absent means no global budget enforcement (Phase-1 behaviour, unchanged). */
@@ -32,11 +33,17 @@ export interface Section {
   overflow: "summarize" | "drop";
   language: "scaffold" | "verbatim";
   shedAs?: SectionRole;
+  /* What the section provides / frames / directs, for the prompt-contract lint. Reported only while the section survives assembly. */
+  claims?: readonly PromptClaim[];
 }
+
+export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims">>;
 
 export interface AssembledPrompt {
   text: string;
   sectionSizes: Record<string, number>;
+  /* Claims of the sections that survived assembly, keyed by section id; a shed or dropped section contributes none. */
+  claims: Record<string, readonly PromptClaim[]>;
 }
 
 function truncateToValidUtf8(buf: Buffer, maxBytes: number): string {
@@ -186,10 +193,12 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
 
   const parts: string[] = [];
   const sectionSizes: Record<string, number> = {};
+  const claims: Record<string, readonly PromptClaim[]> = {};
 
   for (const r of resolved) {
     if (r.dropped || !r.content) continue;
     sectionSizes[r.section.id] = Buffer.byteLength(r.content, "utf8");
+    if (r.section.claims?.length) claims[r.section.id] = r.section.claims;
     parts.push(r.content);
   }
 
@@ -203,6 +212,7 @@ function assembleImpl(sections: Section[], opts: AssembleOpts = {}): AssembledPr
   return {
     text: parts.join("\n"),
     sectionSizes,
+    claims,
   };
 }
 
@@ -210,7 +220,7 @@ function sectionImpl(
   id: string,
   role: SectionRole,
   content: string | (() => string),
-  opts: Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs">> = {},
+  opts: SectionOpts = {},
 ): Section {
   return {
     id,
@@ -222,6 +232,7 @@ function sectionImpl(
     overflow: opts.overflow ?? "drop",
     language: opts.language ?? "scaffold",
     ...(opts.shedAs ? { shedAs: opts.shedAs } : {}),
+    ...(opts.claims ? { claims: opts.claims } : {}),
   };
 }
 
@@ -235,7 +246,7 @@ export function section(
   id: string,
   role: SectionRole,
   content: string | (() => string),
-  opts: Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs">> = {},
+  opts: SectionOpts = {},
 ): Section {
   return defaultAssembler.section(id, role, content, opts);
 }

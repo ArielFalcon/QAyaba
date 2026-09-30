@@ -5,6 +5,42 @@ import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps } from "./dom-s
 import type { CaptureDomDeps } from "./dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
+import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
+
+/* Names of the pack's sections. The builders render them and the prompt-contract checks read them, so a renamed heading cannot drift from what the claims derive. */
+export const PACK_HEADINGS = {
+  pack: "Context Pack",
+  blastRadius: "Blast radius",
+  feBe: "FE↔BE links",
+  risks: "Risks / assert to catch regression",
+  liveDom: "Live DOM",
+  contracts: "Relevant API contracts",
+} as const;
+
+/* The header sentence that labels the whole pack's content ground truth. */
+export const PACK_GROUND_TRUTH_LABEL = "This pack is the ground truth for this objective.";
+
+const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
+  [PACK_HEADINGS.blastRadius, "blast-radius"],
+  [PACK_HEADINGS.feBe, "fe-be-links"],
+  [PACK_HEADINGS.risks, "risks"],
+  [PACK_HEADINGS.liveDom, "dom-live"],
+  [PACK_HEADINGS.contracts, "api-operations"],
+];
+
+const escapeRegExp = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* The pack reaches the prompt as an already-built string, so its claims come from the sections it actually rendered: a pack with only a DOM provides only the DOM. A section is framed ground truth when the header says so or the section's own heading does (the live DOM). */
+export function deriveClaimsFromPackText(text: string): PromptClaim[] {
+  const groundTruthHeader = text.includes(PACK_GROUND_TRUTH_LABEL);
+  const claims: PromptClaim[] = [];
+  for (const [heading, fact] of SECTION_FACTS) {
+    if (!new RegExp(`^### ${escapeRegExp(heading)}`, "m").test(text)) continue;
+    claims.push(claim.provides(fact));
+    if (groundTruthHeader || fact === "dom-live") claims.push(claim.frames(fact, "established"));
+  }
+  return claims;
+}
 
 
 export interface ContextPackInput {
@@ -99,18 +135,18 @@ const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
 function renderBlastRadius(brief: ExplorationBrief): string {
   if (!brief.blastRadius.length) return "";
-  const lines: string[] = ["### Blast radius (code — distilled from Serena)"];
+  const lines: string[] = [`### ${PACK_HEADINGS.blastRadius} (code — distilled from Serena)`];
   for (const n of brief.blastRadius.slice(0, 200)) {
     lines.push(`- \`${s(n.symbol)}\` (${s(n.file)}) — ${s(n.role)}`);
   }
   if (brief.feBe?.length) {
-    lines.push("### FE↔BE links");
+    lines.push(`### ${PACK_HEADINGS.feBe}`);
     for (const l of brief.feBe.slice(0, 50)) {
       lines.push(`- Route \`${s(l.route)}\` → \`${s(l.operationId)}\`${l.via ? ` (via ${s(l.via)})` : ""}`);
     }
   }
   if (brief.risks?.length) {
-    lines.push("### Risks / assert to catch regression");
+    lines.push(`### ${PACK_HEADINGS.risks}`);
     for (const r of brief.risks.slice(0, 20)) lines.push(`- ${s(r)}`);
   }
   return lines.join("\n");
@@ -118,7 +154,7 @@ function renderBlastRadius(brief: ExplorationBrief): string {
 
 function renderContracts(ops: ApiOperation[]): string {
   if (!ops.length) return "";
-  const lines: string[] = ["### Relevant API contracts (from context.json — assert these at the boundary)"];
+  const lines: string[] = [`### ${PACK_HEADINGS.contracts} (from context.json — assert these at the boundary)`];
   for (const op of ops) {
     lines.push(`- \`${s(op.operationId)}\`: ${s(op.method)} ${s(op.path)}${op.service ? ` (${s(op.service)})` : ""}`);
   }
@@ -164,7 +200,7 @@ export async function buildContextPack(
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
         const { kept, dropped } = capDomLines(lines, maxLines);
         domSection = [
-          "### Live DOM (a11y tree — GROUND TRUTH for selectors)",
+          `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
           "These roles + accessible names are what the browser ACTUALLY exposes.",
           "Author selectors ONLY from what appears here — if a role is absent, it is NOT in the tree.",
           kept.join("\n"),
@@ -196,9 +232,9 @@ export async function buildContextPack(
   }
 
   const packHeader = [
-    "## Context Pack (pushed by the orchestrator before the first write)",
+    `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
     "",
-    "This pack is the ground truth for this objective. It was built deterministically by",
+    `${PACK_GROUND_TRUTH_LABEL} It was built deterministically by`,
     "the orchestrator BEFORE this session started. Use it to transcribe real selectors and",
     "verify blast-radius symbols; do NOT re-navigate routes already covered here or re-read",
     "code symbols already in the blast-radius section (the brief already distilled them).",
