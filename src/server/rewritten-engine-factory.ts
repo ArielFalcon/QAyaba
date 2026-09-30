@@ -26,6 +26,7 @@ import {
 import type { RunPipelinePort, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import { buildProduction, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root";
 import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
+import { createDiscoverLogin } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner";
 import { createCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack";
 import { loadContextMapFromDisk } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter";
@@ -918,6 +919,17 @@ export function buildRewrittenCompositionConfig(
             authDir,
             ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
             ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
+            /*
+             * The production switch for structural login discovery: for an app on the stock login
+             * seed it tries the login itself first (one submit per phase) and only a positively
+             * evidenced failure ends the run. Removing this object restores the stock-seed-only login.
+             * Its note passes through the same redaction every other text leaving the system does.
+             */
+            discovery: {
+              discoverLogin: createDiscoverLogin({ runner }),
+              redact: (text: string) => redactionPort.redact(text),
+              loadContextMap: loadContextMapFromDisk,
+            },
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({
                 command: "npx",

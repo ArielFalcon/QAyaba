@@ -16,6 +16,8 @@ import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedComma
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition";
+import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
@@ -151,6 +153,84 @@ test("the composed auth session passes neither name to its setup spawn when the 
   const seen = await authSetupSpawnEnv({ ...cfg("auth-env-unconfigured"), auth: formAuth }, undefined);
   assert.equal(seen.testIdAttribute, "unset");
   assert.equal(seen.actionTimeoutMs, "unset");
+});
+
+/* Structural login discovery is the production activation switch: an e2e app with a form login composes
+   its auth session with the discovery child ahead of the stock seed. The `node` and `npx` on PATH are the
+   process-boundary doubles: the fake `node` records the input it was given and prints a rejected login
+   (with a secret of the orchestrator's own in the page text); the fake `npx` records that the seed ran. */
+const ORCHESTRATOR_TOKEN = "tok-abcdef123456";
+
+async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{ result: unknown; input: string | undefined; seeded: boolean; authorized: AppConfig["auth"] }> {
+  const root = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
+  const specDir = mkdtempSync(join(tmpdir(), "factory-spec-"));
+  const saved = new Map(["QAYABA_ROOT", "PATH", "QA_FORM_USER", "QA_FORM_PASS", "EXTERNAL_API_TOKEN"].map((k) => [k, process.env[k]]));
+  try {
+    const evidence = JSON.stringify({ evidence: scriptedLoginEvidence({ firstAlert: `the page said ${ORCHESTRATOR_TOKEN} to the user` }) });
+    writeFileSync(join(binDir, "node"), `#!/bin/sh\nprintf '%s' "$PW_LOGIN_INPUT" > login-input.txt\ncat <<'EOF'\n{"marker":"submitted"}\n${evidence}\nEOF\n`);
+    writeFileSync(join(binDir, "npx"), "#!/bin/sh\ntouch seeded.txt\nexit 1\n");
+    chmodSync(join(binDir, "node"), 0o755);
+    chmodSync(join(binDir, "npx"), 0o755);
+    if (contextMap) {
+      mkdirSync(join(specDir, ".qa"));
+      writeFileSync(join(specDir, ".qa", "context.json"), JSON.stringify(contextMap));
+    }
+    process.env.QAYABA_ROOT = root;
+    process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
+    process.env.QA_FORM_USER = "synthetic-user";
+    process.env.QA_FORM_PASS = "synthetic-pass";
+    process.env.EXTERNAL_API_TOKEN = ORCHESTRATOR_TOKEN;
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
+    const result = await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) }).catch((error: unknown) => error);
+    const inputFile = join(specDir, "login-input.txt");
+    return { result, input: existsSync(inputFile) ? readFileSync(inputFile, "utf8") : undefined, seeded: existsSync(join(specDir, "seeded.txt")), authorized: config.auth };
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    for (const dir of [root, binDir, specDir]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("an e2e app with a form login tries structural discovery before the stock seed, and a rejected login ends before the seed runs", async () => {
+  const { result, input, seeded } = await composedDiscovery({ ...cfg("discovery-wired"), auth: formAuth });
+  assert.ok(result instanceof AuthPreconditionError, `expected a precondition, got ${String(result)}`);
+  assert.equal(result.kind, PRECONDITION_KIND.CREDENTIALS_REJECTED);
+  assert.notEqual(input, undefined, "the discovery child ran");
+  assert.equal(seeded, false, "the stock seed did not run after a positively evidenced failure");
+});
+
+test("the note of a failed login goes through the factory's own redaction of the orchestrator's secrets", async () => {
+  const { result } = await composedDiscovery({ ...cfg("discovery-redaction"), auth: formAuth });
+  assert.ok(result instanceof AuthPreconditionError);
+  assert.ok(result.note.includes("the page said"), "the page text is in the note");
+  assert.equal(result.note.includes(ORCHESTRATOR_TOKEN), false, "an env secret the exact-value scrub never heard of is removed by the shell's redaction");
+});
+
+test("the declared login path and the app's context-map routes reach discovery; routes a browser cannot open do not", async () => {
+  const app: AppConfig = { ...cfg("discovery-inputs"), auth: { ...formAuth, loginPath: "/signin" } };
+  const map = { builtAtSha: "abc1234", routes: [{ path: "/reports" }, { path: "/orders/:id" }], api: [], feBe: [] };
+  const { authorized, input } = await composedDiscovery(app, map);
+  assert.equal(authorized?.loginPath, "/signin");
+  const sent = JSON.parse(input ?? "{}") as { loginPath?: string; routes?: string[]; baseUrl?: string };
+  assert.equal(sent.loginPath, "/signin");
+  assert.deepEqual(sent.routes, ["/reports"]);
+  assert.equal(sent.baseUrl, "https://dev");
+});
+
+test("an e2e app with no login declared never starts discovery", async () => {
+  const { result, input, seeded } = await composedDiscovery(cfg("discovery-public"));
+  assert.deepEqual(result, { unauthored: false });
+  assert.equal(input, undefined);
+  assert.equal(seeded, false);
+});
+
+test("a code-mode app composes no auth session at all", () => {
+  const config = buildRewrittenCompositionConfig({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.authSession, undefined);
 });
 
 test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
