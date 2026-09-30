@@ -151,3 +151,17 @@ test("only the first exports up to the cap are listed", async () => {
     },
   );
 });
+
+test("a fixtures file at the size cap made of unclosed export lists is read in bounded time and yields no facts", async () => {
+  const unit = "export{";
+  await withSuite(
+    (dir) => writeFileSync(join(dir, "fixtures.ts"), unit.repeat(Math.floor(MAX_FIXTURES_FILE_BYTES / unit.length))),
+    async (dir) => {
+      const started = performance.now();
+      const { result } = await groundWith(dir);
+      const elapsedMs = performance.now() - started;
+      assert.equal(result.harnessFacts?.fixtures, undefined);
+      assert.ok(elapsedMs < 2000, `reading took ${elapsedMs.toFixed(0)} ms`);
+    },
+  );
+});

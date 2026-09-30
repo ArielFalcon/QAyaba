@@ -34,7 +34,8 @@ export function isSafeAttributeName(name: string): boolean {
 const NON_CODE_RE = /\/\/.*|\/\*[\s\S]*?(?:\*\/|$)|"(?:[^"\\]|\\[\s\S])*"?|'(?:[^'\\]|\\[\s\S])*'?|`(?:[^`\\]|\\[\s\S])*`?/g;
 
 const DECLARATION_RE = /\bexport\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\s*\*\s*|function\s+|class\s+|const\s+|let\s+|var\s+|enum\s+)([A-Za-z_$][\w$]*)/g;
-const LIST_RE = /\bexport\s*\{([^}]*)\}/g;
+/* An export list holds no brace of its own, so a list ends at the first brace after it opens: an opening brace that is never closed cannot make the scan re-read the rest of the source from every later position. */
+const LIST_RE = /\bexport\s*\{([^{}]*)\}/g;
 const NAMESPACE_RE = /\bexport\s*\*\s*as\s+([A-Za-z_$][\w$]*)/g;
 /* One entry of an export list, trimmed: `name` or `name as alias`, exposing the last identifier. A type-only entry (`type T`) does not fit. */
 const SPECIFIER_RE = /^(?:[A-Za-z_$][\w$]*\s+as\s+)?([A-Za-z_$][\w$]*)$/;

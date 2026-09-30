@@ -155,3 +155,35 @@ test("an escaped backslash does not escape the closing quote of a string", () =>
 test("a comment between the tokens of a declaration separates them like whitespace", () => {
   assert.deepEqual(extractExportedNames("export const/* note */a = 1;\nexport /* n */ function/* m */b() {}"), ["a", "b"]);
 });
+
+/* A source built to make the scan re-read the rest of the file from every position. */
+const ADVERSARIAL_SOURCE_BYTES = 128 * 1024;
+const SCAN_TIME_BOUND_MS = 1000;
+
+function repeatedTo(unit: string, bytes: number): string {
+  return unit.repeat(Math.floor(bytes / unit.length));
+}
+
+function timed<T>(run: () => T): { value: T; ms: number } {
+  const started = performance.now();
+  const value = run();
+  return { value, ms: performance.now() - started };
+}
+
+test("export lists that are never closed are scanned in time that grows with the source, not with its square", () => {
+  for (const unit of ["export{", "export {a,", "export { a as b,"]) {
+    const { ms } = timed(() => extractExportedNames(repeatedTo(unit, ADVERSARIAL_SOURCE_BYTES)));
+    assert.ok(ms < SCAN_TIME_BOUND_MS, `${JSON.stringify(unit)} took ${ms.toFixed(0)} ms`);
+  }
+});
+
+test("a well-formed export list after a pile of unclosed ones is still read", () => {
+  const source = `${repeatedTo("export{", 4096)}\nexport { real, other as alias };`;
+  assert.deepEqual(extractExportedNames(source), ["real", "alias"]);
+});
+
+test("a long export list yields its first names up to the cap", () => {
+  const names = Array.from({ length: MAX_FIXTURE_EXPORTS * 5 }, (_, i) => `name${i}`);
+  const listed = extractExportedNames(`export { ${names.join(", ")} };`);
+  assert.deepEqual(listed, names.slice(0, MAX_FIXTURE_EXPORTS));
+});
