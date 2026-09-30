@@ -6,19 +6,9 @@ import type { CaptureDomDeps } from "./dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
+import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 
-/* Names of the pack's sections. The builders render them and the prompt-contract checks read them, so a renamed heading cannot drift from what the claims derive. */
-export const PACK_HEADINGS = {
-  pack: "Context Pack",
-  blastRadius: "Blast radius",
-  feBe: "FE↔BE links",
-  risks: "Risks / assert to catch regression",
-  liveDom: "Live DOM",
-  contracts: "Relevant API contracts",
-} as const;
-
-/* The header sentence that labels the whole pack's content ground truth. */
-export const PACK_GROUND_TRUTH_LABEL = "This pack is the ground truth for this objective.";
+export { PACK_HEADINGS };
 
 const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
   [PACK_HEADINGS.blastRadius, "blast-radius"],
@@ -30,14 +20,13 @@ const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
 
 const escapeRegExp = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/* The pack reaches the prompt as an already-built string, so its claims come from the sections it actually rendered: a pack with only a DOM provides only the DOM. A section is framed ground truth when the header says so or the section's own heading does (the live DOM). */
+/* The pack reaches the prompt as an already-built string, so its claims come from the sections it actually rendered: a pack with only a DOM provides only the DOM. The live DOM's own heading labels it ground truth, so that is the one fact the pack frames. */
 export function deriveClaimsFromPackText(text: string): PromptClaim[] {
-  const groundTruthHeader = text.includes(PACK_GROUND_TRUTH_LABEL);
   const claims: PromptClaim[] = [];
   for (const [heading, fact] of SECTION_FACTS) {
     if (!new RegExp(`^### ${escapeRegExp(heading)}`, "m").test(text)) continue;
     claims.push(claim.provides(fact));
-    if (groundTruthHeader || fact === "dom-live") claims.push(claim.frames(fact, "established"));
+    if (fact === "dom-live") claims.push(claim.frames(fact, "established"));
   }
   return claims;
 }
@@ -67,7 +56,6 @@ export interface ContextPackInput {
 export interface ContextPackAssembly {
   text: string | undefined;
 
-  blastRadiusBytes: number;
   domBytes: number;
   contractBytes: number;
 }
@@ -133,25 +121,6 @@ function filterRelevantContracts(
 
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
-function renderBlastRadius(brief: ExplorationBrief): string {
-  if (!brief.blastRadius.length) return "";
-  const lines: string[] = [`### ${PACK_HEADINGS.blastRadius} (code — distilled from Serena)`];
-  for (const n of brief.blastRadius.slice(0, 200)) {
-    lines.push(`- \`${s(n.symbol)}\` (${s(n.file)}) — ${s(n.role)}`);
-  }
-  if (brief.feBe?.length) {
-    lines.push(`### ${PACK_HEADINGS.feBe}`);
-    for (const l of brief.feBe.slice(0, 50)) {
-      lines.push(`- Route \`${s(l.route)}\` → \`${s(l.operationId)}\`${l.via ? ` (via ${s(l.via)})` : ""}`);
-    }
-  }
-  if (brief.risks?.length) {
-    lines.push(`### ${PACK_HEADINGS.risks}`);
-    for (const r of brief.risks.slice(0, 20)) lines.push(`- ${s(r)}`);
-  }
-  return lines.join("\n");
-}
-
 function renderContracts(ops: ApiOperation[]): string {
   if (!ops.length) return "";
   const lines: string[] = [`### ${PACK_HEADINGS.contracts} (from context.json — assert these at the boundary)`];
@@ -168,11 +137,6 @@ export async function buildContextPack(
 ): Promise<ContextPackAssembly> {
   const log = deps.log ?? (() => {});
   const domBudgetChars = Math.floor(DOM_BUDGET_BYTES / BYTES_PER_CHAR);
-
-  let blastSection = "";
-  if (input.brief && input.brief.blastRadius.length > 0) {
-    blastSection = renderBlastRadius(input.brief);
-  }
 
   const DOM_ROUTE_CAP = 6;
   let domSection = "";
@@ -222,26 +186,22 @@ export async function buildContextPack(
     log(`[qa] context-pack: ${relevantOps.length} relevant API contract(s) included`);
   }
 
-  const blastRadiusBytes = Buffer.byteLength(blastSection, "utf8");
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
 
-  const parts = [blastSection, domSection, contractSection].filter((p) => p.length > 0);
+  const parts = [domSection, contractSection].filter((p) => p.length > 0);
   if (parts.length === 0) {
-    return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+    return { text: undefined, domBytes: 0, contractBytes: 0 };
   }
 
   const packHeader = [
     `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
     "",
-    `${PACK_GROUND_TRUTH_LABEL} It was built deterministically by`,
-    "the orchestrator BEFORE this session started. Use it to transcribe real selectors and",
-    "verify blast-radius symbols; do NOT re-navigate routes already covered here or re-read",
-    "code symbols already in the blast-radius section (the brief already distilled them).",
-    "If the pack is absent for a route, fall back to the Playwright MCP to explore it yourself.",
+    "The orchestrator built this pack deterministically before this session started. It holds the live DOM of the",
+    "routes it covers and the API contracts relevant to this objective.",
     "",
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, blastRadiusBytes, domBytes, contractBytes };
+  return { text, domBytes, contractBytes };
 }

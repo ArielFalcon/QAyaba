@@ -35,13 +35,15 @@ test("coerce delegates to the injected coerceExplorationBrief fn", () => {
 
 test("render delegates to the injected renderExplorationBrief fn", () => {
   let seenBrief: unknown = null;
+  let seenOpts: unknown = null;
   const adapter = new ExplorationBriefAdapter({
     parseExplorationBrief: () => null,
     coerceExplorationBrief: () => null,
-    renderExplorationBrief: (brief, opts) => { seenBrief = brief; return `RENDER:${brief.objective}`; },
+    renderExplorationBrief: (brief, opts) => { seenBrief = brief; seenOpts = opts; return `RENDER:${brief.objective}`; },
   });
-  const out = adapter.render(MINIMAL_BRIEF, { suppressFeBe: true });
+  const out = adapter.render(MINIMAL_BRIEF, { omitLandmarks: true });
   assert.ok(seenBrief, "renderExplorationBrief must be called");
+  assert.deepEqual(seenOpts, { omitLandmarks: true }, "the options reach the renderer");
   assert.equal(out, "RENDER:test the login flow");
 });
 

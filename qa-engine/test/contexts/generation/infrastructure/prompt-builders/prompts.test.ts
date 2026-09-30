@@ -24,9 +24,9 @@ import type { QaCase } from "@kernel/qa-case.ts";
 setExplorationBriefCollaborators({
   parseExplorationBrief: () => null,
   coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief, opts?: { suppressFeBe?: boolean }) => {
+  renderExplorationBrief: (brief: ExplorationBrief) => {
     const lines = [`## Exploration brief`, `Objective: ${brief.objective}`];
-    if (brief.feBe?.length && !opts?.suppressFeBe) {
+    if (brief.feBe?.length) {
       lines.push("### FE↔BE links");
       for (const l of brief.feBe) lines.push(`- Route ${l.route} -> ${l.operationId}`);
     }
@@ -673,10 +673,8 @@ test("full FE↔BE rendered when contextPack is absent (non-regression)", () => 
   );
 });
 
-/* When BOTH contextBrief (with feBe) AND contextPack are present, "FE↔BE links"
-   must appear at most ONCE in the assembled prompt (from the pack, not the brief).
- */
-test("FE↔BE links appear only once when both contextBrief (with feBe) and contextPack are present", () => {
+/* The brief owns the FE↔BE links when it carries them; the architecture map yields its own list. */
+test("FE↔BE links appear only once when both the brief (with feBe) and the architecture map carry them", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -684,20 +682,19 @@ test("FE↔BE links appear only once when both contextBrief (with feBe) and cont
     feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
     routes: [{ path: "/checkout", verified: false as const }],
   };
-  const contextPack = "### FE↔BE links (1 of 1 total)\n- Route `/checkout` → `createOrder`";
-  const text = buildPrompt(mkInput({ contextBrief, contextPack }));
+  const contextMap = {
+    builtAtSha: "abc1234",
+    routes: [{ path: "/checkout" }],
+    api: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
+    feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
+  };
+  const text = buildPrompt(mkInput({ contextBrief, contextMap }));
   const count = (text.match(/FE↔BE links/g) ?? []).length;
-  assert.equal(
-    count,
-    1,
-    `"FE↔BE links" must appear exactly once when contextPack is present (only from the pack, not the brief); found ${count} occurrences`,
-  );
+  assert.equal(count, 1, `"FE↔BE links" must appear exactly once; found ${count} occurrences`);
 });
 
-/* When only contextBrief is present (no contextPack), the brief's
-   FE↔BE section must still render normally — suppression must NOT apply.
- */
-test("FE↔BE links in contextBrief render normally when contextPack is absent", () => {
+/* A pack in the prompt does not take the links away from the brief. */
+test("FE↔BE links in contextBrief render normally whether or not a contextPack is present", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -705,25 +702,27 @@ test("FE↔BE links in contextBrief render normally when contextPack is absent",
     feBe: [{ route: "/checkout", operationId: "createOrder", via: "OrderClient.create" }],
     routes: [{ path: "/checkout", verified: false as const }],
   };
-  const text = buildPrompt(mkInput({ contextBrief }));
-  assert.ok(
-    text.includes("FE↔BE links"),
-    "FE↔BE links section in the brief must render when contextPack is absent",
-  );
+  assert.ok(buildPrompt(mkInput({ contextBrief })).includes("FE↔BE links"));
+  assert.ok(buildPrompt(mkInput({ contextBrief, contextPack: "## Context Pack\n\n### Live DOM (x)\n  a" })).includes("FE↔BE links"));
 });
 
-/* When contextBrief has NO feBe (absent or empty), behavior is unchanged regardless of contextPack. */
-test("no FE↔BE section in brief when brief.feBe is absent — no change with or without contextPack", () => {
+/* When the brief has NO feBe, the architecture map's links are the only ones. */
+test("when the brief carries no feBe, the architecture map's FE↔BE links are the only ones", () => {
   const contextBrief = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
     blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "applies discount" }],
     routes: [{ path: "/checkout", verified: false as const }],
   };
-  const contextPack = "### FE↔BE links (1 of 1 total)\n- Route `/checkout` → `createOrder`";
-  const text = buildPrompt(mkInput({ contextBrief, contextPack }));
+  const contextMap = {
+    builtAtSha: "abc1234",
+    routes: [{ path: "/checkout" }],
+    api: [{ operationId: "createOrder", method: "POST", path: "/orders" }],
+    feBe: [{ route: "/checkout", operationId: "createOrder" }],
+  };
+  const text = buildPrompt(mkInput({ contextBrief, contextMap }));
   const count = (text.match(/FE↔BE links/g) ?? []).length;
-  assert.equal(count, 1, "when brief has no feBe, only the pack's FE↔BE link must appear");
+  assert.equal(count, 1, "only the map's FE↔BE links appear");
 });
 
 /* [seam d] 1.9: learned-rules sheds AFTER reviewer-corrections and coverage-gap.

@@ -1,8 +1,8 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { buildContextPack, deriveClaimsFromPackText, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
@@ -44,23 +44,37 @@ const MINIMAL_CONTEXT_MAP: ArchitectureContext = {
 test("buildContextPack returns undefined text when all components are absent", async () => {
   const result = await buildContextPack({}, stubContextPackDeps(undefined));
   assert.equal(result.text, undefined);
-  assert.equal(result.blastRadiusBytes, 0);
   assert.equal(result.domBytes, 0);
   assert.equal(result.contractBytes, 0);
 });
 
-test("buildContextPack includes blast-radius section when brief is provided", async () => {
-  const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
-  assert.ok(result.text !== undefined, "text should be set when brief is provided");
-  assert.ok(result.text!.includes("CheckoutService.pay"), "blast-radius symbol must appear in pack text");
-  assert.ok(result.text!.includes("Context Pack"), "pack header must appear");
-  assert.ok(result.blastRadiusBytes > 0, "blast-radius byte count must be positive");
+/* The brief owns the distilled blast radius, FE-BE links and risks; the pack carries only what the orchestrator captured or read itself (the live DOM and the API contracts). */
+test("buildContextPack never carries the blast radius, FE-BE links or risks the brief owns", async () => {
+  const result = await buildContextPack(
+    { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  assert.ok(result.text !== undefined);
+  assert.equal(result.text!.includes("CheckoutService.pay"), false, "no blast-radius symbol");
+  assert.equal(result.text!.includes("OrderClient.create"), false, "no FE-BE link");
+  assert.equal(result.text!.includes("assert the discounted total"), false, "no risk");
+  assert.ok(result.text!.includes("Live DOM"), "the captured DOM stays");
 });
 
-test("buildContextPack includes FeBe links from the brief", async () => {
+test("buildContextPack with a brief and nothing captured or read has no pack at all", async () => {
   const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
-  assert.ok(result.text?.includes("createOrder"), "FeBe operationId must appear in pack text");
-  assert.ok(result.text?.includes("/checkout"), "FeBe route must appear in pack text");
+  assert.equal(result.text, undefined);
+});
+
+test("buildContextPack's header is neutral: it names the pack and what it holds, and directs nothing", async () => {
+  const result = await buildContextPack(
+    { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  const header = (result.text ?? "").split("### ")[0] ?? "";
+  assert.ok(header.includes("Context Pack"));
+  assert.equal(countDirectives(header), 0);
+  assert.equal(hasTrustLanguage(header), false);
 });
 
 test("buildContextPack includes DOM section when capture succeeds", async () => {
@@ -91,8 +105,8 @@ test("buildContextPack omits DOM section when capture returns undefined", async 
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(undefined),
   );
-  assert.ok(result.text !== undefined, "text should be set from blast-radius even when DOM fails");
   assert.equal(result.domBytes, 0);
+  assert.equal(result.text?.includes("Live DOM") ?? false, false);
 });
 
 test("buildContextPack includes contracts from contextMap when brief references them", async () => {
@@ -188,8 +202,8 @@ test("buildContextPack degrades gracefully when DOM capture throws", async () =>
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     deps,
   );
-  assert.ok(result.text !== undefined, "text still set from blast-radius");
   assert.equal(result.domBytes, 0, "DOM bytes must be 0 when capture throws");
+  assert.equal(result.text, undefined, "the run continues with no pack: the brief's facts are not the pack's to carry");
 });
 
 test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
@@ -209,7 +223,7 @@ test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is 
   assert.ok(result.text?.includes("omitted"), "truncation marker must appear");
 });
 
-test("brief wired to buildContextPack produces blast-radius + DOM (unverified routes)", async () => {
+test("brief wired to buildContextPack produces the DOM of the brief's candidate routes", async () => {
   const domContent = "button: Submit\nheading: Checkout";
   const result = await buildContextPack(
     {
@@ -219,10 +233,8 @@ test("brief wired to buildContextPack produces blast-radius + DOM (unverified ro
     },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text !== undefined, "pack text must be set when brief is provided");
-  assert.ok(result.blastRadiusBytes > 0, "blast-radius section must be non-empty when brief is wired");
+  assert.ok(result.text !== undefined, "pack text must be set when the DOM was captured");
   assert.ok(result.domBytes > 0, "DOM section must be captured from brief's candidate routes when wired");
-  assert.ok(result.text!.includes("CheckoutService.pay"), "brief blast-radius symbol must appear in pack");
   assert.ok(result.text!.includes("Live DOM"), "DOM section header must appear in pack");
 });
 
@@ -354,7 +366,7 @@ test("deriveClaimsFromPackText: a pack with only a live DOM provides and frames 
   assert.deepEqual(framedFacts(claims).filter((f) => f !== "dom-live"), [], "no other fact is framed");
 });
 
-test("deriveClaimsFromPackText: every fact the pack renders is provided, and only those", async () => {
+test("deriveClaimsFromPackText: the pack provides its live DOM and its API contracts, and only those", async () => {
   const { text } = await buildContextPack(
     {
       brief: MINIMAL_BRIEF,
@@ -365,22 +377,19 @@ test("deriveClaimsFromPackText: every fact the pack renders is provided, and onl
     stubContextPackDeps("button: Submit"),
   );
   const claims = deriveClaimsFromPackText(text ?? "");
-  const rendered = new Set(providedFacts(claims));
-  assert.ok(rendered.has("dom-live"));
-  assert.ok(rendered.has("api-operations"), "the relevant API contracts");
-  assert.ok(rendered.has("blast-radius"), "the pack renders the brief's blast radius");
-  assert.equal(rendered.has("landmarks"), false);
-  assert.equal(rendered.has("arch-map"), false);
+  assert.deepEqual(providedFacts(claims), ["api-operations", "dom-live"]);
 });
 
 test("deriveClaimsFromPackText: claims follow the rendered content, not a fixed pack shape", async () => {
-  const domOnly = await buildContextPack({ brief: { ...MINIMAL_BRIEF, blastRadius: [] }, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" }, stubContextPackDeps("button: Submit"));
-  const blastOnly = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
-  const domClaims = providedFacts(deriveClaimsFromPackText(domOnly.text ?? ""));
-  const blastClaims = providedFacts(deriveClaimsFromPackText(blastOnly.text ?? ""));
-  assert.equal(domClaims.includes("blast-radius"), false);
-  assert.equal(blastClaims.includes("dom-live"), false);
-  assert.ok(blastClaims.includes("blast-radius"));
+  const domOnly = await buildContextPack({ baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", routes: ["/checkout"] }, stubContextPackDeps("button: Submit"));
+  const contractsOnly = await buildContextPack({ brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP }, stubContextPackDeps(undefined));
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(domOnly.text ?? "")), ["dom-live"]);
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(contractsOnly.text ?? "")), ["api-operations"]);
+});
+
+test("deriveClaimsFromPackText: a pack section that should not exist is still recognized by its heading", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.blastRadius} (x)\n- a\n### ${PACK_HEADINGS.feBe}\n- b\n### ${PACK_HEADINGS.risks}\n- c`;
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(text)), ["blast-radius", "fe-be-links", "risks"]);
 });
 
 test("deriveClaimsFromPackText: text without any pack section yields no claims", () => {

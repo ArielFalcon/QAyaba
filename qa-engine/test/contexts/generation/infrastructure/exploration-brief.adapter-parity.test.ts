@@ -73,7 +73,7 @@ test("PARITY: render wrapper matches legacy renderExplorationBrief", () => {
   assert.equal(adapterResult, legacyResult);
 });
 
-test("PARITY: render suppressFeBe option matches legacy", () => {
+test("PARITY: render omitLandmarks option matches legacy", () => {
   const adapter = new ExplorationBriefAdapter({
     parseExplorationBrief: legacy,
     coerceExplorationBrief: legacyCoerce,
@@ -83,9 +83,9 @@ test("PARITY: render suppressFeBe option matches legacy", () => {
     builtForSha: "abc1234",
     objective: "test the login flow",
     blastRadius: [{ symbol: "LoginService.login", file: "src/login.ts", role: "handles auth" }],
-    feBe: [{ route: "/login", operationId: "postLogin" }],
+    routes: [{ path: "/login", verified: false, domLandmarks: ["Sign in button"] }],
   };
-  const adapterResult = adapter.render(brief, { suppressFeBe: true });
-  const legacyResult = legacyRender(brief, { suppressFeBe: true });
+  const adapterResult = adapter.render(brief, { omitLandmarks: true });
+  const legacyResult = legacyRender(brief, { omitLandmarks: true });
   assert.equal(adapterResult, legacyResult);
 });

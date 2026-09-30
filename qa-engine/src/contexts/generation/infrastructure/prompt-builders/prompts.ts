@@ -14,7 +14,8 @@ import type {
   ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
-import { deriveClaimsFromPackText, PACK_HEADINGS } from "../context-pack.ts";
+import { deriveClaimsFromPackText } from "../context-pack.ts";
+import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, APP_LOGIN_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
@@ -23,25 +24,7 @@ import { assemble, section, type AssembledPrompt } from "./context-assembler.ts"
 import { roleWindowBytes } from "./model-window-catalog.ts";
 
 export type { AssembledPrompt };
-
-/* Names of the sections this module assembles. The builders render them and the prompt-contract lint reads them, so static role text can be checked for naming an assembled artifact without re-typing a heading. */
-export const PROMPT_HEADINGS = {
-  workingRules: "Working rules",
-  architectureContext: "Architecture context",
-  explorationBrief: "Exploration brief",
-  groundTruthAtFailure: "GROUND TRUTH AT FAILURE",
-  liveDevTree: "Live DEV accessibility tree",
-} as const;
-
-/* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */
-export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
-  PACK_HEADINGS.pack,
-  PACK_HEADINGS.liveDom,
-  PROMPT_HEADINGS.explorationBrief,
-  PROMPT_HEADINGS.architectureContext,
-  PROMPT_HEADINGS.groundTruthAtFailure,
-  PROMPT_HEADINGS.liveDevTree,
-];
+export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
 
 /* Throws loudly if a brief render is attempted before wiring — never a silent no-op (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires this before any run starts, and every test either wires it locally or never exercises `w.brief`/ `input.contextBrief` (renderBrief is only called when a brief is actually present). */
 let explorationBriefAdapter: ExplorationBriefAdapter | undefined;
@@ -50,7 +33,7 @@ export function setExplorationBriefCollaborators(fns: BriefFns): void {
   explorationBriefAdapter = new ExplorationBriefAdapter(fns);
 }
 
-function renderBrief(brief: ExplorationBrief, opts?: { suppressFeBe?: boolean }): string {
+function renderBrief(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }): string {
   if (!explorationBriefAdapter) {
     throw new Error(
       "prompts: renderExplorationBrief collaborator not wired — call setExplorationBriefCollaborators() at composition time (see rewritten-engine-factory.ts)",
@@ -418,31 +401,43 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const workingRulesContent = workingRulesLines.join("\n");
   const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode ? [claim.directs("use-runtime-signals")] : [];
 
-  const archMap = input.contextMap
-    ? renderArchitectureContextParts(
-        input.contextMap,
-        input.mode === "diff" ? input.intent?.changedFiles : undefined,
-        { suppressFeBeLinks: !!input.contextPack },
-      )
-    : null;
-  const archMapContent = input.contextMap ? [archMap?.text ?? "", ``].join("\n") : "";
-  const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
-
-  const briefSuppressesFeBe = !!input.contextPack;
-  const contextBriefContent = input.contextBrief
-    ? [
-        renderBrief(input.contextBrief, { suppressFeBe: briefSuppressesFeBe }),
-        `(The brief above distilled the blast radius — do NOT re-read that code. Verify selectors against the live DOM.)`,
-        ``,
-      ].join("\n")
-    : "";
-  const contextBriefClaims: PromptClaim[] = input.contextBrief ? briefClaims(input.contextBrief, briefSuppressesFeBe) : [];
-
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
   /* The tree is a failure-point tree only when the run says so; any other captured tree is the live page. Every reference to "the tree above" below is driven by these two, so a prompt never points at a tree it does not carry. */
   const hasFailureTree = Boolean(sanitizedDomSnapshot && isGenerationMode && input.failureSourced);
   const hasLiveTree = Boolean(sanitizedDomSnapshot && isGenerationMode && !input.failureSourced);
+
+  const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
+  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
+  const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
+  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source. */
+  const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
+
+  /* The brief owns FE-BE links when it carries them (the map yields its own), the pack's contracts section owns API operations when present (the map yields its list), and a brief drops its landmark hints when a tree exists. */
+  const archMap = input.contextMap
+    ? renderArchitectureContextParts(
+        input.contextMap,
+        input.mode === "diff" ? input.intent?.changedFiles : undefined,
+        {
+          suppressFeBeLinks: Boolean(input.contextBrief?.feBe?.length),
+          suppressApiOperations: packProvides("api-operations"),
+        },
+      )
+    : null;
+  const archMapContent = input.contextMap ? [archMap?.text ?? "", ``].join("\n") : "";
+  const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
+  const mapInjected = archMap !== null;
+  const blastRadiusSupplied = Boolean(input.contextBrief?.blastRadius.length);
+
+  const briefShowsLandmarks = Boolean(input.contextBrief?.routes?.some((r) => r.domLandmarks?.length)) && !treeInPrompt;
+  const contextBriefContent = input.contextBrief
+    ? [
+        renderBrief(input.contextBrief, { omitLandmarks: treeInPrompt }),
+        `(The brief above is established: it distilled the blast radius, risks, objective and contracts, so do NOT re-read that code. Verification is the harness's job — its static, execution and review gates.${briefShowsLandmarks ? " Route landmarks are hints, never selectors." : ""})`,
+        ``,
+      ].join("\n")
+    : "";
+  const contextBriefClaims: PromptClaim[] = input.contextBrief ? briefClaims(input.contextBrief, briefShowsLandmarks) : [];
 
   const domContent = sanitizedDomSnapshot && isGenerationMode
     ? hasFailureTree
@@ -647,9 +642,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
-  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
-
   /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
   const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
   const appLoginContent =
@@ -670,7 +662,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const appLoginClaims: PromptClaim[] = appLoginContent && input.contextPack ? [claim.directs("consult", "dom-live")] : [];
 
-  const task = buildTask(input);
+  const task = buildTask(input, { mapInjected, blastRadiusSupplied });
 
   const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
   const staticSignalClaims: PromptClaim[] = staticSignalContent
@@ -856,7 +848,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  opts: { suppressFeBeLinks?: boolean } = {},
+  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
 ): string | null {
   return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
 }
@@ -865,7 +857,7 @@ export function renderArchitectureContext(
 export function renderArchitectureContextParts(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  opts: { suppressFeBeLinks?: boolean } = {},
+  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
 ): { text: string; claims: PromptClaim[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
@@ -884,11 +876,7 @@ export function renderArchitectureContextParts(
   const lines: string[] = [];
   lines.push(`## ${PROMPT_HEADINGS.architectureContext} (from e2e/.qa/context.json)`);
   lines.push(`Built at ${s(ctx.builtAtSha).slice(0, 7)} — the FE↔BE map this app's QA uses to cross the frontend→backend boundary.`);
-  lines.push(
-    "This map is a non-authoritative AID, extracted from source and possibly STALE or INCOMPLETE: " +
-      "use it to widen the blast radius and locate flows, but verify every route, selector and contract " +
-      "against the actual code and the live DOM. If the map and what you observe disagree, the code/DOM wins.",
-  );
+  lines.push("This map was extracted from source and may be stale or incomplete.");
   lines.push("");
 
   if (ctx.routes.length) {
@@ -899,7 +887,8 @@ export function renderArchitectureContextParts(
     lines.push("");
   }
 
-  if (ctx.api.length) {
+  const listsApiOperations = ctx.api.length > 0 && !opts.suppressApiOperations;
+  if (listsApiOperations) {
     lines.push(`### API operations (${ctx.api.length} endpoints)`);
     for (const o of ctx.api.slice(0, MAX_ITEMS)) {
       lines.push(`- \`${s(o.operationId)}\`: ${s(o.method)} ${s(o.path)}${o.service ? ` (${s(o.service)})` : ""}`);
@@ -925,27 +914,24 @@ export function renderArchitectureContextParts(
     lines.push("");
   }
 
-  lines.push("When the blast radius from the diff touches a route, use its FE↔BE links");
-  lines.push("to also consider the backend operations — a frontend change can break backend");
-  lines.push("behaviour and vice-versa.");
   const out = lines.join("\n");
   const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
-  if (ctx.api.length) claims.push(claim.provides("api-operations"));
+  if (listsApiOperations) claims.push(claim.provides("api-operations"));
   if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
   return { text: out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims };
 }
 
-/* What a rendered brief provides and how it frames it. The shell renderer labels the whole brief non-authoritative, so every fact it carries is framed unverified. */
-function briefClaims(brief: ExplorationBrief, suppressFeBe: boolean): PromptClaim[] {
+/* What a rendered brief provides and how it frames it: the blast radius, risks and contracts it distilled are established, its landmark hints (kept only when no DOM tree exists) are not. */
+function briefClaims(brief: ExplorationBrief, showsLandmarks: boolean): PromptClaim[] {
   const claims: PromptClaim[] = [];
-  const fact = (id: FactId): void => {
-    claims.push(claim.provides(id), claim.frames(id, "unverified"));
+  const fact = (id: FactId, as: "established" | "unverified"): void => {
+    claims.push(claim.provides(id), claim.frames(id, as));
   };
-  if (brief.blastRadius.length) fact("blast-radius");
-  if (brief.risks?.length) fact("risks");
-  if (brief.feBe?.length && !suppressFeBe) claims.push(claim.provides("fe-be-links"));
-  if (brief.contracts?.length) claims.push(claim.provides("contracts"));
-  if (brief.routes?.some((r) => r.domLandmarks?.length)) fact("landmarks");
+  if (brief.blastRadius.length) fact("blast-radius", "established");
+  if (brief.risks?.length) fact("risks", "established");
+  if (brief.feBe?.length) claims.push(claim.provides("fe-be-links"));
+  if (brief.contracts?.length) fact("contracts", "established");
+  if (showsLandmarks) fact("landmarks", "unverified");
   return claims;
 }
 
@@ -1188,7 +1174,15 @@ function buildRegenTask(input: OpencodeRunInput): TaskParts {
   return { text, claims: [claim.directs("state-outcome")] };
 }
 
-function buildTask(input: OpencodeRunInput): TaskParts {
+/* What the prompt already supplies, so the task does not send the agent to fetch it again. */
+interface TaskGuards {
+  /* The architecture map is rendered in this prompt. */
+  mapInjected: boolean;
+  /* A brief carrying a blast radius is rendered in this prompt. */
+  blastRadiusSupplied: boolean;
+}
+
+function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
   if (input.target === "code") return buildCodeTask(input);
   if (isReGenTurn(input)) return buildRegenTask(input);
@@ -1245,31 +1239,30 @@ function buildTask(input: OpencodeRunInput): TaskParts {
     `## Objective — commit to this BEFORE writing`,
     ACCEPTANCE_CRITERION_RULE,
     ``,
-    `## ${PROMPT_HEADINGS.architectureContext}`,
-    `If ${input.e2eRelDir}/.qa/context.json exists, READ it to understand which routes and`,
-    `API operations the changed files belong to. Use the feBe links to widen the blast`,
-    `radius across the frontend→backend boundary: a frontend change may affect the`,
-    `backend behaviour and vice-versa. If the map is missing or stale, note the`,
-    `limitation explicitly in your verdict note.`,
-    ``,
+    ...(guards.mapInjected
+      ? []
+      : [
+          `## ${PROMPT_HEADINGS.architectureContext}`,
+          `If ${input.e2eRelDir}/.qa/context.json exists, READ it to understand which routes and`,
+          `API operations the changed files belong to. Use the feBe links to widen the blast`,
+          `radius across the frontend→backend boundary: a frontend change may affect the`,
+          `backend behaviour and vice-versa. If the map is missing or stale, note the`,
+          `limitation explicitly in your verdict note.`,
+          ``,
+        ]),
     `## Scope budget (diff mode — do NOT over-work)`,
     `The blast radius IS your budget. This is ONE commit, so keep generation fast and focused:`,
-    `- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`,
+    ...(guards.blastRadiusSupplied ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
     `- Explore ONLY the page(s) the change affects — not the whole app.`,
     `A handful of focused specs is the right output for a single-commit diff, not a suite rewrite.`,
     ...buildServiceBlock(input),
   ].join("\n");
-  return {
-    text,
-    claims: [
-      claim.directs("state-outcome"),
-      claim.directs("read", "arch-map"),
-      claim.frames("arch-map", "unverified"),
-      claim.directs("orient", "blast-radius"),
-    ],
-  };
+  const claims: PromptClaim[] = [claim.directs("state-outcome")];
+  if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
+  if (!guards.blastRadiusSupplied) claims.push(claim.directs("orient", "blast-radius"));
+  return { text, claims };
 }
 
 /* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */
