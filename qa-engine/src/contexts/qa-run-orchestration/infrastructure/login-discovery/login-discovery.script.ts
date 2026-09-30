@@ -19,7 +19,7 @@
  */
 
 import { EVIDENCE_TEXT_MAX, FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
-import { DESCRIBE_PAGE_SOURCE, INSTALL_SUBMIT_WATCH_SOURCE, NO_VISIBLE_PASSWORD_SOURCE, SUBMIT_WATCH_FIRED_SOURCE } from "./login-discovery.page-readers.ts";
+import { DESCRIBE_PAGE_SOURCE, INSTALL_SUBMIT_WATCH_SOURCE, NO_VISIBLE_PASSWORD_SOURCE, PAGE_TEXT_MAX, SUBMIT_WATCH_FIRED_SOURCE } from "./login-discovery.page-readers.ts";
 
 /** The paths tried last, after everything the app itself pointed at. */
 export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "/sign-in", "/auth/login", "/#/login"];
@@ -53,6 +53,7 @@ const WELL_KNOWN = ${JSON.stringify(LOGIN_WELL_KNOWN_PATHS)};
 const MAX_GATED_ROUTES = ${MAX_GATED_ROUTES};
 const FIELD_ATTRIBUTE = ${JSON.stringify(FIELD_ATTRIBUTE)};
 const TEXT_MAX = ${EVIDENCE_TEXT_MAX};
+const PAGE_TEXT_MAX = ${PAGE_TEXT_MAX};
 const MAX_REQUESTS = ${MAX_RENDERED_REQUESTS};
 const LOGIN_REQUEST_TYPES = ${JSON.stringify(LOGIN_REQUEST_TYPES)};
 const ACTION_TIMEOUT_MS = Number(input.actionTimeoutMs) || 0;
@@ -78,17 +79,22 @@ function spellings(secret) {
   const form = encodeURIComponent(secret).replace(/%20/g, "+");
   const html = secret.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const jsonHtmlSafe = json.replace(/[&<>]/g, function (c) { return "\\u00" + c.charCodeAt(0).toString(16).padStart(2, "0"); });
-  return [secret, encodeURIComponent(secret), encodeURI(secret), form, json, json.replace(/\//g, "\\/"), jsonHtmlSafe, html, secret.normalize("NFC"), secret.normalize("NFD")];
+  /* A browser reads a backslash in a path as a slash, so a password that has one comes back that way in an address. */
+  const asPath = secret.replace(/\\/g, "/");
+  return [secret, encodeURIComponent(secret), encodeURI(secret), asPath, encodeURI(asPath), form, json, json.replace(/\//g, "\\/"), jsonHtmlSafe, html, secret.normalize("NFC"), secret.normalize("NFD")];
 }
 const escapeForRegExp = function (text) { return text.replace(/[.*+?^$|(){}\[\]\\\/]/g, "\\$&"); };
 const SECRET_PATTERN = secrets.length === 0 ? null : new RegExp(
   Array.from(new Set(secrets.flatMap(spellings))).sort(function (a, b) { return b.length - a.length; }).map(escapeForRegExp).join("|"),
   "giu",
 );
+const LONGEST_SPELLING = secrets.reduce(function (longest, secret) { return Math.max(longest, ...spellings(secret).map(function (spelling) { return spelling.length; })); }, 0);
 const scrub = function (text) { return SECRET_PATTERN === null ? String(text) : String(text).replace(SECRET_PATTERN, "[redacted]"); };
 /* The same spellings, asked as a question: does this text carry the account? */
 const ACCOUNT_PATTERN = SECRET_PATTERN === null ? null : new RegExp(SECRET_PATTERN.source, "iu");
 const carriesAccount = function (text) { return ACCOUNT_PATTERN !== null && typeof text === "string" && ACCOUNT_PATTERN.test(text); };
+/* Text the page reader cut at its bound may end in the middle of the account, where no spelling can be recognised: what could hold a piece of it is dropped. */
+const uncut = function (text) { return text.length >= PAGE_TEXT_MAX ? text.slice(0, Math.max(0, PAGE_TEXT_MAX - LONGEST_SPELLING)) : text; };
 /* The account comes out of the WHOLE text first (a secret may span lines), then the first line stands for it, its URLs lose their queries, and the cut comes last. */
 const noteText = function (text) { return scrub(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").slice(0, TEXT_MAX); };
 /* What makes two exceptions the same one: the first line without its error name (a console text and a page error then read alike), with its URLs, GUIDs, hex ids of six or more characters, tokens that mix letters and digits (an id, from four characters) and numbers normalized. */
@@ -164,7 +170,13 @@ function resolveStep(step, from) {
   try { url = step instanceof URL ? step : new URL(step, from); } catch (_invalid) { return null; }
   return url.origin === baseOrigin ? url : null;
 }
-const keyOf = function (url) { return url.pathname + url.hash; };
+/* A hash is kept only as a route (#/ or #!/), cut where a parameter starts: anything else may be a token. A query is never kept. */
+const routeOf = function (hash) {
+  if (!/^#!?\//.test(hash)) return "";
+  const cut = hash.search(/[?&=]/);
+  return cut < 0 ? hash : hash.slice(0, cut);
+};
+const keyOf = function (url) { return url.pathname + routeOf(url.hash); };
 /* The address the browser is on belongs to the app: read at every moment something is typed or sent. */
 const onAppOrigin = function (page) { return new URL(page.url()).origin === baseOrigin; };
 const noPasswordShowing = function (fields) {
@@ -228,7 +240,7 @@ function watch(page, evidence) {
     if (state.phase !== "after" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0) return;
     const attributed = isTheLogin(request);
     if (request.method() === "GET" && !attributed) return;
-    const entry = { method: request.method(), pathname: new URL(request.url()).pathname, status: null, attributed: attributed };
+    const entry = { method: request.method(), pathname: scrub(new URL(request.url()).pathname), status: null, attributed: attributed };
     state.requests.push(entry);
     if (!attributed) return;
     state.tracked.set(request, entry);
@@ -272,7 +284,7 @@ const NOTHING_SHOWING = { fields: [], forms: [], baseSameOrigin: true, links: []
 /* Where the browser ended: its own path on the app's origin, else the last page the ladder asked for (a foreign address is not ours to report). */
 function finalPathOf(page, evidence) {
   const now = new URL(page.url());
-  return now.origin === baseOrigin ? keyOf(now) : evidence.ladder[evidence.ladder.length - 1] || "/";
+  return now.origin === baseOrigin ? scrub(keyOf(now)) : evidence.ladder[evidence.ladder.length - 1] || "/";
 }
 
 /* Opens the ladder in order and stops at the first page with a login form. A page that ends on another origin is never inspected. */
@@ -290,7 +302,7 @@ async function findLoginForm(page, evidence, watching) {
     if (!url || visited.has(keyOf(url))) continue;
     if (visited.size > 0 && Date.now() - startedAt >= BUDGET_MS) break;
     visited.add(keyOf(url));
-    evidence.ladder.push(keyOf(url));
+    evidence.ladder.push(scrub(keyOf(url)));
     try {
       await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: room(NAV_TIMEOUT_MS) });
       await page.waitForLoadState("networkidle", { timeout: room(SETTLE_MS) }).catch(function () {});
@@ -356,7 +368,7 @@ async function verifyInFreshContext(browser, now, evidence) {
     const freshPage = await fresh.newPage();
     const target = new URL(baseOrigin);
     target.pathname = now.pathname;
-    target.hash = now.hash;
+    target.hash = routeOf(now.hash);
     await freshPage.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: room(VERIFY_NAV_TIMEOUT_MS) });
     await freshPage.waitForLoadState("networkidle", { timeout: room(SETTLE_MS) }).catch(function () {});
     if (!onAppOrigin(freshPage)) return;
@@ -417,7 +429,7 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   evidence.challengeVisible = after.captcha.visible;
   evidence.secondFactorVisible = after.secondFactorVisible;
   const alert = after.alerts.find(function (text) { return !watching.alertsBefore.has(text); });
-  evidence.firstAlert = alert === undefined ? null : noteText(alert);
+  evidence.firstAlert = alert === undefined ? null : noteText(uncut(alert));
   evidence.submitDisabled = !evidence.passwordGone && after.fields.some(function (field) { return field.form === found.password.form && field.type === "submit" && field.disabled; });
   evidence.finalPath = finalPathOf(page, evidence);
   if (!evidence.passwordGone || now.origin !== baseOrigin) return;

@@ -7,9 +7,14 @@
  * JSON body would give them, BEFORE the text is cut to its bound, so no prefix of a credential
  * survives a cut. This module is a protected path: weakening it leaks the account.
  *
- * Known residual, not covered: a decomposed (NFD) spelling of a composed (NFC) secret or the reverse,
- * a JSON body that escapes `&`, `<` and `>` as `\u0026`-style sequences (Go), one that escapes `/`
- * as `\/` (PHP), and any other encoding a server invents.
+ * Covered: the raw value, `encodeURIComponent`, `encodeURI` (which leaves reserved characters such as
+ * `/` and `&` raw beside escaped ones), form encoding, JSON with and without ASCII-only escapes, and a
+ * backslash read as a slash (a browser does that to a path).
+ *
+ * Known residual, not covered here (the discovery child's own scrub covers the first four, so a
+ * child-produced text is clean of them): a decomposed (NFD) spelling of a composed (NFC) secret or the
+ * reverse, HTML entities, a JSON body that escapes `&`, `<` and `>` as `\u0026`-style sequences (Go),
+ * one that escapes `/` as `\/` (PHP), and any other encoding a server invents.
  */
 
 import { PRECONDITION_KIND, type PreconditionKind } from "../auth-precondition.ts";
@@ -156,7 +161,8 @@ function spellingsOf(secret: string): string[] {
   const form = new URLSearchParams({ k: wellFormed }).toString().slice(2);
   const json = JSON.stringify(wellFormed).slice(1, -1);
   const asciiJson = json.replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
-  return [secret, wellFormed, encodeURIComponent(wellFormed), form, json, asciiJson];
+  const asPath = wellFormed.replace(/\\/g, "/");
+  return [secret, wellFormed, encodeURIComponent(wellFormed), encodeURI(wellFormed), asPath, encodeURI(asPath), form, json, asciiJson];
 }
 
 const escapeForRegExp = (literal: string): string => literal.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
