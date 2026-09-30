@@ -115,11 +115,10 @@ test("buildPrompt does not depend on whether review is enabled: the run's review
   assert.equal(buildPrompt({ ...input, needsReview: false }), buildPrompt({ ...input, needsReview: true }));
 });
 
-test("buildPrompt includes the OpenAPI hint and the no-direct-call rule when configured", () => {
+test("buildPrompt includes the OpenAPI hint when configured (the no-direct-call rule lives in AGENTS Global rules)", () => {
   const p = buildPrompt({ ...input, openapi: "**/src/main/resources/openapi/*.yaml" });
   assert.match(p, /OpenAPI contract/);
   assert.match(p, /src\/main\/resources\/openapi/);
-  assert.match(p, /never call the API directly/);
 });
 
 test("buildPrompt joins multiple OpenAPI globs and omits the line when no hint is set", () => {
@@ -534,7 +533,6 @@ test("buildPrompt renders the cross-repo service section in diff mode", () => {
   assert.match(text, /org\/orders-svc/);
   assert.match(text, /\/m\/svc/);
   assert.match(text, /api\/\*\.yaml/);
-  assert.match(text, /ONLY through the frontend UI/);
 });
 
 test("buildPrompt has no cross-repo section without a service", () => {

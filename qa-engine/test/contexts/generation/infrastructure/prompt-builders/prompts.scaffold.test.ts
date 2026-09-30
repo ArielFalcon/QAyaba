@@ -117,6 +117,17 @@ test("the same input assembles an identical prompt whether or not review is enab
   }
 });
 
+/* ── craft that is unconditional lives once, in the static role prompt ── */
+
+test("the working rules do not restate the selector priority, which the role prompt's Procedure owns", () => {
+  for (const extra of [{}, { contextPack: DOM_PACK }, { domSnapshot: TREE }] as Array<Partial<OpencodeRunInput>>) {
+    const a = buildPromptAssembled(mkInput(extra));
+    assert.equal(Object.keys(a.sectionSizes)[0], "working-rules");
+    const rules = Buffer.from(a.text, "utf8").subarray(0, a.sectionSizes["working-rules"]).toString("utf8");
+    assert.doesNotMatch(rules, /getByTestId|getByRole|getByLabel/, JSON.stringify(Object.keys(extra)));
+  }
+});
+
 /* ── the size line is the diff's real size ── */
 
 test("the scope budget states the real number of files and changed lines of the diff", () => {

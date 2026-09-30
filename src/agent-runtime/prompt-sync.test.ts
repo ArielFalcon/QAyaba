@@ -1,15 +1,14 @@
-/* Prompt-sync drift guard. MUST-MATCH sections must stay byte-identical between the OpenCode
-   mirror (agents/agent/*.md) and the Codex neutral mirror (agent/roles/*.md). The guard covers
-   all files where deliberate drift must fail CI:
-   - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol
-   - qa-generator.md: Final output (must-match), + presence of the anti-hang/no-op section
-   - AGENTS.md: Global rules section (shared safety-critical rules must not diverge silently)
-   DELIBERATE divergences between the mirrors (wording improvements, phrasing adjustments) are
-   catalogued in the KNOWN_GENERATOR_PROCEDURE_DRIFT constant below. Section-level identity
-   is required for MUST-MATCH sections; prose rewrites inside WAIVED sections are allowed.
-   Section detection: sections are identified by their H2 header text (##). A section
-   is a MUST-MATCH candidate when its header or content includes the sentinel phrase
-   MUST-MATCH-SECTION. For the reviewer severity contract we check by known header names.
+/* Prompt-sync drift guard. The OpenCode mirror (agents/agent/*.md) and the Codex neutral mirror
+   (agent/roles/*.md) must not drift: a rule one runtime's agent reads and the other's does not is
+   a silent behavior split. The guard covers:
+   - qa-generator.md: EVERY section (Procedure, the stop rule and the final output) byte for byte
+   - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol, Code-mode review
+   - AGENTS.md: Global rules, Execution context and Protocols, plus the presence of the one
+     no-direct-HTTP-to-DEV statement in Global rules and its absence everywhere else
+   - the skill files, byte for byte
+   Conditional rules live in the assembled prompt; these static files hold unconditional craft
+   rules only, so there is nothing that may legitimately differ between the mirrors.
+   Section detection: sections are identified by their H2 header text (##).
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -17,7 +16,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
-import { buildContextTask } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -70,6 +69,11 @@ function readFile(rel: string): string {
   return readFileSync(p, "utf8");
 }
 
+const normalize = (s: string): string => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
+
+/* The two copies of the generator role prompt. */
+const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"];
+
 /* Parse H2 sections out of a markdown document. Returns a map: header text → body. */
 function parseSections(md: string): Map<string, string> {
   const sections = new Map<string, string>();
@@ -96,21 +100,6 @@ const REVIEWER_MUST_MATCH_SECTIONS = [
   "Dual-review protocol (judgment-day style)",
   "Code-mode review (target: code)",
 ];
-
-/* Must-match sections for the generator role.
-   "Final output" defines the JSON verdict contract shared by both runtimes — it must stay identical.
-   Procedure sections are ALLOWED to diverge (wording improvements) — see GENERATOR_WAIVED_SECTIONS.
- */
-const GENERATOR_MUST_MATCH_SECTIONS = ["Final output"];
-
-/* Sections in the generator that are ALLOWED to have different prose between the two mirrors.
-   These represent known, deliberate wording improvements — not semantic drift.
-   If a new semantic change is made to one mirror's procedure, it must be copied to the other,
- */
-const GENERATOR_WAIVED_SECTIONS = new Set([
-  "Procedure",
-  "Stop when the spec is written — then emit the verdict",
-]);
 
 /* Must-match sections for the shared AGENTS.md.
    "Global rules" contains safety-critical constraints shared by both runtimes and must not diverge.
@@ -219,7 +208,7 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("both qa-generator.md mirrors' engram section forbids test-authoring rules (Procedure is WAIVED but must stay consistent)", () => {
+  it("both qa-generator.md mirrors' engram section forbids test-authoring rules and names the governed ledger as their owner", () => {
     for (const rel of ["agent/roles/qa-generator.md", "agents/agent/qa-generator.md"]) {
       const content = readFile(rel);
       assert.ok(
@@ -291,30 +280,40 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
-  it("agent/roles/qa-generator.md Final output section matches agents/agent/qa-generator.md", () => {
+  it("every section of agent/roles/qa-generator.md, Procedure included, matches agents/agent/qa-generator.md byte for byte", () => {
     const codexGenerator = parseSections(readFile("agent/roles/qa-generator.md"));
     const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
 
-    for (const section of GENERATOR_MUST_MATCH_SECTIONS) {
-      const codexBody = codexGenerator.get(section);
-      const opencodeBody = opencodeGenerator.get(section);
-
-      if (opencodeBody === undefined) continue;
-
-      assert.ok(
-        codexBody !== undefined,
-        `prompt-sync DIVERGENCE: section "## ${section}" is present in agents/agent/qa-generator.md ` +
-          `but missing from agent/roles/qa-generator.md. Port it.`,
-      );
-
-      const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
+    assert.deepEqual(
+      [...codexGenerator.keys()],
+      [...opencodeGenerator.keys()],
+      "prompt-sync DIVERGENCE: the two generator mirrors must have the same sections in the same order.",
+    );
+    for (const [section, opencodeBody] of opencodeGenerator) {
       assert.equal(
-        normalize(codexBody),
+        normalize(codexGenerator.get(section) ?? ""),
         normalize(opencodeBody),
         `prompt-sync DIVERGENCE in section "## ${section}" (generator): ` +
-          `agent/roles/qa-generator.md and agents/agent/qa-generator.md differ. ` +
-          `The codex mirror must match the canonical OpenCode version.`,
+          `agent/roles/qa-generator.md and agents/agent/qa-generator.md differ. Edit both mirrors in the same step.`,
       );
+    }
+  });
+
+  it("both generator mirrors state the selector priority once, and it names the configured test-id attribute as the only test-id discriminator", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
+      const rules = procedure.match(/Selector priority:[^\n]*/g) ?? [];
+      assert.equal(rules.length, 1, `${rel}: the selector priority is stated exactly once`);
+      assert.match(rules[0] ?? "", /STARTS WITH the configured testIdAttribute name/, `${rel}: an id=/name=/href hint must not read as a test-id`);
+    }
+  });
+
+  it("the generator mirrors' Procedure holds unconditional craft: no case split on what the prompt carries and no runtime-signals rule", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
+      assert.ok(procedure.length > 0, `${rel}: has a Procedure section`);
+      assert.doesNotMatch(procedure, /\bCase [AB]\b/, `${rel}: the procedure does not branch on assembled grounding`);
+      assert.doesNotMatch(procedure, /browser_console_messages|browser_network_requests/, `${rel}: the runtime-signals rule is owned by the assembled prompt`);
     }
   });
 
@@ -337,7 +336,6 @@ describe("prompt-sync drift guard", () => {
   });
 
   /* The JSON examples of a generator prompt's Final output section, in order. */
-  const GENERATOR_PROMPTS = ["agents/agent/qa-generator.md", "agent/roles/qa-generator.md"];
   const finalOutputExamples = (rel: string): string[] => {
     const finalOutput = parseSections(readFile(rel)).get("Final output") ?? "";
     return [...finalOutput.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1] ?? "");
@@ -415,39 +413,63 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  it("GENERATOR_WAIVED_SECTIONS list accounts for all known generator procedure drift", () => {
-    /* Verify that any section present in agents/ generator but NOT identical in the codex mirror
-       is explicitly listed in GENERATOR_WAIVED_SECTIONS. If a new section appears in agents/
-       with content that differs from agent/ and is NOT waived, this test fails — forcing the
-       developer to either port the section or explicitly waive it with a comment.
-     */
-    const codexSections = parseSections(readFile("agent/roles/qa-generator.md"));
-    const opencodeSections = parseSections(readFile("agents/agent/qa-generator.md"));
-    const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
+  /* The rule that the agent drives the app only through the UI and makes no direct HTTP call to DEV is
+     stated ONCE, in AGENTS Global rules (the prompt-injection defense already carries it). These are the
+     ways the prompts have phrased it; a statement outside Global rules is a restatement to delete. */
+  const NO_DIRECT_HTTP_STATEMENTS: readonly RegExp[] = [
+    /network calls outside the Playwright MCP/gi,
+    /never call the API directly/gi,
+    /never call the service directly/gi,
+    /no curl/gi,
+    /no direct HTTP/gi,
+    /direct API\/HTTP\/curl/gi,
+    /Drive the (?:app|backend) through the (?:web )?UI/gi,
+  ];
+  const countStatements = (text: string): number =>
+    NO_DIRECT_HTTP_STATEMENTS.reduce((total, pattern) => total + [...text.matchAll(pattern)].length, 0);
 
-    const unaccountedDrift: string[] = [];
-    for (const [section, opencodeBody] of opencodeSections) {
-      if (GENERATOR_MUST_MATCH_SECTIONS.includes(section)) continue;
-      if (GENERATOR_WAIVED_SECTIONS.has(section)) continue;
-
-      const codexBody = codexSections.get(section);
-      if (codexBody === undefined) {
-        /* Section only in agents/ — must be waived or copied */
-        unaccountedDrift.push(`missing: "${section}"`);
-      } else if (normalize(codexBody) !== normalize(opencodeBody)) {
-        /* Section in both but differs — must be waived or copied */
-        unaccountedDrift.push(`diverged: "${section}"`);
+  it("both AGENTS.md mirrors keep a Global rules section that holds exactly one no-direct-HTTP statement, and no other section restates it", () => {
+    for (const rel of ["agents/AGENTS.md", "agent/AGENTS.md"]) {
+      const sections = parseSections(readFile(rel));
+      const globalRules = sections.get("Global rules");
+      assert.ok(globalRules, `${rel}: the Global rules section survives`);
+      assert.equal(countStatements(globalRules), 1, `${rel}: Global rules states the rule once`);
+      for (const [name, body] of sections) {
+        if (name === "Global rules") continue;
+        assert.equal(countStatements(body), 0, `${rel}: section "${name}" must not restate the no-direct-HTTP rule`);
       }
     }
+  });
 
-    assert.deepEqual(
-      unaccountedDrift,
-      [],
-      `prompt-sync: generator has unaccounted drift in sections that are neither MUST-MATCH ` +
-        `nor WAIVED: ${unaccountedDrift.join(", ")}. ` +
-        `Either port the section to agent/roles/qa-generator.md (if semantically identical content ` +
-        `is the goal) or add it to GENERATOR_WAIVED_SECTIONS (if the wording difference is deliberate).`,
-    );
+  it("no role prompt or skill restates the no-direct-HTTP rule", () => {
+    for (const rel of [
+      ...GENERATOR_PROMPTS,
+      "agents/skill/playwright-authoring/SKILL.md",
+      "agent/skills/playwright-authoring/SKILL.md",
+      "agents/agent/qa-worker.md",
+      "agent/roles/qa-worker.md",
+    ]) {
+      assert.equal(countStatements(readFile(rel)), 0, rel);
+    }
+  });
+
+  it("the assembled generator prompt does not restate the no-direct-HTTP rule, whatever it carries", () => {
+    const base = {
+      repo: "org/app",
+      sha: "abc1234",
+      diff: "diff --git a/a.ts b/a.ts\n+x\n",
+      mirrorDir: "/m",
+      e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234",
+      needsReview: false,
+      target: "e2e",
+      mode: "diff",
+      appName: "shop",
+      baseUrl: "http://localhost:3000",
+    } as Parameters<typeof buildPrompt>[0];
+    const withOpenapi = { ...base, openapi: "api-definition.yaml" };
+    const crossRepo = { ...base, service: { repo: "org/orders", mirrorDir: "/m/orders", openapi: "api.yaml" } };
+    for (const input of [base, withOpenapi, crossRepo]) assert.equal(countStatements(buildPrompt(input)), 0);
   });
 
   it("a deliberate divergence in generator Final output is structurally caught (inverse)", () => {
@@ -478,8 +500,6 @@ describe("prompt-sync drift guard", () => {
 });
 
 describe("agent-guidance-runtime-semantics drift guard", () => {
-  const normalize = (s: string) => s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "").trim();
-
   /* ---------------------------------------------------------------------------
      The two trees must be byte-identical (modulo trailing whitespace).
      This assertion PASSES on the current byte-identical files and FAILS on any one-tree edit.

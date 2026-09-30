@@ -842,58 +842,8 @@ test("coverage-gap (shedAs critical-recap) survives budget pressure that sheds l
   );
 });
 
-/* ── selector-priority rule in the STABLE band ────────────────────────────────────────────────
-   Goal: the selector-priority guidance (prefer getByTestId > getByRole > getByLabel/getByText >
-   scoped locator) must appear in the STABLE band of the generated prompt so it fires even when
-   DOM capture failed (i.e. when no domSnapshot is present). The rule must be present REGARDLESS
-   of whether a domSnapshot is included.
-   Idempotency: when a domSnapshot IS present, the rule should appear exactly once in the stable
-   band (not duplicated in the DOM snapshot section, which already carries its own selector guidance).
- */
-
-/* selector-priority rule is present in the prompt when NO domSnapshot is injected.
-   Currently the priority guidance only lives in the volatile DOM snapshot section, so this FAILS.
- */
-test("selector-priority rule is present in the stable band even when no domSnapshot is injected", () => {
-  /* No domSnapshot → the volatile DOM section is empty; the stable rule must still appear. */
-  const text = buildPrompt(mkInput({ domSnapshot: undefined }));
-  /* The stable rule must mention the priority order: getByTestId > getByRole > getByLabel/getByText */
-  assert.ok(
-    /getByTestId.*getByRole|getByRole.*getByLabel|selector.*priority|priority.*selector/i.test(text),
-    "the stable band must include a selector-priority rule even when no domSnapshot is present",
-  );
-});
-
-/* selector-priority rule is present in the prompt when a domSnapshot IS injected.
-   The rule must appear in the stable band (fired regardless), and the DOM snapshot section
-   may also carry its own guidance — but neither should be absent when the other is present.
- */
-test("selector-priority rule is present in the stable band when a domSnapshot IS injected", () => {
-  const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
-  assert.ok(
-    /getByTestId.*getByRole|getByRole.*getByLabel|selector.*priority|priority.*selector/i.test(text),
-    "the stable band must include a selector-priority rule even when a domSnapshot is present",
-  );
-});
-
-/* The stable-band selector-priority rule does NOT duplicate the DOM snapshot section's guidance.
-   When a domSnapshot is present, the priority mention in the stable band must be present but
-   the full DOM grounding section is separate. We check there is no exact verbatim duplication of
-   the stable rule. (Idempotency guard.)
- */
-test("selector-priority rule appears no more than twice across the prompt (idempotency guard)", () => {
-  /* With both domSnapshot and grounding, the rule may appear in the stable band AND in the
-     volatile grounding section. It must NOT be duplicated beyond those two natural occurrences.
-   */
-  const text = buildPrompt(mkInput({ domSnapshot: "button: Add Owner" }));
-  /* Count occurrences of "Selector priority" (case-insensitive) — must be ≤ 2 */
-  const STABLE_RULE_MARKER = "Selector priority";
-  const matches = (text.match(new RegExp(STABLE_RULE_MARKER, "gi")) ?? []).length;
-  assert.ok(
-    matches <= 2,
-    `selector-priority rule must appear at most twice across the prompt (stable + volatile); found ${matches}`,
-  );
-});
+/* The selector priority is unconditional craft: the generator role prompt's Procedure owns it (pinned by
+   prompt-sync.test.ts), so the assembled working rules never restate it (prompts.scaffold.test.ts). */
 
 /* When diffArchetypes are present in the input, the prompt must contain
    the one-line "Change shape (deterministic):" hint.
@@ -1491,16 +1441,6 @@ test("defect 1: worker selector-priority rule names the test-id-attribute-name d
     rule,
     /carries a (trailing )?`?-> \[attr\]`? hint\b(?!.*test-id)/i,
     "worker rule must not instruct getByTestId for ANY hint — only test-id hints",
-  );
-});
-
-test("defect 1: stable-band selector-priority rule names the test-id-attribute-name discriminator, not just 'carries a hint'", () => {
-  const text = buildPrompt(mkInput({ domSnapshot: undefined }));
-  const rule = /Selector priority:[^\n]*/.exec(text)?.[0] ?? "";
-  assert.ok(rule.length > 0, "stable band must contain a Selector priority rule");
-  assert.ok(
-    /starts with|begins with|testIdAttribute name|the configured test-id attribute/i.test(rule),
-    `stable-band selector-priority rule must name the test-id-only discriminator concretely; got: ${rule}`,
   );
 });
 

@@ -320,7 +320,7 @@ const RUNTIME_SIGNALS_LINES: readonly string[] = [
   `- Also inspect runtime signals with the Playwright MCP: browser_console_messages (catch JS errors`,
   `  and warnings — a console error on the changed flow is a real bug signal) and browser_network_requests`,
   `  (read the actual API calls/responses the flow makes, and assert against their real shape — status,`,
-  `  required fields, error responses — not invented contracts). Drive the backend through the UI only.`,
+  `  required fields, error responses — not invented contracts).`,
 ];
 
 export interface BuildPromptAssembledOpts {
@@ -410,10 +410,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Consult the playwright-authoring skill for robust specs and this app's capabilities.`,
           ...(openapiHint
             ? [
-                `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses). Drive the app through the web UI like a user — never call the API directly.`,
+                `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses).`,
               ]
             : []),
-          `- Selector priority: (1) getByTestId when the tree line's \`-> [attr]\` hint STARTS WITH the configured testIdAttribute name (e.g. \`data-testid=value\`) — an \`id=\`/\`name=\`/href hint does NOT qualify; (2) getByRole / getByLabel when no test-id hint; (3) getByText for text-only elements; (4) scoped CSS/locator only as last resort. No raw CSS classes or XPath — these break on refactor.`,
         ]),
     `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, mem_context, and mem_session_summary calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
   ];
@@ -1131,7 +1130,6 @@ function buildServiceBlock(input: OpencodeRunInput): string[] {
     `- Use the architecture context below (operations whose service matches this repo) plus the`,
     `  staged contract and this commit's staged diff/changed files to find which frontend routes`,
     `  and flows this change affects.`,
-    `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
   ];
 }
 

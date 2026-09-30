@@ -1,25 +1,4 @@
 {
   "note": "TEMPORARY bridge, deleted before the last commit of the prompt-contract series. Each entry is a contract violation the prompts carry today; each fix removes the entry it clears and a cleared entry that stays in the file fails the matrix test. Never add an entry to make a new violation pass.",
-  "entries": [
-    {
-      "key": "R8|codex/AGENTS.md",
-      "fix": "A10: static text names no assembled artifact (8.3)"
-    },
-    {
-      "key": "R8|codex/qa-generator.md",
-      "fix": "A10: static text names no assembled artifact (8.2)"
-    },
-    {
-      "key": "R8|codex/skill-playwright-authoring",
-      "fix": "A10: static text names no assembled artifact (8.3)"
-    },
-    {
-      "key": "R8|opencode/AGENTS.md",
-      "fix": "A10: static text names no assembled artifact (8.3)"
-    },
-    {
-      "key": "R8|opencode/qa-generator.md",
-      "fix": "A10: static text names no assembled artifact (8.2)"
-    }
-  ]
+  "entries": []
 }

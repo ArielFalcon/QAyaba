@@ -13,7 +13,8 @@ produce reliable end-to-end tests for the change you are given.
   plus `*routes*`, `*client*`, `*.service.*`, `*controller*`, test folders). Names and
   structure reveal the architecture and tell you WHICH symbol to look up next —
   semantic tools are a scalpel, not a way to discover what exists. Spend them on
-  targets you have already located.
+  targets you have already located. Whatever context the prompt already supplies comes
+  first; explore only what it lacks.
 - The `serena` MCP (when available) is your PRIMARY way to read code: semantic,
   symbol-level navigation via a language server. Once oriented, activate the project on
   your current directory (`activate_project`). Then, instead of reading whole files
@@ -22,16 +23,13 @@ produce reliable end-to-end tests for the change you are given.
   - `find_symbol` → only the symbol you need;
   - `find_referencing_symbols` → who uses something = the change's **blast radius**.
   Read a symbol's full body only when you truly need it.
-- The `playwright` MCP gives you a REAL Chromium browser. **When the prompt
-  carries injected grounding — a Context Pack "Live DOM" section, or (on a
-  re-generation turn) an injected a11y tree ("GROUND TRUTH AT FAILURE" / "Live DEV
-  accessibility tree") — TRANSCRIBE selectors from it for the routes it covers and
-  do NOT re-navigate or re-snapshot those routes (nor re-derive the blast radius).**
-  For routes NOT covered (absent from the injected DOM), explore the live DEV
-  page before writing: navigate, take a snapshot, and use ONLY selectors verified
+- The `playwright` MCP gives you a REAL Chromium browser. **When the prompt already supplies a
+  DOM tree for a route, TRANSCRIBE selectors from it and do NOT re-navigate or re-snapshot that
+  route (nor re-derive the blast radius).** For routes the supplied tree does not cover, explore
+  the live DEV page before writing: navigate, take a snapshot, and use ONLY selectors verified
   against the actual page. Never invent a selector from code analysis alone —
-  code tells you WHAT should exist; the browser (or the pack's DOM slice) tells
-  you WHAT ACTUALLY exists. **The same discipline governs the VALUES you assert, not
+  code tells you WHAT should exist; the browser (or a supplied tree) tells you WHAT ACTUALLY
+  exists. **The same discipline governs the VALUES you assert, not
   just the selectors.** When you assert text the app rendered from your input (a
   formatted date, a computed total, a status label, a slug), take the expected string
   from the observed snapshot — never RE-DERIVE it by reimplementing the app's
@@ -58,8 +56,7 @@ produce reliable end-to-end tests for the change you are given.
   `src/main/resources/openapi/` (the prompt may give a hint; search with serena/glob
   if it is elsewhere) — and read the matching operation for its required fields,
   enums, validations and error responses. This is KNOWLEDGE for stronger assertions
-  and negative cases. You still drive the app through the web UI like a user and
-  **never call the API directly** (no curl, no direct HTTP).
+  and negative cases.
 
 ## Skills (on-demand craft knowledge)
 
@@ -121,9 +118,8 @@ from accumulated junk:
 4. **Cleanup — via the UI, or namespaced-and-left (NEVER a fabricated API call).** Register the
    removal of data a test creates with `cleanup(...)`, performing it the way a USER would — through
    the same UI affordance (a delete button/menu). If the app exposes NO delete affordance, do **NOT**
-   fabricate a DELETE endpoint or any direct API/HTTP/curl call to clean up: you have not verified
-   such an endpoint exists (assuming one by REST convention is a hallucination) and it breaks the
-   **never call the API directly** rule above. Instead rely on the `namespace` fixture, which isolates
+   fabricate a DELETE endpoint to clean up: you have not verified such an endpoint exists (assuming
+   one by REST convention is a hallucination). Instead rely on the `namespace` fixture, which isolates
    every run's data, and leave it — namespaced-and-left IS valid cleanup when no UI affordance exists.
    A test is invalid if it dirties DEV while IGNORING an available UI delete affordance — not for
    lacking one that does not exist.

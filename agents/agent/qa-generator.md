@@ -54,46 +54,27 @@ architecture map. Follow this procedure:
 
 ### All other modes
 
-### 1. Understand the change (orient, then go deep)
+### 1. Understand the change
 
-First ORIENT cheaply: skim the file tree and names (glob/grep — the diff's own paths,
-`*routes*`, `*client*`, `*.service.*`) to form the architecture hypothesis and locate the
-symbols worth reading (see AGENTS.md). Only THEN activate the project in `serena`
-(`activate_project`) and use `find_referencing_symbols` (blast radius) and
-`get_symbols_overview` / `find_symbol` to read only what you need. Query `engram` for the repo's memory —
-search by the project name from the prompt to scope results to this app. If the
-affected flow calls a backend endpoint, read the matching OpenAPI operation (see
-AGENTS.md) for contract-aware assertions.
+Orient first, as AGENTS.md describes, then activate the project in `serena` (`activate_project`)
+and use `find_referencing_symbols` (blast radius) and `get_symbols_overview` / `find_symbol` to
+read only what you need. Query `engram` for the repo's memory — search by the project name from
+the prompt to scope results to this app. If the affected flow calls a backend endpoint, read the
+matching OpenAPI operation (see AGENTS.md) for contract-aware assertions.
 
-### 2. Selectors — transcribe from pack or explore (conditional)
+### 2. Selectors — only from a DOM tree
 
-**Check the prompt for injected grounding** — a "Context Pack" section in the VOLATILE
-band, OR (on a re-generation turn) an injected a11y tree: a "GROUND TRUTH AT FAILURE"
-block or a "Live DEV accessibility tree" section. The correct action depends on what is there:
+Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
+route, or, for a route it does not cover, the live page. Do NOT `browser_navigate` or
+`browser_snapshot` a route the supplied tree already covers. To explore an uncovered route,
+`browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
+spec files at run time, not in your session), `browser_snapshot` it, interact with forms and
+navigation to verify the exact user flow, and check loading states, success messages and error
+displays on page transitions.
 
-**Case A — the prompt already grounds the route** (a Context Pack "Live DOM" section, or an
-injected a11y / "GROUND TRUTH AT FAILURE" tree, covers it):
-  - TRANSCRIBE selectors directly from the injected tree — it is the ground truth.
-  - Do NOT use `browser_navigate` or `browser_snapshot` on a route the injected grounding
-    covers, and do NOT re-activate serena / re-run `find_referencing_symbols` to re-derive
-    the blast radius — the regen prompt already carries the distilled grounding.
-  - Trust the injected "role: name" lines exactly; do not assume roles or names not listed.
+Selector priority: (1) `getByTestId` when the tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
 
-**Case B — NO grounding covers the route** (no Context Pack, and no injected tree for it):
-  - **This step is mandatory.** Explore the live DEV page before writing any test.
-  - Use `browser_navigate` with the LIVE DEV URL from the task prompt (do NOT use
-    `PW_BASE_URL` — it is only set in spec files at run time, not in your session).
-  1. **Navigate** to the affected page(s) with `browser_navigate`.
-  2. **Take a snapshot** (`browser_snapshot`) to see the actual DOM structure,
-     element roles, labels, text content, and `data-testid` attributes.
-  3. **Interact** with forms and navigation to verify the exact user flow.
-  4. **Document the real selectors** — selector priority: (1) `getByTestId` when the injected tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
-  5. **Dynamic-DOM awareness**: the injected tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic lists, multi-step form steps) are NOT in this tree. Assert them with auto-waiting (`await expect(locator).toBeVisible()`, `waitForURL`), never `waitForTimeout`.
-  6. **Verify page transitions**: loading states, success messages, error displays.
-
-**In both cases**, also read runtime signals:
-- `browser_console_messages` — a JS error/warning on the changed flow is a real bug.
-- `browser_network_requests` — assert the ACTUAL API call status/shape, not invented.
+The tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic lists, multi-step form steps) are NOT in it. Assert them with auto-waiting (`await expect(locator).toBeVisible()`, `waitForURL`), never `waitForTimeout`.
 
 **If you cannot reach DEV** (network error, auth): note this in your verdict and ground selectors ONLY
 from role/label/text you can still observe; **never construct a test-id from source code or a naming
