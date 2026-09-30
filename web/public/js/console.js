@@ -572,7 +572,8 @@
     const limit = t.exhausted == null ? 'n/a' : t.exhausted ? 'hit' : 'not hit';
     return 'calls ' + val(t.totalCalls) + ' · before 1st write ' + val(t.callsBeforeFirstWrite) + ' · writes ' + val(t.writeCount) +
       ' · steps ' + steps + ' · redundant reads ' + val(t.redundantReadCount) + ' · duplicate calls ' + val(t.duplicateCallCount) +
-      ' · reads already in prompt ' + val(t.promptProvidedReadCount) + ' · step limit ' + limit;
+      ' · reads already in prompt ' + val(t.promptProvidedReadCount) + ' · reads of listed files ' + val(t.pathProvidedReadCount) +
+      ' · step limit ' + limit;
   }
   function runExtrasCards(run) {
     const ex = state.runExtras;

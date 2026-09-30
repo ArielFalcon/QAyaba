@@ -19,6 +19,7 @@ export interface AssembledPrompt {
   text: string;
   sectionSizes: Record<string, number>;
   claims: Record<string, readonly PromptClaim[]>;
+  providedPaths?: readonly string[];
 }
 
 export type SectionOpts = Partial<Pick<Section, "priority" | "maxBytes" | "cacheable" | "overflow" | "language" | "shedAs" | "claims">>;

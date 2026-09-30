@@ -492,7 +492,7 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     defaultPromptTimeoutMs: dispatcherTimeoutMs,
     getFallbackModel,
     persistTurn: saveAgentTurnEvent,
-    takeTurnCalls: (sessionId, promptText) => callEfficiencyTracker.take(sessionId, promptText),
+    takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: maxStepsFromConfig,
   });

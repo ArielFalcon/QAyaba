@@ -592,6 +592,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
         redundantReadCount: 6,
         duplicateCallCount: 4,
         promptProvidedReadCount: 3,
+        pathProvidedReadCount: 2,
         buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
       },
     }),
@@ -606,6 +607,7 @@ test("saveAgentTurnEvent persists the step budget and the call metrics of a turn
   assert.equal(saved!.redundantReadCount, 6);
   assert.equal(saved!.duplicateCallCount, 4);
   assert.equal(saved!.promptProvidedReadCount, 3);
+  assert.equal(saved!.pathProvidedReadCount, 2, "the path-provided count is stored apart from the content-provided one");
   assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 });
 });
 

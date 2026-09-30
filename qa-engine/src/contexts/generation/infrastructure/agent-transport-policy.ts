@@ -199,7 +199,7 @@ export interface AgentDepsCollaborators {
    * Flushes the call-efficiency tracker for the session whose prompt just resolved and returns that turn's metrics
    * (null when the session was not observed). Shell-injected: this module cannot import the SSE tracker (event-stream.ts already imports this one).
    */
-  takeTurnCalls?(sessionId: string, promptText: string): TurnCallMetrics | null;
+  takeTurnCalls?(sessionId: string, promptText: string, providedPaths?: readonly string[]): TurnCallMetrics | null;
   /**
    * Opens attempt `attempt` (0 for the primary model, 1 for the fallback retry) of a prompt on the session, before it is sent:
    * the tracker decides there whether that attempt's steps can be observed completely, waiting a bounded time for its event stream
@@ -334,7 +334,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                     const finalText = finalStepText(res.parts);
                     /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
                     const flushed = collab.takeTurnCalls
-                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text))
+                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
                       : null;
                     const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
                     const stepBudget = collab.maxStepsFor

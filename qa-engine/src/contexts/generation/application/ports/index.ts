@@ -30,7 +30,7 @@ export interface VerdictParserPort {
 export interface PromptSection { heading: string; body: string; }
 export interface PromptRenderingPort {
   render(sections: readonly PromptSection[]): string;
-  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number> };
+  renderMain(input: OpencodeRunInput): { text: string; sectionSizes: Record<string, number>; providedPaths?: readonly string[] };
   renderWorker(w: ParallelWorkerInput): { text: string; sectionSizes: Record<string, number> };
   renderReviewer(input: ReviewInput): { text: string; sectionSizes: Record<string, number> };
   renderExplorer(input: OpencodeRunInput): string;

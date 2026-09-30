@@ -28,6 +28,8 @@ export interface TurnCallMetrics {
   redundantReadCount: number;
   duplicateCallCount: number;
   promptProvidedReadCount: number;
+  /** Content reads of a file the prompt listed by path as already rendered (even compactly). Counted by path, apart from the content-based `promptProvidedReadCount`. */
+  pathProvidedReadCount: number;
   buckets: Record<CallBucket, number>;
 }
 
@@ -54,6 +56,7 @@ export interface BuildTurnCallMetricsInput {
   buckets: readonly CallBucket[];
   redundantReadCount: number;
   promptProvidedReadCount: number;
+  pathProvidedReadCount: number;
   stepsUsed: number | null;
   observationComplete: boolean;
 }
@@ -71,6 +74,7 @@ export function buildTurnCallMetrics(input: BuildTurnCallMetricsInput): TurnCall
     redundantReadCount: input.redundantReadCount,
     duplicateCallCount: input.sequence.repeatedCallCount,
     promptProvidedReadCount: input.promptProvidedReadCount,
+    pathProvidedReadCount: input.pathProvidedReadCount,
     buckets: tallyBuckets(input.buckets),
   };
 }

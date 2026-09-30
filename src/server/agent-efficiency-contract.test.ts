@@ -42,6 +42,7 @@ const measuredMetrics = {
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 1,
+  pathProvidedReadCount: 2,
   buckets: { code_read: 8, browser: 2, write: 1, validate_run: 1, memory: 0, subagent: 0, other: 0 },
 };
 

@@ -769,6 +769,7 @@ export const AgentTurnViewSchema = z.object({
   redundantReadCount: nullableCount,
   duplicateCallCount: nullableCount,
   promptProvidedReadCount: nullableCount,
+  pathProvidedReadCount: nullableCount,
   exhausted: z.boolean().nullable(),
   callBuckets: z.record(z.string(), z.number()).nullable(),
 });

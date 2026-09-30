@@ -282,9 +282,11 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
   /**
    * Metrics for the turn that just resolved (the delta since this session's previous flush), or
    * null when the session is unknown, poisoned, or saw no event during the turn.
-   * `promptText` is the turn's prompt, used to spot reads of content it already contained.
+   * `promptText` is the turn's prompt, used to spot reads of content it already contained;
+   * `providedPaths` are the files the prompt lists as rendered (even compactly), resolved against the
+   * session's directory: a content read of one is path-provided, counted apart from the content match.
    */
-  take(sessionId: string, promptText: string): TurnCallMetrics | null {
+  take(sessionId: string, promptText: string, providedPaths: readonly string[] = []): TurnCallMetrics | null {
     const session = this.sessions.get(sessionId);
     if (!session || session.poisoned || !session.sawEventSinceFlush) return null;
 
@@ -296,6 +298,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
 
     const redundant = detectRedundantReads(calls.map(toReadWriteEvent));
     const promptIndex = indexPromptLines(promptText);
+    const provided = new Set(providedPaths.map((p) => resolve(session.cwd, p)));
     const newSteps = session.stepStarts.size - session.flushedSteps;
 
     const metrics = buildTurnCallMetrics({
@@ -303,6 +306,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
       buckets: turnCalls.map((call) => call.bucket),
       redundantReadCount: turnCalls.filter((call) => redundant.has(call.callId)).length,
       promptProvidedReadCount: turnCalls.filter((call) => call.sample && isProvidedByPrompt(call.sample, promptIndex)).length,
+      pathProvidedReadCount: turnCalls.filter((call) => isContentReadTool(call.tool) && call.path !== undefined && provided.has(call.path)).length,
       stepsUsed: session.stepsComplete && newSteps > 0 ? newSteps : null,
       observationComplete: session.stepsComplete,
     });

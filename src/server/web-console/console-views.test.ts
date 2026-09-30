@@ -85,7 +85,7 @@ test("an agent turn shows its efficiency measurements, including when it hit the
       runs: [runRecord("run-done")],
       extra: turnsRoute("run-done", [{
         ...baseTurn, totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2,
-        redundantReadCount: 6, duplicateCallCount: 4, promptProvidedReadCount: 3, exhausted: true, callBuckets: { code_read: 20 },
+        redundantReadCount: 6, duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true, callBuckets: { code_read: 20 },
       }]),
     }),
   });
@@ -97,6 +97,8 @@ test("an agent turn shows its efficiency measurements, including when it hit the
   assert.match(h.text(), /before 1st write 27/);
   assert.match(h.text(), /steps 50\/50/);
   assert.match(h.text(), /redundant reads 6/);
+  assert.match(h.text(), /reads already in prompt 3/);
+  assert.match(h.text(), /reads of listed files 2/, "the path-provided reads are shown apart from the content-provided ones");
   assert.match(h.text(), /step limit hit/);
 });
 
@@ -108,7 +110,7 @@ test("an agent turn with unmeasured efficiency shows n/a, never a zero, whether 
       apps: [appView("shop")],
       runs: [runRecord("run-done")],
       extra: turnsRoute("run-done", [
-        { ...baseTurn, totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null },
+        { ...baseTurn, totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null },
         { ...baseTurn, sessionId: "s2" },
       ]),
     }),

@@ -33,6 +33,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
     buckets: [CALL_BUCKETS.CODE_READ, CALL_BUCKETS.WRITE],
     redundantReadCount: 1,
     promptProvidedReadCount: 1,
+    pathProvidedReadCount: 2,
     stepsUsed: 4,
     observationComplete: true,
   });
@@ -44,6 +45,7 @@ test("buildTurnCallMetrics assembles the pinned TurnCallMetrics shape from a cal
   assert.equal(metrics.writeCount, 1);
   assert.equal(metrics.redundantReadCount, 1);
   assert.equal(metrics.promptProvidedReadCount, 1);
+  assert.equal(metrics.pathProvidedReadCount, 2, "the path-provided count is carried apart from the content-provided one");
   assert.equal(metrics.buckets.code_read, 1);
   assert.equal(metrics.buckets.write, 1);
 });
@@ -59,6 +61,7 @@ test("buildTurnCallMetrics carries duplicateCallCount straight from the sequence
     buckets: [CALL_BUCKETS.CODE_READ, CALL_BUCKETS.CODE_READ],
     redundantReadCount: 0,
     promptProvidedReadCount: 0,
+    pathProvidedReadCount: 0,
     stepsUsed: null,
     observationComplete: false,
   });

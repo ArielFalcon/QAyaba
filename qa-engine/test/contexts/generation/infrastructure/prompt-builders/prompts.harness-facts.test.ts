@@ -1,4 +1,4 @@
-/* Harness facts reach the generator as data only. */
+/* Harness facts reach the generator as data only, and the files whose content the prompt renders are listed by path so the efficiency tracker can tell a redundant re-read from a fresh one. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -8,7 +8,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { countDirectives, hasTrustLanguage, HARNESS_FACTS_SECTION_ID } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
-import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
 setExplorationBriefCollaborators({
   parseExplorationBrief: () => null,
@@ -34,6 +34,13 @@ function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {
 }
 
 const FACTS: HarnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect", "authenticate"] } };
+const MAP: ArchitectureContext = {
+  builtAtSha: "abc1234",
+  routes: [{ path: "/cart" }],
+  api: [{ operationId: "applyCoupon", method: "POST", path: "/cart/coupon" }],
+  feBe: [],
+};
+
 /* The text of one section, cut from the assembled prompt by the sizes the assembler reports in order. */
 function sectionText(a: AssembledPrompt, id: string): string {
   const bytes = Buffer.from(a.text, "utf8");
@@ -83,4 +90,27 @@ test("a secret-shaped value in a fact never reaches the prompt raw", () => {
 
 test("code and context runs carry no harness facts section", () => {
   assert.equal(buildPromptAssembled(mkInput({ harnessFacts: FACTS, mode: "context" })).sectionSizes[HARNESS_FACTS_SECTION_ID], undefined);
+});
+
+/* ── the manifest of provided paths ── */
+
+test("the architecture map's context.json and the fixtures file are listed as provided paths, relative to the working copy", () => {
+  const a = buildPromptAssembled(mkInput({ harnessFacts: FACTS, contextMap: MAP }));
+  assert.deepEqual([...(a.providedPaths ?? [])].sort(), ["tests/e2e/.qa/context.json", "tests/e2e/fixtures.ts"]);
+});
+
+test("a prompt that renders neither file lists no provided path", () => {
+  assert.deepEqual(buildPromptAssembled(mkInput()).providedPaths, []);
+  assert.deepEqual(buildPromptAssembled(mkInput({ harnessFacts: { testIdAttribute: "data-cy" } })).providedPaths, []);
+});
+
+test("a section shed by the byte budget contributes no provided path", () => {
+  const input = mkInput({ harnessFacts: FACTS, contextMap: MAP });
+  const full = buildPromptAssembled(input);
+  assert.equal(full.providedPaths?.length, 2);
+  const total = Buffer.byteLength(full.text, "utf8");
+  const withoutMap = buildPromptAssembled(input, { budgetBytes: total - (full.sectionSizes["arch-map"] ?? 0) });
+  assert.equal(withoutMap.sectionSizes["arch-map"], undefined, "the map was shed");
+  assert.ok(withoutMap.sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined, "the facts survived");
+  assert.deepEqual(withoutMap.providedPaths, ["tests/e2e/fixtures.ts"]);
 });

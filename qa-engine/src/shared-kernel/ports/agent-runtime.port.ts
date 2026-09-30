@@ -54,6 +54,8 @@ export interface AgentPromptOpts {
   round?: number;
   isRepair?: boolean;
   sectionSizes?: Record<string, number> | null;
+  /** Files (relative to the session's directory) whose content the prompt already renders, so a read of one is not fresh information. */
+  providedPaths?: readonly string[];
   /** Called once per resolved prompt with that turn's stats, by runtimes that can measure them. A fault in the callback is logged and never disturbs the prompt. */
   onTurnStats?: (stats: AgentTurnStats) => void;
 }

@@ -1730,6 +1730,7 @@ const CALL_METRICS = {
   redundantReadCount: 1,
   duplicateCallCount: 0,
   promptProvidedReadCount: 0,
+  pathProvidedReadCount: 0,
   buckets: { code_read: 9, browser: 0, write: 0, validate_run: 0, memory: 0, subagent: 0, other: 0 },
 };
 

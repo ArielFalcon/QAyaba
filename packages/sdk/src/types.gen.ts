@@ -1187,6 +1187,7 @@ export interface components {
             redundantReadCount: number | null;
             duplicateCallCount: number | null;
             promptProvidedReadCount: number | null;
+            pathProvidedReadCount: number | null;
             exhausted: boolean | null;
             callBuckets: {
                 [key: string]: number;

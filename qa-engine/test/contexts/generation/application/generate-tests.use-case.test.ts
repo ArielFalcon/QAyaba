@@ -78,6 +78,46 @@ test("renders → opens session → parses deliverable → reconciles manifest (
   assert.deepEqual(out.specs, ["flows/login.spec.ts"]);
 });
 
+test("the files the rendered prompt already carries are handed to the session with the prompt, and no key is added when it lists none", async () => {
+  const seenOpts: Array<Record<string, unknown> | undefined> = [];
+  const build = (providedPaths: readonly string[] | undefined): GenerationPorts => ({
+    runtime: {
+      openSession: async () => ({
+        prompt: async (_text, opts) => {
+          seenOpts.push(opts as Record<string, unknown> | undefined);
+          return { output: '{"specs":["flows/login.spec.ts"]}' };
+        },
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "PROMPT", sectionSizes: { task: 6 }, ...(providedPaths ? { providedPaths } : {}) }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  });
+  const input: OpencodeRunInput = {
+    repo: "org/demo", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+  };
+
+  await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).generate(input);
+  await new GenerateTestsUseCase(build(undefined)).generate(input);
+
+  assert.deepEqual(seenOpts[0]?.providedPaths, ["e2e/.qa/context.json"]);
+  assert.equal(seenOpts[0]?.sectionSizes !== undefined, true, "the section sizes still travel with it");
+  assert.equal("providedPaths" in (seenOpts[1] ?? {}), false);
+});
+
 test("code target skips manifest reconciliation entirely (legacy opencode-client.ts:800 parity) and passes specMetas through raw", async () => {
   const calls: string[] = [];
   const ports: GenerationPorts = {

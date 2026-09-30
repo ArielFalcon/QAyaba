@@ -69,6 +69,7 @@ export class GenerateTestsUseCase {
       /* The verdict is read from the final step's text alone: what the agent recalled or quoted on the way is not its conclusion. */
       const result = await session.prompt(assembled.text, {
         sectionSizes: assembled.sectionSizes,
+        ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
         finalStepOnly: true,
         onTurnStats: (stats) => { mainTurn = stats; },
       });

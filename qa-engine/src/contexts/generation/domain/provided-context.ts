@@ -1,8 +1,10 @@
 /*
- * "Already in the prompt" detection — content-based, with no
- * manifest threading (a manifest from the prompt builders is out of scope:
- * this change must not touch them). A read counts as redundant work when
- * most of what it returned was already visible in the turn's own prompt.
+ * "Already in the prompt" detection by content: a read counts as redundant
+ * work when most of what it returned was already visible in the turn's own
+ * prompt. A file the prompt renders compactly (a facts list, a summary) is
+ * invisible to this measure, so the prompt also lists such files by path
+ * (AssembledPrompt.providedPaths) and the tracker counts a read of a listed
+ * path separately; the two counts are never merged.
  */
 
 export const PROVIDED_CONTEXT_SAMPLE_LINES = 24;

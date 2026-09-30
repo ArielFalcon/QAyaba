@@ -58,6 +58,8 @@ export interface AgentTurnRecord {
   redundantReadCount?: number | null;
   duplicateCallCount?: number | null;
   promptProvidedReadCount?: number | null;
+  /* Content reads of a file the prompt listed by path as rendered; apart from the content-based promptProvidedReadCount. */
+  pathProvidedReadCount?: number | null;
   exhausted?: boolean | null;
   callBuckets?: Record<string, number> | null;
 }
@@ -79,6 +81,7 @@ export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: 
   { name: "prompt_provided_read_count", type: "INTEGER" },
   { name: "exhausted", type: "INTEGER" },
   { name: "call_buckets", type: "TEXT" },
+  { name: "path_provided_read_count", type: "INTEGER" },
 ];
 
 const DELETE_MAX_AGE_DAYS = 30;
@@ -411,13 +414,15 @@ function ensureDb(): void {
        prompt_text, output_text, prompt_bytes,
        tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost,
        total_calls, steps_used, max_steps, calls_before_first_write, write_count,
-       redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets)
+       redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
+       path_provided_read_count)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
        @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost,
        @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
-       @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets)
+       @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
+       @pathProvidedReadCount)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -1011,6 +1016,7 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     redundantReadCount: turn.redundantReadCount ?? null,
     duplicateCallCount: turn.duplicateCallCount ?? null,
     promptProvidedReadCount: turn.promptProvidedReadCount ?? null,
+    pathProvidedReadCount: turn.pathProvidedReadCount ?? null,
     /* exhausted is tri-state: NULL = unknown, 0 = known not exhausted, 1 = exhausted. */
     exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
     callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
@@ -1049,6 +1055,7 @@ export function saveAgentTurnEvent(t: AgentTurnEvent): void {
     redundantReadCount: t.callMetrics?.redundantReadCount ?? null,
     duplicateCallCount: t.callMetrics?.duplicateCallCount ?? null,
     promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
+    pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
     callBuckets: t.callMetrics?.buckets ?? null,
   });
 }
@@ -1082,6 +1089,7 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     redundantReadCount: (r.redundant_read_count as number | null) ?? null,
     duplicateCallCount: (r.duplicate_call_count as number | null) ?? null,
     promptProvidedReadCount: (r.prompt_provided_read_count as number | null) ?? null,
+    pathProvidedReadCount: (r.path_provided_read_count as number | null) ?? null,
     exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
     callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
   }));

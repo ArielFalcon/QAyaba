@@ -56,6 +56,16 @@ function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
   return lines.length > 0 ? [`## Harness facts`, ...lines, ``].join("\n") : "";
 }
 
+/* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
+function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, number>): string[] {
+  const paths: string[] = [];
+  if (sectionSizes["arch-map"] !== undefined) paths.push(`${input.e2eRelDir}/.qa/context.json`);
+  if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.fixtures) {
+    paths.push(`${input.e2eRelDir}/${input.harnessFacts.fixtures.file}`);
+  }
+  return paths;
+}
+
 function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean): string {
   const subject = intent?.message ?? "";
   const body = includeBody ? intent?.body : undefined;
@@ -758,7 +768,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return renderExemplarsForPrompt(deduped);
   })();
 
-  return assemble([
+  const assembled = assemble([
     section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
     ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
@@ -795,6 +805,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : [];
     })(),
   ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+  return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
 }
 
 export function buildPrompt(input: OpencodeRunInput): string {

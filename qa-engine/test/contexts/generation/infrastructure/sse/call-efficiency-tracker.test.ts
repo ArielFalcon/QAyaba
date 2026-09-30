@@ -330,6 +330,68 @@ test("a read whose output the turn's prompt already contained counts as prompt-p
   assert.equal(metrics?.promptProvidedReadCount, 1);
 });
 
+/* A prompt can render a file compactly (a facts list, a summary): the lines of the file are then not in the prompt, but a read of that file re-fetches what the prompt already carries. The prompt lists such files by path. */
+const COMPACT_OUTPUT = "1\texport const test = base.extend({ authenticate: async ({ page }, use) => { await use(async () => {}); } });\n2\texport { expect } from '@playwright/test';\n3\texport function ns(prefix: string) { return prefix + Date.now(); }";
+
+test("a read of a file the prompt lists by path counts as path-provided even though the prompt renders it compactly", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+
+  const metrics = tracker.take("s1", "fixtures: e2e/fixtures.ts exports test, expect, ns", ["e2e/fixtures.ts"]);
+  assert.equal(metrics?.pathProvidedReadCount, 1);
+  assert.equal(metrics?.promptProvidedReadCount, 0, "the compact render does not contain the file's lines, so content detection cannot see it");
+});
+
+test("path-provided and content-provided reads are counted separately, each by its own measure", () => {
+  const source = [
+    "export function calculateInvoiceTotal(items) {",
+    "  const subtotal = items.reduce((sum, item) => sum + item.price, 0);",
+    "  const tax = subtotal * TAX_RATE_FOR_REGION;",
+    "  return subtotal + tax + SHIPPING_FLAT_FEE;",
+    "}",
+  ];
+  const contentRead = source.map((line, i) => `${String(i + 1).padStart(5)}\t${line}`).join("\n");
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/invoice.ts` }, contentRead);
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/e2e/.qa/context.json` }, COMPACT_OUTPUT);
+
+  const metrics = tracker.take("s1", `Here is the file:\n${source.join("\n")}\n`, ["e2e/.qa/context.json"]);
+  assert.equal(metrics?.promptProvidedReadCount, 1, "the read whose lines the prompt contained");
+  assert.equal(metrics?.pathProvidedReadCount, 1, "the read of the listed path");
+});
+
+test("a listed path resolves against the session's directory, whether it is written relative or absolute", () => {
+  for (const listed of ["e2e/fixtures.ts", `${CWD}/e2e/fixtures.ts`, "./e2e/fixtures.ts"]) {
+    const tracker = tracked();
+    runCall(tracker, "s1", "c1", "read", { filePath: "e2e/fixtures.ts" }, COMPACT_OUTPUT);
+    assert.equal(tracker.take("s1", "", [listed])?.pathProvidedReadCount, 1, listed);
+  }
+});
+
+test("only a content read of a listed path counts: another path, another tool and an unlisted turn do not", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/e2e/other.ts` }, COMPACT_OUTPUT);
+  runCall(tracker, "s1", "c2", "edit", { filePath: `${CWD}/e2e/fixtures.ts` }, "edited");
+  runCall(tracker, "s1", "c3", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+
+  assert.equal(tracker.take("s1", "", ["e2e/fixtures.ts"])?.pathProvidedReadCount, 1, "only the read of the listed file");
+
+  const none = tracked();
+  runCall(none, "s1", "c1", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+  assert.equal(none.take("s1", "")?.pathProvidedReadCount, 0, "no paths listed: nothing is path-provided");
+  const empty = tracked();
+  runCall(empty, "s1", "c1", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+  assert.equal(empty.take("s1", "", [])?.pathProvidedReadCount, 0);
+});
+
+test("path-provided reads are reported per turn: a later take does not count an earlier turn's read again", () => {
+  const tracker = tracked();
+  runCall(tracker, "s1", "c1", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+  assert.equal(tracker.take("s1", "", ["e2e/fixtures.ts"])?.pathProvidedReadCount, 1);
+  runCall(tracker, "s1", "c2", "read", { filePath: `${CWD}/e2e/fixtures.ts` }, COMPACT_OUTPUT);
+  assert.equal(tracker.take("s1", "", ["e2e/fixtures.ts"])?.pathProvidedReadCount, 1, "one read this turn, not two");
+});
+
 test("each take reports only the steps opened since the session's previous flush", () => {
   const tracker = tracked();
   tracker.record(stepStart("s1", "step-a"));

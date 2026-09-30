@@ -44,6 +44,8 @@ export interface AssembledPrompt {
   sectionSizes: Record<string, number>;
   /* Claims of the sections that survived assembly, keyed by section id; a shed or dropped section contributes none. */
   claims: Record<string, readonly PromptClaim[]>;
+  /* Files whose content the surviving sections already render, by path relative to the working copy. Set by the builder after assembly; absent for prompts that render no file. */
+  providedPaths?: readonly string[];
 }
 
 function truncateToValidUtf8(buf: Buffer, maxBytes: number): string {

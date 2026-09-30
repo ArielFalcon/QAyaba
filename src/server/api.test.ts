@@ -304,14 +304,14 @@ const measuredTurn: AgentTurnRecord = {
   ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
   tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
   totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6,
-  duplicateCallCount: 4, promptProvidedReadCount: 3, exhausted: true,
+  duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true,
   callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
 };
 
 test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
   const unmeasured: AgentTurnRecord = {
     ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
-    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null,
+    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
   };
   const r = mkRes();
   await handleApi(
@@ -1261,7 +1261,7 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
 /* The efficiency fields a stored turn carries when nothing measured them (what getAgentTurns returns for an unmeasured turn). */
 const UNMEASURED_TURN_FIELDS = {
   totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
-  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, exhausted: null, callBuckets: null,
+  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
 };
 
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {

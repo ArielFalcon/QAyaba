@@ -828,6 +828,7 @@ const SAMPLE_CALL_METRICS = {
   redundantReadCount: 2,
   duplicateCallCount: 1,
   promptProvidedReadCount: 0,
+  pathProvidedReadCount: 0,
   buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, memory: 0, subagent: 0, other: 0 },
 };
 
@@ -951,6 +952,27 @@ test("createAgentDeps: the tracker is flushed once per resolved prompt even when
   const session = await deps.open("qa-generator", "/tmp");
   await session.prompt("the turn prompt");
   assert.deepEqual(flushes, [{ sessionId: "sess-silent", promptText: "the turn prompt" }]);
+});
+
+test("createAgentDeps: the tracker is told which files the turn's prompt already renders, and nothing when the caller listed none", async () => {
+  resetCircuit();
+  const seen: Array<readonly string[] | undefined> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-paths" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }),
+  });
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: (_sessionId, _promptText, providedPaths) => {
+      seen.push(providedPaths);
+      return SAMPLE_CALL_METRICS;
+    },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt", { providedPaths: ["e2e/.qa/context.json", "e2e/fixtures.ts"] });
+  await session.prompt("a prompt with no listed files");
+  assert.deepEqual(seen, [["e2e/.qa/context.json", "e2e/fixtures.ts"], undefined]);
 });
 
 test("createAgentDeps: without efficiency collaborators the turn's step budget and call metrics are null, never fabricated", async () => {
