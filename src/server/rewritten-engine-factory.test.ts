@@ -17,6 +17,7 @@ import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
 import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition";
+import { SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script";
 import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
@@ -168,7 +169,7 @@ async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{
   const saved = new Map(["QAYABA_ROOT", "PATH", "QA_FORM_USER", "QA_FORM_PASS", "EXTERNAL_API_TOKEN"].map((k) => [k, process.env[k]]));
   try {
     const evidence = JSON.stringify({ evidence: scriptedLoginEvidence({ firstAlert: `the page said ${ORCHESTRATOR_TOKEN} to the user` }) });
-    writeFileSync(join(binDir, "node"), `#!/bin/sh\nprintf '%s' "$PW_LOGIN_INPUT" > login-input.txt\ncat <<'EOF'\n{"marker":"submitted"}\n${evidence}\nEOF\n`);
+    writeFileSync(join(binDir, "node"), `#!/bin/sh\nprintf '%s' "$PW_LOGIN_INPUT" > login-input.txt\ncat <<'EOF'\n${JSON.stringify({ marker: SUBMITTED_MARKER })}\n${evidence}\nEOF\n`);
     writeFileSync(join(binDir, "npx"), "#!/bin/sh\ntouch seeded.txt\nexit 1\n");
     chmodSync(join(binDir, "node"), 0o755);
     chmodSync(join(binDir, "npx"), 0o755);

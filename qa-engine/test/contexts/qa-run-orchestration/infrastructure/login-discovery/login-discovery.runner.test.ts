@@ -10,14 +10,14 @@ import {
   createDiscoverLogin,
   type LoginDiscoveryInput,
 } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
-import { CHILD_DEADLINE_MS } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
+import { CHILD_DEADLINE_MS, SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 
 const USER = "synthetic.user@demo.example";
 const PASS = "sYnth3tic pass&1";
 
-const SUBMITTED = `${JSON.stringify({ marker: "submitted" })}\n`;
+const SUBMITTED = `${JSON.stringify({ marker: SUBMITTED_MARKER })}\n`;
 const evidenceLine = (over = {}): string => `${JSON.stringify({ evidence: scriptedLoginEvidence(over) })}\n`;
 
 const done = (over: Partial<SandboxedRunResult> = {}): SandboxedRunResult => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false, ...over });
@@ -126,6 +126,45 @@ test("an overflow rejection is a crash after a possible attempt, and a spawn fai
   const spawnFailed = await discovering(fakeRunner(() => Promise.reject(noNode)).runner)(inputFor("/mirror/e2e"));
   assert.deepEqual(spawnFailed, { crashed: true, attempted: false });
 });
+
+test("a rejection from a system call other than a spawn may have lost the marker, so a submit is assumed", async () => {
+  const brokenPipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE", syscall: "write" });
+  const result = await discovering(fakeRunner(() => Promise.reject(brokenPipe)).runner)(inputFor("/mirror/e2e"));
+  assert.deepEqual(result, { crashed: true, attempted: true });
+});
+
+test("a child that ends with no evidence and nothing to say is still reported as a crash, saying how it ended", async () => {
+  const ended: string[] = [];
+  const cut: string[] = [];
+  await discovering(fakeRunner(() => done({ exitCode: 137 })).runner, ended)(inputFor("/mirror/e2e"));
+  await discovering(fakeRunner(() => done({ exitCode: 137, timedOut: true })).runner, cut)(inputFor("/mirror/e2e"));
+  assert.equal(ended.length, 1, "exactly one line reports the crash");
+  assert.ok(ended[0]?.includes("137"), "and it names the exit code");
+  assert.equal(cut.length, 1);
+  assert.notEqual(cut[0], ended[0], "a child that was cut off is told apart from one that exited");
+});
+
+/* One field of a valid evidence object bent at a time: the parser must not trust the result. */
+const BENT: ReadonlyArray<[string, Record<string, unknown>]> = [
+  ["a ladder that is not a list", { ladder: "/" }],
+  ["a ladder of things that are not paths", { ladder: [1, 2] }],
+  ["a form state nobody defined", { form: "sideways" }],
+  ["markers missing a flag", { markers: { captcha: true } }],
+  ["a flag that is not a boolean", { filled: "yes" }],
+  ["requests that are not a list", { requests: "none" }],
+  ["a request with no path", { requests: [{ method: "POST", status: 200 }] }],
+  ["a request with a status that is neither a number nor null", { requests: [{ method: "POST", pathname: "/x", status: "200" }] }],
+  ["a page error count that is not a number", { pageErrorCount: "0" }],
+  ["a final path that is not text", { finalPath: 7 }],
+];
+
+for (const [label, bend] of BENT) {
+  test(`an evidence line with ${label} is not trusted`, async () => {
+    const line = `${JSON.stringify({ evidence: { ...scriptedLoginEvidence(), ...bend } })}\n`;
+    const result = await discovering(fakeRunner(() => done({ stdout: SUBMITTED + line })).runner)(inputFor("/mirror/e2e"));
+    assert.deepEqual(result, { crashed: true, attempted: true });
+  });
+}
 
 test("an evidence line that is not login evidence is not trusted", async () => {
   const notEvidence = `${JSON.stringify({ evidence: { form: FORM_STATE.FOUND } })}\n`;

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import type { AuthSession, AuthSessionPort, AuthSessionRequest } from "../application/ports/auth-session.port.ts";
+import { AUTH_RESOLUTION_METHOD, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discovery/login-discovery.runner.ts";
@@ -20,6 +20,16 @@ import type { LoginDiscoveryInput, LoginDiscoveryResult } from "./login-discover
 export interface AuthSessionSpawnResult {
   exitCode: number;
   logs: string;
+}
+
+/** A route the app's context map lists. */
+export interface ContextRoute {
+  path: string;
+}
+
+/** The part of the app's context map that discovery reads. */
+export interface ContextRouteMap {
+  routes: ReadonlyArray<ContextRoute>;
 }
 
 /**
@@ -31,7 +41,7 @@ export interface AuthDiscoveryDeps {
   /** The shell's redaction of anything leaving the system, applied to the note after the exact-value scrub. */
   redact(text: string): string;
   /** The app's context map, read from the suite directory, for the gated routes the ladder tries after the root. */
-  loadContextMap?(specDir: string): { routes: ReadonlyArray<{ path: string }> } | undefined;
+  loadContextMap?(specDir: string): ContextRouteMap | undefined;
   /** Milliseconds since some fixed point; injected so a test reads a duration without real time. */
   now?(): number;
 }
@@ -193,7 +203,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
     const outcome: LoginOutcome = "crashed" in result ? { status: LOGIN_STATUS.INCONCLUSIVE, attempted: result.attempted } : classifyLoginEvidence(result);
     if (outcome.status === LOGIN_STATUS.AUTHENTICATED && existsSync(storageStatePath)) {
       chmodSync(storageStatePath, 0o600);
-      return { session: { storageStatePath, unauthored: false, resolution: { method: "discovery", ms: now() - started } } };
+      return { session: { storageStatePath, unauthored: false, resolution: { method: AUTH_RESOLUTION_METHOD.DISCOVERY, ms: now() - started } } };
     }
     rmSync(storageStatePath, { force: true });
     if (outcome.status === LOGIN_STATUS.FAILED && !("crashed" in result)) {

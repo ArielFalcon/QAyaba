@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { FORM_STATE, scrubSecrets, type LoginEvidence } from "../../domain/helpers/login-evidence.ts";
-import { CHILD_DEADLINE_MS, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
+import { CHILD_DEADLINE_MS, SUBMITTED_MARKER, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
 
 /** What the hard kill allows after the child's own deadline: time for the browser to close and the process to exit. */
 export const LOGIN_DISCOVERY_KILL_HEADROOM_MS = 15_000;
@@ -37,8 +37,14 @@ export interface LoginDiscoveryInput {
   env: Record<string, string>;
 }
 
-/** What one discovery attempt leaves: the evidence, or a crash that says whether a credential had been submitted. */
-export type LoginDiscoveryResult = LoginEvidence | { crashed: true; attempted: boolean };
+/** A child that died before it printed usable evidence, and whether a credential had already been submitted. */
+export interface LoginDiscoveryCrash {
+  crashed: true;
+  attempted: boolean;
+}
+
+/** What one discovery attempt leaves: the evidence, or a crash. */
+export type LoginDiscoveryResult = LoginEvidence | LoginDiscoveryCrash;
 
 export interface LoginDiscoveryRunnerDeps {
   runner: SandboxedBinaryRunner;
@@ -77,7 +83,7 @@ function readChildOutput(stdout: string): ChildOutput {
   for (const line of stdout.split("\n").filter((text) => text.trim().length > 0)) {
     let parsed: unknown;
     try { parsed = JSON.parse(line); } catch { output.stray.push(line); continue; }
-    if (isRecord(parsed) && parsed.marker === "submitted") output.submitted = true;
+    if (isRecord(parsed) && parsed.marker === SUBMITTED_MARKER) output.submitted = true;
     else if (isRecord(parsed) && "evidence" in parsed && isLoginEvidence(parsed.evidence)) output.evidence = parsed.evidence;
     else output.stray.push(line);
   }

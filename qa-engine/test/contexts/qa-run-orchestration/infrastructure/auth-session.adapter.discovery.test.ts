@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import { PRECONDITION_KIND, AuthPreconditionError } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 import { AuthSessionAdapter, type AuthDiscoveryDeps } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
 import type { LoginDiscoveryInput, LoginDiscoveryResult } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
-import type { AuthDeclaration, AuthSessionRequest } from "@contexts/qa-run-orchestration/application/ports/auth-session.port.ts";
+import { AUTH_RESOLUTION_METHOD, type AuthDeclaration, type AuthSessionRequest } from "@contexts/qa-run-orchestration/application/ports/auth-session.port.ts";
+import { AUTH_MATERIAL_FILES } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scriptedLoginEvidence } from "../../../support/login-evidence.ts";
 
 const SEED = readFileSync(fileURLToPath(new URL("../../../../../config/e2e/auth.setup.ts", import.meta.url)), "utf8");
@@ -100,9 +101,9 @@ async function withScenario<T>(s: Scenario, body: (run: Run) => Promise<T>): Pro
 test("a login that discovery confirms is the session, with how it was resolved, and the stock seed never runs", async () => {
   await withScenario({ discover: (input) => { writesSession(input); return scriptedLoginEvidence(SIGNED_IN); }, clock: [1_000, 1_450] }, async (run) => {
     const session = await run.prepare();
-    assert.equal(session.storageStatePath, join(run.authDir, "user.json"));
+    assert.equal(session.storageStatePath, join(run.authDir, AUTH_MATERIAL_FILES.storageState));
     assert.equal(session.unauthored, false);
-    assert.equal(session.resolution?.method, "discovery");
+    assert.equal(session.resolution?.method, AUTH_RESOLUTION_METHOD.DISCOVERY);
     assert.equal(session.resolution?.ms, 450);
     assert.equal(statSync(session.storageStatePath!).mode & 0o777, 0o600);
     assert.equal(run.seeded, 0);
@@ -128,7 +129,7 @@ test("a positively evidenced failure is a typed error with its kind, a note free
       return true;
     });
     assert.equal(run.seeded, 0);
-    assert.equal(existsSync(join(run.authDir, "user.json")), false, "a session left by a failed attempt is removed");
+    assert.equal(existsSync(join(run.authDir, AUTH_MATERIAL_FILES.storageState)), false, "a session left by a failed attempt is removed");
   });
 });
 
@@ -143,7 +144,7 @@ test("an attempt that proved nothing and submitted nothing leaves the login to t
     const session = await run.prepare();
     assert.equal(run.seeded, 1);
     assert.equal(session.unauthored, false);
-    assert.equal(session.storageStatePath, join(run.authDir, "user.json"));
+    assert.equal(session.storageStatePath, join(run.authDir, AUTH_MATERIAL_FILES.storageState));
   });
   await withScenario({ discover: () => SILENT }, async (run) => {
     assert.deepEqual(await run.prepare(), { unauthored: true });
@@ -178,7 +179,7 @@ test("a session the child left behind is removed unless the login was confirmed"
   for (const discover of [SILENT, UNSETTLED]) {
     await withScenario({ discover: (input) => { writesSession(input); return discover; } }, async (run) => {
       await run.prepare();
-      assert.equal(existsSync(join(run.authDir, "user.json")), false);
+      assert.equal(existsSync(join(run.authDir, AUTH_MATERIAL_FILES.storageState)), false);
     });
   }
 });
@@ -230,7 +231,7 @@ test("discovery is given the declared login path, the app's capturable routes, t
     assert.deepEqual(input?.routes, ["/reports", "/ok-2"]);
     assert.equal(input?.baseUrl, "https://dev.example");
     assert.equal(input?.specDir, run.specDir);
-    assert.equal(input?.storageStatePath, join(run.authDir, "user.json"));
+    assert.equal(input?.storageStatePath, join(run.authDir, AUTH_MATERIAL_FILES.storageState));
     assert.equal(input?.actionTimeoutMs, 12_000);
     assert.equal(input?.env.DEV_TEST_USER, USER);
     assert.equal(input?.env.DEV_TEST_PASS, PASS);
@@ -238,6 +239,16 @@ test("discovery is given the declared login path, the app's capturable routes, t
     assert.equal(input?.env.DEV_ENV_PASS, "gate-pass");
     assert.equal(JSON.stringify({ ...input, env: undefined }).includes(PASS), false);
   });
+});
+
+test("an action timeout that is not a positive number is not handed to discovery", async () => {
+  for (const actionTimeoutMs of ["0", "-5", "soon"]) {
+    await withScenario({ discover: () => SILENT, actionTimeoutMs }, async (run) => {
+      await run.prepare();
+      const [input] = run.discovered;
+      assert.equal(input !== undefined && "actionTimeoutMs" in input, false, `an action timeout of ${actionTimeoutMs} was passed on`);
+    });
+  }
 });
 
 test("with no login path declared, no context map and no action timeout, discovery is given none of them", async () => {

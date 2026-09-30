@@ -124,7 +124,13 @@ test("a page error after the submit is counted, named, and a new exception", asy
   assert.equal(evidence.newExceptionAfterSubmit, true);
 });
 
-test("a page error that was already there before the submit is not counted and not new", async () => {
+test("of several page errors after the submit, the first is the one named and all are counted", async () => {
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [], errors: [{ kind: "pageerror", text: "Uncaught Error: first-marker" }, { kind: "pageerror", text: "Uncaught Error: second-marker" }] }) });
+  assert.equal(evidenceOf(run).pageErrorCount, 2);
+  assert.equal(evidenceOf(run).firstPageError, "Uncaught Error: first-marker");
+});
+
+test("a page error that the submit repeats from before it is counted, but is not a new exception", async () => {
   const before = { kind: "pageerror", text: "Uncaught TypeError: recurring-marker 5" } as const;
   const run = await runLoginDiscovery({ site: stayingSite({ requests: [], errors: [{ ...before, text: "Uncaught TypeError: recurring-marker 9" }] }, { ...loginForm(), errors: [before] }) });
   assert.equal(evidenceOf(run).pageErrorCount, 1);

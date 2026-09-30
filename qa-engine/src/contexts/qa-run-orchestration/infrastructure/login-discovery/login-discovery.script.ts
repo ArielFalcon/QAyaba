@@ -21,6 +21,9 @@
 import { EVIDENCE_TEXT_MAX, FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
 import { DESCRIBE_PAGE_SOURCE, INSTALL_SUBMIT_WATCH_SOURCE, NO_VISIBLE_PASSWORD_SOURCE, PAGE_TEXT_MAX, SUBMIT_WATCH_FIRED_SOURCE } from "./login-discovery.page-readers.ts";
 
+/** The marker line the child prints just before it submits, so a crash after that point still shows a credential was sent. The runner reads the same constant. */
+export const SUBMITTED_MARKER = "submitted";
+
 /** The paths tried last, after everything the app itself pointed at. */
 export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "/sign-in", "/auth/login", "/#/login"];
 /** How many of the app's gated routes the ladder follows; each may redirect to the login page. */
@@ -339,7 +342,7 @@ async function submitOnce(page, action, evidence, watching) {
   await page.evaluate(installSubmitWatch);
   if (!onAppOrigin(page)) return;
   watching.phase = "after";
-  emit({ marker: "submitted" });
+  emit({ marker: ${JSON.stringify(SUBMITTED_MARKER)} });
   evidence.submitted = true;
   watching.submittedAt = Date.now();
   await action();

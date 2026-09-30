@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUTH_SETUP_ENV, AuthSessionAdapter, type AuthSessionAdapterDeps } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
-import { authSessionEnv } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
+import { AUTH_MATERIAL_FILES, authSessionEnv } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
 /* The login seed as it ships today, and as an earlier revision shipped it into watched repos. */
 const SEED = readFileSync(fileURLToPath(new URL("../../../../../config/e2e/auth.setup.ts", import.meta.url)), "utf8");
@@ -130,8 +130,8 @@ test("successful form login returns the storageState path the spawn wrote, under
     phase: "pre-execute",
     auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
   });
-  assert.equal(session.storageStatePath, join(authDir, "user.json"));
-  assert.equal(capturedEnv.PW_STORAGE_STATE, join(authDir, "user.json"), "the setup project must be told to write outside the mirror");
+  assert.equal(session.storageStatePath, join(authDir, AUTH_MATERIAL_FILES.storageState));
+  assert.equal(capturedEnv.PW_STORAGE_STATE, join(authDir, AUTH_MATERIAL_FILES.storageState), "the setup project must be told to write outside the mirror");
   assert.equal(existsSync(session.storageStatePath!), true);
   assert.equal(session.unauthored, false);
   assert.equal(statSync(session.storageStatePath!).mode & 0o777, 0o600);
@@ -231,7 +231,7 @@ const AUTH_ENV_KEYS = ["PW_STORAGE_STATE", "PW_CLIENT_CERT_PATH", "DEV_CLIENT_CE
 
 function authDirWithEarlierRunMaterial(): string {
   const dir = authDirFixture();
-  writeFileSync(join(dir, "user.json"), "{\"cookies\":[{\"name\":\"from-an-earlier-run\"}]}");
+  writeFileSync(join(dir, AUTH_MATERIAL_FILES.storageState), "{\"cookies\":[{\"name\":\"from-an-earlier-run\"}]}");
   writeFileSync(join(dir, "client.p12"), "earlier-p12");
   writeFileSync(join(dir, "cert.pass"), "earlier-pass");
   return dir;
@@ -329,7 +329,7 @@ test("a form login injects only its session, never an earlier client certificate
       auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
     });
     assert.deepEqual(injectedAuthKeys(authDir), ["PW_STORAGE_STATE"]);
-    assert.equal(readFileSync(join(authDir, "user.json"), "utf8"), "{\"cookies\":[]}", "the session must be the one this login wrote");
+    assert.equal(readFileSync(join(authDir, AUTH_MATERIAL_FILES.storageState), "utf8"), "{\"cookies\":[]}", "the session must be the one this login wrote");
   } finally {
     rmSync(specDir, { recursive: true, force: true });
     rmSync(authDir, { recursive: true, force: true });

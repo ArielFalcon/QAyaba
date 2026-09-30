@@ -175,7 +175,10 @@ text. The After column is the final re-run; it has no documented survivors. It w
 when the classifier learned the submit that threw in the page and sent nothing (a new exception, with
 no request and nothing in flight, is a login that cannot complete; a recurring one, plain console text
 or a request sent leaves the outcome to the request rules), and the note began to name that
-exception: 129 killed, no survivors.
+exception: 129 killed, no survivors. It was re-run a last time after that rule began to need the
+form's own submit event, a session was no longer called unpersistable while the login was still in
+flight, and the scrubber learned the `encodeURI` spelling and a backslash read as a slash in a path:
+136 killed, no survivors.
 
 patch-app-yaml (2026-09-30, 4 workers) is a new preset over the module that edits an app's YAML in
 place, run against its own tests and the update use case that drives it. **Before** is its first run;
@@ -203,8 +206,19 @@ re-run; its one survivor is documented below.
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
-| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 129 / 0 / 0 — 100% (100%) | — |
+| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 136 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
+
+### Login discovery script (manual triangulation)
+
+The discovery child (`login-discovery.script.ts`) and the in-page readers (`login-discovery.page-readers.ts`)
+are generated source, so no preset can mutate them. They are triangulated by hand instead: each behavior
+is broken in a scratch copy of the tree (never the repository) and the discovery tests must fail. The
+last full run covered the origin checks, request attribution, the submit event and exception signatures,
+the wait for a login in flight, the session check and its deadline, the scrub of every text that leaves the
+child, and the captcha rule; every mutant was killed except the two equivalents listed under the
+documented survivors. Every survivor of an earlier pass was killed with a behavior test, not by
+asserting a literal.
 
 ### Documented survivors
 
@@ -213,6 +227,13 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 **patch-app-yaml** (`src/server/onboarding/patch-app-yaml.ts`)
 - `alreadyReads` — the `catch` block emptied (BlockStatement): a placeholder whose variable is unset
   reads as no value, and a callback that returns nothing is read the same by `some`.
+
+**login discovery script** (`login-discovery.script.ts`, triangulated by hand)
+- `submitOnce` — the guard `submitCount >= 1` → `>= 2`: the ladder stops at the first login form, so a
+  second submit cannot be reached; the guard stays as defense in depth.
+- `watch` — the console error's phase read when its answer arrives instead of when it was raised: the
+  child waits for every pending answer before it switches to the after-submit phase, so no answer can
+  arrive in the wrong phase.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

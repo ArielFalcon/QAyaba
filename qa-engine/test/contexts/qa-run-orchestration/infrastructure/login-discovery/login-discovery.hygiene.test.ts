@@ -105,3 +105,50 @@ test("the fresh context is opened on the route the submit ended on, never on a h
   const opened = run.events.filter((event) => event.t === "goto" && event.ctx !== own).map((event) => event.to);
   assert.deepEqual(opened, ["/#/dashboard"]);
 });
+
+/* A password that an encoder, an escaper or a Unicode form would each treat differently: quotes, ampersand, angle brackets, backslash, slash and a composed character. */
+const HOSTILE_PASSWORD = "p&a<s>s\"w'\\/\u00e9";
+
+const json = JSON.stringify(HOSTILE_PASSWORD).slice(1, -1);
+const ECHOES: ReadonlyArray<[string, string]> = [
+  ["raw", HOSTILE_PASSWORD],
+  ["percent-encoded", encodeURIComponent(HOSTILE_PASSWORD)],
+  ["percent-encoded by encodeURI, with reserved characters left raw", encodeURI(HOSTILE_PASSWORD)],
+  ["form-encoded", encodeURIComponent(HOSTILE_PASSWORD).replace(/%20/g, "+")],
+  ["JSON-escaped", json],
+  ["JSON-escaped with a slash escaped, as PHP does", json.replace(/\//g, "\\/")],
+  ["JSON-escaped with angle brackets and ampersand as unicode escapes, as Go does", json.replace(/[&<>]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)],
+  ["HTML-escaped", HOSTILE_PASSWORD.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;")],
+  ["with the composed character decomposed", HOSTILE_PASSWORD.normalize("NFD")],
+];
+
+for (const [label, echo] of ECHOES) {
+  test(`a password echoed back ${label} is removed from an exception before it is cut`, async () => {
+    const text = `TypeError: rejected ${echo} for the account`;
+    const run = await runLoginDiscovery({
+      site: stayingSite({ requests: [], errors: [{ kind: "console", isErrorObject: true, text }] }),
+      env: { DEV_TEST_PASS: HOSTILE_PASSWORD },
+    });
+    const seen = evidenceOf(run).firstNewException ?? "";
+    assert.ok(seen.startsWith("TypeError: rejected "), "the text around the password is kept");
+    assert.equal(seen.toLowerCase().includes(echo.toLowerCase()), false, `the exception still holds ${echo}`);
+  });
+}
+
+test("a password given decomposed is removed when it is echoed back composed", async () => {
+  const run = await runLoginDiscovery({
+    site: stayingSite({ requests: [], errors: [{ kind: "console", isErrorObject: true, text: `TypeError: rejected ${HOSTILE_PASSWORD} for the account` }] }),
+    env: { DEV_TEST_PASS: HOSTILE_PASSWORD.normalize("NFD") },
+  });
+  assert.equal((evidenceOf(run).firstNewException ?? "").includes(HOSTILE_PASSWORD), false);
+});
+
+test("a user name that is the start of the password is removed with the whole password, not only its start", async () => {
+  const run = await runLoginDiscovery({
+    site: stayingSite({ requests: [], errors: [{ kind: "console", isErrorObject: true, text: "TypeError: rejected bob-secret-1 for the account" }] }),
+    env: { DEV_TEST_USER: "bob", DEV_TEST_PASS: "bob-secret-1" },
+  });
+  const seen = evidenceOf(run).firstNewException ?? "";
+  assert.equal(seen.includes("secret"), false);
+  assert.equal(seen.includes("-1"), false);
+});

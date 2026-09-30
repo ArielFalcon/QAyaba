@@ -4,6 +4,7 @@ import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-
 import { PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 import {
   STUB_ORIGIN,
+  button,
   evidenceOf,
   loginForm,
   loginRequest,
@@ -90,4 +91,11 @@ test("the ladder stops looking once its budget is spent", async () => {
   assert.deepEqual(run.gotos, ["/"]);
   assert.equal(evidenceOf(run).form, FORM_STATE.ABSENT);
   assert.equal(run.submits.length, 0);
+});
+
+test("a submit control that is disabled on the page the submit landed on is not held against a login that got in", async () => {
+  const site: StubSite = { ...signedInSite(), authedPages: { "/home": { fields: [button(0, 0, { disabled: true })] } } };
+  const run = await runLoginDiscovery({ site });
+  assert.equal(evidenceOf(run).passwordGone, true);
+  assert.equal(evidenceOf(run).submitDisabled, false);
 });

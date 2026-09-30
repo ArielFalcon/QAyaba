@@ -4,6 +4,7 @@ import {
   CHILD_DEADLINE_MS,
   DEFAULT_ACTION_CALL_MS,
   DEFAULT_NAV_TIMEOUT_MS,
+  SUBMITTED_MARKER,
 } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
 import {
   STUB_PASS,
@@ -45,7 +46,7 @@ test("a fresh-context navigation that fails once is retried, and the second atte
 
 test("a fresh-context verification that keeps failing still prints the evidence, unconfirmed, and the login stays an attempt", async () => {
   const run = await runLoginDiscovery({ site: signedIn({ gotoFails: ["/home"] }) });
-  assert.deepEqual(run.markers, ["submitted"]);
+  assert.deepEqual(run.markers, [SUBMITTED_MARKER]);
   const evidence = evidenceOf(run);
   assert.equal(evidence.passwordGone, true);
   assert.equal(evidence.storageStateWritten, true);

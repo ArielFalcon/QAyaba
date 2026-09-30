@@ -25,9 +25,19 @@ export interface AuthSessionRequest {
   phase: "pre-generate" | "pre-execute";
 }
 
-/** How a login was settled and how long it took, for measurement. Only discovery reports it so far. */
+/** How a login was settled. Only discovery is reported so far. */
+export const AUTH_RESOLUTION_METHOD = {
+  DISCOVERY: "discovery",
+  SEED: "seed",
+  AUTHORED: "authored",
+  MTLS: "mtls",
+} as const;
+
+export type AuthResolutionMethod = (typeof AUTH_RESOLUTION_METHOD)[keyof typeof AUTH_RESOLUTION_METHOD];
+
+/** How a login was settled and how long it took, for measurement. */
 export interface AuthResolution {
-  method: "discovery" | "seed" | "authored" | "mtls";
+  method: AuthResolutionMethod;
   ms: number;
 }
 

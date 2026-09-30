@@ -4,9 +4,10 @@ import { FORM_STATE } from "@contexts/qa-run-orchestration/domain/helpers/login-
 import {
   LOGIN_WELL_KNOWN_PATHS,
   MAX_GATED_ROUTES,
+  SUBMITTED_MARKER,
   buildLoginDiscoveryScript,
 } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
-import { STUB_PASS, STUB_USER, button, input, loginForm, nodeChecks, runLoginDiscovery } from "../../../../support/login-discovery-harness.ts";
+import { STUB_ORIGIN, STUB_PASS, STUB_USER, button, input, loginForm, nodeChecks, runLoginDiscovery } from "../../../../support/login-discovery-harness.ts";
 
 const FOREIGN = "https://idp.stub.test";
 
@@ -72,7 +73,7 @@ test("the ladder stops at the first page with a login form, so two such pages st
   const run = await runLoginDiscovery({ site: { pages: { "/": loginForm(), "/login": loginForm() } } });
   assert.deepEqual(run.gotos, ["/"]);
   assert.equal(run.submits.length, 1);
-  assert.deepEqual(run.markers, ["submitted"]);
+  assert.deepEqual(run.markers, [SUBMITTED_MARKER]);
 });
 
 test("the user field is the nearest visible text-like input before the password in the same form; decoys elsewhere are left alone", async () => {
@@ -105,6 +106,48 @@ for (const [type, takesUser] of [["text", true], ["email", true], ["tel", true],
     assert.equal(run.submits.length, takesUser ? 1 : 0);
   });
 }
+
+test("a password field that is not showing is not a login form, though the page did have one", async () => {
+  const run = await runLoginDiscovery({ site: { pages: { "/": { fields: [input(0, "text", 0), input(1, "password", 0, { visible: false }), button(2, 0)] } } } });
+  assert.equal(run.evidence?.form, FORM_STATE.ABSENT);
+  assert.equal(run.evidence?.ladderHadPasswordField, true);
+  assert.equal(run.events.some((event) => event.t === "fill" || event.t === "submit"), false);
+});
+
+test("a hidden password field beside a showing one in another form does not take the account", async () => {
+  const run = await runLoginDiscovery({
+    site: { pages: { "/": { fields: [input(0, "text", 0), input(1, "password", 0, { visible: false }), input(2, "text", 1), input(3, "password", 1), button(4, 1)] } } },
+  });
+  assert.deepEqual(run.events.filter((event) => event.t === "fill").map((event) => [event.i, event.as]), [[2, "user"], [3, "pass"]]);
+});
+
+test("a user field the visitor cannot type in is passed over for the nearest one that can be typed in", async () => {
+  const run = await runLoginDiscovery({
+    site: { pages: { "/": { fields: [input(0, "text", 0), input(1, "email", 0, { disabled: true }), input(2, "password", 0), button(3, 0)] } } },
+  });
+  assert.deepEqual(run.events.filter((event) => event.t === "fill").map((event) => [event.i, event.as]), [[0, "user"], [2, "pass"]]);
+});
+
+test("a form whose only user field cannot be typed in is not filled or submitted", async () => {
+  const run = await runLoginDiscovery({ site: { pages: { "/": { fields: [input(0, "text", 0, { disabled: true }), input(1, "password", 0), button(2, 0)] } } } });
+  assert.equal(run.evidence?.filled, false);
+  assert.equal(run.events.some((event) => event.t === "fill" || event.t === "submit"), false);
+});
+
+test("a page that navigates under the first read is read again on the same origin, and its form is used", async () => {
+  const run = await runLoginDiscovery({
+    site: { pages: { "/": {}, "/next": loginForm() }, navUnderRead: { onCall: 1, to: `${STUB_ORIGIN}/next` } },
+  });
+  assert.equal(run.evidence?.form, FORM_STATE.FOUND);
+  assert.equal(run.submits.length, 1);
+});
+
+test("a native form post is the login's own request when its body carries the account", async () => {
+  const run = await runLoginDiscovery({
+    site: { pages: { "/": loginForm() }, submit: { requests: [{ method: "POST", url: "/session", resourceType: "document", navigation: true, postData: `u=${encodeURIComponent(STUB_USER)}`, status: 401 }] } },
+  });
+  assert.equal(run.evidence?.requests.length, 1);
+});
 
 test("a form with two password fields is never filled or submitted", async () => {
   const run = await runLoginDiscovery({ site: { pages: { "/": { fields: [input(0, "text", 0), input(1, "password", 0), input(2, "password", 0), button(3, 0)] } } } });
@@ -169,7 +212,7 @@ test("stdout carries the submitted marker before the one evidence line and nothi
 
 test("a crash while submitting still leaves the submitted marker and no evidence", async () => {
   const run = await runLoginDiscovery({ site: { pages: { "/": loginForm() } }, env: { STUB_PRESS_ERROR: `press failed for ${STUB_PASS}` } });
-  assert.deepEqual(run.markers, ["submitted"]);
+  assert.deepEqual(run.markers, [SUBMITTED_MARKER]);
   assert.equal(run.evidence, undefined);
   assert.notEqual(run.exitCode, 0);
   assert.equal(run.stderr.includes(STUB_PASS), false);
