@@ -1818,10 +1818,11 @@ export class RunQaUseCase {
     const decision = decide(evidence);
 
     if (this.deps.coordination && this.deps.coordinationTelemetry) {
+      /* Read from the same honest source as the persisted outcome: absent when no reviewer looked at this run. */
       const reviewOutcome =
         !cfg.needsReview ? "skipped" as const
-        : reviewerApproved === true ? "approved" as const
-        : reviewerApproved === false ? "rejected" as const
+        : reviewerApprovedForOutcome === true ? "approved" as const
+        : reviewerApprovedForOutcome === false ? "rejected" as const
         : "n/a" as const;
       this.deps.coordinationTelemetry.record({
         runId: input.runId,

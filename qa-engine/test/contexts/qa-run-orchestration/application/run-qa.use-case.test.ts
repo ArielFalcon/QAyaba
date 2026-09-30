@@ -5,6 +5,7 @@ import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregat
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
+import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
@@ -7126,6 +7127,46 @@ test("a green run still folds but does not reflect or audit, and a flaky one sti
     config: baseConfig,
   }).run(baseInput);
   assert.deepEqual(flaky, { folded: 1, reflected: 0, audited: 0 });
+});
+
+/* ── Coordination telemetry reports the review outcome only when a reviewer ran ────────────────── */
+
+async function coordinationReviewOutcome(opts: {
+  needsReview: boolean;
+  execute?: ExecutionPort["execute"];
+  review?: ReviewPort["review"];
+  generation?: ReturnType<typeof scriptedGeneration>;
+}): Promise<string | undefined> {
+  const generation = opts.generation ?? scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+  const { ports } = stubPorts({
+    generate: async () => generation,
+    ...(opts.execute ? { execute: opts.execute } : {}),
+    ...(opts.review ? { review: opts.review } : {}),
+  });
+  const telemetry = new CoordinationTelemetryRecorder();
+  await new RunQaUseCase({ ...ports, coordination: createCoordinationPort(), coordinationTelemetry: telemetry, config: { ...baseConfig, needsReview: opts.needsReview } }).run(baseInput);
+  return telemetry.events.find((event) => event.kind === "outcome")?.reviewOutcome;
+}
+
+const FLAKY_RUN: ExecutionPort["execute"] = async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" });
+
+test("the coordination outcome reports the review as not applicable when the run needed one and none looked at it", async () => {
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, execute: FLAKY_RUN }), "n/a");
+});
+
+test("the coordination outcome reports the reviewer's verdict when a reviewer ran, on a passing or a non-passing run", async () => {
+  const approving = async () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true });
+  const rejecting = async () => ({ approved: false, corrections: ["[false-positive] assert the total"], blockingCount: 1, parsed: true });
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, review: approving }), "approved");
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, review: rejecting }), "rejected");
+  const reviewedRejected = scriptedGeneration({ specs: ["a.spec.ts"], approved: false, reviewed: true });
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, execute: FLAKY_RUN, generation: reviewedRejected }), "rejected");
+  const reviewedApproved = scriptedGeneration({ specs: ["a.spec.ts"], approved: true, reviewed: true });
+  assert.equal(await coordinationReviewOutcome({ needsReview: true, execute: FLAKY_RUN, generation: reviewedApproved }), "approved");
+});
+
+test("the coordination outcome reports the review as skipped when the app needs none", async () => {
+  assert.equal(await coordinationReviewOutcome({ needsReview: false }), "skipped");
 });
 
 /* ── The reviewer outcome is reported only when a reviewer ran ─────────────────────────────────── */
