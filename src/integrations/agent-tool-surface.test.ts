@@ -24,14 +24,15 @@
    with its own server name: engram exposes `mem_save`, `mem_search`, etc.; Playwright MCP exposes
    `browser_navigate`, `browser_click`, etc. Serena's tool names are documented in this repo's own
    prompts (`agents/AGENTS.md`, `agents/agent/*.md`) as `find_symbol`, `get_symbols_overview`,
-   `find_referencing_symbols`, `activate_project`, etc. — same unprefixed convention. Whether
-   OpenCode internally re-namespaces MCP tool IDs with the server name before matching against
-   `tools`/`permission` could not be settled fully offline (no MCP-tool listing surfaced through the
-   static `/experimental/tool` or `debug agent` resolution — only a live model turn would show it,
-   which this probe deliberately avoided). Per the plan's explicit fallback instruction, this config
-   uses BELT-AND-BRACES: both the wildcard key (`"engram*": false`, verified to compile) AND the
-   enumerated real per-tool names (`mem_save: false`, `browser_navigate: false`, `find_symbol:
-   false`, etc.) — harmless if one form turns out redundant, safe if only one form is honored.
+   `find_referencing_symbols`, `activate_project`, etc. — same unprefixed convention. What the
+   server itself lists is not what the runtime reports: OpenCode namespaces an MCP tool with its
+   server name, and the run telemetry (`run_events` tool names) shows the memory server's tools as
+   `engram_mem_judge`, never `mem_judge`. So the config uses BELT-AND-BRACES: both the wildcard key
+   (`"engram*": false`, verified to compile) AND the enumerated per-tool names (`mem_save: false`,
+   `browser_navigate: false`, `find_symbol: false`, etc.) — harmless if one form turns out
+   redundant, safe if only one form is honored. An agent that holds a server but is deliberately
+   denied some of its tools has no wildcard to lean on, so it names the runtime's prefixed id
+   (the load-bearing denial) and the bare twin; DELIBERATE_MCP_TOOL_DENIALS lists exactly those.
    If you trip this test, you are changing the security posture — update the allowlist
    deliberately, and confirm the new capability cannot write a watched repo or trigger the
    authoritative Filter-C run (which is the orchestrator's job, never the agent's).
@@ -143,6 +144,25 @@ const MCP_TOOL_NAMES_BY_SERVER: Record<string, string[]> = {
   serena: SERENA_TOOL_NAMES,
   engram: ENGRAM_TOOL_NAMES,
   playwright: PLAYWRIGHT_TOOL_NAMES,
+};
+
+type ToolDenials = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+const MEMORY_MAINTENANCE_REASON =
+  "Resolving a conflict between memories is not the generator's job: a judgment it files stays pending, " +
+  "pending judgments accumulate, and a memory-maintenance process is the place that owns them.";
+
+/* Tools of a server an agent otherwise holds that it is DELIBERATELY denied, by agent and then by the
+   id the runtime reports (server name, an underscore, the tool), each with the reason. The prefixed
+   id is the denial that binds; its bare twin is the redundant half of the belt-and-braces. Adding an
+   entry is a decision, so it lives here with its reason rather than as a silent hole in the
+   allowed-server checks.
+ */
+const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
+  "qa-generator": {
+    engram_mem_judge: MEMORY_MAINTENANCE_REASON,
+    engram_mem_compare: MEMORY_MAINTENANCE_REASON,
+  },
 };
 
 const BUILTIN_TOOL_KEYS = new Set([
@@ -290,21 +310,79 @@ function assertMcpServerDenied(agentName: string, tools: Record<string, unknown>
   }
 }
 
-function assertMcpServerAllowed(agentName: string, tools: Record<string, unknown>, server: string): void {
+/* The ids an agent's exemption list names for a server: the runtime's prefixed ids and their bare
+   twins. */
+function exemptedToolIds(
+  agentName: string,
+  server: string,
+  denials: ToolDenials,
+): { prefixed: string[]; bare: string[] } {
+  const prefix = `${server}_`;
+  const prefixed = Object.keys(denials[agentName] ?? {}).filter((id) => id.startsWith(prefix));
+  return { prefixed, bare: prefixed.map((id) => id.slice(prefix.length)) };
+}
+
+/* An agent that is designed to use a server keeps every one of its tools except the ones its
+   exemption list names, and those it must deny — under the prefixed id and the bare one. */
+function assertMcpServerAllowed(
+  agentName: string,
+  tools: Record<string, unknown>,
+  server: string,
+  denials: ToolDenials = DELIBERATE_MCP_TOOL_DENIALS,
+): void {
   const wildcardKey = `${server}*`;
   assert.notEqual(
     tools[wildcardKey],
     false,
     `agent "${agentName}" is designed to use the "${server}" MCP server but its tools{} denies "${wildcardKey}".`,
   );
+  const { prefixed, bare } = exemptedToolIds(agentName, server, denials);
+  for (const id of [...prefixed, ...bare]) {
+    assert.equal(
+      tools[id],
+      false,
+      `SECURITY: agent "${agentName}" deliberately denies the "${server}" tool "${id}" but its tools{} does not.`,
+    );
+  }
   const names = MCP_TOOL_NAMES_BY_SERVER[server] ?? [];
   for (const toolName of names) {
+    if (bare.includes(toolName)) continue;
     assert.notEqual(
       tools[toolName],
       false,
       `agent "${agentName}" is designed to use the "${server}" MCP server but denies its real tool "${toolName}".`,
     );
+    assert.notEqual(
+      tools[`${server}_${toolName}`],
+      false,
+      `agent "${agentName}" is designed to use the "${server}" MCP server but denies its prefixed tool "${server}_${toolName}".`,
+    );
   }
+}
+
+/* The tools of a server an agent's map denies, under either id. */
+function deniedToolIdsOf(tools: Record<string, unknown>, server: string): string[] {
+  const known = new Set((MCP_TOOL_NAMES_BY_SERVER[server] ?? []).flatMap((name) => [name, `${server}_${name}`]));
+  return Object.keys(tools)
+    .filter((key) => tools[key] === false && known.has(key))
+    .sort();
+}
+
+/* For an agent that holds a server, the tools it denies are exactly the ones its exemption list names:
+   a denial nobody listed and a listed tool nobody denies both fail. */
+function assertDeniedToolsAreTheExemptionList(
+  agentName: string,
+  tools: Record<string, unknown>,
+  server: string,
+  denials: ToolDenials = DELIBERATE_MCP_TOOL_DENIALS,
+): void {
+  const { prefixed, bare } = exemptedToolIds(agentName, server, denials);
+  assert.deepEqual(
+    deniedToolIdsOf(tools, server),
+    [...prefixed, ...bare].sort(),
+    `SECURITY: agent "${agentName}" holds the "${server}" MCP server, so the tools it denies must be exactly the ones ` +
+      `DELIBERATE_MCP_TOOL_DENIALS lists for it.`,
+  );
 }
 
 test("the reviewer is a non-mutating judge with NO MCP access (independence + read-only, runtime-enforced)", () => {
@@ -423,7 +501,7 @@ test("qa-explorer and qa-proposer keep serena (and engram for explorer) but deny
   assertMcpServerDenied("qa-proposer", proposerTools, "playwright");
 });
 
-test("qa-generator keeps full MCP access (serena+engram+playwright) as the test author", () => {
+test("qa-generator keeps serena+engram+playwright as the test author, minus the memory-conflict tools", () => {
   const { agents } = loadAgentConfig();
   const generator = agents["qa-generator"];
   assert.ok(generator, "expected a qa-generator agent");
@@ -432,6 +510,55 @@ test("qa-generator keeps full MCP access (serena+engram+playwright) as the test 
   assert.equal(tools.edit, true, "qa-generator must have edit");
   assert.equal(tools.bash, true, "qa-generator must have bash");
   for (const server of MCP_ALLOWLIST) assertMcpServerAllowed("qa-generator", tools, server);
+  /* Recalling and saving memory stays open under both ids; only judging and comparing memories is denied. */
+  for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
+    assert.notEqual(tools[tool], false, `qa-generator must keep "${tool}"`);
+    assert.notEqual(tools[`engram_${tool}`], false, `qa-generator must keep "engram_${tool}"`);
+  }
+  for (const tool of ["engram_mem_judge", "engram_mem_compare", "mem_judge", "mem_compare"]) {
+    assert.equal(tools[tool], false, `qa-generator must deny "${tool}"`);
+  }
+});
+
+test("every agent that holds an MCP server denies exactly the tools its exemption list names", () => {
+  const { agents } = loadAgentConfig();
+  let checked = 0;
+  for (const [name, agent] of Object.entries(agents)) {
+    const tools = agentTools(agent);
+    for (const server of MCP_ALLOWLIST) {
+      if (tools[`${server}*`] === false) continue;
+      checked++;
+      assertDeniedToolsAreTheExemptionList(name, tools, server);
+    }
+  }
+  /* Meaningfulness guard: agents do hold servers, and the generator's exemption list is exercised. */
+  assert.ok(checked >= 5, `expected >=5 (agent, held server) pairs checked, got ${checked}`);
+  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-generator"] ?? {}).length > 0);
+});
+
+test("the exemption list of a held server is enforced both ways", () => {
+  const denied = { engram_mem_judge: false, engram_mem_compare: false, mem_judge: false, mem_compare: false };
+  const allowed = (tools: Record<string, unknown>, denials?: ToolDenials) =>
+    assertMcpServerAllowed("qa-generator", tools, "engram", denials);
+  const exact = (tools: Record<string, unknown>, denials?: ToolDenials) =>
+    assertDeniedToolsAreTheExemptionList("qa-generator", tools, "engram", denials);
+
+  allowed(denied);
+  exact(denied);
+
+  /* The denial removed while the exemption stays. */
+  const withoutPrefixedDenial = { ...denied, engram_mem_judge: true };
+  assert.throws(() => allowed(withoutPrefixedDenial), /deliberately denies/);
+  assert.throws(() => exact(withoutPrefixedDenial));
+
+  /* The exemption removed while the denial stays. */
+  assert.throws(() => allowed(denied, {}), /denies its real tool/);
+  assert.throws(() => exact(denied, {}));
+
+  /* A denial nobody listed. */
+  const withStrayDenial = { ...denied, engram_mem_save: false };
+  assert.throws(() => allowed(withStrayDenial), /denies its prefixed tool/);
+  assert.throws(() => exact(withStrayDenial));
 });
 
 test("qa-maintainer keeps serena+engram but denies playwright (never drives a browser)", () => {
@@ -476,7 +603,10 @@ test("known built-in tool keys are recognized (sanity check for the BUILTIN_TOOL
      actually used across the agents in opencode.json must be one we know about.
    */
   const { agents } = loadAgentConfig();
-  const allMcpToolNames = new Set(Object.values(MCP_TOOL_NAMES_BY_SERVER).flat());
+  const allMcpToolNames = new Set([
+    ...Object.values(MCP_TOOL_NAMES_BY_SERVER).flat(),
+    ...Object.values(DELIBERATE_MCP_TOOL_DENIALS).flatMap((denials) => Object.keys(denials)),
+  ]);
   for (const [name, agent] of Object.entries(agents)) {
     const tools = agentTools(agent);
     for (const key of Object.keys(tools)) {

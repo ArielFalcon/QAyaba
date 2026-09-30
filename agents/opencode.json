@@ -9,7 +9,7 @@
   },
   "agent": {
     "qa-generator": {
-      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has full serena+engram+playwright MCP access by design (test author).",
+      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare): resolving a conflict between memories is not the generator's job.",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-generator.md}",
@@ -18,7 +18,11 @@
         "edit": true,
         "read": true,
         "bash": true,
-        "webfetch": false
+        "webfetch": false,
+        "engram_mem_judge": false,
+        "engram_mem_compare": false,
+        "mem_judge": false,
+        "mem_compare": false
       },
       "maxSteps": 50,
       "temperature": 0.2
