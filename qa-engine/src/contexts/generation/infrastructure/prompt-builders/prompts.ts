@@ -15,6 +15,7 @@ import type {
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
 import { deriveClaimsFromPackText, PACK_HEADINGS } from "../context-pack.ts";
+import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, APP_LOGIN_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
@@ -342,9 +343,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   /* Authoritative grounding (Context Pack DOM slice or injected a11y tree): regeneration must not command a re-navigation — the agent fixes from the injected grounding. */
   const hasInjectedGrounding = isGenerationMode && Boolean(input.contextPack || input.domSnapshot);
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
-  const isReGen =
-    isGenerationMode &&
-    Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
+  const isReGen = isGenerationMode && isReGenTurn(input);
 
   const workingRulesLines: string[] = [
     `## ${PROMPT_HEADINGS.workingRules}`,
@@ -441,8 +440,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
 
+  /* The tree is a failure-point tree only when the run says so; any other captured tree is the live page. Every reference to "the tree above" below is driven by these two, so a prompt never points at a tree it does not carry. */
+  const hasFailureTree = Boolean(sanitizedDomSnapshot && isGenerationMode && input.failureSourced);
+  const hasLiveTree = Boolean(sanitizedDomSnapshot && isGenerationMode && !input.failureSourced);
+
   const domContent = sanitizedDomSnapshot && isGenerationMode
-    ? input.failureSourced
+    ? hasFailureTree
       ? [
           `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
           ``,
@@ -492,7 +495,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const domClaims: PromptClaim[] =
     domContent === ""
       ? []
-      : input.failureSourced
+      : hasFailureTree
       ? [claim.provides("dom-failure"), claim.frames("dom-failure", "established")]
       : [claim.provides("dom-live"), claim.frames("dom-live", "established")];
 
@@ -502,7 +505,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ? [
           `## ⚠ Lever-2 selector contradictions (DETERMINISTIC — resolve EVERY one)`,
           ``,
-          `These selectors were checked against the captured failure-point tree above and FAILED.`,
+          `These selectors were checked against ${hasFailureTree ? "the captured failure-point tree above" : hasLiveTree ? "the captured tree above" : "the page's captured a11y tree"} and FAILED.`,
           `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT in the captured tree`,
           `(the listed present roles are what IS there) — do NOT re-use it. Replace it with a role/name`,
           `that appears in the tree, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
@@ -513,8 +516,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  const selectorContradictionsClaims: PromptClaim[] = selectorContradictionsContent
+  const selectorContradictionsClaims: PromptClaim[] = !selectorContradictionsContent
+    ? []
+    : hasFailureTree
     ? [claim.directs("consult", "dom-failure")]
+    : hasLiveTree
+    ? [claim.directs("consult", "dom-live")]
     : [];
 
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
@@ -539,16 +546,16 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ...renderFixCaseEvidenceLines(c),
         ]),
         ``,
-        ...(input.failureSourced
+        ...(hasFailureTree
           ? [
               `The captured a11y tree at the failure point is injected ABOVE as "${PROMPT_HEADINGS.groundTruthAtFailure}".`,
               `1. Read the test file to understand what it asserts`,
-              `2. Consult ONLY the GROUND TRUTH tree above — do NOT navigate or snapshot the live page.`,
+              `2. Consult ONLY that tree — do NOT navigate or snapshot the live page.`,
               `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
               `   ${GROUNDING_UNCOVERED_ESCAPE}`,
               `3. Fix the ROOT CAUSE, guided by the error type:`,
               `   - "strict mode violation" → scope the selector to a section first`,
-              `   - "locator.click: … not found" → the element doesn't exist; check role/label in the GROUND TRUTH tree`,
+              `   - "locator.click: … not found" → the element doesn't exist; check role/label in that tree`,
               `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
               `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
               `4. PRESERVE each test's objective and assertions — fix only what's broken`,
@@ -584,7 +591,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
-  const fixContentClaims: PromptClaim[] = fixContent && input.failureSourced ? [claim.directs("consult", "dom-failure")] : [];
+  const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
 
   /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
@@ -1026,7 +1033,41 @@ interface TaskParts {
   claims: PromptClaim[];
 }
 
+/* The changed-files line every diff-shaped task carries. */
+function changedFilesLine(input: OpencodeRunInput, label: string): string {
+  return `- ${label}: ${sanitizeText(input.intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`;
+}
+
+/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective rule, and the intent, guidance or changed files that say what the corrections are about. */
+function buildCodeRegenTask(input: OpencodeRunInput): TaskParts {
+  const intent = input.intent;
+  const lines: string[] = [];
+  if (input.mode === "manual") {
+    lines.push(
+      `Re-generation pass for the UNIT/INTEGRATION tests of ${input.repo}, FOCUSED on:`,
+      ``,
+      sanitizeText(input.guidance ?? "(no guidance provided)").text,
+    );
+  } else if (input.mode === "complete" || input.mode === "exhaustive") {
+    lines.push(`Re-generation pass for the ${input.mode} source-code test suite run of ${input.repo}.`);
+  } else {
+    lines.push(
+      `Re-generation pass for the UNIT/INTEGRATION tests of commit ${input.sha} of ${input.repo}.`,
+      ``,
+      `## Change intent (Conventional Commits)`,
+      `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
+      ``,
+      `## Commit message (the author's intent — derive each test's objective from this)`,
+      renderCommitMessage(intent, false),
+    );
+  }
+  if (intent?.changedFiles?.length) lines.push(``, changedFilesLine(input, "Changed files (derive the scope from these)"));
+  if (input.mode === "manual") lines.push(``, `## Objective — commit to this BEFORE writing`, ACCEPTANCE_CRITERION_RULE);
+  return { text: lines.join("\n"), claims: input.mode === "manual" ? [claim.directs("state-outcome")] : [] };
+}
+
 function buildCodeTask(input: OpencodeRunInput): TaskParts {
+  if (isReGenTurn(input)) return buildCodeRegenTask(input);
   if (input.mode === "manual") {
     const text = [
       `Generate or update UNIT/INTEGRATION tests for the source code of ${input.repo}, FOCUSED on:`,
@@ -1057,16 +1098,15 @@ function buildCodeTask(input: OpencodeRunInput): TaskParts {
   }
 
   const intent = input.intent;
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
   const text = [
     `Generate or update UNIT/INTEGRATION tests for the source-code changes in commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
     `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-    `- Changed files (derive the scope from these): ${sanitizeText(intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`,
+    changedFilesLine(input, "Changed files (derive the scope from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, !isReGen),
+    renderCommitMessage(intent, true),
     ``,
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
@@ -1082,8 +1122,76 @@ function buildCodeTask(input: OpencodeRunInput): TaskParts {
   return { text, claims: [claim.provides("diff")] };
 }
 
+function buildServiceBlock(input: OpencodeRunInput): string[] {
+  if (!input.service) return [];
+  const svcOpenapiHints = input.service.openapi
+    ? Array.isArray(input.service.openapi)
+      ? input.service.openapi
+      : [input.service.openapi]
+    : undefined;
+  const svcOpenapi = svcOpenapiHints?.map((h) => `contracts/${h}`).join(", ");
+  return [
+    ``,
+    `## Cross-repo change (microservice)`,
+    `The commit under test belongs to the microservice ${input.service.repo}, NOT to this frontend repo.`,
+    `- A READ-ONLY staged snapshot (its OpenAPI/contract files under contracts/, plus this commit's`,
+    `  diff as CHANGE.patch and its changed files' post-change content under changed/ — NOT the`,
+    `  service's full source) is at: ${input.service.mirrorDir}`,
+    ...(svcOpenapi ? [`- The service's OpenAPI contract(s): ${svcOpenapi} (relative to that staged snapshot)`] : []),
+    `- Use the architecture context below (operations whose service matches this repo) plus the`,
+    `  staged contract and this commit's staged diff/changed files to find which frontend routes`,
+    `  and flows this change affects.`,
+    `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
+  ];
+}
+
+/* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction of a first pass, this explains a decision already made, not evidence that may have shed). classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot). `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
+function classifierNoteLines(input: OpencodeRunInput): string[] {
+  if (!input.classificationReason) return [];
+  return [
+    `## Classifier note`,
+    `${sanitizeText(input.classificationReason, "model").text}${input.contradiction ? " (the commit message under-promised — trust the diff)" : ""}`,
+    ``,
+  ];
+}
+
+function buildRegenTask(input: OpencodeRunInput): TaskParts {
+  const intent = input.intent;
+  const opening =
+    input.mode === "manual"
+      ? [
+          `Re-generation pass for the E2E tests of ${input.repo}, FOCUSED on the following guidance:`,
+          ``,
+          sanitizeText(input.guidance ?? "(no guidance provided)").text,
+        ]
+      : input.mode === "complete" || input.mode === "exhaustive"
+      ? [`Re-generation pass for the ${input.mode} E2E suite run of ${input.repo}.`]
+      : [
+          `Re-generation pass for the E2E tests of commit ${input.sha} of ${input.repo}.`,
+          ``,
+          `## Change intent (Conventional Commits)`,
+          `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
+          changedFilesLine(input, "Changed files (derive the scope/area from these)"),
+          ``,
+          `## Commit message (the author's intent — derive each test's objective from this)`,
+          renderCommitMessage(intent, false),
+          ``,
+          ...classifierNoteLines(input),
+        ];
+  const text = [
+    ...opening,
+    ``,
+    `## Objective — commit to this BEFORE writing`,
+    ACCEPTANCE_CRITERION_RULE,
+    ...buildServiceBlock(input),
+  ].join("\n");
+  return { text, claims: [claim.directs("state-outcome")] };
+}
+
 function buildTask(input: OpencodeRunInput): TaskParts {
+  if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
   if (input.target === "code") return buildCodeTask(input);
+  if (isReGenTurn(input)) return buildRegenTask(input);
   if (input.mode === "complete" || input.mode === "exhaustive") {
     const text = [
       input.mode === "exhaustive"
@@ -1118,56 +1226,22 @@ function buildTask(input: OpencodeRunInput): TaskParts {
     ].join("\n");
     return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
   }
-  if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
 
   const intent = input.intent;
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  const svcOpenapiHints = input.service?.openapi
-    ? Array.isArray(input.service.openapi)
-      ? input.service.openapi
-      : [input.service.openapi]
-    : undefined;
-  const svcOpenapi = svcOpenapiHints?.map((h) => `contracts/${h}`).join(", ");
-  const serviceBlock = input.service
-    ? [
-        ``,
-        `## Cross-repo change (microservice)`,
-        `The commit under test belongs to the microservice ${input.service.repo}, NOT to this frontend repo.`,
-        `- A READ-ONLY staged snapshot (its OpenAPI/contract files under contracts/, plus this commit's`,
-        `  diff as CHANGE.patch and its changed files' post-change content under changed/ — NOT the`,
-        `  service's full source) is at: ${input.service.mirrorDir}`,
-        ...(svcOpenapi ? [`- The service's OpenAPI contract(s): ${svcOpenapi} (relative to that staged snapshot)`] : []),
-        `- Use the architecture context below (operations whose service matches this repo) plus the`,
-        `  staged contract and this commit's staged diff/changed files to find which frontend routes`,
-        `  and flows this change affects.`,
-        `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
-      ]
-    : [];
   const text = [
     `Generate/update E2E tests for the flows affected by commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
     `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-    `- Changed files (derive the scope/area from these): ${sanitizeText(intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`,
+    changedFilesLine(input, "Changed files (derive the scope/area from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, !isReGen),
+    renderCommitMessage(intent, true),
     ``,
-    ...(isReGen
-      ? []
-      : [
-          `Cross-check against the diff: if the code does more than the message claims, cover what`,
-          `the code actually changes, not just what the message promises.`,
-          ``,
-        ]),
-    /* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction above, this explains a decision already made, not evidence that may have shed). classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot). `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
-    ...(input.classificationReason
-      ? [
-          `## Classifier note`,
-          `${sanitizeText(input.classificationReason, "model").text}${input.contradiction ? " (the commit message under-promised — trust the diff)" : ""}`,
-          ``,
-        ]
-      : []),
+    `Cross-check against the diff: if the code does more than the message claims, cover what`,
+    `the code actually changes, not just what the message promises.`,
+    ``,
+    ...classifierNoteLines(input),
     `## Objective — commit to this BEFORE writing`,
     ACCEPTANCE_CRITERION_RULE,
     ``,
@@ -1178,39 +1252,31 @@ function buildTask(input: OpencodeRunInput): TaskParts {
     `backend behaviour and vice-versa. If the map is missing or stale, note the`,
     `limitation explicitly in your verdict note.`,
     ``,
-    /* The first pass scopes the blast radius (serena + page exploration). A RE-generation pass already has that grounding distilled above and is governed by the regen-discipline section — re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let the agent justify re-exploring. So the scope-budget orientation lines are first-pass only. */
-    ...(isReGen
-      ? [
-          `## Scope (re-generation pass)`,
-          `Change ONLY what the correction/coverage-gap above requires. Do not broaden scope or re-survey`,
-          `the repo — work from the grounding already in this prompt.`,
-        ]
-      : [
-          `## Scope budget (diff mode — do NOT over-work)`,
-          `The blast radius IS your budget. This is ONE commit, so keep generation fast and focused:`,
-          `- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`,
-          `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
-          `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
-          `- Explore ONLY the page(s) the change affects — not the whole app.`,
-          `A handful of focused specs is the right output for a single-commit diff, not a suite rewrite.`,
-        ]),
-    ...serviceBlock,
+    `## Scope budget (diff mode — do NOT over-work)`,
+    `The blast radius IS your budget. This is ONE commit, so keep generation fast and focused:`,
+    `- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`,
+    `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
+    `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
+    `- Explore ONLY the page(s) the change affects — not the whole app.`,
+    `A handful of focused specs is the right output for a single-commit diff, not a suite rewrite.`,
+    ...buildServiceBlock(input),
   ].join("\n");
-  const claims: PromptClaim[] = [
-    claim.directs("state-outcome"),
-    claim.directs("read", "arch-map"),
-    claim.frames("arch-map", "unverified"),
-  ];
-  if (!isReGen) claims.push(claim.directs("orient", "blast-radius"));
-  return { text, claims };
+  return {
+    text,
+    claims: [
+      claim.directs("state-outcome"),
+      claim.directs("read", "arch-map"),
+      claim.frames("arch-map", "unverified"),
+      claim.directs("orient", "blast-radius"),
+    ],
+  };
 }
 
 /* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */
 function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  if (isReGen) return "";
+  if (isReGenTurn(input)) return "";
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
     `## Commit diff`,

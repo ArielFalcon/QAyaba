@@ -348,7 +348,10 @@ test("buildPrompt surfaces reviewer corrections as the highest-priority block", 
   const p = buildPrompt({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] });
   assert.match(p, /Apply reviewer corrections/);
   assert.match(p, /scope the selector to the header/);
-  assert.ok(p.indexOf("Apply reviewer corrections") < p.indexOf("Generate/update E2E tests"));
+  const order = Object.keys(
+    buildPromptAssembled({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] }).sectionSizes,
+  );
+  assert.ok(order.indexOf("reviewer-corrections") < order.indexOf("task"), "corrections come before the task");
 });
 
 test("buildWorkerPrompt injects the exploration brief and forbids re-exploring the code", () => {

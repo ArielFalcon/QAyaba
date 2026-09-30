@@ -1,37 +1,37 @@
 {
   "globalUserPromptBytes": 20083,
   "ceiling": {
-    "bytes": 11795,
-    "directives": 31
+    "bytes": 11135,
+    "directives": 30
   },
   "cells": {
     "complete/code/regen-fix/tree-none/brief": {
-      "bytes": 5031,
-      "directives": 18
+      "bytes": 4833,
+      "directives": 17
     },
     "complete/e2e/first/tree-none/pack": {
       "bytes": 4256,
       "directives": 8
     },
     "complete/e2e/regen-coverage/tree-none/brief": {
-      "bytes": 5248,
-      "directives": 20
+      "bytes": 4898,
+      "directives": 19
     },
     "complete/e2e/regen-fix/tree-failure/pack/map+signal+login+links": {
-      "bytes": 9521,
-      "directives": 25
+      "bytes": 9141,
+      "directives": 24
     },
     "complete/e2e/regen-fix/tree-live/none": {
-      "bytes": 6376,
-      "directives": 17
+      "bytes": 6026,
+      "directives": 16
     },
     "complete/e2e/regen-review/tree-none/brief+pack": {
-      "bytes": 6878,
-      "directives": 25
+      "bytes": 6528,
+      "directives": 24
     },
     "complete/e2e/selector-fix/tree-none/brief+pack": {
-      "bytes": 6457,
-      "directives": 17
+      "bytes": 6555,
+      "directives": 20
     },
     "context/e2e/first/tree-none/none": {
       "bytes": 3909,
@@ -50,24 +50,24 @@
       "directives": 10
     },
     "diff/e2e/regen-coverage/tree-none/none": {
-      "bytes": 4637,
-      "directives": 14
+      "bytes": 4062,
+      "directives": 13
     },
     "diff/e2e/regen-fix/tree-failure/brief+pack/login": {
-      "bytes": 9831,
-      "directives": 28
+      "bytes": 9226,
+      "directives": 27
     },
     "diff/e2e/regen-review/tree-none/brief/links": {
-      "bytes": 6355,
-      "directives": 24
+      "bytes": 5780,
+      "directives": 23
     },
     "diff/e2e/selector-fix/tree-live/pack/map+signal": {
-      "bytes": 9648,
-      "directives": 17
+      "bytes": 8354,
+      "directives": 19
     },
     "diff/e2e/selector-fix/tree-none/none": {
-      "bytes": 5609,
-      "directives": 12
+      "bytes": 4321,
+      "directives": 14
     },
     "exhaustive/code/first/tree-none/brief": {
       "bytes": 3571,
@@ -82,44 +82,44 @@
       "directives": 13
     },
     "exhaustive/e2e/regen-coverage/tree-none/none": {
-      "bytes": 4141,
-      "directives": 13
+      "bytes": 3656,
+      "directives": 12
     },
     "exhaustive/e2e/regen-fix/tree-failure/none": {
-      "bytes": 6093,
-      "directives": 18
+      "bytes": 5578,
+      "directives": 17
     },
     "exhaustive/e2e/regen-review/tree-none/pack/map+login": {
-      "bytes": 7017,
-      "directives": 19
+      "bytes": 6532,
+      "directives": 18
     },
     "exhaustive/e2e/selector-fix/tree-live/brief/login+links": {
-      "bytes": 7736,
-      "directives": 19
+      "bytes": 7693,
+      "directives": 22
     },
     "manual/code/regen-review/tree-none/none/signal": {
-      "bytes": 4007,
-      "directives": 14
+      "bytes": 3936,
+      "directives": 13
     },
     "manual/e2e/first/tree-none/none": {
       "bytes": 3148,
       "directives": 9
     },
     "manual/e2e/regen-coverage/tree-none/brief+pack/map+links": {
-      "bytes": 8338,
-      "directives": 28
-    },
-    "manual/e2e/regen-coverage/tree-none/pack/signal+login": {
-      "bytes": 6316,
-      "directives": 20
-    },
-    "manual/e2e/regen-fix/tree-live/brief+pack": {
-      "bytes": 8987,
+      "bytes": 8218,
       "directives": 27
     },
+    "manual/e2e/regen-coverage/tree-none/pack/signal+login": {
+      "bytes": 6196,
+      "directives": 19
+    },
+    "manual/e2e/regen-fix/tree-live/brief+pack": {
+      "bytes": 8867,
+      "directives": 26
+    },
     "manual/e2e/selector-fix/tree-failure/brief/map": {
-      "bytes": 7213,
-      "directives": 20
+      "bytes": 7549,
+      "directives": 23
     }
   }
 }
