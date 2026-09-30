@@ -184,6 +184,15 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "login-evidence": {
+    description: "login evidence: the classifier that reads a login attempt, and the scrubber and note that keep credentials out of what a failed login writes",
+    mutate: [`${ORCH}/domain/helpers/login-evidence.ts`],
+    tests: [
+      `${ORCH_TEST}/domain/helpers/login-evidence.test.ts`,
+      `${ORCH_TEST}/domain/helpers/classify-login-evidence.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

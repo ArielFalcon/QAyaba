@@ -2,12 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   EVIDENCE_TEXT_MAX,
-  FORM_STATE,
   MAX_RENDERED_REQUESTS,
   renderLoginEvidence,
   scrubSecrets,
-  type LoginEvidence,
 } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 import { PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 
 /* Synthetic credentials only. Each password carries something an encoder or a regex would treat specially. */
@@ -33,28 +32,7 @@ function spellings(secret: string): string[] {
   return [...new Set([secret, percent, form, json, asciiJson])];
 }
 
-function evidence(over: Partial<LoginEvidence> = {}): LoginEvidence {
-  return {
-    ladder: ["/", "/login"],
-    form: FORM_STATE.FOUND,
-    ladderHadPasswordField: true,
-    markers: { captcha: false, secondFactor: false, sso: false },
-    challengeVisible: false,
-    filled: true,
-    submitted: true,
-    requests: [{ method: "POST", pathname: "/api/session", status: 401 }],
-    inFlightAtDeadline: false,
-    pageErrorCount: 0,
-    firstPageError: null,
-    firstAlert: null,
-    submitDisabled: false,
-    finalPath: "/login",
-    passwordGone: false,
-    freshContextPasswordGone: false,
-    storageStateWritten: false,
-    ...over,
-  };
-}
+const evidence = scriptedLoginEvidence;
 
 test("a secret is removed in its raw, percent-encoded, form-encoded and JSON-escaped spellings, and the text around it stays", () => {
   for (const password of HOSTILE_PASSWORDS) {
@@ -87,6 +65,12 @@ test("a secret that contains another secret is removed whole, with no fragment o
   assert.equal(out.includes("2024"), false);
   assert.equal(out.includes("swordfish"), false);
   assert.ok(out.endsWith(" end"));
+});
+
+test("removing one secret never assembles another out of the text on either side of it", () => {
+  const out = scrubSecrets("paXXssword", ["password", "XX"]);
+  assert.equal(out.includes("password"), false);
+  assert.equal(out.includes("XX"), false);
 });
 
 test("a text with no secret in it comes back unchanged", () => {
@@ -165,4 +149,42 @@ test("rendering does not change the evidence it is given", () => {
   const copy = structuredClone(original);
   renderLoginEvidence(PRECONDITION_KIND.CREDENTIALS_REJECTED, original, [USER]);
   assert.deepEqual(original, copy);
+});
+
+test("the pages tried are each listed apart from the next", () => {
+  const out = renderLoginEvidence(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE, evidence({ ladder: ["/", "/start", "/sign-in"], finalPath: "/done" }), []);
+  assert.ok(out.includes("/start"));
+  assert.ok(out.includes("/sign-in"));
+  assert.equal(out.includes("/start/sign-in"), false, "two paths must not fuse into one");
+});
+
+test("the requests are each listed apart from the next, and one with no response yet still shows a value", () => {
+  const out = renderLoginEvidence(
+    PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE,
+    evidence({ requests: [{ method: "POST", pathname: "/api/session", status: 401 }, { method: "PUT", pathname: "/api/profile", status: null }] }),
+    [],
+  );
+  assert.doesNotMatch(out, /\d[A-Z]/, "a status must not fuse with the next method");
+  assert.equal(out.includes("null"), false, "a missing status is never printed as null");
+  assert.match(out, /PUT \/api\/profile \w/, "a word, not just the next separator, follows the path of a request with no response");
+});
+
+test("the page-error count is reported, with the first error only when there is one", () => {
+  const counted = renderLoginEvidence(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE, evidence({ ladder: ["/"], finalPath: "/", requests: [], pageErrorCount: 7 }), []);
+  assert.ok(counted.includes("7"));
+  const withFirst = renderLoginEvidence(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE, evidence({ pageErrorCount: 1, firstPageError: "boom-marker" }), []);
+  assert.ok(withFirst.includes("boom-marker"));
+  assert.equal(counted.includes("boom-marker"), false);
+});
+
+test("the note's fields are set apart from the kind and from each other, and none is rendered empty", () => {
+  const kind = PRECONDITION_KIND.CREDENTIALS_REJECTED;
+  const bare = renderLoginEvidence(kind, evidence({ requests: [], firstAlert: null, firstPageError: null }), []);
+  const full = renderLoginEvidence(kind, evidence({ firstAlert: "alert-marker", firstPageError: "error-marker", pageErrorCount: 1 }), []);
+  for (const note of [bare, full]) {
+    assert.match(note, new RegExp(`^${kind}\\W`), "the kind stands apart from what follows");
+    assert.doesNotMatch(note, /:\s*(?:;|$)|;\s*(?:;|$)/, "no field is rendered with an empty value, and no separator is left dangling");
+  }
+  assert.ok(full.includes("alert-marker"));
+  assert.equal(bare.includes("alert-marker"), false);
 });

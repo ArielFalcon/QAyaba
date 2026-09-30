@@ -148,6 +148,17 @@ parity, learning-gates, process-audit). **Before** is its first run; the one sur
 behavior pinned instead of the literal: an error prints under a name of its own, apart from a generic
 one. **After** is the re-run; it has no documented survivors.
 
+login-evidence (2026-09-30, 4 workers) is a new preset over the module that classifies a login attempt,
+scrubs credentials out of what a failed login writes and renders the note. **Before** is its first run;
+the survivors were real gaps: an authenticated verdict that did not need a submit, an sso-only verdict
+that did not need the form to be absent, evidence that contradicts itself (a submit recorded against a
+form that was not found or not filled), a challenge read after the password was gone, separators that
+fused a note's fields or a status with the next method, a missing status printed as null, and a
+removal that could assemble another secret across its seam when the marker was empty. The note's
+optional parts were restructured away instead of pinned by their wording: a part with nothing to say
+is left out, and a test asserts that no field is rendered empty and no separator dangles. **After** is
+the re-run; it has no documented survivors.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -162,6 +173,7 @@ one. **After** is the re-run; it has no documented survivors.
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal | 4 / 0 / 1 — 80% (80%) | 4 / 0 / 0 — 100% (100%) | — |
+| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 95 / 0 / 0 — 100% (100%) | — |
 
 ### Documented survivors
 

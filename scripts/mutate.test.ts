@@ -82,6 +82,16 @@ test("the precondition-verdict preset mutates the typed precondition error and i
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the login-evidence preset mutates the classifier, the scrubber and the note in one module, against their own tests", () => {
+  const preset = PRESETS["login-evidence"];
+  assert.ok(preset, "the login-evidence preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/qa-run-orchestration/domain/helpers/login-evidence.ts"]);
+  for (const module of ["login-evidence", "classify-login-evidence"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",
