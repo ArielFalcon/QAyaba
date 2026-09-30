@@ -272,6 +272,19 @@ test("the byte budget counts only assembled sections, never the static layer", (
   assert.deepEqual(findings, []);
 });
 
+test("the static layer has a byte budget of its own, counted over its sections and never over the user prompt", () => {
+  const staticBytes = 5000 + 3000;
+  const layered = cell([
+    sec("role", [], { layer: "static", text: "z".repeat(5000) }),
+    sec("agents", [], { layer: "static", text: "y".repeat(3000) }),
+    sec("task", [], { text: "w".repeat(4000) }),
+  ]);
+  assert.deepEqual(lintCell(layered, { budget: { maxStaticBytes: staticBytes } }), []);
+  assert.deepEqual(lintCell(layered, { budget: { maxStaticBytes: staticBytes - 1 } }), [
+    { rule: "R9", sections: [], budget: "static-bytes", measured: staticBytes, limit: staticBytes - 1 },
+  ]);
+});
+
 test("trust language in a section that declares no framing is reported; declaring the framing clears it", () => {
   const trusting = sec("dom", [provides("dom-live")], { text: "This tree is GROUND TRUTH for selectors" });
   assert.deepEqual(lintCell(cell([trusting])).map((f) => [f.rule, ...f.sections]), [["R10", "dom"]]);

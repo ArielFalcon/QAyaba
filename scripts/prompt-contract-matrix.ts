@@ -5,11 +5,17 @@
  * combination. The lint lives in qa-engine; this module lives in scripts/ because it wires the
  * shell's brief renderer, which qa-engine may not import.
  *
+ * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
+ * recorded for its bucket (mode, target, phase, tree and grounding), and each static layer against
+ * its recorded size. The baseline only tightens: recording refuses any raise over the committed one
+ * unless a reason is given, and the reason is kept in the file.
+ *
  * Commands:
- *   tsx scripts/prompt-contract-matrix.ts              print the unique findings of the current tree
- *   tsx scripts/prompt-contract-matrix.ts --record     rewrite scripts/prompt-contract-baseline.json
+ *   tsx scripts/prompt-contract-matrix.ts                                    print the unique findings of the current tree
+ *   tsx scripts/prompt-contract-matrix.ts --record                           rewrite scripts/prompt-contract-baseline.json
+ *   tsx scripts/prompt-contract-matrix.ts --record --allow-increase "<why>"  the same, raising budgets for the stated reason
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -42,7 +48,7 @@ import { codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/* The user prompt of the reference production run, in bytes, before any hygiene work: no cell may exceed it. */
+/* The user prompt of the reference production run, in bytes, before any hygiene work: no cell may exceed it. The baseline file repeats it and a test keeps the two equal. */
 export const GLOBAL_USER_PROMPT_BASELINE_BYTES = 20_083;
 
 export const DIMENSIONS = {
@@ -368,16 +374,26 @@ export interface MatrixCell {
   name: string;
   layer: StaticLayerName;
   spec: CellSpec;
-  /* Part of the pairwise reference set whose sizes are recorded one by one in the baseline. */
-  reference: boolean;
+  /* The group of combinations that share a recorded budget. */
+  bucket: string;
   lint: LintCell;
   assembledBytes: number;
   directives: number;
+  staticBytes: number;
+}
+
+/* Combinations that differ only in the optional grounding they carry share a budget: the largest of the group. Tree and grounding stay in the key, so the shapes that exclude one another are budgeted apart. */
+export function bucketOf(spec: CellSpec): string {
+  return [spec.mode, spec.target, spec.phase, `tree-${spec.tree}`, spec.grounding].join("/");
 }
 
 export interface CellMeasure {
   bytes: number;
   directives: number;
+}
+
+export function measureStatic(sections: readonly LintSection[]): number {
+  return sections.filter((s) => s.layer === "static").reduce((sum, s) => sum + Buffer.byteLength(s.text, "utf8"), 0);
 }
 
 export function measureAssembled(sections: readonly LintSection[]): CellMeasure {
@@ -395,12 +411,11 @@ function wireShellBriefRenderer(): void {
   briefWired = true;
 }
 
-/* Every combination that can reach the agent is linted for contradictions and duplicates; a pairwise cover of them is the reference set whose sizes are recorded one by one. */
+/* Every combination that can reach the agent is linted for contradictions and duplicates and measured against the budget recorded for its bucket. */
 export async function buildMatrix(root: string = ROOT): Promise<MatrixCell[]> {
   wireShellBriefRenderer();
   const layers: StaticLayerName[] = ["opencode", "codex"];
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
-  const referenceNames = new Set(pairwiseSpecs().map(cellName));
   const cells: MatrixCell[] = [];
   for (const spec of allValidSpecs()) {
     const input = await buildInput(spec);
@@ -414,10 +429,11 @@ export async function buildMatrix(root: string = ROOT): Promise<MatrixCell[]> {
         name: cellName(spec),
         layer,
         spec,
-        reference: referenceNames.has(cellName(spec)),
+        bucket: bucketOf(spec),
         lint: { name: `${cellName(spec)}|${layer}`, regen: spec.phase !== "first", sections: [...staticByLayer.get(layer)!, ...sections] },
         assembledBytes: measure.bytes,
         directives: measure.directives,
+        staticBytes: measureStatic(staticByLayer.get(layer)!),
       });
     }
   }
@@ -430,8 +446,12 @@ export interface Baseline {
   globalUserPromptBytes: number;
   /* The largest user prompt and directive volume over every combination: no combination may exceed it. */
   ceiling: CellMeasure;
-  /* Per-cell sizes of the pairwise reference set. */
-  cells: Record<string, CellMeasure>;
+  /* The size of the role and shared-rule text each runtime ships with. */
+  staticLayers: Record<StaticLayerName, number>;
+  /* The largest user prompt and directive volume of each bucket of combinations: every combination that can reach the agent is checked against its bucket. */
+  buckets: Record<string, CellMeasure>;
+  /* The reason the budgets were last raised and which ones; kept until the next raise. */
+  lastIncrease?: { reason: string; budgets: string[] };
 }
 
 export function baselinePath(root: string = ROOT): string {
@@ -442,35 +462,93 @@ export function loadBaseline(root: string = ROOT): Baseline {
   return JSON.parse(readText(baselinePath(root))) as Baseline;
 }
 
-export function recordBaseline(cells: readonly MatrixCell[]): Baseline {
-  const byName: Record<string, CellMeasure> = {};
-  for (const cell of cells) {
-    if (cell.reference) byName[cell.name] = { bytes: cell.assembledBytes, directives: cell.directives };
+export interface RecordOptions {
+  /* Why the budgets are being raised; recording a raise without one is refused. */
+  increaseReason?: string;
+}
+
+export class BaselineIncreaseError extends Error {
+  readonly budgets: readonly string[];
+  constructor(raised: readonly BudgetRaise[]) {
+    super(
+      `recording would raise ${raised.length} budget(s) over the committed baseline: ${raised.map((r) => `${r.budget} ${r.from} -> ${r.to}`).join("; ")}. ` +
+        `Shrink the prompt, or record with --allow-increase "<reason>".`,
+    );
+    this.budgets = raised.map((r) => r.budget);
   }
-  const sorted = Object.fromEntries(Object.entries(byName).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-  return {
+}
+
+interface BudgetRaise {
+  budget: string;
+  from: number;
+  to: number;
+}
+
+function measuresOf(name: string, from: CellMeasure | undefined, to: CellMeasure): BudgetRaise[] {
+  if (!from) return [];
+  return [
+    ...(to.bytes > from.bytes ? [{ budget: `${name}:bytes`, from: from.bytes, to: to.bytes }] : []),
+    ...(to.directives > from.directives ? [{ budget: `${name}:directives`, from: from.directives, to: to.directives }] : []),
+  ];
+}
+
+/* Every budget the next baseline holds above the same budget in the committed one. A combination or layer the committed baseline does not know is new, not raised. */
+function budgetRaises(committed: Baseline, next: Baseline): BudgetRaise[] {
+  const layers = (Object.keys(next.staticLayers) as StaticLayerName[]).flatMap((layer) =>
+    next.staticLayers[layer] > (committed.staticLayers[layer] ?? Infinity)
+      ? [{ budget: `static:${layer}`, from: committed.staticLayers[layer]!, to: next.staticLayers[layer] }]
+      : [],
+  );
+  return [
+    ...Object.entries(next.buckets).flatMap(([bucket, measure]) => measuresOf(bucket, committed.buckets[bucket], measure)),
+    ...measuresOf("ceiling", committed.ceiling, next.ceiling),
+    ...layers,
+  ];
+}
+
+export function recordBaseline(cells: readonly MatrixCell[], committed?: Baseline, options: RecordOptions = {}): Baseline {
+  const buckets: Record<string, CellMeasure> = {};
+  for (const cell of cells) {
+    const seen = buckets[cell.bucket];
+    buckets[cell.bucket] = {
+      bytes: Math.max(seen?.bytes ?? 0, cell.assembledBytes),
+      directives: Math.max(seen?.directives ?? 0, cell.directives),
+    };
+  }
+  const staticLayers = Object.fromEntries(cells.map((c) => [c.layer, c.staticBytes])) as Record<StaticLayerName, number>;
+  const next: Baseline = {
     globalUserPromptBytes: GLOBAL_USER_PROMPT_BASELINE_BYTES,
     ceiling: {
       bytes: Math.max(...cells.map((c) => c.assembledBytes)),
       directives: Math.max(...cells.map((c) => c.directives)),
     },
-    cells: sorted,
+    staticLayers: { opencode: staticLayers.opencode, codex: staticLayers.codex },
+    buckets: Object.fromEntries(Object.entries(buckets).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))),
   };
+  const raises = committed ? budgetRaises(committed, next) : [];
+  const reason = options.increaseReason?.trim();
+  if (raises.length > 0) {
+    if (!reason) throw new BaselineIncreaseError(raises);
+    return { ...next, lastIncrease: { reason, budgets: raises.map((r) => r.budget) } };
+  }
+  return committed?.lastIncrease ? { ...next, lastIncrease: committed.lastIncrease } : next;
 }
 
 export function lintMatrixCell(cell: MatrixCell, baseline?: Baseline): readonly LintFinding[] {
-  const recorded = baseline ? (baseline.cells[cell.name] ?? baseline.ceiling) : undefined;
-  return lintCell(cell.lint, {
-    assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES,
-    ...(baseline && recorded
-      ? {
-          budget: {
-            maxAssembledBytes: Math.min(baseline.globalUserPromptBytes, recorded.bytes),
-            maxDirectives: recorded.directives,
-          },
-        }
-      : {}),
-  });
+  if (!baseline) return lintCell(cell.lint, { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES });
+  const recorded = baseline.buckets[cell.bucket];
+  /* A combination nobody recorded has no budget to hold it to; that is a failure to record it, never a reason to borrow the ceiling. */
+  const unrecorded: LintFinding[] = recorded ? [] : [{ rule: "R9", sections: [], budget: "unrecorded" }];
+  return [
+    ...unrecorded,
+    ...lintCell(cell.lint, {
+      assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES,
+      budget: {
+        ...(recorded ? { maxAssembledBytes: Math.min(baseline.globalUserPromptBytes, recorded.bytes), maxDirectives: recorded.directives } : {}),
+        maxStaticBytes: baseline.staticLayers[cell.layer],
+      },
+    }),
+  ];
 }
 
 /* The unique finding keys across the matrix, each with the cells that produced it. */
@@ -493,8 +571,13 @@ export function collectFindings(
 async function main(): Promise<void> {
   const cells = await buildMatrix();
   if (process.argv.includes("--record")) {
-    writeFileSync(baselinePath(), JSON.stringify(recordBaseline(cells), null, 2) + "\n");
-    console.log(`recorded the baseline of ${cells.filter((c) => c.reference).length / 2} reference cells (${cells.length / 2} combinations) to ${baselinePath()}`);
+    const flag = process.argv.indexOf("--allow-increase");
+    const reason = flag >= 0 ? process.argv[flag + 1] : undefined;
+    if (flag >= 0 && !reason?.trim()) throw new Error('--allow-increase needs a reason: --allow-increase "<why the budgets must grow>"');
+    const committed = existsSync(baselinePath()) ? loadBaseline() : undefined;
+    const baseline = recordBaseline(cells, committed, reason ? { increaseReason: reason } : {});
+    writeFileSync(baselinePath(), JSON.stringify(baseline, null, 2) + "\n");
+    console.log(`recorded ${Object.keys(baseline.buckets).length} budgets over ${cells.length / 2} combinations to ${baselinePath()}`);
     return;
   }
   const findings = collectFindings(cells);

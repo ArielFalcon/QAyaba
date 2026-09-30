@@ -5,8 +5,11 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BaselineIncreaseError,
   DIMENSIONS,
+  GLOBAL_USER_PROMPT_BASELINE_BYTES,
   allValidSpecs,
+  bucketOf,
   buildInput,
   buildMatrix,
   cellName,
@@ -16,7 +19,9 @@ import {
   loadStaticLayer,
   lintMatrixCell,
   pairwiseSpecs,
+  recordBaseline,
   splitAssembledSections,
+  type Baseline,
   type CellSpec,
   type MatrixCell,
 } from "./prompt-contract-matrix.ts";
@@ -115,7 +120,7 @@ test("no violation is tolerated: the matrix has zero findings, no ledger of exce
 
 /* ── budgets ── */
 
-test("no combination exceeds the recorded user-prompt size or directive volume", async () => {
+test("no combination exceeds the recorded user-prompt size or directive volume, and no static layer its recorded size", async () => {
   const baseline = loadBaseline(ROOT);
   const breaches = (await matrixOnce()).flatMap((cell) =>
     lintMatrixCell(cell, baseline)
@@ -125,15 +130,103 @@ test("no combination exceeds the recorded user-prompt size or directive volume",
   assert.deepEqual(breaches, []);
 });
 
-test("the recorded baseline stays inside the reference production prompt size and names only reachable cells", async () => {
+test("the recorded global size is the reference production prompt size the module declares", () => {
+  assert.equal(loadBaseline(ROOT).globalUserPromptBytes, GLOBAL_USER_PROMPT_BASELINE_BYTES);
+});
+
+test("every combination that can reach the agent has a recorded budget, and the baseline names only combinations that can", () => {
   const baseline = loadBaseline(ROOT);
-  const names = new Set(allValidSpecs().map(cellName));
-  assert.ok(Object.keys(baseline.cells).length > 0);
-  for (const [name, measure] of Object.entries(baseline.cells)) {
-    assert.ok(names.has(name), `${name} is a reachable combination`);
-    assert.ok(measure.bytes <= baseline.globalUserPromptBytes, name);
-    assert.ok(measure.bytes <= baseline.ceiling.bytes && measure.directives <= baseline.ceiling.directives, name);
+  const reachable = new Set(allValidSpecs().map(bucketOf));
+  assert.deepEqual([...reachable].filter((bucket) => baseline.buckets[bucket] === undefined), [], "a reachable combination has no budget");
+  assert.deepEqual(Object.keys(baseline.buckets).filter((bucket) => !reachable.has(bucket)), [], "a budget names no reachable combination");
+  for (const [bucket, measure] of Object.entries(baseline.buckets)) {
+    assert.ok(measure.bytes <= baseline.globalUserPromptBytes, bucket);
+    assert.ok(measure.bytes <= baseline.ceiling.bytes && measure.directives <= baseline.ceiling.directives, bucket);
   }
+});
+
+test("a combination with no recorded budget fails instead of borrowing the ceiling", async () => {
+  const baseline = loadBaseline(ROOT);
+  const [cell] = await matrixOnce();
+  const { [cell!.bucket]: dropped, ...rest } = baseline.buckets;
+  assert.ok(dropped);
+  const findings = lintMatrixCell(cell!, { ...baseline, buckets: rest });
+  assert.ok(findings.some((f) => f.rule === "R9" && f.budget === "unrecorded"));
+  assert.equal(lintMatrixCell(cell!, baseline).length, 0, "with its budget recorded the same cell is clean");
+});
+
+test("the committed baseline is exactly what recording the current prompts writes, so the ratchet tightens whenever a prompt shrinks", async () => {
+  const { lastIncrease, ...committed } = loadBaseline(ROOT);
+  void lastIncrease;
+  const { lastIncrease: none, ...current } = recordBaseline(await matrixOnce());
+  void none;
+  assert.deepEqual(committed, current, "run `tsx scripts/prompt-contract-matrix.ts --record` (a raise also needs `--allow-increase \"<reason>\"`)");
+});
+
+test("a static layer that grows past its recorded size breaches its budget", async () => {
+  const baseline = loadBaseline(ROOT);
+  const [cell] = await matrixOnce();
+  const grown = {
+    ...cell!,
+    lint: { ...cell!.lint, sections: [...cell!.lint.sections, { id: "static/added", layer: "static" as const, text: "z".repeat(4096), claims: [] }] },
+  };
+  const breaches = lintMatrixCell(grown, baseline).filter((f) => f.rule === "R9" && f.budget === "static-bytes");
+  assert.equal(breaches.length, 1);
+  assert.equal(breaches[0]?.measured, (breaches[0]?.limit ?? 0) + 4096);
+});
+
+/* ── the ratchet only tightens ── */
+
+function raisedTightenedBudgets(committed: Baseline): Array<[string, Baseline]> {
+  const bucket = Object.keys(committed.buckets)[0]!;
+  const tightened = (mutate: (copy: Baseline) => void): Baseline => {
+    const copy = structuredClone(committed);
+    mutate(copy);
+    return copy;
+  };
+  return [
+    ["a bucket's bytes", tightened((b) => void (b.buckets[bucket]!.bytes -= 1))],
+    ["a bucket's directives", tightened((b) => void (b.buckets[bucket]!.directives -= 1))],
+    ["the ceiling's bytes", tightened((b) => void (b.ceiling.bytes -= 1))],
+    ["the ceiling's directives", tightened((b) => void (b.ceiling.directives -= 1))],
+    ["the opencode static layer", tightened((b) => void (b.staticLayers.opencode -= 1))],
+    ["the codex static layer", tightened((b) => void (b.staticLayers.codex -= 1))],
+  ];
+}
+
+test("recording refuses to raise any budget over the committed baseline unless a reason is given", async () => {
+  const cells = await matrixOnce();
+  const measured = recordBaseline(cells);
+  for (const [what, committed] of raisedTightenedBudgets(measured)) {
+    assert.throws(() => recordBaseline(cells, committed), BaselineIncreaseError, what);
+    assert.throws(() => recordBaseline(cells, committed, { increaseReason: "   " }), BaselineIncreaseError, `${what}: a blank reason is no reason`);
+  }
+});
+
+test("a raise recorded with a reason stores the reason and the budgets it raised, and a later record without a raise keeps it", async () => {
+  const cells = await matrixOnce();
+  const measured = recordBaseline(cells);
+  const bucket = Object.keys(measured.buckets)[0]!;
+  const committed = structuredClone(measured);
+  committed.buckets[bucket]!.bytes -= 1;
+  committed.staticLayers.codex -= 1;
+  const raised = recordBaseline(cells, committed, { increaseReason: "a section the prompt now needs" });
+  assert.deepEqual(raised.lastIncrease, { reason: "a section the prompt now needs", budgets: [`${bucket}:bytes`, "static:codex"] });
+  assert.deepEqual(recordBaseline(cells, raised).lastIncrease, raised.lastIncrease);
+});
+
+test("recording accepts a baseline that only shrinks, drops a combination or adds one, and states no raise", async () => {
+  const cells = await matrixOnce();
+  const measured = recordBaseline(cells);
+  const [first, second] = Object.keys(measured.buckets);
+  const looser = structuredClone(measured);
+  looser.buckets[first!]!.bytes += 100;
+  looser.ceiling.bytes += 100;
+  looser.staticLayers.opencode += 100;
+  delete looser.buckets[second!];
+  const shrunk = recordBaseline(cells, looser);
+  assert.deepEqual(shrunk.buckets, measured.buckets);
+  assert.equal(shrunk.lastIncrease, undefined);
 });
 
 /* ── the trust-language cross-check is live ── */

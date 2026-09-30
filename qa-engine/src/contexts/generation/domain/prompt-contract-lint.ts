@@ -68,6 +68,8 @@ export interface LintCell {
 export interface LintBudget {
   /* Ceiling for the summed bytes of the assembled sections (the user prompt). */
   maxAssembledBytes?: number;
+  /* Ceiling for the summed bytes of the static sections (the role and shared-rule text the agent ships with). */
+  maxStaticBytes?: number;
   /* Ceiling for directive-lexicon hits across the assembled sections (captured verbatim data such as a diff is not counted). */
   maxDirectives?: number;
 }
@@ -88,7 +90,7 @@ export interface LintFinding {
   /* The numbers behind a size finding: duplicated bytes (R7), or what a budget measured against its limit (R9). */
   measured?: number;
   limit?: number;
-  budget?: "bytes" | "directives";
+  budget?: "bytes" | "directives" | "static-bytes" | "unrecorded";
 }
 
 export const APP_LOGIN_SECTION_ID = "app-login";
@@ -278,15 +280,17 @@ function ruleStaticNamesNoArtifact(cell: LintCell, names: readonly string[] | un
     .map((s) => ({ rule: "R8" as const, sections: [s.id] }));
 }
 
-/* R9: the assembled prompt stays inside its recorded size and directive budget. */
+/* R9: the assembled prompt stays inside its recorded size and directive budget, and the static layer inside its own size budget. */
 function ruleBudget(cell: LintCell, budget: LintBudget | undefined): LintFinding[] {
   if (!budget) return [];
   const assembled = cell.sections.filter((s) => s.layer === "assembled");
+  const staticLayer = cell.sections.filter((s) => s.layer === "static");
   const findings: LintFinding[] = [];
-  const check = (kind: "bytes" | "directives", measured: number, limit: number | undefined): void => {
+  const check = (kind: "bytes" | "directives" | "static-bytes", measured: number, limit: number | undefined): void => {
     if (limit !== undefined && measured > limit) findings.push({ rule: "R9", sections: [], budget: kind, measured, limit });
   };
   check("bytes", assembled.reduce((sum, s) => sum + bytes(s.text), 0), budget.maxAssembledBytes);
+  check("static-bytes", staticLayer.reduce((sum, s) => sum + bytes(s.text), 0), budget.maxStaticBytes);
   check("directives", assembled.filter((s) => !s.verbatim).reduce((sum, s) => sum + countDirectives(s.text), 0), budget.maxDirectives);
   return findings;
 }
