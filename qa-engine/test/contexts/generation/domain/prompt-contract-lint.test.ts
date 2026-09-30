@@ -253,6 +253,14 @@ test("a cell over its byte budget or directive budget fails independently of con
   assert.deepEqual(overDirectives.map((f) => f.rule), ["R9"]);
 });
 
+test("the directive budget ignores captured verbatim data but the byte budget counts it", () => {
+  const diff = sec("diff", [], { verbatim: true, text: "+ you MUST never do this again ".repeat(10) });
+  const task = sec("task", [], { text: "plain scaffold" });
+  const bytes = Buffer.byteLength(diff.text + task.text, "utf8");
+  assert.deepEqual(lintCell(cell([diff, task]), { budget: { maxDirectives: 0, maxAssembledBytes: bytes } }), []);
+  assert.deepEqual(lintCell(cell([diff, task]), { budget: { maxAssembledBytes: bytes - 1 } }).map((f) => f.rule), ["R9"]);
+});
+
 test("the byte budget counts only assembled sections, never the static layer", () => {
   const findings = lintCell(
     cell([
@@ -270,6 +278,19 @@ test("trust language in a section that declares no framing is reported; declarin
 
   const framed = sec("dom", [provides("dom-live"), frames("dom-live", "established")], { text: trusting.text });
   assert.deepEqual(lintCell(cell([framed])), []);
+});
+
+test("naming another section by its heading is not trust language, but restating its trust level is", () => {
+  const names = ["GROUND TRUTH AT FAILURE"];
+  const reference = sec("fix", [], { text: 'The captured tree is injected above as "GROUND TRUTH AT FAILURE".' });
+  assert.deepEqual(lintCell(cell([reference]), { assembledArtifactNames: names }), []);
+  const restated = sec("fix", [], { text: "Consult ONLY the GROUND TRUTH tree above." });
+  assert.deepEqual(lintCell(cell([restated]), { assembledArtifactNames: names }).map((f) => f.rule), ["R10"]);
+});
+
+test("everyday phrasing that merely contains a trust word is not a framing", () => {
+  assert.equal(hasTrustLanguage("Work in the tests folder (source of truth in git)."), false);
+  assert.equal(hasTrustLanguage("This tree is the ONLY source of truth for this fix."), true);
 });
 
 test("trust language inside captured verbatim data is not judged by the framing rule", () => {

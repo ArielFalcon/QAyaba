@@ -1196,7 +1196,11 @@ function buildTask(input: OpencodeRunInput): TaskParts {
         ]),
     ...serviceBlock,
   ].join("\n");
-  const claims: PromptClaim[] = [claim.directs("state-outcome"), claim.directs("read", "arch-map")];
+  const claims: PromptClaim[] = [
+    claim.directs("state-outcome"),
+    claim.directs("read", "arch-map"),
+    claim.frames("arch-map", "unverified"),
+  ];
   if (!isReGen) claims.push(claim.directs("orient", "blast-radius"));
   return { text, claims };
 }

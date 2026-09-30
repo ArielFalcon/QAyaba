@@ -68,7 +68,7 @@ export interface LintCell {
 export interface LintBudget {
   /* Ceiling for the summed bytes of the assembled sections (the user prompt). */
   maxAssembledBytes?: number;
-  /* Ceiling for directive-lexicon hits across the assembled sections. */
+  /* Ceiling for directive-lexicon hits across the assembled sections (captured verbatim data such as a diff is not counted). */
   maxDirectives?: number;
 }
 
@@ -111,7 +111,7 @@ export const DIRECTIVE_LEXICON: readonly RegExp[] = [
 export const TRUST_LEXICON: readonly RegExp[] = [
   /\bauthoritative\b/gi,
   /\bground truth\b/gi,
-  /\bsource of truth\b/gi,
+  /\bonly source of truth\b/gi,
   /\btrust(?:ed)?\b/gi,
   /\bstale\b/gi,
   /\bunverified\b/gi,
@@ -341,7 +341,7 @@ function ruleBudget(cell: LintCell, budget: LintBudget | undefined): LintFinding
     }
   }
   if (budget.maxDirectives !== undefined) {
-    const total = assembled.reduce((sum, s) => sum + countDirectives(s.text), 0);
+    const total = assembled.filter((s) => !s.verbatim).reduce((sum, s) => sum + countDirectives(s.text), 0);
     if (total > budget.maxDirectives) {
       findings.push({ rule: "R9", sections: [], detail: `${total} directive hits exceed the ${budget.maxDirectives} budget` });
     }
@@ -349,10 +349,20 @@ function ruleBudget(cell: LintCell, budget: LintBudget | undefined): LintFinding
   return findings;
 }
 
-/* R10: an assembled section that talks about trust must declare the framing it applies. Captured data (a diff) may say anything, so verbatim sections are not judged. */
-function ruleTrustNeedsFraming(cell: LintCell): LintFinding[] {
+function withoutNames(text: string, names: readonly string[]): string {
+  return names.reduce((acc, name) => (name ? acc.split(name).join("") : acc), text);
+}
+
+/* R10: an assembled section that talks about trust must declare the framing it applies. Naming another section by its heading is a reference, not a framing, and captured data (a diff) may say anything, so verbatim sections are not judged. */
+function ruleTrustNeedsFraming(cell: LintCell, headingNames: readonly string[]): LintFinding[] {
   return cell.sections
-    .filter((s) => s.layer === "assembled" && !s.verbatim && hasTrustLanguage(s.text) && !s.claims.some((c) => c.kind === "frames"))
+    .filter(
+      (s) =>
+        s.layer === "assembled" &&
+        !s.verbatim &&
+        hasTrustLanguage(withoutNames(s.text, headingNames)) &&
+        !s.claims.some((c) => c.kind === "frames"),
+    )
     .map((s) => ({ rule: "R10" as const, sections: [s.id], detail: "trust language without a declared framing" }));
 }
 
@@ -392,7 +402,7 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleDuplicateLines(cell),
     ...ruleStaticNamesNoArtifact(cell, options.assembledArtifactNames ?? []),
     ...ruleBudget(cell, options.budget),
-    ...ruleTrustNeedsFraming(cell),
+    ...ruleTrustNeedsFraming(cell, options.assembledArtifactNames ?? []),
     ...ruleRuntimeSignalsOnlyWithoutTree(cell),
     ...ruleLoginNotPackDependent(cell),
   ];

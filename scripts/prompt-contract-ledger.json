@@ -1,0 +1,31 @@
+{
+  "note": "TEMPORARY bridge, deleted before the last commit of the prompt-contract series. Each entry is a contract violation the prompts carry today; each fix removes the entry it clears and a cleared entry that stays in the file fails the matrix test. Never add an entry to make a new violation pass.",
+  "entries": [
+    { "key": "R10|fix-cases", "fix": "A4: fix-cases no longer restates the failure tree's trust level (4.5)" },
+    { "key": "R10|working-rules", "fix": "C4: working rules no longer restate the DOM's trust level (7.1)" },
+    { "key": "R11|context-pack|working-rules", "fix": "C7/A8: runtime signals only where no DOM tree is provided (7.3)" },
+    { "key": "R11|dom-snapshot|working-rules", "fix": "C7/A8: runtime signals only where no DOM tree is provided (7.3)" },
+    { "key": "R12|app-login", "fix": "C5: the login section stops consulting the pack's live DOM (7.2)" },
+    { "key": "R1|arch-map|task", "fix": "C2: the map is framed once, and the read directive goes when the map is injected (5.6)" },
+    { "key": "R1|context-brief|context-pack", "fix": "C1: blast radius, risks and objective are framed once by the brief section (5.1, 5.2)" },
+    { "key": "R1|context-pack|dom-snapshot", "fix": "C4: the live DOM has one section and one framing (7.1)" },
+    { "key": "R2|arch-map|context-brief", "fix": "D4: FE-BE links have one owner (5.5)" },
+    { "key": "R2|arch-map|context-pack", "fix": "D4: API operations have one owner (5.4)" },
+    { "key": "R2|context-brief|context-pack", "fix": "C1/C3: the pack drops the blast radius, risks and FE-BE links the brief owns (5.2)" },
+    { "key": "R2|context-brief|dom-snapshot", "fix": "C6: the brief drops landmarks when a DOM tree exists (5.3)" },
+    { "key": "R2|context-pack|dom-snapshot", "fix": "C4: the live DOM has one section and one framing (7.1)" },
+    { "key": "R3|arch-map|task", "fix": "C2: no read directive for an injected map (5.6)" },
+    { "key": "R3|context-brief|task", "fix": "C2: no symbol-reference orientation when the brief carries the blast radius (5.6)" },
+    { "key": "R3|context-pack|task", "fix": "C2/C3: the pack no longer carries the blast radius, so no orientation clash (5.2, 5.6)" },
+    { "key": "R3|selector-contradictions", "fix": "A4: no failure-tree reference without a failure tree (4.5)" },
+    { "key": "R4|diff", "fix": "C11/A3: one regeneration predicate that includes selector contradictions (4.1, 4.3)" },
+    { "key": "R4|task", "fix": "C11/A3: a regeneration turn carries no whole-repository task and no diff re-embed (4.3, 4.4)" },
+    { "key": "R7|arch-map|context-brief", "fix": "D4: FE-BE links have one owner (5.5)" },
+    { "key": "R7|context-brief|context-pack", "fix": "C1: the pack drops the brief's blast radius and risks (5.2)" },
+    { "key": "R8|codex/AGENTS.md", "fix": "A10: static text names no assembled artifact (8.3)" },
+    { "key": "R8|codex/qa-generator.md", "fix": "A10: static text names no assembled artifact (8.2)" },
+    { "key": "R8|codex/skill-playwright-authoring", "fix": "A10: static text names no assembled artifact (8.3)" },
+    { "key": "R8|opencode/AGENTS.md", "fix": "A10: static text names no assembled artifact (8.3)" },
+    { "key": "R8|opencode/qa-generator.md", "fix": "A10: static text names no assembled artifact (8.2)" }
+  ]
+}

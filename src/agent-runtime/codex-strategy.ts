@@ -535,22 +535,34 @@ const ROLE_SKILLS: Partial<Record<AgentRole, readonly string[]>> = {
   sidekick: ["playwright-authoring"],
 };
 
-function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string): string {
+/* The static layer a Codex turn ships with: the shared prompt, the role prompt and the role's inlined skills, each as read from the prompt tree ("" or omitted when absent). */
+export interface CodexPreambleParts {
+  shared: string;
+  rolePrompt: string;
+  skills: ReadonlyArray<{ name: string; body: string }>;
+}
+
+export function codexPreambleParts(role: AgentRole, promptRoot: string): CodexPreambleParts {
   const shared = readPrompt(join(promptRoot, "AGENTS.md"));
   const rolePrompt = readPrompt(join(promptRoot, "roles", `${rolePromptName(role)}.md`));
   /*
    * Inline each role's SKILL.md next to AGENTS.md and the role prompt. Codex has no on-disk
    * skills tree in the session; a missing skill is omitted (fail-open) and warned by name.
    */
-  const skillBlocks = (ROLE_SKILLS[role] ?? [])
+  const skills = (ROLE_SKILLS[role] ?? [])
     .map((name) => {
       const path = join(promptRoot, "skills", name, "SKILL.md");
       const body = readPrompt(path);
       if (!body) console.warn(`[qa] codex preamble: skill '${name}' referenced by role '${role}' did not resolve at ${path} — inlining without it.`);
       return { name, body };
     })
-    .filter(({ body }) => body.length > 0)
-    .map(({ name, body }) => `## Skill: ${name}\n${body}`);
+    .filter(({ body }) => body.length > 0);
+  return { shared, rolePrompt, skills };
+}
+
+function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string): string {
+  const { shared, rolePrompt, skills } = codexPreambleParts(role, promptRoot);
+  const skillBlocks = skills.map(({ name, body }) => `## Skill: ${name}\n${body}`);
   return [
     `Agent role: ${role}`,
     "",

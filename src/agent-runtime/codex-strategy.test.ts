@@ -5,6 +5,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentUnavailableError } from "../errors";
 import { getAgentTurns } from "../server/history";
@@ -12,6 +13,7 @@ import {
   codexErrorToInfra,
   extractCodexLastMessage,
   rolePromptName,
+  codexPreambleParts,
   CodexRuntimeStrategy,
   CodexExecTransport,
   CODEX_USAGE_AVAILABLE,
@@ -955,5 +957,64 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble", () =>
     } finally {
       warnMock.mock.restore();
     }
+  });
+});
+
+describe("codexPreambleParts — the static layer a Codex turn ships with", () => {
+  const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
+  const REAL_PROMPT_ROOT = join(REPO_ROOT, "agent");
+
+  it("exposes the shared prompt, the role prompt and the role's skills as read from the prompt tree", () => {
+    const parts = codexPreambleParts("primary", REAL_PROMPT_ROOT);
+    assert.equal(parts.shared, readFileSync(join(REAL_PROMPT_ROOT, "AGENTS.md"), "utf8"));
+    assert.equal(parts.rolePrompt, readFileSync(join(REAL_PROMPT_ROOT, "roles", "qa-generator.md"), "utf8"));
+    assert.deepEqual(
+      parts.skills.map((s) => s.name),
+      ["architecture-mapping", "playwright-authoring", "test-value-review"],
+    );
+    for (const skill of parts.skills) {
+      assert.equal(skill.body, readFileSync(join(REAL_PROMPT_ROOT, "skills", skill.name, "SKILL.md"), "utf8"));
+    }
+  });
+
+  it("the preamble a turn ships is composed from exactly those parts, in order, ahead of the task", async () => {
+    const captured: string[] = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return {
+          id: "parts-session",
+          prompt: async (text: string) => {
+            captured.push(text);
+            return '{"specs":[]}';
+          },
+          dispose: async () => {},
+        };
+      },
+      async health(): Promise<AgentProviderHealth> {
+        return { provider: "codex", status: "healthy", configured: true };
+      },
+      async listModels(): Promise<AgentModelInfo[]> {
+        return [{ id: "gpt-5.4", label: "GPT-5.4" }];
+      },
+    };
+    const strategy = new CodexRuntimeStrategy({ transport, promptRoot: REAL_PROMPT_ROOT, env: { CODEX_API_KEY: "test-key" } });
+    const session = await strategy.openSession("primary", "/tmp", {});
+    await session.prompt("THE-TASK");
+    await session.dispose();
+
+    const parts = codexPreambleParts("primary", REAL_PROMPT_ROOT);
+    const text = captured[0] ?? "";
+    const ordered = [parts.shared, parts.rolePrompt, ...parts.skills.map((s) => s.body), "THE-TASK"];
+    let cursor = -1;
+    for (const piece of ordered) {
+      const at = text.indexOf(piece, cursor + 1);
+      assert.ok(at > cursor, "every part appears after the previous one");
+      cursor = at;
+    }
+  });
+
+  it("parts that do not resolve are omitted", () => {
+    const parts = codexPreambleParts("primary", "/nonexistent/prompts");
+    assert.deepEqual(parts, { shared: "", rolePrompt: "", skills: [] });
   });
 });
