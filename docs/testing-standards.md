@@ -134,7 +134,8 @@ guard (restructured away) and a release order the following gap made unobservabl
 test sees it). It was re-run once more after the tracker took the prompt's provided paths: 306
 killed, 14 timeouts, no survivors. The one survivor of that run was the default of the new argument,
 an empty list no test could tell from any other, so the argument is optional now and its absence
-reads as no listed paths.
+reads as no listed paths. A last re-run, after the prompt-contract judgment round and with 8 workers,
+gave the same 306 killed, 14 timeouts and no survivors.
 
 generation-end (2026-09-30, 4 workers) is a new preset over the pure end classification with its
 note, the run terminal it maps to and the learning gates. **Before** is its first run; every survivor
@@ -196,14 +197,15 @@ path here has more) and a guard that the first write already performs was remove
 re-run; its one survivor is documented below.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
-twelve rules and its two lexicons), the single regeneration predicate, the diff size and the
-harness-facts export scan, run against their own tests, the three prompt-builder seam tests that drive
-the predicate, the size line and the facts section, and the matrix that lints every reachable generator
-prompt. **Before** is its first run, over the lint, the predicate and the diff size. Most of its 60
-survivors were the free-text `detail` string of a finding, which a test could only pin as prose, so a
-finding now carries structured numbers instead (the bytes a pair duplicates; what a budget measured
-against its limit). The real gaps got behavior tests: the sections of a finding named sorted, the
-minimum duplicate line and fences that name their language or are indented, the login rule's three
+fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
+export scan and the reader that feeds it (`readFixtureFacts` and `readHarnessFacts`, a line range of the
+grounding adapter), run against their own tests, the prompt-builder seam tests that drive the
+predicate, the size line and the facts section, and a sample of the matrix that lints the reachable
+generator prompts. **Before** is its first run, over the lint, the predicate and the diff size. Most of
+its 60 survivors were the free-text `detail` string of a finding, which a test could only pin as
+prose, so a finding now carries structured numbers instead (the bytes a pair duplicates; what a budget
+measured against its limit). The real gaps got behavior tests: the sections of a finding named sorted,
+the minimum duplicate line and fences that name their language or are indented, the login rule's three
 conditions, a facts-only section that also carries a plain claim, a hunk header with trailing context,
 findings ordered by key as text. The equivalents were restructured away: pair loops became pair
 generators, the guards that skipped work with no effect were dropped, a reference to a heading is
@@ -217,10 +219,24 @@ backslash before a closing quote, a comment standing between two tokens, the len
 attribute name) or equivalents that were restructured away: the hand-rolled scanner for comments and
 literals became one regular expression, an export entry is matched by a single pattern that leaves a
 type-only entry out by construction, and source order comes from match positions rather than a
-seeded list. **After** is the re-run over the extended preset; it has no documented survivors. Its
-one timeout is load: the mutant that splits a section into single characters instead of lines slows
-the matrix past the mutation timeout, and seven of the lint's own tests kill it when they run
-directly.
+seeded list.
+
+The lint later gained the artifact-reference rule, the trust-polarity rule, indented duplicate lines
+(the rows of a captured DOM tree excluded) and a byte budget for the static layers, and the preset
+gained the fixtures reader. Its first run over that (747 mutants, 73 minutes) had 22 survivors and
+109 timeouts: the exhaustive matrix, now 13,882 combinations against two static layers, no longer fits
+the 15 second mutation timeout, so most mutants were classed as timeouts and a survivor could hide
+among them. The preset now runs a deterministic sample of the matrix (every 23rd combination, each
+value the stride skipped, and the brief-and-pack shapes; the exhaustive test stays in the suite and
+lints the combinations once) and a run takes under eight minutes. The real gaps got behavior tests: a
+fixtures file of exactly the size cap, a named pipe that must not be opened, a plain attribute name
+that redaction would change, an attribute with no fixtures file, a negated-trust phrase without its
+suffix, a section that frames a tree without providing one, fences with a language, an indent or a
+label, the shapes of a markdown title, a hash inside a line and a phrase broken across lines. The
+equivalents were restructured away: the reader's size check on the path before it opens the file, the
+descriptor's second regular-file check, the attribute's redaction test folded into one condition and
+the prose scan's initial array. **After** is the final run over the extended preset with the machine
+default of 8 workers: 491 killed, 6 timeouts, 4 survivors, all documented below.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -238,7 +254,7 @@ directly.
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts | 259 / 5 / 60 — 81.48% (79.94%) | 375 / 1 / 0 — 100% (99.73%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 491 / 6 / 4 — 99.2% (98%) | — |
 
 ### Login discovery script (manual triangulation)
 
@@ -265,6 +281,13 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - `watch` — the console error's phase read when its answer arrives instead of when it was raised: the
   child waits for every pending answer before it switches to the after-submit phase, so no answer can
   arrive in the wrong phase.
+
+**prompt-contract** (the fixtures reader in `pre-generation-grounding-port.adapter.ts`)
+- the skip reasons of `readFixtureFacts` — `"not a regular file"`, `` `larger than ${MAX_FIXTURES_FILE_BYTES} bytes` ``
+  and `"no exports found"` → `""` (StringLiteral ×3): the warning still names the fixtures file and the
+  run still yields no fixture facts; the reason is log text.
+- `readFixtureFacts` — the `finally` block that closes the descriptor emptied (BlockStatement): a
+  leaked descriptor is not observable from a test.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

@@ -608,6 +608,12 @@ test("a fence is recognised whatever follows its backticks or precedes them, and
   assert.deepEqual(lintCell(cell([sec("task", [], { text: `#hash ${referring}` })]), references).map((f) => f.rule), ["R13"], "a hash with no space after it is no title");
 });
 
+test("a fence's own line is markup, and a reference does not span the line break inside a phrase", () => {
+  const references = { artifactReferences: [TREE_REFERENCE] };
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "```the tree above\ncaptured\n```" })]), references), [], "the words after the backticks are the fence's label");
+  assert.deepEqual(lintCell(cell([sec("task", [], { text: "see the \ntree above" })]), references), [], "two lines are not one phrase");
+});
+
 test("a title is a line of one to six hashes and a space, indented by at most three spaces", () => {
   const references = { artifactReferences: [TREE_REFERENCE] };
   for (const title of ["# The tree above", "###### The tree above", "  ## The tree above", "   ### The tree above"]) {
