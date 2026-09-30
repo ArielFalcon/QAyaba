@@ -127,3 +127,48 @@ test("a second-factor input is reported only while it is showing", () => {
   input(hidden, "text", { attrs: { type: "text", autocomplete: "one-time-code" }, style: { display: "none" } });
   assert.equal(describe(hidden).secondFactorVisible, false);
 });
+
+/* A captcha widget as the page reader sees it: present when a provider's own element is there, visible only when a real challenge is showing. */
+const captchaOf = (page: FakeDocument): { present: boolean; visible: boolean } => (describe(page) as unknown as { captcha: { present: boolean; visible: boolean } }).captcha;
+
+test("an invisible captcha's trigger button is a widget that is present but not a visible challenge", () => {
+  const page = pageAt();
+  page.add({ tag: "button", classes: ["g-recaptcha"], attrs: { "data-sitekey": "site-key", "data-callback": "onSubmit" } });
+  assert.deepEqual(captchaOf(page), { present: true, visible: false });
+});
+
+test("a container with the button role that carries a site key is a trigger, not a visible challenge", () => {
+  const page = pageAt();
+  page.add({ tag: "div", attrs: { role: "button", "data-sitekey": "site-key" }, box: { width: 200, height: 40 } });
+  assert.deepEqual(captchaOf(page), { present: true, visible: false });
+});
+
+test("a challenge that is an iframe from a captcha provider, or a container with a real box, is visible", () => {
+  const iframe = pageAt();
+  iframe.add({ tag: "iframe", attrs: { src: "https://www.google.com/recaptcha/api2/bframe" }, box: { width: 400, height: 580 } });
+  assert.deepEqual(captchaOf(iframe), { present: true, visible: true });
+  const container = pageAt();
+  container.add({ tag: "div", classes: ["cf-turnstile"], attrs: { "data-sitekey": "site-key" }, box: { width: 300, height: 65 } });
+  assert.deepEqual(captchaOf(container), { present: true, visible: true });
+});
+
+test("a widget with no box, or hidden, is present but not a visible challenge", () => {
+  for (const over of [{ box: { width: 0, height: 0 } }, { style: { display: "none" } }] as const) {
+    const page = pageAt();
+    page.add({ tag: "div", classes: ["h-captcha"], attrs: { "data-sitekey": "site-key" }, ...over });
+    assert.deepEqual(captchaOf(page), { present: true, visible: false });
+  }
+});
+
+test("the floating badge of an invisible captcha is not a visible challenge, nor is anything inside it", () => {
+  const page = pageAt();
+  const badge = page.add({ tag: "div", classes: ["grecaptcha-badge"] });
+  page.add({ tag: "iframe", attrs: { src: "https://www.google.com/recaptcha/api2/anchor" }, parent: badge });
+  assert.deepEqual(captchaOf(page), { present: true, visible: false });
+});
+
+test("a page with no captcha element reports none", () => {
+  const page = pageAt();
+  page.add({ tag: "div" });
+  assert.deepEqual(captchaOf(page), { present: false, visible: false });
+});

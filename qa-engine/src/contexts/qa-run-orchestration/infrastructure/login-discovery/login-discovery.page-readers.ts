@@ -6,6 +6,8 @@
  * holds). This module is a protected path: what these readers report decides where the account is typed.
  */
 
+import { runInNewContext } from "node:vm";
+
 /** The most page text a reader hands over (an alert): the Node side removes the account from the whole text before it cuts any of it. */
 export const PAGE_TEXT_MAX = 4_000;
 
@@ -17,6 +19,27 @@ const VISIBLE_SOURCE = String.raw`function visible(el) {
 }`;
 
 /**
+ * What makes a captcha widget a challenge the visitor has to deal with: a frame or a plain container that
+ * is showing, outside the floating badge. A control (a button, an input, a link, anything with the button
+ * role) that carries a site key is the trigger of an invisible captcha, not a challenge, however big it is.
+ * The source is written into the page reader and compiled here, so a test runs the very same rule.
+ */
+export const IS_VISIBLE_CHALLENGE_SOURCE = String.raw`function isVisibleChallenge(candidate) {
+  const control = ["button", "input", "a"].indexOf(candidate.tag) >= 0 || candidate.role === "button";
+  return candidate.showing && !candidate.inBadge && !control;
+}`;
+
+/** A widget element as plain data: its tag (lower case), its role attribute, whether it sits inside the floating badge, and whether it is showing. */
+export interface ChallengeCandidate {
+  tag: string;
+  role: string | null;
+  inBadge: boolean;
+  showing: boolean;
+}
+
+export const isVisibleChallenge = runInNewContext(`${IS_VISIBLE_CHALLENGE_SOURCE}\nisVisibleChallenge`) as (candidate: ChallengeCandidate) => boolean;
+
+/**
  * Reads a page's structure. Takes only the name of the attribute to tag inputs and buttons with (so the
  * Node side addresses exactly the elements it was told about). Reports, per form, whether its action and
  * every submitter's own action stay on the page's origin, and whether the base address does.
@@ -24,6 +47,7 @@ const VISIBLE_SOURCE = String.raw`function visible(el) {
 export const DESCRIBE_PAGE_SOURCE = [
   "function describePage(attribute) {",
   VISIBLE_SOURCE,
+  IS_VISIBLE_CHALLENGE_SOURCE,
   String.raw`  const all = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
   /* An address counts as the app's when it resolves, against the page's base, to the page's own origin. */
   const sameOrigin = function (href) {
@@ -54,7 +78,12 @@ export const DESCRIBE_PAGE_SOURCE = [
   });
   /* A challenge widget by its provider's own element; the floating badge of an invisible one is not a challenge. */
   const widgets = all('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="challenges.cloudflare"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
-  const captcha = { present: widgets.length > 0, visible: widgets.some(function (el) { return !el.closest(".grecaptcha-badge") && visible(el); }) };
+  const captcha = {
+    present: widgets.length > 0,
+    visible: widgets.some(function (el) {
+      return isVisibleChallenge({ tag: el.tagName.toLowerCase(), role: el.getAttribute("role"), inBadge: el.closest(".grecaptcha-badge") !== null, showing: visible(el) });
+    }),
+  };
   const alerts = all('[role="alert"]').filter(visible).slice(0, 5).map(function (el) { return (el.textContent || "").trim().slice(0, ` + PAGE_TEXT_MAX + String.raw`); });
   return {
     fields: fields,
