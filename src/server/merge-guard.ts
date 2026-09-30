@@ -62,6 +62,12 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/login-evidence.ts",
   /*
+   * The child that types the app's account into a login form and the runner that starts it: they
+   * hold the credentials in their env, decide which page they are typed into and print what came
+   * back. A directory entry, so a file added here later is protected without another line.
+   */
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",
+  /*
    * The login seed copied into every watched repo: it receives the app credentials in its env and
    * decides where the session is saved — an edit could log them or write the session back under
    * the agent-visible mirror.
@@ -300,6 +306,7 @@ export const SECURITY_SENSITIVE_SURFACE_ROOTS: string[] = [
   "qa-engine/src/shared-infrastructure/process-sandbox/",
   "qa-engine/src/contexts/generation/infrastructure/",
   "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/",
+  "qa-engine/src/contexts/qa-run-orchestration/infrastructure/login-discovery/",
 ];
 
 /*
