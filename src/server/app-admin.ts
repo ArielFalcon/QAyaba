@@ -147,7 +147,10 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
     return { ok: false, errors: [`cannot read the config of app '${input.name}': ${err instanceof Error ? err.message : String(err)}`] };
   }
 
-  /* Edit the file in place: only what this call supplies is written, everything else stays as the operator left it. */
+  /* Edit the file in place: only what this call supplies is written, everything else stays as the operator left it.
+     A client that pre-filled its form from the expanded config resends values equal to what the file's placeholders
+     expand to, under the environment the app was loaded with or the one this call sets: those are not changes. */
+  const expansionEnv = { ...deps.env, ...(input.env ?? {}) };
   let yaml: string;
   try {
     yaml = patchAppYaml(rawYaml, {
@@ -161,12 +164,11 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
       ...(input.services !== undefined ? { services: input.services } : {}),
       ...(input.auth !== undefined ? { auth: input.auth } : {}),
       ...(input.clearAuth ? { clearAuth: true } : {}),
-    });
+    }, { expandWith: [deps.env, expansionEnv] });
   } catch (err) {
     return { ok: false, errors: [err instanceof Error ? err.message : String(err)] };
   }
 
-  const expansionEnv = { ...deps.env, ...(input.env ?? {}) };
   try {
     AppConfigSchema.parse(parse(expandEnv(yaml, expansionEnv)));
   } catch (err) {

@@ -7,12 +7,23 @@
  * qa.testDataPrefix, services and auth. Everything else, and every managed field the caller left
  * out, comes out as it went in. A patch that changes nothing returns the text untouched.
  *
+ * A supplied value that equals what the placeholder already written there expands to (under the
+ * environments the caller names) is the value on disk, not a change: a client that pre-filled a form
+ * from the expanded config resends every field, and writing those back would replace each `${VAR}`
+ * with its expansion, a credential-bearing URL included. Comparing reads the file; nothing is ever
+ * written from the expanded form.
+ *
+ * A block that is missing is created; one that is empty (a bare `qa:`, or a `dev:` whose children
+ * are all commented out) becomes a mapping, keeping its comments. An alias where the patch needs to
+ * read or write is refused, since editing it would edit every place that shares it.
+ *
  * The YAML writer keeps comment text, key order, quote styles and blank lines, but it normalizes
  * indentation and the gap before an inline comment on the lines it re-emits. Written strings are
  * double-quoted, except the login kind, which stays a bare keyword as `buildYaml` writes it.
  */
 
-import { Scalar, YAMLMap, YAMLSeq, isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { Scalar, YAMLMap, YAMLSeq, isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { expandEnv } from "../../orchestrator/config-loader";
 import type { TestTarget } from "../../types";
 import type { OnboardAuthInput, OnboardServiceInput } from "../onboard";
 
@@ -27,12 +38,17 @@ export interface AppYamlPatch {
   needsReview?: boolean;
   shadow?: boolean;
   testDataPrefix?: string;
-  /** The desired list: services not named are removed; a service kept keeps every key the patch does not manage. */
+  /** The desired list: services not named are removed; a service kept keeps every key the patch does not manage, and a field left out of a kept service keeps its value. */
   services?: readonly OnboardServiceInput[];
   /** Supplied keys overwrite, absent and unknown keys are kept, and a kind change drops the other kind's keys. */
   auth?: OnboardAuthInput;
   /** Removes the auth block; wins over `auth`. */
   clearAuth?: boolean;
+}
+
+export interface AppYamlPatchOptions {
+  /** Environments a `${VAR}` placeholder in the file may be read under; a supplied value equal to its expansion under any of them is not a change. */
+  expandWith?: readonly Record<string, string | undefined>[];
 }
 
 /* The auth keys only one kind uses. */
@@ -49,20 +65,58 @@ interface PathHolder {
   setIn(path: Iterable<unknown>, value: unknown): void;
 }
 
-export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
+export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppYamlPatchOptions = {}): string {
   const doc = parseDocument(rawYaml);
   const parseError = doc.errors[0];
   if (parseError) throw new Error(`the config is not valid YAML: ${parseError.message}`);
   if (!isMap(doc.contents)) throw new Error("the config is not a YAML mapping");
 
   let changed = false;
+  const environments = options.expandWith ?? [];
+
+  /* What is written already means `value`: it is that value, or a placeholder that expands to it. */
+  const alreadyReads = (written: unknown, value: string | boolean): boolean => {
+    if (written === value) return true;
+    if (typeof written !== "string") return false;
+    return environments.some((env) => {
+      try {
+        return expandEnv(written, env) === String(value);
+      } catch {
+        /* A placeholder whose variable is unset under this environment does not read as anything. */
+        return false;
+      }
+    });
+  };
+
+  /*
+   * Checks the containers a write or a delete has to go through, given by the path of the deepest one.
+   * The library throws on an alias there, and on an empty or scalar one it cannot write into, so the
+   * alias is refused with its path and, when writing, the empty one becomes a mapping.
+   */
+  const walkContainers = (holder: PathHolder, container: string[], open: boolean): void => {
+    for (let depth = 1; depth <= container.length; depth++) {
+      const prefix = container.slice(0, depth);
+      const node = holder.getIn(prefix, true);
+      if (isAlias(node)) throw new Error(`unsupported: alias at ${prefix.join(".")}`);
+      if (!open || node === undefined || isMap(node)) continue;
+      const map = new YAMLMap(doc.schema);
+      if (isScalar(node)) {
+        map.comment = node.comment;
+        map.commentBefore = node.commentBefore;
+      }
+      holder.setIn(prefix, map);
+    }
+  };
 
   const setScalar = (holder: PathHolder, path: string[], value: string | boolean, style: Scalar.Type): void => {
-    const existing = holder.getIn(path, true);
-    if (isScalar(existing)) {
-      if (existing.value === value) return;
-      existing.value = value;
-      existing.type = style;
+    const found = holder.getIn(path, true);
+    /* An alias reads as the value it points at, but a write replaces the alias itself. */
+    const current = isAlias(found) ? found.resolve(doc) : found;
+    if (isScalar(current) && alreadyReads(current.value, value)) return;
+    walkContainers(holder, path.slice(0, -1), true);
+    if (isScalar(found)) {
+      found.value = value;
+      found.type = style;
     } else {
       const node = doc.createNode(value);
       node.type = style;
@@ -74,7 +128,10 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
     setScalar(holder, path, value, style);
   const setBoolean = (path: string[], value: boolean): void => setScalar(doc, path, value, Scalar.PLAIN);
   const remove = (path: string[]): void => {
-    if (doc.deleteIn(path)) changed = true;
+    walkContainers(doc, path.slice(0, -1), false);
+    if (!doc.hasIn(path)) return;
+    doc.deleteIn(path);
+    changed = true;
   };
   /* A block added at the top level is set apart from the one above it. */
   const setApart = (key: string): void => {
@@ -87,14 +144,15 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
     pair.key = keyNode;
   };
 
-  const target: TestTarget = patch.target ?? (doc.get("code") === true ? "code" : "e2e");
+  const isCode = (): boolean => alreadyReads(doc.get("code"), true);
+  const target: TestTarget = patch.target ?? (isCode() ? "code" : "e2e");
 
   if (patch.target === "code") {
     setBoolean(["code"], true);
     remove(["dev", "versionUrl"]);
     remove(["auth"]);
     remove(["services"]);
-  } else if (patch.target === "e2e") {
+  } else if (patch.target === "e2e" && isCode()) {
     remove(["code"]);
   }
 
@@ -118,6 +176,7 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
   return changed ? doc.toString({ lineWidth: 0 }) : rawYaml;
 
   function patchAuth(auth: OnboardAuthInput): void {
+    walkContainers(doc, ["auth"], false);
     /* An `auth:` with no mapping under it (a bare key) is replaced rather than merged into. */
     if (doc.hasIn(["auth"]) && !isMap(doc.getIn(["auth"], true))) remove(["auth"]);
     const hadAuth = doc.hasIn(["auth"]);
@@ -141,7 +200,10 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch): string {
       remove(["services"]);
       return;
     }
+    walkContainers(doc, ["services"], false);
     const current = doc.getIn(["services"], true);
+    const aliasAt = isSeq(current) ? current.items.findIndex(isAlias) : -1;
+    if (aliasAt >= 0) throw new Error(`unsupported: alias at services.${aliasAt}`);
     const entries = isSeq(current) ? current.items.filter(isMap) : [];
     const byRepo = new Map(entries.map((entry) => [entry.get("repo"), entry]));
     const sameList = isSeq(current) && entries.length === current.items.length && entries.length === services.length

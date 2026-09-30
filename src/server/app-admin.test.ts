@@ -228,6 +228,107 @@ test("updateApp of an unrelated field writes the config back as it was: comments
   assert.equal((deps.written["shop"] ?? "").includes(SHOP_ENV.SHOP_DEV_URL), false, "the expanded url must never replace its placeholder");
 });
 
+/* Every string a client resends is a placeholder on disk; the DEV url carries synthetic credentials. */
+const PLACEHOLDER_ENV = {
+  SHOP_DEV_URL: "https://qa-user:synthetic-secret@dev.shop.example",
+  SHOP_VERSION_URL: "https://qa-user:synthetic-secret@dev.shop.example/version",
+  SHOP_PREFIX: "qa-shop",
+  SHOP_SVC_VERSION: "https://qa-user:synthetic-secret@svc.shop.example/version",
+  SHOP_SVC_API: "api/*.yaml",
+};
+const PLACEHOLDER_YAML = `name: "shop"
+repo: "org/shop-front"
+baseBranch: "main"
+
+dev:
+  baseUrl: \${SHOP_DEV_URL}
+  versionUrl: "\${SHOP_VERSION_URL}"
+
+services:
+  - repo: "org/shop-svc"
+    openapi: \${SHOP_SVC_API}
+    versionUrl: \${SHOP_SVC_VERSION}
+
+qa:
+  needsReview: true
+  shadow: true
+  testDataPrefix: \${SHOP_PREFIX}
+
+report:
+  onFailure: "github-issue"
+`;
+
+/* What the edit form sends: every field it pre-filled from the expanded app, unchanged, plus the one the operator changed. */
+const RESENT = {
+  name: "shop",
+  repo: "org/shop-front",
+  baseUrl: PLACEHOLDER_ENV.SHOP_DEV_URL,
+  versionUrl: PLACEHOLDER_ENV.SHOP_VERSION_URL,
+  target: "e2e",
+  testDataPrefix: PLACEHOLDER_ENV.SHOP_PREFIX,
+  needsReview: true,
+  shadow: true,
+} as const;
+
+test("updateApp of a form resent unchanged leaves every placeholder as written, and only the toggled field changes", async () => {
+  const deps = makeDeps(withConfig(PLACEHOLDER_YAML, PLACEHOLDER_ENV));
+  const r = await updateApp({ ...RESENT, shadow: false }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], PLACEHOLDER_YAML.replace("shadow: true", "shadow: false"));
+  assert.equal((deps.written["shop"] ?? "").includes("synthetic-secret"), false, "an expanded credential must never reach the file");
+});
+
+test("updateApp of a form resent with nothing changed writes the config as it was", async () => {
+  const deps = makeDeps(withConfig(PLACEHOLDER_YAML, PLACEHOLDER_ENV));
+  const r = await updateApp({ ...RESENT }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], PLACEHOLDER_YAML);
+});
+
+test("updateApp of a form that changes one url writes that url and keeps the other placeholders", async () => {
+  const deps = makeDeps(withConfig(PLACEHOLDER_YAML, PLACEHOLDER_ENV));
+  const r = await updateApp({ ...RESENT, baseUrl: "https://new.shop.example" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const written = deps.written["shop"] ?? "";
+  assert.equal((parse(written) as { dev: { baseUrl: string } }).dev.baseUrl, "https://new.shop.example");
+  assert.ok(written.includes('versionUrl: "${SHOP_VERSION_URL}"'));
+  assert.ok(written.includes("testDataPrefix: ${SHOP_PREFIX}"));
+  assert.equal(written.includes("synthetic-secret"), false);
+});
+
+test("updateApp of services resent unchanged keeps each service placeholder", async () => {
+  const deps = makeDeps(withConfig(PLACEHOLDER_YAML, PLACEHOLDER_ENV));
+  const services = [{ repo: "org/shop-svc", openapi: PLACEHOLDER_ENV.SHOP_SVC_API, versionUrl: PLACEHOLDER_ENV.SHOP_SVC_VERSION }];
+  const r = await updateApp({ ...RESENT, services }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], PLACEHOLDER_YAML);
+});
+
+test("updateApp of a url equal to what a variable set in the same call expands to keeps the placeholder", async () => {
+  const deps = makeDeps(withConfig(PLACEHOLDER_YAML, PLACEHOLDER_ENV));
+  const moved = "https://qa-user:synthetic-secret@moved.shop.example";
+  const r = await updateApp({ ...RESENT, baseUrl: moved, env: { SHOP_DEV_URL: moved } }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], PLACEHOLDER_YAML);
+});
+
+test("updateApp of a code app from the edit form, which sends the target every time, updates it without a DEV block", async () => {
+  const codeYaml = 'name: "shop"\nrepo: "org/shop-front"\nbaseBranch: "main"\n\ncode: true\n\nqa:\n  needsReview: true\n  shadow: true\n  testDataPrefix: "qa-shop"\n\nreport:\n  onFailure: "github-issue"\n';
+  const deps = makeDeps(withConfig(codeYaml, {}));
+  const r = await updateApp({ name: "shop", repo: "org/shop-front", testDataPrefix: "qa-shop", shadow: false, needsReview: true, target: "code" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], codeYaml.replace("shadow: true", "shadow: false"));
+});
+
+test("updateApp reports a config that shares a block through an alias, and writes nothing", async () => {
+  const aliased = 'name: "shop"\nrepo: "org/shop-front"\nbaseBranch: "main"\nbase: &base\n  baseUrl: "https://x"\ndev: *base\nqa:\n  needsReview: true\n  testDataPrefix: "qa"\nreport:\n  onFailure: "github-issue"\n';
+  const deps = makeDeps(withConfig(aliased, {}));
+  const r = await updateApp({ name: "shop", baseUrl: "https://y" }, deps);
+  assert.equal(r.ok, false);
+  assert.match(r.errors?.[0] ?? "", /unsupported: alias at dev/);
+  assert.deepEqual(deps.written, {});
+});
+
 test("updateApp dryRun returns the patched config and writes nothing", async () => {
   const deps = makeDeps(withConfig(SHOP_YAML));
   const r = await updateApp({ name: "shop", shadow: false, dryRun: true }, deps);

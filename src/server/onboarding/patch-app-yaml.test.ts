@@ -307,3 +307,142 @@ test("the patched config still reads under the app schema once its placeholders 
 test("a config the YAML parser rejects is refused, never written over", () => {
   assert.throws(() => patchAppYaml("name: [unclosed\nrepo: x\n", { shadow: false }), /./);
 });
+
+/* A config whose strings are `${VAR}` placeholders, as an operator keeps secrets and hosts out of the file. */
+const PLACEHOLDER_ENV = {
+  DEMO_DEV_URL: "https://user:synthetic-secret@dev.demo.example",
+  DEMO_VERSION_URL: "https://user:synthetic-secret@dev.demo.example/version",
+  DEMO_PREFIX: "qa-demo",
+  DEMO_SHADOW: "true",
+  DEMO_SVC_API: "api/*.yaml",
+  DEMO_SVC_VERSION: "https://user:synthetic-secret@svc.demo.example/version",
+};
+const PLACEHOLDER_CONFIG = `name: "demo"
+repo: "org/demo"
+baseBranch: "main"
+
+dev:
+  baseUrl: \${DEMO_DEV_URL}
+  versionUrl: "\${DEMO_VERSION_URL}"
+
+services:
+  - repo: "org/svc-a"
+    openapi: \${DEMO_SVC_API}
+    versionUrl: \${DEMO_SVC_VERSION}
+
+qa:
+  needsReview: true
+  shadow: \${DEMO_SHADOW}
+  testDataPrefix: \${DEMO_PREFIX}
+`;
+const READ_WITH = { expandWith: [PLACEHOLDER_ENV] };
+
+test("a value equal to what the placeholder written there expands to is not a change", () => {
+  const resent = patchAppYaml(
+    PLACEHOLDER_CONFIG,
+    {
+      baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL,
+      versionUrl: PLACEHOLDER_ENV.DEMO_VERSION_URL,
+      testDataPrefix: PLACEHOLDER_ENV.DEMO_PREFIX,
+      shadow: true,
+      services: [{ repo: "org/svc-a", openapi: PLACEHOLDER_ENV.DEMO_SVC_API, versionUrl: PLACEHOLDER_ENV.DEMO_SVC_VERSION }],
+    },
+    READ_WITH,
+  );
+  assert.equal(resent, PLACEHOLDER_CONFIG);
+});
+
+test("a value that differs from what the placeholder expands to replaces the placeholder, and the others stay", () => {
+  const out = patchAppYaml(PLACEHOLDER_CONFIG, { baseUrl: "https://new.demo.example", shadow: false }, READ_WITH);
+  const parsed = raw(out);
+  assert.equal((parsed["dev"] as Record<string, unknown>)["baseUrl"], "https://new.demo.example");
+  assert.equal((parsed["qa"] as Record<string, unknown>)["shadow"], false);
+  assert.ok(out.includes('versionUrl: "${DEMO_VERSION_URL}"'));
+  assert.ok(out.includes("testDataPrefix: ${DEMO_PREFIX}"));
+  assert.equal(out.includes("synthetic-secret"), false);
+});
+
+test("a placeholder that cannot expand is not read as the supplied value", () => {
+  const out = patchAppYaml(PLACEHOLDER_CONFIG, { baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL }, { expandWith: [{}] });
+  assert.equal((raw(out)["dev"] as Record<string, unknown>)["baseUrl"], PLACEHOLDER_ENV.DEMO_DEV_URL);
+});
+
+test("a value equal to the expansion under any of the environments given is not a change", () => {
+  const moved = { ...PLACEHOLDER_ENV, DEMO_DEV_URL: "https://user:synthetic-secret@moved.demo.example" };
+  assert.equal(patchAppYaml(PLACEHOLDER_CONFIG, { baseUrl: moved.DEMO_DEV_URL }, { expandWith: [PLACEHOLDER_ENV, moved] }), PLACEHOLDER_CONFIG);
+  assert.equal(patchAppYaml(PLACEHOLDER_CONFIG, { baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL }, { expandWith: [{}, PLACEHOLDER_ENV] }), PLACEHOLDER_CONFIG);
+});
+
+test("a code flag written as a placeholder is read through its expansion when the target is resent", () => {
+  const config = CODE_CONFIG.replace("code: true", "code: ${DEMO_CODE}");
+  const codeOn = { expandWith: [{ DEMO_CODE: "true" }] };
+  const codeOff = { expandWith: [{ DEMO_CODE: "false" }] };
+  assert.equal(patchAppYaml(config, { target: "code" }, codeOn), config);
+  assert.equal(patchAppYaml(config, { target: "e2e" }, codeOff), config);
+  assert.equal(raw(patchAppYaml(config, { target: "e2e", baseUrl: "https://dev.demo.example" }, codeOn))["code"], undefined);
+  assert.equal(raw(patchAppYaml(config, { target: "code" }, codeOff))["code"], true);
+});
+
+test("a code flag written as a placeholder decides whether a version url applies when no target is supplied", () => {
+  const config = CODE_CONFIG.replace("code: true", "code: ${DEMO_CODE}");
+  assert.equal(patchAppYaml(config, { versionUrl: "https://dev.demo.example/version" }, { expandWith: [{ DEMO_CODE: "true" }] }), config);
+  const written = patchAppYaml(config, { versionUrl: "https://dev.demo.example/version" }, { expandWith: [{ DEMO_CODE: "false" }] });
+  assert.equal((raw(written)["dev"] as Record<string, unknown>)["versionUrl"], "https://dev.demo.example/version");
+});
+
+test("a value read through an alias is not a change when it equals the expansion, and replaces the alias when it does not", () => {
+  const config = 'name: "demo"\nrepo: "org/demo"\nhost: &host ${DEMO_DEV_URL}\ndev:\n  baseUrl: *host\n';
+  assert.equal(patchAppYaml(config, { baseUrl: PLACEHOLDER_ENV.DEMO_DEV_URL }, READ_WITH), config);
+  const changed = patchAppYaml(config, { baseUrl: "https://new.demo.example" }, READ_WITH);
+  assert.equal((raw(changed)["dev"] as Record<string, unknown>)["baseUrl"], "https://new.demo.example");
+  assert.ok(changed.includes("host: &host ${DEMO_DEV_URL}"));
+});
+
+/* The library throws when a container above the key it writes or deletes is missing, empty or an alias. */
+test("a code app with no dev block takes the code target and an empty versionUrl without failing", () => {
+  assert.equal(patchAppYaml(CODE_CONFIG, { target: "code" }), CODE_CONFIG);
+  const tuned = CODE_CONFIG.replace("  needsReview: true\n", "  needsReview: true\n  shadow: true\n");
+  assert.equal(patchAppYaml(tuned, { target: "code", shadow: true, needsReview: true, testDataPrefix: "qa-lib" }), tuned);
+  const e2e = CODE_CONFIG.replace("code: true\n\n", "");
+  assert.equal(patchAppYaml(e2e, { versionUrl: "" }), e2e);
+});
+
+test("a config with no dev block takes a dev url and a version url", () => {
+  const e2e = CODE_CONFIG.replace("code: true\n\n", "");
+  const dev = raw(patchAppYaml(e2e, { baseUrl: "https://dev.demo.example", versionUrl: "https://dev.demo.example/version" }))["dev"];
+  assert.deepEqual(dev, { baseUrl: "https://dev.demo.example", versionUrl: "https://dev.demo.example/version" });
+});
+
+test("a block with nothing under it takes the field written into it as a mapping", () => {
+  const bareQa = CODE_CONFIG.replace("qa:\n  needsReview: true\n  testDataPrefix: \"qa-lib\"\n", "qa:\n");
+  const out = patchAppYaml(bareQa, { shadow: true, testDataPrefix: "qa-lib" });
+  assert.deepEqual(raw(out)["qa"], { shadow: true, testDataPrefix: "qa-lib" });
+  assert.deepEqual(raw(out)["report"], raw(CODE_CONFIG)["report"]);
+});
+
+test("a dev block with every child commented out takes the url and keeps the comment", () => {
+  const config = 'name: "demo"\nrepo: "org/demo"\ndev:\n  # baseUrl: https://old.example\nqa:\n  shadow: true\n';
+  const out = patchAppYaml(config, { baseUrl: "https://dev.demo.example" });
+  assert.deepEqual(raw(out)["dev"], { baseUrl: "https://dev.demo.example" });
+  assert.ok(out.includes("# baseUrl: https://old.example"));
+  assert.deepEqual(raw(out)["qa"], { shadow: true });
+});
+
+test("a block written as a bare value takes the field written into it as a mapping", () => {
+  const config = 'name: "demo"\nrepo: "org/demo"\nqa: none\n';
+  assert.deepEqual(raw(patchAppYaml(config, { shadow: false }))["qa"], { shadow: false });
+});
+
+test("a block that is an alias is refused with the path it sits at, and nothing is written over it", () => {
+  const config = 'name: "demo"\nrepo: "org/demo"\nshared: &shared\n  baseUrl: "https://a.example"\ndev: *shared\nauth: *shared\nservices: *shared\nqa: *shared\n';
+  assert.throws(() => patchAppYaml(config, { baseUrl: "https://b.example" }), /unsupported: alias at dev/);
+  assert.throws(() => patchAppYaml(config, { versionUrl: "" }), /unsupported: alias at dev/);
+  assert.throws(() => patchAppYaml(config, { shadow: true }), /unsupported: alias at qa/);
+  assert.throws(() => patchAppYaml(config, { auth: { kind: "form", usernameEnv: "U", passwordEnv: "P" } }), /unsupported: alias at auth/);
+  assert.throws(() => patchAppYaml(config, { services: [{ repo: "org/svc" }] }), /unsupported: alias at services/);
+});
+
+test("a service listed as an alias is refused with its position", () => {
+  const config = 'name: "demo"\nrepo: "org/demo"\nservices:\n  - repo: "org/a"\n  - &b\n    repo: "org/b"\n  - *b\n';
+  assert.throws(() => patchAppYaml(config, { services: [{ repo: "org/a" }] }), /unsupported: alias at services\.2/);
+});
