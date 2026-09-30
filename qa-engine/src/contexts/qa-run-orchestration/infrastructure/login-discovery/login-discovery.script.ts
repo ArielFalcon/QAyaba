@@ -7,12 +7,13 @@
  * Credentials reach the child through its env alone (DEV_TEST_USER / DEV_TEST_PASS); the script's
  * source and its stdout hold none. Everything else (base URL, routes, budgets, the session path)
  * arrives as JSON in PW_LOGIN_INPUT. The child never fills or submits on a page whose origin is not
- * the app's, never submits twice, and asks the browser for no trace, screenshot, video or HAR. The
- * one in-page reader returns plain data.
+ * the app's, never submits twice, and asks the browser for no trace, screenshot, video or HAR. Every
+ * text it lets out (a page error, an alert, an exception) is scrubbed of the account by exact value in
+ * every spelling BEFORE it is cut to its bound. The one in-page reader returns plain data.
  * This module is a protected path: a change here decides where the account is typed.
  */
 
-import { FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
+import { EVIDENCE_TEXT_MAX, FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
 
 /** The paths tried last, after everything the app itself pointed at. */
 export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "/sign-in", "/auth/login", "/#/login"];
@@ -37,6 +38,7 @@ const FORM = ${JSON.stringify(FORM_STATE)};
 const WELL_KNOWN = ${JSON.stringify(LOGIN_WELL_KNOWN_PATHS)};
 const MAX_GATED_ROUTES = ${MAX_GATED_ROUTES};
 const FIELD_ATTRIBUTE = ${JSON.stringify(FIELD_ATTRIBUTE)};
+const TEXT_MAX = ${EVIDENCE_TEXT_MAX};
 const MAX_REQUESTS = ${MAX_RENDERED_REQUESTS};
 const LOGIN_REQUEST_TYPES = ${JSON.stringify(LOGIN_REQUEST_TYPES)};
 const NAV_TIMEOUT_MS = input.navTimeoutMs || ${DEFAULT_NAV_TIMEOUT_MS};
@@ -61,6 +63,10 @@ const SECRET_PATTERN = secrets.length === 0 ? null : new RegExp(
   "giu",
 );
 const scrub = function (text) { return SECRET_PATTERN === null ? String(text) : String(text).replace(SECRET_PATTERN, "[redacted]"); };
+/* The account comes out of the WHOLE text first (a secret may span lines), then the first line stands for it, its URLs lose their queries, and the cut comes last. */
+const noteText = function (text) { return scrub(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").slice(0, TEXT_MAX); };
+/* What makes two exceptions the same one: the first line with its URLs and numbers (ids, timestamps, positions) normalized. */
+const signature = function (text) { return String(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").replace(/\d+/g, "#").trim(); };
 
 const emit = function (line) { process.stdout.write(JSON.stringify(line) + "\n"); };
 
@@ -100,7 +106,8 @@ function describePage(attribute) {
   /* A challenge widget by its provider's own element; the floating badge of an invisible one is not a challenge. */
   const widgets = all('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="challenges.cloudflare"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
   const captcha = { present: widgets.length > 0, visible: widgets.some(function (el) { return !el.closest(".grecaptcha-badge") && visible(el); }) };
-  return { fields: fields, links: links, captcha: captcha, secondFactorVisible: all('input[autocomplete="one-time-code"]').some(visible) };
+  const alerts = all('[role="alert"]').filter(visible).slice(0, 5).map(function (el) { return (el.textContent || "").trim().slice(0, 400); });
+  return { fields: fields, links: links, captcha: captcha, alerts: alerts, secondFactorVisible: all('input[autocomplete="one-time-code"]').some(visible) };
 }
 
 /* Runs in the page, polled until true: no password field is showing. */
@@ -160,9 +167,33 @@ function pickLoginLink(links, from) {
   return null;
 }
 
-/* What the network does around the submit: the non-GET requests a login travels in, and whether any is still unanswered. Attached before the first navigation. */
-function watch(page) {
-  const state = { phase: "before", tracked: new Map(), inFlight: new Set(), requests: [] };
+/* What the page and the network do around the submit. Attached before the first navigation so what was already going wrong is on record. */
+function watch(page, evidence) {
+  const state = { phase: "before", seenBefore: new Set(), pending: [], tracked: new Map(), inFlight: new Set(), requests: [], alertsBefore: new Set() };
+  const exception = function (kind, text, phase) {
+    if (phase === "before") { state.seenBefore.add(signature(text)); return; }
+    if (kind === "pageerror") {
+      evidence.pageErrorCount += 1;
+      if (evidence.firstPageError === null) evidence.firstPageError = noteText(text);
+    }
+    if (!evidence.newExceptionAfterSubmit && !state.seenBefore.has(signature(text))) {
+      evidence.newExceptionAfterSubmit = true;
+      evidence.firstNewException = noteText(text);
+    }
+  };
+  /* A console error counts only when one of its arguments is an Error object: plain text (a validation message) never does. */
+  const carriesError = async function (message) {
+    for (const arg of message.args()) {
+      try { if (await arg.evaluate(function (value) { return value instanceof Error; })) return true; } catch (_gone) {}
+    }
+    return false;
+  };
+  page.on("pageerror", function (error) { exception("pageerror", error && error.message ? error.message : error, state.phase); });
+  page.on("console", function (message) {
+    if (message.type() !== "error") return;
+    const phase = state.phase;
+    state.pending.push(carriesError(message).then(function (yes) { if (yes) exception("console", message.text(), phase); }, function () {}));
+  });
   page.on("request", function (request) {
     if (state.phase !== "after" || request.method() === "GET" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0) return;
     const entry = { method: request.method(), pathname: new URL(request.url()).pathname, status: null };
@@ -175,6 +206,7 @@ function watch(page) {
     if (entry) { entry.status = response.status(); state.inFlight.delete(response.request()); }
   });
   page.on("requestfailed", function (request) { state.inFlight.delete(request); });
+  state.settle = async function () { while (state.pending.length > 0) await state.pending.shift(); };
   return state;
 }
 
@@ -193,7 +225,7 @@ function finalPathOf(page, evidence) {
 }
 
 /* Opens the ladder in order and stops at the first page with a login form. A page that ends on another origin is never inspected. */
-async function findLoginForm(page, evidence) {
+async function findLoginForm(page, evidence, watching) {
   const steps = [];
   if (input.loginPath) steps.push(input.loginPath);
   steps.push("/");
@@ -218,6 +250,7 @@ async function findLoginForm(page, evidence) {
     const pick = pickLoginForm(seen.fields);
     if (pick.state === FORM.FOUND) {
       evidence.form = FORM.FOUND;
+      seen.alerts.forEach(function (text) { watching.alertsBefore.add(text); });
       return { fields: seen.fields, password: pick.password };
     }
     if (pick.state === FORM.AMBIGUOUS) ambiguous = true;
@@ -236,6 +269,7 @@ let submitCount = 0;
 async function submitOnce(action, evidence, watching) {
   if (submitCount >= 1) return;
   submitCount += 1;
+  await watching.settle();
   watching.phase = "after";
   emit({ marker: "submitted" });
   evidence.submitted = true;
@@ -259,6 +293,7 @@ async function fillAndSubmit(page, found, evidence, watching) {
 /* Waits for the password field to go, then reads the page once more: what the submit sent, what the page shows and what it threw. */
 async function observeSubmit(page, evidence, found, watching) {
   await page.waitForFunction(noVisiblePassword, undefined, { timeout: POST_SUBMIT_WAIT_MS }).catch(function () {});
+  await watching.settle();
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   const after = await readPage(page);
   evidence.requests = watching.requests.slice().sort(function (a, b) {
@@ -268,6 +303,8 @@ async function observeSubmit(page, evidence, found, watching) {
   if (after.captcha.present) evidence.markers.captcha = true;
   evidence.challengeVisible = after.captcha.visible;
   evidence.secondFactorVisible = after.secondFactorVisible;
+  const alert = after.alerts.find(function (text) { return !watching.alertsBefore.has(text); });
+  evidence.firstAlert = alert === undefined ? null : noteText(alert);
   evidence.submitDisabled = !evidence.passwordGone && after.fields.some(function (field) { return field.form === found.password.form && field.type === "submit" && field.disabled; });
   evidence.finalPath = finalPathOf(page, evidence);
 }
@@ -279,8 +316,8 @@ async function observeSubmit(page, evidence, found, watching) {
     browser = await chromium.launch();
     const context = await browser.newContext();
     const page = await context.newPage();
-    const watching = watch(page);
-    const found = await findLoginForm(page, evidence);
+    const watching = watch(page, evidence);
+    const found = await findLoginForm(page, evidence, watching);
     if (found) await fillAndSubmit(page, found, evidence, watching);
     if (evidence.submitted) await observeSubmit(page, evidence, found, watching);
     else evidence.finalPath = finalPathOf(page, evidence);

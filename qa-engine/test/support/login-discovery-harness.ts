@@ -31,6 +31,13 @@ export interface StubLink {
   text: string;
 }
 
+/** Something the page throws or logs: a page error, or a console error that carries an Error object or only text. */
+export interface StubError {
+  kind: "pageerror" | "console";
+  isErrorObject?: boolean;
+  text: string;
+}
+
 export interface StubRequest {
   method: string;
   url: string;
@@ -46,6 +53,9 @@ export interface StubPage {
   links?: StubLink[];
   captcha?: { present: boolean; visible: boolean };
   secondFactorVisible?: boolean;
+  alerts?: string[];
+  /** Thrown or logged while the page loads. */
+  errors?: StubError[];
 }
 
 /** What submitting the login does. */
@@ -53,6 +63,7 @@ export interface StubSubmit {
   /** Whether Enter in the password field submits (default true). */
   enter?: boolean;
   requests?: StubRequest[];
+  errors?: StubError[];
   /** What the page shows afterwards when it stays. */
   after?: StubPage;
 }
@@ -95,6 +106,15 @@ function makePage() {
   let current = new URL("about:blank");
   let staying = null;
   const def = () => staying || site.pages[keyOf(current)] || {};
+  /* What the page logs while it loads is read back slowly (a turn of the event loop), as a browser's answer to a handle is. */
+  const raise = (e, slow) => {
+    if (e.kind === "pageerror") return events.emit("pageerror", new Error(e.text));
+    const evaluate = async (fn) => {
+      if (slow) await new Promise((resolve) => setImmediate(resolve));
+      return fn(e.isErrorObject ? new Error(e.text) : e.text);
+    };
+    events.emit("console", { type: () => "error", text: () => e.text, args: () => [{ evaluate }] });
+  };
   const submitted = (via, key, i) => {
     log({ t: "submit", via, key, i });
     if (via === "press" && submit.enter === false) return;
@@ -104,6 +124,7 @@ function makePage() {
       if (r.failed) events.emit("requestfailed", request);
       else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
     }
+    (submit.errors || []).forEach((e) => raise(e, false));
     if (submit.after) staying = submit.after;
   };
   page.goto = async (target) => {
@@ -113,13 +134,14 @@ function makePage() {
     const redirected = site.redirects && site.redirects[keyOf(asked)];
     current = redirected ? new URL(redirected, site.origin) : asked;
     staying = null;
+    (def().errors || []).forEach((e) => raise(e, true));
   };
   page.url = () => current.href;
   page.waitForLoadState = async () => {};
   page.evaluate = async () => {
     if (current.origin !== site.origin) log({ t: "inspected-foreign-page" });
     const d = def();
-    return { fields: d.fields || [], links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible };
+    return { fields: d.fields || [], links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible, alerts: d.alerts || [] };
   };
   page.waitForFunction = async (fn, arg, options) => {
     log({ t: "wait", timeout: options.timeout });
