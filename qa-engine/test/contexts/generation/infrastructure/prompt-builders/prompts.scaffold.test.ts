@@ -8,13 +8,14 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import type { FactId, PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
 setExplorationBriefCollaborators({
   parseExplorationBrief: () => null,
   coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## Exploration brief\nObjective: ${brief.objective}`,
+  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
 });
 
 const SEEDED_DIFF = [
@@ -63,14 +64,27 @@ const TREE = "  heading: Cart\n  button: Apply";
 
 /* ── the login section never depends on the pack ── */
 
-test("the login section never consults the pack's live DOM, and always sends the rewrite to the login page itself", () => {
-  for (const contextPack of [undefined, DOM_PACK, CONTRACTS_PACK]) {
-    const a = buildPromptAssembled(mkInput({ authSeedUnauthored: true, ...(contextPack ? { contextPack } : {}) }));
+test("the login section never depends on the pack: it consults nothing and reads the same whatever pack the prompt carries", () => {
+  const loginSection = (a: AssembledPrompt): string => {
+    const bytes = Buffer.from(a.text, "utf8");
+    let offset = 0;
+    for (const [id, size] of Object.entries(a.sectionSizes)) {
+      if (id === "app-login") return bytes.subarray(offset, offset + size).toString("utf8");
+      offset += size + 1;
+    }
+    return "";
+  };
+  const sections = [undefined, DOM_PACK, CONTRACTS_PACK].map((contextPack) =>
+    buildPromptAssembled(mkInput({ authSeedUnauthored: true, ...(contextPack ? { contextPack } : {}) })),
+  );
+  for (const a of sections) {
     assert.ok(a.sectionSizes["app-login"] !== undefined, "the section is rendered");
-    assert.equal(directs(a, "app-login", "consult"), false, String(contextPack?.slice(0, 20)));
-    const text = a.text.slice(a.text.indexOf("## App login"));
-    assert.match(text.slice(0, text.search(/\n\n|\n#/) === -1 ? undefined : text.search(/\n\n|\n#/)), /Playwright MCP/);
+    assert.equal(directs(a, "app-login", "consult"), false);
+    assert.ok(a.text.includes(PROMPT_HEADINGS.appLogin));
   }
+  const [none, ...withPack] = sections.map(loginSection);
+  assert.ok((none ?? "").length > 0);
+  for (const text of withPack) assert.equal(text, none, "a pack changes nothing in the login section");
 });
 
 /* ── the runtime-signals rule only belongs where no DOM tree is available ── */
@@ -138,9 +152,11 @@ test("the scope budget states the real number of files and changed lines of the 
   assert.match(budget, /-2\b/);
 });
 
-test("the scope budget claims neither a single commit nor a commit count", () => {
+test("the scope budget's size line carries the file count and the changed lines and no other figure, so it counts no commits", () => {
   const text = buildPrompt(mkInput());
-  assert.doesNotMatch(text, /ONE commit|single-commit|one commit/i);
+  const budget = text.slice(text.indexOf("## Scope budget"));
+  const sizeLine = budget.split("\n").find((line) => /\+4\b/.test(line)) ?? "";
+  assert.deepEqual(sizeLine.match(/\d+/g), ["2", "4", "2"], "files, added lines, removed lines");
 });
 
 test("the size figures follow the diff, not a constant", () => {

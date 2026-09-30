@@ -6,6 +6,7 @@ import {
   setExplorationBriefCollaborators,
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage, HARNESS_FACTS_SECTION_ID } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -13,7 +14,7 @@ import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@c
 setExplorationBriefCollaborators({
   parseExplorationBrief: () => null,
   coerceExplorationBrief: () => null,
-  renderExplorationBrief: (brief: ExplorationBrief) => `## Exploration brief\nObjective: ${brief.objective}`,
+  renderExplorationBrief: (brief: ExplorationBrief) => `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`,
 });
 
 function mkInput(overrides: Partial<OpencodeRunInput> = {}): OpencodeRunInput {

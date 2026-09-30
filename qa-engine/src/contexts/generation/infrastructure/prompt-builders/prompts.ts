@@ -660,8 +660,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ? [input.learnedRules, ``].join("\n")
     : "";
 
-  /* The brief already carries the distilled blast radius; the advisory structural copy of it only appears when there is no brief. */
-  const staticSignalContent = input.staticSignal && isGenerationMode && !input.contextBrief ? input.staticSignal : "";
+  /* A brief that carries a blast radius already has it distilled; the advisory structural copy of it only appears when there is none. */
+  const staticSignalContent = input.staticSignal && isGenerationMode && !blastRadiusSupplied ? input.staticSignal : "";
   const staticSignalClaims: PromptClaim[] = staticSignalContent
     ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
     : [];

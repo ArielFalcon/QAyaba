@@ -58,7 +58,7 @@ test("buildContextPack never carries the blast radius, FE-BE links or risks the 
   assert.equal(result.text!.includes("CheckoutService.pay"), false, "no blast-radius symbol");
   assert.equal(result.text!.includes("OrderClient.create"), false, "no FE-BE link");
   assert.equal(result.text!.includes("assert the discounted total"), false, "no risk");
-  assert.ok(result.text!.includes("Live DOM"), "the captured DOM stays");
+  assert.ok(result.text!.includes(PACK_HEADINGS.liveDom), "the captured DOM stays");
 });
 
 test("buildContextPack with a brief and nothing captured or read has no pack at all", async () => {
@@ -72,7 +72,7 @@ test("buildContextPack's header is neutral: it names the pack and what it holds,
     stubContextPackDeps("button: Submit"),
   );
   const header = (result.text ?? "").split("### ")[0] ?? "";
-  assert.ok(header.includes("Context Pack"));
+  assert.ok(header.includes(PACK_HEADINGS.pack));
   assert.equal(countDirectives(header), 0);
   assert.equal(hasTrustLanguage(header), false);
 });
@@ -83,7 +83,7 @@ test("buildContextPack includes DOM section when capture succeeds", async () => 
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text?.includes("Live DOM"), "DOM section header must appear");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section header must appear");
   assert.ok(result.domBytes > 0, "DOM byte count must be positive when DOM was captured");
 });
 
@@ -106,7 +106,7 @@ test("buildContextPack omits DOM section when capture returns undefined", async 
     stubContextPackDeps(undefined),
   );
   assert.equal(result.domBytes, 0);
-  assert.equal(result.text?.includes("Live DOM") ?? false, false);
+  assert.equal(result.text?.includes(PACK_HEADINGS.liveDom) ?? false, false);
 });
 
 test("buildContextPack includes contracts from contextMap when brief references them", async () => {
@@ -114,7 +114,7 @@ test("buildContextPack includes contracts from contextMap when brief references 
     { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP },
     stubContextPackDeps(undefined),
   );
-  assert.ok(result.text?.includes("Relevant API contracts"), "contracts section header must appear");
+  assert.ok(result.text?.includes(PACK_HEADINGS.contracts), "contracts section header must appear");
   assert.ok(result.text?.includes("POST /orders"), "contract path must appear");
   assert.ok(result.contractBytes > 0, "contract byte count must be positive");
 });
@@ -122,7 +122,7 @@ test("buildContextPack includes contracts from contextMap when brief references 
 test("buildContextPack omits contracts when contextMap is absent", async () => {
   const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
   assert.equal(result.contractBytes, 0);
-  assert.ok(!result.text?.includes("Relevant API contracts"), "contracts section must be absent when no contextMap");
+  assert.ok(!result.text?.includes(PACK_HEADINGS.contracts), "contracts section must be absent when no contextMap");
 });
 
 test("buildContextPack filters contracts using prChangedFiles", async () => {
@@ -149,7 +149,7 @@ test("buildContextPack: the `routes` input populates DOM candidates with NO brie
     { routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text?.includes("Live DOM"), "DOM section must be populated from the routes input alone, no brief needed");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section must be populated from the routes input alone, no brief needed");
   assert.ok(result.domBytes > 0, "DOM byte count must be positive from the routes-only path");
 });
 
@@ -189,7 +189,7 @@ test("buildContextPack: absent `routes` input is byte-identical to today (regres
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps("button: Submit"),
   );
-  assert.ok(result.text?.includes("Live DOM"), "unaffected behavior when routes is absent");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "unaffected behavior when routes is absent");
 });
 
 test("buildContextPack degrades gracefully when DOM capture throws", async () => {
@@ -218,7 +218,7 @@ test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is 
     stubContextPackDeps(largeDom),
   );
   assert.ok(result.domBytes > 0, "DOM section is present");
-  const domSection = result.text?.split("### Live DOM")[1] ?? "";
+  const domSection = result.text?.split(`### ${PACK_HEADINGS.liveDom}`)[1] ?? "";
   assert.ok(!domSection.includes("Button 1999"), "last button must be omitted (truncated by the fixed 30KB cap)");
   assert.ok(result.text?.includes("omitted"), "truncation marker must appear");
 });
@@ -235,7 +235,7 @@ test("brief wired to buildContextPack produces the DOM of the brief's candidate 
   );
   assert.ok(result.text !== undefined, "pack text must be set when the DOM was captured");
   assert.ok(result.domBytes > 0, "DOM section must be captured from brief's candidate routes when wired");
-  assert.ok(result.text!.includes("Live DOM"), "DOM section header must appear in pack");
+  assert.ok(result.text!.includes(PACK_HEADINGS.liveDom), "DOM section header must appear in pack");
 });
 
 test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)", async () => {
@@ -267,7 +267,7 @@ test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)"
   assert.ok(capturedRoutes.length > 0, "DOM capture must be called even for unverified routes");
   assert.ok(capturedRoutes.includes("/"), "root route must be a candidate for DOM capture");
   assert.ok(result.domBytes > 0, "DOM section must be populated from unverified candidate routes");
-  assert.ok(result.text?.includes("Live DOM"), "DOM section header must appear in pack");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section header must appear in pack");
 });
 
 test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {

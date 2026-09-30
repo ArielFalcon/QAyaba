@@ -93,7 +93,8 @@ export function isValidSpec(spec: CellSpec): boolean {
   if (spec.tree !== "none" && !regenWithTree) return false;
   const hasBrief = spec.grounding === "brief" || spec.grounding === "brief+pack";
   const hasPack = spec.grounding === "pack" || spec.grounding === "brief+pack";
-  if (spec.structuralSignal && hasBrief) return false;
+  /* The structural signal stands in only for a brief that distilled no blast radius. */
+  if (spec.structuralSignal && hasBrief && spec.briefBlast === "filled") return false;
   if (spec.briefBlast === "empty" && !hasBrief) return false;
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
@@ -372,7 +373,7 @@ export interface MatrixCell {
   staticBytes: number;
 }
 
-/* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the block that is large by itself (the microservice change), stay in the key so they are budgeted apart. */
+/* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the blocks that are large by themselves (the structural signal, the microservice change), stay in the key so they are budgeted apart. */
 export function bucketOf(spec: CellSpec): string {
   return [
     spec.mode,
@@ -382,6 +383,7 @@ export function bucketOf(spec: CellSpec): string {
     spec.grounding,
     ...(spec.briefBlast === "empty" ? ["no-blast"] : []),
     ...(spec.packDom ? [] : ["contracts-only"]),
+    ...(spec.structuralSignal ? ["signal"] : []),
     ...(spec.service ? ["service"] : []),
   ].join("/");
 }

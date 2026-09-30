@@ -15,6 +15,7 @@ import {
   type LintSection,
   type PromptClaim,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 function sec(
   id: string,
@@ -250,12 +251,12 @@ test("the same line repeated inside one section is not a cross-section duplicate
 });
 
 test("static text that names an assembled artifact is reported, assembled text is not", () => {
-  const names = ["Context Pack", "Exploration brief"];
+  const names = [PACK_HEADINGS.pack, PROMPT_HEADINGS.explorationBrief];
   const findings = lintCell(
     cell([
-      sec("role", [], { layer: "static", text: "Read the Context Pack first" }),
+      sec("role", [], { layer: "static", text: `Read the ${PACK_HEADINGS.pack} first` }),
       sec("agents", [], { layer: "static", text: "nothing to see here" }),
-      sec("task", [], { text: "The Exploration brief is below" }),
+      sec("task", [], { text: `The ${PROMPT_HEADINGS.explorationBrief} is below` }),
     ]),
     { assembledArtifactNames: names },
   );
@@ -317,8 +318,8 @@ test("trust language in a section that declares no framing is reported; declarin
 });
 
 test("naming another section by its heading is not trust language, but restating its trust level is", () => {
-  const names = ["GROUND TRUTH AT FAILURE"];
-  const reference = sec("fix", [], { text: 'The captured tree is injected above as "GROUND TRUTH AT FAILURE".' });
+  const names = [PROMPT_HEADINGS.groundTruthAtFailure];
+  const reference = sec("fix", [], { text: `The captured tree is injected above as "${PROMPT_HEADINGS.groundTruthAtFailure}".` });
   assert.deepEqual(lintCell(cell([reference]), { assembledArtifactNames: names }), []);
   const restated = sec("fix", [], { text: "Consult ONLY the GROUND TRUTH tree above." });
   assert.deepEqual(lintCell(cell([restated]), { assembledArtifactNames: names }).map((f) => f.rule), ["R10"]);
@@ -556,7 +557,7 @@ const TREE_REFERENCE: ArtifactReference = {
   pattern: /\bthe tree above\b/i,
   provider: { facts: ["dom-live", "dom-failure"] },
 };
-const LOGIN_REFERENCE: ArtifactReference = { artifact: "login", pattern: /\bApp login\b/, provider: { section: APP_LOGIN_SECTION_ID } };
+const LOGIN_REFERENCE: ArtifactReference = { artifact: "login", pattern: new RegExp(PROMPT_HEADINGS.appLogin), provider: { section: APP_LOGIN_SECTION_ID } };
 
 test("a section that refers to an artifact nothing in the cell provides is reported with the artifact it lacks", () => {
   const findings = lintCell(cell([sec("fix", [], { text: "Fix it from the tree above." })]), { artifactReferences: [TREE_REFERENCE] });
@@ -576,7 +577,7 @@ test("a reference is met by any section that provides one of the artifact's fact
 
 test("an artifact backed by a section is met by the section with that id and by nothing else", () => {
   const references = { artifactReferences: [LOGIN_REFERENCE] };
-  const text = "See App login before you write.";
+  const text = `See ${PROMPT_HEADINGS.appLogin} before you write.`;
   assert.deepEqual(lintCell(cell([sec("task", [], { text })]), references).map((f) => f.artifact), ["login"]);
   assert.deepEqual(lintCell(cell([sec("task", [], { text }), sec(APP_LOGIN_SECTION_ID, [], { text: "steps" })]), references), []);
 });
@@ -602,7 +603,7 @@ test("captured verbatim data and the static layer are not judged for references"
 
 test("each missing artifact of a section is reported once, and the findings are ordered by artifact", () => {
   const references = { artifactReferences: [LOGIN_REFERENCE, TREE_REFERENCE] };
-  const findings = lintCell(cell([sec("task", [], { text: "the tree above, the tree above and App login" })]), references);
+  const findings = lintCell(cell([sec("task", [], { text: `the tree above, the tree above and ${PROMPT_HEADINGS.appLogin}` })]), references);
   assert.deepEqual(findings.map((f) => f.artifact), ["login", "tree"]);
 });
 

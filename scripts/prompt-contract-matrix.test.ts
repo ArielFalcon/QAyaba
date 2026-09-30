@@ -29,7 +29,7 @@ import {
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { HARNESS_FACTS_SECTION_ID, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { HARNESS_FACTS_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,7 +56,7 @@ test("only combinations that can reach the agent are in the matrix", () => {
   assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts && !s.service)));
   assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
-  assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack"));
+  assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack" || s.briefBlast === "empty"));
   assert.ok(valid.every((s) => s.briefBlast === "filled" || s.grounding === "brief" || s.grounding === "brief+pack"));
   assert.ok(valid.every((s) => s.packDom || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.contextMap)));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
@@ -250,7 +250,7 @@ test("dropping the framing a section declares makes the trust-language check rep
   const cells = await matrixOnce();
   const withFraming = cells.filter((c) =>
     c.lint.sections.some(
-      (s) => s.layer === "assembled" && s.claims.some((k) => k.kind === "frames") && /ground truth|authoritative|stale|unverified/i.test(s.text),
+      (s) => s.layer === "assembled" && s.claims.some((k) => k.kind === "frames") && hasTrustLanguage(s.text),
     ),
   );
   assert.ok(withFraming.length > 0, "the matrix has sections that both use trust language and declare a framing");

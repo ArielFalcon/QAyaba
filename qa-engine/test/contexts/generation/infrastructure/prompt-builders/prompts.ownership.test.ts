@@ -8,6 +8,7 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
@@ -17,7 +18,7 @@ setExplorationBriefCollaborators({
   coerceExplorationBrief: () => null,
   renderExplorationBrief: (brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }) => {
     lastBriefOptions = opts;
-    return `## Exploration brief\nObjective: ${brief.objective}`;
+    return `## ${PROMPT_HEADINGS.explorationBrief}\nObjective: ${brief.objective}`;
   },
 });
 
@@ -235,14 +236,14 @@ test("the working rules restate no trust level of the DOM: the section that hold
 
 const SIGNAL = "## Structural blast radius\n- `save` (src/Foo.java)";
 
-test("the structural signal is assembled only when no brief is in the prompt", () => {
+test("the structural signal is assembled unless a brief that carries a blast radius is in the prompt", () => {
   assert.equal(buildPromptAssembled(mkInput({ contextBrief: BRIEF, staticSignal: SIGNAL })).sectionSizes["static-signal"], undefined);
-  assert.equal(buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: SIGNAL })).sectionSizes["static-signal"], undefined);
+  assert.ok(buildPromptAssembled(mkInput({ contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined, "a brief with no blast radius supplies none");
   assert.ok(buildPromptAssembled(mkInput({ staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
   assert.ok(buildPromptAssembled(mkInput({ contextPack: DOM_PACK, staticSignal: SIGNAL })).sectionSizes["static-signal"] !== undefined);
 });
 
-test("the cross-service links are advisory data: they ask for no verification of their own contents", () => {
+test("the cross-service links are advisory data: framed as unverified, with nothing directed about them", () => {
   const link = {
     from: { repo: "org/app", file: "src/cart.client.ts", symbol: "applyCoupon" },
     to: { repo: "org/orders", file: "src/Orders.java", symbol: "OrdersController.applyCoupon" },
@@ -251,11 +252,10 @@ test("the cross-service links are advisory data: they ask for no verification of
     confidence: 0.9,
     source: "openapi-join",
   };
-  const text = buildPromptAssembled(mkInput({ serviceLinks: [link] })).text;
-  const start = text.indexOf("## Cross-service links");
-  assert.ok(start >= 0, "the section is rendered");
-  const next = text.indexOf("\n## ", start + 1);
-  const section = text.slice(start, next === -1 ? undefined : next);
-  assert.match(section, /advisory/i, "it still says what it is");
-  assert.doesNotMatch(section, /\bverif/i);
+  const a = buildPromptAssembled(mkInput({ serviceLinks: [link] }));
+  assert.ok(a.sectionSizes["service-links"] !== undefined, "the section is rendered");
+  assert.deepEqual(providers(a, "service-links"), ["service-links"]);
+  assert.equal(stance(a, "service-links", "service-links"), "unverified");
+  assert.equal(claimsOf(a, "service-links").some((c) => c.kind === "directs"), false, "it directs the agent to do nothing about the links");
+  assert.ok(a.text.includes(PROMPT_HEADINGS.crossServiceLinks));
 });

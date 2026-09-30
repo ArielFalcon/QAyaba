@@ -25,8 +25,8 @@ adapted from [TestDino playwright-skill](https://github.com/testdino-hq/playwrig
   CSS/XPath. **Always scope to a section**: locate the section by heading/landmark
   first, then narrow within it — never do `page.getByText(...)` without scope.
   See `locators-and-waiting.md` for the full selector rules.
-- **Selector source**: selectors come only from a DOM tree — never from source code. The
-  generator role prompt's Procedure (step 2) says where the tree comes from.
+- **Selector source**: selectors come only from a DOM tree — never from source code: the
+  tree the prompt supplies, or the live page for a route it does not cover.
 - **Web-first waiting**: use `expect(locator).toBeVisible()` etc. with auto-retry.
   **No `waitForTimeout`** (sleep) and no `networkidle`.
 - **One real assert** on the observable outcome, not just clicks.

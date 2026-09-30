@@ -303,12 +303,6 @@ function executePass(record: RunRecord | undefined): boolean | null {
   return passed > 0 && failed === 0;
 }
 
-/*
- * Whether the generator hit its step limit: the exhaustion the transport persisted for every one of its
- * turns (main and repair; the planner's objective turn is not the generator's). One exhausted turn makes
- * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
- * turn leaves it unknown.
- */
 /* The generator's own turns, main and repair: not the planner's objective turn and not another role's. */
 function generatorTurnsOf(turns: AgentTurnRecord[]): AgentTurnRecord[] {
   return turns.filter((t) => t.role.includes("generator") && t.objective !== PLANNER_OBJECTIVE);
@@ -328,6 +322,12 @@ function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
   };
 }
 
+/*
+ * Whether the generator hit its step limit: the exhaustion the transport persisted for every one of its
+ * turns (main and repair; the planner's objective turn is not the generator's). One exhausted turn makes
+ * the run exhausted; the run is known not to be only when every turn is known not to be, and any unknown
+ * turn leaves it unknown.
+ */
 function generatorExhausted(outcome: RunOutcome | undefined, turns: AgentTurnRecord[]): boolean | null {
   if (outcome?.gateSignals.usage?.primaryProvider === "codex") return null;
   const generatorTurns = generatorTurnsOf(turns);

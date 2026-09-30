@@ -124,7 +124,7 @@ test("the re-generation section speaks of a distilled blast radius only when the
   };
   const without = buildPromptAssembled(mkInput(fix));
   const withBrief = buildPromptAssembled(mkInput({ ...fix, contextBrief: brief }));
-  const withSignal = buildPromptAssembled(mkInput({ ...fix, staticSignal: "## Blast radius (structural signal)\n- CartService.total" }));
+  const withSignal = buildPromptAssembled(mkInput({ ...fix, staticSignal: "structural signal: CartService.total" }));
   const emptyBrief = buildPromptAssembled(mkInput({ ...fix, contextBrief: { ...brief, blastRadius: [] } }));
   const size = (a: AssembledPrompt): number | undefined => a.sectionSizes["regen-discipline"];
   assert.ok((size(withBrief) ?? 0) > (size(without) ?? 0), "a brief with a blast radius adds the statement");

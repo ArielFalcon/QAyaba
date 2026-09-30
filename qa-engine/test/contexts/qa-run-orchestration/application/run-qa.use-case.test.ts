@@ -4890,7 +4890,7 @@ test("4b.4: a throwing structuralSignal port degrades to NO staticSignal, never 
 
 /* The brief already carries the distilled blast radius: computing the structural signal too costs process spawns and
    would put a second, advisory copy of the same fact in the prompt. */
-test("the structural signal port is not invoked when grounding produced a brief, and still is when it did not", async () => {
+test("the structural signal port is not invoked when grounding produced a brief with a blast radius, and still is when it did not", async () => {
   const BRIEF = {
     builtForSha: "abc1234",
     objective: "test the checkout flow",
@@ -4917,6 +4917,12 @@ test("the structural signal port is not invoked when grounding produced a brief,
   await build(async () => ({})).run({ ...baseInput, runId: "structural-gate-no-brief" });
   assert.deepEqual(calls, ["render"], "without a brief the signal is computed once");
   assert.ok(capturedSignals.every((s) => typeof s === "string"));
+
+  calls.length = 0;
+  capturedSignals.length = 0;
+  await build(async () => ({ contextBrief: { ...BRIEF, blastRadius: [] } })).run({ ...baseInput, runId: "structural-gate-empty-brief" });
+  assert.deepEqual(calls, ["render"], "a brief that distilled no blast radius supplies none, so the signal is computed");
+  assert.ok(capturedSignals.length > 0 && capturedSignals.every((s) => typeof s === "string"));
 });
 
 /* With structuralSignal absent (today's composition default), the verdict/side-effect must be

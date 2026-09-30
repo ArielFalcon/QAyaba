@@ -583,6 +583,17 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
     );
   });
 
+  /* The authoring skill is loaded by more than one role (the generator and the worker), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */
+  const ROLE_PROMPT_REFERENCE = /\b(?:generator|reviewer|worker|explorer|proposer|sidekick|maintainer)\s+role\b|\brole prompt\b|\bProcedure \(step \d+\)/i;
+
+  it("no file of the playwright-authoring skill refers to a role's prompt or to a step of it, in either tree", () => {
+    const authoring = SKILL_FILE_PAIRS.filter(([opencodeRel]) => opencodeRel.includes("playwright-authoring")).flat();
+    assert.ok(authoring.length > 0);
+    for (const rel of authoring) {
+      assert.doesNotMatch(readFile(rel), ROLE_PROMPT_REFERENCE, `${rel}: the skill is loaded by several roles and stays role-neutral`);
+    }
+  });
+
   it("playwright-authoring skill file parity: locators-and-waiting.md matches across both trees", () => {
     for (const [opencodeRel, codexRel] of SKILL_FILE_PAIRS) {
       const opencodeContent = readFile(opencodeRel);
