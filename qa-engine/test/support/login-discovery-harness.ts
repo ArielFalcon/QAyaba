@@ -77,6 +77,8 @@ export interface StubPage {
   errors?: StubError[];
   /** Requests the page makes while it loads. */
   loadRequests?: StubRequest[];
+  /** What the page shows while its script is still starting up, until something waits for it. */
+  initially?: StubPage;
 }
 
 /** What submitting the login does. */
@@ -89,6 +91,10 @@ export interface StubSubmit {
   watchLost?: boolean;
   /** The session is only in the saved state once every late answer has arrived. */
   persistsAfterAnswer?: boolean;
+  /** Saving the browser's state fails. */
+  saveFails?: boolean;
+  /** Saving the browser's state reports success and leaves no file. */
+  saveWritesNothing?: boolean;
   requests?: StubRequest[];
   /** Requests that go out in the same window whatever the submit did, as an app's own telemetry and refreshes do. */
   background?: StubRequest[];
@@ -111,6 +117,8 @@ export interface StubSite {
   redirects?: Record<string, string>;
   /** Paths whose navigation throws. */
   gotoFails?: string[];
+  /** Paths whose first navigation throws and whose later ones work. */
+  gotoFailsOnce?: string[];
   /** Input positions whose typed value does not stick. */
   dropFill?: number[];
   /** The Nth read of the page throws because the page navigated under it, and the browser is then on `to`. */
@@ -158,6 +166,7 @@ const who = (v) => (v === process.env.DEV_TEST_USER ? "user" : v === process.env
 const submit = site.submit || {};
 let contexts = 0;
 let evalCalls = 0;
+const failedOnce = new Set();
 function makePage(ctx, state) {
   const events = new EventEmitter();
   const page = { on: (name, listener) => events.on(name, listener) };
@@ -165,12 +174,14 @@ function makePage(ctx, state) {
   let current = new URL("about:blank");
   let staying = null;
   let afterRead = false;
+  let hydrated = false;
   const watch = { installed: false, fired: false };
   const drifts = (site.drifts || []).filter((d) => d.context === undefined || d.context === ctx).map((d) => ({ ...d, seen: 0, fired: false }));
   const drift = (on) => {
     for (const d of drifts) if (d.on === on && !d.fired && ++d.seen === d.nth) { d.fired = true; current = new URL(d.to); }
   };
-  const def = () => staying || (state.authed && (site.authedPages || {})[keyOf(current)]) || site.pages[keyOf(current)] || {};
+  const shown = () => staying || (state.authed && (site.authedPages || {})[keyOf(current)]) || site.pages[keyOf(current)] || {};
+  const def = () => { const d = shown(); return d.initially && !hydrated ? d.initially : d; };
   /* What the page logs while it loads is read back slowly (a turn of the event loop), as a browser's answer to a handle is. */
   const raise = (e, slow) => {
     if (e.kind === "pageerror") return events.emit("pageerror", new Error(e.text));
@@ -201,8 +212,8 @@ function makePage(ctx, state) {
     if (r.failed) events.emit("requestfailed", request);
     else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
   };
-  const submitted = (via, key, i) => {
-    log({ t: "submit", via, key, i, ctx, at: current.origin });
+  const submitted = (via, key, i, options) => {
+    log({ t: "submit", via, key, i, ctx, at: current.origin, timeout: options && options.timeout });
     const target = (def().fields || []).find((f) => f.i === i);
     const reachesForm = !!target && target.form >= 0 && !(via === "press" && submit.enter === false);
     if (watch.installed && (submit.submitEvent !== undefined ? submit.submitEvent : reachesForm)) watch.fired = true;
@@ -213,13 +224,15 @@ function makePage(ctx, state) {
     if (submit.landing) { state.authed = true; state.persists = submit.persists !== false; current = new URL(submit.landing, site.origin); staying = null; }
     else if (submit.after) staying = submit.after;
   };
-  page.goto = async (target) => {
+  page.goto = async (target, options) => {
     const asked = new URL(target);
-    log({ t: "goto", to: keyOf(asked), ctx });
+    log({ t: "goto", to: keyOf(asked), ctx, timeout: options && options.timeout });
     if ((site.gotoFails || []).includes(keyOf(asked))) throw new Error("navigation failed");
+    if ((site.gotoFailsOnce || []).includes(keyOf(asked)) && !failedOnce.has(keyOf(asked))) { failedOnce.add(keyOf(asked)); throw new Error("navigation failed once"); }
     const redirected = !state.authed && site.redirects && site.redirects[keyOf(asked)];
     current = redirected ? new URL(redirected, site.origin) : asked;
     staying = null;
+    hydrated = false;
     (def().errors || []).forEach((e) => raise(e, true));
     (def().loadRequests || []).forEach(fire);
   };
@@ -250,19 +263,20 @@ function makePage(ctx, state) {
     return { fields, forms, baseSameOrigin: d.baseSameOrigin !== false, links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible, alerts: d.alerts || [] };
   };
   page.waitForFunction = async (fn, arg, options) => {
-    log({ t: "wait", timeout: options.timeout });
+    log({ t: "wait", timeout: options.timeout, ctx });
+    hydrated = true;
     if ((def().fields || []).some((f) => f.tag === "input" && f.type === "password" && f.visible)) throw new Error("Timeout " + options.timeout + "ms exceeded");
   };
   page.locator = (selector) => {
     const i = Number(/"(\\d+)"/.exec(selector)[1]);
     return {
-      fill: async (value) => { typed[i] = value; log({ t: "fill", i, as: who(value), at: current.origin }); drift("fill"); },
-      inputValue: async () => ((site.dropFill || []).includes(i) ? "" : typed[i] || ""),
-      press: async (key) => {
-        submitted("press", key, i);
+      fill: async (value, options) => { typed[i] = value; log({ t: "fill", i, as: who(value), at: current.origin, timeout: options && options.timeout }); drift("fill"); },
+      inputValue: async (options) => { log({ t: "read", i, timeout: options && options.timeout }); return (site.dropFill || []).includes(i) ? "" : typed[i] || ""; },
+      press: async (key, options) => {
+        submitted("press", key, i, options);
         if (process.env.STUB_PRESS_ERROR) throw new Error(process.env.STUB_PRESS_ERROR);
       },
-      click: async () => submitted("click", undefined, i),
+      click: async (options) => submitted("click", undefined, i, options),
     };
   };
   return page;
@@ -274,7 +288,11 @@ function makeContext(options) {
   if (options.storageState) state.authed = JSON.parse(fs.readFileSync(options.storageState, "utf8")).cookies.length > 0;
   return {
     newPage: async () => makePage(id, state),
-    storageState: async ({ path }) => fs.writeFileSync(path, JSON.stringify({ cookies: state.persists && !(submit.persistsAfterAnswer && state.pending > 0) ? [{ name: "session" }] : [], origins: [] })),
+    storageState: async ({ path }) => {
+      if (submit.saveFails) throw new Error("saving the state failed for " + process.env.DEV_TEST_USER + " with " + process.env.DEV_TEST_PASS);
+      if (submit.saveWritesNothing) return;
+      fs.writeFileSync(path, JSON.stringify({ cookies: state.persists && !(submit.persistsAfterAnswer && state.pending > 0) ? [{ name: "session" }] : [], origins: [] }));
+    },
     close: async () => {},
   };
 }
@@ -310,6 +328,8 @@ export interface LoginDiscoveryInput {
   storageStatePath?: string;
   budgetMs?: number;
   actionTimeoutMs?: number;
+  /** Moves the moment, counted from the child's start, by which it prints its evidence. */
+  deadlineMs?: number;
   /** Lowers the least the child waits after the submit, so a test of a request that never answers does not wait the seed's 8 s. */
   postSubmitMinWaitMs?: number;
 }

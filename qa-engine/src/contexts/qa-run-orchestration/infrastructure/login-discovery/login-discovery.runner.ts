@@ -13,10 +13,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxedBinaryRunner } from "../../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { FORM_STATE, scrubSecrets, type LoginEvidence } from "../../domain/helpers/login-evidence.ts";
-import { buildLoginDiscoveryScript } from "./login-discovery.script.ts";
+import { CHILD_DEADLINE_MS, buildLoginDiscoveryScript } from "./login-discovery.script.ts";
 
-/** How long the child may run before its whole process tree is killed: the ladder budget, the post-submit wait and the fresh-context check, with room to spare. */
-export const LOGIN_DISCOVERY_HARD_KILL_MS = 75_000;
+/** What the hard kill allows after the child's own deadline: time for the browser to close and the process to exit. */
+export const LOGIN_DISCOVERY_KILL_HEADROOM_MS = 15_000;
+
+/** How long the child may run before its whole process tree is killed: the deadline it prints its evidence by, plus the headroom to close and exit. */
+export const LOGIN_DISCOVERY_HARD_KILL_MS = CHILD_DEADLINE_MS + LOGIN_DISCOVERY_KILL_HEADROOM_MS;
 
 /** The most a crash writes to the log in one line after the account is removed. */
 export const LOGGED_TEXT_MAX = 2_000;

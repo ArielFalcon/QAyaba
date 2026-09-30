@@ -4,6 +4,8 @@
  * account into it, submits it ONCE, watches what the submit did, and prints what it saw as one JSON
  * evidence line. Classifying that evidence is `classifyLoginEvidence`'s job; this script only observes.
  * It lists as the login's requests only those that started after the submit and carry the account.
+ * Every wait it sets is cut to what is left before a fixed deadline, so it always prints its evidence before
+ * the runner's hard kill, and a session it could not confirm is reported, never lost with the evidence.
  *
  * Credentials reach the child through its env alone (DEV_TEST_USER / DEV_TEST_PASS); the script's
  * source and its stdout hold none. Everything else (base URL, routes, budgets, the session path)
@@ -28,8 +30,13 @@ export const POST_SUBMIT_MIN_WAIT_MS = 8_000;
 /** What the ladder may spend finding and submitting the form before the child stops looking. */
 export const DEFAULT_LADDER_BUDGET_MS = 45_000;
 
-const DEFAULT_NAV_TIMEOUT_MS = 10_000;
+/** How long one page navigation may take unless the action timeout says the app is slower. */
+export const DEFAULT_NAV_TIMEOUT_MS = 10_000;
+/** By when, counted from the child's start, it has stopped waiting on anything and prints its evidence: the hard kill is never what ends it. */
+export const CHILD_DEADLINE_MS = 60_000;
 const DEFAULT_SETTLE_MS = 5_000;
+/* What one typed field, one read-back or one key press may take unless the action timeout says the app is slower. */
+export const DEFAULT_ACTION_CALL_MS = 10_000;
 /* The attribute the page reader tags each input and button with, so the Node side addresses exactly the elements it was told about. */
 const FIELD_ATTRIBUTE = "data-qa-login-field";
 /* The kinds of request a login travels in: a script's call or a form post. Beacons, images and scripts are not the login. */
@@ -48,14 +55,21 @@ const FIELD_ATTRIBUTE = ${JSON.stringify(FIELD_ATTRIBUTE)};
 const TEXT_MAX = ${EVIDENCE_TEXT_MAX};
 const MAX_REQUESTS = ${MAX_RENDERED_REQUESTS};
 const LOGIN_REQUEST_TYPES = ${JSON.stringify(LOGIN_REQUEST_TYPES)};
+const ACTION_TIMEOUT_MS = Number(input.actionTimeoutMs) || 0;
 const NAV_TIMEOUT_MS = input.navTimeoutMs || ${DEFAULT_NAV_TIMEOUT_MS};
 const SETTLE_MS = input.settleMs || ${DEFAULT_SETTLE_MS};
 const BUDGET_MS = input.budgetMs === undefined ? ${DEFAULT_LADDER_BUDGET_MS} : input.budgetMs;
-const POST_SUBMIT_WAIT_MS = Math.max(input.postSubmitMinWaitMs === undefined ? ${POST_SUBMIT_MIN_WAIT_MS} : Number(input.postSubmitMinWaitMs), Number(input.actionTimeoutMs) || 0);
+const POST_SUBMIT_WAIT_MS = Math.max(input.postSubmitMinWaitMs === undefined ? ${POST_SUBMIT_MIN_WAIT_MS} : Number(input.postSubmitMinWaitMs), ACTION_TIMEOUT_MS);
+const VERIFY_NAV_TIMEOUT_MS = Math.max(NAV_TIMEOUT_MS, ACTION_TIMEOUT_MS);
+const VERIFY_POLL_MS = Math.max(SETTLE_MS, ACTION_TIMEOUT_MS);
+const ACTION_CALL_MS = Math.max(${DEFAULT_ACTION_CALL_MS}, ACTION_TIMEOUT_MS);
 const USER_FIELD_TYPES = ["text", "email", "tel"];
 const LOGIN_LINK_HINT = /log ?in|sign ?in|sign ?on/i;
 const baseOrigin = new URL(input.baseUrl).origin;
 const startedAt = Date.now();
+/* Every wait is cut to what is left before the deadline, so no action timeout, however large, lets the child outlive the hard kill. A timeout of zero means no limit to the browser: never ask for one. */
+const deadlineAt = startedAt + (input.deadlineMs === undefined ? ${CHILD_DEADLINE_MS} : Number(input.deadlineMs));
+const room = function (ms) { return Math.max(1, Math.min(ms, deadlineAt - Date.now())); };
 
 /* Every way a URL, a form body, a JSON body or an HTML page can spell the account back; a text passes through here before it can leave. */
 const secrets = [user, pass].filter(function (secret) { return secret.length > 0; });
@@ -246,7 +260,7 @@ function watch(page, evidence) {
 async function readPage(page) {
   let seen;
   try { seen = await page.evaluate(describePage, FIELD_ATTRIBUTE); } catch (_moving) {
-    await page.waitForLoadState("domcontentloaded", { timeout: SETTLE_MS }).catch(function () {});
+    await page.waitForLoadState("domcontentloaded", { timeout: room(SETTLE_MS) }).catch(function () {});
     seen = await page.evaluate(describePage, FIELD_ATTRIBUTE);
   }
   return onAppOrigin(page) ? seen : null;
@@ -278,8 +292,8 @@ async function findLoginForm(page, evidence, watching) {
     visited.add(keyOf(url));
     evidence.ladder.push(keyOf(url));
     try {
-      await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
-      await page.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(function () {});
+      await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: room(NAV_TIMEOUT_MS) });
+      await page.waitForLoadState("networkidle", { timeout: room(SETTLE_MS) }).catch(function () {});
     } catch (_unreachable) { continue; }
     const landed = new URL(page.url());
     if (landed.origin !== baseOrigin) continue;
@@ -325,24 +339,72 @@ async function fillAndSubmit(page, found, evidence, watching) {
   if (!userField) return;
   const at = function (field) { return page.locator("[" + FIELD_ATTRIBUTE + '="' + field.i + '"]'); };
   if (!onAppOrigin(page)) return;
-  await at(userField).fill(user);
+  await at(userField).fill(user, { timeout: room(ACTION_CALL_MS) });
   if (!onAppOrigin(page)) return;
-  await at(found.password).fill(pass);
-  evidence.filled = (await at(userField).inputValue()) === user && (await at(found.password).inputValue()) === pass;
+  await at(found.password).fill(pass, { timeout: room(ACTION_CALL_MS) });
+  evidence.filled = (await at(userField).inputValue({ timeout: room(ACTION_CALL_MS) })) === user && (await at(found.password).inputValue({ timeout: room(ACTION_CALL_MS) })) === pass;
   if (!evidence.filled) return;
-  if (found.password.form >= 0) return submitOnce(page, async function () { await at(found.password).press("Enter"); }, evidence, watching);
+  if (found.password.form >= 0) return submitOnce(page, async function () { await at(found.password).press("Enter", { timeout: room(ACTION_CALL_MS) }); }, evidence, watching);
   const control = pickSubmitControl(found.fields, found.password);
-  if (control) return submitOnce(page, async function () { await at(control).click(); }, evidence, watching);
+  if (control) return submitOnce(page, async function () { await at(control).click({ timeout: room(ACTION_CALL_MS) }); }, evidence, watching);
 }
 
-/* Waits for the password field to go, reads the page once more, and, when it went, saves the session and reads a fresh context opened with it at the path the submit ended on. */
+/* Opens a fresh context with the saved session at the path the submit ended on and reads it once the password field has had time to go (an app may draw its form before its session is read). */
+async function verifyInFreshContext(browser, now, evidence) {
+  const fresh = await browser.newContext(contextOptions({ storageState: input.storageStatePath }));
+  try {
+    const freshPage = await fresh.newPage();
+    const target = new URL(baseOrigin);
+    target.pathname = now.pathname;
+    target.hash = now.hash;
+    await freshPage.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: room(VERIFY_NAV_TIMEOUT_MS) });
+    await freshPage.waitForLoadState("networkidle", { timeout: room(SETTLE_MS) }).catch(function () {});
+    if (!onAppOrigin(freshPage)) return;
+    await freshPage.waitForFunction(noVisiblePassword, undefined, { timeout: room(VERIFY_POLL_MS) }).catch(function () {});
+    const freshSeen = await readPage(freshPage);
+    if (freshSeen === null) return;
+    evidence.freshContextChecked = true;
+    evidence.freshContextPasswordGone = noPasswordShowing(freshSeen.fields);
+  } finally {
+    await fresh.close().catch(function () {});
+  }
+}
+
+/* A failure to confirm the session is reported on stderr, with the account removed, and leaves it unconfirmed: it never costs the evidence already gathered. */
+const reportVerificationFailure = function (error) {
+  process.stderr.write("session verification failed: " + scrub(error && error.message ? error.message : error) + "\n");
+};
+
+/* Saves the session and verifies it in a fresh context, once more when that fails. */
+async function saveAndVerify(context, browser, now, evidence) {
+  try {
+    await context.storageState({ path: input.storageStatePath });
+    evidence.storageStateWritten = fs.existsSync(input.storageStatePath);
+  } catch (error) {
+    reportVerificationFailure(error);
+    return;
+  }
+  if (!evidence.storageStateWritten) return;
+  let failure = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await verifyInFreshContext(browser, now, evidence);
+      return;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  reportVerificationFailure(failure);
+}
+
+/* Waits for the password field to go, reads the page once more, and, when it went, gives the login's own requests time to answer, saves the session and reads a fresh context opened with it. */
 async function observeSubmit(page, context, browser, evidence, found, watching) {
-  await page.waitForFunction(noVisiblePassword, undefined, { timeout: POST_SUBMIT_WAIT_MS }).catch(function () {});
+  await page.waitForFunction(noVisiblePassword, undefined, { timeout: room(POST_SUBMIT_WAIT_MS) }).catch(function () {});
   await watching.settle();
   const after = (await readPage(page)) || NOTHING_SHOWING;
   evidence.passwordGone = noPasswordShowing(after.fields);
   /* The password field going says nothing of the session until the login's own requests have answered: give them what is left of the window. */
-  if (evidence.passwordGone) await watching.drained(POST_SUBMIT_WAIT_MS - (Date.now() - watching.submittedAt));
+  if (evidence.passwordGone) await watching.drained(Math.min(POST_SUBMIT_WAIT_MS - (Date.now() - watching.submittedAt), deadlineAt - Date.now()));
   const now = new URL(page.url());
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   evidence.submitEventFired = await page.evaluate(submitWatchFired).catch(function () { return false; });
@@ -359,25 +421,7 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   evidence.submitDisabled = !evidence.passwordGone && after.fields.some(function (field) { return field.form === found.password.form && field.type === "submit" && field.disabled; });
   evidence.finalPath = finalPathOf(page, evidence);
   if (!evidence.passwordGone || now.origin !== baseOrigin) return;
-  await context.storageState({ path: input.storageStatePath });
-  evidence.storageStateWritten = fs.existsSync(input.storageStatePath);
-  if (!evidence.storageStateWritten) return;
-  const fresh = await browser.newContext(contextOptions({ storageState: input.storageStatePath }));
-  try {
-    const freshPage = await fresh.newPage();
-    const target = new URL(baseOrigin);
-    target.pathname = now.pathname;
-    target.hash = now.hash;
-    await freshPage.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
-    await freshPage.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(function () {});
-    if (!onAppOrigin(freshPage)) return;
-    const freshSeen = await readPage(freshPage);
-    if (freshSeen === null) return;
-    evidence.freshContextChecked = true;
-    evidence.freshContextPasswordGone = noPasswordShowing(freshSeen.fields);
-  } finally {
-    await fresh.close().catch(function () {});
-  }
+  await saveAndVerify(context, browser, now, evidence);
 }
 
 (async function () {

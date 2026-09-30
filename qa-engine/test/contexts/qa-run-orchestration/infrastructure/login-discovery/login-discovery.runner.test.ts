@@ -10,6 +10,7 @@ import {
   createDiscoverLogin,
   type LoginDiscoveryInput,
 } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.runner.ts";
+import { CHILD_DEADLINE_MS } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import { scriptedLoginEvidence } from "../../../../support/login-evidence.ts";
 
@@ -61,6 +62,10 @@ test("the script is written under the temp dir, run with node in the spec dir un
   assert.ok(dirname(scriptPath).startsWith(tmpdir()), "the script lives outside the watched repo");
   assert.ok(sourceSeen.includes(join("/mirror/e2e", "node_modules", "playwright")), "the child loads the repo's own playwright");
   assert.equal(existsSync(dirname(scriptPath)), false, "the temp dir is gone afterwards");
+});
+
+test("the hard kill falls after the deadline the child prints its evidence by, so the kill is never what ends it", () => {
+  assert.ok(LOGIN_DISCOVERY_HARD_KILL_MS > CHILD_DEADLINE_MS);
 });
 
 test("the temp dir is removed even when the runner throws", async () => {
