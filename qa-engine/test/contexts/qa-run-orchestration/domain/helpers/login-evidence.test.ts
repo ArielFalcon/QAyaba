@@ -36,6 +36,7 @@ const HOSTILE: readonly Echoed[] = [
   { secret: "re.g$ex^(a|b)[c]*?", echoes: ["re.g$ex^(a|b)[c]*?", "re.g%24ex%5E(a%7Cb)%5Bc%5D*%3F", "re.g%24ex%5E%28a%7Cb%29%5Bc%5D*%3F"] },
   { secret: "back\\slash", echoes: ["back\\slash", "back%5Cslash", "back%5cslash", "back\\\\slash", "back/slash"] },
   { secret: "a b/c&d", echoes: ["a b/c&d", "a%20b%2Fc%26d", "a%20b/c&d", "a+b%2Fc%26d"] },
+  { secret: "p\\q/r", echoes: ["p\\q/r", "p%5Cq%2Fr", "p%5Cq/r", "p/q/r"] },
   { secret: "line\nbreak", echoes: ["line\nbreak", "line%0Abreak", "line%0abreak", "line\\nbreak"] },
   { secret: "it's~(fine)!*", echoes: ["it's~(fine)!*", "it%27s%7E%28fine%29%21*", "it%27s%7e%28fine%29%21*"] },
 ];
