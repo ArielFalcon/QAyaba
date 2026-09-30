@@ -516,7 +516,9 @@ test("services: changing a list that is already written does not set it apart", 
 
 test("services: a supplied list shorter than the written one drops the services it does not name", () => {
   const out = patchAppYaml(WITH_SERVICES, { services: [{ repo: "org/svc-a" }] });
-  assert.deepEqual((raw(out)["services"] as Array<Record<string, unknown>>).map((entry) => entry["repo"]), ["org/svc-a"]);
+  const services = raw(out)["services"] as Array<Record<string, unknown>>;
+  assert.deepEqual(services.map((entry) => entry["repo"]), ["org/svc-a"]);
+  assert.equal(services[0]!["openapi"], "api/*.yaml", "a field the supplied entry leaves out keeps its value");
 });
 
 test("services: an item that is not a mapping is dropped when the supplied list is written", () => {

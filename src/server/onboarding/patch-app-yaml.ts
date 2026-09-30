@@ -194,6 +194,12 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
     if (!hadAuth) setApart("auth");
   }
 
+  /*
+   * The supplied list is the list: a service it does not name is removed, one it names in another
+   * position is moved, and one it adds is created. A service that stays keeps every key of its own,
+   * so a field the supplied entry leaves out (`openapi` or `versionUrl` omitted) keeps the value on
+   * disk, and only an empty string removes one.
+   */
   function patchServices(services: readonly OnboardServiceInput[]): void {
     if (services.length === 0) {
       remove(["services"]);
