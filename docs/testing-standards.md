@@ -146,7 +146,12 @@ the run terminal it maps to, run against their own tests and the class consumers
 parity, learning-gates, process-audit). **Before** is its first run; the one survivor was the error's
 `name` string literal, restructured away (the name is the class's own, `new.target.name`) with the
 behavior pinned instead of the literal: an error prints under a name of its own, apart from a generic
-one. **After** is the re-run; it has no documented survivors.
+one. **After** is the re-run; it has no documented survivors. The preset was later widened to mutate the
+lines of `error-class.ts` that name the class and resolve it and the lines of `process-audit.ts` that
+turn it into an observe-only finding (line ranges, so the neighboring classes' logic is not measured
+here): its After column is that widened run. The first widened run had one survivor, the condition of
+the branch that follows the finding, which the range had swept in; the range now stops at the
+finding.
 
 login-evidence (2026-09-30, 4 workers) is a new preset over the module that classifies a login attempt,
 scrubs credentials out of what a failed login writes and renders the note. **Before** is its first run;
@@ -157,7 +162,28 @@ fused a note's fields or a status with the next method, a missing status printed
 removal that could assemble another secret across its seam when the marker was empty. The note's
 optional parts were restructured away instead of pinned by their wording: a part with nothing to say
 is left out, and a test asserts that no field is rendered empty and no separator dangles. **After** is
-the re-run; it has no documented survivors.
+the re-run; it has no documented survivors. It was re-run once more after the classifier and the
+scrubber were corrected: a second-factor step, a captcha and an unpersistable session are read only
+on positive evidence (the step on screen after the submit, nothing in flight, a fresh context that
+was actually read), a recorded submit is always an attempt so the stock seed does not submit again,
+and the scrubber locates every spelling of every secret on the original text without regard to case
+and replaces the merged stretches once. The four survivors of that first re-run were a fallback that
+capture group 1 makes unreachable (now an assertion), two comparisons on the merge boundaries (pinned
+with a stretch that touches another and a secret inside a longer one, and the update of the covered
+end now takes the larger end instead of testing for it) and an unpinned marker at the very start of a
+text. The After column is the final re-run; it has no documented survivors.
+
+patch-app-yaml (2026-09-30, 4 workers) is a new preset over the module that edits an app's YAML in
+place, run against its own tests and the update use case that drives it. **Before** is its first run;
+the survivors were real gaps: the refusal of a document that is not a mapping and the message that
+comes with a refusal, long values folded across lines, a block added or changed without the blank line
+that sets it apart (or with one where it was already set apart), the keys of the other kind dropped on
+a patch that does not change the kind, an empty variable name written over the one on disk, a shorter
+supplied list leaving the services it does not name, a list holding an item that is not a mapping, an
+alias in the first position of a list, a key removed under a block with nothing under it, and an alias
+removed or replaced as a value. Machinery for paths deeper than one block was restructured away (no
+path here has more) and a guard that the first write already performs was removed. **After** is the
+re-run; its one survivor is documented below.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -172,12 +198,17 @@ the re-run; it has no documented survivors.
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
-| precondition-verdict | auth-precondition, precondition-terminal | 4 / 0 / 1 — 80% (80%) | 4 / 0 / 0 — 100% (100%) | — |
-| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 95 / 0 / 0 — 100% (100%) | — |
+| precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
+| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 128 / 0 / 0 — 100% (100%) | — |
+| patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 
 ### Documented survivors
 
 Each is a genuine equivalent mutant: no test can observe it without asserting the mutated literal.
+
+**patch-app-yaml** (`src/server/onboarding/patch-app-yaml.ts`)
+- `alreadyReads` — the `catch` block emptied (BlockStatement): a placeholder whose variable is unset
+  reads as no value, and a callback that returns nothing is read the same by `some`.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

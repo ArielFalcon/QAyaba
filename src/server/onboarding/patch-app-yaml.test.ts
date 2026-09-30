@@ -304,8 +304,16 @@ test("the patched config still reads under the app schema once its placeholders 
   assert.equal(cfg.auth?.usernameEnv, "OTHER_USER");
 });
 
-test("a config the YAML parser rejects is refused, never written over", () => {
-  assert.throws(() => patchAppYaml("name: [unclosed\nrepo: x\n", { shadow: false }), /./);
+test("a config that is not valid YAML or not a mapping is refused with a message, never written over", () => {
+  for (const config of ["name: [unclosed\nrepo: x\n", "- a\n- b\n", "just a string\n", ""]) {
+    assert.throws(() => patchAppYaml(config, { shadow: false }), (err: unknown) => err instanceof Error && err.message.length > 0, JSON.stringify(config));
+  }
+});
+
+test("a long value is written on one line", () => {
+  const prefix = "word ".repeat(40).trim();
+  const out = patchAppYaml(CONFIG, { testDataPrefix: prefix });
+  assert.ok(out.includes(`testDataPrefix: "${prefix}"`));
 });
 
 /* A config whose strings are `${VAR}` placeholders, as an operator keeps secrets and hosts out of the file. */
@@ -445,4 +453,79 @@ test("a block that is an alias is refused with the path it sits at, and nothing 
 test("a service listed as an alias is refused with its position", () => {
   const config = 'name: "demo"\nrepo: "org/demo"\nservices:\n  - repo: "org/a"\n  - &b\n    repo: "org/b"\n  - *b\n';
   assert.throws(() => patchAppYaml(config, { services: [{ repo: "org/a" }] }), /unsupported: alias at services\.2/);
+});
+
+const COMPACT_AUTH = 'name: "demo"\nrepo: "org/demo"\nauth:\n  kind: form\n  usernameEnv: DEMO_USER\n  passwordEnv: DEMO_PASS\nqa:\n  shadow: true\n';
+
+test("auth: patching a login that is already written does not set it apart from the block above it", () => {
+  const out = patchAppYaml(COMPACT_AUTH, { auth: { kind: "form", usernameEnv: "OTHER_USER" } });
+  assert.equal((raw(out)["auth"] as Record<string, unknown>)["usernameEnv"], "OTHER_USER");
+  assert.equal(out.includes("\n\n"), false);
+});
+
+test("auth: the keys of the other kind are dropped only when the kind changes", () => {
+  const stray = COMPACT_AUTH.replace("  passwordEnv: DEMO_PASS\n", "  passwordEnv: DEMO_PASS\n  certEnv: STRAY_CERT\n");
+  const sameKind = raw(patchAppYaml(stray, { auth: { kind: "form", usernameEnv: "OTHER_USER" } }))["auth"] as Record<string, unknown>;
+  assert.equal(sameKind["certEnv"], "STRAY_CERT");
+  const noKind = stray.replace("  kind: form\n", "");
+  const kindAdded = raw(patchAppYaml(noKind, { auth: { kind: "form", usernameEnv: "OTHER_USER" } }))["auth"] as Record<string, unknown>;
+  assert.equal(kindAdded["kind"], "form");
+  assert.equal(kindAdded["certEnv"], "STRAY_CERT");
+});
+
+test("auth: an empty variable name leaves the one already written", () => {
+  assert.equal(patchAppYaml(COMPACT_AUTH, { auth: { kind: "form", usernameEnv: "", passwordEnv: "" } }), COMPACT_AUTH);
+});
+
+test("auth: a bare `auth:` takes the login where it stands", () => {
+  const bare = 'name: "demo"\nrepo: "org/demo"\nauth:\nqa:\n  shadow: true\n';
+  const out = patchAppYaml(bare, { auth: { kind: "form", usernameEnv: "NEW_USER", passwordEnv: "NEW_PASS" } });
+  assert.deepEqual(raw(out)["auth"], { kind: "form", usernameEnv: "NEW_USER", passwordEnv: "NEW_PASS" });
+  assert.deepEqual(raw(out)["qa"], { shadow: true });
+});
+
+test("a block with nothing under it is left as it is when a key under it is removed", () => {
+  const bare = 'name: "demo"\nrepo: "org/demo"\ndev:\n  # baseUrl: y\nqa:\n  shadow: true\n';
+  assert.equal(patchAppYaml(bare, { versionUrl: "" }), bare);
+});
+
+test("a value that is itself an alias is removed or replaced, and the value it points at is kept", () => {
+  const aliased = 'name: "demo"\nrepo: &r "org/demo"\nsame: *r\nauth: *r\ndev:\n  baseUrl: "https://a.example"\n  versionUrl: *r\n';
+  const removed = patchAppYaml(aliased, { versionUrl: "", clearAuth: true });
+  assert.equal((raw(removed)["dev"] as Record<string, unknown>)["versionUrl"], undefined);
+  assert.equal(raw(removed)["auth"], undefined);
+  assert.equal(raw(removed)["same"], "org/demo");
+  const replaced = patchAppYaml('r: &r "org/demo"\nrepo: *r\n', { repo: "org/other" });
+  assert.equal(raw(replaced)["repo"], "org/other");
+  assert.equal(raw(replaced)["r"], "org/demo");
+});
+
+test("services: a list added to a config that had none is written under a blank line", () => {
+  const none = CODE_CONFIG.replace("code: true\n\n", "");
+  const out = patchAppYaml(none, { services: [{ repo: "org/svc-a", openapi: "api/*.yaml" }] });
+  assert.deepEqual(raw(out)["services"], [{ repo: "org/svc-a", openapi: "api/*.yaml" }]);
+  assert.match(out, /\n\nservices:\n/);
+});
+
+test("services: changing a list that is already written does not set it apart", () => {
+  const compact = 'name: "demo"\nrepo: "org/demo"\nservices:\n  - repo: "org/svc-a"\nqa:\n  shadow: true\n';
+  const out = patchAppYaml(compact, { services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }] });
+  assert.deepEqual((raw(out)["services"] as Array<Record<string, unknown>>).map((entry) => entry["repo"]), ["org/svc-a", "org/svc-b"]);
+  assert.equal(out.includes("\n\n"), false);
+});
+
+test("services: a supplied list shorter than the written one drops the services it does not name", () => {
+  const out = patchAppYaml(WITH_SERVICES, { services: [{ repo: "org/svc-a" }] });
+  assert.deepEqual((raw(out)["services"] as Array<Record<string, unknown>>).map((entry) => entry["repo"]), ["org/svc-a"]);
+});
+
+test("services: an item that is not a mapping is dropped when the supplied list is written", () => {
+  const junk = 'name: "demo"\nrepo: "org/demo"\nservices:\n  - repo: "org/svc-a"\n  - stray\n';
+  const out = patchAppYaml(junk, { services: [{ repo: "org/svc-a" }] });
+  assert.deepEqual(raw(out)["services"], [{ repo: "org/svc-a" }]);
+});
+
+test("a service listed as an alias is refused whichever position it holds", () => {
+  const first = 'name: "demo"\nrepo: "org/demo"\nshared: &s\n  repo: "org/a"\nservices:\n  - *s\n';
+  assert.throws(() => patchAppYaml(first, { services: [{ repo: "org/a" }] }), /unsupported: alias at services\.0/);
 });

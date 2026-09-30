@@ -157,7 +157,7 @@ export function scrubSecrets(text: string, secrets: readonly string[]): string {
   for (const spelling of spellings) {
     /* The lookahead finds occurrences that overlap one another; the capture is the text as it stands, whatever its case. */
     const occurrence = new RegExp(`(?=(${escapeForRegExp(spelling)}))`, "giu");
-    for (const match of text.matchAll(occurrence)) found.push([match.index, match.index + (match[1] ?? "").length]);
+    for (const match of text.matchAll(occurrence)) found.push([match.index, match.index + match[1]!.length]);
   }
   found.sort((a, b) => a[0] - b[0]);
   let scrubbed = "";
@@ -166,8 +166,8 @@ export function scrubSecrets(text: string, secrets: readonly string[]): string {
     if (start >= copiedTo) {
       scrubbed += text.slice(copiedTo, start) + REDACTED;
       copiedTo = end;
-    } else if (end > copiedTo) {
-      copiedTo = end;
+    } else {
+      copiedTo = Math.max(copiedTo, end);
     }
   }
   return scrubbed + text.slice(copiedTo);

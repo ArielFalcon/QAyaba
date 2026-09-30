@@ -172,8 +172,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "precondition-verdict": {
-    description: "auth precondition: the typed error, the run terminal it maps to, and the class consumers that keep it out of learning",
-    mutate: [`${ORCH}/domain/auth-precondition.ts`, `${ORCH}/domain/helpers/precondition-terminal.ts`],
+    description: "auth precondition: the typed error, the run terminal it maps to, the E-PRECONDITION class and where it is resolved, and the audit finding that keeps it out of learning",
+    mutate: [
+      `${ORCH}/domain/auth-precondition.ts`,
+      `${ORCH}/domain/helpers/precondition-terminal.ts`,
+      /* Only the lines that name and resolve the class: the rest of these modules belongs to other classes. */
+      `${ORCH}/domain/helpers/error-class.ts:18-18`,
+      `${ORCH}/domain/helpers/error-class.ts:29-29`,
+      `${ORCH}/domain/helpers/error-class.ts:111-111`,
+      `${LEARN}/process-audit.ts:27-27`,
+      `${LEARN}/process-audit.ts:80-87`,
+    ],
     tests: [
       `${ORCH_TEST}/domain/auth-precondition.test.ts`,
       `${ORCH_TEST}/domain/helpers/precondition-terminal.test.ts`,
@@ -191,6 +200,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${ORCH_TEST}/domain/helpers/login-evidence.test.ts`,
       `${ORCH_TEST}/domain/helpers/classify-login-evidence.test.ts`,
     ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "patch-app-yaml": {
+    description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
+    mutate: ["src/server/onboarding/patch-app-yaml.ts"],
+    tests: ["src/server/onboarding/patch-app-yaml.test.ts", "src/server/app-admin.test.ts"],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "merge-guard": {

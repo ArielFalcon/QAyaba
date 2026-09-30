@@ -69,14 +69,26 @@ test("the generation-end preset mutates exactly the classifier, the terminal map
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the precondition-verdict preset mutates the typed precondition error and its terminal, against their own tests and the class consumers'", () => {
+test("the precondition-verdict preset mutates the typed precondition error, its terminal, the class entries and their resolution and the audit finding, against their own tests and the class consumers'", () => {
   const preset = PRESETS["precondition-verdict"];
   assert.ok(preset, "the precondition-verdict preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), [
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
     "qa-engine/src/contexts/qa-run-orchestration/domain/auth-precondition.ts",
     "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/precondition-terminal.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/error-class.ts",
+    "qa-engine/src/contexts/cross-run-learning/domain/process-audit.ts",
   ]);
   for (const module of ["auth-precondition", "precondition-terminal", "error-class", "error-class-parity", "learning-gates", "process-audit"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the patch-app-yaml preset mutates the config patcher, against its own tests and the update use case that drives it", () => {
+  const preset = PRESETS["patch-app-yaml"];
+  assert.ok(preset, "the patch-app-yaml preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["src/server/onboarding/patch-app-yaml.ts"]);
+  for (const module of ["patch-app-yaml", "app-admin"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");

@@ -88,24 +88,26 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
     });
   };
 
+  /* Every path written or deleted here is a top-level key or one key below one, so a path has at most one block above its key. */
+  const containerOf = (path: string[]): string | undefined => (path.length > 1 ? path[0] : undefined);
+
   /*
-   * Checks the containers a write or a delete has to go through, given by the path of the deepest one.
-   * The library throws on an alias there, and on an empty or scalar one it cannot write into, so the
-   * alias is refused with its path and, when writing, the empty one becomes a mapping.
+   * Checks the block a write or a delete goes through. The library throws on an alias there, and on an
+   * empty or scalar one it cannot write into, so an alias is refused with its key and, when writing, a
+   * block that is not a mapping (a bare `qa:`, or a `dev:` whose children are all commented out)
+   * becomes an empty one that keeps the comments it carried.
    */
-  const walkContainers = (holder: PathHolder, container: string[], open: boolean): void => {
-    for (let depth = 1; depth <= container.length; depth++) {
-      const prefix = container.slice(0, depth);
-      const node = holder.getIn(prefix, true);
-      if (isAlias(node)) throw new Error(`unsupported: alias at ${prefix.join(".")}`);
-      if (!open || node === undefined || isMap(node)) continue;
-      const map = new YAMLMap(doc.schema);
-      if (isScalar(node)) {
-        map.comment = node.comment;
-        map.commentBefore = node.commentBefore;
-      }
-      holder.setIn(prefix, map);
+  const guardContainer = (holder: PathHolder, container: string | undefined, open: boolean): void => {
+    if (container === undefined) return;
+    const node = holder.getIn([container], true);
+    if (isAlias(node)) throw new Error(`unsupported: alias at ${container}`);
+    if (!open || isMap(node)) return;
+    const map = new YAMLMap(doc.schema);
+    if (isScalar(node)) {
+      map.comment = node.comment;
+      map.commentBefore = node.commentBefore;
     }
+    holder.setIn([container], map);
   };
 
   const setScalar = (holder: PathHolder, path: string[], value: string | boolean, style: Scalar.Type): void => {
@@ -113,7 +115,7 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
     /* An alias reads as the value it points at, but a write replaces the alias itself. */
     const current = isAlias(found) ? found.resolve(doc) : found;
     if (isScalar(current) && alreadyReads(current.value, value)) return;
-    walkContainers(holder, path.slice(0, -1), true);
+    guardContainer(holder, containerOf(path), true);
     if (isScalar(found)) {
       found.value = value;
       found.type = style;
@@ -128,7 +130,7 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
     setScalar(holder, path, value, style);
   const setBoolean = (path: string[], value: boolean): void => setScalar(doc, path, value, Scalar.PLAIN);
   const remove = (path: string[]): void => {
-    walkContainers(doc, path.slice(0, -1), false);
+    guardContainer(doc, containerOf(path), false);
     if (!doc.hasIn(path)) return;
     doc.deleteIn(path);
     changed = true;
@@ -176,9 +178,6 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
   return changed ? doc.toString({ lineWidth: 0 }) : rawYaml;
 
   function patchAuth(auth: OnboardAuthInput): void {
-    walkContainers(doc, ["auth"], false);
-    /* An `auth:` with no mapping under it (a bare key) is replaced rather than merged into. */
-    if (doc.hasIn(["auth"]) && !isMap(doc.getIn(["auth"], true))) remove(["auth"]);
     const hadAuth = doc.hasIn(["auth"]);
     const currentKind = doc.getIn(["auth", "kind"]);
     if (currentKind !== undefined && currentKind !== auth.kind) {
@@ -200,8 +199,8 @@ export function patchAppYaml(rawYaml: string, patch: AppYamlPatch, options: AppY
       remove(["services"]);
       return;
     }
-    walkContainers(doc, ["services"], false);
-    const current = doc.getIn(["services"], true);
+    guardContainer(doc, "services", false);
+    const current = doc.getIn(["services"]);
     const aliasAt = isSeq(current) ? current.items.findIndex(isAlias) : -1;
     if (aliasAt >= 0) throw new Error(`unsupported: alias at services.${aliasAt}`);
     const entries = isSeq(current) ? current.items.filter(isMap) : [];

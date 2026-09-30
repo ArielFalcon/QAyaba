@@ -94,6 +94,20 @@ test("two secrets that overlap in the text are removed as the one stretch they c
   assert.ok(inner.startsWith("zz") && inner.endsWith("zz"));
 });
 
+test("a secret inside a longer one is removed with it, whichever is listed first", () => {
+  const text = "login xpassword failed";
+  const asOne = scrubSecrets(text, ["xpassword"]);
+  assert.equal(scrubSecrets(text, ["xpassword", "pass"]), asOne);
+  assert.equal(scrubSecrets(text, ["pass", "xpassword"]), asOne);
+  assert.equal(scrubSecrets(text, ["xpassword", "sswo"]), asOne);
+});
+
+test("two secrets that touch without overlapping are each replaced", () => {
+  const each = scrubSecrets("abc", ["abc"]) + scrubSecrets("def", ["def"]);
+  assert.equal(scrubSecrets("abcdef", ["abc", "def"]), each);
+  assert.equal(scrubSecrets("abcdef", ["def", "abc"]), each);
+});
+
 test("a secret that overlaps itself in the text leaves none of it behind", () => {
   const out = scrubSecrets("1zzzz2", ["zzz"]);
   assert.equal(out.includes("z"), false);
@@ -108,10 +122,11 @@ test("a secret with a lone surrogate is removed instead of throwing", () => {
   assert.equal(out.includes("cd"), false);
 });
 
-test("a secret at the very start or the very end of the text is removed with the text beside it kept", () => {
+test("a secret at the very start or the very end of the text is replaced, with the text beside it kept", () => {
   const atStart = scrubSecrets("hunter2 was tried", ["hunter2"]);
   assert.equal(atStart.includes("hunter2"), false);
   assert.ok(atStart.endsWith(" was tried"));
+  assert.ok(atStart.length > " was tried".length, "something stands where the secret was");
   const atEnd = scrubSecrets("tried hunter2", ["hunter2"]);
   assert.equal(atEnd.includes("hunter2"), false);
   assert.ok(atEnd.startsWith("tried "));
