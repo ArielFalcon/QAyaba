@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { parse } from "yaml";
 import { createApp, updateApp, deleteApp, type AppAdminDeps } from "./app-admin";
-import type { AppConfig } from "../orchestrator/config-loader";
+import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
+import { AppConfigSchema } from "../orchestrator/schemas";
 import { buildYaml, type OnboardInput } from "./onboard";
 import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
 import type { HttpBoundaryProfile, EventBoundaryProfile } from "@contexts/service-topology/domain/index.ts";
@@ -27,6 +29,66 @@ const EVENT_BOUNDARY: EventBoundaryProfile = {
   },
 };
 
+/* What onboarding writes for a plain e2e app. */
+const STOCK_ONBOARD: OnboardInput = {
+  name: "shop",
+  repo: "org/shop-front",
+  baseBranch: "main",
+  baseUrl: "https://x",
+  target: "e2e",
+  needsReview: true,
+  shadow: true,
+  testDataPrefix: "qa",
+};
+const STOCK_YAML = buildYaml(STOCK_ONBOARD);
+
+/* A config an operator has kept up by hand: comments, a placeholder, tuning and blocks updateApp does not manage. */
+const SHOP_ENV = { SHOP_DEV_URL: "https://dev.shop.example" };
+const SHOP_YAML = `# Shop front (synthetic).
+name: "shop"
+repo: "org/shop-front" # primary repo
+baseBranch: "main"
+
+dev:
+  baseUrl: \${SHOP_DEV_URL}
+
+openapi:
+  - "**/openapi/*.yaml"
+
+auth:
+  kind: form
+  usernameEnv: SHOP_USER
+  passwordEnv: SHOP_PASS
+  futureOption: keep-me
+
+e2e:
+  testIdAttribute: data-cy
+
+qa:
+  needsReview: true
+  shadow: true
+  testDataPrefix: "qa-shop"
+  changeCoverage:
+    mode: enforce
+
+report:
+  onFailure: "github-issue"
+`;
+
+/* The config as the loader hands it to updateApp: env-expanded and schema-parsed. */
+function loadedFrom(yaml: string, env: Record<string, string>): AppConfig {
+  return AppConfigSchema.parse(parse(expandEnv(yaml, env))) as AppConfig;
+}
+
+/* The raw text and its loaded form, from ONE file, as in production. */
+function withConfig(yaml: string, env: Record<string, string> = SHOP_ENV): Partial<AppAdminDeps> {
+  return { readConfig: () => yaml, loadApp: () => loadedFrom(yaml, env), env };
+}
+
+function writtenConfig(deps: { written: Record<string, string> }): Record<string, unknown> {
+  return parse(deps.written["shop"] ?? "") as Record<string, unknown>;
+}
+
 function makeDeps(overrides: Partial<AppAdminDeps> = {}): AppAdminDeps & { written: Record<string, string>; removed: string[] } {
   const written: Record<string, string> = {};
   const removed: string[] = [];
@@ -48,13 +110,8 @@ function makeDeps(overrides: Partial<AppAdminDeps> = {}): AppAdminDeps & { writt
       deleteHistory: (app: string) => { removed.push(`history:${app}`); return 1; },
       deleteAuthMaterial: (app: string) => { removed.push(`auth:${app}`); },
       applyEnv: (vars: Record<string, string>) => Object.keys(vars),
-      loadApp: (name: string) => ({
-        name,
-        repo: "org/shop-front",
-        qa: { needsReview: true, testDataPrefix: "qa" },
-        report: { onFailure: "github-issue" },
-        dev: { baseUrl: "https://x" },
-      }) as unknown as AppConfig,
+      readConfig: () => STOCK_YAML,
+      loadApp: () => loadedFrom(STOCK_YAML, {}),
       env: {} as Record<string, string | undefined>,
     },
     overrides,
@@ -102,36 +159,82 @@ test("dryRun writes an auth block the app schema accepts", async () => {
 });
 
 test("updateApp keeps an existing auth block when the edit omits it", async () => {
-  const deps = makeDeps({
-    loadApp: (name: string) => ({
-      name,
-      repo: "org/shop-front",
-      qa: { needsReview: true, testDataPrefix: "qa" },
-      report: { onFailure: "github-issue" },
-      dev: { baseUrl: "https://x" },
-      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
-    }) as unknown as AppConfig,
-  });
-  const r = await updateApp({ name: "shop", baseUrl: "https://new" }, deps);
+  const deps = makeDeps(withConfig(SHOP_YAML));
+  const r = await updateApp({ name: "shop", baseUrl: "https://new.shop.example" }, deps);
   assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.match(deps.written["shop"] ?? "", /kind: form/);
-  assert.match(deps.written["shop"] ?? "", /usernameEnv: "QA_SHOP_TEST_USER"/);
+  assert.deepEqual(writtenConfig(deps)["auth"], parse(SHOP_YAML).auth);
 });
 
 test("updateApp clearAuth drops the auth block", async () => {
-  const deps = makeDeps({
-    loadApp: (name: string) => ({
-      name,
-      repo: "org/shop-front",
-      qa: { needsReview: true, testDataPrefix: "qa" },
-      report: { onFailure: "github-issue" },
-      dev: { baseUrl: "https://x" },
-      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
-    }) as unknown as AppConfig,
-  });
+  const deps = makeDeps(withConfig(SHOP_YAML));
   const r = await updateApp({ name: "shop", clearAuth: true }, deps);
   assert.equal(r.ok, true, JSON.stringify(r.errors));
-  assert.doesNotMatch(deps.written["shop"] ?? "", /kind: form/);
+  assert.equal(writtenConfig(deps)["auth"], undefined);
+  assert.equal(deps.written["shop"], SHOP_YAML.replace(/auth:\n(?: {2}.*\n)+\n/, ""));
+});
+
+test("updateApp with a login that names only its kind and variables keeps the login keys it does not know", async () => {
+  const deps = makeDeps(withConfig(SHOP_YAML));
+  const r = await updateApp({ name: "shop", auth: { kind: "form", usernameEnv: "SHOP_OTHER_USER", passwordEnv: "SHOP_PASS" } }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const auth = writtenConfig(deps)["auth"] as Record<string, unknown>;
+  assert.equal(auth["usernameEnv"], "SHOP_OTHER_USER");
+  assert.equal(auth["futureOption"], "keep-me");
+});
+
+test("updateApp of an unrelated field writes the config back as it was: comments, placeholders, tuning and blocks included", async () => {
+  const deps = makeDeps(withConfig(SHOP_YAML));
+  const r = await updateApp({ name: "shop", shadow: false }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], SHOP_YAML.replace("shadow: true", "shadow: false"));
+  assert.equal((deps.written["shop"] ?? "").includes(SHOP_ENV.SHOP_DEV_URL), false, "the expanded url must never replace its placeholder");
+});
+
+test("updateApp dryRun returns the patched config and writes nothing", async () => {
+  const deps = makeDeps(withConfig(SHOP_YAML));
+  const r = await updateApp({ name: "shop", shadow: false, dryRun: true }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(r.yaml, SHOP_YAML.replace("shadow: true", "shadow: false"));
+  assert.deepEqual(deps.written, {});
+});
+
+test("updateApp with a new repo writes that repo and the default branch the lookup returned", async () => {
+  const deps = makeDeps({
+    ...withConfig(SHOP_YAML),
+    getRepoInfo: async (repo: string) => ({ name: "new-repo", fullName: repo, private: false, defaultBranch: "trunk", description: null }),
+  });
+  const r = await updateApp({ name: "shop", repo: "org/new-repo" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const written = writtenConfig(deps);
+  assert.equal(written["repo"], "org/new-repo");
+  assert.equal(written["baseBranch"], "trunk");
+  assert.deepEqual(written["auth"], parse(SHOP_YAML).auth);
+});
+
+test("updateApp switching an app to the code target drops the login and keeps the rest, and the result is valid", async () => {
+  const deps = makeDeps(withConfig(SHOP_YAML));
+  const r = await updateApp({ name: "shop", target: "code" }, deps);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  const written = writtenConfig(deps);
+  assert.equal(written["code"], true);
+  assert.equal(written["auth"], undefined);
+  assert.deepEqual(written["openapi"], parse(SHOP_YAML).openapi);
+});
+
+test("updateApp reports a config it cannot read, and writes nothing", async () => {
+  const deps = makeDeps({ readConfig: () => { throw new Error("EACCES"); } });
+  const r = await updateApp({ name: "shop", shadow: false }, deps);
+  assert.equal(r.ok, false);
+  assert.match(r.errors?.[0] ?? "", /EACCES/);
+  assert.deepEqual(deps.written, {});
+});
+
+test("updateApp reports a config that is not valid YAML, and writes nothing", async () => {
+  const deps = makeDeps({ readConfig: () => "name: [unclosed\nrepo: x\n" });
+  const r = await updateApp({ name: "shop", shadow: false }, deps);
+  assert.equal(r.ok, false);
+  assert.ok((r.errors ?? []).length > 0);
+  assert.deepEqual(deps.written, {});
 });
 
 test("create applies env FIRST, validates the expanded YAML, then writes", async () => {
@@ -253,83 +356,26 @@ test("updateApp dryRun returns yaml without writing", async () => {
   assert.deepEqual(deps.written, {});
 });
 
-test("updateApp preserves an existing boundaries block, in order, across a rebuild", async () => {
-  const deps = makeDeps({
-    loadApp: (name: string) => ({
-      name,
-      repo: "org/shop-front",
-      qa: { needsReview: true, testDataPrefix: "qa" },
-      report: { onFailure: "github-issue" },
-      dev: { baseUrl: "https://x" },
-      boundaries: [HTTP_BOUNDARY, EVENT_BOUNDARY],
-    }) as unknown as AppConfig,
-  });
+test("updateApp keeps an existing boundaries block, in order, when it changes another field", async () => {
+  const withBoundaries = spliceBoundariesBlock(SHOP_YAML, [...serializeBoundary(HTTP_BOUNDARY), ...serializeBoundary(EVENT_BOUNDARY)]);
+  const deps = makeDeps(withConfig(withBoundaries));
 
-  const r = await updateApp({ name: "shop", baseUrl: "https://new" }, deps);
+  const r = await updateApp({ name: "shop", baseUrl: "https://new.shop.example" }, deps);
 
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
   const yaml = deps.written["shop"] ?? "";
-  assert.match(yaml, /boundaries:/);
+  assert.deepEqual(writtenConfig(deps)["boundaries"], parse(withBoundaries).boundaries);
   assert.match(yaml, /openApiPath: "src\/main\/resources\/openapi\/api-definition\.yaml"/);
   assert.match(yaml, /listenerBaseType: "ListenerMessageDelegate"/);
   /* order: the http entry (first in the input array) must appear before the event entry */
   assert.ok(yaml.indexOf("transport: http") < yaml.indexOf("transport: event"));
-
-  const expectedOnboard: OnboardInput = {
-    name: "shop",
-    repo: "org/shop-front",
-    baseBranch: "main",
-    baseUrl: "https://new",
-    target: "e2e",
-    needsReview: true,
-    shadow: true,
-    testDataPrefix: "qa",
-  };
-  const expected = spliceBoundariesBlock(buildYaml(expectedOnboard), [
-    ...serializeBoundary(HTTP_BOUNDARY),
-    ...serializeBoundary(EVENT_BOUNDARY),
-  ]);
-  assert.equal(yaml, expected);
 });
 
-test("updateApp dryRun returns the preserved boundaries block without writing", async () => {
-  const deps = makeDeps({
-    loadApp: (name: string) => ({
-      name,
-      repo: "org/shop-front",
-      qa: { needsReview: true, testDataPrefix: "qa" },
-      report: { onFailure: "github-issue" },
-      dev: { baseUrl: "https://x" },
-      boundaries: [HTTP_BOUNDARY],
-    }) as unknown as AppConfig,
-  });
-
-  const r = await updateApp({ name: "shop", baseUrl: "https://new", dryRun: true }, deps);
-
-  assert.equal(r.ok, true);
-  assert.deepEqual(deps.written, {});
-  assert.match(r.yaml ?? "", /boundaries:/);
-  assert.match(r.yaml ?? "", /openApiPath: "src\/main\/resources\/openapi\/api-definition\.yaml"/);
-});
-
-test("updateApp with no boundaries stays byte-identical to today's output", async () => {
+test("an app onboarding wrote comes back from an update as the rebuild would have written it", async () => {
   const deps = makeDeps();
 
   const r = await updateApp({ name: "shop", baseUrl: "https://new" }, deps);
 
-  assert.equal(r.ok, true);
-  const yaml = deps.written["shop"] ?? "";
-  assert.doesNotMatch(yaml, /boundaries:/);
-
-  const expectedOnboard: OnboardInput = {
-    name: "shop",
-    repo: "org/shop-front",
-    baseBranch: "main",
-    baseUrl: "https://new",
-    target: "e2e",
-    needsReview: true,
-    shadow: true,
-    testDataPrefix: "qa",
-  };
-  assert.equal(yaml, buildYaml(expectedOnboard));
+  assert.equal(r.ok, true, JSON.stringify(r.errors));
+  assert.equal(deps.written["shop"], buildYaml({ ...STOCK_ONBOARD, baseUrl: "https://new" }));
 });

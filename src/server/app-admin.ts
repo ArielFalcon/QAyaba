@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import { AppConfigSchema } from "../orchestrator/schemas";
 import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
 import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
-import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
+import { patchAppYaml } from "./onboarding/patch-app-yaml";
 import type { RepoInfo } from "../integrations/github";
 import type { TestTarget } from "../types";
 
@@ -24,6 +24,8 @@ export interface AppAdminDeps {
   deleteAuthMaterial(app: string): void;
   applyEnv(vars: Record<string, string>): string[];
   loadApp(name: string): AppConfig;
+  /** The config file's text exactly as written: comments and `${VAR}` placeholders included (loadApp returns them expanded). */
+  readConfig(name: string): string;
   env: Record<string, string | undefined>;
 }
 
@@ -138,30 +140,30 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
     }
   }
 
-  const target = input.target ?? (existing.code ? "code" : "e2e");
-  const onboard: OnboardInput = {
-    name: input.name,
-    repo: repoInfo?.fullName ?? repo,
-    baseBranch: repoInfo?.defaultBranch ?? existing.baseBranch ?? "main",
-    baseUrl: input.baseUrl ?? existing.dev?.baseUrl ?? `https://github.com/${repo}`,
-    versionUrl: input.versionUrl ?? existing.dev?.versionUrl ?? undefined,
-    target,
-    needsReview: input.needsReview ?? existing.qa.needsReview,
-    shadow: input.shadow ?? existing.qa.shadow ?? true,
-    testDataPrefix: input.testDataPrefix ?? existing.qa.testDataPrefix ?? "qa-bot",
-    services: input.services ?? existing.services?.map((s) => ({
-      repo: s.repo,
-      openapi: Array.isArray(s.openapi) ? s.openapi[0] : s.openapi,
-      versionUrl: s.versionUrl,
-    })),
-    ...(!input.clearAuth && (input.auth ?? existing.auth) ? { auth: input.auth ?? existing.auth } : {}),
-  };
+  let rawYaml: string;
+  try {
+    rawYaml = deps.readConfig(input.name);
+  } catch (err) {
+    return { ok: false, errors: [`cannot read the config of app '${input.name}': ${err instanceof Error ? err.message : String(err)}`] };
+  }
 
-  let yaml = buildYaml(onboard);
-  /* Preserve an existing boundaries: block — buildYaml carries none, so a naive rebuild would drop it. */
-  if (existing.boundaries?.length) {
-    const entryLines = existing.boundaries.flatMap((profile) => serializeBoundary(profile));
-    yaml = spliceBoundariesBlock(yaml, entryLines);
+  /* Edit the file in place: only what this call supplies is written, everything else stays as the operator left it. */
+  let yaml: string;
+  try {
+    yaml = patchAppYaml(rawYaml, {
+      ...(repoInfo ? { repo: repoInfo.fullName, baseBranch: repoInfo.defaultBranch } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+      ...(input.versionUrl !== undefined ? { versionUrl: input.versionUrl } : {}),
+      ...(input.target !== undefined ? { target: input.target } : {}),
+      ...(input.needsReview !== undefined ? { needsReview: input.needsReview } : {}),
+      ...(input.shadow !== undefined ? { shadow: input.shadow } : {}),
+      ...(input.testDataPrefix !== undefined ? { testDataPrefix: input.testDataPrefix } : {}),
+      ...(input.services !== undefined ? { services: input.services } : {}),
+      ...(input.auth !== undefined ? { auth: input.auth } : {}),
+      ...(input.clearAuth ? { clearAuth: true } : {}),
+    });
+  } catch (err) {
+    return { ok: false, errors: [err instanceof Error ? err.message : String(err)] };
   }
 
   const expansionEnv = { ...deps.env, ...(input.env ?? {}) };

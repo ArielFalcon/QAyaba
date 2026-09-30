@@ -422,6 +422,7 @@ const appAdminDeps: AppAdminDeps = {
   deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
   loadApp: (name) => loadAppConfig(name),
+  readConfig: (name) => readFileSync(join(ROOT, "config", "apps", `${name}.yaml`), "utf8"),
   env: process.env,
 };
 
