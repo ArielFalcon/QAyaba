@@ -64,13 +64,19 @@ export interface StubSubmit {
   enter?: boolean;
   requests?: StubRequest[];
   errors?: StubError[];
+  /** Where the browser ends up, signed in; absent means it stays on the page. */
+  landing?: string;
   /** What the page shows afterwards when it stays. */
   after?: StubPage;
+  /** Whether the saved session survives into a fresh context (default true). */
+  persists?: boolean;
 }
 
 export interface StubSite {
   /** A page by its path (a hash route keeps its hash) or, off the app's origin, by its full URL. */
   pages: Record<string, StubPage>;
+  /** The pages of a context that is signed in. */
+  authedPages?: Record<string, StubPage>;
   submit?: StubSubmit;
   /** Where a path or URL ends up when it is opened. */
   redirects?: Record<string, string>;
@@ -99,13 +105,14 @@ const log = (entry) => fs.appendFileSync(process.env.STUB_EVENTS, JSON.stringify
 const keyOf = (u) => (u.origin === site.origin ? u.pathname + u.hash : u.href);
 const who = (v) => (v === process.env.DEV_TEST_USER ? "user" : v === process.env.DEV_TEST_PASS ? "pass" : "other");
 const submit = site.submit || {};
-function makePage() {
+let contexts = 0;
+function makePage(ctx, state) {
   const events = new EventEmitter();
   const page = { on: (name, listener) => events.on(name, listener) };
   const typed = {};
   let current = new URL("about:blank");
   let staying = null;
-  const def = () => staying || site.pages[keyOf(current)] || {};
+  const def = () => staying || (state.authed && (site.authedPages || {})[keyOf(current)]) || site.pages[keyOf(current)] || {};
   /* What the page logs while it loads is read back slowly (a turn of the event loop), as a browser's answer to a handle is. */
   const raise = (e, slow) => {
     if (e.kind === "pageerror") return events.emit("pageerror", new Error(e.text));
@@ -116,7 +123,7 @@ function makePage() {
     events.emit("console", { type: () => "error", text: () => e.text, args: () => [{ evaluate }] });
   };
   const submitted = (via, key, i) => {
-    log({ t: "submit", via, key, i });
+    log({ t: "submit", via, key, i, ctx });
     if (via === "press" && submit.enter === false) return;
     for (const r of submit.requests || []) {
       const request = { method: () => r.method, url: () => new URL(r.url, site.origin).href, resourceType: () => r.resourceType || "fetch" };
@@ -125,13 +132,14 @@ function makePage() {
       else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
     }
     (submit.errors || []).forEach((e) => raise(e, false));
-    if (submit.after) staying = submit.after;
+    if (submit.landing) { state.authed = true; state.persists = submit.persists !== false; current = new URL(submit.landing, site.origin); staying = null; }
+    else if (submit.after) staying = submit.after;
   };
   page.goto = async (target) => {
     const asked = new URL(target);
-    log({ t: "goto", to: keyOf(asked) });
+    log({ t: "goto", to: keyOf(asked), ctx });
     if ((site.gotoFails || []).includes(keyOf(asked))) throw new Error("navigation failed");
-    const redirected = site.redirects && site.redirects[keyOf(asked)];
+    const redirected = !state.authed && site.redirects && site.redirects[keyOf(asked)];
     current = redirected ? new URL(redirected, site.origin) : asked;
     staying = null;
     (def().errors || []).forEach((e) => raise(e, true));
@@ -161,10 +169,21 @@ function makePage() {
   };
   return page;
 }
+function makeContext(options) {
+  const id = ++contexts;
+  log({ t: "context", id, storageState: !!options.storageState, credentialsOrigin: options.httpCredentials ? options.httpCredentials.origin : null, options: Object.keys(options) });
+  const state = { authed: false, persists: false };
+  if (options.storageState) state.authed = JSON.parse(fs.readFileSync(options.storageState, "utf8")).cookies.length > 0;
+  return {
+    newPage: async () => makePage(id, state),
+    storageState: async ({ path }) => fs.writeFileSync(path, JSON.stringify({ cookies: state.persists ? [{ name: "session" }] : [], origins: [] })),
+    close: async () => {},
+  };
+}
 exports.chromium = {
   launch: async () => {
     if (process.env.STUB_LAUNCH_ERROR) throw new Error(process.env.STUB_LAUNCH_ERROR);
-    return { newContext: async () => ({ newPage: async () => makePage(), close: async () => {} }), close: async () => {} };
+    return { newContext: async (options = {}) => makeContext(options), close: async () => {} };
   },
 };
 `;
@@ -176,6 +195,11 @@ export interface StubEvent {
   as?: string;
   via?: string;
   key?: string;
+  ctx?: number;
+  id?: number;
+  storageState?: boolean;
+  credentialsOrigin?: string | null;
+  options?: string[];
   timeout?: number;
 }
 

@@ -21,6 +21,8 @@ export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "
 export const MAX_GATED_ROUTES = 3;
 /** The least the child waits for the password field to go after the submit: the stock seed's own wait. A slower DEV widens it through the action timeout. */
 export const POST_SUBMIT_MIN_WAIT_MS = 8_000;
+/** What the ladder may spend finding and submitting the form before the child stops looking. */
+export const DEFAULT_LADDER_BUDGET_MS = 45_000;
 
 const DEFAULT_NAV_TIMEOUT_MS = 10_000;
 const DEFAULT_SETTLE_MS = 5_000;
@@ -31,6 +33,7 @@ const LOGIN_REQUEST_TYPES = ["xhr", "fetch", "document"];
 
 export function buildLoginDiscoveryScript(playwrightRequirePath = "playwright"): string {
   return String.raw`const { chromium } = require(${JSON.stringify(playwrightRequirePath)});
+const fs = require("node:fs");
 const input = JSON.parse(process.env.PW_LOGIN_INPUT || "{}");
 const user = process.env.DEV_TEST_USER || "";
 const pass = process.env.DEV_TEST_PASS || "";
@@ -43,10 +46,12 @@ const MAX_REQUESTS = ${MAX_RENDERED_REQUESTS};
 const LOGIN_REQUEST_TYPES = ${JSON.stringify(LOGIN_REQUEST_TYPES)};
 const NAV_TIMEOUT_MS = input.navTimeoutMs || ${DEFAULT_NAV_TIMEOUT_MS};
 const SETTLE_MS = input.settleMs || ${DEFAULT_SETTLE_MS};
+const BUDGET_MS = input.budgetMs === undefined ? ${DEFAULT_LADDER_BUDGET_MS} : input.budgetMs;
 const POST_SUBMIT_WAIT_MS = Math.max(${POST_SUBMIT_MIN_WAIT_MS}, Number(input.actionTimeoutMs) || 0);
 const USER_FIELD_TYPES = ["text", "email", "tel"];
 const LOGIN_LINK_HINT = /log ?in|sign ?in|sign ?on/i;
 const baseOrigin = new URL(input.baseUrl).origin;
+const startedAt = Date.now();
 
 /* Every way a URL, a form body, a JSON body or an HTML page can spell the account back; a text passes through here before it can leave. */
 const secrets = [user, pass].filter(function (secret) { return secret.length > 0; });
@@ -167,6 +172,13 @@ function pickLoginLink(links, from) {
   return null;
 }
 
+/* The browser context options: the dev gate's credentials scoped to the app's own origin, and nothing that records. */
+function contextOptions(extra) {
+  const options = Object.assign({}, extra);
+  if (process.env.DEV_ENV_USER) options.httpCredentials = { username: process.env.DEV_ENV_USER, password: process.env.DEV_ENV_PASS || "", origin: baseOrigin };
+  return options;
+}
+
 /* What the page and the network do around the submit. Attached before the first navigation so what was already going wrong is on record. */
 function watch(page, evidence) {
   const state = { phase: "before", seenBefore: new Set(), pending: [], tracked: new Map(), inFlight: new Set(), requests: [], alertsBefore: new Set() };
@@ -237,6 +249,7 @@ async function findLoginForm(page, evidence, watching) {
   for (let n = 0; n < steps.length; n++) {
     const url = resolveStep(steps[n], input.baseUrl);
     if (!url || visited.has(keyOf(url))) continue;
+    if (visited.size > 0 && Date.now() - startedAt >= BUDGET_MS) break;
     visited.add(keyOf(url));
     evidence.ladder.push(keyOf(url));
     try {
@@ -290,11 +303,12 @@ async function fillAndSubmit(page, found, evidence, watching) {
   if (control) return submitOnce(async function () { await at(control).click(); }, evidence, watching);
 }
 
-/* Waits for the password field to go, then reads the page once more: what the submit sent, what the page shows and what it threw. */
-async function observeSubmit(page, evidence, found, watching) {
+/* Waits for the password field to go, reads the page once more, and, when it went, saves the session and reads a fresh context opened with it at the path the submit ended on. */
+async function observeSubmit(page, context, browser, evidence, found, watching) {
   await page.waitForFunction(noVisiblePassword, undefined, { timeout: POST_SUBMIT_WAIT_MS }).catch(function () {});
   await watching.settle();
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
+  const now = new URL(page.url());
   const after = await readPage(page);
   evidence.requests = watching.requests.slice().sort(function (a, b) {
     return (a.method + " " + a.pathname + " " + a.status).localeCompare(b.method + " " + b.pathname + " " + b.status);
@@ -307,6 +321,21 @@ async function observeSubmit(page, evidence, found, watching) {
   evidence.firstAlert = alert === undefined ? null : noteText(alert);
   evidence.submitDisabled = !evidence.passwordGone && after.fields.some(function (field) { return field.form === found.password.form && field.type === "submit" && field.disabled; });
   evidence.finalPath = finalPathOf(page, evidence);
+  if (!evidence.passwordGone || now.origin !== baseOrigin) return;
+  await context.storageState({ path: input.storageStatePath });
+  evidence.storageStateWritten = fs.existsSync(input.storageStatePath);
+  if (!evidence.storageStateWritten) return;
+  const fresh = await browser.newContext(contextOptions({ storageState: input.storageStatePath }));
+  try {
+    const freshPage = await fresh.newPage();
+    await freshPage.goto(new URL(keyOf(now), input.baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+    await freshPage.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(function () {});
+    if (new URL(freshPage.url()).origin !== baseOrigin) return;
+    evidence.freshContextChecked = true;
+    evidence.freshContextPasswordGone = noPasswordShowing((await readPage(freshPage)).fields);
+  } finally {
+    await fresh.close().catch(function () {});
+  }
 }
 
 (async function () {
@@ -314,12 +343,12 @@ async function observeSubmit(page, evidence, found, watching) {
   let browser;
   try {
     browser = await chromium.launch();
-    const context = await browser.newContext();
+    const context = await browser.newContext(contextOptions({}));
     const page = await context.newPage();
     const watching = watch(page, evidence);
     const found = await findLoginForm(page, evidence, watching);
     if (found) await fillAndSubmit(page, found, evidence, watching);
-    if (evidence.submitted) await observeSubmit(page, evidence, found, watching);
+    if (evidence.submitted) await observeSubmit(page, context, browser, evidence, found, watching);
     else evidence.finalPath = finalPathOf(page, evidence);
     emit({ evidence: evidence });
   } catch (error) {
