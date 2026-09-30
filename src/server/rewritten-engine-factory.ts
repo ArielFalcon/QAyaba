@@ -916,6 +916,8 @@ export function buildRewrittenCompositionConfig(
           authSession: new AuthSessionAdapter({
             env: process.env,
             authDir,
+            ...(app.e2e?.testIdAttribute !== undefined ? { testIdAttribute: app.e2e.testIdAttribute } : {}),
+            ...(pwActionTimeoutMs !== undefined ? { actionTimeoutMs: pwActionTimeoutMs } : {}),
             spawnSetup: async (specDir, env, signal) => {
               const result = await runner.run({
                 command: "npx",

@@ -23,8 +23,18 @@ export interface AuthSessionAdapterDeps {
   env: NodeJS.ProcessEnv;
   /** Orchestrator-only directory (outside the mirror) auth material is written to and read from. */
   authDir: string;
+  /** The app's test-id attribute; the setup project resolves locators with it as the suite does. */
+  testIdAttribute?: string;
+  /** The action auto-wait bound (ms, as the seed config reads it); a slower DEV can widen it. */
+  actionTimeoutMs?: string;
   spawnSetup(specDir: string, env: Record<string, string>, signal?: AbortSignal): Promise<AuthSessionSpawnResult>;
 }
+
+/* The env names the seed playwright.config.ts reads for the test-id attribute and the action auto-wait bound; the execute and DOM-capture spawns pass the same pair. */
+export const AUTH_SETUP_ENV = {
+  testIdAttribute: "PW_TEST_ID_ATTRIBUTE",
+  actionTimeoutMs: "PW_ACTION_TIMEOUT_MS",
+} as const;
 
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
@@ -95,6 +105,8 @@ export class AuthSessionAdapter implements AuthSessionPort {
          --project and must not execute the login as a case. */
       PW_AUTH_SETUP: "1",
     };
+    if (this.deps.testIdAttribute) childEnv[AUTH_SETUP_ENV.testIdAttribute] = this.deps.testIdAttribute;
+    if (this.deps.actionTimeoutMs) childEnv[AUTH_SETUP_ENV.actionTimeoutMs] = this.deps.actionTimeoutMs;
     if (this.deps.env.DEV_ENV_USER) {
       childEnv.DEV_ENV_USER = this.deps.env.DEV_ENV_USER;
       childEnv.DEV_ENV_PASS = this.deps.env.DEV_ENV_PASS ?? "";

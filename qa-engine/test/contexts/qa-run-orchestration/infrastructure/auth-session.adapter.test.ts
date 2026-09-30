@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, statSync, rmSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AuthSessionAdapter } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
+import { AUTH_SETUP_ENV, AuthSessionAdapter, type AuthSessionAdapterDeps } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts";
 import { authSessionEnv } from "../../../../src/shared-infrastructure/process-sandbox/auth-session-env.ts";
 
 /* The login seed as it ships today, and as an earlier revision shipped it into watched repos. */
@@ -357,4 +357,63 @@ test("a client certificate injects only the certificate, never an earlier form s
     rmSync(specDir, { recursive: true, force: true });
     rmSync(authDir, { recursive: true, force: true });
   }
+});
+
+/* The setup project runs the same seed playwright.config.ts as the suite, so it needs the app's
+   test-id attribute and action timeout to resolve locators and bound its waits the way the suite does. */
+async function setupSpawnEnv(deps: Partial<Pick<AuthSessionAdapterDeps, "testIdAttribute" | "actionTimeoutMs">>): Promise<Record<string, string>> {
+  const specDir = mkdtempSync(join(tmpdir(), "auth-"));
+  const authDir = authDirFixture();
+  try {
+    let capturedEnv: Record<string, string> = {};
+    const adapter = new AuthSessionAdapter({
+      env: { QA_USER: "u", QA_PASS: "p" },
+      authDir,
+      spawnSetup: async (_dir, env) => {
+        capturedEnv = env;
+        return { exitCode: 1, logs: "" };
+      },
+      ...deps,
+    });
+    await adapter.prepare({
+      specDir,
+      baseUrl: "https://dev.example",
+      phase: "pre-generate",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    });
+    return capturedEnv;
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(authDir, { recursive: true, force: true });
+  }
+}
+
+test("the setup spawn receives the configured test-id attribute and action timeout", async () => {
+  const env = await setupSpawnEnv({ testIdAttribute: "data-cy", actionTimeoutMs: "15000" });
+  assert.equal(env[AUTH_SETUP_ENV.testIdAttribute], "data-cy");
+  assert.equal(env[AUTH_SETUP_ENV.actionTimeoutMs], "15000");
+});
+
+test("the setup spawn carries neither name when the app configures neither", async () => {
+  const env = await setupSpawnEnv({});
+  assert.equal(AUTH_SETUP_ENV.testIdAttribute in env, false);
+  assert.equal(AUTH_SETUP_ENV.actionTimeoutMs in env, false);
+});
+
+test("the test-id attribute and the action timeout are passed independently of each other", async () => {
+  const onlyAttribute = await setupSpawnEnv({ testIdAttribute: "data-qa" });
+  assert.equal(onlyAttribute[AUTH_SETUP_ENV.testIdAttribute], "data-qa");
+  assert.equal(AUTH_SETUP_ENV.actionTimeoutMs in onlyAttribute, false);
+
+  const onlyTimeout = await setupSpawnEnv({ actionTimeoutMs: "20000" });
+  assert.equal(onlyTimeout[AUTH_SETUP_ENV.actionTimeoutMs], "20000");
+  assert.equal(AUTH_SETUP_ENV.testIdAttribute in onlyTimeout, false);
+});
+
+/* An empty timeout would reach the seed config as Number("") = 0, which Playwright reads as "no
+   action timeout"; an empty attribute would name no attribute at all. Neither is passed on. */
+test("an empty test-id attribute or action timeout is not passed to the setup spawn", async () => {
+  const env = await setupSpawnEnv({ testIdAttribute: "", actionTimeoutMs: "" });
+  assert.equal(AUTH_SETUP_ENV.testIdAttribute in env, false);
+  assert.equal(AUTH_SETUP_ENV.actionTimeoutMs in env, false);
 });

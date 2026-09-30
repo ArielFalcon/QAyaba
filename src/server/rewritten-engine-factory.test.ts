@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
@@ -15,6 +15,7 @@ import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTre
 import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
 import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
 import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
 import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
@@ -103,6 +104,53 @@ test("composing an e2e app does not read the auth setup seed, whether or not the
     else process.env.QAYABA_ROOT = previousRoot;
     rmSync(rootWithoutSeed, { recursive: true, force: true });
   }
+});
+
+/* The login setup runs the seed playwright.config.ts like the suite does, so the composed auth
+   session hands its spawn the app's test-id attribute and the configured action timeout. The `npx`
+   on PATH is the process-boundary double: it records the two names it was started with. */
+async function authSetupSpawnEnv(app: AppConfig, actionTimeoutMs: string | undefined): Promise<{ testIdAttribute: string; actionTimeoutMs: string }> {
+  const root = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
+  const specDir = mkdtempSync(join(tmpdir(), "factory-spec-"));
+  const saved = new Map(["QAYABA_ROOT", "PATH", AUTH_SETUP_ENV.actionTimeoutMs, "QA_FORM_USER", "QA_FORM_PASS"].map((k) => [k, process.env[k]]));
+  try {
+    const npx = join(binDir, "npx");
+    writeFileSync(npx, `#!/bin/sh\nprintf '%s\\n%s\\n' "\${${AUTH_SETUP_ENV.testIdAttribute}-unset}" "\${${AUTH_SETUP_ENV.actionTimeoutMs}-unset}" > setup-env.txt\nexit 1\n`);
+    chmodSync(npx, 0o755);
+    process.env.QAYABA_ROOT = root;
+    process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
+    process.env.QA_FORM_USER = "synthetic-user";
+    process.env.QA_FORM_PASS = "synthetic-pass";
+    if (actionTimeoutMs === undefined) delete process.env[AUTH_SETUP_ENV.actionTimeoutMs];
+    else process.env[AUTH_SETUP_ENV.actionTimeoutMs] = actionTimeoutMs;
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
+    await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
+    const [testIdAttribute = "", timeout = ""] = readFileSync(join(specDir, "setup-env.txt"), "utf8").split("\n");
+    return { testIdAttribute, actionTimeoutMs: timeout };
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    for (const dir of [root, binDir, specDir]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const formAuth: AppConfig["auth"] = { kind: "form", usernameEnv: "QA_FORM_USER", passwordEnv: "QA_FORM_PASS" };
+
+test("the composed auth session gives its setup spawn the app's test-id attribute and the configured action timeout", async () => {
+  const app: AppConfig = { ...cfg("auth-env-configured"), auth: formAuth, e2e: { testIdAttribute: "data-cy" } };
+  const seen = await authSetupSpawnEnv(app, "15000");
+  assert.equal(seen.testIdAttribute, "data-cy");
+  assert.equal(seen.actionTimeoutMs, "15000");
+});
+
+test("the composed auth session passes neither name to its setup spawn when the app configures neither", async () => {
+  const seen = await authSetupSpawnEnv({ ...cfg("auth-env-unconfigured"), auth: formAuth }, undefined);
+  assert.equal(seen.testIdAttribute, "unset");
+  assert.equal(seen.actionTimeoutMs, "unset");
 });
 
 test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
