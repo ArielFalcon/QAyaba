@@ -114,3 +114,19 @@ export function errorClassFromVerdict(
       return null;
   }
 }
+
+/*
+ * One plain sentence for an infra-error run, by the class that closed it. An infra-error is not
+ * always the DEV environment: the agent can run out of steps or decide nothing, which is the engine's
+ * own condition and never the app's. Every operator surface words an infra-error through this, so a
+ * class it does not know (or no class at all) reads as the neutral "could not reach a verdict".
+ */
+const ENGINE_SIDE_GLOSS: Readonly<Record<string, string>> = {
+  "E-STEP-BUDGET": "the agent ran out of steps before writing any spec — an engine-side condition, not a fault of the app",
+  "E-NO-DECISION": "the agent returned no specs and no decision to skip — an engine-side condition, not a fault of the app",
+};
+const NEUTRAL_INFRA_GLOSS = "the run could not reach a verdict — infrastructure, not a code fault";
+
+export function infraErrorGloss(errorClass: string | null | undefined): string {
+  return (errorClass ? ENGINE_SIDE_GLOSS[errorClass] : undefined) ?? NEUTRAL_INFRA_GLOSS;
+}

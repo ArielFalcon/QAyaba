@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
+import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
 import { Sha } from "@kernel/sha.ts";
 import { UntrustedGitTreeError } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 import type {
@@ -700,7 +702,7 @@ const tenScenarios: TenScenarioCase[] = [
      */
     scenario: "no-op-skip",
     overrides: {
-      generate: async () => (scriptedGeneration({ specs: [], approved: true })),
+      generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
     },
     config: baseConfig,
     input: {},
@@ -1505,7 +1507,7 @@ test("coveragePolicyMode:\"off\" threads coverageWillMeasure:false into the FixL
 test("agent no-op skip calls runHistory.save() but NOT learning.fold()", async () => {
   let saveCallCount = 0;
   let foldCallCount = 0;
-  const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], approved: true })) });
+  const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })) });
   ports.runHistory.save = async () => { saveCallCount++; };
   ports.learning.fold = async () => { foldCallCount++; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2591,12 +2593,12 @@ test("errorClass is null on a clean green pass (healthy runs teach nothing, neve
    context-mode invalid must NOT persist, and the static-fix loop runs in the validate phase.
  */
 
-test("reviewerApproved is sourced from GENERATION's own approved flag when review never genuinely runs (verdict !== 'pass')", async () => {
+test("reviewerApproved is sourced from a reviewed generation's own approved flag when review never genuinely runs (verdict !== 'pass')", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   let reviewCallCount = 0;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "fail", cases: [{ name: "login", status: "fail" as const }], logs: "x" }),
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true })),
+    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: true, reviewed: true })),
   });
   ports.review.review = async () => { reviewCallCount++; return { approved: true, corrections: [], blockingCount: 0, parsed: true }; };
   ports.runHistory.save = async (outcome) => { saved = outcome; };
@@ -2610,12 +2612,12 @@ test("reviewerApproved is sourced from GENERATION's own approved flag when revie
   assert.equal(saved!.gateSignals.reviewerApproved, true, "reviewerApproved must be sourced from GENERATION's own approved flag (needsReview gated, verdict-independent) — the review step never ran, so generation's own verdict is the only one");
 });
 
-test("reviewerApproved reflects generation's OWN rejection (false) on a non-pass verdict, not a fabricated true", async () => {
+test("reviewerApproved reflects a reviewed generation's OWN rejection (false) on a non-pass verdict, not a fabricated true", async () => {
   let saved: import("@kernel/run-outcome.ts").RunOutcome | undefined;
   const { ports } = stubPorts({
     execute: async () => ({ verdict: "invalid" as never, cases: [], logs: "" }), /* unused; validate() blocks first */
     validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }),
-    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: false })),
+    generate: async () => (scriptedGeneration({ specs: ["a.spec.ts"], approved: false, reviewed: true })),
   });
   ports.runHistory.save = async (outcome) => { saved = outcome; };
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
@@ -2816,20 +2818,35 @@ test("the static-fix loop is bounded — a static gate that never recovers resol
   assert.equal(generateCallCount, 1 + MAX_STATIC_FIX_ROUNDS, "one repair regeneration per round on top of the initial generate()");
 });
 
-test("the static-fix loop is SKIPPED entirely when generation produced zero specs (nothing to repair)", async () => {
+test("the static-fix loop stops as soon as a repair produces no specs (nothing left to repair)", async () => {
   let validateCallCount = 0;
   let generateCallCount = 0;
   const { ports } = stubPorts({
-    validate: async () => { validateCallCount++; return { ok: false, errors: ["no specs were generated to validate"] }; },
-    generate: async () => { generateCallCount++; return scriptedGeneration({ specs: [], approved: false }); },
+    validate: async () => { validateCallCount++; return { ok: false, errors: ["[lint] no-wait-for-timeout"] }; },
+    generate: async () => {
+      generateCallCount++;
+      return generateCallCount === 1 ? scriptedGeneration({ specs: ["a.spec.ts"], approved: true }) : scriptedGeneration({ specs: [], approved: true });
+    },
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
-  const out = await useCase.run({ ...baseInput, runId: "static-repair-skip-zero-specs" });
+  const out = await useCase.run({ ...baseInput, runId: "static-repair-stops-on-empty-repair" });
 
   assert.equal(out.decision.verdict, "invalid");
-  assert.equal(validateCallCount, 1, "zero generated specs must skip the static-fix loop entirely — exactly 1 validate() call, no repair re-validates");
-  assert.equal(generateCallCount, 1, "the static-fix loop must never regenerate when there is nothing to repair (matches the legacy's (result?.specs.length ?? 0) > 0 guard)");
+  assert.equal(generateCallCount, 2, "the initial generation plus the one repair, which came back empty: no further repair is attempted");
+  assert.equal(validateCallCount, 2, "one initial validate() plus the re-validate after that single repair");
+});
+
+test("a generation with no specs never reaches validation: its end closes the run before the static gate", async () => {
+  let validateCallCount = 0;
+  const { ports } = stubPorts({
+    validate: async () => { validateCallCount++; return { ok: false, errors: ["no specs were generated to validate"] }; },
+    generate: async () => scriptedGeneration({ specs: [], approved: false, end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }),
+  });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, runId: "zero-specs-skip-static-gate" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.NO_DECISION);
+  assert.equal(validateCallCount, 0);
 });
 
 /* The queue's AbortSignal is a SEPARATE transport arg on run(), not a field on RunQaInput.
@@ -4038,7 +4055,7 @@ test("no-op skip (approved + zero specs) still works — needsReview:true genera
      changes GenerationPortAdapter's ctx.needsReview, not this use-case's OWN generation stub
      contract) — generation returning approved:true with zero specs is ALWAYS a valid skip.
    */
-  const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], approved: true })) });
+  const { ports } = stubPorts({ generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })) });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
   const out = await useCase.run({ ...baseInput, runId: "w2-f4-no-op-skip-preserved" });
@@ -5075,7 +5092,8 @@ function fakeGenerationPortsForAntiInert(capture: { input?: OpencodeRunInput }):
       specFileForFlow: (f: string) => `${f}.spec.ts`,
     },
     verdicts: {
-      parseGenerator: () => ({ specs: [] }),
+      /* The tests below read the generator's input only; a declared no-op ends the run without touching anything else. */
+      parseGenerator: () => ({ specs: [], noopReason: "the test only inspects what the generator was given" }),
       parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
     },
     manifest: { read: async () => [], reconcile: async (_d, entries) => [...entries] },
@@ -5524,7 +5542,7 @@ test("no-op honored: a genuine agent no-op (parsed:true + approved + zero specs)
     /* The agent emitted a real, parseable verdict deciding no tests are warranted — the legitimate
        CLAUDE.md no-op that MUST stay `skipped`. Only parsed:false (above) diverts to infra-error.
      */
-    generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: true })),
+    generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
   });
   const useCase = new RunQaUseCase({ ...ports, config: baseConfig });
 
@@ -5613,7 +5631,7 @@ test("confinement wiring: agent-no-op skip still persists confinement telemetry 
      that ends "skipped" after the guard reverted a stray must still show that in its audit trail.
    */
   const { ports, savedOutcomes } = stubPorts({
-    generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: true })),
+    generate: async () => (scriptedGeneration({ specs: [], approved: true, parsed: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
   });
   const confinement = makeFakeConfinement(() => ({ strays: 1, dangerous: 0, reverted: ["stray.txt"] }));
   const useCase = new RunQaUseCase({ ...ports, confinement, config: baseConfig });
@@ -6039,7 +6057,7 @@ test("mirrorGc wiring: a classify-skip verdict (bare-return skip, no persistence
 test("mirrorGc wiring: an agent-no-op skip verdict (approved + zero specs) also triggers prune() once, after this exit's own runHistory.save()", async () => {
   const order: string[] = [];
   const { ports } = stubPorts({
-    generate: async () => (scriptedGeneration({ specs: [], approved: true })),
+    generate: async () => (scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing in this change is worth a test" })),
     save: async () => { order.push("save"); },
   });
   const mirrorGc = makeFakeMirrorGc((mirrorDir) => {
@@ -6878,4 +6896,159 @@ test("a seed that signed in does not flag generation to rewrite auth.setup.ts", 
   const { useCase, enrichments } = authSeedRun({ unauthoredAtGenerate: false });
   await useCase.run({ ...baseInput, runId: "auth-seed-signed-in" });
   assert.notEqual(enrichments[0]?.authSeedUnauthored, true);
+});
+
+/* ── How a generation ended decides how the run ends ───────────────────────────────────────────── */
+
+const EXHAUSTED_NOTE = "Step budget exhausted with no spec written (steps 30/30; writes 0). Output tail: the harness was reviewed.";
+const EXHAUSTED_TURN = { maxSteps: 30, stepsUsed: 30, exhausted: true, writeCount: 0, observationComplete: true };
+
+interface EndRun {
+  out: Awaited<ReturnType<RunQaUseCase["run"]>>;
+  savedOutcomes: RunOutcome[];
+  events: import("@kernel/run-event.ts").RunEventBody[];
+  published: number;
+  validated: number;
+  executed: number;
+  pruned: string[];
+}
+
+async function runEndingWith(generation: ReturnType<typeof scriptedGeneration>, config = baseConfig): Promise<EndRun> {
+  let published = 0;
+  let validated = 0;
+  let executed = 0;
+  const pruned: string[] = [];
+  const { ports, savedOutcomes } = stubPorts({
+    generate: async () => generation,
+    publish: async () => { published++; return { outcome: "issue" }; },
+    validate: async () => { validated++; return { ok: true, errors: [] }; },
+    execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
+  });
+  const { observer, events } = fakeObserver();
+  const out = await new RunQaUseCase({ ...ports, observer, config, mirrorGc: { prune: async (dir: string) => { pruned.push(dir); } } }).run(baseInput);
+  return { out, savedOutcomes, events, published, validated, executed, pruned };
+}
+
+test("a generation that ran out of steps with no specs ends the run as a persisted infra-error with the step-budget class and its note", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.STEP_BUDGET);
+  assert.equal(run.savedOutcomes.length, 1, "the run is persisted, unlike a run with no readable verdict");
+  assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+  assert.ok((run.savedOutcomes[0]!.note ?? "").includes(EXHAUSTED_NOTE));
+  assert.ok((run.out.note ?? "").includes(EXHAUSTED_NOTE));
+});
+
+test("an exhausted generation opens no Issue, runs no validation or execution, and prunes its working copy", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
+  assert.equal(run.out.decision.sideEffect, "none");
+  assert.equal(run.published, 0);
+  assert.equal(run.validated, 0);
+  assert.equal(run.executed, 0);
+  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+});
+
+test("an exhausted generation reports itself as an agent error carrying its note, and as a log line", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
+  const error = run.events.find((e) => e.type === "agent.error");
+  assert.ok(error && error.type === "agent.error");
+  assert.ok(error.detail.includes(EXHAUSTED_NOTE));
+  assert.ok(run.events.some((e) => e.type === "log.line" && e.level === "error"), "the terminal is also written to the log");
+});
+
+test("a generation that decided nothing ends the run as a persisted infra-error with the no-decision class, its note and the same events", async () => {
+  const note = "The generator returned no specs and no no-op decision, even after one repair (steps 12/30; writes 0). Output tail: ok.";
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.UNDECIDED_EMPTY, note }));
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.decision.sideEffect, "none");
+  assert.equal(run.out.errorClass, ERROR_CLASS.NO_DECISION);
+  assert.equal(run.savedOutcomes.length, 1);
+  assert.equal(run.savedOutcomes[0]!.errorClass, ERROR_CLASS.NO_DECISION);
+  assert.ok((run.savedOutcomes[0]!.note ?? "").includes(note));
+  assert.ok(run.events.some((e) => e.type === "agent.error" && e.detail.includes(note)));
+  assert.equal(run.published, 0);
+  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+});
+
+test("a generation with no readable verdict keeps its unpersisted infra-error", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.NO_VERDICT, note: "the agent emitted no parseable verdict" }));
+  assert.equal(run.out.decision.verdict, "infra-error");
+  assert.equal(run.out.errorClass, ERROR_CLASS.INFRA);
+  assert.equal(run.savedOutcomes.length, 0);
+  assert.match(run.out.note ?? "", /no parseable verdict/);
+});
+
+test("a declared no-op skips the run with the agent's reason as its persisted note", async () => {
+  const reason = "The diff only renames an internal helper.";
+  const run = await runEndingWith(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: reason }));
+  assert.equal(run.out.decision.verdict, "skipped");
+  assert.equal(run.out.errorClass, null);
+  assert.equal(run.savedOutcomes.length, 1);
+  assert.equal(run.savedOutcomes[0]!.note, reason);
+  assert.equal(run.savedOutcomes[0]!.verdict, "skipped");
+  assert.deepEqual(run.pruned, ["/tmp/qa-golden"]);
+  assert.equal(run.published, 0);
+});
+
+test("a generation that delivered specs while exhausting its steps continues to a normal outcome and only logs the exhaustion", async () => {
+  const run = await runEndingWith(scriptedGeneration({ specs: ["a.spec.ts"], approved: true, end: GENERATION_END.DELIVERED, turn: EXHAUSTED_TURN }));
+  assert.equal(run.out.decision.verdict, "pass");
+  assert.equal(run.executed, 1);
+  assert.equal(run.events.some((e) => e.type === "agent.error"), false, "no failure is reported for a run that delivered");
+  assert.ok(run.events.some((e) => e.type === "log.line" && e.text.includes("30/30")), "the exhaustion is recorded in the log with its step count");
+});
+
+test("a delivered generation that did not exhaust its steps logs nothing about them", async () => {
+  const finished = { ...EXHAUSTED_TURN, stepsUsed: 12, exhausted: false };
+  const run = await runEndingWith(scriptedGeneration({ specs: ["a.spec.ts"], approved: true, end: GENERATION_END.DELIVERED, turn: finished }));
+  assert.equal(run.events.some((e) => e.type === "log.line" && e.text.includes("30")), false);
+});
+
+test("a regression run, which generates nothing, is not read as a generation end and still runs the existing suite", async () => {
+  let executed = 0;
+  const { ports } = stubPorts({
+    classify: async () => ({ action: "regression", reason: "docs only", diff: "" }),
+    execute: async () => { executed++; return { verdict: "pass", cases: [], logs: "" }; },
+  });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput);
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(executed, 1);
+});
+
+/* ── The reviewer outcome is reported only when a reviewer ran ─────────────────────────────────── */
+
+const BROKEN_SPEC_GATE = { ok: false, errors: ["[lint] no-wait-for-timeout"] };
+
+async function runWithFailingGate(generation: ReturnType<typeof scriptedGeneration>): Promise<RunOutcome> {
+  const { ports, savedOutcomes } = stubPorts({ generate: async () => generation, validate: async () => BROKEN_SPEC_GATE });
+  await new RunQaUseCase({ ...ports, config: baseConfig }).run(baseInput);
+  return savedOutcomes[0]!;
+}
+
+test("a generation no reviewer looked at leaves the reviewer outcome absent on a non-pass terminal, whatever the placeholder flag says", async () => {
+  const outcome = await runWithFailingGate(scriptedGeneration({ specs: ["a.spec.ts"], approved: true, reviewed: false }));
+  assert.equal(outcome.verdict, "invalid");
+  assert.equal(outcome.gateSignals.reviewerApproved, undefined);
+});
+
+test("a generation a reviewer did look at reports that reviewer's approval on a non-pass terminal, approved or not", async () => {
+  const approved = await runWithFailingGate(scriptedGeneration({ specs: ["a.spec.ts"], approved: true, reviewed: true }));
+  assert.equal(approved.gateSignals.reviewerApproved, true);
+  const rejected = await runWithFailingGate(scriptedGeneration({ specs: ["a.spec.ts"], approved: false, reviewed: true }));
+  assert.equal(rejected.gateSignals.reviewerApproved, false);
+});
+
+test("a declared no-op reports the reviewer's approval only when a reviewer ran", async () => {
+  const unreviewed = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: false, end: GENERATION_END.DECLARED_NOOP, note: "nothing to test" }));
+  assert.equal(unreviewed.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
+  assert.equal(unreviewed.out.gateSignals.reviewerApproved, undefined);
+  const reviewed = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing to test" }));
+  assert.equal(reviewed.savedOutcomes[0]!.gateSignals.reviewerApproved, true);
+});
+
+test("an exhausted or undecided end reports no reviewer outcome when none ran", async () => {
+  const exhausted = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: false, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE }));
+  assert.equal(exhausted.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
+  const undecided = await runEndingWith(scriptedGeneration({ specs: [], approved: true, reviewed: false, end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }));
+  assert.equal(undecided.savedOutcomes[0]!.gateSignals.reviewerApproved, undefined);
 });

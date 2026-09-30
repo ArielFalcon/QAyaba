@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderValueTag, deriveAction, renderRunReport, type ValueSignals, type RunReportInput } from "./value-report";
+import { infraErrorGloss } from "./learning/taxonomy";
 
 const baseSignals: ValueSignals = {
   coverageRatio: null,
@@ -74,6 +75,16 @@ const baseReport: RunReportInput = {
   signals: { coverageRatio: 0.82, coverageMeasured: true, coveragePolicy: "signal", valueScore: null, reviewerApproved: true, reviewerRationale: "covers the new validation branch" },
   errorClass: null,
 };
+
+test("run report: an infra-error run is worded by the class that closed it, never as a DEV outage", () => {
+  for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION", "E-INFRA"] as const) {
+    const out = renderRunReport({ ...baseReport, verdict: "infra-error", passed: 0, failed: 0, specCount: 0, specNames: [], errorClass });
+    assert.ok(out.includes(infraErrorGloss(errorClass)), errorClass);
+    assert.doesNotMatch(out, /\bDEV\b/, errorClass);
+  }
+  const unclassified = renderRunReport({ ...baseReport, verdict: "infra-error", passed: 0, failed: 0, specCount: 0, specNames: [], errorClass: null });
+  assert.ok(unclassified.includes(infraErrorGloss(null)));
+});
 
 test("run report: shadow green run frames the WOULD-do action and the value signals", () => {
   const out = renderRunReport(baseReport);

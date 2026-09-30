@@ -233,6 +233,36 @@ test("live views never claim to show mock data", async () => {
   }
 });
 
+test("an infra-error run with no specs is never called a valid no-op, and its note is what the operator reads", async () => {
+  const note = "Step budget exhausted with no spec written (steps 30/30; writes 0).";
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({ apps: [appView("shop")], runs: [runRecord("run-exhausted", { verdict: "infra-error", note })] }),
+  });
+  h.click("open-run", "run-exhausted");
+  await h.advance(1_000);
+  assert.match(h.text(), /Step budget exhausted/);
+  assert.doesNotMatch(h.text(), /valid no-op/i);
+});
+
+test("a skipped run with no specs is still shown as a valid no-op", async () => {
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({ apps: [appView("shop")], runs: [runRecord("run-skipped", { verdict: "skipped", note: "nothing to test" })] }),
+  });
+  h.click("open-run", "run-skipped");
+  await h.advance(1_000);
+  assert.match(h.text(), /valid no-op/i);
+});
+
+test("the integrity view does not blame DEV for every infra-error", async () => {
+  const h = await loadConsole({ withConsole: true, token: "t", routes: controlApi({ apps: [appView("shop")], runs: [] }) });
+  h.click("nav", "integrity");
+  assert.doesNotMatch(h.text(), /DEV down/i);
+});
+
 test("the mock console flags its demo data as mock", async () => {
   const h = await loadConsole({ withConsole: true, mode: "mock", routes: controlApi({ apps: [], runs: [] }) });
 

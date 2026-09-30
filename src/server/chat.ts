@@ -6,6 +6,7 @@
 
 import { RunRecord } from "../types";
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { listRunOutcomes, listLearningRules, loadCurriculum } from "./history";
 import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 
@@ -23,8 +24,8 @@ export function buildRunChatContext(): string {
     "· fail   → test failures detected → GitHub Issue opened for the team",
     "· flaky  → passes only after retries → quarantined (no action needed)",
     "· invalid → static checks failed (compilation, linting, or metadata)",
-    "· infra-error → DEV environment was unhealthy or unreachable",
-    "· skipped → the commit needed no testing (style-only or valid no-op)",
+    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")})`,
+    "· skipped → the commit needed no testing (style-only, or the agent declared a no-op with a reason)",
     "",
     "## Boundaries of this chat",
     "· You have NO tools — cannot read files, run commands, or call MCPs.",

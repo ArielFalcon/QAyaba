@@ -131,7 +131,9 @@ a qa-engine `CompositionConfig`). Default `diff` mode shown:
    then `npm ci`. Runs **before** generation so the agent has the fixtures/config.
 4. **Generate** — agent session (OpenCode or Codex per the role assignment); the agent derives the objective from the
    commit intent, writes/improves specs + `e2e/.qa/manifest.json`, invokes the
-   reviewer. **If the agent approves with zero specs → no-op → `skipped`** (clean).
+   reviewer. **If the agent declares a no-op (`noop` with a reason) and writes zero specs → `skipped`**
+   (clean; the reason is the note). Zero specs with no `noop`, or with the step budget exhausted,
+   → `infra-error` (`E-NO-DECISION` / `E-STEP-BUDGET`), never a silent `skipped`.
 5. **Validate (Filter B)** — static gate: `tsc` + ESLint (`eslint-plugin-playwright`)
    + `playwright --list` + manifest validity. Fail → `invalid`.
 6. **Health pre-flight** — DEV down now → `infra-error` (not a code bug).
@@ -268,8 +270,10 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
 - **App-specificity lives only in `config/`; agents/models only in `agents/`;
   nothing app-specific in `src/`.**
 - **Sequential queue** — one run at a time; never run concurrent QA against DEV.
-- **Honor the agent's no-op decision** — approved + zero specs is a *valid*
-  `skipped`, never `invalid`.
+- **Honor the agent's explicit no-op decision.** A declared `noop` with a reason and zero
+  specs is a valid `skipped` (the reason becomes the note), never `invalid`. Silence is not a
+  decision: zero specs without `noop`, or with the step budget exhausted, is `infra-error`
+  (`E-NO-DECISION` / `E-STEP-BUDGET`). `approved` is never a no-op signal.
 - **Surface integration errors loudly** — never swallow agent-runtime (OpenCode SDK /
   Codex exec) / runner / git errors into an empty result (a swallowed error once
   looked like "no tests written"). Throw and log.

@@ -4,6 +4,7 @@ import {
   errorClassFromVerdict,
   errorClassFromCorrections,
   ERROR_CLASSES,
+  infraErrorGloss,
 } from "./taxonomy";
 
 describe("ERROR_CLASSES", () => {
@@ -19,6 +20,39 @@ describe("ERROR_CLASSES", () => {
 
   it("E-REVIEWER-REJECTED is a valid ErrorClass", () => {
     assert.ok((ERROR_CLASSES as readonly string[]).includes("E-REVIEWER-REJECTED"));
+  });
+});
+
+describe("infraErrorGloss", () => {
+  it("says the step-budget class is the agent running out of steps, engine-side", () => {
+    const gloss = infraErrorGloss("E-STEP-BUDGET");
+    assert.match(gloss, /steps/i);
+    assert.match(gloss, /engine/i);
+  });
+
+  it("says the no-decision class is an agent that decided nothing, engine-side", () => {
+    const gloss = infraErrorGloss("E-NO-DECISION");
+    assert.match(gloss, /decision/i);
+    assert.match(gloss, /engine/i);
+  });
+
+  it("never blames the DEV environment, whatever the class or its absence", () => {
+    for (const errorClass of [...ERROR_CLASSES, null, undefined, "E-FUTURE-CLASS"]) {
+      assert.doesNotMatch(infraErrorGloss(errorClass), /\bDEV\b/, String(errorClass));
+    }
+  });
+
+  it("gives each engine-side class its own wording, apart from the neutral one", () => {
+    const wordings = new Set([infraErrorGloss("E-STEP-BUDGET"), infraErrorGloss("E-NO-DECISION"), infraErrorGloss("E-INFRA")]);
+    assert.equal(wordings.size, 3);
+    assert.equal(infraErrorGloss(null), infraErrorGloss("E-INFRA"));
+    assert.equal(infraErrorGloss("E-FUTURE-CLASS"), infraErrorGloss("E-INFRA"));
+  });
+
+  it("stays one plain sentence without an internal E-… code", () => {
+    for (const errorClass of ERROR_CLASSES) {
+      assert.doesNotMatch(infraErrorGloss(errorClass), /\bE-[A-Z]/, errorClass);
+    }
   });
 });
 

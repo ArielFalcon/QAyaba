@@ -54,7 +54,7 @@ doppler run -- docker compose up --build   # prod: Doppler injects secrets
 1. **Gate** — wait until DEV serves this SHA (`/version`). Skipped if `dev.versionUrl` absent.
 2. **Working copy + classify** — clone/checkout SHA; extract diff + message; classify commit (Conventional Commits, cross-checked against diff). `skip` → returns `skipped` without spending a token.
 3. **Setup** — bootstrap `config/e2e/` seed into repo's `e2e/` if missing, then `npm ci`.
-4. **Generate** — agent session (OpenCode or Codex); derives objective from commit intent, writes/improves specs. **Agent-approved + zero specs → `skipped`** (valid no-op).
+4. **Generate** — agent session (OpenCode or Codex); derives objective from commit intent, writes/improves specs. **A declared no-op (`noop` with a reason) and zero specs → `skipped`** (valid no-op, the reason is the note); zero specs with no `noop`, or with the step budget exhausted → `infra-error` (`E-NO-DECISION` / `E-STEP-BUDGET`).
 5. **Validate** — static gate: `tsc` + ESLint (`eslint-plugin-playwright`) + `playwright --list` + manifest. Fail → `invalid`.
 6. **Health pre-flight** — DEV down → `infra-error`.
 7. **Execute** — Playwright against DEV; classify `pass`/`fail`/`flaky`.
@@ -91,7 +91,7 @@ Prompt layers: `agents/AGENTS.md` (shared rules) → `agents/agent/*.md` (per-ro
 - **Security boundary**: LLM agent is read-only on watched repos. Only the orchestrator does git writes. Never give the agent direct write to a watched repo.
 - **App-specificity only in `config/`**; agents/models only in `agents/`; nothing app-specific in `src/`.
 - **Sequential queue** — one run at a time. Never run concurrent QA against DEV.
-- **Honor agent's no-op**: approved + zero specs is a valid `skipped`, never `invalid`.
+- **Honor the agent's explicit no-op decision.** A declared `noop` with a reason and zero specs is a valid `skipped` (the reason becomes the note), never `invalid`. Silence is not a decision: zero specs without `noop`, or with the step budget exhausted, is `infra-error` (`E-NO-DECISION` / `E-STEP-BUDGET`). `approved` is never a no-op signal.
 - **Surface integration errors loudly** — never swallow OpenCode SDK / runner / git errors. Throw and log.
 - **Sanitize data leaving the system** — diff → model, execution logs → Issue, both pass through `src/orchestrator/sanitizer.ts`.
 - **Governance-sensitive changes ship alone.** A change to a security invariant, to agent write authority, or to a production activation switch merges in its own PR, separate from unrelated features.

@@ -1,6 +1,8 @@
 /*
  * RunQaUseCase drives the QA run lifecycle through segregated ports.
- * Approved + zero specs is skipped, never invalid. Change-coverage "unknown"
+ * A declared no-op with zero specs is skipped, never invalid; zero specs
+ * without a decision, or after the step budget ran out, is infra-error.
+ * Change-coverage "unknown"
  * never blocks publish. Classify runs only in diff mode; cleanup only when
  * previousNamespace is set. Coordination fails open to GenerationPort.
  * Pre-exec gateSignals use the number 0, not undefined, when unwired.
@@ -17,7 +19,7 @@ import { BlastRadius } from "@kernel/blast-radius.ts";
 import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
-import { GENERATION_END } from "@kernel/generation-end.ts";
+import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type {
   ChangeAnalysisPort,
   GenerationPort,
@@ -53,16 +55,51 @@ import type {
   ExplorationBrief,
   RelevanceBias,
 } from "./ports/index.ts";
-import { REVIEWER_UNAVAILABLE_MARKER } from "./ports/index.ts";
+import { REVIEWER_UNAVAILABLE_MARKER, reviewerApprovalOf } from "./ports/index.ts";
 
 /* What stands in for a generation when none ran (a regression run): it has no end, which no generation's result can have. */
 type RegressionStandIn = Omit<GenerationOutput, "end"> & { end: null };
+
+const NO_GROUNDING_SIGNALS = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 };
+
+/** What a terminal exit knows beyond its verdict; each field is absent unless that exit genuinely has it — never fabricated. */
+interface TerminalOptions {
+  /** Present only when a reviewer ran; see reviewerApprovalOf. */
+  reviewerApproved?: boolean | undefined;
+  /**
+   * Context-mode invalid does not persist or fold (Issue only), like a clean context pass. Unlike an
+   * undocumented bypass of onFailure, this path honors the same decide() sideEffect as every other
+   * invalid verdict.
+   */
+  skipPersist?: boolean;
+  /** Static-fix retries consumed before landing on this exit. */
+  retries?: number;
+  /** Diagnostic note; omitted when the caller has nothing more specific than the verdict. */
+  note?: string | undefined;
+  /** Counters of the pre-exec gate, real once it has run; default 0. */
+  groundingSignals?: typeof NO_GROUNDING_SIGNALS;
+  /** Rules retrieved for the run; default []. */
+  rulesRetrieved?: string[];
+  /** The diff's structural shapes the fold attributes rulesRetrieved against; absent when there is no diff. */
+  diffArchetypes?: string[] | undefined;
+  /** Diff-derived archetype; null when there is no diff. */
+  archetype?: string | null;
+  /** Merged confinement from the caller's enforce immediately before the exit; absent if it never ran. */
+  confinement?: { strays: number; dangerous: number; reverted: string[] } | undefined;
+  /** The caller's resolveTested() result; absent when there are no specMetas. */
+  tested?: { flow?: string; objective?: string }[] | undefined;
+  /** The run's mirrorDir once prepare() ran; absent skips the prune. */
+  mirrorDir?: string | undefined;
+  /** The generation end that closed the run, when one did: it names the run's error class. */
+  generationEnd?: GenerationEndKind | undefined;
+}
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors } from "../domain/helpers/selector-check.ts";
 import { resolveErrorClass } from "../domain/helpers/error-class.ts";
+import { terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
 import { shouldDistillLearning } from "../domain/helpers/should-distill-learning.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
@@ -932,41 +969,60 @@ export class RunQaUseCase {
     if (generating) await enforceConfinement();
 
     /*
-     * Zero specs AND approved===false is not the agent-no-op skip (that requires
-     * approved===true). Stash the agent's note for whichever terminal this run reaches.
+     * How the generation ended decides how the run does. With specs the run continues (a generation
+     * that also ran out of steps is only logged). Without specs only a declared no-op is a decision
+     * and skips; running out of steps, or a verdict that decides nothing, ends the run as a persisted
+     * infra-error the operator can read; an output that never parsed keeps its unpersisted one. A
+     * regression run generates nothing, so it has no end and never lands here.
      */
-    const generationNote = !generated.approved && generated.specs.length === 0 && generated.note ? generated.note : undefined;
-
-    /*
-     * parsed===false AND zero specs is a runtime failure, not a no-op skip.
-     * approved defaults true on an unparseable verdict — without this guard it would
-     * masquerade as a clean skip. Ordered before the no-op skip. Routes to infra-error.
-     */
-    if (generating && generated.parsed === false && generated.specs.length === 0) {
-      const emptyNote =
-        generated.note ||
-        "generation produced no parseable output — the agent runtime returned an empty/errored session " +
-          "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
-          "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
-      console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
-      return this.infraErrorResult(emptyNote, workspace.mirrorDir);
-    }
-
-    /*
-     * Approved + zero specs is a valid skipped, never invalid. Gated on generating:
-     * a regression synthetic {approved:true, specs:[]} must not be classified as
-     * an agent no-op — it must run the existing suite. This skip persists; classify-skip does not.
-     */
-    if (generating && generated.approved && generated.specs.length === 0) {
-      /* Agent-no-op is approved===true by this branch's guard — persist that value. */
-      const skipped = this.skippedResult(cfg.needsReview ? generated.approved : undefined);
-      const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
-        reviewerApproved: skipped.gateSignals.reviewerApproved,
-        ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
-      });
-      await this.deps.runHistory.save(skippedOutcome);
-      await this.pruneMirrorIfWired(workspace.mirrorDir);
-      return { ...skipped, outcome: skippedOutcome };
+    if (generated.end !== null) {
+      const terminal = terminalForGenerationEnd(generated.end);
+      if (terminal.action === "continue") {
+        if (generated.turn?.exhausted === true) {
+          this.deps.observer?.onEvent({
+            type: "log.line",
+            level: "warn",
+            text: `[qa] the generator ran out of steps (${generated.turn.stepsUsed ?? "?"}/${generated.turn.maxSteps ?? "?"}) but delivered ${generated.specs.length} spec(s); continuing`,
+          });
+        }
+      } else if (terminal.action === "skip") {
+        const skipped = this.skippedResult({ note: generated.note, reviewerApproved: reviewerApprovalOf(generated) });
+        const skippedOutcome = this.toRunOutcome(input, skipped.decision, [], 0, null, skipped.errorClass, {
+          reviewerApproved: skipped.gateSignals.reviewerApproved,
+          ...(skipped.note !== undefined ? { note: skipped.note } : {}),
+          ...(confinementAcc !== undefined ? { confinement: confinementAcc } : {}),
+        });
+        await this.deps.runHistory.save(skippedOutcome);
+        await this.pruneMirrorIfWired(workspace.mirrorDir);
+        return { ...skipped, outcome: skippedOutcome };
+      } else if (terminal.persisted) {
+        const endNote = generated.note ?? `generation ended without specs (${generated.end})`;
+        console.error(`[qa] generation ended without specs (${generated.end}): ${endNote}`);
+        this.deps.observer?.onEvent({ type: "agent.error", detail: endNote });
+        this.deps.observer?.onEvent({
+          type: "log.line",
+          level: "error",
+          text: `[qa] generation ended without specs (${terminal.errorClass}): an engine-side ${generated.end === GENERATION_END.EXHAUSTED ? "step-budget exhaustion" : "missing decision"}, not a fault of the app under test`,
+        });
+        return await this.terminalResult(terminal.verdict, cfg, input, { generating: true, static: false }, {
+          generationEnd: generated.end,
+          note: endNote,
+          reviewerApproved: reviewerApprovalOf(generated),
+          rulesRetrieved: retrievedRuleIds,
+          diffArchetypes,
+          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+          confinement: confinementAcc,
+          mirrorDir: workspace.mirrorDir,
+        });
+      } else {
+        const emptyNote =
+          generated.note ||
+          "generation produced no parseable output — the agent runtime returned an empty/errored session " +
+            "(provider unavailable, quota exhausted, timeout, or model refusal). Not a code defect and not a " +
+            "no-op decision; surfaced as infra-error so it is diagnosable rather than a silent skip.";
+        console.error(`[qa] generation runtime failure (empty, unparseable output): ${emptyNote}`);
+        return this.infraErrorResult(emptyNote, workspace.mirrorDir);
+      }
     }
 
     /* Shared retries counter for the static-fix loop AND the FixLoop — accumulate, never reset. */
@@ -1070,10 +1126,11 @@ export class RunQaUseCase {
     }
 
     /*
-     * reviewerApproved default is generation's own flag, from lastGenerated.
-     * Gated on generating: a regression stand-in is not a real agent decision.
+     * reviewerApproved default is the reviewer's verdict on the latest generation, and exists only
+     * when a reviewer looked at it: a generation nobody reviewed carries a placeholder flag, never
+     * an approval. A regression stand-in was never reviewed either.
      */
-    const reviewerApprovedFromGeneration = cfg.needsReview && generating ? lastGenerated.approved : undefined;
+    const reviewerApprovedFromGeneration = reviewerApprovalOf(lastGenerated);
 
     if (!validation.ok) {
       /*
@@ -1081,10 +1138,7 @@ export class RunQaUseCase {
        * validation.infra is infra-error: the gate itself could not run, not a code defect.
        */
       console.error("[qa] static gate failed:", validation.errors);
-      /* Append generationNote so static-gate errors do not hide why nothing was generated. */
-      const staticGateNote = [validation.errors.slice(0, 2).join("\n\n") || undefined, generationNote]
-        .filter((part): part is string => Boolean(part))
-        .join("\n\n") || undefined;
+      const staticGateNote = validation.errors.slice(0, 2).join("\n\n") || undefined;
       /* Last confinement pass immediately before this exit's publish(). */
       await enforceConfinement();
       return await this.terminalResult(
@@ -1092,18 +1146,20 @@ export class RunQaUseCase {
         cfg,
         input,
         { generating, static: false },
-        reviewerApprovedFromGeneration,
-        !validation.infra && input.mode === "context",
-        /* Static-fix retries consumed before the gate gave up. */
-        retries,
-        staticGateNote,
-        { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-        retrievedRuleIds,
-        diffArchetypes,
-        detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-        confinementAcc,
-        resolveTested(),
-        workspace.mirrorDir,
+        {
+          reviewerApproved: reviewerApprovedFromGeneration,
+          skipPersist: !validation.infra && input.mode === "context",
+          /* Static-fix retries consumed before the gate gave up. */
+          retries,
+          note: staticGateNote,
+          groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
+          rulesRetrieved: retrievedRuleIds,
+          diffArchetypes,
+          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+          confinement: confinementAcc,
+          tested: resolveTested(),
+          mirrorDir: workspace.mirrorDir,
+        },
       );
     }
 
@@ -1127,11 +1183,9 @@ export class RunQaUseCase {
      * Infra-error between validation and execute (DEV down, login broken): specs were already
      * generated, so the run is persisted like any other terminal but never folds or reflects.
      * This exit persists static:false even though validation already passed — the stored field
-     * for this source is false. Appends generationNote if generation was also empty and
-     * unapproved.
+     * for this source is false.
      */
     const preExecuteInfraError = async (reason: string): Promise<RunQaResult> => {
-      const note = [reason, generationNote].filter((part): part is string => Boolean(part)).join("\n\n");
       /* Confinement still runs for revert even though this exit does not publish. */
       await enforceConfinement();
       return await this.terminalResult(
@@ -1139,18 +1193,19 @@ export class RunQaUseCase {
         cfg,
         input,
         { generating, static: false },
-        reviewerApprovedFromGeneration,
-        false,
-        retries,
-        note,
-        { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
-        /* Retrieved ids reach the persisted outcome for diagnosability only. */
-        retrievedRuleIds,
-        diffArchetypes,
-        detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
-        confinementAcc,
-        resolveTested(),
-        workspace.mirrorDir,
+        {
+          reviewerApproved: reviewerApprovedFromGeneration,
+          retries,
+          note: reason,
+          groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
+          /* Retrieved ids reach the persisted outcome for diagnosability only. */
+          rulesRetrieved: retrievedRuleIds,
+          diffArchetypes,
+          archetype: detectArchetype(classificationDiff, classificationIntent?.changedFiles ?? []),
+          confinement: confinementAcc,
+          tested: resolveTested(),
+          mirrorDir: workspace.mirrorDir,
+        },
       );
     };
     if (!(await devHealthy())) {
@@ -2024,13 +2079,20 @@ export class RunQaUseCase {
    * Shared errorClass derivation. Callers that never reach review omit
    * reviewerCorrections and get [].
    */
-  private deriveErrorClass(verdict: string, coverageRatio: number | null, valueScore: number | null, reviewerCorrections: string[] = []): string | null {
+  private deriveErrorClass(
+    verdict: string,
+    coverageRatio: number | null,
+    valueScore: number | null,
+    reviewerCorrections: string[] = [],
+    generationEnd?: GenerationEndKind,
+  ): string | null {
     return resolveErrorClass({
       verdict,
       coverageRatio,
       minCoverageRatio: DEFAULT_MIN_COVERAGE_RATIO,
       reviewerCorrections,
       valueScore,
+      ...(generationEnd ? { generationEnd } : {}),
     });
   }
 
@@ -2161,12 +2223,13 @@ export class RunQaUseCase {
   }
 
   private skippedResult(
-    /* Only the agent-no-op skip passes reviewerApproved. Classify-skip never persists. */
-    reviewerApprovedForOutcome?: boolean,
+    /* Only the declared-no-op skip passes these: its note is the agent's reason, and reviewerApproved is present only when a reviewer ran. Classify-skip never persists. */
+    { note, reviewerApproved: reviewerApprovedForOutcome }: { note?: string | undefined; reviewerApproved?: boolean | undefined } = {},
   ): RunQaResult {
     this.deps.observer?.onStep("done");
     return {
       decision: RunDecision.of("skipped", "none"),
+      ...(note ? { note } : {}),
       /* Skipped always resolves errorClass:null — skipped runs teach nothing. */
       errorClass: this.deriveErrorClass("skipped", null, null),
       gateSignals: {
@@ -2269,39 +2332,22 @@ export class RunQaUseCase {
     cfg: RunQaConfig,
     input: RunQaInput,
     ev: { generating: boolean; static: boolean },
-    /* Both terminals run after generation, so the generation-sourced reviewerApproved default applies. */
-    reviewerApprovedForOutcome?: boolean,
-    /*
-     * Context-mode invalid does not persist or fold (Issue only), like a clean
-     * context pass. Unlike an undocumented bypass of onFailure, this path honors
-     * the same decide() sideEffect as every other invalid verdict.
-     */
-    skipPersist = false,
-    /* Static-fix retries consumed before landing on this invalid exit. */
-    retries = 0,
-    /* Optional diagnostic note. Omitted when the caller has nothing more specific than the verdict. */
-    note?: string,
-    /* Both call sites fire after the pre-exec gate; counters are real, defaulting to 0. */
-    groundingSignals: {
-      preExecAmbiguityCatches: number;
-      deterministicSelectorBlocks: number;
-      catalogGateInWindow: number;
-      catalogGateAdvisory: number;
-      catalogGateFailClosed: number;
-    } = { preExecAmbiguityCatches: 0, deterministicSelectorBlocks: 0, catalogGateInWindow: 0, catalogGateAdvisory: 0, catalogGateFailClosed: 0 },
-    /* Both call sites fire after retrieve(); ids are real, defaulting to []. */
-    rulesRetrieved: string[] = [],
-    /* The diff's structural shapes the fold attributes rulesRetrieved against; undefined when there is no diff. */
-    diffArchetypes: string[] | undefined = undefined,
-    /* Diff-derived archetype; null when there is no diff — never fabricated. */
-    archetype: string | null = null,
-    /* Merged confinement from the caller's enforce immediately before this helper. Undefined if never ran. */
-    confinement?: { strays: number; dangerous: number; reverted: string[] },
-    /* Caller's resolveTested() result. Undefined when there are no specMetas — never fabricated. */
-    tested?: { flow?: string; objective?: string }[],
-    /* Real per-run mirrorDir after prepare(). Undefined skips prune. */
-    mirrorDir?: string,
+    opts: TerminalOptions = {},
   ): Promise<RunQaResult> {
+    const {
+      reviewerApproved: reviewerApprovedForOutcome,
+      skipPersist = false,
+      retries = 0,
+      note,
+      groundingSignals = NO_GROUNDING_SIGNALS,
+      rulesRetrieved = [],
+      diffArchetypes,
+      archetype = null,
+      confinement,
+      tested,
+      mirrorDir,
+      generationEnd,
+    } = opts;
     const decision = decide({
       verdict,
       generating: ev.generating,
@@ -2311,8 +2357,8 @@ export class RunQaUseCase {
       shadow: cfg.shadow,
       onFailure: cfg.onFailure,
     });
-    /* invalid → E-STATIC, infra-error → E-INFRA. */
-    const errorClass = this.deriveErrorClass(verdict, null, null);
+    /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end that ended the run names its own class. */
+    const errorClass = this.deriveErrorClass(verdict, null, null, [], generationEnd);
     /*
      * Dispatch the same publish() as the mainline. infra-error resolves to
      * sideEffect "none" via decide() — no Issue.

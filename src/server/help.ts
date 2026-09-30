@@ -1,4 +1,5 @@
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { DEFAULT_HOST } from "./port";
 
 const PRODUCT_CONTEXT = `
@@ -115,8 +116,8 @@ Can be disabled per-app: qa.needsReview: false.
 - **fail** — test failures detected → GitHub Issue with sanitized logs
 - **flaky** — passes only after retries → quarantined (no Issue)
 - **invalid** — static checks fail (tsc/lint/manifest)
-- **infra-error** — DEV unhealthy, network issue, or crash
-- **skipped** — style-only commit or agent-approved no-op (valid no-op)
+- **infra-error** — the run could not reach a verdict, never a code bug: DEV unhealthy, a network issue or a crash; or, when the run says so, an agent that ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")})
+- **skipped** — style-only commit, or the agent declared a no-op with a reason (nothing in the change worth an E2E test)
 
 ## Pipeline steps (what happens during a run)
 

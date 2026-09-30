@@ -32,6 +32,8 @@ const ERROR_CLASS_LABEL: Record<string, string> = {
   "E-REVIEWER-REJECTED": "reviewer-rejected",
   "E-VALUE-SURVIVED": "value gap (oracle survived)",
   "E-INFRA": "infrastructure",
+  "E-STEP-BUDGET": "agent ran out of steps",
+  "E-NO-DECISION": "agent made no decision",
 };
 
 function classLabel(errorClass: string): string {

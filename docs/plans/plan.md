@@ -146,5 +146,5 @@ Two blind opus judges reviewed the plan. Verdict on the original plan: **ESCALAT
 - The LLM agent is read-only on watched repos; only the orchestrator does git writes. (Running a local test is NOT a git write — 1.1 is compatible.)
 - Sequential queue — one run at a time; never concurrent QA against DEV. (1.1 runs one spec at a time; 1.2 keeps E2E single-agent.)
 - App-specificity only in `config/`; agents/models only in `agents/`; nothing app-specific in `src/`.
-- Honor the agent's no-op decision (approved + zero specs = valid `skipped`).
+- Honor the agent's explicit no-op decision (a declared `noop` with a reason and zero specs = valid `skipped`; zero specs without one, or with the step budget exhausted, = `infra-error`).
 - Everything in English; comments describe final state.

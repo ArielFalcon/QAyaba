@@ -27,6 +27,10 @@ test("flaky → quarantine", () => {
 test("infra-error → noop (no side effect; not a code bug)", () => {
   assert.equal(svc.decide({ ...base, verdict: "infra-error" }).outcome, "noop");
 });
+/* An infra-error can be an outage or an engine-side condition (an agent that ran out of steps): its reason never names one cause. */
+test("the infra-error reason does not blame the DEV environment", () => {
+  assert.doesNotMatch(svc.decide({ ...base, verdict: "infra-error" }).reason, /dev\b/i);
+});
 test("shadow mode overrides every side-effecting outcome to shadow", () => {
   assert.equal(svc.decide({ ...base, verdict: "pass", shadow: true }).outcome, "shadow");
   assert.equal(svc.decide({ ...base, verdict: "fail", shadow: true }).outcome, "shadow");

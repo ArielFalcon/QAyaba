@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildRunContext } from "./chat";
+import { buildRunContext, buildRunChatContext } from "./chat";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { RunRecord } from "../types";
 
 const rec = (over: Partial<RunRecord> = {}): RunRecord => ({
@@ -70,4 +71,18 @@ test("buildRunContext preserves complete log lines — does not split mid-line",
   assert.match(ctx, new RegExp(lineThree));
   assert.match(ctx, new RegExp(lineTwo));
   assert.doesNotMatch(ctx, new RegExp(lineOne));
+});
+
+test("the assistant is told an infra-error can be the agent running out of steps or deciding nothing, not only DEV", () => {
+  const legend = buildRunChatContext();
+  assert.ok(legend.includes(infraErrorGloss("E-STEP-BUDGET")));
+  assert.ok(legend.includes(infraErrorGloss("E-NO-DECISION")));
+  const line = legend.split("\n").find((l) => l.startsWith("· infra-error")) ?? "";
+  assert.notEqual(line, "");
+  assert.doesNotMatch(line, /^· infra-error → DEV/);
+});
+
+test("the assistant is told a skipped run is one where the agent declared a no-op", () => {
+  const line = buildRunChatContext().split("\n").find((l) => l.startsWith("· skipped")) ?? "";
+  assert.match(line, /declared/i);
 });
