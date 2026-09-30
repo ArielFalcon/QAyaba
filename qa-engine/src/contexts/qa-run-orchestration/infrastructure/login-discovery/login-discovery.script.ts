@@ -7,13 +7,16 @@
  * Credentials reach the child through its env alone (DEV_TEST_USER / DEV_TEST_PASS); the script's
  * source and its stdout hold none. Everything else (base URL, routes, budgets, the session path)
  * arrives as JSON in PW_LOGIN_INPUT. The child never fills or submits on a page whose origin is not
- * the app's, never submits twice, and asks the browser for no trace, screenshot, video or HAR. Every
+ * the app's (checked after every read of a page, before each field is typed and before the submit, and a
+ * form or base address that points elsewhere is no login form), never submits twice, and asks the
+ * browser for no trace, screenshot, video or HAR. Every
  * text it lets out (a page error, an alert, an exception) is scrubbed of the account by exact value in
  * every spelling BEFORE it is cut to its bound. The one in-page reader returns plain data.
  * This module is a protected path: a change here decides where the account is typed.
  */
 
 import { EVIDENCE_TEXT_MAX, FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
+import { DESCRIBE_PAGE_SOURCE, NO_VISIBLE_PASSWORD_SOURCE } from "./login-discovery.page-readers.ts";
 
 /** The paths tried last, after everything the app itself pointed at. */
 export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "/sign-in", "/auth/login", "/#/login"];
@@ -85,50 +88,21 @@ function emptyEvidence() {
   };
 }
 
-/* Runs in the page. Takes only the name of the attribute to tag elements with and returns plain data: what each input and button is, never what it holds. */
-function describePage(attribute) {
-  const visible = function (el) {
-    const box = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
-  };
-  const all = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
-  const forms = Array.prototype.slice.call(document.forms);
-  const fields = all("input, button").map(function (el, i) {
-    el.setAttribute(attribute, String(i));
-    return {
-      i: i,
-      tag: el.tagName.toLowerCase(),
-      type: (el.getAttribute("type") || (el.tagName === "BUTTON" ? "submit" : "text")).toLowerCase(),
-      visible: visible(el),
-      disabled: el.disabled === true || el.readOnly === true,
-      form: el.form ? forms.indexOf(el.form) : -1,
-    };
-  });
-  const links = all("a[href]").slice(0, 50).map(function (a) {
-    return { href: a.getAttribute("href"), text: (a.textContent || "").trim().slice(0, 60) };
-  });
-  /* A challenge widget by its provider's own element; the floating badge of an invisible one is not a challenge. */
-  const widgets = all('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="challenges.cloudflare"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]');
-  const captcha = { present: widgets.length > 0, visible: widgets.some(function (el) { return !el.closest(".grecaptcha-badge") && visible(el); }) };
-  const alerts = all('[role="alert"]').filter(visible).slice(0, 5).map(function (el) { return (el.textContent || "").trim().slice(0, 400); });
-  return { fields: fields, links: links, captcha: captcha, alerts: alerts, secondFactorVisible: all('input[autocomplete="one-time-code"]').some(visible) };
-}
+/* Run in the page: see login-discovery.page-readers.ts. */
+${DESCRIBE_PAGE_SOURCE}
 
-/* Runs in the page, polled until true: no password field is showing. */
-function noVisiblePassword() {
-  return Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).every(function (el) {
-    const box = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return !(box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none");
-  });
+${NO_VISIBLE_PASSWORD_SOURCE}
+
+/* A form (or, with no form, the page) whose submissions and script requests stay on the app's own origin: a base address or an action that leaves it makes the page no place to type the account. */
+function staysHome(seen, formIndex) {
+  return seen.baseSameOrigin === true && (formIndex < 0 || (seen.forms[formIndex] !== undefined && seen.forms[formIndex].sameOrigin === true));
 }
 
 /* The first form with exactly one visible password field. Two or more make a form ambiguous (a sign-up or a change of password). */
-function pickLoginForm(fields) {
+function pickLoginForm(seen) {
   const groups = [];
-  fields.forEach(function (field) {
-    if (field.tag !== "input" || field.type !== "password" || !field.visible) return;
+  seen.fields.forEach(function (field) {
+    if (field.tag !== "input" || field.type !== "password" || !field.visible || !staysHome(seen, field.form)) return;
     const group = groups.find(function (candidate) { return candidate.form === field.form; });
     if (group) group.passwords.push(field);
     else groups.push({ form: field.form, passwords: [field] });
@@ -153,12 +127,15 @@ function pickSubmitControl(fields, password) {
   });
 }
 
+/* A ladder step is a string (resolved against where it came from) or an address already parsed: a parsed one is never read as text again, so a path that starts with two slashes cannot turn into a host. */
 function resolveStep(step, from) {
   let url;
-  try { url = new URL(step, from); } catch (_invalid) { return null; }
+  try { url = step instanceof URL ? step : new URL(step, from); } catch (_invalid) { return null; }
   return url.origin === baseOrigin ? url : null;
 }
 const keyOf = function (url) { return url.pathname + url.hash; };
+/* The address the browser is on belongs to the app: read at every moment something is typed or sent. */
+const onAppOrigin = function (page) { return new URL(page.url()).origin === baseOrigin; };
 const noPasswordShowing = function (fields) {
   return !fields.some(function (field) { return field.tag === "input" && field.type === "password" && field.visible; });
 };
@@ -167,7 +144,7 @@ function pickLoginLink(links, from) {
   for (const link of links) {
     if (!LOGIN_LINK_HINT.test(link.href) && !LOGIN_LINK_HINT.test(link.text)) continue;
     const url = resolveStep(link.href, from);
-    if (url) return keyOf(url);
+    if (url) return url;
   }
   return null;
 }
@@ -222,13 +199,18 @@ function watch(page, evidence) {
   return state;
 }
 
-/* Reads a page's structure; a page that navigates under the read is read again once it has settled. */
+/* Reads a page's structure; a page that navigates under the read is read again once it has settled. A page that stands on another origin once it was read is not the app's and yields nothing. */
 async function readPage(page) {
-  try { return await page.evaluate(describePage, FIELD_ATTRIBUTE); } catch (_moving) {
+  let seen;
+  try { seen = await page.evaluate(describePage, FIELD_ATTRIBUTE); } catch (_moving) {
     await page.waitForLoadState("domcontentloaded", { timeout: SETTLE_MS }).catch(function () {});
-    return page.evaluate(describePage, FIELD_ATTRIBUTE);
+    seen = await page.evaluate(describePage, FIELD_ATTRIBUTE);
   }
+  return onAppOrigin(page) ? seen : null;
 }
+
+/* What a page that left the app's origin shows the app: nothing. */
+const NOTHING_SHOWING = { fields: [], forms: [], baseSameOrigin: true, links: [], captcha: { present: false, visible: false }, alerts: [], secondFactorVisible: false };
 
 /* Where the browser ended: its own path on the app's origin, else the last page the ladder asked for (a foreign address is not ours to report). */
 function finalPathOf(page, evidence) {
@@ -259,8 +241,9 @@ async function findLoginForm(page, evidence, watching) {
     const landed = new URL(page.url());
     if (landed.origin !== baseOrigin) continue;
     const seen = await readPage(page);
+    if (seen === null) continue;
     if (seen.fields.some(function (field) { return field.tag === "input" && field.type === "password"; })) evidence.ladderHadPasswordField = true;
-    const pick = pickLoginForm(seen.fields);
+    const pick = pickLoginForm(seen);
     if (pick.state === FORM.FOUND) {
       evidence.form = FORM.FOUND;
       seen.alerts.forEach(function (text) { watching.alertsBefore.add(text); });
@@ -279,10 +262,11 @@ async function findLoginForm(page, evidence, watching) {
 
 /* The hard guard: whatever the ladder found, one attempt is all a phase gets. The marker goes out before the action so a crash still shows a submit was made. */
 let submitCount = 0;
-async function submitOnce(action, evidence, watching) {
+async function submitOnce(page, action, evidence, watching) {
   if (submitCount >= 1) return;
   submitCount += 1;
   await watching.settle();
+  if (!onAppOrigin(page)) return;
   watching.phase = "after";
   emit({ marker: "submitted" });
   evidence.submitted = true;
@@ -294,13 +278,15 @@ async function fillAndSubmit(page, found, evidence, watching) {
   const userField = pickUserField(found.fields, found.password);
   if (!userField) return;
   const at = function (field) { return page.locator("[" + FIELD_ATTRIBUTE + '="' + field.i + '"]'); };
+  if (!onAppOrigin(page)) return;
   await at(userField).fill(user);
+  if (!onAppOrigin(page)) return;
   await at(found.password).fill(pass);
   evidence.filled = (await at(userField).inputValue()) === user && (await at(found.password).inputValue()) === pass;
   if (!evidence.filled) return;
-  if (found.password.form >= 0) return submitOnce(async function () { await at(found.password).press("Enter"); }, evidence, watching);
+  if (found.password.form >= 0) return submitOnce(page, async function () { await at(found.password).press("Enter"); }, evidence, watching);
   const control = pickSubmitControl(found.fields, found.password);
-  if (control) return submitOnce(async function () { await at(control).click(); }, evidence, watching);
+  if (control) return submitOnce(page, async function () { await at(control).click(); }, evidence, watching);
 }
 
 /* Waits for the password field to go, reads the page once more, and, when it went, saves the session and reads a fresh context opened with it at the path the submit ended on. */
@@ -309,7 +295,7 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   await watching.settle();
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   const now = new URL(page.url());
-  const after = await readPage(page);
+  const after = (await readPage(page)) || NOTHING_SHOWING;
   evidence.requests = watching.requests.slice().sort(function (a, b) {
     return (a.method + " " + a.pathname + " " + a.status).localeCompare(b.method + " " + b.pathname + " " + b.status);
   }).slice(0, MAX_REQUESTS);
@@ -328,11 +314,16 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   const fresh = await browser.newContext(contextOptions({ storageState: input.storageStatePath }));
   try {
     const freshPage = await fresh.newPage();
-    await freshPage.goto(new URL(keyOf(now), input.baseUrl).toString(), { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+    const target = new URL(baseOrigin);
+    target.pathname = now.pathname;
+    target.hash = now.hash;
+    await freshPage.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
     await freshPage.waitForLoadState("networkidle", { timeout: SETTLE_MS }).catch(function () {});
-    if (new URL(freshPage.url()).origin !== baseOrigin) return;
+    if (!onAppOrigin(freshPage)) return;
+    const freshSeen = await readPage(freshPage);
+    if (freshSeen === null) return;
     evidence.freshContextChecked = true;
-    evidence.freshContextPasswordGone = noPasswordShowing((await readPage(freshPage)).fields);
+    evidence.freshContextPasswordGone = noPasswordShowing(freshSeen.fields);
   } finally {
     await fresh.close().catch(function () {});
   }

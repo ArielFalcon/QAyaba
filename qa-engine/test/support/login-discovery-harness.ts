@@ -48,8 +48,17 @@ export interface StubRequest {
   failed?: boolean;
 }
 
+/** Whether a form's action, and every submitter's formaction, resolve to the page's own origin. */
+export interface StubForm {
+  sameOrigin: boolean;
+}
+
 export interface StubPage {
   fields?: StubField[];
+  /** By form index; a form not listed posts to the page's own origin. */
+  forms?: StubForm[];
+  /** Whether `<base href>` leaves the page's origin unchanged (default true). */
+  baseSameOrigin?: boolean;
   links?: StubLink[];
   captcha?: { present: boolean; visible: boolean };
   secondFactorVisible?: boolean;
@@ -84,6 +93,19 @@ export interface StubSite {
   gotoFails?: string[];
   /** Input positions whose typed value does not stick. */
   dropFill?: number[];
+  /** The Nth read of the page throws because the page navigated under it, and the browser is then on `to`. */
+  navUnderRead?: { onCall: number; to: string };
+  /** Moments at which the browser silently ends up on another URL. */
+  drifts?: StubDrift[];
+}
+
+/** After the Nth `on` (a page read, a typed field, or the origin check that follows the first read) the browser is on `to`. */
+export interface StubDrift {
+  on: "evaluate" | "fill" | "url-after-read";
+  nth: number;
+  to: string;
+  /** Only the pages of this browser context (numbered from 1 in the order they open); any when absent. */
+  context?: number;
 }
 
 export const input = (i: number, type: string, form: number, over: Partial<StubField> = {}): StubField => ({ i, tag: "input", type, visible: true, disabled: false, form, ...over });
@@ -106,12 +128,18 @@ const keyOf = (u) => (u.origin === site.origin ? u.pathname + u.hash : u.href);
 const who = (v) => (v === process.env.DEV_TEST_USER ? "user" : v === process.env.DEV_TEST_PASS ? "pass" : "other");
 const submit = site.submit || {};
 let contexts = 0;
+let evalCalls = 0;
 function makePage(ctx, state) {
   const events = new EventEmitter();
   const page = { on: (name, listener) => events.on(name, listener) };
   const typed = {};
   let current = new URL("about:blank");
   let staying = null;
+  let afterRead = false;
+  const drifts = (site.drifts || []).filter((d) => d.context === undefined || d.context === ctx).map((d) => ({ ...d, seen: 0, fired: false }));
+  const drift = (on) => {
+    for (const d of drifts) if (d.on === on && !d.fired && ++d.seen === d.nth) { d.fired = true; current = new URL(d.to); }
+  };
   const def = () => staying || (state.authed && (site.authedPages || {})[keyOf(current)]) || site.pages[keyOf(current)] || {};
   /* What the page logs while it loads is read back slowly (a turn of the event loop), as a browser's answer to a handle is. */
   const raise = (e, slow) => {
@@ -123,7 +151,7 @@ function makePage(ctx, state) {
     events.emit("console", { type: () => "error", text: () => e.text, args: () => [{ evaluate }] });
   };
   const submitted = (via, key, i) => {
-    log({ t: "submit", via, key, i, ctx });
+    log({ t: "submit", via, key, i, ctx, at: current.origin });
     if (via === "press" && submit.enter === false) return;
     for (const r of submit.requests || []) {
       const request = { method: () => r.method, url: () => new URL(r.url, site.origin).href, resourceType: () => r.resourceType || "fetch" };
@@ -144,12 +172,26 @@ function makePage(ctx, state) {
     staying = null;
     (def().errors || []).forEach((e) => raise(e, true));
   };
-  page.url = () => current.href;
+  page.url = () => {
+    const href = current.href;
+    if (afterRead) { afterRead = false; drift("url-after-read"); }
+    return href;
+  };
   page.waitForLoadState = async () => {};
   page.evaluate = async () => {
+    evalCalls++;
+    if (site.navUnderRead && evalCalls === site.navUnderRead.onCall) {
+      current = new URL(site.navUnderRead.to);
+      throw new Error("Execution context was destroyed, most likely because of a navigation");
+    }
     if (current.origin !== site.origin) log({ t: "inspected-foreign-page" });
     const d = def();
-    return { fields: d.fields || [], links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible, alerts: d.alerts || [] };
+    const fields = d.fields || [];
+    const formCount = Math.max(-1, ...fields.map((f) => f.form)) + 1;
+    const forms = Array.from({ length: formCount }, (_, n) => ({ sameOrigin: !d.forms || !d.forms[n] || d.forms[n].sameOrigin !== false }));
+    afterRead = true;
+    drift("evaluate");
+    return { fields, forms, baseSameOrigin: d.baseSameOrigin !== false, links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible, alerts: d.alerts || [] };
   };
   page.waitForFunction = async (fn, arg, options) => {
     log({ t: "wait", timeout: options.timeout });
@@ -158,7 +200,7 @@ function makePage(ctx, state) {
   page.locator = (selector) => {
     const i = Number(/"(\\d+)"/.exec(selector)[1]);
     return {
-      fill: async (value) => { typed[i] = value; log({ t: "fill", i, as: who(value) }); },
+      fill: async (value) => { typed[i] = value; log({ t: "fill", i, as: who(value), at: current.origin }); drift("fill"); },
       inputValue: async () => ((site.dropFill || []).includes(i) ? "" : typed[i] || ""),
       press: async (key) => {
         submitted("press", key, i);
@@ -193,6 +235,8 @@ export interface StubEvent {
   to?: string;
   i?: number;
   as?: string;
+  /** The origin the browser was on when the script acted. */
+  at?: string;
   via?: string;
   key?: string;
   ctx?: number;
