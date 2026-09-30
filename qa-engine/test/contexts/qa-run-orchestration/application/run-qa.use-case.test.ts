@@ -1,9 +1,11 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
+import { inspect } from "node:util";
 import assert from "node:assert/strict";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { createCoordinationPort, CoordinationTelemetryRecorder } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import { Sha } from "@kernel/sha.ts";
@@ -6852,6 +6854,148 @@ test("auth session prepare runs before generate and again before execute", async
   const out = await useCase.run({ ...baseInput, runId: "auth-session-both-phases" });
   assert.equal(out.decision.verdict, "pass");
   assert.deepEqual(phases, ["pre-generate", "pre-execute"]);
+});
+
+/* ── A login the run cannot complete ends it before anything is tested ─────────────────────────── */
+
+const FORM_AUTH = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } as const;
+const REJECTED = { kind: PRECONDITION_KIND.CREDENTIALS_REJECTED, note: "the login was rejected", ms: 1200 } as const;
+
+/* The fake session port throws the typed precondition error at the phases the caller names. */
+function preconditionRun(opts: { failAt: readonly ("pre-generate" | "pre-execute")[]; classify?: ChangeAnalysisPort["classify"]; mode?: "diff" | "context"; error?: () => Error }) {
+  const seen = { generated: 0, executed: 0, published: 0, folded: 0, reflected: 0, audited: 0, prepared: [] as string[] };
+  const { ports, savedOutcomes } = stubPorts({
+    generate: async () => {
+      seen.generated += 1;
+      return scriptedGeneration({ specs: opts.mode === "context" ? [".qa/context.json"] : ["a.spec.ts"], approved: true });
+    },
+    execute: async () => { seen.executed += 1; return { verdict: "pass", cases: [], logs: "" }; },
+    publish: async () => { seen.published += 1; return { outcome: "pr" }; },
+    fold: async () => { seen.folded += 1; },
+    ...(opts.classify ? { classify: opts.classify } : {}),
+  });
+  const { observer, events } = fakeObserver();
+  const useCase = new RunQaUseCase({
+    ...ports,
+    observer,
+    config: baseConfig,
+    reflector: makeFakeReflector(() => { seen.reflected += 1; }),
+    processAudit: makeFakeProcessAudit(() => { seen.audited += 1; }),
+    authSession: {
+      prepare: async (req) => {
+        seen.prepared.push(req.phase);
+        if (opts.failAt.includes(req.phase)) throw opts.error?.() ?? new AuthPreconditionError(REJECTED.kind, REJECTED.note, REJECTED.ms);
+        return { unauthored: false };
+      },
+    },
+    authContext: { baseUrl: "https://dev.example", auth: FORM_AUTH },
+  });
+  const run = (runId: string, signal?: AbortSignal) => useCase.run({ ...baseInput, runId, ...(opts.mode ? { mode: opts.mode } : {}) }, signal);
+  return { run, seen, savedOutcomes, events };
+}
+
+test("a login that fails before generation ends the run as a persisted precondition infra-error and never reaches the generator", async () => {
+  const { run, seen, savedOutcomes } = preconditionRun({ failAt: ["pre-generate"] });
+  const out = await run("precondition-pre-generate");
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.equal(seen.generated, 0);
+  assert.equal(savedOutcomes.length, 1);
+  assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.equal(savedOutcomes[0]!.verdict, "infra-error");
+  assert.ok((out.note ?? "").includes(REJECTED.kind), "the note names the kind of failure");
+  assert.ok((savedOutcomes[0]!.note ?? "").includes(REJECTED.kind), "the persisted note names it too");
+});
+
+test("a precondition failure opens no Issue and teaches nothing: no fold, no reflection, no process audit", async () => {
+  for (const failAt of [["pre-generate"], ["pre-execute"]] as const) {
+    const { run, seen } = preconditionRun({ failAt });
+    const out = await run(`precondition-teaches-nothing-${failAt[0]}`);
+    assert.equal(out.decision.sideEffect, "none", failAt[0]);
+    assert.deepEqual([seen.published, seen.folded, seen.reflected, seen.audited], [0, 0, 0, 0], failAt[0]);
+  }
+});
+
+test("a login that fails after generation ends the run the same way, before anything executes", async () => {
+  const { run, seen, savedOutcomes } = preconditionRun({ failAt: ["pre-execute"] });
+  const out = await run("precondition-pre-execute");
+  assert.equal(seen.generated, 1, "generation ran; the login only failed afterwards");
+  assert.equal(seen.executed, 0);
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.equal(savedOutcomes.length, 1);
+  assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.ok((savedOutcomes[0]!.note ?? "").includes(REJECTED.kind));
+});
+
+test("a regression run, which generates nothing, ends on a login that fails the same way", async () => {
+  const { run, seen, savedOutcomes } = preconditionRun({
+    failAt: ["pre-generate"],
+    classify: async () => ({ action: "regression", reason: "type=refactor", diff: "" }),
+  });
+  const out = await run("precondition-regression");
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.equal(seen.generated, 0);
+  assert.equal(savedOutcomes[0]?.errorClass, ERROR_CLASS.PRECONDITION);
+});
+
+test("a context run still prepares its session, logs the failed login loudly by kind, and carries on to generation", async () => {
+  const { run, seen, events, savedOutcomes } = preconditionRun({ failAt: ["pre-generate"], mode: "context" });
+  const out = await run("precondition-context-mode");
+  assert.deepEqual(seen.prepared, ["pre-generate"], "prepare still runs: it clears the earlier run's session");
+  assert.equal(seen.generated, 1, "the run continues to generation");
+  assert.notEqual(out.errorClass, ERROR_CLASS.PRECONDITION);
+  assert.equal(savedOutcomes.some((o) => o.errorClass === ERROR_CLASS.PRECONDITION), false);
+  const loud = events.filter((e) => e.type === "log.line" && (e.level === "warn" || e.level === "error") && e.text.includes(REJECTED.kind));
+  assert.ok(loud.length > 0, "a warn or error log line names the kind");
+});
+
+test("an abort that lands while the login fails wins over the precondition terminal at either phase", async () => {
+  for (const failAt of [["pre-generate"], ["pre-execute"]] as const) {
+    const controller = new AbortController();
+    const { run, savedOutcomes, seen } = preconditionRun({
+      failAt,
+      error: () => {
+        controller.abort();
+        return new AuthPreconditionError(REJECTED.kind, REJECTED.note, REJECTED.ms);
+      },
+    });
+    const out = await run(`precondition-abort-${failAt[0]}`, controller.signal);
+    assert.notEqual(out.errorClass, ERROR_CLASS.PRECONDITION, failAt[0]);
+    assert.equal(out.note, undefined, `${failAt[0]}: a cancelled run carries no failure note`);
+    assert.equal(savedOutcomes.length, 0, `${failAt[0]}: a cancelled run is never persisted`);
+    assert.equal(seen.executed, 0, failAt[0]);
+  }
+});
+
+test("a generic auth failure keeps the infrastructure class, at either phase", async () => {
+  for (const failAt of [["pre-generate"], ["pre-execute"]] as const) {
+    const { run, savedOutcomes } = preconditionRun({ failAt, error: () => new Error("login form not found") });
+    const out = await run(`generic-auth-failure-${failAt[0]}`);
+    assert.equal(out.decision.verdict, "infra-error", failAt[0]);
+    assert.equal(out.errorClass, ERROR_CLASS.INFRA, failAt[0]);
+    assert.equal(savedOutcomes.some((o) => o.errorClass === ERROR_CLASS.PRECONDITION), false, failAt[0]);
+  }
+});
+
+test("a failed precondition prints its kind, note and duration to the console and nothing more of the error", async () => {
+  const leaked = "EVIDENCE-CANARY-7f3a";
+  const errorLog = mock.method(console, "error", () => {});
+  try {
+    const { run } = preconditionRun({
+      failAt: ["pre-generate"],
+      error: () => Object.assign(new AuthPreconditionError(REJECTED.kind, REJECTED.note, REJECTED.ms), { evidence: leaked, cause: new Error(leaked) }),
+    });
+    await run("precondition-console-hygiene");
+    const printed = errorLog.mock.calls.map((call) => call.arguments.map((a) => (typeof a === "string" ? a : inspect(a))).join(" ")).join("\n");
+    assert.ok(printed.includes(REJECTED.kind), "the kind is printed");
+    assert.ok(printed.includes(REJECTED.note), "the note is printed");
+    assert.ok(printed.includes(String(REJECTED.ms)), "the duration is printed");
+    assert.equal(printed.includes(leaked), false, "nothing else the error carries is printed");
+  } finally {
+    errorLog.mock.restore();
+  }
 });
 
 function authSeedRun(opts: { unauthoredAtGenerate: boolean; groundedPack?: string }) {

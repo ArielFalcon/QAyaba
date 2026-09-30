@@ -92,6 +92,15 @@ interface TerminalOptions {
   mirrorDir?: string | undefined;
   /** The generation end that closed the run, when one did: it names the run's error class. */
   generationEnd?: GenerationEndKind | undefined;
+  /** The run ended on a positively evidenced login failure: it names the run's error class. */
+  preconditionFailed?: boolean | undefined;
+}
+
+/** A login the run could not complete: the kind, a note already scrubbed of credentials, and the attempt's duration. */
+interface PreconditionFailure {
+  kind: PreconditionKind;
+  note: string;
+  ms: number;
 }
 import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
@@ -99,7 +108,9 @@ import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type Fi
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors } from "../domain/helpers/selector-check.ts";
 import { resolveErrorClass } from "../domain/helpers/error-class.ts";
+import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
+import { terminalForPrecondition } from "../domain/helpers/precondition-terminal.ts";
 import { learningGates } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
@@ -203,7 +214,8 @@ export interface RunQaUseCaseDeps {
   setup?: SetupPort;
   /**
    * Absent: no browser session is prepared (public app, or code mode).
-   * A throw is infra-error, same as setup(). unauthored does not throw.
+   * A throw is infra-error, same as setup(), except an AuthPreconditionError: a positively
+   * evidenced login failure that ends the run as E-PRECONDITION. unauthored does not throw.
    */
   authSession?: AuthSessionPort;
   /** baseUrl plus the YAML auth declaration. Required when authSession is set. */
@@ -541,7 +553,21 @@ export class RunQaUseCase {
     if (!cfg.isCode) {
       const auth = await this.prepareAuth(workspace.specDir, "pre-generate", signal);
       if ("failed" in auth) return this.infraErrorResult(auth.failed, workspace.mirrorDir);
-      authSeedUnauthored = auth.unauthored;
+      if ("precondition" in auth) {
+        /* A cancelled run is not a failed login: whatever the killed attempt saw, the abort wins. */
+        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
+        const terminal = terminalForPrecondition(input.mode);
+        this.announcePrecondition(auth.precondition, terminal.action === "end");
+        if (terminal.action === "end") {
+          return await this.terminalResult(terminal.verdict, cfg, input, { generating, static: false }, {
+            preconditionFailed: true,
+            note: this.preconditionNote(auth.precondition),
+            mirrorDir: workspace.mirrorDir,
+          });
+        }
+      } else {
+        authSeedUnauthored = auth.unauthored;
+      }
     }
     if (signal?.aborted) {
       return this.abortedResult(workspace.mirrorDir);
@@ -1185,7 +1211,7 @@ export class RunQaUseCase {
      * This exit persists static:false even though validation already passed — the stored field
      * for this source is false.
      */
-    const preExecuteInfraError = async (reason: string): Promise<RunQaResult> => {
+    const preExecuteInfraError = async (reason: string, ending: { preconditionFailed?: boolean } = {}): Promise<RunQaResult> => {
       /* Confinement still runs for revert even though this exit does not publish. */
       await enforceConfinement();
       return await this.terminalResult(
@@ -1197,6 +1223,7 @@ export class RunQaUseCase {
           reviewerApproved: reviewerApprovedFromGeneration,
           retries,
           note: reason,
+          ...(ending.preconditionFailed ? { preconditionFailed: true } : {}),
           groundingSignals: { preExecAmbiguityCatches, deterministicSelectorBlocks, catalogGateInWindow, catalogGateAdvisory, catalogGateFailClosed },
           /* Retrieved ids reach the persisted outcome for diagnosability only. */
           rulesRetrieved: retrievedRuleIds,
@@ -1224,6 +1251,12 @@ export class RunQaUseCase {
     if (input.mode !== "context" && !cfg.isCode) {
       const auth = await this.prepareAuth(workspace.specDir, "pre-execute", signal);
       if ("failed" in auth) return await preExecuteInfraError(auth.failed);
+      if ("precondition" in auth) {
+        if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
+        /* Reached only by a run that generates tests (the guard above), which a failed login always ends. */
+        this.announcePrecondition(auth.precondition, true);
+        return await preExecuteInfraError(this.preconditionNote(auth.precondition), { preconditionFailed: true });
+      }
     }
     if (input.mode !== "context") {
       this.deps.observer?.onStep("execute");
@@ -2078,7 +2111,7 @@ export class RunQaUseCase {
     coverageRatio: number | null,
     valueScore: number | null,
     reviewerCorrections: string[] = [],
-    generationEnd?: GenerationEndKind,
+    ends: { generationEnd?: GenerationEndKind | undefined; preconditionFailed?: boolean | undefined } = {},
   ): string | null {
     return resolveErrorClass({
       verdict,
@@ -2086,7 +2119,8 @@ export class RunQaUseCase {
       minCoverageRatio: DEFAULT_MIN_COVERAGE_RATIO,
       reviewerCorrections,
       valueScore,
-      ...(generationEnd ? { generationEnd } : {}),
+      ...(ends.generationEnd ? { generationEnd: ends.generationEnd } : {}),
+      ...(ends.preconditionFailed ? { preconditionFailed: true } : {}),
     });
   }
 
@@ -2248,7 +2282,7 @@ export class RunQaUseCase {
    * No-op when the port is unwired. unauthored is a setup note, not a failure. A failed prepare is
    * logged and returned as the infra-error note for the caller's terminal.
    */
-  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | { failed: string }> {
+  private async prepareAuth(specDir: string, phase: "pre-generate" | "pre-execute", signal?: AbortSignal): Promise<{ unauthored: boolean } | { failed: string } | { precondition: PreconditionFailure }> {
     const sessionPort = this.deps.authSession;
     const ctx = this.deps.authContext;
     if (!sessionPort || !ctx) return { unauthored: false };
@@ -2261,6 +2295,11 @@ export class RunQaUseCase {
         phase,
       }, signal);
     } catch (err) {
+      if (err instanceof AuthPreconditionError) {
+        /* Its own fields only: a login failure never prints the error object, which could carry anything a page or a network said. */
+        console.error(`[qa] auth precondition failed${phase === "pre-execute" ? " before execute" : ""}: kind=${err.kind} note=${err.note} ms=${err.ms}`);
+        return { precondition: { kind: err.kind, note: err.note, ms: err.ms } };
+      }
       console.error(`[qa] auth session failed${phase === "pre-execute" ? " before execute" : ""}:`, err);
       return { failed: `auth session failed: ${err instanceof Error ? err.message : String(err)}` };
     }
@@ -2268,6 +2307,22 @@ export class RunQaUseCase {
       this.deps.observer?.onStep("setup", "auth setup is still the seed; generation may rewrite e2e/auth.setup.ts");
     }
     return { unauthored: session.unauthored };
+  }
+
+  /* What a failed precondition ends the run with: its kind and scrubbed note, never any evidence. */
+  private preconditionNote(failure: PreconditionFailure): string {
+    return `the app's login could not be completed before testing (${failure.kind}): ${failure.note}`;
+  }
+
+  /* A failed login is always loud: an error when it ends the run, a warning when a context run carries on without a session. */
+  private announcePrecondition(failure: PreconditionFailure, ends: boolean): void {
+    this.deps.observer?.onEvent({
+      type: "log.line",
+      level: ends ? "error" : "warn",
+      text: ends
+        ? `[qa] the run ended before generation (${failure.kind}) after ${failure.ms}ms: the app's login could not be completed, not a fault in the code under test`
+        : `[qa] the app's login could not be completed (${failure.kind}) after ${failure.ms}ms; this context run continues without a session`,
+    });
   }
 
   /*
@@ -2341,6 +2396,7 @@ export class RunQaUseCase {
       tested,
       mirrorDir,
       generationEnd,
+      preconditionFailed,
     } = opts;
     const decision = decide({
       verdict,
@@ -2351,8 +2407,8 @@ export class RunQaUseCase {
       shadow: cfg.shadow,
       onFailure: cfg.onFailure,
     });
-    /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end that ended the run names its own class. */
-    const errorClass = this.deriveErrorClass(verdict, null, null, [], generationEnd);
+    /* invalid → E-STATIC, infra-error → E-INFRA, unless a generation end or a failed precondition that ended the run names its own class. */
+    const errorClass = this.deriveErrorClass(verdict, null, null, [], { generationEnd, preconditionFailed });
     /*
      * Dispatch the same publish() as the mainline. infra-error resolves to
      * sideEffect "none" via decide() — no Issue.
