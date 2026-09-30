@@ -61,6 +61,13 @@ export interface LoginEvidence {
   inFlightAtDeadline: boolean;
   pageErrorCount: number;
   firstPageError: string | null;
+  /**
+   * An exception surfaced after the submit (a page error, or a console error that carried an Error object) whose
+   * signature had not been seen before it. A recurring one, or plain console text, never counts.
+   */
+  newExceptionAfterSubmit: boolean;
+  /** The first such exception, already scrubbed of the account by whoever produced the evidence. */
+  firstNewException: string | null;
   firstAlert: string | null;
   submitDisabled: boolean;
   finalPath: string;
@@ -100,7 +107,9 @@ const inconclusive = (attempted: boolean): LoginOutcome => ({ status: LOGIN_STAT
  * a failure needs a structural marker or a submit-time request, and a request still in flight at the
  * deadline proves nothing yet. `attempted` follows what was submitted: a recorded submit is an
  * attempt unless it visibly sent no request, because a seed that submits again after a rejected
- * credential risks a lockout. Rules run in this order.
+ * credential risks a lockout. A submit that threw in the page and sent nothing is positive evidence
+ * that this login cannot complete; one that threw but did send a request is left to the request
+ * rules. Rules run in this order.
  */
 export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   const { markers, requests } = evidence;
@@ -121,7 +130,8 @@ export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   if (!evidence.passwordGone) {
     /* A request still in flight proves nothing yet, and a submit that sent none (Enter did nothing, a click-only form) is left to the stock seed. */
     if (evidence.inFlightAtDeadline) return inconclusive(true);
-    if (requests.length === 0) return inconclusive(false);
+    /* The handler threw a new exception and no request went out: the login cannot complete. Without one, silence proves nothing and the stock seed decides. */
+    if (requests.length === 0) return evidence.newExceptionAfterSubmit ? failed(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE) : inconclusive(false);
     const rejected = requests.some((request) => request.status !== null && REJECTION_STATUSES.has(request.status));
     return failed(rejected ? PRECONDITION_KIND.CREDENTIALS_REJECTED : PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE);
   }
@@ -195,6 +205,7 @@ export function renderLoginEvidence(kind: PreconditionKind, evidence: LoginEvide
     requests.length === 0 ? null : `submit requests: ${requests.join(", ")}`,
     `page errors: ${evidence.pageErrorCount}`,
     evidence.firstPageError === null ? null : `first page error: ${scrubbedAndBounded(evidence.firstPageError, secrets)}`,
+    evidence.firstNewException === null ? null : `first new exception after submit: ${scrubbedAndBounded(evidence.firstNewException, secrets)}`,
     evidence.firstAlert === null ? null : `alert: ${scrubbedAndBounded(evidence.firstAlert, secrets)}`,
   ];
   return parts.filter((part): part is string => part !== null).join("; ");

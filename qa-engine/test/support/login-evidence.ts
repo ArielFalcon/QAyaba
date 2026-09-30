@@ -19,6 +19,8 @@ export function scriptedLoginEvidence(over: Partial<LoginEvidence> = {}): LoginE
     inFlightAtDeadline: false,
     pageErrorCount: 0,
     firstPageError: null,
+    newExceptionAfterSubmit: false,
+    firstNewException: null,
     firstAlert: null,
     submitDisabled: false,
     finalPath: "/login",

@@ -216,6 +216,31 @@ test("alert and page-error text are bounded, and text within the bound is kept w
   assert.ok(out.includes("e".repeat(EVIDENCE_TEXT_MAX)), "text exactly at the bound is not shortened");
 });
 
+test("the note names the first new exception when there is one and leaves that part out when there is none", () => {
+  const kind = PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE;
+  const named = renderLoginEvidence(kind, evidence({ requests: [], newExceptionAfterSubmit: true, firstNewException: "TypeError: exception-marker" }), []);
+  assert.ok(named.includes("exception-marker"));
+  const silent = renderLoginEvidence(kind, evidence({ requests: [], newExceptionAfterSubmit: false, firstNewException: null }), []);
+  assert.equal(silent.includes("exception-marker"), false);
+  assert.doesNotMatch(silent, /:\s*(?:;|$)|;\s*(?:;|$)/, "no part is rendered empty and no separator is left dangling");
+});
+
+test("the first new exception is bounded, and a credential in it is removed in every spelling before the cut", () => {
+  const kind = PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE;
+  const long = renderLoginEvidence(kind, evidence({ newExceptionAfterSubmit: true, firstNewException: "n".repeat(EVIDENCE_TEXT_MAX + 50) }), []);
+  assert.ok(long.includes("n".repeat(EVIDENCE_TEXT_MAX)));
+  assert.equal(long.includes("n".repeat(EVIDENCE_TEXT_MAX + 1)), false);
+  for (const { secret, echoes } of HOSTILE) {
+    const out = renderLoginEvidence(kind, evidence({ newExceptionAfterSubmit: true, firstNewException: `exception-marker ${USER_ECHOES.join(" ")} ${echoes.join(" ")}` }), [USER, secret]);
+    assert.ok(out.includes("exception-marker"), "the exception is rendered");
+    for (const echo of [...USER_ECHOES, ...echoes]) assert.equal(out.includes(echo), false, `${JSON.stringify(secret)} leaked as ${JSON.stringify(echo)}`);
+  }
+  const password = "Zx9!Qw7#Lm2$";
+  const straddling = renderLoginEvidence(kind, evidence({ newExceptionAfterSubmit: true, firstNewException: "y".repeat(EVIDENCE_TEXT_MAX - 4) + password }), [password]);
+  assert.ok(straddling.includes("y".repeat(EVIDENCE_TEXT_MAX - 4)), "the exception is rendered");
+  assert.equal(straddling.includes(password.slice(0, 4)), false, "no prefix of the password survives the cut");
+});
+
 test("only the first requests up to the cap are rendered", () => {
   const requests = Array.from({ length: MAX_RENDERED_REQUESTS + 5 }, (_, i) => ({ method: "POST", pathname: `/req-${String(i).padStart(2, "0")}-x`, status: 401 }));
   const out = renderLoginEvidence(PRECONDITION_KIND.CREDENTIALS_REJECTED, evidence({ requests }), []);

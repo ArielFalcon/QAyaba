@@ -171,7 +171,11 @@ and replaces the merged stretches once. The four survivors of that first re-run 
 capture group 1 makes unreachable (now an assertion), two comparisons on the merge boundaries (pinned
 with a stretch that touches another and a secret inside a longer one, and the update of the covered
 end now takes the larger end instead of testing for it) and an unpinned marker at the very start of a
-text. The After column is the final re-run; it has no documented survivors.
+text. The After column is the final re-run; it has no documented survivors. It was re-run once more
+when the classifier learned the submit that threw in the page and sent nothing (a new exception, with
+no request and nothing in flight, is a login that cannot complete; a recurring one, plain console text
+or a request sent leaves the outcome to the request rules), and the note began to name that
+exception: 129 killed, no survivors.
 
 patch-app-yaml (2026-09-30, 4 workers) is a new preset over the module that edits an app's YAML in
 place, run against its own tests and the update use case that drives it. **Before** is its first run;
@@ -199,7 +203,7 @@ re-run; its one survivor is documented below.
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 301 / 14 / 0 — 100% (95.56%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
-| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 128 / 0 / 0 — 100% (100%) | — |
+| login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 129 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 
 ### Documented survivors

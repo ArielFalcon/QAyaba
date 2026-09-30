@@ -84,6 +84,17 @@ const ROWS: readonly Row[] = [
   { name: "a submit that sent no request at all is inconclusive and unattempted, so the stock seed still runs", evidence: { requests: [] }, outcome: inconclusive(false) },
   { name: "a request still in flight at the deadline is inconclusive but attempted, even after a rejection", evidence: { inFlightAtDeadline: true, requests: [{ method: "POST", pathname: "/api/session", status: 401 }] }, outcome: inconclusive(true) },
   { name: "a request in flight with none seen yet is inconclusive and attempted", evidence: { inFlightAtDeadline: true, requests: [] }, outcome: inconclusive(true) },
+  /* a submit handler that threw and sent nothing: positive evidence that this login cannot complete */
+  { name: "a new exception after a submit that sent no request, with the password still visible, is login-did-not-complete", evidence: { requests: [], newExceptionAfterSubmit: true, firstNewException: "TypeError: x is null" }, outcome: failed(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE) },
+  { name: "no new exception after a submit that sent no request stays inconclusive so the stock seed still runs", evidence: { requests: [], newExceptionAfterSubmit: false }, outcome: inconclusive(false) },
+  { name: "a new exception with a rejected request defers to the request rules and stays credentials-rejected", evidence: { newExceptionAfterSubmit: true, requests: [{ method: "POST", pathname: "/api/session", status: 401 }] }, outcome: failed(PRECONDITION_KIND.CREDENTIALS_REJECTED) },
+  { name: "a new exception with a request that was answered defers to the request rules", evidence: { newExceptionAfterSubmit: true, requests: [{ method: "POST", pathname: "/api/session", status: 200 }] }, outcome: failed(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE) },
+  { name: "a new exception with a request still in flight proves nothing yet and is inconclusive but attempted", evidence: { newExceptionAfterSubmit: true, inFlightAtDeadline: true, requests: [] }, outcome: inconclusive(true) },
+  { name: "a new exception does not undo a login that got in", evidence: { ...SIGNED_IN, newExceptionAfterSubmit: true }, outcome: authenticated() },
+  { name: "a new exception does not hide a session that cannot be persisted", evidence: { ...SIGNED_IN, freshContextPasswordGone: false, newExceptionAfterSubmit: true }, outcome: failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE) },
+  { name: "a visible challenge is named ahead of a new exception", evidence: { markers: { captcha: true, sso: false }, challengeVisible: true, requests: [], newExceptionAfterSubmit: true }, outcome: failed(PRECONDITION_KIND.CAPTCHA_PRESENT) },
+  { name: "a new exception before anything was submitted is inconclusive and unattempted", evidence: { submitted: false, requests: [], newExceptionAfterSubmit: true }, outcome: inconclusive(false) },
+  { name: "a new exception against a form that was not filled is an attempt but not a failure", evidence: { filled: false, requests: [], newExceptionAfterSubmit: true }, outcome: inconclusive(true) },
   { name: "an alert that reads like a rejection, with no request behind it, never yields a failure", evidence: { requests: [], firstAlert: "Invalid credentials" }, outcome: inconclusive(false) },
   { name: "a page error with no request behind it never yields a failure", evidence: { requests: [], pageErrorCount: 2, firstPageError: "TypeError: x is undefined" }, outcome: inconclusive(false) },
 ];
