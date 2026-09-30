@@ -35,7 +35,6 @@ export interface LoginRequest {
 /** What the pages looked like, decided from their structure and never from their text. */
 export interface LoginMarkers {
   captcha: boolean;
-  secondFactor: boolean;
   sso: boolean;
 }
 
@@ -48,6 +47,8 @@ export interface LoginEvidence {
   markers: LoginMarkers;
   /** A challenge element was visible after the submit (a badge or an invisible one does not count). */
   challengeVisible: boolean;
+  /** A second-factor step (a structural marker, never text) was on screen after the submit; one seen only on an earlier page does not count. */
+  secondFactorVisible: boolean;
   filled: boolean;
   submitted: boolean;
   /** Submit-time non-GET requests, sorted and capped by whoever produced the evidence. */
@@ -60,7 +61,9 @@ export interface LoginEvidence {
   submitDisabled: boolean;
   finalPath: string;
   passwordGone: boolean;
-  /** A fresh browser context, loaded with the saved session, no longer shows the password field. */
+  /** A fresh browser context was opened with the saved session and its page read; without it the next field says nothing. */
+  freshContextChecked: boolean;
+  /** That fresh context no longer shows the password field. */
   freshContextPasswordGone: boolean;
   storageStateWritten: boolean;
 }
@@ -91,21 +94,26 @@ const inconclusive = (attempted: boolean): LoginOutcome => ({ status: LOGIN_STAT
  * Reads a login attempt. Pure: the same evidence gives the same outcome and the evidence is not
  * changed. Only positive evidence fails a login, and text alone (an alert, a page error) never does:
  * a failure needs a structural marker or a submit-time request, and a request still in flight at the
- * deadline proves nothing yet. Rules run in this order.
+ * deadline proves nothing yet. `attempted` follows what was submitted: a recorded submit is an
+ * attempt unless it visibly sent no request, because a seed that submits again after a rejected
+ * credential risks a lockout. Rules run in this order.
  */
 export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   const { markers, requests } = evidence;
-  if (evidence.submitted && evidence.passwordGone && evidence.freshContextPasswordGone && evidence.storageStateWritten) {
+  if (evidence.submitted && evidence.passwordGone && evidence.freshContextChecked && evidence.freshContextPasswordGone && evidence.storageStateWritten) {
     return { status: LOGIN_STATUS.AUTHENTICATED };
   }
   /* Only when no page of the whole ladder had a password field: one that did means the login may live elsewhere. */
   if (evidence.form === FORM_STATE.ABSENT && markers.sso && !evidence.ladderHadPasswordField) return failed(PRECONDITION_KIND.SSO_ONLY);
-  /* No form, an ambiguous one, fields that would not fill, or nothing submitted: no credential went anywhere. */
-  if (evidence.form !== FORM_STATE.FOUND || !evidence.filled || !evidence.submitted) return inconclusive(false);
-  /* A visible challenge after a submit that left the password visible; a badge or an invisible one is ignored. */
-  if (!evidence.passwordGone && markers.captcha && evidence.challengeVisible) return failed(PRECONDITION_KIND.CAPTCHA_PRESENT);
-  if (markers.secondFactor) return failed(PRECONDITION_KIND.SECOND_FACTOR_REQUIRED);
-  if (evidence.passwordGone && !evidence.freshContextPasswordGone) return failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE);
+  /* No form, an ambiguous one, or fields that would not fill teach nothing, but a submit that was recorded went out: the seed must not send another. */
+  if (evidence.form !== FORM_STATE.FOUND || !evidence.filled || !evidence.submitted) return inconclusive(evidence.submitted);
+  /* A submit that has visibly gone somewhere: the password field left, or a request was answered and none is still pending. */
+  const settled = evidence.passwordGone || (requests.length > 0 && !evidence.inFlightAtDeadline);
+  /* A visible challenge after a submit that left the password visible with nothing in flight; a badge or an invisible one is ignored. */
+  if (!evidence.passwordGone && markers.captcha && evidence.challengeVisible && !evidence.inFlightAtDeadline) return failed(PRECONDITION_KIND.CAPTCHA_PRESENT);
+  /* Seen on screen after the submit, and only once the submit settled: earlier, the step may just be the page the submit is still leaving. */
+  if (evidence.secondFactorVisible && settled) return failed(PRECONDITION_KIND.SECOND_FACTOR_REQUIRED);
+  if (evidence.passwordGone && evidence.freshContextChecked && !evidence.freshContextPasswordGone) return failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE);
   if (!evidence.passwordGone) {
     /* A request still in flight proves nothing yet, and a submit that sent none (Enter did nothing, a click-only form) is left to the stock seed. */
     if (evidence.inFlightAtDeadline) return inconclusive(true);
@@ -113,7 +121,7 @@ export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
     const rejected = requests.some((request) => request.status !== null && REJECTION_STATUSES.has(request.status));
     return failed(rejected ? PRECONDITION_KIND.CREDENTIALS_REJECTED : PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE);
   }
-  /* The password went and a fresh context is clean, but no session was written: submitted, and not proven. */
+  /* The password went, but no session was written or no fresh context was read: submitted, and not proven. */
   return inconclusive(true);
 }
 
