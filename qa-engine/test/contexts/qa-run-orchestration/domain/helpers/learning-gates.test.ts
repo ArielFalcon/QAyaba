@@ -25,7 +25,7 @@ const CLASS_LEARNS: Record<ErrorClass, boolean> = {
 };
 
 const VERDICTS: readonly RunVerdict[] = ["pass", "fail", "flaky", "invalid", "infra-error", "skipped"];
-const OPEN = { isCode: false, adjudicationClass: undefined } as const;
+const OPEN = { mode: "diff", isCode: false, adjudicationClass: undefined } as const;
 
 test("every error class has a decision on whether it teaches the engine", () => {
   for (const cls of ERROR_CLASSES) {
@@ -87,19 +87,30 @@ test("a terminal outcome with no error class teaches nothing", () => {
 
 test("a code-mode failure, which correctly caught a bug, neither folds nor reflects", () => {
   for (const stage of ["mainline", "terminal"] as const) {
-    const gates = learningGates({ stage, verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: true, adjudicationClass: undefined });
+    const gates = learningGates({ stage, verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: true, adjudicationClass: undefined, mode: "diff" });
     assert.deepEqual(gates, { fold: false, reflect: false }, stage);
   }
-  assert.equal(learningGates({ stage: "mainline", verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: false, adjudicationClass: undefined }).fold, true);
+  assert.equal(learningGates({ stage: "mainline", verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: false, adjudicationClass: undefined, mode: "diff" }).fold, true);
 });
 
 test("a failure the adjudicator classed as an app defect neither folds nor reflects, in any mode", () => {
   for (const isCode of [true, false]) {
     for (const stage of ["mainline", "terminal"] as const) {
-      const gates = learningGates({ stage, verdict: "fail", errorClass: "E-EXEC-FAIL", isCode, adjudicationClass: "app_defect" });
+      const gates = learningGates({ stage, verdict: "fail", errorClass: "E-EXEC-FAIL", isCode, adjudicationClass: "app_defect", mode: "diff" });
       assert.deepEqual(gates, { fold: false, reflect: false }, `${stage} isCode=${isCode}`);
     }
   }
-  const other = learningGates({ stage: "mainline", verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: false, adjudicationClass: "test_defect" });
+  const other = learningGates({ stage: "mainline", verdict: "fail", errorClass: "E-EXEC-FAIL", isCode: false, adjudicationClass: "test_defect", mode: "diff" });
   assert.deepEqual(other, { fold: true, reflect: true });
+});
+
+test("a context-mode run neither folds nor reflects, whatever its stage, verdict or class", () => {
+  for (const cls of ERROR_CLASSES) {
+    for (const verdict of VERDICTS) {
+      for (const stage of ["mainline", "terminal"] as const) {
+        const gates = learningGates({ stage, verdict, errorClass: cls, isCode: false, adjudicationClass: undefined, mode: "context" });
+        assert.deepEqual(gates, { fold: false, reflect: false }, `${stage} ${verdict} ${cls}`);
+      }
+    }
+  }
 });

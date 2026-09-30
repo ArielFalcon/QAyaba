@@ -1983,6 +1983,7 @@ export class RunQaUseCase {
        */
       const learning = learningGates({
         stage: "mainline",
+        mode: input.mode,
         verdict: decision.verdict,
         errorClass: mainlineOutcome.errorClass,
         isCode: cfg.isCode,
@@ -2398,6 +2399,7 @@ export class RunQaUseCase {
        */
       const learning = learningGates({
         stage: "terminal",
+        mode: input.mode,
         verdict,
         errorClass: terminalOutcome.errorClass,
         isCode: cfg.isCode,

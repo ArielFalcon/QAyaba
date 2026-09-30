@@ -7023,13 +7023,13 @@ interface Learned {
   audited: RunOutcome[];
 }
 
-async function learnFrom(generation: ReturnType<typeof scriptedGeneration>): Promise<Learned> {
+async function learnFrom(generation: ReturnType<typeof scriptedGeneration>, input: Parameters<RunQaUseCase["run"]>[0] = baseInput): Promise<Learned> {
   const learned: Learned = { folded: [], reflected: [], audited: [] };
   const { ports } = stubPorts({ generate: async () => generation });
   ports.learning.fold = async (outcome) => { learned.folded.push(outcome); };
   const reflector = makeFakeReflector((input) => { learned.reflected.push(input); });
   const processAudit = makeFakeProcessAudit((outcome) => { learned.audited.push(outcome); });
-  await new RunQaUseCase({ ...ports, reflector, processAudit, config: baseConfig }).run(baseInput);
+  await new RunQaUseCase({ ...ports, reflector, processAudit, config: baseConfig }).run(input);
   return learned;
 }
 
@@ -7041,6 +7041,26 @@ test("a generation that ran out of steps feeds the fold, the reflector and the p
   assert.equal(learned.reflected[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
   assert.equal(learned.audited.length, 1);
   assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+});
+
+test("a context-mode generation that ran out of steps teaches nothing, like every other context-mode terminal", async () => {
+  const learned = await learnFrom(
+    scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }),
+    { ...baseInput, mode: "context" },
+  );
+  assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 0]);
+});
+
+test("a context-mode generation that ran out of steps still ends loudly as a persisted infra-error with its note", async () => {
+  const { ports, savedOutcomes } = stubPorts({
+    generate: async () => scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }),
+  });
+  const out = await new RunQaUseCase({ ...ports, config: baseConfig }).run({ ...baseInput, mode: "context" });
+  assert.equal(out.decision.verdict, "infra-error");
+  assert.equal(out.errorClass, ERROR_CLASS.STEP_BUDGET);
+  assert.ok((out.note ?? "").includes(EXHAUSTED_NOTE));
+  assert.equal(savedOutcomes.length, 1);
+  assert.equal(savedOutcomes[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
 });
 
 test("a generation that decided nothing never feeds the fold, the reflector or the process audit", async () => {
