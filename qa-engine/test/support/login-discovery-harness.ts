@@ -2,9 +2,10 @@ import { execFile } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { strict as assert } from "node:assert";
 import { promisify } from "node:util";
 import { buildLoginDiscoveryScript } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script.ts";
-import type { LoginEvidence } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
+import { classifyLoginEvidence, type LoginEvidence, type LoginOutcome } from "@contexts/qa-run-orchestration/domain/helpers/login-evidence.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,14 +31,36 @@ export interface StubLink {
   text: string;
 }
 
+export interface StubRequest {
+  method: string;
+  url: string;
+  resourceType?: string;
+  /** null: the request never gets an answer. */
+  status: number | null;
+  /** The request fails on the network instead. */
+  failed?: boolean;
+}
+
 export interface StubPage {
   fields?: StubField[];
   links?: StubLink[];
+  captcha?: { present: boolean; visible: boolean };
+  secondFactorVisible?: boolean;
+}
+
+/** What submitting the login does. */
+export interface StubSubmit {
+  /** Whether Enter in the password field submits (default true). */
+  enter?: boolean;
+  requests?: StubRequest[];
+  /** What the page shows afterwards when it stays. */
+  after?: StubPage;
 }
 
 export interface StubSite {
   /** A page by its path (a hash route keeps its hash) or, off the app's origin, by its full URL. */
   pages: Record<string, StubPage>;
+  submit?: StubSubmit;
   /** Where a path or URL ends up when it is opened. */
   redirects?: Record<string, string>;
   /** Paths whose navigation throws. */
@@ -59,27 +82,48 @@ export const loginForm = (): StubPage => ({ fields: [input(0, "email", 0), input
  */
 const STUB_MODULE = `
 const fs = require("node:fs");
+const { EventEmitter } = require("node:events");
 const site = JSON.parse(fs.readFileSync(process.env.STUB_SITE, "utf8"));
 const log = (entry) => fs.appendFileSync(process.env.STUB_EVENTS, JSON.stringify(entry) + "\\n");
 const keyOf = (u) => (u.origin === site.origin ? u.pathname + u.hash : u.href);
 const who = (v) => (v === process.env.DEV_TEST_USER ? "user" : v === process.env.DEV_TEST_PASS ? "pass" : "other");
+const submit = site.submit || {};
 function makePage() {
-  const page = {};
+  const events = new EventEmitter();
+  const page = { on: (name, listener) => events.on(name, listener) };
   const typed = {};
   let current = new URL("about:blank");
+  let staying = null;
+  const def = () => staying || site.pages[keyOf(current)] || {};
+  const submitted = (via, key, i) => {
+    log({ t: "submit", via, key, i });
+    if (via === "press" && submit.enter === false) return;
+    for (const r of submit.requests || []) {
+      const request = { method: () => r.method, url: () => new URL(r.url, site.origin).href, resourceType: () => r.resourceType || "fetch" };
+      events.emit("request", request);
+      if (r.failed) events.emit("requestfailed", request);
+      else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
+    }
+    if (submit.after) staying = submit.after;
+  };
   page.goto = async (target) => {
     const asked = new URL(target);
     log({ t: "goto", to: keyOf(asked) });
     if ((site.gotoFails || []).includes(keyOf(asked))) throw new Error("navigation failed");
     const redirected = site.redirects && site.redirects[keyOf(asked)];
     current = redirected ? new URL(redirected, site.origin) : asked;
+    staying = null;
   };
   page.url = () => current.href;
   page.waitForLoadState = async () => {};
   page.evaluate = async () => {
     if (current.origin !== site.origin) log({ t: "inspected-foreign-page" });
-    const def = site.pages[keyOf(current)] || {};
-    return { fields: def.fields || [], links: def.links || [] };
+    const d = def();
+    return { fields: d.fields || [], links: d.links || [], captcha: d.captcha || { present: false, visible: false }, secondFactorVisible: !!d.secondFactorVisible };
+  };
+  page.waitForFunction = async (fn, arg, options) => {
+    log({ t: "wait", timeout: options.timeout });
+    if ((def().fields || []).some((f) => f.tag === "input" && f.type === "password" && f.visible)) throw new Error("Timeout " + options.timeout + "ms exceeded");
   };
   page.locator = (selector) => {
     const i = Number(/"(\\d+)"/.exec(selector)[1]);
@@ -87,10 +131,10 @@ function makePage() {
       fill: async (value) => { typed[i] = value; log({ t: "fill", i, as: who(value) }); },
       inputValue: async () => ((site.dropFill || []).includes(i) ? "" : typed[i] || ""),
       press: async (key) => {
-        log({ t: "submit", via: "press", key, i });
+        submitted("press", key, i);
         if (process.env.STUB_PRESS_ERROR) throw new Error(process.env.STUB_PRESS_ERROR);
       },
-      click: async () => log({ t: "submit", via: "click", i }),
+      click: async () => submitted("click", undefined, i),
     };
   };
   return page;
@@ -98,10 +142,7 @@ function makePage() {
 exports.chromium = {
   launch: async () => {
     if (process.env.STUB_LAUNCH_ERROR) throw new Error(process.env.STUB_LAUNCH_ERROR);
-    return {
-      newContext: async () => ({ newPage: async () => makePage(), close: async () => {} }),
-      close: async () => {},
-    };
+    return { newContext: async () => ({ newPage: async () => makePage(), close: async () => {} }), close: async () => {} };
   },
 };
 `;
@@ -113,6 +154,7 @@ export interface StubEvent {
   as?: string;
   via?: string;
   key?: string;
+  timeout?: number;
 }
 
 export interface LoginDiscoveryInput {
@@ -121,6 +163,7 @@ export interface LoginDiscoveryInput {
   loginPath?: string;
   storageStatePath?: string;
   budgetMs?: number;
+  actionTimeoutMs?: number;
 }
 
 export interface DiscoveryRun {
@@ -184,6 +227,17 @@ export async function runLoginDiscovery(options: DiscoveryRunOptions): Promise<D
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/** A login that stays on its form after the submit, whatever the submit sent. */
+export const stayingSite = (submit: StubSubmit = {}, page: StubPage = loginForm()): StubSite => ({ pages: { "/": page }, submit });
+
+export function evidenceOf(run: DiscoveryRun): LoginEvidence {
+  assert.ok(run.evidence, `the run printed no evidence (exit ${run.exitCode}): ${run.stderr}`);
+  return run.evidence;
+}
+
+/** What the real classifier makes of the evidence a run printed. */
+export const outcomeOf = (run: DiscoveryRun): LoginOutcome => classifyLoginEvidence(evidenceOf(run));
 
 /** Syntax-checks a generated script with `node --check`. */
 export async function nodeChecks(source: string): Promise<boolean> {
