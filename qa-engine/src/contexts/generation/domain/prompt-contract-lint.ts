@@ -169,7 +169,8 @@ export function findingKey(finding: LintFinding): string {
   return [finding.rule, ...[...finding.sections].sort()].join("|");
 }
 
-const MIN_DUPLICATE_LINE_BYTES = 40;
+/* A line shorter than this (once trimmed) is too generic to count as a duplicate. */
+export const MIN_DUPLICATE_LINE_BYTES = 40;
 
 function bytes(text: string): number {
   return Buffer.byteLength(text, "utf8");
@@ -266,7 +267,8 @@ function ruleFactsOnly(cell: LintCell): LintFinding[] {
     .map((s) => ({ rule: "R6" as const, sections: [s.id] }));
 }
 
-function duplicateCandidateLines(text: string): string[] {
+/* The scaffold lines of a section, trimmed so the same words indented differently are one line. The rows of a captured DOM tree are indented data: a section that provides a tree contributes none of its indented lines. */
+function duplicateCandidateLines(text: string, providesTree: boolean): string[] {
   const lines: string[] = [];
   let inFence = false;
   for (const line of text.split("\n")) {
@@ -275,19 +277,23 @@ function duplicateCandidateLines(text: string): string[] {
       continue;
     }
     if (inFence) continue;
-    if (/^\s/.test(line)) continue;
-    if (bytes(line) < MIN_DUPLICATE_LINE_BYTES) continue;
-    lines.push(line);
+    if (providesTree && /^\s/.test(line)) continue;
+    const trimmed = line.trim();
+    if (bytes(trimmed) < MIN_DUPLICATE_LINE_BYTES) continue;
+    lines.push(trimmed);
   }
   return lines;
 }
+
+const TREE_FACTS: readonly FactId[] = ["dom-live", "dom-failure"];
 
 /* R7: an exact scaffold line present in two sections (assembled or static) is duplicated content. */
 function ruleDuplicateLines(cell: LintCell): LintFinding[] {
   const owners = new Map<string, Set<string>>();
   for (const section of cell.sections) {
     if (section.verbatim) continue;
-    for (const line of new Set(duplicateCandidateLines(section.text))) {
+    const providesTree = section.claims.some((c) => c.kind === "provides" && TREE_FACTS.includes(c.fact));
+    for (const line of new Set(duplicateCandidateLines(section.text, providesTree))) {
       owners.set(line, (owners.get(line) ?? new Set<string>()).add(section.id));
     }
   }

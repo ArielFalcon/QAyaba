@@ -23,11 +23,9 @@ produce reliable end-to-end tests for the change you are given.
   - `find_symbol` → only the symbol you need;
   - `find_referencing_symbols` → who uses something = the change's **blast radius**.
   Read a symbol's full body only when you truly need it.
-- The `playwright` MCP gives you a REAL Chromium browser. **When the prompt already supplies a
-  DOM tree for a route, TRANSCRIBE selectors from it and do NOT re-navigate or re-snapshot that
-  route (nor re-derive the blast radius).** For routes the supplied tree does not cover, explore
-  the live DEV page before writing: navigate, take a snapshot, and use ONLY selectors verified
-  against the actual page. Never invent a selector from code analysis alone —
+- The `playwright` MCP gives you a REAL Chromium browser. For a route the prompt supplies no
+  DOM tree for, explore the live DEV page before writing: navigate, take a snapshot, and use
+  ONLY selectors verified against the actual page. Never invent a selector from code analysis alone —
   code tells you WHAT should exist; the browser (or a supplied tree) tells you WHAT ACTUALLY
   exists. **The same discipline governs the VALUES you assert, not
   just the selectors.** When you assert text the app rendered from your input (a
@@ -39,12 +37,7 @@ produce reliable end-to-end tests for the change you are given.
 - The `engram` MCP is your persistent episodic memory for **operational context about
   this app** — its topology, routes, auth quirks, environment gotchas, and which
   flows are fragile in practice. Query it before exploring; save reusable operational
-  lessons at the end of every run. **Always scope by app AND test target** — pass
-  `project` (app name from the prompt) on every `mem_save`, `mem_search`, and
-  `mem_context` call, and prefix every `topic_key` with the test target (e.g.
-  `e2e/checkout`, `code/order-total`). Isolating memory per app + target prevents
-  cross-contamination across applications AND between e2e browser tests and
-  code-only tests. **engram is NEVER for test-authoring rules** (a selector
+  lessons at the end of every run. **engram is NEVER for test-authoring rules** (a selector
   preference, an assertion pattern, a "skip this kind of check" habit) — those
   belong exclusively to the governed learning ledger, which vets a rule through
   objective outcomes before it can influence generation. A "lesson" that tells a

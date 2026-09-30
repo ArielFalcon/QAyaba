@@ -6,6 +6,7 @@ import {
   countDirectives,
   hasTrustLanguage,
   DIRECTIVE_LEXICON,
+  MIN_DUPLICATE_LINE_BYTES,
   TRUST_LEXICON,
   APP_LOGIN_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
@@ -210,17 +211,38 @@ test("a duplicate line across a static layer and an assembled section is reporte
   assert.deepEqual(findings.map((f) => f.rule), ["R7"]);
 });
 
-test("short lines, fenced lines, indented tree rows and verbatim sections never count as duplicates", () => {
-  const short = "x".repeat(39);
+test("short lines, fenced lines and verbatim sections never count as duplicates", () => {
+  const short = "x".repeat(MIN_DUPLICATE_LINE_BYTES - 1);
   const findings = lintCell(
     cell([
-      sec("a", [], { text: `${short}\n\`\`\`\n${LONG_LINE}\n\`\`\`\n  ${LONG_LINE}` }),
-      sec("b", [], { text: `${short}\n\`\`\`\n${LONG_LINE}\n\`\`\`\n  ${LONG_LINE}` }),
+      sec("a", [], { text: `${short}\n\`\`\`\n${LONG_LINE}\n\`\`\`` }),
+      sec("b", [], { text: `${short}\n\`\`\`\n${LONG_LINE}\n\`\`\`` }),
       sec("captured", [], { verbatim: true, text: LONG_LINE }),
       sec("captured-too", [], { verbatim: true, text: LONG_LINE }),
     ]),
   );
   assert.deepEqual(findings, []);
+});
+
+test("an indented scaffold line repeated in two sections is a duplicate, indented or not", () => {
+  for (const indent of ["  ", "    ", "\t"]) {
+    const findings = lintCell(cell([sec("a", [], { text: `head\n${indent}${LONG_LINE}` }), sec("b", [], { text: `${indent}${LONG_LINE}\ntail` })]));
+    assert.deepEqual(findings.map((f) => [f.rule, ...f.sections]), [["R7", "a", "b"]], JSON.stringify(indent));
+  }
+  const flush = lintCell(cell([sec("a", [], { text: `  ${LONG_LINE}` }), sec("b", [], { text: LONG_LINE })]));
+  assert.equal(flush.length, 1, "the same words indented in one section and flush in the other are one line");
+});
+
+test("the rows of a captured DOM tree are data: a section that provides a tree contributes none of its indented lines", () => {
+  for (const fact of ["dom-live", "dom-failure"] as const) {
+    const rows = `route /cart:\n  ${LONG_LINE}`;
+    assert.deepEqual(lintCell(cell([sec("tree-a", [provides(fact)], { text: rows }), sec("tree-b", [provides(fact === "dom-live" ? "dom-failure" : "dom-live")], { text: rows })])), [], fact);
+  }
+  const scaffold = sec("task", [], { text: `  ${LONG_LINE}` });
+  const tree = sec("tree", [provides("dom-live")], { text: `  ${LONG_LINE}` });
+  assert.deepEqual(lintCell(cell([scaffold, tree])), [], "a tree's row is never the other half of a duplicate");
+  const flushInTree = sec("tree", [provides("dom-live")], { text: LONG_LINE });
+  assert.equal(lintCell(cell([sec("task", [], { text: LONG_LINE }), flushInTree])).length, 1, "only its indented lines are rows; a flush line is scaffold");
 });
 
 test("the same line repeated inside one section is not a cross-section duplicate", () => {
@@ -441,10 +463,12 @@ test("a duplicated line reports the bytes it duplicates, summed over the shared 
 });
 
 test("a line of exactly the minimum size counts as a duplicate and one byte less does not", () => {
-  const atLimit = "x".repeat(40);
+  const atLimit = "x".repeat(MIN_DUPLICATE_LINE_BYTES);
   assert.equal(lintCell(cell([sec("a", [], { text: atLimit }), sec("b", [], { text: atLimit })])).length, 1);
-  const below = "x".repeat(39);
+  const below = "x".repeat(MIN_DUPLICATE_LINE_BYTES - 1);
   assert.equal(lintCell(cell([sec("a", [], { text: below }), sec("b", [], { text: below })])).length, 0);
+  const paddedBelow = `  ${below}  `;
+  assert.equal(lintCell(cell([sec("a", [], { text: paddedBelow }), sec("b", [], { text: paddedBelow })])).length, 0, "the size is that of the trimmed line");
 });
 
 test("a fence that names its language, or is indented, still hides the lines inside it", () => {

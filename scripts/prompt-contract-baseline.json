@@ -5,8 +5,8 @@
     "directives": 19
   },
   "staticLayers": {
-    "opencode": 20749,
-    "codex": 35521
+    "opencode": 19284,
+    "codex": 34056
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -238,76 +238,76 @@
       "directives": 18
     },
     "complete/e2e/regen-fix/tree-live/brief": {
-      "bytes": 7596,
-      "directives": 17
+      "bytes": 6965,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack": {
-      "bytes": 7847,
-      "directives": 17
+      "bytes": 7216,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7806,
-      "directives": 17
+      "bytes": 7175,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8494,
-      "directives": 17
+      "bytes": 7863,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7541,
-      "directives": 17
+      "bytes": 6910,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7500,
-      "directives": 17
+      "bytes": 6869,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 8188,
-      "directives": 17
+      "bytes": 7557,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 8229,
-      "directives": 17
+      "bytes": 7598,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief+pack/service": {
-      "bytes": 8535,
-      "directives": 17
+      "bytes": 7904,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief/no-blast": {
-      "bytes": 7290,
-      "directives": 17
+      "bytes": 6659,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7978,
-      "directives": 17
+      "bytes": 7347,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/brief/service": {
-      "bytes": 8284,
-      "directives": 17
+      "bytes": 7653,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/none": {
-      "bytes": 7371,
-      "directives": 17
+      "bytes": 6740,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/none/service": {
-      "bytes": 8059,
-      "directives": 17
+      "bytes": 7428,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/pack": {
-      "bytes": 7622,
-      "directives": 17
+      "bytes": 6991,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/pack/contracts-only": {
-      "bytes": 7581,
-      "directives": 17
+      "bytes": 6950,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 8269,
-      "directives": 17
+      "bytes": 7638,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-live/pack/service": {
-      "bytes": 8310,
-      "directives": 17
+      "bytes": 7679,
+      "directives": 16
     },
     "complete/e2e/regen-fix/tree-none/brief": {
       "bytes": 6389,
@@ -526,76 +526,76 @@
       "directives": 15
     },
     "complete/e2e/selector-fix/tree-live/brief": {
-      "bytes": 6981,
-      "directives": 14
+      "bytes": 6350,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack": {
-      "bytes": 7232,
-      "directives": 14
+      "bytes": 6601,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7191,
-      "directives": 14
+      "bytes": 6560,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 7879,
-      "directives": 14
+      "bytes": 7248,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 6926,
-      "directives": 14
+      "bytes": 6295,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 6885,
-      "directives": 14
+      "bytes": 6254,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 7573,
-      "directives": 14
+      "bytes": 6942,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 7614,
-      "directives": 14
+      "bytes": 6983,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief+pack/service": {
-      "bytes": 7920,
-      "directives": 14
+      "bytes": 7289,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief/no-blast": {
-      "bytes": 6675,
-      "directives": 14
+      "bytes": 6044,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7363,
-      "directives": 14
+      "bytes": 6732,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/brief/service": {
-      "bytes": 7669,
-      "directives": 14
+      "bytes": 7038,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/none": {
-      "bytes": 6756,
-      "directives": 14
+      "bytes": 6125,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/none/service": {
-      "bytes": 7444,
-      "directives": 14
+      "bytes": 6813,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/pack": {
-      "bytes": 7007,
-      "directives": 14
+      "bytes": 6376,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/pack/contracts-only": {
-      "bytes": 6966,
-      "directives": 14
+      "bytes": 6335,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 7654,
-      "directives": 14
+      "bytes": 7023,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-live/pack/service": {
-      "bytes": 7695,
-      "directives": 14
+      "bytes": 7064,
+      "directives": 13
     },
     "complete/e2e/selector-fix/tree-none/brief": {
       "bytes": 5967,
@@ -938,76 +938,76 @@
       "directives": 19
     },
     "diff/e2e/regen-fix/tree-live/brief": {
-      "bytes": 8004,
-      "directives": 18
+      "bytes": 7373,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack": {
-      "bytes": 8255,
-      "directives": 18
+      "bytes": 7624,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 8214,
-      "directives": 18
+      "bytes": 7583,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8902,
-      "directives": 18
+      "bytes": 8271,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7949,
-      "directives": 18
+      "bytes": 7318,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7908,
-      "directives": 18
+      "bytes": 7277,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 8596,
-      "directives": 18
+      "bytes": 7965,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 8637,
-      "directives": 18
+      "bytes": 8006,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief+pack/service": {
-      "bytes": 8943,
-      "directives": 18
+      "bytes": 8312,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief/no-blast": {
-      "bytes": 7698,
-      "directives": 18
+      "bytes": 7067,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief/no-blast/service": {
-      "bytes": 8386,
-      "directives": 18
+      "bytes": 7755,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/brief/service": {
-      "bytes": 8692,
-      "directives": 18
+      "bytes": 8061,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/none": {
-      "bytes": 7741,
-      "directives": 18
+      "bytes": 7110,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/none/service": {
-      "bytes": 8429,
-      "directives": 18
+      "bytes": 7798,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/pack": {
-      "bytes": 7992,
-      "directives": 18
+      "bytes": 7361,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/pack/contracts-only": {
-      "bytes": 7951,
-      "directives": 18
+      "bytes": 7320,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 8639,
-      "directives": 18
+      "bytes": 8008,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-live/pack/service": {
-      "bytes": 8680,
-      "directives": 18
+      "bytes": 8049,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-none/brief": {
       "bytes": 6797,
@@ -1226,76 +1226,76 @@
       "directives": 16
     },
     "diff/e2e/selector-fix/tree-live/brief": {
-      "bytes": 7389,
-      "directives": 15
+      "bytes": 6758,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack": {
-      "bytes": 7640,
-      "directives": 15
+      "bytes": 7009,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7599,
-      "directives": 15
+      "bytes": 6968,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8287,
-      "directives": 15
+      "bytes": 7656,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7334,
-      "directives": 15
+      "bytes": 6703,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7293,
-      "directives": 15
+      "bytes": 6662,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 7981,
-      "directives": 15
+      "bytes": 7350,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 8022,
-      "directives": 15
+      "bytes": 7391,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief+pack/service": {
-      "bytes": 8328,
-      "directives": 15
+      "bytes": 7697,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief/no-blast": {
-      "bytes": 7083,
-      "directives": 15
+      "bytes": 6452,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7771,
-      "directives": 15
+      "bytes": 7140,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/brief/service": {
-      "bytes": 8077,
-      "directives": 15
+      "bytes": 7446,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/none": {
-      "bytes": 7126,
-      "directives": 15
+      "bytes": 6495,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/none/service": {
-      "bytes": 7814,
-      "directives": 15
+      "bytes": 7183,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/pack": {
-      "bytes": 7377,
-      "directives": 15
+      "bytes": 6746,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/pack/contracts-only": {
-      "bytes": 7336,
-      "directives": 15
+      "bytes": 6705,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 8024,
-      "directives": 15
+      "bytes": 7393,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-live/pack/service": {
-      "bytes": 8065,
-      "directives": 15
+      "bytes": 7434,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-none/brief": {
       "bytes": 6375,
@@ -1598,76 +1598,76 @@
       "directives": 18
     },
     "exhaustive/e2e/regen-fix/tree-live/brief": {
-      "bytes": 7598,
-      "directives": 17
+      "bytes": 6967,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack": {
-      "bytes": 7849,
-      "directives": 17
+      "bytes": 7218,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7808,
-      "directives": 17
+      "bytes": 7177,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8496,
-      "directives": 17
+      "bytes": 7865,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7543,
-      "directives": 17
+      "bytes": 6912,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7502,
-      "directives": 17
+      "bytes": 6871,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 8190,
-      "directives": 17
+      "bytes": 7559,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 8231,
-      "directives": 17
+      "bytes": 7600,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief+pack/service": {
-      "bytes": 8537,
-      "directives": 17
+      "bytes": 7906,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief/no-blast": {
-      "bytes": 7292,
-      "directives": 17
+      "bytes": 6661,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7980,
-      "directives": 17
+      "bytes": 7349,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/brief/service": {
-      "bytes": 8286,
-      "directives": 17
+      "bytes": 7655,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/none": {
-      "bytes": 7373,
-      "directives": 17
+      "bytes": 6742,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/none/service": {
-      "bytes": 8061,
-      "directives": 17
+      "bytes": 7430,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/pack": {
-      "bytes": 7624,
-      "directives": 17
+      "bytes": 6993,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/pack/contracts-only": {
-      "bytes": 7583,
-      "directives": 17
+      "bytes": 6952,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 8271,
-      "directives": 17
+      "bytes": 7640,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-live/pack/service": {
-      "bytes": 8312,
-      "directives": 17
+      "bytes": 7681,
+      "directives": 16
     },
     "exhaustive/e2e/regen-fix/tree-none/brief": {
       "bytes": 6391,
@@ -1886,76 +1886,76 @@
       "directives": 15
     },
     "exhaustive/e2e/selector-fix/tree-live/brief": {
-      "bytes": 6983,
-      "directives": 14
+      "bytes": 6352,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack": {
-      "bytes": 7234,
-      "directives": 14
+      "bytes": 6603,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7193,
-      "directives": 14
+      "bytes": 6562,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 7881,
-      "directives": 14
+      "bytes": 7250,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 6928,
-      "directives": 14
+      "bytes": 6297,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 6887,
-      "directives": 14
+      "bytes": 6256,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 7575,
-      "directives": 14
+      "bytes": 6944,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 7616,
-      "directives": 14
+      "bytes": 6985,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief+pack/service": {
-      "bytes": 7922,
-      "directives": 14
+      "bytes": 7291,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief/no-blast": {
-      "bytes": 6677,
-      "directives": 14
+      "bytes": 6046,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7365,
-      "directives": 14
+      "bytes": 6734,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/brief/service": {
-      "bytes": 7671,
-      "directives": 14
+      "bytes": 7040,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/none": {
-      "bytes": 6758,
-      "directives": 14
+      "bytes": 6127,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/none/service": {
-      "bytes": 7446,
-      "directives": 14
+      "bytes": 6815,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/pack": {
-      "bytes": 7009,
-      "directives": 14
+      "bytes": 6378,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/pack/contracts-only": {
-      "bytes": 6968,
-      "directives": 14
+      "bytes": 6337,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 7656,
-      "directives": 14
+      "bytes": 7025,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-live/pack/service": {
-      "bytes": 7697,
-      "directives": 14
+      "bytes": 7066,
+      "directives": 13
     },
     "exhaustive/e2e/selector-fix/tree-none/brief": {
       "bytes": 5969,
@@ -2258,76 +2258,76 @@
       "directives": 19
     },
     "manual/e2e/regen-fix/tree-live/brief": {
-      "bytes": 7768,
-      "directives": 18
+      "bytes": 7137,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack": {
-      "bytes": 8019,
-      "directives": 18
+      "bytes": 7388,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7978,
-      "directives": 18
+      "bytes": 7347,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8666,
-      "directives": 18
+      "bytes": 8035,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7713,
-      "directives": 18
+      "bytes": 7082,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7672,
-      "directives": 18
+      "bytes": 7041,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 8360,
-      "directives": 18
+      "bytes": 7729,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 8401,
-      "directives": 18
+      "bytes": 7770,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief+pack/service": {
-      "bytes": 8707,
-      "directives": 18
+      "bytes": 8076,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief/no-blast": {
-      "bytes": 7462,
-      "directives": 18
+      "bytes": 6831,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief/no-blast/service": {
-      "bytes": 8150,
-      "directives": 18
+      "bytes": 7519,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/brief/service": {
-      "bytes": 8456,
-      "directives": 18
+      "bytes": 7825,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/none": {
-      "bytes": 7543,
-      "directives": 18
+      "bytes": 6912,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/none/service": {
-      "bytes": 8231,
-      "directives": 18
+      "bytes": 7600,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/pack": {
-      "bytes": 7794,
-      "directives": 18
+      "bytes": 7163,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/pack/contracts-only": {
-      "bytes": 7753,
-      "directives": 18
+      "bytes": 7122,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 8441,
-      "directives": 18
+      "bytes": 7810,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-live/pack/service": {
-      "bytes": 8482,
-      "directives": 18
+      "bytes": 7851,
+      "directives": 17
     },
     "manual/e2e/regen-fix/tree-none/brief": {
       "bytes": 6561,
@@ -2546,76 +2546,76 @@
       "directives": 16
     },
     "manual/e2e/selector-fix/tree-live/brief": {
-      "bytes": 7153,
-      "directives": 15
+      "bytes": 6522,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack": {
-      "bytes": 7404,
-      "directives": 15
+      "bytes": 6773,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/contracts-only": {
-      "bytes": 7363,
-      "directives": 15
+      "bytes": 6732,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/contracts-only/service": {
-      "bytes": 8051,
-      "directives": 15
+      "bytes": 7420,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/no-blast": {
-      "bytes": 7098,
-      "directives": 15
+      "bytes": 6467,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only": {
-      "bytes": 7057,
-      "directives": 15
+      "bytes": 6426,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only/service": {
-      "bytes": 7745,
-      "directives": 15
+      "bytes": 7114,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/no-blast/service": {
-      "bytes": 7786,
-      "directives": 15
+      "bytes": 7155,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief+pack/service": {
-      "bytes": 8092,
-      "directives": 15
+      "bytes": 7461,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief/no-blast": {
-      "bytes": 6847,
-      "directives": 15
+      "bytes": 6216,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief/no-blast/service": {
-      "bytes": 7535,
-      "directives": 15
+      "bytes": 6904,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/brief/service": {
-      "bytes": 7841,
-      "directives": 15
+      "bytes": 7210,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/none": {
-      "bytes": 6928,
-      "directives": 15
+      "bytes": 6297,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/none/service": {
-      "bytes": 7616,
-      "directives": 15
+      "bytes": 6985,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/pack": {
-      "bytes": 7179,
-      "directives": 15
+      "bytes": 6548,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/pack/contracts-only": {
-      "bytes": 7138,
-      "directives": 15
+      "bytes": 6507,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/pack/contracts-only/service": {
-      "bytes": 7826,
-      "directives": 15
+      "bytes": 7195,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-live/pack/service": {
-      "bytes": 7867,
-      "directives": 15
+      "bytes": 7236,
+      "directives": 14
     },
     "manual/e2e/selector-fix/tree-none/brief": {
       "bytes": 6139,

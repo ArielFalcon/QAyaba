@@ -15,6 +15,7 @@ import {
   buildExplorerPrompt,
   buildContextTask,
   setExplorationBriefCollaborators,
+  PROMPT_HEADINGS,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { assemble as caAssemble, section as caSection } from "@contexts/generation/infrastructure/prompt-builders/context-assembler.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
@@ -1456,16 +1457,11 @@ test("defect 1: worker selector-priority rule names the test-id-attribute-name d
   );
 });
 
-test("defect 1: DOM-snapshot section guidance also names the test-id-only discriminator (not 'any hint')", () => {
+test("the live tree section describes the hint format and leaves the test-id rule to the generator role, so no looser second statement can say any hint implies a test-id", () => {
   const text = buildPrompt(mkInput({ fixCases: [failingCase], domSnapshot: "button: Add Owner", failureSourced: false }));
-  /* The volatile "Live DEV accessibility tree" section explains the `-> [attr]` hint; it must not
-     claim ANY hint implies a test-id — it must name the discriminator (attribute-name prefix).
-   */
-  const domSection = text.slice(text.indexOf("Live DEV accessibility tree"));
-  assert.ok(
-    /starts with|begins with|testIdAttribute name|the configured test-id attribute/i.test(domSection),
-    "DOM-snapshot section must name the test-id-only discriminator concretely",
-  );
+  const domSection = text.slice(text.indexOf(PROMPT_HEADINGS.liveDevTree));
+  assert.ok(domSection.length > 0 && text.includes(PROMPT_HEADINGS.liveDevTree), "the live tree section is rendered");
+  assert.doesNotMatch(domSection, /getByTestId/, "the section states no rule about when a test-id applies");
 });
 
 /* The GROUND-TRUTH-AT-FAILURE quote-then-assert block must not offer a CSS/data-testid fallback

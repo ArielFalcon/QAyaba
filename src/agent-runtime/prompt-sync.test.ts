@@ -104,8 +104,8 @@ const REVIEWER_MUST_MATCH_SECTIONS = [
 
 /* Must-match sections for the shared AGENTS.md.
    "Global rules" contains safety-critical constraints shared by both runtimes and must not diverge.
-   "Execution context" carries the TRANSCRIBE-from-injected-grounding contract (do not re-navigate
-   reverts Codex-run generation to always-re-explore, sabotaging grounding reuse.
+   "Execution context" carries the orientation-first and explore-what-the-prompt-lacks contract; the
+   rule not to re-navigate a route the prompt already covers is owned by the assembled prompt.
    "Protocols (to keep quality from degrading over time)" carries Protocol 4 (cleanup via the UI, or
    namespaced-and-left; NEVER a fabricated API call) — a stale mirror here lets Codex hallucinate a
    DELETE endpoint that was never verified to exist.
@@ -485,6 +485,56 @@ describe("prompt-sync drift guard", () => {
     const withOpenapi = { ...base, openapi: "api-definition.yaml" };
     const crossRepo = { ...base, service: { repo: "org/orders", mirrorDir: "/m/orders", openapi: "api.yaml" } };
     for (const input of [base, withOpenapi, crossRepo]) assert.equal(restatementsIn(buildPrompt(input)), 0);
+  });
+
+  /* A craft rule has one owner. The static layers (AGENTS.md and the generator role) hold what applies to every run; a rule that applies only to some shapes of run is stated by the assembled prompt for that shape, and only there. These are the phrasings each rule has had; a second copy in the other layer is a restatement to delete. */
+  interface OwnedRule {
+    rule: string;
+    pattern: RegExp;
+    shape: "code" | "tree";
+    inStatic: number;
+    /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
+    inAssembled: { exactly: number } | { atLeast: number };
+  }
+  const OWNED_RULES: readonly OwnedRule[] = [
+    { rule: "the compile check of a code run", pattern: /cargo check --tests/gi, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
+    { rule: "the engram topic key prefix", pattern: /prefix (?:every |all )?`?topic_key/gi, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+  ];
+  const assembledInput = {
+    repo: "org/app",
+    sha: "abc1234",
+    diff: "diff --git a/a.ts b/a.ts\n+x\n",
+    mirrorDir: "/m",
+    e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234",
+    needsReview: false,
+    mode: "diff",
+    appName: "shop",
+  };
+  const assembledFor = (shape: OwnedRule["shape"]): string =>
+    buildPrompt(
+      (shape === "code"
+        ? { ...assembledInput, target: "code" }
+        : { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000", domSnapshot: "route /cart:\n  button: Apply coupon" }) as Parameters<typeof buildPrompt>[0],
+    );
+  const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
+
+  it("each craft rule is stated in the layer that owns it and nowhere else, in both runtimes", () => {
+    const staticLayers: Array<[string, string]> = [
+      ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-generator.md"].map(readFile).join("\n")],
+      ["Codex", ["agent/AGENTS.md", "agent/roles/qa-generator.md"].map(readFile).join("\n")],
+    ];
+    for (const { rule, pattern, shape, inStatic, inAssembled } of OWNED_RULES) {
+      for (const [runtime, text] of staticLayers) {
+        assert.equal(countOf(text, pattern), inStatic, `${runtime} static layer: ${rule} is stated ${inStatic} time(s)`);
+      }
+      const found = countOf(assembledFor(shape), pattern);
+      if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt: ${rule} is stated ${inAssembled.exactly} time(s)`);
+      else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+    }
   });
 
   it("a deliberate divergence in generator Final output is structurally caught (inverse)", () => {

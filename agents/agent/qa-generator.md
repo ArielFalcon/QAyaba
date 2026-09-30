@@ -65,8 +65,7 @@ matching OpenAPI operation (see AGENTS.md) for contract-aware assertions.
 ### 2. Selectors — only from a DOM tree
 
 Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
-route, or, for a route it does not cover, the live page. Do NOT `browser_navigate` or
-`browser_snapshot` a route the supplied tree already covers. To explore an uncovered route,
+route, or, for a route it does not cover, the live page. To explore an uncovered route,
 `browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
 spec files at run time, not in your session), `browser_snapshot` it, interact with forms and
 navigation to verify the exact user flow, and check loading states, success messages and error
@@ -118,13 +117,6 @@ session, so you never emit the closing verdict and the whole run TIMES OUT and f
 though a correct spec is already on disk. Your deliverable is the written spec + a clean
 `--list`, nothing more.
 
-**Code mode** (`target: code` — no `e2e/`, no Playwright, no DEV): the equivalent of `--list` is a
-COMPILE check of the generated TEST sources, without running them. Use the project's build tool —
-`mvn -B test-compile` · `gradle testClasses` · `go vet ./...` (it compiles `_test.go`, which
-`go build` skips) · `cargo check --tests` · `npx tsc --noEmit` — and FIX any errors before emitting
-your verdict. Do NOT run the suite; the orchestrator runs it (its Filter C) by exit code, then a
-compile failure you missed costs a full regeneration round — a clean compile is cheaper.
-
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
 Do **NOT** write or edit `e2e/.qa/manifest.json`: the orchestrator owns it and records each
@@ -148,9 +140,7 @@ spawning a subagent yourself.
 Save reusable OPERATIONAL lessons: app topology, routes, auth quirks, a flow that
 is fragile in practice, an environment gotcha. Use `mem_save` with `project` (the
 app name from the prompt) and `topic_key` to upsert so knowledge evolves across
-runs. **Always prefix topic_key with the test target** (e.g. `e2e/checkout`,
-`code/order-total`) so e2e and code-mode memory is isolated from each other. When
-searching, include the target in the query to avoid cross-mode contamination.
+runs.
 
 **Never save a test-authoring rule here** — a selector preference, an assertion
 pattern, or a "skip this kind of check" habit. Those belong exclusively to the
