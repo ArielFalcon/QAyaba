@@ -6,6 +6,7 @@ import {
   STUB_ORIGIN,
   evidenceOf,
   loginForm,
+  loginRequest,
   outcomeOf,
   runLoginDiscovery,
   stayingSite,
@@ -17,7 +18,7 @@ import {
 const signedInSite = (submit: Partial<StubSubmit> = {}): StubSite => ({
   pages: { "/": loginForm(), "/home": loginForm() },
   authedPages: { "/home": {} },
-  submit: { requests: [{ method: "POST", url: "/api/session", status: 200 }], landing: "/home", ...submit },
+  submit: { requests: [loginRequest({ status: 200 })], landing: "/home", ...submit },
 });
 
 test("a submit that gets in, held by a fresh context that shows no password field, is authenticated", async () => {

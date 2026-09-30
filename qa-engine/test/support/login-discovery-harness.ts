@@ -46,6 +46,14 @@ export interface StubRequest {
   status: number | null;
   /** The request fails on the network instead. */
   failed?: boolean;
+  /** The body the request carries. */
+  postData?: string;
+  /** A document navigation of the top frame (what a native form submit is). */
+  navigation?: boolean;
+  /** The request belongs to a frame inside the page. */
+  subframe?: boolean;
+  /** A service worker's request, which has no frame to ask about. */
+  serviceWorker?: boolean;
 }
 
 /** Whether a form's action, and every submitter's formaction, resolve to the page's own origin. */
@@ -65,6 +73,8 @@ export interface StubPage {
   alerts?: string[];
   /** Thrown or logged while the page loads. */
   errors?: StubError[];
+  /** Requests the page makes while it loads. */
+  loadRequests?: StubRequest[];
 }
 
 /** What submitting the login does. */
@@ -72,6 +82,8 @@ export interface StubSubmit {
   /** Whether Enter in the password field submits (default true). */
   enter?: boolean;
   requests?: StubRequest[];
+  /** Requests that go out in the same window whatever the submit did, as an app's own telemetry and refreshes do. */
+  background?: StubRequest[];
   errors?: StubError[];
   /** Where the browser ends up, signed in; absent means it stays on the page. */
   landing?: string;
@@ -107,6 +119,15 @@ export interface StubDrift {
   /** Only the pages of this browser context (numbered from 1 in the order they open); any when absent. */
   context?: number;
 }
+
+/** A login as the app sends it: a POST whose body carries the account. */
+export const loginRequest = (over: Partial<StubRequest> = {}): StubRequest => ({
+  method: "POST",
+  url: "/api/session",
+  postData: JSON.stringify({ username: STUB_USER, password: STUB_PASS }),
+  status: 401,
+  ...over,
+});
 
 export const input = (i: number, type: string, form: number, over: Partial<StubField> = {}): StubField => ({ i, tag: "input", type, visible: true, disabled: false, form, ...over });
 export const button = (i: number, form: number, over: Partial<StubField> = {}): StubField => ({ i, tag: "button", type: "submit", visible: true, disabled: false, form, ...over });
@@ -150,15 +171,27 @@ function makePage(ctx, state) {
     };
     events.emit("console", { type: () => "error", text: () => e.text, args: () => [{ evaluate }] });
   };
+  const fire = (r) => {
+    const request = {
+      method: () => r.method,
+      url: () => new URL(r.url, site.origin).href,
+      resourceType: () => r.resourceType || "fetch",
+      postData: () => (r.postData === undefined ? null : r.postData),
+      isNavigationRequest: () => r.navigation === true,
+      frame: () => {
+        if (r.serviceWorker) throw new Error("Service Worker requests do not have an associated frame");
+        return { parentFrame: () => (r.subframe ? {} : null) };
+      },
+    };
+    events.emit("request", request);
+    if (r.failed) events.emit("requestfailed", request);
+    else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
+  };
   const submitted = (via, key, i) => {
     log({ t: "submit", via, key, i, ctx, at: current.origin });
+    (submit.background || []).forEach(fire);
     if (via === "press" && submit.enter === false) return;
-    for (const r of submit.requests || []) {
-      const request = { method: () => r.method, url: () => new URL(r.url, site.origin).href, resourceType: () => r.resourceType || "fetch" };
-      events.emit("request", request);
-      if (r.failed) events.emit("requestfailed", request);
-      else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
-    }
+    (submit.requests || []).forEach(fire);
     (submit.errors || []).forEach((e) => raise(e, false));
     if (submit.landing) { state.authed = true; state.persists = submit.persists !== false; current = new URL(submit.landing, site.origin); staying = null; }
     else if (submit.after) staying = submit.after;
@@ -171,6 +204,7 @@ function makePage(ctx, state) {
     current = redirected ? new URL(redirected, site.origin) : asked;
     staying = null;
     (def().errors || []).forEach((e) => raise(e, true));
+    (def().loadRequests || []).forEach(fire);
   };
   page.url = () => {
     const href = current.href;

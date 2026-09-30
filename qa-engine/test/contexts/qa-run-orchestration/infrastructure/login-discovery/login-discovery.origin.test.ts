@@ -7,6 +7,7 @@ import {
   evidenceOf,
   input,
   loginForm,
+  loginRequest,
   outcomeOf,
   runLoginDiscovery,
   type DiscoveryRun,
@@ -106,7 +107,7 @@ test("the fresh context opens the page the submit ended on, even when its path s
   const site: StubSite = {
     pages: { "/": loginForm() },
     authedPages: { "//home": {} },
-    submit: { requests: [{ method: "POST", url: "/api/session", status: 200 }], landing: `${STUB_ORIGIN}//home` },
+    submit: { requests: [loginRequest({ status: 200 })], landing: `${STUB_ORIGIN}//home` },
   };
   const run = await runLoginDiscovery({ site });
   const contexts = run.events.filter((event) => event.t === "context");
@@ -118,7 +119,7 @@ test("a fresh context that ends up on another origin right after it was read con
   const site: StubSite = {
     pages: { "/": loginForm(), "/home": loginForm(), [`${FOREIGN}/x`]: loginForm() },
     authedPages: { "/home": {} },
-    submit: { requests: [{ method: "POST", url: "/api/session", status: 200 }], landing: "/home" },
+    submit: { requests: [loginRequest({ status: 200 })], landing: "/home" },
     drifts: [{ on: "evaluate", nth: 1, to: `${FOREIGN}/x`, context: 2 }],
   };
   const run = await runLoginDiscovery({ site });

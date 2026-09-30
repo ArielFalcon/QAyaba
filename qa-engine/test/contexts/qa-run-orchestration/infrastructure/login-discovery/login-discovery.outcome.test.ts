@@ -10,6 +10,7 @@ import {
   evidenceOf,
   input,
   loginForm,
+  loginRequest,
   outcomeOf,
   runLoginDiscovery,
   stayingSite,
@@ -17,7 +18,7 @@ import {
 } from "../../../../support/login-discovery-harness.ts";
 
 test("a rejected login is credentials-rejected from its submit-time request alone, and the evidence keeps no query", async () => {
-  const run = await runLoginDiscovery({ site: stayingSite({ requests: [{ method: "POST", url: "/api/session?next=%2Fhome&t=tok-abc123", status: 401 }] }) });
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ url: "/api/session?next=%2Fhome&t=tok-abc123" })] }) });
   const evidence = evidenceOf(run);
   const [request] = evidence.requests;
   assert.equal(request?.method, "POST");
@@ -29,9 +30,9 @@ test("a rejected login is credentials-rejected from its submit-time request alon
 });
 
 test("only non-GET requests of a login's kind are recorded, sorted, and no more than the cap", async () => {
-  const posts = Array.from({ length: MAX_RENDERED_REQUESTS + 2 }, (_, n) => ({ method: "POST", url: `/api/r-${String(MAX_RENDERED_REQUESTS + 1 - n).padStart(2, "0")}`, status: 401 }));
+  const posts = Array.from({ length: MAX_RENDERED_REQUESTS + 2 }, (_, n) => loginRequest({ url: `/api/r-${String(MAX_RENDERED_REQUESTS + 1 - n).padStart(2, "0")}` }));
   const run = await runLoginDiscovery({
-    site: stayingSite({ requests: [...posts, { method: "GET", url: "/api/config", status: 200 }, { method: "POST", url: "/analytics/beacon", resourceType: "ping", status: 204 }] }),
+    site: stayingSite({ requests: [...posts, { method: "GET", url: "/api/config", status: 200 }, loginRequest({ url: "/analytics/beacon", resourceType: "ping", status: 204 })] }),
   });
   const paths = evidenceOf(run).requests.map((request) => request.pathname);
   assert.equal(paths.length, MAX_RENDERED_REQUESTS);
@@ -41,7 +42,7 @@ test("only non-GET requests of a login's kind are recorded, sorted, and no more 
 });
 
 test("a request that never gets an answer is in flight at the deadline, so nothing is concluded", async () => {
-  const run = await runLoginDiscovery({ site: stayingSite({ requests: [{ method: "POST", url: "/api/session", status: null }] }) });
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ status: null })] }) });
   const evidence = evidenceOf(run);
   assert.equal(evidence.inFlightAtDeadline, true);
   assert.equal(evidence.requests[0]?.status, null);
@@ -49,7 +50,7 @@ test("a request that never gets an answer is in flight at the deadline, so nothi
 });
 
 test("a request that fails on the network is not still in flight, and it is not a rejection", async () => {
-  const run = await runLoginDiscovery({ site: stayingSite({ requests: [{ method: "POST", url: "/api/session", status: null, failed: true }] }) });
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ status: null, failed: true })] }) });
   assert.equal(evidenceOf(run).inFlightAtDeadline, false);
   assert.equal(evidenceOf(run).requests[0]?.status, null);
   assert.deepEqual(outcomeOf(run), { status: "failed", kind: PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE });
@@ -131,7 +132,7 @@ test("a page error that was already there before the submit is not counted and n
 
 test("a new exception with a request sent leaves the outcome to the request rules", async () => {
   const run = await runLoginDiscovery({
-    site: stayingSite({ requests: [{ method: "POST", url: "/api/session", status: 401 }], errors: [{ kind: "console", isErrorObject: true, text: "TypeError: after-the-request" }] }),
+    site: stayingSite({ requests: [loginRequest()], errors: [{ kind: "console", isErrorObject: true, text: "TypeError: after-the-request" }] }),
   });
   assert.equal(evidenceOf(run).newExceptionAfterSubmit, true);
   assert.deepEqual(outcomeOf(run), { status: "failed", kind: PRECONDITION_KIND.CREDENTIALS_REJECTED });

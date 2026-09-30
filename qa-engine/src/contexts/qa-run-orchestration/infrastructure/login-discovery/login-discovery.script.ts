@@ -3,6 +3,7 @@
  * bounded ladder of pages, picks the login form by its structure (never by label text), types the
  * account into it, submits it ONCE, watches what the submit did, and prints what it saw as one JSON
  * evidence line. Classifying that evidence is `classifyLoginEvidence`'s job; this script only observes.
+ * It lists as the login's requests only those that started after the submit and carry the account.
  *
  * Credentials reach the child through its env alone (DEV_TEST_USER / DEV_TEST_PASS); the script's
  * source and its stdout hold none. Everything else (base URL, routes, budgets, the session path)
@@ -71,6 +72,9 @@ const SECRET_PATTERN = secrets.length === 0 ? null : new RegExp(
   "giu",
 );
 const scrub = function (text) { return SECRET_PATTERN === null ? String(text) : String(text).replace(SECRET_PATTERN, "[redacted]"); };
+/* The same spellings, asked as a question: does this text carry the account? */
+const ACCOUNT_PATTERN = SECRET_PATTERN === null ? null : new RegExp(SECRET_PATTERN.source, "iu");
+const carriesAccount = function (text) { return ACCOUNT_PATTERN !== null && typeof text === "string" && ACCOUNT_PATTERN.test(text); };
 /* The account comes out of the WHOLE text first (a secret may span lines), then the first line stands for it, its URLs lose their queries, and the cut comes last. */
 const noteText = function (text) { return scrub(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").slice(0, TEXT_MAX); };
 /* What makes two exceptions the same one: the first line with its URLs and numbers (ids, timestamps, positions) normalized. */
@@ -183,10 +187,23 @@ function watch(page, evidence) {
     const phase = state.phase;
     state.pending.push(carriesError(message).then(function (yes) { if (yes) exception("console", message.text(), phase); }, function () {}));
   });
+  /* A request is the login's when it starts after the submit and carries the account, in its address or its body. A native form that GETs puts the account in the address of a top-frame navigation. Everything else in the window (telemetry, a refresh, a poll) is the app's own traffic. */
+  const isTopFrameNavigation = function (request) {
+    /* A service worker's request has no frame to ask about, and is not a form submitting. */
+    try { return request.isNavigationRequest() && request.frame().parentFrame() === null; } catch (_gone) { return false; }
+  };
+  const isTheLogin = function (request) {
+    const address = new URL(request.url());
+    const carriesInAddress = carriesAccount(address.pathname + address.search);
+    return request.method() === "GET" ? isTopFrameNavigation(request) && carriesInAddress : carriesInAddress || carriesAccount(request.postData());
+  };
   page.on("request", function (request) {
-    if (state.phase !== "after" || request.method() === "GET" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0) return;
-    const entry = { method: request.method(), pathname: new URL(request.url()).pathname, status: null };
+    if (state.phase !== "after" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0) return;
+    const attributed = isTheLogin(request);
+    if (request.method() === "GET" && !attributed) return;
+    const entry = { method: request.method(), pathname: new URL(request.url()).pathname, status: null, attributed: attributed };
     state.requests.push(entry);
+    if (!attributed) return;
     state.tracked.set(request, entry);
     state.inFlight.add(request);
   });
@@ -296,7 +313,9 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   const now = new URL(page.url());
   const after = (await readPage(page)) || NOTHING_SHOWING;
-  evidence.requests = watching.requests.slice().sort(function (a, b) {
+  evidence.requests = watching.requests.filter(function (entry) { return entry.attributed; }).map(function (entry) {
+    return { method: entry.method, pathname: entry.pathname, status: entry.status };
+  }).sort(function (a, b) {
     return (a.method + " " + a.pathname + " " + a.status).localeCompare(b.method + " " + b.pathname + " " + b.status);
   }).slice(0, MAX_REQUESTS);
   evidence.passwordGone = noPasswordShowing(after.fields);

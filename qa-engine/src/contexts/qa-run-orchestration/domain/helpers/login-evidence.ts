@@ -29,7 +29,7 @@ export const FORM_STATE = {
 
 export type FormState = (typeof FORM_STATE)[keyof typeof FORM_STATE];
 
-/** A non-GET request seen while the login was submitted: method and path only, and the status when a response came. */
+/** A request the login sent: method and path only, and the status when a response came. */
 export interface LoginRequest {
   method: string;
   pathname: string;
@@ -55,9 +55,13 @@ export interface LoginEvidence {
   secondFactorVisible: boolean;
   filled: boolean;
   submitted: boolean;
-  /** Submit-time non-GET requests, sorted and capped by whoever produced the evidence. */
+  /**
+   * The requests that were the login's own, sorted and capped by whoever produced the evidence: they started after
+   * the submit and carry the account in their address or body (a native GET form's navigation is one too). The
+   * app's other traffic in the same window (telemetry, a refresh, a poll) is not listed.
+   */
   requests: readonly LoginRequest[];
-  /** A submit-time request was still in flight when the deadline passed. */
+  /** One of the login's own requests was still in flight when the deadline passed. */
   inFlightAtDeadline: boolean;
   pageErrorCount: number;
   firstPageError: string | null;
