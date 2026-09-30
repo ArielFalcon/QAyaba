@@ -286,7 +286,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
    * `providedPaths` are the files the prompt lists as rendered (even compactly), resolved against the
    * session's directory: a content read of one is path-provided, counted apart from the content match.
    */
-  take(sessionId: string, promptText: string, providedPaths: readonly string[] = []): TurnCallMetrics | null {
+  take(sessionId: string, promptText: string, providedPaths?: readonly string[]): TurnCallMetrics | null {
     const session = this.sessions.get(sessionId);
     if (!session || session.poisoned || !session.sawEventSinceFlush) return null;
 
@@ -298,7 +298,7 @@ export class CallEfficiencyTracker implements StreamLifecycleSink {
 
     const redundant = detectRedundantReads(calls.map(toReadWriteEvent));
     const promptIndex = indexPromptLines(promptText);
-    const provided = new Set(providedPaths.map((p) => resolve(session.cwd, p)));
+    const provided = new Set(providedPaths?.map((p) => resolve(session.cwd, p)));
     const newSteps = session.stepStarts.size - session.flushedSteps;
 
     const metrics = buildTurnCallMetrics({

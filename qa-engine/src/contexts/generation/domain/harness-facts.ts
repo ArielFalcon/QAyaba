@@ -30,61 +30,41 @@ export function isSafeAttributeName(name: string): boolean {
   return name.length <= MAX_ATTRIBUTE_NAME_LENGTH && ATTRIBUTE_RE.test(name);
 }
 
-/* The source with every comment, string literal and template literal blanked out (newlines kept), so what is left is code only. */
-function codeOnly(source: string): string {
-  let out = "";
-  let i = 0;
-  while (i < source.length) {
-    const ch = source[i]!;
-    const next = source[i + 1];
-    if (ch === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") i++;
-      out += " ";
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      const end = source.indexOf("*/", i + 2);
-      i = end === -1 ? source.length : end + 2;
-      out += " ";
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      i++;
-      while (i < source.length && source[i] !== ch) i += source[i] === "\\" ? 2 : 1;
-      i++;
-      out += " ";
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
+/* A comment, or a string or template literal; one that is never closed runs to the end of the source. */
+const NON_CODE_RE = /\/\/.*|\/\*[\s\S]*?(?:\*\/|$)|"(?:[^"\\]|\\[\s\S])*"?|'(?:[^'\\]|\\[\s\S])*'?|`(?:[^`\\]|\\[\s\S])*`?/g;
 
 const DECLARATION_RE = /\bexport\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\s*\*\s*|function\s+|class\s+|const\s+|let\s+|var\s+|enum\s+)([A-Za-z_$][\w$]*)/g;
 const LIST_RE = /\bexport\s*\{([^}]*)\}/g;
 const NAMESPACE_RE = /\bexport\s*\*\s*as\s+([A-Za-z_$][\w$]*)/g;
+/* One entry of an export list, trimmed: `name` or `name as alias`, exposing the last identifier. A type-only entry (`type T`) does not fit. */
+const SPECIFIER_RE = /^(?:[A-Za-z_$][\w$]*\s+as\s+)?([A-Za-z_$][\w$]*)$/;
 
 function listedNames(specifiers: string): string[] {
-  const names: string[] = [];
-  for (const raw of specifiers.split(",")) {
-    const specifier = raw.trim();
-    if (specifier === "" || /^type\s/.test(specifier)) continue;
-    const exposed = /\bas\s+([A-Za-z_$][\w$]*)\s*$/.exec(specifier)?.[1] ?? /^([A-Za-z_$][\w$]*)$/.exec(specifier)?.[1];
-    if (exposed !== undefined && exposed !== "default") names.push(exposed);
-  }
-  return names;
+  return specifiers
+    .split(",")
+    .map((specifier) => SPECIFIER_RE.exec(specifier.trim())?.[1])
+    .filter((name): name is string => name !== undefined && name !== "default");
 }
+
+interface Found {
+  at: number;
+  names: string[];
+}
+
+function foundBy(code: string, re: RegExp, namesOf: (match: RegExpMatchArray) => string[]): Found[] {
+  return Array.from(code.matchAll(re), (match) => ({ at: match.index!, names: namesOf(match) }));
+}
+
+const firstGroup = (match: RegExpMatchArray): string[] => [match[1]!];
 
 /* The runtime names a module exports, in source order and once each: declarations, export lists (the alias when there is one) and namespace re-exports. Type-only and default exports are not names an importer can use. */
 export function extractExportedNames(source: string): string[] {
-  const code = codeOnly(source);
-  const found: Array<{ at: number; name: string }> = [];
-  for (const match of code.matchAll(DECLARATION_RE)) found.push({ at: match.index ?? 0, name: match[1]! });
-  for (const match of code.matchAll(NAMESPACE_RE)) found.push({ at: match.index ?? 0, name: match[1]! });
-  for (const match of code.matchAll(LIST_RE)) {
-    for (const name of listedNames(match[1]!)) found.push({ at: match.index ?? 0, name });
-  }
-  const ordered = found.sort((a, b) => a.at - b.at).map((f) => f.name);
+  const code = source.replace(NON_CODE_RE, " ");
+  const found = [
+    ...foundBy(code, DECLARATION_RE, firstGroup),
+    ...foundBy(code, NAMESPACE_RE, firstGroup),
+    ...foundBy(code, LIST_RE, (match) => listedNames(match[1]!)),
+  ];
+  const ordered = found.sort((x, y) => x.at - y.at).flatMap((f) => f.names);
   return [...new Set(ordered)].filter(isSafeIdentifier).slice(0, MAX_FIXTURE_EXPORTS);
 }
