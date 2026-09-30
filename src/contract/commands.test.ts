@@ -205,7 +205,9 @@ test("the app auth input accepts a login path on the app's own origin, and only 
 
 test("the app auth input rejects a login path that could leave the app's origin or is not one plain path", () => {
   const form = { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } as const;
-  for (const loginPath of ["//evil.example", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/" + "a".repeat(200)]) {
+  const leavesTheOrigin = ["/\\evil.example", "/\\/evil.example", "/sign\\in"];
+  const holdsAControlCharacter = ["/sign\u0000in", "/sign\u001fin", "/sign\u007fin", "/sign\nin", "/\t/evil.example"];
+  for (const loginPath of ["//evil.example", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/" + "a".repeat(200), ...leavesTheOrigin, ...holdsAControlCharacter]) {
     assert.equal(AppAuthInputSchema.safeParse({ ...form, loginPath }).success, false, JSON.stringify(loginPath));
   }
 });

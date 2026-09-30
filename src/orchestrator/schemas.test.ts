@@ -25,12 +25,15 @@ test("auth.loginPath accepts a path on the app's own origin", () => {
   for (const loginPath of ["/signin", "/", "/auth/login", "/#/login", "/login?next=/home"]) {
     const cfg = AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } });
     assert.equal(cfg.auth?.loginPath, loginPath);
+    assert.equal(new URL(loginPath, "https://app.example").origin, "https://app.example", "an accepted path resolves on the app's own origin");
   }
 });
 
 test("auth.loginPath rejects anything that could leave the app's origin or is not one plain path", () => {
   const tooLong = "/" + "a".repeat(200);
-  for (const loginPath of ["//evil.example", "//evil.example/login", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/sign\tin", tooLong]) {
+  const leavesTheOrigin = ["/\\evil.example", "/\\/evil.example", "/sign\\in"];
+  const holdsAControlCharacter = ["/sign\u0000in", "/sign\u001fin", "/sign\u007fin", "/sign\nin", "/\t/evil.example"];
+  for (const loginPath of ["//evil.example", "//evil.example/login", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/sign\tin", tooLong, ...leavesTheOrigin, ...holdsAControlCharacter]) {
     assert.throws(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } }), JSON.stringify(loginPath));
   }
   assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath: "/" + "a".repeat(199) } }), "200 characters is allowed");

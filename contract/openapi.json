@@ -2182,7 +2182,7 @@
           "loginPath": {
             "type": "string",
             "maxLength": 200,
-            "pattern": "^\\/(?!\\/)\\S*$"
+            "pattern": "^\\/(?![\\/\\\\])[^\\s\\\\\\x00-\\x1f\\x7f]*$"
           }
         },
         "required": [
