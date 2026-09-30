@@ -581,3 +581,53 @@ test("each missing artifact of a section is reported once, and the findings are 
   const findings = lintCell(cell([sec("task", [], { text: "the tree above, the tree above and App login" })]), references);
   assert.deepEqual(findings.map((f) => f.artifact), ["login", "tree"]);
 });
+
+/* ── a section's words agree with the trust it declares ── */
+
+test("a section that declares only an established framing must not say its fact is not to be trusted", () => {
+  for (const text of [
+    "The brief above is NOT authoritative; the code wins.",
+    "This is non-authoritative context.",
+    "Verify before trusting any of it.",
+    "Every symbol here must be verified against the code.",
+  ]) {
+    const findings = lintCell(cell([sec("context-brief", [provides("blast-radius"), frames("blast-radius", "established")], { text })]));
+    assert.deepEqual(findings.map((f) => [f.rule, ...f.sections]), [["R14", "context-brief"]], text);
+  }
+});
+
+test("a section that declares only an unverified framing must not call its fact authoritative", () => {
+  for (const text of ["This map is authoritative.", "The ground truth for routes.", "The only source of truth here."]) {
+    const findings = lintCell(cell([sec("arch-map", [provides("arch-map"), frames("arch-map", "unverified")], { text })]));
+    assert.deepEqual(findings.map((f) => [f.rule, ...f.sections]), [["R14", "arch-map"]], text);
+  }
+});
+
+test("words that agree with the declared framing are clean, and so is a negation of the opposite", () => {
+  const established = sec("context-brief", [frames("blast-radius", "established")], { text: "This is authoritative ground truth." });
+  const unverified = sec("arch-map", [frames("arch-map", "unverified")], { text: "This may be stale, not authoritative, and must be verified." });
+  assert.deepEqual(lintCell(cell([established, unverified])), []);
+  const negatedOpposite = sec("arch-map", [frames("arch-map", "unverified")], { text: "This map is not authoritative." });
+  assert.deepEqual(lintCell(cell([negatedOpposite])), [], "\"not authoritative\" is not an established claim");
+});
+
+test("a section that declares both framings, or none, is not judged for polarity", () => {
+  const text = "Some of this is NOT authoritative and the rest is authoritative ground truth.";
+  assert.deepEqual(lintCell(cell([sec("mixed", [frames("blast-radius", "established"), frames("landmarks", "unverified")], { text })])), []);
+  assert.deepEqual(lintCell(cell([sec("plain", [], { text })])).filter((f) => f.rule === "R14"), []);
+});
+
+test("captured verbatim data and the static layer are not judged for polarity", () => {
+  const text = "NOT authoritative";
+  assert.deepEqual(lintCell(cell([sec("diff", [frames("diff", "established")], { text, verbatim: true })])), []);
+  assert.deepEqual(lintCell(cell([sec("role", [frames("diff", "established")], { text, layer: "static" })])), []);
+});
+
+test("the polarity lexicons detect their phrases case-insensitively and repeatedly", () => {
+  const negated = "Not Authoritative";
+  const established = "Ground Truth";
+  for (let round = 0; round < 3; round++) {
+    assert.equal(lintCell(cell([sec("b", [frames("blast-radius", "established")], { text: negated })])).length, 1, `negated, round ${round}`);
+    assert.equal(lintCell(cell([sec("m", [frames("arch-map", "unverified")], { text: established })])).length, 1, `established, round ${round}`);
+  }
+});

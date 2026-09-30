@@ -263,3 +263,23 @@ test("dropping the framing a section declares makes the trust-language check rep
     assert.ok(findings.some((f) => f.rule === "R10"), `${cell.key}: an undeclared framing is reported`);
   }
 });
+
+test("a brief section that keeps its established framing but is reworded to disown its facts is reported", async () => {
+  const cells = await matrixOnce();
+  const establishedOnly = (s: MatrixCell["lint"]["sections"][number]): boolean => {
+    const stances = s.claims.flatMap((k) => (k.kind === "frames" ? [k.as] : []));
+    return s.id === "context-brief" && stances.length > 0 && stances.every((stance) => stance === "established");
+  };
+  const cell = cells.find((c) => c.layer === "opencode" && c.lint.sections.some(establishedOnly));
+  assert.ok(cell, "the matrix has a cell with a brief that frames only established facts");
+  const reworded = {
+    ...cell,
+    lint: {
+      ...cell.lint,
+      sections: cell.lint.sections.map((s) => (s.id === "context-brief" ? { ...s, text: `${s.text}\n(The brief above is NOT authoritative and must be verified against the live DOM.)` } : s)),
+    },
+  };
+  assert.deepEqual(lintMatrixCell(cell, loadBaseline(ROOT)).filter((f) => f.rule === "R14"), [], "the real section agrees with its framing");
+  const findings = lintMatrixCell(reworded, undefined).filter((f) => f.rule === "R14");
+  assert.deepEqual(findings.map((f) => f.sections), [["context-brief"]]);
+});

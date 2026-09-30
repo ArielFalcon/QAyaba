@@ -91,7 +91,7 @@ export interface LintOptions {
   artifactReferences?: readonly ArtifactReference[];
 }
 
-export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13";
+export type LintRule = "R1" | "R2" | "R3" | "R4" | "R5" | "R6" | "R7" | "R8" | "R9" | "R10" | "R11" | "R12" | "R13" | "R14";
 
 export interface LintFinding {
   rule: LintRule;
@@ -134,6 +134,21 @@ export const TRUST_LEXICON: readonly RegExp[] = [
   /\bstale\b/gi,
   /\bunverified\b/gi,
   /\bestablished\b/gi,
+];
+
+/* Words that take trust away from a fact. A section that declares its fact established must not use them. */
+export const NEGATED_TRUST_LEXICON: readonly RegExp[] = [
+  /\bnot authoritative\b/i,
+  /\bnon-authoritative\b/i,
+  /\bverify before trust(?:ing)?\b/i,
+  /\bmust be verified\b/i,
+];
+
+/* Words that give trust to a fact. A section that declares its fact unverified must not use them; a negated "authoritative" does not count. */
+export const ESTABLISHED_TRUST_LEXICON: readonly RegExp[] = [
+  /(?<!not )(?<!non-)\bauthoritative\b/i,
+  /\bground truth\b/i,
+  /\bonly source of truth\b/i,
 ];
 
 function countMatches(lexicon: readonly RegExp[], text: string): number {
@@ -326,6 +341,19 @@ function ruleTrustNeedsFraming(cell: LintCell, headingNames: readonly string[] |
     .map((s) => ({ rule: "R10" as const, sections: [s.id] }));
 }
 
+/* R14: what a section says about trust agrees with the framing it declares. Only a section that declares a single stance is judged; one that declares both frames facts of its own and cannot be read as a whole. */
+function rulePolarityAgreesWithFraming(cell: LintCell): LintFinding[] {
+  return cell.sections
+    .filter((s) => s.layer === "assembled" && !s.verbatim)
+    .filter((s) => {
+      const stances = new Set(s.claims.flatMap((c) => (c.kind === "frames" ? [c.as] : [])));
+      if (stances.size !== 1) return false;
+      const contradicting = stances.has("established") ? NEGATED_TRUST_LEXICON : ESTABLISHED_TRUST_LEXICON;
+      return contradicting.some((pattern) => pattern.test(s.text));
+    })
+    .map((s) => ({ rule: "R14" as const, sections: [s.id] }));
+}
+
 /* R11: the runtime-signals directive only belongs where no DOM tree is available. */
 function ruleRuntimeSignalsOnlyWithoutTree(cell: LintCell): LintFinding[] {
   const trees = uniqueSorted([...providersOf(cell, "dom-live"), ...providersOf(cell, "dom-failure")]);
@@ -392,6 +420,7 @@ export function lintCell(cell: LintCell, options: LintOptions = {}): readonly Li
     ...ruleRuntimeSignalsOnlyWithoutTree(cell),
     ...ruleLoginNotPackDependent(cell),
     ...ruleReferencesNeedTheirArtifact(cell, options.artifactReferences),
+    ...rulePolarityAgreesWithFraming(cell),
   ];
   /* Ordered by key as text, then by fact: the same cell always yields the same list, comparable across runs. */
   return findings
