@@ -73,14 +73,23 @@ function parseStructuredReflection(raw: string): StructuredReflection | null {
   return lastJsonMatching<StructuredReflection>(raw, isStructuredReflection) ?? null;
 }
 
+/* Classes whose run never produced a suite to measure: the fact is the class itself, and the gate signals (a static gate that never ran reads "FAIL") would mislead the reflector. Deterministic — from the class alone. */
+const FACTS_BY_CLASS: Readonly<Record<string, string>> = {
+  "E-STEP-BUDGET":
+    "step-budget exhaustion: the agent ran out of its step budget before it wrote any spec, so no suite exists to measure — there is no static gate, coverage or value signal to read",
+};
+
 function buildReflectionPrompt(input: ReflectionInput): string {
-  const signals = [
-    `static gate: ${input.gateSignals.static ? "PASS" : "FAIL"}`,
-    `coverage ratio: ${input.gateSignals.coverageRatio !== null ? (input.gateSignals.coverageRatio * 100).toFixed(0) + "%" : "unmeasured"}`,
-    `value score: ${input.gateSignals.valueScore !== null ? (input.gateSignals.valueScore * 100).toFixed(0) + "%" : "unmeasured"}`,
-    `flaky: ${input.gateSignals.flaky}`,
-    `retries: ${input.gateSignals.retries}`,
-  ];
+  const classFacts = FACTS_BY_CLASS[input.errorClass];
+  const signals = classFacts
+    ? [classFacts]
+    : [
+        `static gate: ${input.gateSignals.static ? "PASS" : "FAIL"}`,
+        `coverage ratio: ${input.gateSignals.coverageRatio !== null ? (input.gateSignals.coverageRatio * 100).toFixed(0) + "%" : "unmeasured"}`,
+        `value score: ${input.gateSignals.valueScore !== null ? (input.gateSignals.valueScore * 100).toFixed(0) + "%" : "unmeasured"}`,
+        `flaky: ${input.gateSignals.flaky}`,
+        `retries: ${input.gateSignals.retries}`,
+      ];
 
   if (input.gateSignals.reviewerCorrections.length > 0) {
     signals.push(

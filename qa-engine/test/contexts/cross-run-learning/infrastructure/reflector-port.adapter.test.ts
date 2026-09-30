@@ -59,6 +59,44 @@ function fakeRepo(onSave?: (rule: LearningRule) => void): LearningRepositoryPort
   };
 }
 
+async function promptSentFor(input: ReflectionInput): Promise<string> {
+  let sent = "";
+  const adapter = new ReflectorPortAdapter({
+    runtime: fakeRuntime({ prompt: async (text) => { sent = text; return { output: validReflectionJson }; } }),
+    repo: fakeRepo(),
+    backfill: () => {},
+    cwd: "/mirror/app",
+    app: "app",
+  });
+  await adapter.reflect(input);
+  return sent;
+}
+
+test("a step-budget exhaustion is put to the reflector as the agent running out of steps, never as a static-gate failure", async () => {
+  const sent = await promptSentFor({
+    ...baseInput,
+    verdict: "infra-error",
+    errorClass: "E-STEP-BUDGET",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+  });
+  assert.match(sent, /step-budget exhaustion/i);
+  assert.doesNotMatch(sent, /static gate: FAIL/);
+  assert.doesNotMatch(sent, /static gate: PASS/);
+  assert.match(sent, /E-STEP-BUDGET/, "the class the gates already decided is still named");
+});
+
+test("a class with no facts of its own is still put to the reflector with the measured gate signals", async () => {
+  const sent = await promptSentFor({
+    ...baseInput,
+    verdict: "invalid",
+    errorClass: "E-STATIC",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 2 },
+  });
+  assert.match(sent, /static gate: FAIL/);
+  assert.match(sent, /retries: 2/);
+  assert.doesNotMatch(sent, /step-budget exhaustion/i);
+});
+
 test("reflect() opens a 'reflector' session, saves a candidate/low rule, and backfills on valid JSON", async () => {
   let openedRole: string | undefined;
   let openedCwd: string | undefined;

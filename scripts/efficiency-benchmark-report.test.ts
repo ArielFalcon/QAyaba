@@ -12,7 +12,7 @@ function measurement(overrides: { firstPass?: Partial<ReturnType<typeof summary>
   return {
     coarse: { firstPass: summary(overrides.firstPass), grounding: summary({ totalCalls: 0, callsBeforeFirstWrite: 0, writeCount: 0, commandCount: 0, repeatedCallCount: 0 }), wholeRunExcludingGrounding: summary({ totalCalls: 40 }) },
     exhausted: overrides.exhausted === undefined ? false : overrides.exhausted,
-    guardrails: { verdict: "pass", specsProduced: 1, staticPass: true, executePass: true, coverageRatio: 0.8, reviewerApproved: true, ...overrides.guardrails },
+    guardrails: { verdict: "pass", specsProduced: 1, staticPass: true, executePass: true, coverageRatio: 0.8, reviewerApproved: true, errorClass: null, ...overrides.guardrails },
   };
 }
 
@@ -73,6 +73,27 @@ test("guardrails that differ between the labels are called out", () => {
   assert.ok(changedLine, "the report must call out the changed guardrails");
   assert.match(changedLine, /verdict/);
   assert.match(changedLine, /specsProduced/);
+});
+
+test("a run whose error class changed between the labels is called out with both classes, so a silent skip that became a loud infra-error shows", () => {
+  const baseline = snapshot("baseline", { checkout: measurement({ guardrails: { verdict: "skipped", errorClass: null } }) });
+  const after = snapshot("after", { checkout: measurement({ guardrails: { verdict: "infra-error", errorClass: "E-STEP-BUDGET" } }) });
+
+  const comparison = compareSnapshots(baseline, after);
+  assert.deepEqual(comparison.rows[0]!.guardrailChanges.sort(), ["errorClass", "verdict"]);
+  const text = renderReport(comparison);
+  assert.match(text, /error class none/);
+  assert.match(text, /error class E-STEP-BUDGET/);
+});
+
+test("a snapshot taken before the error class was recorded reads as unknown, never as none, and is not called a change", () => {
+  const legacy = measurement();
+  delete (legacy.guardrails as Partial<CaseMeasurement["guardrails"]>).errorClass;
+  const comparison = compareSnapshots(snapshot("a", { c: legacy }), snapshot("b", { c: measurement({ guardrails: { errorClass: "E-STEP-BUDGET" } }) }));
+  const text = renderReport(comparison);
+  assert.match(text, /error class unknown/);
+  assert.doesNotMatch(text, /error class undefined/);
+  assert.deepEqual(comparison.rows[0]!.guardrailChanges, [], "an unknown side is not evidence of a change");
 });
 
 test("identical guardrails report no change", () => {

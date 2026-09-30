@@ -46,6 +46,32 @@ test("recurring UI/grounding errorClass (E-FRAGILE-SELECTOR) → context-heal (r
   assert.ok(!auditProcess(input).some((x) => x.disposition === "engine-fix")); /* never escalates to a PR on a map-fixable class */
 });
 
+test("recurring step-budget exhaustion is only observed: it never becomes an engine fix or a map rebuild", () => {
+  const o = outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error" });
+  const input: AuditInput = {
+    outcome: o,
+    recent: [o, outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "b" }), outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "c" })],
+    rules: [],
+  };
+  const findings = auditProcess(input);
+  assert.equal(findings.length, 1, "one finding: the streak itself");
+  assert.equal(findings[0]!.disposition, "observe");
+  assert.match(findings[0]!.evidence, /E-STEP-BUDGET/);
+  assert.ok(!findings.some((f) => f.disposition === "engine-fix" || f.disposition === "context-heal"));
+});
+
+test("the step-budget streak is worded as the agent running out of steps, not as an app-behavior gap needing a rule", () => {
+  const o = outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error" });
+  const findings = auditProcess({ outcome: o, recent: [o, outcome({ errorClass: "E-STEP-BUDGET", sha: "b" }), outcome({ errorClass: "E-STEP-BUDGET", sha: "c" })], rules: [] });
+  assert.match(findings[0]!.summary, /steps/i);
+  assert.doesNotMatch(findings[0]!.summary, /rule promotion|app-behavior/i);
+});
+
+test("two step-budget runs in a row are not yet a streak", () => {
+  const o = outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error" });
+  assert.deepEqual(auditProcess({ outcome: o, recent: [o, outcome({ errorClass: "E-STEP-BUDGET", sha: "b" }), outcome({ errorClass: "E-EXEC-FAIL", sha: "c" })], rules: [] }), []);
+});
+
 test("a one-off errorClass does NOT fire engine-fix (one occurrence is noise, not a defect)", () => {
   const o = outcome({ errorClass: "E-STATIC" });
   const input: AuditInput = { outcome: o, recent: [o, outcome({ errorClass: "E-EXEC-FAIL" }), outcome({ errorClass: null })], rules: [] };

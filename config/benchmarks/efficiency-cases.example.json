@@ -18,5 +18,12 @@
     "mode": "manual",
     "target": "code",
     "guidance": "Describe what the run should focus on."
+  },
+  {
+    "name": "example-app-a-deliberate-no-op",
+    "app": "example-app-a",
+    "sha": "0000000000000000000000000000000000000e",
+    "mode": "manual",
+    "guidance": "Name a change that has no user-visible behavior. The right outcome is no specs and a declared no-op with its reason (skipped), never a run that exhausts its steps."
   }
 ]

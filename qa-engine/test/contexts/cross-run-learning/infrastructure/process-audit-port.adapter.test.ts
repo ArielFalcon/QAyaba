@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { ProcessAuditPortAdapter, PROCESS_AUDIT_TIMEOUT_MS } from "@contexts/cross-run-learning/infrastructure/process-audit-port.adapter.ts";
 import type { ProcessFinding, RuleView } from "@contexts/cross-run-learning/domain/process-audit.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { NON_LEARNING } from "@contexts/qa-run-orchestration/domain/helpers/learning-gates.ts";
 
 function outcome(over: Partial<RunOutcome> = {}): RunOutcome {
   return {
@@ -44,6 +45,63 @@ test("engine-fix finding calls recordEngineIncident, and the run verdict is unaf
 
   assert.equal(incidents.length, 1);
   assert.equal(incidents[0]!.kind, "recurring-error-class");
+});
+
+test("runs that decided nothing, like outages and flaky runs, are left out of the streak window", async () => {
+  const current = outcome({ errorClass: "E-STATIC", verdict: "invalid" });
+  const incidents: ProcessFinding[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    /* Three engine-defect runs with an undecided run, an outage and a flaky run between them: without those in the window the streak is unbroken. */
+    readRecentOutcomes: () => [
+      current,
+      outcome({ errorClass: "E-NO-DECISION", verdict: "infra-error", sha: "n" }),
+      outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "b" }),
+      outcome({ errorClass: "E-INFRA", verdict: "infra-error", sha: "i" }),
+      outcome({ errorClass: "E-FLAKY", verdict: "flaky", sha: "f" }),
+      outcome({ errorClass: "E-STATIC", verdict: "invalid", sha: "c" }),
+    ],
+    readRules: () => [],
+    deprecateRule: () => {},
+    recordEngineIncident: (f) => incidents.push(f),
+    invalidateContext: () => false,
+  });
+  await adapter.audit(current);
+  assert.equal(incidents.length, 1, "the undecided run did not break the streak");
+});
+
+test("a step-budget run stays in the streak window, so recurring exhaustion can be seen", async () => {
+  const current = outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error" });
+  const logged: string[] = [];
+  const adapter = new ProcessAuditPortAdapter({
+    app: "petclinic",
+    readRecentOutcomes: () => [current, outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "b" }), outcome({ errorClass: "E-STEP-BUDGET", verdict: "infra-error", sha: "c" })],
+    readRules: () => [],
+    deprecateRule: () => { throw new Error("must not be called"); },
+    recordEngineIncident: () => { throw new Error("must not be called"); },
+    invalidateContext: () => { throw new Error("must not be called"); },
+    log: (line) => logged.push(line),
+  });
+  await adapter.audit(current);
+  assert.ok(logged.some((line) => line.includes("observe")), logged.join("\n"));
+});
+
+test("the streak window drops exactly the classes the learning gates treat as non-learning", async () => {
+  const observed: string[] = [];
+  for (const errorClass of [...NON_LEARNING]) {
+    const current = outcome({ errorClass, verdict: "infra-error" });
+    const adapter = new ProcessAuditPortAdapter({
+      app: "petclinic",
+      readRecentOutcomes: () => [current, outcome({ errorClass, verdict: "infra-error", sha: "b" }), outcome({ errorClass, verdict: "infra-error", sha: "c" })],
+      readRules: () => [],
+      deprecateRule: () => {},
+      recordEngineIncident: () => {},
+      invalidateContext: () => false,
+      log: (line) => observed.push(`${errorClass}: ${line}`),
+    });
+    await adapter.audit(current);
+  }
+  assert.deepEqual(observed, [], "a streak made only of non-learning runs is invisible to the audit");
 });
 
 test("ledger-heal finding deprecates the rule(s), no incident/context call", async () => {

@@ -14,6 +14,7 @@ test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed ben
   assert.ok(cases.length >= 3);
   assert.ok(cases.some((c) => c.baseSha !== undefined), "one example shows a commit range");
   assert.ok(cases.some((c) => c.guidance !== undefined), "one example shows guidance");
+  assert.ok(cases.some((c) => c.name.includes("no-op")), "one example is a deliberate no-op, the case a step-exhausted run must never be mistaken for");
   for (const c of cases) assert.match(c.sha, /^[0-9a-f]{7,40}$/);
 });
 

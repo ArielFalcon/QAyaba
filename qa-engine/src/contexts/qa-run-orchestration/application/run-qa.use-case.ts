@@ -100,7 +100,7 @@ import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
 import { checkSpecSelectors } from "../domain/helpers/selector-check.ts";
 import { resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
-import { shouldDistillLearning } from "../domain/helpers/should-distill-learning.ts";
+import { learningGates } from "../domain/helpers/learning-gates.ts";
 import { CycleBudget } from "../domain/cycle-budget.ts";
 import { WallClockBudget } from "../domain/wall-clock-budget.ts";
 import type { CoordinationPort } from "./ports/coordination.port.ts";
@@ -1977,15 +1977,23 @@ export class RunQaUseCase {
       await this.deps.runHistory.save(mainlineOutcome);
 
       /*
-       * Off-path: never gates the verdict. app_defect suppresses the fold so the
-       * flywheel never learns to weaken a test that caught a real bug.
+       * What this outcome may teach is decided in one place (learningGates). Off-path: never gates
+       * the verdict. app_defect suppresses the fold so the flywheel never learns to weaken a test
+       * that caught a real bug.
        */
-      if (shouldDistillLearning(cfg.isCode, decision.verdict, mainlineOutcome.adjudication?.class)) {
+      const learning = learningGates({
+        stage: "mainline",
+        verdict: decision.verdict,
+        errorClass: mainlineOutcome.errorClass,
+        isCode: cfg.isCode,
+        adjudicationClass: mainlineOutcome.adjudication?.class,
+      });
+      if (learning.fold) {
         await this.deps.learning.fold(mainlineOutcome);
       }
 
       /*
-       * Off-path. Deliberately NOT gated on shouldDistillLearning: app_defect is the
+       * Off-path. Deliberately NOT gated on the learning gates: app_defect is the
        * curriculum's strongest positive signal. Only the mainline exit folds —
        * invalid/infra-error never executed a suite.
        */
@@ -1999,19 +2007,11 @@ export class RunQaUseCase {
       }
 
       /*
-       * Stricter than fold: no flaky/E-INFRA/E-FLAKY, and errorClass must be a real
-       * non-empty class (a green pass must not mint a reflection rule). Fold-on-green
-       * is unchanged. Fault-isolated in the adapter.
+       * Stricter than fold: no flaky verdict, and errorClass must be a real class that teaches
+       * (a green pass must not mint a reflection rule). Fold-on-green is unchanged.
+       * Fault-isolated in the adapter.
        */
-      if (
-        this.deps.reflector &&
-        shouldDistillLearning(cfg.isCode, decision.verdict, mainlineOutcome.adjudication?.class) &&
-        decision.verdict !== "flaky" &&
-        mainlineOutcome.errorClass !== "E-INFRA" &&
-        mainlineOutcome.errorClass !== "E-FLAKY" &&
-        mainlineOutcome.errorClass != null &&
-        mainlineOutcome.errorClass !== ""
-      ) {
+      if (this.deps.reflector && learning.reflect) {
         /* reflect() is awaited inline so the persisted outcome includes the back-fill before the run closes. */
         const reflectStartedAt = Date.now();
         /* Archetype from classificationDiff; undefined outside diff mode — never fabricated. */
@@ -2025,16 +2025,8 @@ export class RunQaUseCase {
         });
       }
 
-      /* Same gate as reflect, duplicated so processAudit and reflector stay independently optional. */
-      if (
-        this.deps.processAudit &&
-        shouldDistillLearning(cfg.isCode, decision.verdict, mainlineOutcome.adjudication?.class) &&
-        decision.verdict !== "flaky" &&
-        mainlineOutcome.errorClass !== "E-INFRA" &&
-        mainlineOutcome.errorClass !== "E-FLAKY" &&
-        mainlineOutcome.errorClass != null &&
-        mainlineOutcome.errorClass !== ""
-      ) {
+      /* Same gate as reflect, so processAudit and reflector stay independently optional. */
+      if (this.deps.processAudit && learning.reflect) {
         /* Audit duration on the existing log.line channel. */
         const auditStartedAt = Date.now();
         await this.deps.processAudit.audit(mainlineOutcome);
@@ -2398,26 +2390,24 @@ export class RunQaUseCase {
       });
       await this.deps.runHistory.save(terminalOutcome);
       /*
-       * Same shouldDistillLearning guard as the mainline. Adjudication is always
-       * undefined here today (FixLoop has not run); kept so a future reorder cannot
-       * bypass app_defect suppression.
+       * The same learning gates as the mainline, at the terminal stage: a terminal outcome teaches
+       * only through a class that teaches (a rejected static gate, an agent that ran out of steps),
+       * never through an outage or a generation that decided nothing. Adjudication is always
+       * undefined here today (FixLoop has not run); kept so a future reorder cannot bypass
+       * app_defect suppression.
        */
-      if (verdict === "invalid" && shouldDistillLearning(cfg.isCode, verdict, terminalOutcome.adjudication?.class)) {
+      const learning = learningGates({
+        stage: "terminal",
+        verdict,
+        errorClass: terminalOutcome.errorClass,
+        isCode: cfg.isCode,
+        adjudicationClass: terminalOutcome.adjudication?.class,
+      });
+      if (learning.fold) {
         await this.deps.learning.fold(terminalOutcome);
       }
 
-      /*
-       * Same stricter reflect gate as the mainline. This path is already narrowed to
-       * invalid (not flaky/infra-error); errorClass is always E-STATIC so a null-class
-       * conjunct is unnecessary here.
-       */
-      if (
-        this.deps.reflector &&
-        verdict === "invalid" &&
-        shouldDistillLearning(cfg.isCode, verdict, terminalOutcome.adjudication?.class) &&
-        terminalOutcome.errorClass !== "E-INFRA" &&
-        terminalOutcome.errorClass !== "E-FLAKY"
-      ) {
+      if (this.deps.reflector && learning.reflect) {
         const reflectStartedAt = Date.now();
         await this.deps.reflector.reflect(this.toReflectionInput(terminalOutcome, archetype));
         const reflectMs = Date.now() - reflectStartedAt;
@@ -2428,14 +2418,8 @@ export class RunQaUseCase {
         });
       }
 
-      /* Same independently-optional processAudit gate as the mainline, duplicated on purpose. */
-      if (
-        this.deps.processAudit &&
-        verdict === "invalid" &&
-        shouldDistillLearning(cfg.isCode, verdict, terminalOutcome.adjudication?.class) &&
-        terminalOutcome.errorClass !== "E-INFRA" &&
-        terminalOutcome.errorClass !== "E-FLAKY"
-      ) {
+      /* Same independently-optional processAudit gate as the mainline. */
+      if (this.deps.processAudit && learning.reflect) {
         const auditStartedAt = Date.now();
         await this.deps.processAudit.audit(terminalOutcome);
         const auditMs = Date.now() - auditStartedAt;

@@ -71,8 +71,15 @@ test("a run is measured coarsely from its events, excluding the grounding sub-st
 test("the guardrails are read from the run's recorded outcome and result", () => {
   const { guardrails } = measureRun("run-1", source())!;
   assert.deepEqual(guardrails, {
-    verdict: "pass", specsProduced: 1, staticPass: true, executePass: true, coverageRatio: 0.8, reviewerApproved: true,
+    verdict: "pass", specsProduced: 1, staticPass: true, executePass: true, coverageRatio: 0.8, reviewerApproved: true, errorClass: null,
   });
+});
+
+test("the error class the run ended with is a guardrail, so runs can be compared by class", () => {
+  const exhausted = measureRun("run-1", source({ outcome: outcome({}, "infra-error"), record: record({ verdict: "infra-error" }) }))!;
+  assert.equal(exhausted.guardrails.errorClass, null, "an outcome with no class has none");
+  const withClass: RunOutcome = { ...outcome({}, "infra-error"), errorClass: "E-STEP-BUDGET" };
+  assert.equal(measureRun("run-1", source({ outcome: withClass, record: record({ verdict: "infra-error" }) }))!.guardrails.errorClass, "E-STEP-BUDGET");
 });
 
 test("a run that executed nothing has a null execute result, and a failing execution is false", () => {

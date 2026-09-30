@@ -1934,6 +1934,45 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
   assert.equal(r2?.oracleOutcomeCount, 1);
 });
 
+/* A step-budget exhaustion is folded like any learning outcome, through the same store the production fold uses. It says
+   nothing about rules of other classes and can only ever count against a rule of its own class, so it can neither promote
+   a candidate nor disturb a proven rule. */
+test("historyLearningStore(appName).recordOutcome() — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { listLearningRules, setRuleStatusByHuman } = await import("./history");
+  const app = `factory-learning-step-budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const own = `rule-step-own-${app}`;
+  const other = `rule-step-other-${app}`;
+  const proven = `rule-step-proven-${app}`;
+
+  const store = historyLearningStore(app);
+  const base = { trigger: "t", action: "a", archetype: null, confidence: "low" as const, usageCount: 0, outcomeCount: 0, oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: new Date().toISOString() };
+  store.upsert({ ...base, id: own, errorClass: "E-STEP-BUDGET", status: "candidate" });
+  store.upsert({ ...base, id: other, errorClass: "E-EXEC-FAIL", status: "candidate" });
+  store.upsert({ ...base, id: proven, errorClass: "E-EXEC-FAIL", status: "candidate" });
+  assert.equal(setRuleStatusByHuman(proven, "active"), true, "the proven rule is active before the fold");
+  const before = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+
+  assert.doesNotThrow(() =>
+    store.recordOutcome({
+      runId: "run-step-budget", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "infra-error",
+      errorClass: "E-STEP-BUDGET",
+      gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [own, other, proven],
+      at: new Date().toISOString(),
+    } as never),
+  );
+
+  const after = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+  assert.deepEqual([...after.values()].filter((r) => r.status === "active").map((r) => r.id), [proven], "no rule became active");
+  assert.equal(after.get(other)?.outcomeCount, before.get(other)?.outcomeCount, "a rule of another class carries no signal from this run");
+  assert.equal(after.get(proven)?.outcomeCount, before.get(proven)?.outcomeCount);
+  assert.equal(after.get(proven)?.successRate, before.get(proven)?.successRate);
+  assert.equal(after.get(own)?.outcomeCount, 1, "a rule of the run's own class counts the run");
+  assert.equal(after.get(own)?.successRate, 0, "and counts it against itself");
+  assert.equal(after.get(own)?.status, "candidate");
+});
+
 /* above this one hand-builds `rulesRetrieved: [ruleId1, ruleId2]` directly with the real ids already
    known — none of them walk the REAL production seam that broke: LearningPortAdapter.retrieve()
    (qa-engine's port bridge) projecting RetrievedRule[] from the SAME SqliteLearningRepository /

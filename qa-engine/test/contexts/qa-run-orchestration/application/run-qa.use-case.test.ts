@@ -7015,6 +7015,99 @@ test("a regression run, which generates nothing, is not read as a generation end
   assert.equal(executed, 1);
 });
 
+/* ── What each generation end teaches the engine ───────────────────────────────────────────────── */
+
+interface Learned {
+  folded: RunOutcome[];
+  reflected: ReflectionInput[];
+  audited: RunOutcome[];
+}
+
+async function learnFrom(generation: ReturnType<typeof scriptedGeneration>): Promise<Learned> {
+  const learned: Learned = { folded: [], reflected: [], audited: [] };
+  const { ports } = stubPorts({ generate: async () => generation });
+  ports.learning.fold = async (outcome) => { learned.folded.push(outcome); };
+  const reflector = makeFakeReflector((input) => { learned.reflected.push(input); });
+  const processAudit = makeFakeProcessAudit((outcome) => { learned.audited.push(outcome); });
+  await new RunQaUseCase({ ...ports, reflector, processAudit, config: baseConfig }).run(baseInput);
+  return learned;
+}
+
+test("a generation that ran out of steps feeds the fold, the reflector and the process audit, under its own class", async () => {
+  const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.EXHAUSTED, note: EXHAUSTED_NOTE, turn: EXHAUSTED_TURN }));
+  assert.equal(learned.folded.length, 1);
+  assert.equal(learned.folded[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+  assert.equal(learned.reflected.length, 1);
+  assert.equal(learned.reflected[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+  assert.equal(learned.audited.length, 1);
+  assert.equal(learned.audited[0]!.errorClass, ERROR_CLASS.STEP_BUDGET);
+});
+
+test("a generation that decided nothing never feeds the fold, the reflector or the process audit", async () => {
+  const learned = await learnFrom(scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.UNDECIDED_EMPTY, note: "no decision" }));
+  assert.equal(learned.folded.length, 0);
+  assert.equal(learned.reflected.length, 0);
+  assert.equal(learned.audited.length, 0);
+});
+
+test("a declared no-op and a generation with no readable verdict teach nothing either", async () => {
+  for (const generation of [
+    scriptedGeneration({ specs: [], approved: true, end: GENERATION_END.DECLARED_NOOP, note: "nothing to test" }),
+    scriptedGeneration({ specs: [], approved: true, parsed: false, end: GENERATION_END.NO_VERDICT }),
+  ]) {
+    const learned = await learnFrom(generation);
+    assert.deepEqual([learned.folded.length, learned.reflected.length, learned.audited.length], [0, 0, 0], generation.end);
+  }
+});
+
+test("an infrastructure failure before execution still teaches nothing, while a static-gate rejection still does", async () => {
+  const infra = { folded: 0, reflected: 0, audited: 0 };
+  const { ports: infraPorts } = stubPorts({ waitUntilServing: async () => ({ ok: false, error: new Error("DEV unhealthy") }) });
+  infraPorts.learning.fold = async () => { infra.folded++; };
+  await new RunQaUseCase({
+    ...infraPorts,
+    reflector: makeFakeReflector(() => { infra.reflected++; }),
+    processAudit: makeFakeProcessAudit(() => { infra.audited++; }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual(infra, { folded: 0, reflected: 0, audited: 0 });
+
+  const invalid = { folded: 0, reflected: 0, audited: 0 };
+  const { ports: invalidPorts } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
+  invalidPorts.learning.fold = async () => { invalid.folded++; };
+  await new RunQaUseCase({
+    ...invalidPorts,
+    reflector: makeFakeReflector(() => { invalid.reflected++; }),
+    processAudit: makeFakeProcessAudit(() => { invalid.audited++; }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual(invalid, { folded: 1, reflected: 1, audited: 1 });
+});
+
+test("a green run still folds but does not reflect or audit, and a flaky one still folds without reflecting", async () => {
+  const green = { folded: 0, reflected: 0, audited: 0 };
+  const { ports: greenPorts } = stubPorts();
+  greenPorts.learning.fold = async () => { green.folded++; };
+  await new RunQaUseCase({
+    ...greenPorts,
+    reflector: makeFakeReflector(() => { green.reflected++; }),
+    processAudit: makeFakeProcessAudit(() => { green.audited++; }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual(green, { folded: 1, reflected: 0, audited: 0 });
+
+  const flaky = { folded: 0, reflected: 0, audited: 0 };
+  const { ports: flakyPorts } = stubPorts({ execute: async () => ({ verdict: "flaky", cases: [{ name: "checkout", status: "flaky" as const }], logs: "" }) });
+  flakyPorts.learning.fold = async () => { flaky.folded++; };
+  await new RunQaUseCase({
+    ...flakyPorts,
+    reflector: makeFakeReflector(() => { flaky.reflected++; }),
+    processAudit: makeFakeProcessAudit(() => { flaky.audited++; }),
+    config: baseConfig,
+  }).run(baseInput);
+  assert.deepEqual(flaky, { folded: 1, reflected: 0, audited: 0 });
+});
+
 /* ── The reviewer outcome is reported only when a reviewer ran ─────────────────────────────────── */
 
 const BROKEN_SPEC_GATE = { ok: false, errors: ["[lint] no-wait-for-timeout"] };

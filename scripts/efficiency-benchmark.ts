@@ -238,6 +238,8 @@ export interface CaseGuardrails {
   /** Null means unknown (never measured, or not measurable for the run). */
   coverageRatio: number | null;
   reviewerApproved: boolean | null;
+  /** The error class the run ended with; null when it had none. A run that ended before the class was recorded reads as unknown in the report. */
+  errorClass: string | null;
 }
 
 export interface CaseMeasurement {
@@ -326,6 +328,7 @@ export function measureRun(runId: string, source: RunDataSource): CaseMeasuremen
       executePass: executePass(record),
       coverageRatio: outcome?.gateSignals.coverageRatio ?? null,
       reviewerApproved: outcome?.gateSignals.reviewerApproved ?? null,
+      errorClass: outcome?.errorClass ?? null,
     },
   };
 }
@@ -417,8 +420,11 @@ function viewOf(snapshot: EfficiencySnapshot, caseName: string): CaseView {
 }
 
 const GUARDRAIL_NAMES: ReadonlyArray<keyof CaseGuardrails> = [
-  "verdict", "specsProduced", "staticPass", "executePass", "coverageRatio", "reviewerApproved",
+  "verdict", "specsProduced", "staticPass", "executePass", "coverageRatio", "reviewerApproved", "errorClass",
 ];
+
+/* A guardrail an older snapshot never recorded is unknown (undefined), and unknown on either side is not evidence of a change. */
+const changed = (a: unknown, b: unknown): boolean => a !== undefined && b !== undefined && a !== b;
 
 /** One row per case named by either snapshot: a case with no data on a side is `missing` there, never left out. */
 export function compareSnapshots(a: EfficiencySnapshot, b: EfficiencySnapshot): Comparison {
@@ -428,7 +434,7 @@ export function compareSnapshots(a: EfficiencySnapshot, b: EfficiencySnapshot): 
     const right = viewOf(b, caseName);
     const guardrailChanges =
       left.status === "measured" && right.status === "measured"
-        ? GUARDRAIL_NAMES.filter((g) => left.data.guardrails[g] !== right.data.guardrails[g]).map(String)
+        ? GUARDRAIL_NAMES.filter((g) => changed(left.data.guardrails[g], right.data.guardrails[g])).map(String)
         : [];
     return { caseName, a: left, b: right, guardrailChanges };
   });
@@ -449,7 +455,7 @@ function measuredLines(data: CaseMeasurement): string[] {
     `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
     `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (explorer unobserved)" : `calls ${data.coarse.grounding.totalCalls}`}`,
     `generator: step limit ${yesNo(data.exhausted, "hit", "not hit")}`,
-    `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")}`,
+    `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")} · error class ${g.errorClass === undefined ? "unknown" : (g.errorClass ?? "none")}`,
   ];
 }
 
