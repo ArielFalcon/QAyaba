@@ -3,8 +3,9 @@
    a silent behavior split. The guard covers:
    - qa-generator.md: EVERY section (Procedure, the stop rule and the final output) byte for byte
    - qa-reviewer.md: Output format, Anti-pattern catalog, Dual-review protocol, Code-mode review
-   - AGENTS.md: Global rules, Execution context and Protocols, plus the presence of the one
-     no-direct-HTTP-to-DEV statement in Global rules and its absence everywhere else
+   - AGENTS.md: Global rules, Execution context and Protocols, plus the presence of the two
+     no-direct-HTTP statements in Global rules (what the session may do, what a spec may do),
+     each once and in a sentence of its own, and their absence everywhere else
    - the skill files, byte for byte
    Conditional rules live in the assembled prompt; these static files hold unconditional craft
    rules only, so there is nothing that may legitimately differ between the mirrors.
@@ -413,30 +414,44 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
-  /* The rule that the agent drives the app only through the UI and makes no direct HTTP call to DEV is
-     stated ONCE, in AGENTS Global rules (the prompt-injection defense already carries it). These are the
-     ways the prompts have phrased it; a statement outside Global rules is a restatement to delete. */
-  const NO_DIRECT_HTTP_STATEMENTS: readonly RegExp[] = [
-    /network calls outside the Playwright MCP/gi,
-    /never call the API directly/gi,
-    /never call the service directly/gi,
-    /no curl/gi,
-    /no direct HTTP/gi,
-    /direct API\/HTTP\/curl/gi,
-    /Drive the (?:app|backend) through the (?:web )?UI/gi,
+  /* The no-direct-HTTP rule has two facets, each stated ONCE, in its own sentence, in AGENTS Global rules:
+     what the agent's session may do (no network call outside the Playwright MCP: the prompt-injection
+     defense) and what a spec may do (drive the app through the UI like a user, never call the backend
+     API directly). These are the ways the prompts have phrased them; a statement outside Global rules is
+     a restatement to delete. */
+  const SESSION_NETWORK_STATEMENTS: readonly RegExp[] = [/network calls outside the Playwright MCP/i];
+  const SPEC_AUTHORING_STATEMENTS: readonly RegExp[] = [
+    /never call the (?:backend )?(?:API|service) directly/i,
+    /no curl/i,
+    /no direct HTTP/i,
+    /direct API\/HTTP\/curl/i,
+    /Drives? the (?:app|backend) through the (?:web )?UI/i,
   ];
-  const countStatements = (text: string): number =>
-    NO_DIRECT_HTTP_STATEMENTS.reduce((total, pattern) => total + [...text.matchAll(pattern)].length, 0);
+  /* The sentences of a text (a line break inside a sentence is a space) that carry any of the patterns. */
+  const statementsOf = (text: string, patterns: readonly RegExp[]): string[] =>
+    text
+      .split(/\n\s*\n|\n(?=\s*[-*] )/)
+      .flatMap((block) => block.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/))
+      .filter((sentence) => patterns.some((pattern) => pattern.test(sentence)));
+  const RULE_FACETS: ReadonlyArray<readonly [string, readonly RegExp[]]> = [
+    ["the session may not make a network call outside the Playwright MCP", SESSION_NETWORK_STATEMENTS],
+    ["a spec drives the app through the UI and never calls the backend API directly", SPEC_AUTHORING_STATEMENTS],
+  ];
+  const restatementsIn = (text: string): number =>
+    RULE_FACETS.reduce((total, [, patterns]) => total + statementsOf(text, patterns).length, 0);
 
-  it("both AGENTS.md mirrors keep a Global rules section that holds exactly one no-direct-HTTP statement, and no other section restates it", () => {
+  it("both AGENTS.md mirrors keep a Global rules section that states each facet of the no-direct-HTTP rule once, in a sentence of its own, and no other section restates either", () => {
     for (const rel of ["agents/AGENTS.md", "agent/AGENTS.md"]) {
       const sections = parseSections(readFile(rel));
       const globalRules = sections.get("Global rules");
       assert.ok(globalRules, `${rel}: the Global rules section survives`);
-      assert.equal(countStatements(globalRules), 1, `${rel}: Global rules states the rule once`);
+      const stated = RULE_FACETS.map(([facet, patterns]) => ({ facet, sentences: statementsOf(globalRules, patterns) }));
+      for (const { facet, sentences } of stated) assert.equal(sentences.length, 1, `${rel}: Global rules states once that ${facet}`);
+      const [session, authoring] = stated.map(({ sentences }) => sentences[0]);
+      assert.notEqual(session, authoring, `${rel}: the two facets are separate sentences`);
       for (const [name, body] of sections) {
         if (name === "Global rules") continue;
-        assert.equal(countStatements(body), 0, `${rel}: section "${name}" must not restate the no-direct-HTTP rule`);
+        assert.equal(restatementsIn(body), 0, `${rel}: section "${name}" must not restate the no-direct-HTTP rule`);
       }
     }
   });
@@ -449,7 +464,7 @@ describe("prompt-sync drift guard", () => {
       "agents/agent/qa-worker.md",
       "agent/roles/qa-worker.md",
     ]) {
-      assert.equal(countStatements(readFile(rel)), 0, rel);
+      assert.equal(restatementsIn(readFile(rel)), 0, rel);
     }
   });
 
@@ -469,7 +484,7 @@ describe("prompt-sync drift guard", () => {
     } as Parameters<typeof buildPrompt>[0];
     const withOpenapi = { ...base, openapi: "api-definition.yaml" };
     const crossRepo = { ...base, service: { repo: "org/orders", mirrorDir: "/m/orders", openapi: "api.yaml" } };
-    for (const input of [base, withOpenapi, crossRepo]) assert.equal(countStatements(buildPrompt(input)), 0);
+    for (const input of [base, withOpenapi, crossRepo]) assert.equal(restatementsIn(buildPrompt(input)), 0);
   });
 
   it("a deliberate divergence in generator Final output is structurally caught (inverse)", () => {
