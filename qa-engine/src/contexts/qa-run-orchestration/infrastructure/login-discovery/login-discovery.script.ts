@@ -17,7 +17,7 @@
  */
 
 import { EVIDENCE_TEXT_MAX, FORM_STATE, MAX_RENDERED_REQUESTS } from "../../domain/helpers/login-evidence.ts";
-import { DESCRIBE_PAGE_SOURCE, NO_VISIBLE_PASSWORD_SOURCE } from "./login-discovery.page-readers.ts";
+import { DESCRIBE_PAGE_SOURCE, INSTALL_SUBMIT_WATCH_SOURCE, NO_VISIBLE_PASSWORD_SOURCE, SUBMIT_WATCH_FIRED_SOURCE } from "./login-discovery.page-readers.ts";
 
 /** The paths tried last, after everything the app itself pointed at. */
 export const LOGIN_WELL_KNOWN_PATHS: readonly string[] = ["/login", "/signin", "/sign-in", "/auth/login", "/#/login"];
@@ -77,15 +77,24 @@ const ACCOUNT_PATTERN = SECRET_PATTERN === null ? null : new RegExp(SECRET_PATTE
 const carriesAccount = function (text) { return ACCOUNT_PATTERN !== null && typeof text === "string" && ACCOUNT_PATTERN.test(text); };
 /* The account comes out of the WHOLE text first (a secret may span lines), then the first line stands for it, its URLs lose their queries, and the cut comes last. */
 const noteText = function (text) { return scrub(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").slice(0, TEXT_MAX); };
-/* What makes two exceptions the same one: the first line with its URLs and numbers (ids, timestamps, positions) normalized. */
-const signature = function (text) { return String(text).split("\n")[0].replace(/https?:\/\/\S+/g, "<url>").replace(/\d+/g, "#").trim(); };
+/* What makes two exceptions the same one: the first line without its error name (a console text and a page error then read alike), with its URLs, GUIDs, hex ids of six or more characters, tokens that mix letters and digits (an id, from four characters) and numbers normalized. */
+const signature = function (text) {
+  return String(text).split("\n")[0]
+    .replace(/^(?:Uncaught\s+)?(?:[A-Za-z_$][\w$.]*)?(?:Error|Exception):\s*/, "")
+    .replace(/https?:\/\/\S+/g, "<url>")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>")
+    .replace(/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,}\b/g, "<id>")
+    .replace(/\b[0-9a-f]{6,}\b/gi, "<id>")
+    .replace(/\d+/g, "#")
+    .trim();
+};
 
 const emit = function (line) { process.stdout.write(JSON.stringify(line) + "\n"); };
 
 function emptyEvidence() {
   return {
     ladder: [], form: FORM.ABSENT, ladderHadPasswordField: false, markers: { captcha: false, sso: false },
-    challengeVisible: false, secondFactorVisible: false, filled: false, submitted: false, requests: [],
+    challengeVisible: false, secondFactorVisible: false, filled: false, submitted: false, submitEventFired: false, requests: [],
     inFlightAtDeadline: false, pageErrorCount: 0, firstPageError: null, newExceptionAfterSubmit: false, firstNewException: null,
     firstAlert: null, submitDisabled: false, finalPath: "/", passwordGone: false, freshContextChecked: false,
     freshContextPasswordGone: false, storageStateWritten: false,
@@ -96,6 +105,10 @@ function emptyEvidence() {
 ${DESCRIBE_PAGE_SOURCE}
 
 ${NO_VISIBLE_PASSWORD_SOURCE}
+
+${INSTALL_SUBMIT_WATCH_SOURCE}
+
+${SUBMIT_WATCH_FIRED_SOURCE}
 
 /* A form (or, with no form, the page) whose submissions and script requests stay on the app's own origin: a base address or an action that leaves it makes the page no place to type the account. */
 function staysHome(seen, formIndex) {
@@ -284,6 +297,8 @@ async function submitOnce(page, action, evidence, watching) {
   submitCount += 1;
   await watching.settle();
   if (!onAppOrigin(page)) return;
+  await page.evaluate(installSubmitWatch);
+  if (!onAppOrigin(page)) return;
   watching.phase = "after";
   emit({ marker: "submitted" });
   evidence.submitted = true;
@@ -311,6 +326,7 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   await page.waitForFunction(noVisiblePassword, undefined, { timeout: POST_SUBMIT_WAIT_MS }).catch(function () {});
   await watching.settle();
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
+  evidence.submitEventFired = await page.evaluate(submitWatchFired).catch(function () { return false; });
   const now = new URL(page.url());
   const after = (await readPage(page)) || NOTHING_SHOWING;
   evidence.requests = watching.requests.filter(function (entry) { return entry.attributed; }).map(function (entry) {

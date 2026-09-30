@@ -75,3 +75,14 @@ export const NO_VISIBLE_PASSWORD_SOURCE = [
   String.raw`  return Array.prototype.slice.call(document.querySelectorAll('input[type="password"]')).every(function (el) { return !visible(el); });
 }`,
 ].join("\n");
+
+/** Run once, just before the submit: listens, in the capture phase, for the submit event of any form on the page. */
+export const INSTALL_SUBMIT_WATCH_SOURCE = String.raw`function installSubmitWatch() {
+  window.__qaSubmitFired = false;
+  document.addEventListener("submit", function () { window.__qaSubmitFired = true; }, true);
+}`;
+
+/** Whether a form's submit event fired since the watch was installed; false when the page was replaced meanwhile. */
+export const SUBMIT_WATCH_FIRED_SOURCE = String.raw`function submitWatchFired() {
+  return window.__qaSubmitFired === true;
+}`;

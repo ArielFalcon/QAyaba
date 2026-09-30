@@ -55,6 +55,8 @@ export interface LoginEvidence {
   secondFactorVisible: boolean;
   filled: boolean;
   submitted: boolean;
+  /** The form's own submit event fired after the submit action: the page's handler for the form ran (or was about to). Without it, what the page threw next is not tied to the login. */
+  submitEventFired: boolean;
   /**
    * The requests that were the login's own, sorted and capped by whoever produced the evidence: they started after
    * the submit and carry the account in their address or body (a native GET form's navigation is one too). The
@@ -111,9 +113,9 @@ const inconclusive = (attempted: boolean): LoginOutcome => ({ status: LOGIN_STAT
  * a failure needs a structural marker or a submit-time request, and a request still in flight at the
  * deadline proves nothing yet. `attempted` follows what was submitted: a recorded submit is an
  * attempt unless it visibly sent no request, because a seed that submits again after a rejected
- * credential risks a lockout. A submit that threw in the page and sent nothing is positive evidence
- * that this login cannot complete; one that threw but did send a request is left to the request
- * rules. Rules run in this order.
+ * credential risks a lockout. A submit whose form's handler ran, threw in the page and sent nothing is
+ * positive evidence that this login cannot complete; one that threw but did send a request is left to
+ * the request rules. Rules run in this order.
  */
 export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   const { markers, requests } = evidence;
@@ -134,8 +136,8 @@ export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   if (!evidence.passwordGone) {
     /* A request still in flight proves nothing yet, and a submit that sent none (Enter did nothing, a click-only form) is left to the stock seed. */
     if (evidence.inFlightAtDeadline) return inconclusive(true);
-    /* The handler threw a new exception and no request went out: the login cannot complete. Without one, silence proves nothing and the stock seed decides. */
-    if (requests.length === 0) return evidence.newExceptionAfterSubmit ? failed(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE) : inconclusive(false);
+    /* The form's handler ran, threw a new exception and no request went out: the login cannot complete. Without the submit event the exception may be the page's own business, and without one silence proves nothing: the stock seed decides. */
+    if (requests.length === 0) return evidence.newExceptionAfterSubmit && evidence.submitEventFired ? failed(PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE) : inconclusive(false);
     const rejected = requests.some((request) => request.status !== null && REJECTION_STATUSES.has(request.status));
     return failed(rejected ? PRECONDITION_KIND.CREDENTIALS_REJECTED : PRECONDITION_KIND.LOGIN_DID_NOT_COMPLETE);
   }

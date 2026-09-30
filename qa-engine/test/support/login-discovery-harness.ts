@@ -81,6 +81,10 @@ export interface StubPage {
 export interface StubSubmit {
   /** Whether Enter in the password field submits (default true). */
   enter?: boolean;
+  /** Whether the form's own submit event fires (default: when the action reaches a form). */
+  submitEvent?: boolean;
+  /** The page is replaced by the submit, so reading what the listener saw fails. */
+  watchLost?: boolean;
   requests?: StubRequest[];
   /** Requests that go out in the same window whatever the submit did, as an app's own telemetry and refreshes do. */
   background?: StubRequest[];
@@ -113,7 +117,7 @@ export interface StubSite {
 
 /** After the Nth `on` (a page read, a typed field, or the origin check that follows the first read) the browser is on `to`. */
 export interface StubDrift {
-  on: "evaluate" | "fill" | "url-after-read";
+  on: "evaluate" | "fill" | "url-after-read" | "watch";
   nth: number;
   to: string;
   /** Only the pages of this browser context (numbered from 1 in the order they open); any when absent. */
@@ -157,6 +161,7 @@ function makePage(ctx, state) {
   let current = new URL("about:blank");
   let staying = null;
   let afterRead = false;
+  const watch = { installed: false, fired: false };
   const drifts = (site.drifts || []).filter((d) => d.context === undefined || d.context === ctx).map((d) => ({ ...d, seen: 0, fired: false }));
   const drift = (on) => {
     for (const d of drifts) if (d.on === on && !d.fired && ++d.seen === d.nth) { d.fired = true; current = new URL(d.to); }
@@ -189,6 +194,9 @@ function makePage(ctx, state) {
   };
   const submitted = (via, key, i) => {
     log({ t: "submit", via, key, i, ctx, at: current.origin });
+    const target = (def().fields || []).find((f) => f.i === i);
+    const reachesForm = !!target && target.form >= 0 && !(via === "press" && submit.enter === false);
+    if (watch.installed && (submit.submitEvent !== undefined ? submit.submitEvent : reachesForm)) watch.fired = true;
     (submit.background || []).forEach(fire);
     if (via === "press" && submit.enter === false) return;
     (submit.requests || []).forEach(fire);
@@ -212,7 +220,12 @@ function makePage(ctx, state) {
     return href;
   };
   page.waitForLoadState = async () => {};
-  page.evaluate = async () => {
+  page.evaluate = async (fn) => {
+    if (fn && fn.name === "installSubmitWatch") { watch.installed = true; log({ t: "watch-installed", ctx }); drift("watch"); return undefined; }
+    if (fn && fn.name === "submitWatchFired") {
+      if (submit.watchLost) throw new Error("Execution context was destroyed, most likely because of a navigation");
+      return watch.installed && watch.fired;
+    }
     evalCalls++;
     if (site.navUnderRead && evalCalls === site.navUnderRead.onCall) {
       current = new URL(site.navUnderRead.to);

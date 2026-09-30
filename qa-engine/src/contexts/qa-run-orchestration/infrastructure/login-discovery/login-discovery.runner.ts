@@ -50,7 +50,7 @@ const isNullableText = (value: unknown): value is string | null => value === nul
 /* Just enough of a shape check to refuse an evidence line the classifier would trip over; the values were already bounded and scrubbed by the child. */
 function isLoginEvidence(value: unknown): value is LoginEvidence {
   if (!isRecord(value)) return false;
-  const flags = ["ladderHadPasswordField", "challengeVisible", "secondFactorVisible", "filled", "submitted", "inFlightAtDeadline", "newExceptionAfterSubmit", "submitDisabled", "passwordGone", "freshContextChecked", "freshContextPasswordGone", "storageStateWritten"];
+  const flags = ["ladderHadPasswordField", "challengeVisible", "secondFactorVisible", "filled", "submitted", "submitEventFired", "inFlightAtDeadline", "newExceptionAfterSubmit", "submitDisabled", "passwordGone", "freshContextChecked", "freshContextPasswordGone", "storageStateWritten"];
   return (
     Array.isArray(value.ladder) && value.ladder.every(isText) &&
     Object.values(FORM_STATE).some((state) => state === value.form) &&

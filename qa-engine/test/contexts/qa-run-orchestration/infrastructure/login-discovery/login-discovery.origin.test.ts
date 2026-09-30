@@ -75,6 +75,15 @@ const PAGES_THAT_POST_ELSEWHERE: Array<[string, StubPage]> = [
   ["a page whose base address leaves the app's origin", { ...loginForm(), baseSameOrigin: false }],
 ];
 
+test("a page that changes origin while the submit listener is being installed is not submitted and no submit marker is printed", async () => {
+  const run = await runLoginDiscovery({
+    site: { pages: { "/": loginForm(), [`${FOREIGN}/collect`]: loginForm() }, drifts: [{ on: "watch", nth: 1, to: `${FOREIGN}/collect` }] },
+  });
+  assert.deepEqual(fills(run), ["user", "pass"]);
+  assert.deepEqual(run.submits, []);
+  assert.deepEqual(run.markers, []);
+});
+
 for (const [label, page] of PAGES_THAT_POST_ELSEWHERE) {
   test(`${label} is not a login form: nothing is typed or submitted`, async () => {
     const run = await runLoginDiscovery({ site: { pages: { "/": page } } });

@@ -15,6 +15,7 @@ export function scriptedLoginEvidence(over: Partial<LoginEvidence> = {}): LoginE
     secondFactorVisible: false,
     filled: true,
     submitted: true,
+    submitEventFired: true,
     requests: [{ method: "POST", pathname: "/api/session", status: 401 }],
     inFlightAtDeadline: false,
     pageErrorCount: 0,
