@@ -54,6 +54,8 @@ export interface StubRequest {
   subframe?: boolean;
   /** A service worker's request, which has no frame to ask about. */
   serviceWorker?: boolean;
+  /** The answer arrives this many milliseconds after the request went out (the network's own latency). */
+  lateMs?: number;
 }
 
 /** Whether a form's action, and every submitter's formaction, resolve to the page's own origin. */
@@ -85,6 +87,8 @@ export interface StubSubmit {
   submitEvent?: boolean;
   /** The page is replaced by the submit, so reading what the listener saw fails. */
   watchLost?: boolean;
+  /** The session is only in the saved state once every late answer has arrived. */
+  persistsAfterAnswer?: boolean;
   requests?: StubRequest[];
   /** Requests that go out in the same window whatever the submit did, as an app's own telemetry and refreshes do. */
   background?: StubRequest[];
@@ -189,6 +193,11 @@ function makePage(ctx, state) {
       },
     };
     events.emit("request", request);
+    if (r.lateMs !== undefined) {
+      state.pending = (state.pending || 0) + 1;
+      setTimeout(() => { state.pending -= 1; events.emit("response", { request: () => request, status: () => r.status }); }, r.lateMs);
+      return;
+    }
     if (r.failed) events.emit("requestfailed", request);
     else if (r.status !== null) events.emit("response", { request: () => request, status: () => r.status });
   };
@@ -265,7 +274,7 @@ function makeContext(options) {
   if (options.storageState) state.authed = JSON.parse(fs.readFileSync(options.storageState, "utf8")).cookies.length > 0;
   return {
     newPage: async () => makePage(id, state),
-    storageState: async ({ path }) => fs.writeFileSync(path, JSON.stringify({ cookies: state.persists ? [{ name: "session" }] : [], origins: [] })),
+    storageState: async ({ path }) => fs.writeFileSync(path, JSON.stringify({ cookies: state.persists && !(submit.persistsAfterAnswer && state.pending > 0) ? [{ name: "session" }] : [], origins: [] })),
     close: async () => {},
   };
 }
@@ -301,6 +310,8 @@ export interface LoginDiscoveryInput {
   storageStatePath?: string;
   budgetMs?: number;
   actionTimeoutMs?: number;
+  /** Lowers the least the child waits after the submit, so a test of a request that never answers does not wait the seed's 8 s. */
+  postSubmitMinWaitMs?: number;
 }
 
 export interface DiscoveryRun {

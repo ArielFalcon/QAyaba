@@ -132,7 +132,8 @@ export function classifyLoginEvidence(evidence: LoginEvidence): LoginOutcome {
   if (!evidence.passwordGone && markers.captcha && evidence.challengeVisible && !evidence.inFlightAtDeadline) return failed(PRECONDITION_KIND.CAPTCHA_PRESENT);
   /* Seen on screen after the submit, and only once the submit settled: earlier, the step may just be the page the submit is still leaving. */
   if (evidence.secondFactorVisible && settled) return failed(PRECONDITION_KIND.SECOND_FACTOR_REQUIRED);
-  if (evidence.passwordGone && evidence.freshContextChecked && !evidence.freshContextPasswordGone) return failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE);
+  /* A login request still in flight may not have set its session yet: what a fresh context shows then proves nothing. */
+  if (evidence.passwordGone && evidence.freshContextChecked && !evidence.freshContextPasswordGone && !evidence.inFlightAtDeadline) return failed(PRECONDITION_KIND.SESSION_NOT_PERSISTABLE);
   if (!evidence.passwordGone) {
     /* A request still in flight proves nothing yet, and a submit that sent none (Enter did nothing, a click-only form) is left to the stock seed. */
     if (evidence.inFlightAtDeadline) return inconclusive(true);

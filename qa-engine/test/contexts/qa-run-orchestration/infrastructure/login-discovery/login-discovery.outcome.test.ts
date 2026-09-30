@@ -42,7 +42,8 @@ test("only non-GET requests of a login's kind are recorded, sorted, and no more 
 });
 
 test("a request that never gets an answer is in flight at the deadline, so nothing is concluded", async () => {
-  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ status: null })] }) });
+  /* The stub answers the wait for the password field at once; the child must not wait again for a request while the field is still showing. */
+  const run = await runLoginDiscovery({ site: stayingSite({ requests: [loginRequest({ status: null })] }), input: { postSubmitMinWaitMs: 30_000 } });
   const evidence = evidenceOf(run);
   assert.equal(evidence.inFlightAtDeadline, true);
   assert.equal(evidence.requests[0]?.status, null);
@@ -221,4 +222,13 @@ test("the wait for the password field to go lasts at least the seed's and grows 
   assert.equal(await waitedFor(), POST_SUBMIT_MIN_WAIT_MS);
   assert.equal(await waitedFor(POST_SUBMIT_MIN_WAIT_MS / 2), POST_SUBMIT_MIN_WAIT_MS);
   assert.equal(await waitedFor(POST_SUBMIT_MIN_WAIT_MS * 3), POST_SUBMIT_MIN_WAIT_MS * 3);
+});
+
+test("the least wait can be lowered by the input, and the action timeout still raises it", async () => {
+  const waitedFor = async (over: { postSubmitMinWaitMs: number; actionTimeoutMs?: number }): Promise<number | undefined> => {
+    const run = await runLoginDiscovery({ site: stayingSite({ requests: [] }), input: over });
+    return run.events.find((event) => event.t === "wait")?.timeout;
+  };
+  assert.equal(await waitedFor({ postSubmitMinWaitMs: 150 }), 150);
+  assert.equal(await waitedFor({ postSubmitMinWaitMs: 150, actionTimeoutMs: 400 }), 400);
 });

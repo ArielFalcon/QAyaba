@@ -51,7 +51,7 @@ const LOGIN_REQUEST_TYPES = ${JSON.stringify(LOGIN_REQUEST_TYPES)};
 const NAV_TIMEOUT_MS = input.navTimeoutMs || ${DEFAULT_NAV_TIMEOUT_MS};
 const SETTLE_MS = input.settleMs || ${DEFAULT_SETTLE_MS};
 const BUDGET_MS = input.budgetMs === undefined ? ${DEFAULT_LADDER_BUDGET_MS} : input.budgetMs;
-const POST_SUBMIT_WAIT_MS = Math.max(${POST_SUBMIT_MIN_WAIT_MS}, Number(input.actionTimeoutMs) || 0);
+const POST_SUBMIT_WAIT_MS = Math.max(input.postSubmitMinWaitMs === undefined ? ${POST_SUBMIT_MIN_WAIT_MS} : Number(input.postSubmitMinWaitMs), Number(input.actionTimeoutMs) || 0);
 const USER_FIELD_TYPES = ["text", "email", "tel"];
 const LOGIN_LINK_HINT = /log ?in|sign ?in|sign ?on/i;
 const baseOrigin = new URL(input.baseUrl).origin;
@@ -220,11 +220,24 @@ function watch(page, evidence) {
     state.tracked.set(request, entry);
     state.inFlight.add(request);
   });
+  const answered = function (request) {
+    state.inFlight.delete(request);
+    if (state.inFlight.size === 0 && state.onDrained) state.onDrained();
+  };
   page.on("response", function (response) {
     const entry = state.tracked.get(response.request());
-    if (entry) { entry.status = response.status(); state.inFlight.delete(response.request()); }
+    if (entry) { entry.status = response.status(); answered(response.request()); }
   });
-  page.on("requestfailed", function (request) { state.inFlight.delete(request); });
+  page.on("requestfailed", function (request) { answered(request); });
+  /* Resolves once none of the login's requests is in flight, or when the time is up, whichever comes first. */
+  state.drained = function (ms) {
+    if (state.inFlight.size === 0) return Promise.resolve();
+    return new Promise(function (resolve) {
+      const finish = function () { clearTimeout(timer); state.onDrained = null; resolve(); };
+      const timer = setTimeout(finish, Math.max(0, ms));
+      state.onDrained = finish;
+    });
+  };
   state.settle = async function () { while (state.pending.length > 0) await state.pending.shift(); };
   return state;
 }
@@ -302,6 +315,7 @@ async function submitOnce(page, action, evidence, watching) {
   watching.phase = "after";
   emit({ marker: "submitted" });
   evidence.submitted = true;
+  watching.submittedAt = Date.now();
   await action();
 }
 
@@ -325,16 +339,18 @@ async function fillAndSubmit(page, found, evidence, watching) {
 async function observeSubmit(page, context, browser, evidence, found, watching) {
   await page.waitForFunction(noVisiblePassword, undefined, { timeout: POST_SUBMIT_WAIT_MS }).catch(function () {});
   await watching.settle();
+  const after = (await readPage(page)) || NOTHING_SHOWING;
+  evidence.passwordGone = noPasswordShowing(after.fields);
+  /* The password field going says nothing of the session until the login's own requests have answered: give them what is left of the window. */
+  if (evidence.passwordGone) await watching.drained(POST_SUBMIT_WAIT_MS - (Date.now() - watching.submittedAt));
+  const now = new URL(page.url());
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   evidence.submitEventFired = await page.evaluate(submitWatchFired).catch(function () { return false; });
-  const now = new URL(page.url());
-  const after = (await readPage(page)) || NOTHING_SHOWING;
   evidence.requests = watching.requests.filter(function (entry) { return entry.attributed; }).map(function (entry) {
     return { method: entry.method, pathname: entry.pathname, status: entry.status };
   }).sort(function (a, b) {
     return (a.method + " " + a.pathname + " " + a.status).localeCompare(b.method + " " + b.pathname + " " + b.status);
   }).slice(0, MAX_REQUESTS);
-  evidence.passwordGone = noPasswordShowing(after.fields);
   if (after.captcha.present) evidence.markers.captcha = true;
   evidence.challengeVisible = after.captcha.visible;
   evidence.secondFactorVisible = after.secondFactorVisible;
