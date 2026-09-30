@@ -19,7 +19,8 @@ import { diffStat } from "@contexts/generation/domain/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { claim, APP_LOGIN_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
@@ -42,6 +43,17 @@ function renderBrief(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }
     );
   }
   return explorationBriefAdapter.render(brief, opts);
+}
+
+/* Facts only: what the harness is configured with and what its shared fixtures export. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
+function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
+  const s = (x: string): string => sanitizeText(x).text;
+  const lines: string[] = [];
+  if (facts.testIdAttribute) lines.push(`testIdAttribute: ${s(facts.testIdAttribute)}`);
+  if (facts.fixtures?.exports.length) {
+    lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
+  }
+  return lines.length > 0 ? [`## Harness facts`, ...lines, ``].join("\n") : "";
 }
 
 function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean): string {
@@ -718,6 +730,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ? [claim.provides("service-links"), claim.frames("service-links", "unverified")]
     : [];
 
+  const harnessFactsContent = isGenerationMode && input.harnessFacts ? renderHarnessFacts(input.harnessFacts, input.e2eRelDir) : "";
+
   const diffArchetypesContent =
     input.diffArchetypes?.length && isGenerationMode
       ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
@@ -749,6 +763,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
     ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
     ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
+    ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
     ...(() => {
       const specFiles = isGenerationMode && (input.mode === "diff" || input.mode === "manual")
         ? input.existingSpecFiles

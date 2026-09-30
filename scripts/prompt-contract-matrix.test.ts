@@ -25,7 +25,7 @@ import {
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { HARNESS_FACTS_SECTION_ID, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,7 +64,8 @@ test("only combinations that can reach the agent are in the matrix", () => {
   const valid = allValidSpecs();
   assert.ok(valid.length > 0 && valid.every(isValidSpec));
   assert.ok(valid.every((s) => s.mode !== "context" || (s.phase === "first" && s.grounding === "none" && s.tree === "none")));
-  assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored)));
+  assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts)));
+  assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
   assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack"));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
@@ -88,6 +89,18 @@ test("a cell's assembled sections reproduce the assembled prompt exactly", async
     assert.equal(sections.map((s) => s.text).join("\n"), assembled.text, cellName(spec));
     assert.deepEqual(sections.map((s) => s.id), Object.keys(assembled.sectionSizes), cellName(spec));
   }
+});
+
+test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {
+  const cells = await matrixOnce();
+  const withFacts = cells.filter((c) => c.spec.harnessFacts);
+  assert.ok(withFacts.length > 0, "the matrix exercises harness facts");
+  for (const cell of withFacts) {
+    const section = cell.lint.sections.find((s) => s.id === HARNESS_FACTS_SECTION_ID);
+    assert.ok(section?.factsOnly, `${cell.key}: the facts section is present and marked facts-only`);
+    assert.equal(section?.claims.some((c) => c.kind === "directs" || c.kind === "frames"), false, cell.key);
+  }
+  assert.ok(cells.filter((c) => !c.spec.harnessFacts).every((c) => !c.lint.sections.some((s) => s.id === HARNESS_FACTS_SECTION_ID)));
 });
 
 /* ── no tolerated violations ── */

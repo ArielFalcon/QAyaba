@@ -24,6 +24,7 @@ import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastr
 import {
   countDirectives,
   findingKey,
+  HARNESS_FACTS_SECTION_ID,
   lintCell,
   type LintCell,
   type LintFinding,
@@ -35,6 +36,7 @@ import type {
   OpencodeRunInput,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ServiceLink } from "@contexts/service-topology/domain/index.ts";
+import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 import { codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 
@@ -53,6 +55,7 @@ export const DIMENSIONS = {
   structuralSignal: [false, true],
   authSeedUnauthored: [false, true],
   serviceLinks: [false, true],
+  harnessFacts: [false, true],
 } as const;
 
 export type CellSpec = { -readonly [K in keyof typeof DIMENSIONS]: (typeof DIMENSIONS)[K][number] };
@@ -67,10 +70,10 @@ export function isValidSpec(spec: CellSpec): boolean {
   const regenWithTree = spec.phase === "regen-fix" || spec.phase === "selector-fix";
   if (isContext) {
     if (spec.phase !== "first" || spec.tree !== "none" || spec.grounding !== "none") return false;
-    if (isCode || spec.structuralSignal || spec.authSeedUnauthored || spec.serviceLinks) return false;
+    if (isCode || spec.structuralSignal || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
   }
   if (isCode) {
-    if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks) return false;
+    if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
     if (spec.grounding === "pack" || spec.grounding === "brief+pack") return false;
     if (spec.phase === "regen-coverage" || spec.phase === "selector-fix") return false;
   }
@@ -138,6 +141,7 @@ export function cellName(spec: CellSpec): string {
     spec.structuralSignal ? "signal" : "",
     spec.authSeedUnauthored ? "login" : "",
     spec.serviceLinks ? "links" : "",
+    spec.harnessFacts ? "facts" : "",
   ].filter(Boolean);
   return [
     spec.mode,
@@ -197,6 +201,11 @@ const SERVICE_LINKS: ServiceLink[] = [
     source: "openapi-join",
   },
 ];
+
+const HARNESS_FACTS: HarnessFacts = {
+  testIdAttribute: "data-cy",
+  fixtures: { file: "fixtures.ts", exports: ["test", "expect", "authenticate"] },
+};
 
 const DIFF = [
   "diff --git a/src/app/cart/cart.service.ts b/src/app/cart/cart.service.ts",
@@ -278,6 +287,7 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
   if (spec.structuralSignal) input.staticSignal = STRUCTURAL_SIGNAL;
   if (spec.authSeedUnauthored) input.authSeedUnauthored = true;
   if (spec.serviceLinks) input.serviceLinks = SERVICE_LINKS;
+  if (spec.harnessFacts) input.harnessFacts = HARNESS_FACTS;
   if (spec.tree !== "none") {
     input.domSnapshot = TREE_TEXT;
     if (spec.tree === "failure") input.failureSourced = true;
@@ -349,6 +359,7 @@ export function assembledLintSections(assembled: AssembledPrompt): LintSection[]
     text,
     claims: assembled.claims[id] ?? [],
     ...(VERBATIM_SECTION_IDS.has(id) ? { verbatim: true } : {}),
+    ...(id === HARNESS_FACTS_SECTION_ID ? { factsOnly: true } : {}),
   }));
 }
 

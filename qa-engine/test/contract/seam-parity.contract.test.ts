@@ -2,10 +2,14 @@
    qa-engine cannot import src/; this file is the drift gate (tsconfig.parity.json). A field added
    to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
    this test. */
-import { test, describe } from "node:test";
+import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
+import { wireBridges } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 
 import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
 import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from "../../../src/server/rewritten-engine-factory.ts";
@@ -364,6 +368,35 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
      composition time (before any git clone/agent session/Playwright spawn is spent), not at
      E2eExecutionStrategy.run() deep inside the use-case.
    */
+  /* The harness facts the generator is told about its suite start at the app's own config: the test-id
+     attribute declared in AppConfig must survive the composition seam and reach the grounding adapter's
+     facts, with the fixtures read from the run's own spec directory. */
+  test("an app's declared testIdAttribute reaches the harness facts through the composition seam, and none is invented when the app declares none", async () => {
+    const specDir = mkdtempSync(join(tmpdir(), "qa-seam-facts-"));
+    writeFileSync(join(specDir, "fixtures.ts"), "export const test = 1;\nexport function authenticate() {}\n");
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const factsFor = async (app: AppConfig): Promise<unknown> => {
+        const cfg = buildRewrittenCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+        const grounding = wireBridges(cfg).preGenerationGrounding;
+        assert.ok(grounding, "an e2e app is composed with a pre-generation grounding port");
+        return (await grounding.ground(specDir)).harnessFacts;
+      };
+
+      const declared = "data-seam-sentinel-attr";
+      assert.deepEqual(await factsFor(fakeAppConfig({ e2e: { testIdAttribute: declared } } as Partial<AppConfig>)), {
+        testIdAttribute: declared,
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+      });
+      assert.deepEqual(await factsFor(fakeAppConfig({ e2e: {} } as Partial<AppConfig>)), {
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+      });
+    } finally {
+      warn.mock.restore();
+      rmSync(specDir, { recursive: true, force: true });
+    }
+  });
+
   test("buildRewrittenCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
       () => buildRewrittenCompositionConfig(

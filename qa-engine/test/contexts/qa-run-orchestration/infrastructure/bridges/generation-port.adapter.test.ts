@@ -458,6 +458,32 @@ test("generate() maps enrichment.contextBrief onto OpencodeRunInput", async () =
   }
 });
 
+test("generate() maps enrichment.harnessFacts onto OpencodeRunInput and omits the key when there are none", async () => {
+  const ports = fakeGenerationPorts();
+  const captured: OpencodeRunInput[] = [];
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    captured.push(input);
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+    const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+
+    assert.deepEqual(captured[0]?.harnessFacts, harnessFacts);
+    assert.equal("harnessFacts" in (captured[1] ?? {}), false);
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
 test("generate() with absent enrichment.contextMap omits it from OpencodeRunInput (never fabricated)", async () => {
   const ports = fakeGenerationPorts();
   let capturedInput: OpencodeRunInput | undefined;

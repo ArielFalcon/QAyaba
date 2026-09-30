@@ -1,12 +1,14 @@
 /* PreGenerationGroundingPort: fail-open explorer + context.json + context pack. Never throws. */
 
-import type { PreGenerationGroundingPort, GroundingResult } from "../../application/ports/index.ts";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 
@@ -125,6 +127,58 @@ export function enumerateExistingSpecFiles(dir: string): string[] {
   return results;
 }
 
+/* The fixtures file is repo content of unknown shape: it is scanned only when it is a small regular file. */
+export const MAX_FIXTURES_FILE_BYTES = 256 * 1024;
+const FIXTURES_FILE = "fixtures.ts";
+
+function skipFixtures(path: string, reason: string): undefined {
+  console.warn(`[qa] WARNING: harness facts: fixtures file ${path} not scanned (${reason}) — no fixture facts this run (non-blocking).`);
+  return undefined;
+}
+
+/* A regular file within the size cap, read through a descriptor that does not follow a symlink, and never more than the cap. Any failure omits the fixtures facts with a warning; nothing is thrown and nothing replaces them. */
+function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
+  const path = join(specDir, FIXTURES_FILE);
+  try {
+    const before = lstatSync(path);
+    if (!before.isFile()) return skipFixtures(path, "not a regular file");
+    if (before.size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, `larger than ${MAX_FIXTURES_FILE_BYTES} bytes`);
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let source: string;
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, "not a small regular file");
+      const buffer = Buffer.alloc(opened.size);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      source = buffer.toString("utf8", 0, bytesRead);
+    } finally {
+      closeSync(fd);
+    }
+    /* A name that needed redaction is not a plain identifier worth stating: it is dropped, never passed on redacted. */
+    const exports = extractExportedNames(source).filter((name) => sanitizeText(name).text === name);
+    if (exports.length === 0) return skipFixtures(path, "no exports found");
+    return { file: FIXTURES_FILE, exports };
+  } catch (err) {
+    return skipFixtures(path, err instanceof Error ? err.message : String(err));
+  }
+}
+
+function readAttributeFact(testIdAttribute: string | undefined): string | undefined {
+  if (testIdAttribute === undefined) return undefined;
+  const cleaned = sanitizeText(testIdAttribute).text;
+  if (cleaned === testIdAttribute && isSafeAttributeName(cleaned)) return cleaned;
+  console.warn("[qa] WARNING: harness facts: the configured test-id attribute is not a plain attribute name — left out this run (non-blocking).");
+  return undefined;
+}
+
+/* The configured test-id attribute and what the suite's fixtures file exports, or undefined when there is nothing to state. */
+export function readHarnessFacts(input: { specDir: string; testIdAttribute?: string }): HarnessFacts | undefined {
+  const testIdAttribute = readAttributeFact(input.testIdAttribute);
+  const fixtures = readFixtureFacts(input.specDir);
+  if (testIdAttribute === undefined && fixtures === undefined) return undefined;
+  return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
@@ -169,6 +223,9 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     } catch (err) {
       console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
+
+    const harnessFacts = readHarnessFacts({ specDir, ...(this.ctx.testIdAttribute ? { testIdAttribute: this.ctx.testIdAttribute } : {}) });
+    if (harnessFacts) result.harnessFacts = harnessFacts;
 
     /*
      * Explorer pass is optional and fail-open. Throw, absent collaborator, or no sha (opts.sha is

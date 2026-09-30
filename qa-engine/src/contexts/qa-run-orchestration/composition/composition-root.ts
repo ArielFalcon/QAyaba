@@ -230,7 +230,7 @@ export function resolveSidekickTimeoutMs(cfg: Pick<CompositionConfig, "sidekickT
 
 /* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
 
-function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
+export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
   publication: RewrittenOrchestratorAdapterDeps["publication"];
   runHistory: RewrittenOrchestratorAdapterDeps["runHistory"];
 } {

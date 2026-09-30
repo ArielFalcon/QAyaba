@@ -53,6 +53,7 @@ import type {
   ContextMapCapturePort,
   ArchitectureContext,
   ExplorationBrief,
+  HarnessFacts,
   RelevanceBias,
 } from "./ports/index.ts";
 import { REVIEWER_UNAVAILABLE_MARKER, reviewerApprovalOf } from "./ports/index.ts";
@@ -646,6 +647,7 @@ export class RunQaUseCase {
     let groundingExistingSpecFiles: string[] | undefined;
     let groundingContextMap: ArchitectureContext | undefined;
     let groundingContextBrief: ExplorationBrief | undefined;
+    let groundingHarnessFacts: HarnessFacts | undefined;
     if (this.deps.preGenerationGrounding) {
       this.deps.observer?.onStep("generate", PRE_GENERATION_GROUNDING_STEP_DETAIL);
       try {
@@ -659,6 +661,7 @@ export class RunQaUseCase {
         groundingExistingSpecFiles = grounding.existingSpecFiles;
         groundingContextMap = grounding.contextMap;
         groundingContextBrief = grounding.contextBrief;
+        groundingHarnessFacts = grounding.harnessFacts;
       } catch (err) {
         /* Abort during grounding takes the abort route, not ungrounded continue. */
         if (signal?.aborted) return this.abortedResult(workspace.mirrorDir);
@@ -734,6 +737,7 @@ export class RunQaUseCase {
       ...(groundingExistingSpecFiles?.length ? { existingSpecFiles: groundingExistingSpecFiles } : {}),
       ...(groundingContextMap ? { contextMap: groundingContextMap } : {}),
       ...(groundingContextBrief ? { contextBrief: groundingContextBrief } : {}),
+      ...(groundingHarnessFacts ? { harnessFacts: groundingHarnessFacts } : {}),
       ...(blastRadiusSignal ? { staticSignal: blastRadiusSignal } : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),

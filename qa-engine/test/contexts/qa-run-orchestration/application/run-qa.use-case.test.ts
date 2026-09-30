@@ -473,6 +473,48 @@ test("RunQaUseCase: PreGenerationGroundingPort wired — contextBrief threads in
   assert.deepEqual(generateCalls[0]!.enrichment?.contextBrief, contextBrief);
 });
 
+test("RunQaUseCase: harness facts from grounding reach the initial generate() and are reused unchanged on a regeneration", async () => {
+  const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
+  const seen: Array<unknown> = [];
+  let groundCalls = 0;
+  const { ports } = stubPorts({
+    ground: async () => {
+      groundCalls++;
+      return { harnessFacts };
+    },
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      seen.push((enrichment as { harnessFacts?: unknown } | undefined)?.harnessFacts);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    review: (() => {
+      let round = 0;
+      return async () => {
+        round++;
+        return round === 1
+          ? { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true }
+          : { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      };
+    })(),
+  });
+
+  await new RunQaUseCase({ ...ports, config: { needsReview: true } }).run(baseInput);
+
+  assert.equal(groundCalls, 1, "grounding runs once per run");
+  assert.ok(seen.length >= 2, "the initial generation plus a regeneration");
+  for (const facts of seen) assert.deepEqual(facts, harnessFacts);
+});
+
+test("RunQaUseCase: a grounding without harness facts adds no key to the enrichment", async () => {
+  const { ports } = stubPorts({
+    ground: async () => ({ contextPack: "## pack" }),
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      assert.equal("harnessFacts" in (enrichment ?? {}), false);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+  });
+  await new RunQaUseCase(ports).run(baseInput);
+});
+
 test("RunQaUseCase: ground() receives the run sha and classify intent", async () => {
   let seen: { sha?: string; intent?: { message: string } } = {};
   const { ports } = stubPorts({

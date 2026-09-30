@@ -54,6 +54,13 @@ export interface ExplorationBrief {
   notes?: string;
 }
 
+/** Port-local HarnessFacts. Generation's type is structurally assignable; this barrel does not import across contexts. */
+export interface HarnessFacts {
+  /** Only when the app declares one: no default is invented. */
+  testIdAttribute?: string;
+  fixtures?: { file: string; exports: readonly string[] };
+}
+
 /** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
 export interface RunInput {
   app: string;
@@ -159,6 +166,11 @@ export interface GenerationEnrichment {
    * unwired or fail-open.
    */
   contextBrief?: ExplorationBrief;
+  /**
+   * Facts about the suite's harness (configured test-id attribute, fixtures exports). Facts
+   * only, never an instruction. Absent when nothing was configured or scannable.
+   */
+  harnessFacts?: HarnessFacts;
   /**
    * On-disk spec paths enumerated before the first generate(), so the agent reuses
    * instead of duplicating.
@@ -490,6 +502,8 @@ export interface GroundingResult {
   contextMap?: ArchitectureContext;
   /** Distilled explorer brief. Absent when explorer is unwired, throws, or returns nothing (fail-open). */
   contextBrief?: ExplorationBrief;
+  /** Facts about the suite's harness (the configured test-id attribute, what the fixtures file exports). Absent when nothing was configured or scannable (fail-open). */
+  harnessFacts?: HarnessFacts;
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after

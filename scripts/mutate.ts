@@ -209,14 +209,21 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {
-    description: "prompt contract: the claims lint, the regeneration predicate and the diff size, with the matrix that lints every reachable generator prompt",
-    mutate: [`${GEN}/domain/prompt-contract-lint.ts`, `${GEN}/domain/regen-turn.ts`, `${GEN}/domain/diff-stat.ts`],
+    description: "prompt contract: the claims lint, the regeneration predicate, the diff size and the harness-facts export scan, with the matrix that lints every reachable generator prompt",
+    mutate: [
+      `${GEN}/domain/prompt-contract-lint.ts`,
+      `${GEN}/domain/regen-turn.ts`,
+      `${GEN}/domain/diff-stat.ts`,
+      `${GEN}/domain/harness-facts.ts`,
+    ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
       `${GEN_TEST}/domain/regen-turn.test.ts`,
       `${GEN_TEST}/domain/diff-stat.test.ts`,
+      `${GEN_TEST}/domain/harness-facts.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.regen.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.scaffold.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.harness-facts.test.ts`,
       "scripts/prompt-contract-matrix.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,

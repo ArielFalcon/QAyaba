@@ -125,6 +125,7 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.existingSpecFiles?.length ? { existingSpecFiles: [...enrichment.existingSpecFiles] } : {}),
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
       ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),
+      ...(enrichment?.harnessFacts ? { harnessFacts: enrichment.harnessFacts } : {}),
       /* Structural-blast-radius advisory. Absent → omitted. */
       ...(enrichment?.staticSignal ? { staticSignal: enrichment.staticSignal } : {}),
       /* Curriculum-ranked exemplars. Absent/empty → omitted, never []. */
