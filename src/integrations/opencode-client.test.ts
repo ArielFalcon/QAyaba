@@ -78,7 +78,6 @@ test("buildPrompt includes repo, sha, namespace, e2e folder and the diff", () =>
   assert.match(p, /qa-bot-abc123/);
   assert.match(p, /e2e\//);
   assert.match(p, /const x = 1;/);
-  assert.match(p, /independent reviewer/i);
   assert.match(p, /project="demo-app"/);
 });
 
@@ -112,10 +111,8 @@ test("buildPrompt (model mode): a bare short unquoted assignment is treated as c
   assert.match(p, /hunter2/, "model mode must not redact a short bare unquoted value — it reads as code, not a secret literal");
 });
 
-test("buildPrompt without review omits the reviewer instruction", () => {
-  const p = buildPrompt({ ...input, needsReview: false });
-  assert.match(p, /Review disabled for this run/);
-  assert.doesNotMatch(p, /independent reviewer/i);
+test("buildPrompt does not depend on whether review is enabled: the run's review flag never reaches the agent", () => {
+  assert.equal(buildPrompt({ ...input, needsReview: false }), buildPrompt({ ...input, needsReview: true }));
 });
 
 test("buildPrompt includes the OpenAPI hint and the no-direct-call rule when configured", () => {

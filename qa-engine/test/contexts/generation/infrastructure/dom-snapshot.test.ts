@@ -6,9 +6,10 @@ import { join } from "node:path";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
-  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps,
+  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL,
   type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 test("RouteSnapshot accepts attrs?: NodeAttr[] without TS error and NodeAttr has the expected shape", () => {
   /* Compile-time shape validation: constructing these values must not produce type errors. */
@@ -435,10 +436,13 @@ test("formatDomSnapshot surfaces a per-route capture failure instead of hiding i
    runtimeErrors, or a redirect) must ALSO surface a warning line instead of a silent bare header —
    same spirit as the `error` case above, extended to the new degrade reasons from buildRouteCatalog.
  */
-test("formatDomSnapshot warns on a route that rendered empty (zero nodes, no capture error)", () => {
+test("formatDomSnapshot states a route that rendered empty as degraded instead of a silent bare header, in neutral words", () => {
   const out = formatDomSnapshot([{ route: "/blank", nodes: [] }]);
-  assert.match(out, /route \/blank:/);
-  assert.match(out, /possibly broken app/, "an empty route must warn, not render a silent bare header");
+  const line = out.split("\n").find((l) => l.startsWith("route /blank:")) ?? "";
+  assert.ok(line.includes(DEGRADED_ROUTE_LABEL), "an empty route must say so, not render a silent bare header");
+  assert.equal(out.split("\n").length, 1, "a degraded route renders no nodes");
+  assert.equal(countDirectives(line), 0);
+  assert.equal(hasTrustLanguage(line), false);
 });
 
 test("formatDomSnapshot gives a runtimeErrors route an ADVISORY warning but STILL renders its nodes (grounding trusted, app-health flagged)", () => {
@@ -461,12 +465,12 @@ test("formatDomSnapshot warns on a route degraded via a redirect (finalUrl misma
     finalUrl: "http://dev.example.com/login",
   }]);
   assert.match(out, /route \/owners\/new:/);
-  assert.match(out, /possibly broken app/, "a redirect-degraded route must warn");
+  assert.ok(out.includes(DEGRADED_ROUTE_LABEL), "a redirect-degraded route must be stated as degraded");
 });
 
 test("formatDomSnapshot does NOT warn on a healthy captured route (nodes present, no runtimeErrors/redirect)", () => {
   const out = formatDomSnapshot([{ route: "/home", nodes: ["button: Submit"], settled: true }]);
-  assert.doesNotMatch(out, /possibly broken app/, "a healthy route must not carry the degrade warning");
+  assert.equal(out.includes(DEGRADED_ROUTE_LABEL), false, "a healthy route must not carry the degrade state");
 });
 
 /* The node cap MUST NOT drop the table that drives selectors. A real page sorts nav/header/links

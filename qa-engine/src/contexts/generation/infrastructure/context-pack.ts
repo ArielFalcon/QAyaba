@@ -131,6 +131,22 @@ function renderContracts(ops: ApiOperation[]): string {
 }
 
 
+/* The pack without one of its sections, for a caller that supplies that content fresher elsewhere. `undefined` when no section remains: a header with nothing under it is no pack. */
+export function withoutPackSection(text: string, heading: string): string | undefined {
+  const start = new RegExp(`^### ${escapeRegExp(heading)}`);
+  const kept: string[] = [];
+  let skipping = false;
+  let removed = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) skipping = start.test(line);
+    if (skipping) removed = true;
+    else kept.push(line);
+  }
+  if (!removed) return text;
+  if (!kept.some((line) => line.startsWith("### "))) return undefined;
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+}
+
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,

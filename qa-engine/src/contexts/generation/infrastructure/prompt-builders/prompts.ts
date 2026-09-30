@@ -14,7 +14,9 @@ import type {
   ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
-import { deriveClaimsFromPackText } from "../context-pack.ts";
+import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
+import { diffStat } from "@contexts/generation/domain/diff-stat.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
 import { claim, APP_LOGIN_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
@@ -313,6 +315,14 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
   return lines;
 }
 
+/* Read only where the agent has no DOM tree and explores the live page itself: with a tree in the prompt it transcribes and does not navigate, so there is nothing to observe. */
+const RUNTIME_SIGNALS_LINES: readonly string[] = [
+  `- Also inspect runtime signals with the Playwright MCP: browser_console_messages (catch JS errors`,
+  `  and warnings — a console error on the changed flow is a real bug signal) and browser_network_requests`,
+  `  (read the actual API calls/responses the flow makes, and assert against their real shape — status,`,
+  `  required fields, error responses — not invented contracts). Drive the backend through the UI only.`,
+];
+
 export interface BuildPromptAssembledOpts {
   /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
   budgetBytes?: number;
@@ -327,6 +337,21 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const hasInjectedGrounding = isGenerationMode && Boolean(input.contextPack || input.domSnapshot);
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
   const isReGen = isGenerationMode && isReGenTurn(input);
+
+  const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
+
+  /* The tree is a failure-point tree only when the run says so; any other captured tree is the live page. Every reference to "the tree above" below is driven by these two, so a prompt never points at a tree it does not carry. */
+  const hasFailureTree = Boolean(sanitizedDomSnapshot && isGenerationMode && input.failureSourced);
+  const hasLiveTree = Boolean(sanitizedDomSnapshot && isGenerationMode && !input.failureSourced);
+
+  /* The live DOM has one section: a freshly captured live tree replaces the pack's own (older) live DOM, and the pack keeps whatever else it holds. A failure tree is a different fact and coexists with it. */
+  const packText = input.contextPack && isGenerationMode ? input.contextPack : "";
+  const packHasLiveDom = packText !== "" && deriveClaimsFromPackText(packText).some((c) => c.kind === "provides" && c.fact === "dom-live");
+  const contextPackContent = packHasLiveDom && hasLiveTree ? (withoutPackSection(packText, PACK_HEADINGS.liveDom) ?? "") : packText;
+  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
+  const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
+  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source. */
+  const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
 
   const workingRulesLines: string[] = [
     `## ${PROMPT_HEADINGS.workingRules}`,
@@ -361,18 +386,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Test-data prefix: ${input.namespace}`,
           `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
-          ...(input.contextPack
+          ...(packProvides("dom-live")
             ? [
-                `- A Context Pack (blast-radius + DOM slice + contracts) was pushed into this prompt by the`,
-                `  orchestrator BEFORE this session started. Where the pack supplies the DOM for a route,`,
+                `- A Context Pack (live DOM + contracts) was pushed into this prompt by the`,
+                `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
                 `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use browser_navigate or`,
-                `  browser_snapshot on routes already covered in the pack (the ground truth is already here).`,
+                `  browser_snapshot on routes already covered in the pack.`,
                 `  For routes NOT covered in the pack (not listed in the DOM section), use the Playwright MCP`,
                 `  to explore the live page before writing selectors.`,
               ]
-            : input.domSnapshot
+            : treeInPrompt
             ? [
-                `- An injected a11y tree is provided below (the ground truth for the affected routes) —`,
+                `- An injected a11y tree is provided below for the affected routes —`,
                 `  transcribe selectors from it; do NOT browser_navigate a route it covers. Use the Playwright`,
                 `  MCP only for a route NOT present in that tree.`,
               ]
@@ -380,11 +405,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
                 `- Playwright MCP is AVAILABLE and you MUST use it BEFORE writing any test: browser_navigate to`,
                 `  the LIVE DEV URL above, then browser_snapshot to read the ACTUAL DOM. Selectors MUST be verified`,
                 `  against the real DOM, NEVER invented from code analysis alone.`,
+                ...RUNTIME_SIGNALS_LINES,
               ]),
-          `- Also inspect runtime signals with the Playwright MCP: browser_console_messages (catch JS errors`,
-          `  and warnings — a console error on the changed flow is a real bug signal) and browser_network_requests`,
-          `  (read the actual API calls/responses the flow makes, and assert against their real shape — status,`,
-          `  required fields, error responses — not invented contracts). Drive the backend through the UI only.`,
           `- Consult the playwright-authoring skill for robust specs and this app's capabilities.`,
           ...(openapiHint
             ? [
@@ -394,24 +416,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Selector priority: (1) getByTestId when the tree line's \`-> [attr]\` hint STARTS WITH the configured testIdAttribute name (e.g. \`data-testid=value\`) — an \`id=\`/\`name=\`/href hint does NOT qualify; (2) getByRole / getByLabel when no test-id hint; (3) getByText for text-only elements; (4) scoped CSS/locator only as last resort. No raw CSS classes or XPath — these break on refactor.`,
         ]),
     `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, mem_context, and mem_session_summary calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
-    input.needsReview
-      ? `- An INDEPENDENT reviewer judges your specs after you finish and may return corrections for a follow-up turn. Self-review against the test-value-review criteria BEFORE finishing (every spec must fail if its feature breaks); do not rely on spawning a subagent.`
-      : `- Review disabled for this run.`,
   ];
   const workingRulesContent = workingRulesLines.join("\n");
-  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode ? [claim.directs("use-runtime-signals")] : [];
-
-  const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
-
-  /* The tree is a failure-point tree only when the run says so; any other captured tree is the live page. Every reference to "the tree above" below is driven by these two, so a prompt never points at a tree it does not carry. */
-  const hasFailureTree = Boolean(sanitizedDomSnapshot && isGenerationMode && input.failureSourced);
-  const hasLiveTree = Boolean(sanitizedDomSnapshot && isGenerationMode && !input.failureSourced);
-
-  const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
-  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
-  const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
-  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source. */
-  const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
+  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
 
   /* The brief owns FE-BE links when it carries them (the map yields its own), the pack's contracts section owns API operations when present (the map yields its list), and a brief drops its landmark hints when a tree exists. */
   const archMap = input.contextMap
@@ -649,9 +656,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ? [
           `## App login`,
           `App login is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
-          input.contextPack
-            ? `Rewrite ${authSetupPath} from the login page in the Context Pack's live DOM.`
-            : `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
+          `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
           `Import test from @playwright/test, not from ./fixtures.`,
           `Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.`,
           `Wait until the password field is hidden (cookies are set on the redirect) before storageState.`,
@@ -659,8 +664,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `The orchestrator signs in with your setup file before execute.`,
         ].join("\n")
       : "";
-
-  const appLoginClaims: PromptClaim[] = appLoginContent && input.contextPack ? [claim.directs("consult", "dom-live")] : [];
 
   const task = buildTask(input, { mapInjected, blastRadiusSupplied });
 
@@ -762,7 +765,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
     ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
-    ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap", claims: appLoginClaims })] : []),
+    ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
     ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
     /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
     ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
@@ -1183,6 +1186,12 @@ interface TaskGuards {
   blastRadiusSupplied: boolean;
 }
 
+/* The change's real size, from the changed files and the diff's own lines. */
+function sizeSentence(input: OpencodeRunInput): string {
+  const { files, added, removed } = diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles });
+  return `The change touches ${files} file${files === 1 ? "" : "s"} with +${added}/-${removed} lines,`;
+}
+
 function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
   if (input.target === "code") return buildCodeTask(input);
@@ -1252,12 +1261,12 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
           ``,
         ]),
     `## Scope budget (diff mode — do NOT over-work)`,
-    `The blast radius IS your budget. This is ONE commit, so keep generation fast and focused:`,
+    `The blast radius IS your budget. ${sizeSentence(input)} so keep generation fast and focused:`,
     ...(guards.blastRadiusSupplied ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
     `- Explore ONLY the page(s) the change affects — not the whole app.`,
-    `A handful of focused specs is the right output for a single-commit diff, not a suite rewrite.`,
+    `A handful of focused specs is the right output here, not a suite rewrite.`,
     ...buildServiceBlock(input),
   ].join("\n");
   const claims: PromptClaim[] = [claim.directs("state-outcome")];

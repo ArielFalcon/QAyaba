@@ -1,7 +1,7 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -395,4 +395,34 @@ test("deriveClaimsFromPackText: a pack section that should not exist is still re
 test("deriveClaimsFromPackText: text without any pack section yields no claims", () => {
   assert.deepEqual(deriveClaimsFromPackText(""), []);
   assert.deepEqual(deriveClaimsFromPackText("some unrelated text"), []);
+});
+
+test("withoutPackSection removes exactly the named section and keeps the header and the other sections", () => {
+  const text = [
+    `## ${PACK_HEADINGS.pack} (pushed)`,
+    "",
+    "header line",
+    "",
+    `### ${PACK_HEADINGS.liveDom} (a11y tree)`,
+    "  heading: Cart",
+    "  button: Apply",
+    "",
+    `### ${PACK_HEADINGS.contracts} (from context.json)`,
+    "- `applyCoupon`: POST /cart/coupon",
+  ].join("\n");
+  const out = withoutPackSection(text, PACK_HEADINGS.liveDom) ?? "";
+  assert.ok(out.includes("header line"));
+  assert.ok(out.includes(PACK_HEADINGS.contracts) && out.includes("applyCoupon"));
+  assert.equal(out.includes(PACK_HEADINGS.liveDom), false);
+  assert.equal(out.includes("button: Apply"), false);
+});
+
+test("withoutPackSection leaves a pack that does not carry the section untouched", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.contracts} (x)\n- a`;
+  assert.equal(withoutPackSection(text, PACK_HEADINGS.liveDom), text);
+});
+
+test("withoutPackSection reports no pack at all when the removed section was the only one", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\nheader\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
+  assert.equal(withoutPackSection(text, PACK_HEADINGS.liveDom), undefined);
 });

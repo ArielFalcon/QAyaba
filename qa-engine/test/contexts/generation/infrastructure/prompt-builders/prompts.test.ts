@@ -99,9 +99,11 @@ test("an unauthored stock auth seed without a Context Pack sends the login rewri
   assert.match(login, /Playwright MCP/);
 });
 
-test("an unauthored stock auth seed with a Context Pack points the rewrite at the pack's DOM", () => {
+test("an unauthored stock auth seed with a Context Pack still sends the rewrite to the live login page, since the pack may not hold it", () => {
   const login = appLoginSection(buildPrompt(mkInput({ authSeedUnauthored: true, contextPack: "## Context Pack\n\n### Live DOM\n/login: textbox Email" })));
-  assert.match(login ?? "", /Context Pack/);
+  assert.ok(login, "the login section is rendered");
+  assert.doesNotMatch(login, /Context Pack|DOM pack/i, "the section does not point at the pack");
+  assert.match(login, /Playwright MCP/);
 });
 
 test("a seed that signed in adds no auth.setup.ts rewrite instruction", () => {

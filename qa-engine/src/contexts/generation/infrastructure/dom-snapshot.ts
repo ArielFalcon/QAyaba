@@ -60,6 +60,9 @@ export interface CaptureDomDeps {
   render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string): Promise<RouteSnapshot[]>;
 }
 
+/* How a route that structurally failed to render is stated in the snapshot: a plain state, no directive and no opinion about the app. */
+export const DEGRADED_ROUTE_LABEL = "route rendered empty or errored";
+
 export const MAX_ROUTES = 4;
 const MAX_NODES_PER_ROUTE = 60;
 const MAX_ROUTES_UNION = 12;
@@ -185,7 +188,7 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
     }
     /* A route that STRUCTURALLY failed to render (empty nodes, capture error, or a redirect — the buildRouteCatalog degrade policy) gets a warning line instead of a silent bare header and its nodes are NOT rendered: the agent must not trust this route's grounding. */
     if (buildRouteCatalog(s).status === ROUTE_STATUS.DEGRADED) {
-      lines.push(`route ${s.route}: (route rendered empty or errored — possibly broken app; verify live)`);
+      lines.push(`route ${s.route}: (${DEGRADED_ROUTE_LABEL})`);
       continue;
     }
     /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it verifies live and does not blindly assert app-generated content. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */

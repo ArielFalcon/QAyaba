@@ -189,6 +189,48 @@ test("the map's framing is a staleness statement only: it directs nothing", () =
   assert.equal(countDirectives(renderArchitectureContext(MAP) ?? ""), 0);
 });
 
+/* ── the live DOM has one section ── */
+
+const MIXED_PACK = [
+  `## ${PACK_HEADINGS.pack}`,
+  "",
+  "the pack header",
+  "",
+  `### ${PACK_HEADINGS.liveDom} (x)`,
+  "  heading: STALE-PACK-LINE",
+  "",
+  `### ${PACK_HEADINGS.contracts} (x)`,
+  "- `applyCoupon`: POST /cart/coupon",
+].join("\n");
+
+test("a freshly captured tree and the pack's live DOM never both appear: the tree wins and the pack keeps its other sections", () => {
+  const a = buildPromptAssembled(mkInput({ contextPack: MIXED_PACK, domSnapshot: TREE }));
+  assert.deepEqual(providers(a, "dom-live"), ["dom-snapshot"]);
+  assert.deepEqual(providers(a, "api-operations"), ["context-pack"]);
+  assert.equal(a.text.includes("STALE-PACK-LINE"), false);
+  assert.deepEqual(framers(a, "dom-live"), ["dom-snapshot"]);
+});
+
+test("a pack whose only section was the live DOM disappears when a captured tree is injected", () => {
+  const onlyDom = [`## ${PACK_HEADINGS.pack}`, "", "the pack header", "", `### ${PACK_HEADINGS.liveDom} (x)`, "  heading: STALE-PACK-LINE"].join("\n");
+  const a = buildPromptAssembled(mkInput({ contextPack: onlyDom, domSnapshot: TREE }));
+  assert.equal(a.sectionSizes["context-pack"], undefined);
+  assert.deepEqual(providers(a, "dom-live"), ["dom-snapshot"]);
+});
+
+test("a failure tree is a different fact from the pack's live DOM, so both stay", () => {
+  const a = buildPromptAssembled(mkInput({ contextPack: MIXED_PACK, domSnapshot: TREE, failureSourced: true, fixCases: [{ name: "t", status: "fail" }] }));
+  assert.deepEqual(providers(a, "dom-live"), ["context-pack"]);
+  assert.deepEqual(providers(a, "dom-failure"), ["dom-snapshot"]);
+});
+
+test("the working rules restate no trust level of the DOM: the section that holds the tree frames it", () => {
+  for (const extra of [{ contextPack: MIXED_PACK }, { domSnapshot: TREE }, {}] as Array<Partial<OpencodeRunInput>>) {
+    const a = buildPromptAssembled(mkInput(extra));
+    assert.equal(claimsOf(a, "working-rules").some((c) => c.kind === "frames"), false);
+  }
+});
+
 /* ── the advisory riders ── */
 
 const SIGNAL = "## Structural blast radius\n- `save` (src/Foo.java)";

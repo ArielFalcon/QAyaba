@@ -1,16 +1,25 @@
 {
   "note": "TEMPORARY bridge, deleted before the last commit of the prompt-contract series. Each entry is a contract violation the prompts carry today; each fix removes the entry it clears and a cleared entry that stays in the file fails the matrix test. Never add an entry to make a new violation pass.",
   "entries": [
-    { "key": "R10|working-rules", "fix": "C4: working rules no longer restate the DOM's trust level (7.1)" },
-    { "key": "R11|context-pack|working-rules", "fix": "C7/A8: runtime signals only where no DOM tree is provided (7.3)" },
-    { "key": "R11|dom-snapshot|working-rules", "fix": "C7/A8: runtime signals only where no DOM tree is provided (7.3)" },
-    { "key": "R12|app-login", "fix": "C5: the login section stops consulting the pack's live DOM (7.2)" },
-    { "key": "R1|context-pack|dom-snapshot", "fix": "C4: the live DOM has one section and one framing (7.1)" },
-    { "key": "R2|context-pack|dom-snapshot", "fix": "C4: the live DOM has one section and one framing (7.1)" },
-    { "key": "R8|codex/AGENTS.md", "fix": "A10: static text names no assembled artifact (8.3)" },
-    { "key": "R8|codex/qa-generator.md", "fix": "A10: static text names no assembled artifact (8.2)" },
-    { "key": "R8|codex/skill-playwright-authoring", "fix": "A10: static text names no assembled artifact (8.3)" },
-    { "key": "R8|opencode/AGENTS.md", "fix": "A10: static text names no assembled artifact (8.3)" },
-    { "key": "R8|opencode/qa-generator.md", "fix": "A10: static text names no assembled artifact (8.2)" }
+    {
+      "key": "R8|codex/AGENTS.md",
+      "fix": "A10: static text names no assembled artifact (8.3)"
+    },
+    {
+      "key": "R8|codex/qa-generator.md",
+      "fix": "A10: static text names no assembled artifact (8.2)"
+    },
+    {
+      "key": "R8|codex/skill-playwright-authoring",
+      "fix": "A10: static text names no assembled artifact (8.3)"
+    },
+    {
+      "key": "R8|opencode/AGENTS.md",
+      "fix": "A10: static text names no assembled artifact (8.3)"
+    },
+    {
+      "key": "R8|opencode/qa-generator.md",
+      "fix": "A10: static text names no assembled artifact (8.2)"
+    }
   ]
 }
