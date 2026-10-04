@@ -1,7 +1,7 @@
 {
   "globalUserPromptBytes": 20083,
   "ceiling": {
-    "bytes": 9266,
+    "bytes": 9689,
     "directives": 20
   },
   "staticLayers": {
@@ -4472,13 +4472,16 @@
     "manual/e2e/selector-fix/tree-none/pack/signal/service": {
       "bytes": 6906,
       "directives": 13
+    },
+    "redirect": {
+      "bytes": 9689,
+      "directives": 20
     }
   },
   "lastIncrease": {
-    "reason": "a brief that distilled no blast radius no longer suppresses the structural signal, so the combination of an empty-blast brief with the signal is now reachable and is the largest prompt; every existing bucket held or shrank",
+    "reason": "a pack lists the page a redirected route reached as an advisory section (new content, present only when a route redirected): the global ceiling rises to hold the largest prompt that carries it; every existing bucket keeps its budget and the redirect combinations share one budget of their own",
     "budgets": [
-      "ceiling:bytes",
-      "ceiling:directives"
+      "ceiling:bytes"
     ]
   }
 }

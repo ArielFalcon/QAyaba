@@ -30,6 +30,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { HARNESS_FACTS_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,6 +65,7 @@ test("only combinations that can reach the agent are in the matrix", () => {
   assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack" || s.briefBlast === "empty"));
   assert.ok(valid.every((s) => s.briefBlast === "filled" || s.grounding === "brief" || s.grounding === "brief+pack"));
   assert.ok(valid.every((s) => s.packDom || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.contextMap)));
+  assert.ok(valid.every((s) => !s.packRedirect || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.packDom)));
   assert.equal(new Set(valid.map(cellName)).size, valid.length, "cell names are unique");
 });
 
@@ -114,6 +116,19 @@ test("the shapes the matrix adds are really assembled: a pack with no DOM, a bri
   const withService = await buildInput(spec({ service: true }));
   assert.equal(withService.service?.repo !== undefined, true);
   assert.equal((await buildInput(spec({}))).service, undefined);
+});
+
+test("the redirect shape is really assembled: the pack lists the page a redirect reached as a section of its own, outside the live DOM", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const base = allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "regen-fix" && s.tree === "none" && s.grounding === "brief+pack" && s.contextMap && !s.service && s.briefBlast === "filled" && s.packDom && !s.packRedirect)!;
+  const packOf = async (spec: CellSpec): Promise<string> =>
+    splitAssembledSections(buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 })).find((section) => section.id === "context-pack")?.text ?? "";
+  const sectionOf = (pack: string, heading: string): string => pack.split(/^### /m).find((part) => part.startsWith(heading)) ?? "";
+
+  const redirected = await packOf({ ...base, packRedirect: true });
+  assert.ok(sectionOf(redirected, PACK_HEADINGS.redirected).includes("textbox: Password"), "the page the redirect reached is in its own section");
+  assert.equal(sectionOf(redirected, PACK_HEADINGS.liveDom).includes("textbox: Password"), false, "and not under the live DOM");
+  assert.equal((await packOf(base)).includes(PACK_HEADINGS.redirected), false, "a pack with no redirect has no such section");
 });
 
 test("cells with harness facts carry the facts-only section, linted as data with no directive or framing", async () => {

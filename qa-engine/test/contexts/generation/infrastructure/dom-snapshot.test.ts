@@ -6,9 +6,11 @@ import { join } from "node:path";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
-  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL,
+  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
+  formatDomCapture, formatRedirectAdvisory,
   type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 test("RouteSnapshot accepts attrs?: NodeAttr[] without TS error and NodeAttr has the expected shape", () => {
@@ -467,15 +469,150 @@ test("the advisory on a route whose app logged runtime errors carries no directi
   assert.equal(countDirectives(out), 0);
 });
 
-test("formatDomSnapshot warns on a route degraded via a redirect (finalUrl mismatch)", () => {
+test("formatDomSnapshot states a redirected route as redirected, names the page it reached, and renders none of that page's tree", () => {
   const out = formatDomSnapshot([{
     route: "/owners/new",
     nodes: ["button: Login"],
     settled: true,
-    finalUrl: "http://dev.example.com/login",
+    finalUrl: "http://dev.example.com/login?next=%2Fowners%2Fnew",
   }]);
-  assert.match(out, /route \/owners\/new:/);
-  assert.ok(out.includes(DEGRADED_ROUTE_LABEL), "a redirect-degraded route must be stated as degraded");
+  const lines = out.split("\n");
+  assert.equal(lines.length, 1, "a redirected route renders no nodes");
+  assert.ok(lines[0]!.startsWith("route /owners/new:"));
+  assert.ok(lines[0]!.includes("/login"), "the line names the path the browser reached");
+  assert.equal(lines[0]!.includes("next="), false, "and only the path");
+  assert.equal(lines[0]!.includes(DEGRADED_ROUTE_LABEL), false, "a redirect is not stated as an empty or errored route");
+  assert.equal(countDirectives(lines[0]!), 0);
+  assert.equal(hasTrustLanguage(lines[0]!), false);
+});
+
+test("formatDomSnapshot states a redirected route by the path it reached, whatever that path is", () => {
+  const line = formatDomSnapshot([{ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/sso/start" }]);
+  assert.ok(line.includes("/sso/start"));
+  assert.equal(line.includes("/login"), false);
+});
+
+/* ── The pages reached by a redirect: an advisory block of their own, never part of the grounded tree ── */
+
+const loginPage = (route: string, over: Partial<RouteSnapshot> = {}): RouteSnapshot => ({
+  route,
+  nodes: ["textbox: Email", "textbox: Password", "button: Sign in"],
+  attrs: [{ key: "textbox: Password", inputType: "password" }],
+  settled: true,
+  finalUrl: "http://dev.example.com/login",
+  ...over,
+});
+const healthyPage: RouteSnapshot = { route: "/cart", nodes: ["button: Apply coupon"], settled: true };
+
+test("formatRedirectAdvisory is empty when no route was redirected", () => {
+  assert.equal(formatRedirectAdvisory([healthyPage]), "");
+  assert.equal(formatRedirectAdvisory([]), "");
+});
+
+test("formatRedirectAdvisory renders the tree of the page a redirect reached, under a heading of its own, naming that page and the route that led there", () => {
+  const block = formatRedirectAdvisory([healthyPage, loginPage("/orders")]);
+  const lines = block.split("\n");
+  assert.ok(lines[0]!.startsWith(`### ${PACK_HEADINGS.redirected}`));
+  assert.ok(block.includes("/login") && block.includes("/orders"));
+  for (const node of ["textbox: Email", "textbox: Password", "button: Sign in"]) assert.ok(block.includes(`  ${node}`), `the reached page's ${node} is listed`);
+  assert.equal(block.includes("Apply coupon"), false, "a route that was not redirected is not in the block");
+});
+
+test("formatRedirectAdvisory renders identical trees reached from several routes once, naming every route", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders"), loginPage("/reports"), loginPage("/profile")]);
+  assert.equal(block.match(/textbox: Email/g)?.length, 1, "the tree is rendered once");
+  for (const route of ["/orders", "/reports", "/profile"]) assert.ok(block.includes(route), `${route} is named`);
+});
+
+test("formatRedirectAdvisory renders each distinct page reached, with its own routes", () => {
+  const sso = loginPage("/billing", { finalUrl: "http://dev.example.com/sso", nodes: ["button: Continue with SSO"], attrs: [] });
+  const block = formatRedirectAdvisory([loginPage("/orders"), sso]);
+  assert.ok(block.includes("textbox: Email") && block.includes("Continue with SSO"));
+  assert.ok(block.indexOf("/billing") > block.indexOf("textbox: Email"), "the second page's block follows the first's");
+});
+
+test("formatRedirectAdvisory renders the same path reached with a different tree as two pages", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders"), loginPage("/reports", { nodes: ["button: Another"], attrs: [] })]);
+  assert.ok(block.includes("textbox: Email") && block.includes("button: Another"));
+});
+
+test("formatRedirectAdvisory renders a public redirect too: the page a root route moved to", () => {
+  const block = formatRedirectAdvisory([{ route: "/", nodes: ["heading: Welcome home"], settled: true, finalUrl: "http://dev.example.com/home" }]);
+  assert.ok(block.includes("heading: Welcome home") && block.includes("/home"));
+});
+
+test("formatRedirectAdvisory shows no tree for a route that failed to capture or rendered empty", () => {
+  const block = formatRedirectAdvisory([
+    { route: "/broken", error: "timeout", finalUrl: "http://dev.example.com/login" },
+    { route: "/blank", nodes: [], finalUrl: "http://dev.example.com/login" },
+    { route: "/empty", nodes: [] },
+  ]);
+  assert.equal(block, "");
+});
+
+test("formatRedirectAdvisory ignores the test-id summary and the changed-element marks of the page it reached: they belong to no route asked for", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders", { testIds: new Map([["email-field", 1]]) })]);
+  assert.equal(block.includes("test-ids on this route"), false);
+  assert.equal(block.includes("CHANGED"), false);
+});
+
+test("formatRedirectAdvisory keeps the attribute hint of a node, as the grounded tree does", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders", { attrs: [{ key: "textbox: Email", testId: "email-field" }] })]);
+  assert.ok(block.includes("textbox: Email  -> [data-testid=email-field]"));
+});
+
+test("formatRedirectAdvisory cuts a long reached tree to the number of nodes a route gets, and says how many it left out", () => {
+  const nodes = Array.from({ length: MAX_NODES_PER_ROUTE + 15 }, (_, i) => `link: nav-${i}`);
+  const block = formatRedirectAdvisory([loginPage("/orders", { nodes, attrs: [] })]);
+  assert.equal(block.split("\n").filter((line) => line.startsWith("  link: ")).length, MAX_NODES_PER_ROUTE);
+  assert.match(block, /15 more/);
+});
+
+test("the redirect advisory carries no directive and no trust language, so it cannot be read as an instruction or as established grounding", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders")]);
+  const scaffold = block.split("\n").filter((line) => !line.startsWith("  ")).join("\n");
+  assert.equal(countDirectives(scaffold), 0);
+  assert.equal(hasTrustLanguage(scaffold), false);
+});
+
+test("formatDomCapture is the grounded routes alone when nothing redirected, and the advisory block after them when something did", () => {
+  assert.equal(formatDomCapture([healthyPage]), formatDomSnapshot([healthyPage]));
+  const text = formatDomCapture([healthyPage, loginPage("/orders")]) ?? "";
+  assert.ok(text.startsWith(formatDomSnapshot([healthyPage, loginPage("/orders")])));
+  assert.ok(text.endsWith(formatRedirectAdvisory([healthyPage, loginPage("/orders")])));
+  assert.ok(text.includes(`\n\n### ${PACK_HEADINGS.redirected}`), "set apart from the grounded routes by a blank line");
+});
+
+test("formatDomCapture is undefined when there is nothing to say", () => {
+  assert.equal(formatDomCapture([]), undefined);
+});
+
+test("captureDomForRoutes returns the advisory block of the pages redirects reached, after the grounded routes", async () => {
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    const deps: CaptureDomDeps = { render: async () => [healthyPage, loginPage("/orders")] };
+    const text = (await captureDomForRoutes(["/cart", "/orders"], { e2eDir: "/m", baseUrl: "http://dev" }, deps)) ?? "";
+    assert.ok(text.includes("route /cart:"));
+    assert.ok(text.includes(`### ${PACK_HEADINGS.redirected}`) && text.includes("textbox: Password"));
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("captureDomForRoutes logs the gated-app advisory when two routes reach one page, and does not when they do not", async () => {
+  const warnings: string[] = [];
+  const warn = mock.method(console, "warn", (message: string) => { warnings.push(String(message)); });
+  try {
+    const gated: CaptureDomDeps = { render: async () => [loginPage("/a"), loginPage("/b")] };
+    await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev" }, gated);
+    assert.ok(warnings.some((w) => w.includes("/login") && w.includes("/a") && w.includes("/b") && /auth/i.test(w)), "the advisory names the page and says where to declare a login");
+    warnings.length = 0;
+    const plain: CaptureDomDeps = { render: async () => [healthyPage] };
+    await captureDomForRoutes(["/cart"], { e2eDir: "/m", baseUrl: "http://dev" }, plain);
+    assert.deepEqual(warnings, []);
+  } finally {
+    warn.mock.restore();
+  }
 });
 
 test("formatDomSnapshot does NOT warn on a healthy captured route (nodes present, no runtimeErrors/redirect)", () => {

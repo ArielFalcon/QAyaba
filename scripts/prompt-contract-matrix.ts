@@ -25,7 +25,7 @@ import {
   type AssembledPrompt,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import { formatDomSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { formatDomCapture, formatDomSnapshot, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import {
   countDirectives,
@@ -67,6 +67,8 @@ export const DIMENSIONS = {
   briefBlast: ["filled", "empty"],
   /* Whether the pack captured a live DOM; without one it holds the contracts alone. */
   packDom: [true, false],
+  /* Whether a gated route redirected, so the pack lists the page it reached as a section of its own; only a pack with a captured DOM can. */
+  packRedirect: [false, true],
   /* The change belongs to a microservice rather than to the frontend repo. */
   service: [false, true],
 } as const;
@@ -98,6 +100,7 @@ export function isValidSpec(spec: CellSpec): boolean {
   if (spec.briefBlast === "empty" && !hasBrief) return false;
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
+  if (spec.packRedirect && !(hasPack && spec.packDom)) return false;
   /* The service block belongs to the diff-shaped first pass and to every regeneration of an e2e run. */
   if (spec.service && (isContext || (spec.mode !== "diff" && spec.phase === "first"))) return false;
   return true;
@@ -128,6 +131,7 @@ export function cellName(spec: CellSpec): string {
     spec.harnessFacts ? "facts" : "",
     spec.briefBlast === "empty" ? "noblast" : "",
     spec.packDom ? "" : "nodom",
+    spec.packRedirect ? "redirect" : "",
     spec.service ? "service" : "",
   ].filter(Boolean);
   return [
@@ -216,6 +220,19 @@ const DIFF = [
   "",
 ].join("\n");
 
+/* A gated route: the browser ended on the login page, which the capture reports as a page reached, apart from the routes it grounded. */
+const REDIRECT_SNAPS: RouteSnapshot[] = [
+  { route: "/cart", settled: true, nodes: ["heading: Cart", "textbox: Coupon code", "button: Apply coupon"] },
+  {
+    route: "/checkout",
+    settled: true,
+    nodes: ["heading: Sign in", "textbox: Email", "textbox: Password", "button: Sign in"],
+    attrs: [{ key: "textbox: Password", inputType: "password" }],
+    finalUrl: "http://localhost:3000/login",
+  },
+];
+const REDIRECT_TEXT = formatDomCapture(REDIRECT_SNAPS);
+
 const packDeps: ContextPackDeps = {
   captureDomForRoutes: async () => TREE_TEXT,
   domDeps: { render: async () => [] },
@@ -227,7 +244,8 @@ const CHANGED_FILES = ["src/app/cart/cart.service.ts", "src/app/cart/cart.compon
 const briefFor = (spec: CellSpec): ExplorationBrief => (spec.briefBlast === "empty" ? { ...BRIEF, blastRadius: [] } : BRIEF);
 
 async function buildPack(spec: CellSpec): Promise<string | undefined> {
-  const deps: ContextPackDeps = spec.packDom ? packDeps : { ...packDeps, captureDomForRoutes: async () => undefined };
+  const capture = !spec.packDom ? undefined : spec.packRedirect ? REDIRECT_TEXT : TREE_TEXT;
+  const deps: ContextPackDeps = { ...packDeps, captureDomForRoutes: async () => capture };
   const { text } = await buildContextPack(
     {
       ...(spec.grounding === "brief+pack" ? { brief: briefFor(spec) } : {}),
@@ -373,8 +391,9 @@ export interface MatrixCell {
   staticBytes: number;
 }
 
-/* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the blocks that are large by themselves (the structural signal, the microservice change), stay in the key so they are budgeted apart. */
+/* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the blocks that are large by themselves (the structural signal, the microservice change), stay in the key so they are budgeted apart. A pack that lists the page a redirect reached carries one more block, bounded by its own size: every such combination shares one budget, the largest of them, so growth of that block is caught, while the same prompts without it stay in their own tight buckets. */
 export function bucketOf(spec: CellSpec): string {
+  if (spec.packRedirect) return "redirect";
   return [
     spec.mode,
     spec.target,

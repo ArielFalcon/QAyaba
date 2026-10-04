@@ -8,7 +8,8 @@ import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/a
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
-import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 
@@ -65,7 +66,7 @@ export interface CaptureDomDeps {
 export const DEGRADED_ROUTE_LABEL = "route rendered empty or errored";
 
 export const MAX_ROUTES = 4;
-const MAX_NODES_PER_ROUTE = 60;
+export const MAX_NODES_PER_ROUTE = 60;
 const MAX_ROUTES_UNION = 12;
 
 /** Normalize an explicit route list the way capture does: trim, dedupe, and keep only the routes a browser can open as written (a template, free text, an interpolation or another host names no single page of the app). Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
@@ -180,6 +181,41 @@ export function buildChangedMarker(
   return "";
 }
 
+/* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, cut to the node bound with a count of what was left out. */
+function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[] {
+  const lines: string[] = [];
+  const all = s.nodes ?? [];
+  const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
+  const attrMap = s.attrs && s.attrs.length > 0
+    ? new Map(s.attrs.map((a) => [a.key, a]))
+    : null;
+  const testIdAttrName = s.testIdAttrName ?? "data-testid";
+  const useChanged = changed && changed.length > 0;
+  const stateMap = s.states && s.states.size > 0 ? s.states : null;
+  for (const n of nodes) {
+    /* State suffix: rendered only for non-marker lines. The attrMap lookup uses the bare key (normalizeKey strips state if nodes[] ever carries a suffix — defensive); the state is looked up by the bare node string (nodes[] is always bare per the Option A invariant). */
+    const stateSuffix = (!isMarkerLine(n) && stateMap?.get(normalizeKey(n)))
+      ? ` [${stateMap.get(normalizeKey(n))!.join("] [")}]`
+      : "";
+    if (attrMap && !isMarkerLine(n)) {
+      const attr = attrMap.get(normalizeKey(n)) ?? attrMap.get(n);
+      if (attr) {
+        const hint = buildAttrHint(attr, testIdAttrName);
+        if (hint) {
+          const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName) : "";
+          lines.push(`  ${n}  -> ${hint}${stateSuffix}${changedMarker}`);
+          continue;
+        }
+      }
+    }
+    const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName) : "";
+    lines.push(`  ${n}${stateSuffix}${changedMarker}`);
+  }
+  if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
+  return lines;
+}
+
+/* The grounded routes: each captured route with its tree and test-ids, and every other route as a plain state. A route that failed to capture, rendered empty or ended on another page renders NO tree here: the agent must not trust this route's grounding. The page a redirect reached is formatRedirectAdvisory's, never part of this text. */
 export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedElement[]): string {
   const lines: string[] = [];
   for (const s of snaps) {
@@ -187,44 +223,18 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
       lines.push(`route ${s.route}: (could not capture — ${s.error})`);
       continue;
     }
-    /* A route that STRUCTURALLY failed to render (empty nodes, capture error, or a redirect — the buildRouteCatalog degrade policy) gets a warning line instead of a silent bare header and its nodes are NOT rendered: the agent must not trust this route's grounding. */
-    if (buildRouteCatalog(s).status === ROUTE_STATUS.DEGRADED) {
-      lines.push(`route ${s.route}: (${DEGRADED_ROUTE_LABEL})`);
+    /* A route that STRUCTURALLY failed to render (empty nodes, or a redirect — the buildRouteCatalog degrade policy) gets a state line instead of a silent bare header and its nodes are NOT rendered. The state is a plain fact: it says which, and where a redirect went, with no directive and no opinion about the app. */
+    const catalog = buildRouteCatalog(s);
+    if (catalog.status === ROUTE_STATUS.DEGRADED) {
+      lines.push(`route ${s.route}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
       continue;
     }
     /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it asserts only what this tree shows and does not blindly assert app-generated content. The note is data, not a directive: the prompt forbids re-navigating a route the tree covers, so it must never send the agent back to the page. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
     const runtimeErrorAdvisory = hasRuntimeErrorSignal(s.runtimeErrors ?? [])
       ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
-    const all = s.nodes ?? [];
-    const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
-    const attrMap = s.attrs && s.attrs.length > 0
-      ? new Map(s.attrs.map((a) => [a.key, a]))
-      : null;
-    const testIdAttrName = s.testIdAttrName ?? "data-testid";
-    const useChanged = changed && changed.length > 0;
-    const stateMap = s.states && s.states.size > 0 ? s.states : null;
     lines.push(`route ${s.route}:${runtimeErrorAdvisory}`);
-    for (const n of nodes) {
-      /* State suffix: rendered only for non-marker lines. The attrMap lookup uses the bare key (normalizeKey strips state if nodes[] ever carries a suffix — defensive); the state is looked up by the bare node string (nodes[] is always bare per the Option A invariant). */
-      const stateSuffix = (!isMarkerLine(n) && stateMap?.get(normalizeKey(n)))
-        ? ` [${stateMap.get(normalizeKey(n))!.join("] [")}]`
-        : "";
-      if (attrMap && !isMarkerLine(n)) {
-        const attr = attrMap.get(normalizeKey(n)) ?? attrMap.get(n);
-        if (attr) {
-          const hint = buildAttrHint(attr, testIdAttrName);
-          if (hint) {
-            const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName) : "";
-            lines.push(`  ${n}  -> ${hint}${stateSuffix}${changedMarker}`);
-            continue;
-          }
-        }
-      }
-      const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName) : "";
-      lines.push(`  ${n}${stateSuffix}${changedMarker}`);
-    }
-    if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
+    lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
       const entries = [...s.testIds.entries()];
       const cap = MAX_NODES_PER_ROUTE;
@@ -236,6 +246,44 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
     }
   }
   return lines.join("\n");
+}
+
+/* How the advisory block introduces itself: plain facts about what follows, in no trust vocabulary and with no directive. */
+const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. Each block below lists the page it reached, for orientation only: it is not the page of the route that was asked for.";
+
+/** The pages redirects reached, as a section of their own under a heading naming it advisory: for each distinct page (a path with its tree), the routes that led there and the tree once. A route that failed, rendered empty or did not redirect is not here. Empty when no redirect reached a page with a tree. Never part of the grounded text: its trees were not the routes asked for. */
+export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
+  const pages = new Map<string, { path: string; snap: RouteSnapshot; routes: string[] }>();
+  for (const s of snaps) {
+    if (s.error || (s.nodes?.length ?? 0) === 0) continue;
+    const path = buildRouteCatalog(s).redirectedTo;
+    if (path === undefined) continue;
+    const key = `${path}\n${(s.nodes ?? []).join("\n")}`;
+    const page = pages.get(key);
+    if (page) page.routes.push(s.route);
+    else pages.set(key, { path, snap: s, routes: [s.route] });
+  }
+  if (pages.size === 0) return "";
+  const lines = [`### ${PACK_HEADINGS.redirected} (ADVISORY)`, REDIRECT_ADVISORY_INTRO];
+  for (const { path, snap, routes } of pages.values()) {
+    lines.push(`reached ${path}, asked for ${routes.join(", ")}:`, ...renderNodeLines(snap));
+  }
+  return lines.join("\n");
+}
+
+/** What a capture of routes reports: the grounded routes, then (after a blank line) the pages redirects reached as a section of their own. Undefined when there is nothing to report. */
+export function formatDomCapture(snaps: RouteSnapshot[], changed?: ChangedElement[]): string | undefined {
+  const text = [formatDomSnapshot(snaps, changed), formatRedirectAdvisory(snaps)].filter((part) => part !== "").join("\n\n");
+  return text.trim() ? text : undefined;
+}
+
+/* Names the routes whose capture degraded, and, when the redirects look like a gated app, says so. Log only. */
+function warnOnDegradedRoutes(snaps: readonly RouteSnapshot[]): void {
+  const catalogs = snaps.map(buildRouteCatalog);
+  const degraded = degradedRouteWarning(catalogs);
+  if (degraded) console.warn(degraded);
+  const gated = gatedAppAdvisory(catalogs);
+  if (gated) console.warn(gated);
 }
 
 /** Capture the live DOM for the routes the spec targets. Returns undefined when there is nothing to capture or the render is unavailable — review then degrades to "defer on unverifiable UI facts" (the prompt's stay-in-your-lane rule), never blocked. Best-effort by design. */
@@ -265,10 +313,8 @@ export async function captureDomForRoutes(
   if (clean.length === 0 || !input.baseUrl) return undefined;
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, clean, input.testIdAttribute);
-    const w = degradedRouteWarning(snaps.map(buildRouteCatalog));
-    if (w) console.warn(w);
-    const text = formatDomSnapshot(snaps, changed);
-    return text.trim() ? text : undefined;
+    warnOnDegradedRoutes(snaps);
+    return formatDomCapture(snaps, changed);
   } catch (err) {
     console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${clean.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
     return undefined;
@@ -296,8 +342,7 @@ export async function captureDomByRoute(
     return out;
   }
   /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — CLAUDE.md: never swallow a capture failure) before filtering them out for grounding. */
-  const w = degradedRouteWarning(snaps.map(buildRouteCatalog));
-  if (w) console.warn(w);
+  warnOnDegradedRoutes(snaps);
   const sig = (s: RouteSnapshot): string => (s.nodes ?? []).join("\n");
   const rendered = snaps.filter((s) => !s.error && s.nodes?.length);
   const occurrences = new Map<string, number>();
@@ -326,8 +371,7 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
     console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${routes.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
     return [];
   }
-  const warning = degradedRouteWarning(snaps.map(buildRouteCatalog));
-  if (warning) console.warn(warning);
+  warnOnDegradedRoutes(snaps);
   return snaps.filter((s) => !s.error && ((s.nodes?.length ?? 0) > 0 || (s.testIds?.size ?? 0) > 0));
 }
 
