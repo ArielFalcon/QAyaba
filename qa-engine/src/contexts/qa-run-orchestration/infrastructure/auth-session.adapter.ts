@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
 import { LOGIN_STATUS, classifyLoginEvidence, renderLoginEvidence, type LoginOutcome } from "../domain/helpers/login-evidence.ts";
@@ -66,9 +67,6 @@ export const AUTH_SETUP_ENV = {
 } as const;
 
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
-
-/* A route a browser can open as written: one leading slash, then plain path characters. A parameter, a wildcard, an interpolation, a query or another host is not one. */
-const CAPTURABLE_ROUTE = /^\/(?!\/)[A-Za-z0-9._~%/-]*$/;
 
 /* What a submit that could not be confirmed leaves before execute: no seed runs after it, so there is nothing of the seed's to say. */
 const UNCONFIRMED_LOGIN_MESSAGE = "auth setup was not retried: a login was already submitted and its outcome could not be confirmed";
@@ -216,7 +214,7 @@ export class AuthSessionAdapter implements AuthSessionPort {
   /* The app's own routes from its context map that a browser can open, in the map's order and without repeats. */
   private gatedRoutes(specDir: string, discovery: AuthDiscoveryDeps): string[] {
     const paths = discovery.loadContextMap?.(specDir)?.routes.map((route) => route.path) ?? [];
-    return [...new Set(paths.filter((path) => CAPTURABLE_ROUTE.test(path)))];
+    return partitionRoutes(paths).capturable;
   }
 
   private clearMaterial(): void {

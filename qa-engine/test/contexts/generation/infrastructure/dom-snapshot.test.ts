@@ -527,6 +527,25 @@ test("normalizeRoutes trims, drops absolute/interpolated URLs, and dedupes", () 
   );
 });
 
+test("normalizeRoutes never passes on a route template, free text or another host", () => {
+  assert.deepEqual(
+    normalizeRoutes(["/product/:id/view", "/users/{id}", "/blog/[slug]", "/files/*", "the cart page", "//evil.example/x", "/a", "/files/report:2024"]),
+    ["/a", "/files/report:2024"],
+  );
+});
+
+test("captureDomForRoutes spends its capture slots only on routes a browser can open", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = {
+    render: async (_e2eDir, _baseUrl, routes) => {
+      rendered.push(routes);
+      return routes.map((r) => ({ route: r, nodes: [`button: on ${r}`] }));
+    },
+  };
+  await captureDomForRoutes(["/product/:id/view", "/a", "/b", "/c", "/d", "/e"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  assert.deepEqual(rendered[0], ["/a", "/b", "/c", "/d"]);
+});
+
 test("captureDomByRoute returns a per-route map keyed by the requested route", async () => {
   const deps: CaptureDomDeps = {
     render: async (_e2eDir, _baseUrl, routes) => routes.map((r) => ({ route: r, nodes: [`button: on ${r}`] })),

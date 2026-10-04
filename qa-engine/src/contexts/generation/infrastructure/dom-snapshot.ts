@@ -10,6 +10,7 @@ import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandb
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
 import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
+import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 
 const processKill = new ProcessKillAdapter();
 
@@ -67,9 +68,9 @@ export const MAX_ROUTES = 4;
 const MAX_NODES_PER_ROUTE = 60;
 const MAX_ROUTES_UNION = 12;
 
-/** Normalize an explicit route list the way capture does: trim, drop ${…}-interpolated and absolute URLs (not a stable app route), and dedupe. Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
+/** Normalize an explicit route list the way capture does: trim, dedupe, and keep only the routes a browser can open as written (a template, free text, an interpolation or another host names no single page of the app). Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
 export function normalizeRoutes(routes: string[]): string[] {
-  return [...new Set(routes.map((r) => r.trim()).filter((r) => r && !r.includes("${") && !/^https?:\/\//i.test(r)))];
+  return partitionRoutes(routes).capturable;
 }
 
 export function extractTargetRoutes(specContents: string[], max = MAX_ROUTES): string[] {

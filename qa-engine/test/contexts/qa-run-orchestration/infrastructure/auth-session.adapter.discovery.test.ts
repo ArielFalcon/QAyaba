@@ -223,7 +223,7 @@ test("a public app and a certificate app never start discovery", async () => {
 });
 
 test("discovery is given the declared login path, the app's capturable routes, the session path and the account only in its env", async () => {
-  const contextMap = () => ({ routes: ["/reports", "/orders/:id", "//evil.example/x", "https://elsewhere.example/a", "/a b", "/ok-2", "/reports", "/x?y=1"].map((path) => ({ path })) });
+  const contextMap = () => ({ routes: ["/reports", "/orders/:id", "//evil.example/x", "https://elsewhere.example/a", "/a b", "/ok-2", "/reports", "/files/*"].map((path) => ({ path })) });
   await withScenario({ discover: () => SILENT, contextMap, actionTimeoutMs: "12000", env: { DEV_ENV_USER: "gate", DEV_ENV_PASS: "gate-pass" } }, async (run) => {
     await run.prepare({ auth: { ...FORM, loginPath: "/signin" } });
     const [input] = run.discovered;
