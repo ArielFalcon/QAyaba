@@ -11,6 +11,18 @@ export const ROUTE_STATUS = {
 /** Route capture status: "captured" = render succeeded; "degraded" = errored / timed-out / auth-blocked. */
 export type RouteStatus = (typeof ROUTE_STATUS)[keyof typeof ROUTE_STATUS];
 
+/** Why a route degraded: its capture failed, it rendered no nodes, or the browser ended on another page. */
+export const DEGRADE_REASON = {
+  CAPTURE_FAILED: "capture-failed",
+  EMPTY_RENDER: "empty-render",
+  REDIRECTED: "redirected",
+} as const;
+
+export type DegradeReason = (typeof DEGRADE_REASON)[keyof typeof DEGRADE_REASON];
+
+/** The longest path a redirect is named by: the path comes from the app, and it reaches a prompt and a log. */
+export const REDIRECT_PATH_MAX_CHARS = 200;
+
 /** Per-route catalog of selectors that exist in the captured live DOM, one index per family. status/settled gate whether the fail-closed path may trust it. */
 export interface RouteCatalog {
   route: string;
@@ -18,6 +30,12 @@ export interface RouteCatalog {
   settled: boolean;
   /** test-id value → occurrence count. Presence answers whether getByTestId exists; count > 1 flags a strict-mode ambiguity that would otherwise surface only at runtime. */
   testIds: Map<string, number>;
+  /** Why the route degraded; absent when it captured. */
+  degradeReason?: DegradeReason;
+  /** The path the browser ended on, when the route redirected: the path alone, without query or fragment. */
+  redirectedTo?: string;
+  /** Whether the page a redirect reached has a password field (a login page); absent when the route did not redirect. */
+  reachedPasswordField?: boolean;
 }
 
 /** Build the test-id index from the raw, role-independent capture (every element carrying the configured testIdAttribute, including role-less elements). Counts occurrences so presence and uniqueness are checkable. Blank values are ignored. */
@@ -44,42 +62,66 @@ export function hasRuntimeErrorSignal(errors: readonly { type: string; text: str
   return false;
 }
 
-/** True when the settled finalUrl pathname diverges from the requested route pathname (a redirect). Both sides are parsed as URLs so query/hash — including hash-router paths — cannot count as a path mismatch. Trailing slashes are normalized. A hash-only redirect is undetectable here: an ambiguous signal defaults to trust, never degrade. */
-function isRedirect(route: string, finalUrl: string | undefined): boolean {
-  if (!finalUrl) return false;
+/** The path the browser ended on when the settled finalUrl pathname diverges from the requested route pathname (a redirect); undefined otherwise. Both sides are parsed as URLs so query/hash — including hash-router paths — cannot count as a path mismatch. Trailing slashes are normalized. A hash-only redirect is undetectable here: an ambiguous signal defaults to trust, never degrade. */
+function redirectTarget(route: string, finalUrl: string | undefined): string | undefined {
+  if (!finalUrl) return undefined;
   let finalPath: string;
   let requestedPath: string;
   try {
     finalPath = new URL(finalUrl).pathname;
     requestedPath = new URL(route, "http://q.invalid").pathname;
   } catch {
-    return false;
+    return undefined;
   }
   const normalize = (p: string): string => {
     const withSlash = p.startsWith("/") ? p : `/${p}`;
     return withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
   };
-  return normalize(finalPath) !== normalize(requestedPath);
+  const reached = normalize(finalPath);
+  return reached === normalize(requestedPath) ? undefined : reached.slice(0, REDIRECT_PATH_MAX_CHARS);
 }
 
-/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route. */
+/** Pure adapter from RouteSnapshot to RouteCatalog. Capture error → degraded (never trusted). Unconfirmed settle → settled:false. The fail-closed path may trust ONLY a captured && settled route; unknown defaults to advisory, never a false block. Also degraded (safe direction: removes trust, never blocks) when nodes[] is empty or finalUrl redirected away from the requested route; a degraded route says why, and a redirect says where it led. */
 export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   const captureFailed = snapshot.error !== undefined;
   const emptyRender = !captureFailed && (snapshot.nodes?.length ?? 0) === 0;
-  const redirected = !captureFailed && isRedirect(snapshot.route, snapshot.finalUrl);
+  const redirectedTo = captureFailed ? undefined : redirectTarget(snapshot.route, snapshot.finalUrl);
   /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. */
-  const degraded = captureFailed || emptyRender || redirected;
+  const degradeReason = captureFailed
+    ? DEGRADE_REASON.CAPTURE_FAILED
+    : redirectedTo !== undefined
+      ? DEGRADE_REASON.REDIRECTED
+      : emptyRender
+        ? DEGRADE_REASON.EMPTY_RENDER
+        : undefined;
+  const degraded = degradeReason !== undefined;
   return {
     route: snapshot.route,
     status: degraded ? ROUTE_STATUS.DEGRADED : ROUTE_STATUS.CAPTURED,
     settled: !degraded && snapshot.settled === true,
     testIds: degraded ? new Map() : (snapshot.testIds ?? new Map()),
+    ...(degraded ? { degradeReason } : {}),
+    ...(redirectedTo === undefined ? {} : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false }),
   };
 }
 
-/** Names every route whose capture degraded, or undefined when every route captured. Unsettled routes are not named here — present-but-unsettled is expected on SPAs and stays advisory. */
+/** Names every route whose capture degraded, each with why (and where a redirect led), or undefined when every route captured. Unsettled routes are not named here — present-but-unsettled is expected on SPAs and stays advisory. */
 export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string | undefined {
-  const degraded = catalogs.filter((c) => c.status === ROUTE_STATUS.DEGRADED).map((c) => c.route);
+  const degraded = catalogs.filter((c) => c.status === ROUTE_STATUS.DEGRADED);
   if (degraded.length === 0) return undefined;
-  return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${degraded.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
+  const named = degraded.map((c) => `${c.route} (${c.degradeReason}${c.redirectedTo === undefined ? "" : ` to ${c.redirectedTo}`})`);
+  return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
+}
+
+/** A note, for the log only, when redirects look like a gated app: two or more routes reached one page, or the page reached has a password field. The app may need a login declared in its config. Undefined when nothing looks gated. */
+export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | undefined {
+  const reached = new Map<string, RouteCatalog[]>();
+  for (const c of catalogs) {
+    if (c.degradeReason !== DEGRADE_REASON.REDIRECTED || c.redirectedTo === undefined) continue;
+    reached.set(c.redirectedTo, [...(reached.get(c.redirectedTo) ?? []), c]);
+  }
+  const gated = [...reached].filter(([, routes]) => routes.length >= 2 || routes.some((c) => c.reachedPasswordField));
+  if (gated.length === 0) return undefined;
+  const named = gated.map(([path, routes]) => `${path} (reached from ${routes.map((c) => c.route).join(", ")})`);
+  return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare auth: in its config.`;
 }
