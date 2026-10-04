@@ -3,7 +3,7 @@
  * bounded ladder of pages, picks the login form by its structure (never by label text), types the
  * account into it, submits it ONCE, watches what the submit did, and prints what it saw as one JSON
  * evidence line. Classifying that evidence is `classifyLoginEvidence`'s job; this script only observes.
- * It lists as the login's requests only those that started after the submit and carry the account.
+ * It lists as the login's requests only those that started after the submit and carry the password.
  * Every wait it sets is cut to what is left before a fixed deadline, so it always prints its evidence before
  * the runner's hard kill, and a session it could not confirm is reported, never lost with the evidence.
  *
@@ -88,15 +88,15 @@ function spellings(secret) {
   return [secret, encodeURIComponent(secret), encodeURI(secret), asPath, encodeURI(asPath), form, json, json.replace(/\//g, "\\/"), jsonHtmlSafe, html, secret.normalize("NFC"), secret.normalize("NFD")];
 }
 const escapeForRegExp = function (text) { return text.replace(/[.*+?^$|(){}\[\]\\\/]/g, "\\$&"); };
-const SECRET_PATTERN = secrets.length === 0 ? null : new RegExp(
-  Array.from(new Set(secrets.flatMap(spellings))).sort(function (a, b) { return b.length - a.length; }).map(escapeForRegExp).join("|"),
-  "giu",
-);
+const patternOf = function (list, flags) {
+  return list.length === 0 ? null : new RegExp(Array.from(new Set(list.flatMap(spellings))).sort(function (a, b) { return b.length - a.length; }).map(escapeForRegExp).join("|"), flags);
+};
+const SECRET_PATTERN = patternOf(secrets, "giu");
 const LONGEST_SPELLING = secrets.reduce(function (longest, secret) { return Math.max(longest, ...spellings(secret).map(function (spelling) { return spelling.length; })); }, 0);
 const scrub = function (text) { return SECRET_PATTERN === null ? String(text) : String(text).replace(SECRET_PATTERN, "[redacted]"); };
-/* The same spellings, asked as a question: does this text carry the account? */
-const ACCOUNT_PATTERN = SECRET_PATTERN === null ? null : new RegExp(SECRET_PATTERN.source, "iu");
-const carriesAccount = function (text) { return ACCOUNT_PATTERN !== null && typeof text === "string" && ACCOUNT_PATTERN.test(text); };
+/* The password's spellings, asked as a question: does this text carry it? The user name is not asked: it is often short or common ("admin", "test") and an app's own traffic names routes and ids the same way, so it cannot tell the login from the traffic around it. A request that carries the user name AND the password carries the password. */
+const PASSWORD_PATTERN = patternOf(pass.length === 0 ? [] : [pass], "iu");
+const carriesPassword = function (text) { return PASSWORD_PATTERN !== null && typeof text === "string" && PASSWORD_PATTERN.test(text); };
 /* Text the page reader cut at its bound may end in the middle of the account, where no spelling can be recognised: what could hold a piece of it is dropped. */
 const uncut = function (text) { return text.length >= PAGE_TEXT_MAX ? text.slice(0, Math.max(0, PAGE_TEXT_MAX - LONGEST_SPELLING)) : text; };
 /* The account comes out of the WHOLE text first (a secret may span lines), then the first line stands for it, its URLs lose their queries, and the cut comes last. */
@@ -230,23 +230,20 @@ function watch(page, evidence) {
     const phase = state.phase;
     state.pending.push(carriesError(message).then(function (yes) { if (yes) exception("console", message.text(), phase); }, function () {}));
   });
-  /* A request is the login's when it starts after the submit and carries the account, in its address or its body. A native form that GETs puts the account in the address of a top-frame navigation. Everything else in the window (telemetry, a refresh, a poll) is the app's own traffic. */
+  /* A request is the login's when it starts after the submit and carries the password, in its address or its body. A native form that GETs puts it in the address of a top-frame navigation. Everything else in the window (telemetry, a refresh, a poll, a call that names the user) is the app's own traffic. */
   const isTopFrameNavigation = function (request) {
     /* A service worker's request has no frame to ask about, and is not a form submitting. */
     try { return request.isNavigationRequest() && request.frame().parentFrame() === null; } catch (_gone) { return false; }
   };
   const isTheLogin = function (request) {
     const address = new URL(request.url());
-    const carriesInAddress = carriesAccount(address.pathname + address.search);
-    return request.method() === "GET" ? isTopFrameNavigation(request) && carriesInAddress : carriesInAddress || carriesAccount(request.postData());
+    const carriesInAddress = carriesPassword(address.pathname + address.search);
+    return request.method() === "GET" ? isTopFrameNavigation(request) && carriesInAddress : carriesInAddress || carriesPassword(request.postData());
   };
   page.on("request", function (request) {
-    if (state.phase !== "after" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0) return;
-    const attributed = isTheLogin(request);
-    if (request.method() === "GET" && !attributed) return;
-    const entry = { method: request.method(), pathname: scrub(new URL(request.url()).pathname), status: null, attributed: attributed };
+    if (state.phase !== "after" || LOGIN_REQUEST_TYPES.indexOf(request.resourceType()) < 0 || !isTheLogin(request)) return;
+    const entry = { method: request.method(), pathname: scrub(new URL(request.url()).pathname), status: null };
     state.requests.push(entry);
-    if (!attributed) return;
     state.tracked.set(request, entry);
     state.inFlight.add(request);
   });
@@ -424,7 +421,7 @@ async function observeSubmit(page, context, browser, evidence, found, watching) 
   const now = new URL(page.url());
   evidence.inFlightAtDeadline = watching.inFlight.size > 0;
   evidence.submitEventFired = await page.evaluate(submitWatchFired).catch(function () { return false; });
-  evidence.requests = watching.requests.filter(function (entry) { return entry.attributed; }).map(function (entry) {
+  evidence.requests = watching.requests.map(function (entry) {
     return { method: entry.method, pathname: entry.pathname, status: entry.status };
   }).sort(function (a, b) {
     return (a.method + " " + a.pathname + " " + a.status).localeCompare(b.method + " " + b.pathname + " " + b.status);

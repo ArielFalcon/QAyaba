@@ -142,9 +142,9 @@ test("a page that navigates under the first read is read again on the same origi
   assert.equal(run.submits.length, 1);
 });
 
-test("a native form post is the login's own request when its body carries the account", async () => {
+test("a native form post is the login's own request when its body carries the password", async () => {
   const run = await runLoginDiscovery({
-    site: { pages: { "/": loginForm() }, submit: { requests: [{ method: "POST", url: "/session", resourceType: "document", navigation: true, postData: `u=${encodeURIComponent(STUB_USER)}`, status: 401 }] } },
+    site: { pages: { "/": loginForm() }, submit: { requests: [{ method: "POST", url: "/session", resourceType: "document", navigation: true, postData: `u=${encodeURIComponent(STUB_USER)}&p=${encodeURIComponent(STUB_PASS)}`, status: 401 }] } },
   });
   assert.equal(run.evidence?.requests.length, 1);
 });

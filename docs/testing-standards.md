@@ -265,7 +265,10 @@ last full run covered the origin checks, request attribution, the submit event a
 the wait for a login in flight, the session check and its deadline, the scrub of every text that leaves the
 child, and the captcha rule; every mutant was killed except the two equivalents listed under the
 documented survivors. Every survivor of an earlier pass was killed with a behavior test, not by
-asserting a literal.
+asserting a literal. The request attribution was re-run alone after it began to need the password (a
+user name is often short or common, so a request that only names the user is the app's own traffic):
+18 mutants, all killed. The one survivor of the first pass of 17 was a redundant early return for an
+unattributed GET, which the list's own guard made unobservable; it was restructured away.
 
 ### Documented survivors
 
