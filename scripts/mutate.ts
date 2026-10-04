@@ -202,6 +202,22 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "route-capturability": {
+    description: "route capturability: which route strings name one page a browser can open, the filter that runs before the capture slice, and the list of routes left out",
+    mutate: [
+      "qa-engine/src/shared-kernel/route-capturability.ts",
+      /* Only the lines that filter the candidates, cut them, log and list what was left out. */
+      `${GEN}/infrastructure/context-pack.ts:125-134`,
+      `${GEN}/infrastructure/context-pack.ts:192-194`,
+      `${GEN}/infrastructure/context-pack.ts:229-237`,
+    ],
+    tests: [
+      "qa-engine/test/shared-kernel/route-capturability.test.ts",
+      `${GEN_TEST}/infrastructure/context-pack.test.ts`,
+      `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "patch-app-yaml": {
     description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
     mutate: ["src/server/onboarding/patch-app-yaml.ts"],

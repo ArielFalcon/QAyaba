@@ -1,10 +1,11 @@
 /* Deterministic pre-generation context pack (DOM + explorer brief + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
 import { sanitizeText } from "./sanitize-text.ts";
-import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps } from "./dom-snapshot.ts";
+import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES } from "./dom-snapshot.ts";
 import type { CaptureDomDeps } from "./dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
+import { partitionRoutes, type UncapturableRoute } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 
@@ -121,6 +122,17 @@ function filterRelevantContracts(
 
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
+/* The most routes the pack lists as not capturable: a long list says no more than its first lines. */
+export const MAX_LISTED_UNCAPTURABLE = 8;
+
+/* The routes left out of the capture because they name no single page, each with why. They are not degraded pages: nothing was captured for them. */
+function renderNotCapturable(routes: readonly UncapturableRoute[]): string {
+  if (routes.length === 0) return "";
+  const listed = routes.slice(0, MAX_LISTED_UNCAPTURABLE).map((entry) => `- ${s(entry.route)} (${entry.reason})`);
+  const more = routes.length - listed.length;
+  return [`### ${PACK_HEADINGS.notCapturable}`, ...listed, ...(more > 0 ? [`(+${more} more)`] : [])].join("\n");
+}
+
 function renderContracts(ops: ApiOperation[]): string {
   if (!ops.length) return "";
   const lines: string[] = [`### ${PACK_HEADINGS.contracts} (from context.json — assert these at the boundary)`];
@@ -147,6 +159,14 @@ export function withoutPackSection(text: string, heading: string): string | unde
   return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
 }
 
+interface PackSection {
+  text: string;
+  /* How the pack's header names the section. */
+  held: string;
+}
+
+const hasText = (section: PackSection): boolean => section.text.length > 0;
+
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,
@@ -154,7 +174,6 @@ export async function buildContextPack(
   const log = deps.log ?? (() => {});
   const domBudgetChars = Math.floor(DOM_BUDGET_BYTES / BYTES_PER_CHAR);
 
-  const DOM_ROUTE_CAP = 6;
   let domSection = "";
   const briefRoutePaths = new Set<string>(
     (input.brief?.routes ?? [])
@@ -169,8 +188,10 @@ export async function buildContextPack(
     }
   }
   const deterministicRoutes = new Set<string>(input.routes ?? []);
-  const candidateRoutes = [...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes].filter(Boolean);
-  const briefRoutes = candidateRoutes.slice(0, DOM_ROUTE_CAP);
+  /* A route that names no single page is dropped, and a route named twice counted once, BEFORE the cut: neither may take the slot of a route behind it. */
+  const { capturable, uncapturable } = partitionRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
+  const briefRoutes = capturable.slice(0, MAX_ROUTES);
+  for (const entry of uncapturable) log(`[qa] context-pack: route not capturable, left out of the capture: ${entry.route} (${entry.reason})`);
   if (briefRoutes.length > 0 && input.e2eDir && input.baseUrl) {
     try {
       const rawCaptured = await deps.captureDomForRoutes(briefRoutes, { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute }, deps.domDeps, input.changedElements);
@@ -205,16 +226,19 @@ export async function buildContextPack(
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
 
-  const parts = [domSection, contractSection].filter((p) => p.length > 0);
-  if (parts.length === 0) {
+  const sections = [
+    { text: domSection, held: "the live DOM of the routes it covers" },
+    { text: contractSection, held: "the API contracts relevant to this objective" },
+  ].filter(hasText);
+  if (sections.length === 0) {
     return { text: undefined, domBytes: 0, contractBytes: 0 };
   }
+  /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
+  sections.push(...[{ text: renderNotCapturable(uncapturable), held: "the routes not capturable, with why" }].filter(hasText));
 
   /* The header names the sections the pack actually rendered: a pack with no DOM never mentions one. */
-  const held = [
-    ...(domSection ? ["the live DOM of the routes it covers"] : []),
-    ...(contractSection ? ["the API contracts relevant to this objective"] : []),
-  ].join(" and ");
+  const held = sections.map((section) => section.held).join(" and ");
+  const parts = sections.map((section) => section.text);
   const packHeader = [
     `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
     "",

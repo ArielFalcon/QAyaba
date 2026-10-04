@@ -1,9 +1,9 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
-import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { MAX_ROUTES, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 
@@ -169,19 +169,133 @@ test("buildContextPack: `routes` input is merged with brief routes when BOTH are
   assert.ok(captured[0]!.indexOf("/checkout") < captured[0]!.indexOf("/admin"), "brief routes (higher precision) come first");
 });
 
-test("buildContextPack: `routes` input respects the DOM_ROUTE_CAP (6) alongside brief/contextMap routes", async () => {
+test("buildContextPack: candidates are cut to the number of routes the capture itself takes", async () => {
   const captured: string[][] = [];
   const deps: ContextPackDeps = {
     captureDomForRoutes: async (routes) => { captured.push(routes); return "button: Submit"; },
     domDeps: stubDomDeps("button: Submit"),
     log: () => {},
   };
-  const manyRoutes = Array.from({ length: 10 }, (_, i) => `/route${i}`);
+  const manyRoutes = Array.from({ length: MAX_ROUTES + 6 }, (_, i) => `/route${i}`);
   await buildContextPack(
     { routes: manyRoutes, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     deps,
   );
-  assert.equal(captured[0]?.length, 6, "the routes input must respect the same DOM_ROUTE_CAP as brief/contextMap routes");
+  assert.deepEqual(captured[0], manyRoutes.slice(0, MAX_ROUTES));
+});
+
+/* A route that names no single page (a template, free text, another host) is not a candidate: it is dropped before the cut, so it never takes the place of a route behind it. */
+function capturingDeps(captured: string[][], log: (message: string) => void = () => {}): ContextPackDeps {
+  return {
+    captureDomForRoutes: async (routes) => { captured.push(routes); return "button: Submit"; },
+    domDeps: stubDomDeps("button: Submit"),
+    log,
+  };
+}
+const PACK_INPUT = { baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" };
+const plainRoutes = (count: number): string[] => Array.from({ length: count }, (_, i) => `/r${i}`);
+
+test("buildContextPack: a route template does not take a capture slot from the routes behind it", async () => {
+  const captured: string[][] = [];
+  await buildContextPack({ routes: ["/product/:id/view", ...plainRoutes(MAX_ROUTES + 1)], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: several templates in front still leave every slot to the plain routes", async () => {
+  const captured: string[][] = [];
+  const templates = ["/a/:x", "/b/{y}", "/c/[z]", "/files/*", "the cart page", "//evil.example/x"];
+  await buildContextPack({ routes: [...templates, ...plainRoutes(MAX_ROUTES)], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: a route that the brief and the routes input both name takes one slot, not two", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: [{ path: "/r0", verified: false }] };
+  await buildContextPack({ brief, routes: plainRoutes(MAX_ROUTES + 1), ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: the brief's and the context map's templates are dropped as well, and the order of the sources is kept", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: [{ path: "/orders/:id", verified: false }, { path: "/checkout", verified: true }] };
+  await buildContextPack({ brief, routes: ["/admin"], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], ["/checkout", "/admin"]);
+});
+
+function sectionOf(text: string | undefined, heading: string): string {
+  const parts = (text ?? "").split(/^### /m).slice(1);
+  return parts.find((part) => part.startsWith(heading)) ?? "";
+}
+
+test("buildContextPack: a route that cannot be captured is listed apart from the live DOM, so it is not read as a broken page", async () => {
+  const captured: string[][] = [];
+  const logs: string[] = [];
+  const result = await buildContextPack({ routes: ["/product/:id/view", "/a"], ...PACK_INPUT }, capturingDeps(captured, (message) => logs.push(message)));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/product/:id/view"), "the template is listed under its own heading");
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("/product/:id/view"), false, "and not under the live DOM");
+  assert.ok(logs.some((message) => message.includes("/product/:id/view")), "the log names it too");
+});
+
+test("buildContextPack: with every candidate uncapturable nothing is captured, no pack is made, and the log names them", async () => {
+  const captured: string[][] = [];
+  const logs: string[] = [];
+  const result = await buildContextPack({ routes: ["/product/:id", "/users/{id}"], ...PACK_INPUT }, capturingDeps(captured, (message) => logs.push(message)));
+  assert.equal(captured.length, 0);
+  assert.equal(result.text, undefined);
+  for (const route of ["/product/:id", "/users/{id}"]) assert.ok(logs.some((message) => message.includes(route)), `the log names ${route}`);
+});
+
+test("buildContextPack: nothing is logged as not capturable when every candidate can be captured", async () => {
+  const logs: string[] = [];
+  await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, capturingDeps([], (message) => logs.push(message)));
+  assert.equal(logs.some((message) => /not capturable/i.test(message)), false);
+});
+
+test("buildContextPack: the list of routes not captured stops at its bound and says how many more there are", async () => {
+  const extra = 3;
+  const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE + extra }, (_, i) => `/t${i}/:id`);
+  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  const section = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  const lines = section.trimEnd().split("\n");
+  assert.equal(lines.length, 1 + MAX_LISTED_UNCAPTURABLE + 1, "the heading, one line per listed route, and the count of the rest");
+  assert.deepEqual(templates.slice(0, MAX_LISTED_UNCAPTURABLE).map((route) => lines.findIndex((line) => line.includes(route))), Array.from({ length: MAX_LISTED_UNCAPTURABLE }, (_, i) => i + 1));
+  assert.ok(lines[lines.length - 1]!.includes(String(extra)));
+});
+
+test("buildContextPack: a list of exactly its bound is the heading and one line per route, nothing more", async () => {
+  const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE }, (_, i) => `/t${i}/:id`);
+  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable).trimEnd().split("\n").length, 1 + MAX_LISTED_UNCAPTURABLE);
+});
+
+test("buildContextPack: with nothing left out the pack ends with its last section, with no blank section after it", async () => {
+  const result = await buildContextPack({ routes: ["/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(result.text, result.text?.trimEnd());
+});
+
+test("buildContextPack: the header names the live DOM, the contracts and the routes not capturable, each once, when the pack holds all three", async () => {
+  const result = await buildContextPack(
+    { contextMap: MINIMAL_CONTEXT_MAP, brief: MINIMAL_BRIEF, routes: ["/product/:id"], ...PACK_INPUT },
+    capturingDeps([]),
+  );
+  const header = packHeader(result.text);
+  for (const named of [new RegExp(PACK_HEADINGS.liveDom, "gi"), /API contracts/gi, new RegExp(PACK_HEADINGS.notCapturable, "gi")]) {
+    assert.equal(header.match(named)?.length, 1, `${named} is named once`);
+  }
+});
+
+test("buildContextPack: a route's text is cleaned of secrets before it is listed", async () => {
+  const result = await buildContextPack({ routes: ["/reset/:token?key=sk_live_abcdefghijklmnop1234", "/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(result.text?.includes("sk_live_abcdefghijklmnop1234"), false);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/reset/"));
+});
+
+test("buildContextPack: a pack with no route that cannot be captured carries no such section, and its header names it only when it does", async () => {
+  const plain = await buildContextPack({ routes: ["/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(plain.text?.includes(PACK_HEADINGS.notCapturable), false);
+  assert.doesNotMatch(packHeader(plain.text), new RegExp(PACK_HEADINGS.notCapturable, "i"));
+  const withTemplate = await buildContextPack({ routes: ["/a", "/product/:id"], ...PACK_INPUT }, capturingDeps([]));
+  assert.match(packHeader(withTemplate.text), new RegExp(PACK_HEADINGS.notCapturable, "i"));
 });
 
 test("buildContextPack: absent `routes` input is byte-identical to today (regression guard)", async () => {
@@ -270,7 +384,7 @@ test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)"
   assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section header must appear in pack");
 });
 
-test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {
+test("route cap: a brief that names more routes than the capture takes is cut to the number the capture takes", async () => {
   const manyRoutesBrief: ExplorationBrief = {
     builtForSha: "abc1234",
     objective: "test many flows",
@@ -292,8 +406,7 @@ test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {
     countingDeps,
   );
 
-  assert.ok(capturedRouteCount <= 6, `DOM capture must be capped at 6 routes, but captured ${capturedRouteCount}`);
-  assert.ok(capturedRouteCount > 0, "DOM capture must have been called with at least 1 route");
+  assert.equal(capturedRouteCount, MAX_ROUTES);
 });
 
 test("changedElements on ContextPackInput reaches DOM section via captureDomForRoutes (4th arg)", async () => {

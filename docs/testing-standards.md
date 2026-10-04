@@ -238,6 +238,19 @@ descriptor's second regular-file check, the attribute's redaction test folded in
 the prose scan's initial array. **After** is the final run over the extended preset with the machine
 default of 8 workers: 491 killed, 6 timeouts, 4 survivors, all documented below.
 
+route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
+string (a template, free text, an interpolation or another host names no page a browser can open) and the
+lines of the context pack that filter the candidates before the capture slice, log and list what was left
+out. **Before** is its first run; the 15 survivors were all in the pack: the bound of the list and the
+newline between its lines, the log when nothing was left out, a stray blank section after the last one,
+and three header fragments and a list separator that no test could tell apart because the header's words
+are prose. The real gaps got behavior tests (the list is the heading and one line per route, a pack with
+nothing left out has no trailing section, nothing is logged when every candidate can be captured). The
+header fragments were restructured away: each section now carries the words that name it in the header, so
+there is no per-section fallback to mutate. The classification module had no survivor. **After** is the
+re-run; it has no documented survivors. The adapter test that hands the routes to the login discovery is
+not in the preset: it needs the stock seed from `config/`, which the mutation sandbox does not copy.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -253,6 +266,7 @@ default of 8 workers: 491 killed, 6 timeouts, 4 survivors, all documented below.
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
+| route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 62 / 0 / 0 — 100% (100%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 491 / 6 / 4 — 99.2% (98%) | — |
 

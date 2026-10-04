@@ -23,6 +23,7 @@ export const PACK_HEADINGS = {
   risks: "Risks / assert to catch regression",
   liveDom: "Live DOM",
   contracts: "Relevant API contracts",
+  notCapturable: "Routes not capturable",
 } as const;
 
 /* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */
