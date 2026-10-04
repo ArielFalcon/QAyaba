@@ -290,6 +290,68 @@ test("buildContextPack: a route's text is cleaned of secrets before it is listed
   assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/reset/"));
 });
 
+/* ── The pages a redirect reached: a section of their own, outside the live DOM ── */
+
+/* What a capture reports when a route redirected: the grounded routes, then, after a blank line, the page reached under a heading of its own. */
+const advisoryOf = (...extra: string[]): string => [`### ${PACK_HEADINGS.redirected} (x)`, "reached /login, asked for /orders:", "  textbox: Email", "  button: Sign in", ...extra].join("\n");
+const CAPTURE_WITH_REDIRECT = ["route /cart:", "  button: Apply coupon", "route /orders: (redirected to /login)", "", advisoryOf()].join("\n");
+const capturing = (captured: string): ContextPackDeps => ({
+  captureDomForRoutes: async () => captured,
+  domDeps: stubDomDeps(undefined),
+  log: () => {},
+});
+
+test("buildContextPack: the page a redirect reached is its own section, outside the live DOM that is declared ground truth", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const live = sectionOf(result.text, PACK_HEADINGS.liveDom);
+  const advisory = sectionOf(result.text, PACK_HEADINGS.redirected);
+  assert.ok(live.includes("button: Apply coupon") && live.includes("route /orders:"), "the live DOM holds the captured route and says the other was redirected");
+  assert.equal(live.includes("textbox: Email"), false, "the reached page's tree is not under the live DOM");
+  assert.ok(advisory.includes("textbox: Email") && advisory.includes("/login"), "it is in the section of its own, with the page it reached");
+});
+
+test("buildContextPack: the live DOM's line cap counts only the live DOM's own lines", async () => {
+  const many = Array.from({ length: 400 }, (_, i) => `  link: nav-${i}`);
+  const captured = ["route /cart:", ...many, "", advisoryOf()].join("\n");
+  const result = await buildContextPack({ routes: ["/cart"], ...PACK_INPUT }, capturing(captured));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("button: Sign in"), "the cap that trims the live DOM does not reach the other section");
+});
+
+test("buildContextPack: the redirect section is not counted in the live DOM's bytes", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const live = `### ${sectionOf(result.text, PACK_HEADINGS.liveDom)}`.trimEnd();
+  assert.equal(result.domBytes, Buffer.byteLength(live, "utf8"));
+});
+
+test("buildContextPack: when every route redirected the pack still holds the pages they reached", async () => {
+  const captured = ["route /a: (redirected to /login)", "route /b: (redirected to /login)", "", advisoryOf()].join("\n");
+  const result = await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, capturing(captured));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("textbox: Email"));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("textbox: Email"), false);
+});
+
+test("buildContextPack: with no redirect there is no such section, and the header names it only when it is there", async () => {
+  const plain = await buildContextPack({ routes: ["/cart"], ...PACK_INPUT }, capturing("route /cart:\n  button: Apply coupon"));
+  assert.equal(plain.text?.includes(PACK_HEADINGS.redirected), false);
+  assert.doesNotMatch(packHeader(plain.text), new RegExp(PACK_HEADINGS.redirected, "i"));
+  const redirected = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  assert.match(packHeader(redirected.text), new RegExp(PACK_HEADINGS.redirected, "i"));
+});
+
+test("buildContextPack: the text of a page a redirect reached is cleaned of secrets like the rest of the capture", async () => {
+  const captured = ["route /orders: (redirected to /login)", "", advisoryOf("  text: key sk_live_abcdefghijklmnop1234")].join("\n");
+  const result = await buildContextPack({ routes: ["/orders"], ...PACK_INPUT }, capturing(captured));
+  assert.equal(result.text?.includes("sk_live_abcdefghijklmnop1234"), false);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("textbox: Email"));
+});
+
+test("buildContextPack: the pack's claims are the live DOM's alone: the redirect section declares no fact of its own", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const claims = deriveClaimsFromPackText(result.text ?? "");
+  assert.deepEqual(claims.filter((c) => c.kind === "provides").map((c) => (c as { fact: FactId }).fact), ["dom-live"]);
+  assert.equal(claims.filter((c) => c.kind === "frames").length, 1, "only the live DOM is framed");
+});
+
 test("buildContextPack: a pack with no route that cannot be captured carries no such section, and its header names it only when it does", async () => {
   const plain = await buildContextPack({ routes: ["/a"], ...PACK_INPUT }, capturingDeps([]));
   assert.equal(plain.text?.includes(PACK_HEADINGS.notCapturable), false);

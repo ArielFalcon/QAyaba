@@ -24,6 +24,7 @@ export const PACK_HEADINGS = {
   liveDom: "Live DOM",
   contracts: "Relevant API contracts",
   notCapturable: "Routes not capturable",
+  redirected: "Pages reached by redirect",
 } as const;
 
 /* The artifacts only some prompts assemble: static role text is unconditional, so it must not name any of them. */

@@ -167,6 +167,12 @@ interface PackSection {
 
 const hasText = (section: PackSection): boolean => section.text.length > 0;
 
+/* The capture reports the grounded routes and, after them, the pages redirects reached under a heading of their own; the live DOM section takes the first and the pack keeps the second as a section apart. */
+function splitRedirectSection(captured: string): { grounded: string; advisory: string } {
+  const at = captured.search(new RegExp(`^### ${escapeRegExp(PACK_HEADINGS.redirected)}`, "m"));
+  return at < 0 ? { grounded: captured, advisory: "" } : { grounded: captured.slice(0, at).trimEnd(), advisory: captured.slice(at).trimEnd() };
+}
+
 export async function buildContextPack(
   input: ContextPackInput,
   deps: ContextPackDeps,
@@ -175,6 +181,7 @@ export async function buildContextPack(
   const domBudgetChars = Math.floor(DOM_BUDGET_BYTES / BYTES_PER_CHAR);
 
   let domSection = "";
+  let redirectSection = "";
   const briefRoutePaths = new Set<string>(
     (input.brief?.routes ?? [])
       .filter((r) => r.path)
@@ -197,7 +204,9 @@ export async function buildContextPack(
       const rawCaptured = await deps.captureDomForRoutes(briefRoutes, { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute }, deps.domDeps, input.changedElements);
       const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
       if (raw) {
-        const lines = raw.split("\n");
+        const { grounded, advisory } = splitRedirectSection(raw);
+        redirectSection = advisory;
+        const lines = grounded.split("\n");
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
         const { kept, dropped } = capDomLines(lines, maxLines);
         domSection = [
@@ -228,6 +237,7 @@ export async function buildContextPack(
 
   const sections = [
     { text: domSection, held: "the live DOM of the routes it covers" },
+    { text: redirectSection, held: "the pages reached by redirect (advisory)" },
     { text: contractSection, held: "the API contracts relevant to this objective" },
   ].filter(hasText);
   if (sections.length === 0) {
