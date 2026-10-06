@@ -87,7 +87,7 @@ Cada ejecución que decide publicar deja en `slim/exports/<app>/<run>/`:
 - `changes.patch`: aplicable con `git apply --index`;
 - `MR.md`: título, rama sugerida, rama destino, pasos para aplicarlo y la descripción del MR;
 - `ISSUE.md`: cuando la decisión es abrir una incidencia;
-- `export.json`: metadatos.
+- `export.json`: metadatos; `skipped` lista las rutas que no se exportaron (archivos de CI, Dockerfiles o `.env`, enlaces simbólicos y cualquier cosa que no sea un archivo regular dentro del mirror).
 
 La fuente de verdad sigue siendo git: al fusionar el MR, la siguiente ejecución parte de la suite actualizada.
 

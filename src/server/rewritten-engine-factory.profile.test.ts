@@ -39,7 +39,7 @@ test("slim profile: exports land under <exportRoot>/<app>/<namespace> and only e
     );
     const res = await fx.vcsWrite!.publish({ mirrorDir: "/mirrors/group__shop", branch: "qa/e2e", sha: "abc1234" });
     assert.equal(res.changed, false);
-    assert.deepEqual(gitCalls[0]?.args, ["status", "--porcelain", "-z", "--untracked-files=all", "--", "e2e"]);
+    assert.deepEqual(gitCalls[0]?.args, ["status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=dirty", "--", "e2e"]);
     const pr = await fx.githubPr.openWithAutoMerge("group/shop", "qa/e2e", "t", "b");
     assert.equal(pr.url, join(exportDir, "shop", "qa-bot-abc1234-run1", "MR.md"));
   } finally {

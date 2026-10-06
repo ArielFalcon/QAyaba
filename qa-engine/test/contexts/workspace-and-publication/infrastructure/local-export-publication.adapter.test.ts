@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   LocalExportPublicationAdapter,
+  nodeLocalExportFs,
   parsePorcelainZ,
   type LocalExportDeps,
   type LocalExportFs,
@@ -17,6 +21,8 @@ function memFs(): LocalExportFs & { files: Map<string, string>; copies: Array<[s
     write: (path, content) => void files.set(path, content),
     copy: (src, dest) => void copies.push([src, dest]),
     exists: (path) => files.has(path),
+    isRegularFile: () => true,
+    realpath: (path) => path,
   };
 }
 
@@ -63,7 +69,7 @@ test("publish exports copies, the patch and a manifest, and reports changed", as
 
   assert.equal(res.changed, true);
   assert.deepEqual(excludesWritten, [["/mirrors/org__app", ["node_modules/", "e2e/.qa/coverage/"]]]);
-  assert.deepEqual(calls[0], ["status", "--porcelain", "-z", "--untracked-files=all", "--", "e2e"]);
+  assert.deepEqual(calls[0], ["status", "--porcelain", "-z", "--untracked-files=all", "--ignore-submodules=dirty", "--", "e2e"]);
   assert.deepEqual(fs.copies, [
     ["/mirrors/org__app/e2e/flows/a.spec.ts", "/exports/app/ns-1/files/e2e/flows/a.spec.ts"],
     ["/mirrors/org__app/e2e/.qa/manifest.json", "/exports/app/ns-1/files/e2e/.qa/manifest.json"],
@@ -129,4 +135,119 @@ test("shadow openIssue flags the issue as a preview", async () => {
   const { adapter, fs } = harness("");
   await adapter.openIssue("group/app", "t", "b");
   assert.match(fs.files.get("/exports/app/ns-1/ISSUE.md") ?? "", /Shadow preview/);
+});
+
+test("the change scan and the patch never let git enter a submodule", async () => {
+  const { adapter, calls } = harness("?? e2e/flows/a.spec.ts\0");
+  await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+  const status = calls.find((c) => c[0] === "status");
+  const diff = calls.find((c) => c[0] === "diff");
+  assert.ok(status?.includes("--ignore-submodules=dirty"));
+  assert.ok(diff?.includes("--ignore-submodules=dirty"));
+});
+
+test("a path the code-target denylist covers is neither copied nor patched, and is named in the export metadata", async () => {
+  const status = ["?? e2e/flows/a.spec.ts", "?? .github/workflows/ci.yml", " M Dockerfile", " D e2e/.env", ""].join("\0");
+  const { adapter, calls, fs } = harness(status);
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(
+    fs.copies.map(([src]) => src),
+    ["/m/e2e/flows/a.spec.ts"],
+  );
+  const diffPaths = calls.find((c) => c[0] === "diff")?.slice(calls.find((c) => c[0] === "diff")!.indexOf("--") + 1);
+  assert.deepEqual(diffPaths, ["e2e/flows/a.spec.ts"]);
+  const manifest = JSON.parse(fs.files.get("/exports/app/ns-1/export.json") ?? "{}");
+  assert.deepEqual(manifest.files, ["e2e/flows/a.spec.ts"]);
+  assert.deepEqual(manifest.deleted, []);
+  assert.deepEqual([...manifest.skipped].sort(), [".github/workflows/ci.yml", "Dockerfile", "e2e/.env"]);
+});
+
+test("when every change is skipped nothing is diffed (an empty pathspec would diff the whole tree) and nothing is reported as changed", async () => {
+  const { adapter, calls, fs } = harness("?? .github/workflows/ci.yml\0");
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, false);
+  assert.equal(calls.some((c) => c[0] === "diff" || c[0] === "add"), false);
+  assert.equal(fs.files.has("/exports/app/ns-1/changes.patch"), false);
+  const manifest = JSON.parse(fs.files.get("/exports/app/ns-1/export.json") ?? "{}");
+  assert.deepEqual(manifest.skipped, [".github/workflows/ci.yml"]);
+});
+
+function allFileContents(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...allFileContents(path));
+    else out.push(readFileSync(path, "utf8"));
+  }
+  return out;
+}
+
+function realFsHarness(root: string, status: string) {
+  const calls: string[][] = [];
+  const mirror = join(root, "mirror");
+  const exportDir = join(root, "export");
+  mkdirSync(join(mirror, "e2e"), { recursive: true });
+  const adapter = new LocalExportPublicationAdapter({
+    exportDir,
+    mirrorDir: mirror,
+    baseBranch: "main",
+    addPaths: ["e2e"],
+    excludes: [],
+    git: async (args) => {
+      calls.push(args);
+      return args[0] === "status" ? status : "";
+    },
+    writeExcludes: () => {},
+    fs: nodeLocalExportFs,
+    log: () => {},
+  });
+  return { adapter, calls, mirror, exportDir };
+}
+
+const SECRET = "SECRET-TOKEN-VALUE";
+
+test("a symlink the sandbox planted in e2e/ never exports the file it points at", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-export-link-"));
+  try {
+    writeFileSync(join(root, "secret.txt"), SECRET);
+    const { adapter, calls, mirror, exportDir } = realFsHarness(root, "?? e2e/leak\0?? e2e/ok.spec.ts\0");
+    writeFileSync(join(mirror, "e2e", "ok.spec.ts"), "test('ok')");
+    symlinkSync(join(root, "secret.txt"), join(mirror, "e2e", "leak"));
+
+    const res = await adapter.publish({ mirrorDir: mirror, branch: "b", sha: "abc1234" });
+
+    assert.equal(res.changed, true);
+    assert.equal(readFileSync(join(exportDir, "files", "e2e", "ok.spec.ts"), "utf8"), "test('ok')");
+    assert.equal(existsSync(join(exportDir, "files", "e2e", "leak")), false);
+    assert.equal(allFileContents(exportDir).some((c) => c.includes(SECRET)), false);
+    const manifest = JSON.parse(readFileSync(join(exportDir, "export.json"), "utf8"));
+    assert.deepEqual(manifest.files, ["e2e/ok.spec.ts"]);
+    assert.deepEqual(manifest.skipped, ["e2e/leak"]);
+    const diff = calls.find((c) => c[0] === "diff") ?? [];
+    assert.equal(diff.includes("e2e/leak"), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a regular file reached through a symlinked directory is not exported either", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-export-dirlink-"));
+  try {
+    mkdirSync(join(root, "outside"));
+    writeFileSync(join(root, "outside", "secret.txt"), SECRET);
+    const { adapter, mirror, exportDir } = realFsHarness(root, "?? e2e/linked/secret.txt\0");
+    symlinkSync(join(root, "outside"), join(mirror, "e2e", "linked"));
+
+    const res = await adapter.publish({ mirrorDir: mirror, branch: "b", sha: "abc1234" });
+
+    assert.equal(res.changed, false);
+    assert.equal(allFileContents(exportDir).some((c) => c.includes(SECRET)), false);
+    const manifest = JSON.parse(readFileSync(join(exportDir, "export.json"), "utf8"));
+    assert.deepEqual(manifest.skipped, ["e2e/linked/secret.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

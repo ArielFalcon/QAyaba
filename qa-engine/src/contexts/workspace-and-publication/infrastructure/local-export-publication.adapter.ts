@@ -1,8 +1,12 @@
 /* Local publication effector (slim deployment profile). Implements the collaborator surfaces PublicationPortAdapter dispatches to — git write (publish), PR (openWithAutoMerge), Issue (open) and the shadow preview (openPr/openIssue) — but writes to disk instead of an SCM host. The publish DECISION is untouched; only its effect moves: a would-be PR becomes files/**, changes.patch and MR.md under exportDir, a would-be Issue becomes ISSUE.md. A human submits them, so nothing writes to the watched repo automatically.
  *
- * Git use on the mirror is read-only (status/diff) plus a transient intent-to-add for untracked files that is always reset before returning, so the next run's mirror sync sees exactly the tree remote publication would leave. The adapter never reads env: exportDir, mirrorDir and the git runner are injected. */
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+ * Git use on the mirror is read-only (status/diff) plus a transient intent-to-add for untracked files that is always reset before returning, so the next run's mirror sync sees exactly the tree remote publication would leave. What leaves the mirror is confined like remote publication: denylisted paths and anything that is not a regular file inside the mirror are skipped and named in export.json, never copied. The adapter never reads env: exportDir, mirrorDir and the git runner are injected. */
+import { copyFileSync, existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
+import { WriteConfinementService } from "../domain/write-confinement.service.ts";
+
+/* A submodule directory belongs to the sandbox, which can plant a repository in it whose config names a command. Reporting a submodule's dirty content makes git enter it and run that command as the orchestrator, so every status and diff here refuses to look (same flag as VcsWriteAdapter.hasChanges). */
+const IGNORE_SUBMODULE_CONTENT = "--ignore-submodules=dirty";
 
 export type ExportGit = (args: string[], cwd: string) => Promise<string>;
 
@@ -11,6 +15,9 @@ export interface LocalExportFs {
   write(path: string, content: string): void;
   copy(src: string, dest: string): void;
   exists(path: string): boolean;
+  /* True only for a regular file reached without following a link at its last segment (a link to a file, a directory and a device are all false). */
+  isRegularFile(path: string): boolean;
+  realpath(path: string): string;
 }
 
 export const nodeLocalExportFs: LocalExportFs = {
@@ -18,6 +25,14 @@ export const nodeLocalExportFs: LocalExportFs = {
   write: (path, content) => writeFileSync(path, content, "utf8"),
   copy: (src, dest) => copyFileSync(src, dest),
   exists: existsSync,
+  isRegularFile: (path) => {
+    try {
+      return lstatSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
+  realpath: (path) => realpathSync(path),
 };
 
 export interface LocalExportDeps {
@@ -48,6 +63,8 @@ interface ChangedFile {
 interface ExportedChanges {
   files: string[];
   deleted: string[];
+  /* Changed paths left out of the export (denylisted, or not a regular file inside the mirror). Names only, never contents. */
+  skipped: string[];
   sha?: string;
   branch: string;
 }
@@ -72,6 +89,7 @@ export class LocalExportPublicationAdapter {
   private readonly fs: LocalExportFs;
   private readonly now: () => Date;
   private readonly log: (msg: string) => void;
+  private readonly confinement = new WriteConfinementService();
   private exported: ExportedChanges | undefined;
 
   constructor(private readonly deps: LocalExportDeps) {
@@ -114,17 +132,20 @@ export class LocalExportPublicationAdapter {
 
   private async exportChanges(mirrorDir: string, branch: string, sha?: string): Promise<ExportedChanges> {
     this.deps.writeExcludes(mirrorDir, this.deps.excludes);
-    const changed = parsePorcelainZ(
-      await this.deps.git(["status", "--porcelain", "-z", "--untracked-files=all", "--", ...this.deps.addPaths], mirrorDir),
+    const scanned = parsePorcelainZ(
+      await this.deps.git(["status", "--porcelain", "-z", "--untracked-files=all", IGNORE_SUBMODULE_CONTENT, "--", ...this.deps.addPaths], mirrorDir),
     );
+    const { exportable, skipped } = scanned.length === 0 ? { exportable: [], skipped: [] } : this.confine(mirrorDir, scanned);
     const exported: ExportedChanges = {
-      files: changed.filter((f) => !f.deleted).map((f) => f.path),
-      deleted: changed.filter((f) => f.deleted).map((f) => f.path),
+      files: exportable.filter((f) => !f.deleted).map((f) => f.path),
+      deleted: exportable.filter((f) => f.deleted).map((f) => f.path),
+      skipped,
       branch,
       ...(sha ? { sha } : {}),
     };
     this.exported = exported;
-    if (changed.length === 0) return exported;
+    if (scanned.length === 0) return exported;
+    if (skipped.length > 0) this.log(`[export] left out of the export (denylisted or not a regular file inside the mirror): ${skipped.join(", ")}`);
 
     const filesDir = join(this.deps.exportDir, "files");
     for (const file of exported.files) {
@@ -133,11 +154,20 @@ export class LocalExportPublicationAdapter {
       this.fs.copy(join(mirrorDir, file), dest);
     }
     this.fs.mkdir(this.deps.exportDir);
-    this.fs.write(join(this.deps.exportDir, "changes.patch"), await this.buildPatch(mirrorDir, changed));
+    /* An empty pathspec would diff the whole tree, so a patch is only built over paths that are exported. */
+    if (exportable.length > 0) this.fs.write(join(this.deps.exportDir, "changes.patch"), await this.buildPatch(mirrorDir, exportable));
     this.fs.write(
       join(this.deps.exportDir, "export.json"),
       JSON.stringify(
-        { branch, baseBranch: this.deps.baseBranch, ...(sha ? { sha } : {}), files: exported.files, deleted: exported.deleted, exportedAt: this.now().toISOString() },
+        {
+          branch,
+          baseBranch: this.deps.baseBranch,
+          ...(sha ? { sha } : {}),
+          files: exported.files,
+          deleted: exported.deleted,
+          skipped: exported.skipped,
+          exportedAt: this.now().toISOString(),
+        },
         null,
         2,
       ) + "\n",
@@ -145,12 +175,35 @@ export class LocalExportPublicationAdapter {
     return exported;
   }
 
+  /* The sandbox writes the mirror, so what git reports is not trusted as exportable: a path the write-confinement denylist covers (CI files, Dockerfiles, env files) never leaves, and a surviving file must be a regular file whose resolved path stays inside the mirror — a planted link would otherwise copy whatever it points at. A deletion has no file to read and only needs the denylist. */
+  private confine(mirrorDir: string, changed: readonly ChangedFile[]): { exportable: ChangedFile[]; skipped: string[] } {
+    const mirrorReal = this.fs.realpath(mirrorDir) + sep;
+    const exportable: ChangedFile[] = [];
+    const skipped: string[] = [];
+    for (const file of changed) {
+      const exportableFile = !this.confinement.isCodeDenied(file.path) && (file.deleted || this.isConfinedRegularFile(mirrorDir, mirrorReal, file.path));
+      if (exportableFile) exportable.push(file);
+      else skipped.push(file.path);
+    }
+    return { exportable, skipped };
+  }
+
+  private isConfinedRegularFile(mirrorDir: string, mirrorReal: string, path: string): boolean {
+    const full = join(mirrorDir, path);
+    if (!this.fs.isRegularFile(full)) return false;
+    try {
+      return this.fs.realpath(full).startsWith(mirrorReal);
+    } catch {
+      return false;
+    }
+  }
+
   /* Diff against HEAD over exactly the changed paths. Untracked files enter the diff via intent-to-add, which is reset afterwards even when the diff throws. */
   private async buildPatch(mirrorDir: string, changed: readonly ChangedFile[]): Promise<string> {
     const untracked = changed.filter((f) => f.untracked).map((f) => f.path);
     if (untracked.length > 0) await this.deps.git(["add", "--intent-to-add", "--", ...untracked], mirrorDir);
     try {
-      return await this.deps.git(["diff", "--binary", "HEAD", "--", ...changed.map((f) => f.path)], mirrorDir);
+      return await this.deps.git(["diff", "--binary", IGNORE_SUBMODULE_CONTENT, "HEAD", "--", ...changed.map((f) => f.path)], mirrorDir);
     } finally {
       if (untracked.length > 0) await this.deps.git(["reset", "-q", "--", ...untracked], mirrorDir);
     }
