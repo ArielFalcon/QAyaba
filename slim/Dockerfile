@@ -173,6 +173,10 @@ RUN mkdir -p /root/.config \
  && test -f /root/.config/opencode/opencode.json \
  && cp /app/agents/agent-supervisor.mjs /usr/local/bin/agent-supervisor.mjs
 COPY --from=tui /out/qayaba /usr/local/bin/qayaba
+# The Node here is the Playwright base image's, not the deps stage's: the sources require Node >= 24 and
+# better-sqlite3 was compiled against node:24 headers. Opening a database loads the native addon, so
+# a mismatch fails this build instead of the first run.
+RUN node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 24) { console.error("runtime Node " + process.version + " is older than 24"); process.exit(1); } const Database = require("better-sqlite3"); new Database(":memory:").close(); console.log("node " + process.version + ", better-sqlite3 ok");'
 
 # LISTEN_HOST: inside the container the control plane listens on every interface so the published
 # port (slim/compose.yml binds it to 127.0.0.1 on the host) and the tui service can reach it.

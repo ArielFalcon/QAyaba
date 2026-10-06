@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const dockerfile = readFileSync(new URL("./Dockerfile", import.meta.url), "utf8");
 
@@ -39,4 +41,28 @@ test("the Java truststore is fed after the JDK is installed, never before", () =
 
 test("Serena does not report usage from the image", () => {
   assert.equal(envOf(runtime).SERENA_USAGE_REPORTING, "false");
+});
+
+// The one-line `RUN node -e '...'` that proves the runtime's Node and its native module.
+const nodeCheck = /^RUN node -e '([^']+)'$/m.exec(runtime);
+
+test("the runtime stage checks its Node and native module after the dependencies are copied in", () => {
+  assert.ok(nodeCheck, "the runtime stage runs a node -e check");
+  assert.ok(nodeCheck.index > runtime.indexOf("COPY --from=deps /app/node_modules"), "the check runs after node_modules is copied");
+  assert.ok(nodeCheck.index > runtime.indexOf("COPY . ."), "the check runs after the sources are copied");
+  assert.match(nodeCheck[1], /better-sqlite3/);
+});
+
+test("the Node and native module check passes against this repository's dependencies", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const result = spawnSync(process.execPath, ["-e", nodeCheck[1]], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("the Node and native module check fails when the runtime Node is older than the supported major", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const oldNode = `Object.defineProperty(process.versions, "node", { value: "22.9.0" }); ${nodeCheck[1]}`;
+  const result = spawnSync(process.execPath, ["-e", oldNode], { cwd: root, encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /older than 24/);
 });
