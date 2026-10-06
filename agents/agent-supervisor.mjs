@@ -100,7 +100,12 @@ export function readOpencodeConfig(env = process.env) {
 
 // What the supervisor reports to the operator when the key check cannot give a verdict on its own.
 // Exported so the tests assert against the constants rather than a copy of the wording.
+// The messages that name a provider and what it answered are "<reason> (<provider>: <detail>)".
 export const GATEWAY_REASON = Object.freeze({
+  rejected: "key rejected by the LLM gateway",
+  unreachable: "LLM gateway unreachable",
+  unproxied: "key not verified (no proxy support in this Node): the LLM gateway could not be reached directly and a proxy is configured for it",
+  unverified: "key not verified: the LLM gateway neither accepted nor rejected it",
   noCheckableGateway: "key not verified: the effective OpenCode config declares an LLM provider that cannot be checked (it needs an http(s) baseURL and an apiKey read from the environment)",
 });
 
@@ -190,13 +195,13 @@ export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = G
   const outcomes = await Promise.all(targets.map((target) => checkGateway(target, { fetchImpl, signal: signalFor(timeoutMs), proxyHonoured, env })));
   const pick = (kind) => outcomes.find((o) => o.kind === kind);
   const rejected = pick("rejected");
-  if (rejected) return { status: "failed", error: `key rejected by the LLM gateway (${rejected.id}: ${rejected.detail})` };
+  if (rejected) return { status: "failed", error: `${GATEWAY_REASON.rejected} (${rejected.id}: ${rejected.detail})` };
   const unreachable = pick("unreachable");
-  if (unreachable) return { status: "failed", error: `LLM gateway unreachable (${unreachable.id}: ${unreachable.detail})` };
+  if (unreachable) return { status: "failed", error: `${GATEWAY_REASON.unreachable} (${unreachable.id}: ${unreachable.detail})` };
   const unproxied = pick("unproxied");
-  if (unproxied) return { status: "degraded", error: `key not verified (no proxy support in this Node): the LLM gateway could not be reached directly and a proxy is configured for it (${unproxied.id}: ${unproxied.detail})` };
+  if (unproxied) return { status: "degraded", error: `${GATEWAY_REASON.unproxied} (${unproxied.id}: ${unproxied.detail})` };
   const unverified = pick("unverified");
-  if (unverified) return { status: "degraded", error: `LLM gateway answered ${unverified.detail} to the key check, so the key is unverified (${unverified.id})` };
+  if (unverified) return { status: "degraded", error: `${GATEWAY_REASON.unverified} (${unverified.id}: ${unverified.detail})` };
   return { status: "healthy" };
 }
 

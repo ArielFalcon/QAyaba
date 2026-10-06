@@ -68,10 +68,19 @@ function watchOutput(child) {
   });
   return {
     lines,
-    next(pattern) {
+    // Settles with the first line that matches, seen already or still to come. With `deadlineMs` a
+    // line that never comes rejects, naming the pattern, instead of leaving the test waiting.
+    next(pattern, { deadlineMs } = {}) {
       const seen = lines.find((line) => pattern.test(line));
       if (seen !== undefined) return Promise.resolve(seen);
-      return new Promise((resolve) => waiters.push({ pattern, resolve }));
+      return new Promise((resolve, reject) => {
+        const waiter = { pattern, resolve: (line) => { clearTimeout(timer); resolve(line); } };
+        const timer = deadlineMs === undefined ? undefined : setTimeout(() => {
+          waiters.splice(waiters.indexOf(waiter), 1);
+          reject(new Error(`no supervisor output matching ${pattern} within ${deadlineMs} ms`));
+        }, deadlineMs);
+        waiters.push(waiter);
+      });
     },
   };
 }
@@ -87,6 +96,10 @@ function whenListening(child, output, deadlineMs) {
 }
 
 const LISTEN_DEADLINE_MS = 15_000;
+const LINE_DEADLINE_MS = 10_000;
+
+// The next output line that matches, within the deadline.
+const nextLine = (output, pattern, deadlineMs = LINE_DEADLINE_MS) => output.next(pattern, { deadlineMs });
 
 async function withSupervisor(env, scenario, { config, entrypoint = [SUPERVISOR], listenDeadlineMs = LISTEN_DEADLINE_MS } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "supervisor-boot-"));
@@ -136,7 +149,7 @@ test("a supervisor booted without a key waits for configuration and does not sta
 
 test("a key delivered through /restart starts opencode serve with that key", async () => {
   await withSupervisor({ OPENCODE_API_KEY: "" }, async ({ base, output }) => {
-    const started = output.next(/^STUB_OPENCODE/);
+    const started = nextLine(output, /^STUB_OPENCODE/);
 
     const res = await fetch(`${base}/restart`, {
       method: "POST",
@@ -176,7 +189,7 @@ test("a supervisor booted with a key reports its fingerprint from the start", as
 
 test("a key already present at boot starts opencode without any restart", async () => {
   await withSupervisor({ OPENCODE_API_KEY: SECRET }, async ({ output }) => {
-    const line = await output.next(/^STUB_OPENCODE/);
+    const line = await nextLine(output, /^STUB_OPENCODE/);
 
     assert.match(line, /key=present/);
   });
@@ -184,7 +197,7 @@ test("a key already present at boot starts opencode without any restart", async 
 
 test("opencode serve inherits the switch that makes it ignore the watched repository's own config", async () => {
   await withSupervisor({ OPENCODE_API_KEY: SECRET, OPENCODE_DISABLE_PROJECT_CONFIG: "true" }, async ({ output }) => {
-    const line = await output.next(/^STUB_OPENCODE/);
+    const line = await nextLine(output, /^STUB_OPENCODE/);
 
     assert.match(line, /projectConfig=true/);
   });
@@ -212,8 +225,10 @@ async function withGateway(statusFor, scenario) {
 }
 
 // opencode is reported "starting" until its readiness check settles.
-async function settled(base) {
-  const deadline = Date.now() + 10_000;
+const SETTLE_DEADLINE_MS = 10_000;
+
+async function settled(base, deadlineMs = SETTLE_DEADLINE_MS) {
+  const deadline = Date.now() + deadlineMs;
   for (;;) {
     const state = (await providers(base)).opencode;
     if (state.status !== "starting" || Date.now() > deadline) return state;
@@ -241,7 +256,7 @@ test("a gateway that rejects the key fails opencode with that reason", async () 
       const state = await settled(base);
 
       assert.equal(state.status, "failed");
-      assert.match(state.error, /key rejected by the LLM gateway/);
+      assert.ok(state.error.startsWith(GATEWAY_REASON.rejected), state.error);
       assert.ok(!JSON.stringify(state).includes(SECRET));
     }, { config: gatewayConfig(baseURL) });
   });
@@ -253,7 +268,7 @@ test("a gateway that cannot be reached fails opencode with that reason", async (
     const state = await settled(base);
 
     assert.equal(state.status, "failed");
-    assert.match(state.error, /LLM gateway unreachable/);
+    assert.ok(state.error.startsWith(GATEWAY_REASON.unreachable), state.error);
   }, { config: gatewayConfig(`http://127.0.0.1:${closed}/v1`) });
 });
 
@@ -295,6 +310,12 @@ test("a supervisor that exits before it listens fails the scenario with its exit
     /exited with code 1 before it was listening/,
   );
   assert.equal(scenarioRan, false);
+});
+
+test("waiting for an output line that never comes rejects at the deadline, naming the line", async () => {
+  await withSupervisor({ OPENCODE_API_KEY: "" }, async ({ output }) => {
+    await assert.rejects(nextLine(output, /^STUB_OPENCODE/, 30), /no supervisor output matching .*STUB_OPENCODE.* within 30 ms/);
+  });
 });
 
 test("a supervisor that never starts listening fails the scenario at the deadline", async () => {

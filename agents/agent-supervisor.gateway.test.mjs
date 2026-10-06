@@ -141,7 +141,7 @@ test("a gateway that rejects the key fails the provider with that reason and nev
     const outcome = await verifyGateways([target()], { fetchImpl: answering(status) });
 
     assert.equal(outcome.status, "failed", String(status));
-    assert.match(outcome.error, /key rejected by the LLM gateway/);
+    assert.ok(outcome.error.startsWith(GATEWAY_REASON.rejected), outcome.error);
     assert.ok(!JSON.stringify(outcome).includes(KEY));
   }
 });
@@ -154,7 +154,7 @@ test("a gateway that cannot be reached fails the provider with that reason and n
   const outcome = await verifyGateways([target()], { fetchImpl: refused });
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /LLM gateway unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
   assert.match(outcome.error, /ECONNREFUSED/);
   assert.ok(!JSON.stringify(outcome).includes(KEY));
 });
@@ -168,7 +168,7 @@ test("a gateway that never answers fails once the deadline passes, whatever the 
   const outcome = await pending;
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /LLM gateway unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
 });
 
 test("a gateway that answers something other than accept or reject leaves the key unverified, not failed", async () => {
@@ -176,6 +176,7 @@ test("a gateway that answers something other than accept or reject leaves the ke
     const outcome = await verifyGateways([target()], { fetchImpl: answering(status) });
 
     assert.equal(outcome.status, "degraded", String(status));
+    assert.ok(outcome.error.startsWith(GATEWAY_REASON.unverified), outcome.error);
     assert.ok(outcome.error.includes(String(status)), "the answer is named");
   }
 });
@@ -193,8 +194,8 @@ test("with several gateways a rejected key outranks an unreachable one, which ou
   const unverified = await verifyGateways(targets, { fetchImpl: byHost([["a.test", 200], ["b.test", 404], ["c.test", 200]]) });
   const allGood = await verifyGateways(targets, { fetchImpl: byHost([["a.test", 200], ["b.test", 200], ["c.test", 204]]) });
 
-  assert.match(rejected.error, /key rejected/);
-  assert.match(unreachable.error, /unreachable/);
+  assert.ok(rejected.error.startsWith(GATEWAY_REASON.rejected), rejected.error);
+  assert.ok(unreachable.error.startsWith(GATEWAY_REASON.unreachable), unreachable.error);
   assert.equal(unverified.status, "degraded");
   assert.equal(allGood.status, "healthy");
 });
@@ -228,9 +229,7 @@ test("a transport error with a proxy configured but not applicable on this Node 
   const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: false, env: PROXY_ENV });
 
   assert.equal(outcome.status, "degraded");
-  assert.match(outcome.error, /not verified/);
-  assert.match(outcome.error, /no proxy support/);
-  assert.doesNotMatch(outcome.error, /unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unproxied), outcome.error);
   assert.ok(outcome.error.includes("corp"), "the provider is named");
   assert.ok(!JSON.stringify(outcome).includes(KEY));
 });
@@ -239,14 +238,14 @@ test("the same transport error is unreachable when this Node applies the proxy",
   const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: true, env: PROXY_ENV });
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
 });
 
 test("without a proxy in the environment a Node that cannot apply one still reports an unreachable gateway", async () => {
   const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: false, env: {} });
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
 });
 
 test("a gateway host that NO_PROXY exempts is reached direct, so a transport error there is unreachable", async () => {
@@ -255,7 +254,7 @@ test("a gateway host that NO_PROXY exempts is reached direct, so a transport err
   const outcome = await verifyGateways([target("corp", "https://llm.example.test/v1/models")], { fetchImpl: refusedDirect, proxyHonoured: false, env });
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
 });
 
 test("NO_PROXY entries match the host exactly, as a domain suffix or as a wildcard, with or without a port", async () => {
@@ -296,6 +295,6 @@ test("an unreachable gateway outranks one that is only unverified for want of pr
   const outcome = await verifyGateways([target("a", "https://a.test/models"), target("b", "https://b.test/models")], { fetchImpl: byHost, proxyHonoured: false, env });
 
   assert.equal(outcome.status, "failed");
-  assert.match(outcome.error, /unreachable/);
+  assert.ok(outcome.error.startsWith(GATEWAY_REASON.unreachable), outcome.error);
   assert.ok(outcome.error.includes("b"));
 });
