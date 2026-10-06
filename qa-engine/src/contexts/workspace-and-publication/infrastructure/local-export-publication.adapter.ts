@@ -50,7 +50,7 @@ export interface LocalExportDeps {
   /* gitignore-style patterns applied before the change scan (installed deps, coverage dumps). */
   excludes: readonly string[];
   git: ExportGit;
-  /* True when the text carries a secret. Applied to every exported file and to the patch; a hit leaves that file out of the export. Required: there is no safe default. */
+  /* True when the text carries a secret. Applied to every new file and to the lines the patch adds; a hit leaves that file out of the export. Required: there is no safe default. */
   containsSecret(text: string): boolean;
   writeExcludes(mirrorDir: string, patterns: readonly string[]): void;
   fs?: LocalExportFs;
@@ -97,6 +97,37 @@ export function parsePorcelainZ(out: string): ChangedFile[] {
     files.push({ path, deleted: x === "D" || y === "D", untracked: x === "?" && y === "?" });
   }
   return files;
+}
+
+const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+
+/* The lines a `git diff --binary` patch adds, without their `+` and joined by newlines: all the lines of a new file, only the new ones of a changed file. Context and removed lines are not part of what a change publishes, and a binary patch body (base85 of the file) is not text. A hunk is read by the line counts of its `@@` header, so an added line that looks like a file or hunk header is still an added line. A hunk that does not follow its counts makes the whole patch the answer: when unsure, everything is screened. */
+export function addedLinesOfPatch(patch: string): string {
+  const lines = patch.split("\n");
+  const added: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const header = HUNK_HEADER.exec(lines[i++]!);
+    if (!header) continue;
+    let oldLeft = header[1] === undefined ? 1 : Number(header[1]);
+    let newLeft = header[2] === undefined ? 1 : Number(header[2]);
+    while (oldLeft > 0 || newLeft > 0) {
+      const line = lines[i++];
+      if (line === undefined) return patch;
+      if (line.startsWith("+")) {
+        added.push(line.slice(1));
+        newLeft--;
+      } else if (line.startsWith("-")) {
+        oldLeft--;
+      } else if (line.startsWith(" ") || line === "") {
+        oldLeft--;
+        newLeft--;
+      } else if (!line.startsWith("\\")) {
+        return patch;
+      }
+    }
+  }
+  return added.join("\n");
 }
 
 export class LocalExportPublicationAdapter {
@@ -215,12 +246,12 @@ export class LocalExportPublicationAdapter {
     return { exportable, leftOut };
   }
 
-  /* A file the injected screen reads as carrying a secret stays in the mirror: the agent runs with the orchestrator's environment in reach, so a hardcoded credential must not travel to a human as an apply-ready patch. A deletion has no content to read here; its removed lines are screened with the patch. */
+  /* A file the injected screen reads as carrying a secret stays in the mirror: the agent runs with the orchestrator's environment in reach, so a hardcoded credential must not travel to a human as an apply-ready patch. Only a new file is read whole, because all of its lines are new; a tracked file is screened through the lines its patch adds, so a literal that was already in the repository never holds an unrelated change back. A deletion adds nothing. */
   private screenContents(mirrorDir: string, changed: readonly ChangedFile[]): { exportable: ChangedFile[]; leftOut: LeftOut[] } {
     const exportable: ChangedFile[] = [];
     const leftOut: LeftOut[] = [];
     for (const file of changed) {
-      if (file.deleted) {
+      if (file.deleted || !file.untracked) {
         exportable.push(file);
         continue;
       }
@@ -247,7 +278,7 @@ export class LocalExportPublicationAdapter {
     }
   }
 
-  /* Diff against HEAD over exactly the changed paths, screened for secrets. Untracked files enter the diff via intent-to-add, which is reset afterwards even when a diff throws. A hit on the whole patch is narrowed to the files whose own diff carries it (a removed line, a deleted file's old content); those leave the export and the patch is rebuilt without them. A hit no single file explains is a secret spanning files, so nothing is exported. */
+  /* Diff against HEAD over exactly the changed paths, screened for secrets through the lines the diff adds. Untracked files enter the diff via intent-to-add, which is reset afterwards even when a diff throws. A hit on the whole patch is narrowed to the files whose own diff carries it; those leave the export and the patch is rebuilt without them. A hit no single file explains is a secret spanning files, so nothing is exported. */
   private async buildScreenedPatch(mirrorDir: string, changed: readonly ChangedFile[]): Promise<{ patch: string; exportable: ChangedFile[]; leftOut: LeftOut[] }> {
     const untracked = changed.filter((f) => f.untracked).map((f) => f.path);
     if (untracked.length > 0) await this.deps.git(["add", "--intent-to-add", "--", ...untracked], mirrorDir);
@@ -255,11 +286,11 @@ export class LocalExportPublicationAdapter {
       const diffOf = (files: readonly ChangedFile[]): Promise<string> =>
         this.deps.git(["diff", "--binary", IGNORE_SUBMODULE_CONTENT, "HEAD", "--", ...files.map((f) => f.path)], mirrorDir);
       const patch = await diffOf(changed);
-      if (!this.deps.containsSecret(patch)) return { patch, exportable: [...changed], leftOut: [] };
+      if (!this.deps.containsSecret(addedLinesOfPatch(patch))) return { patch, exportable: [...changed], leftOut: [] };
       const exportable: ChangedFile[] = [];
       const leftOut: LeftOut[] = [];
       for (const file of changed) {
-        if (this.deps.containsSecret(await diffOf([file]))) leftOut.push({ path: file.path, reason: REASON_SECRET });
+        if (this.deps.containsSecret(addedLinesOfPatch(await diffOf([file])))) leftOut.push({ path: file.path, reason: REASON_SECRET });
         else exportable.push(file);
       }
       if (leftOut.length === 0) return { patch: "", exportable: [], leftOut: changed.map((f) => ({ path: f.path, reason: REASON_SECRET })) };

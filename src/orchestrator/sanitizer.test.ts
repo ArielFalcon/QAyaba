@@ -291,6 +291,24 @@ test("detection metadata — with secrets", () => {
   assert.ok(detection.patterns.includes("api-key-assignment"));
 });
 
+/* A pattern a caller deliberately ignores must not hide the others: every pattern reads the original text. */
+const BASE64_BLOB = "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MEFCQ0RFRkdISUpL";
+
+test("containsSecrets: ignoring a pattern leaves the other patterns to judge the same text on their own", () => {
+  const line = `const GATEWAY_KEY = "${BASE64_BLOB}";`;
+
+  assert.equal(containsSecrets(line, "model"), true);
+  assert.equal(containsSecrets(line, "model", new Set(["env-credential"])), true, "base64-secret still reads the blob env-credential would have consumed");
+  assert.equal(containsSecrets('const API_KEY = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";', "model", new Set(["env-credential"])), true, "api-key-assignment still reads the literal");
+});
+
+test("containsSecrets: a text only the ignored pattern matches is clean", () => {
+  const stockFixture = `const DEFAULT_PASSWORD_SELECTOR = 'input[type="password"]';`;
+
+  assert.equal(containsSecrets(stockFixture, "model"), true);
+  assert.equal(containsSecrets(stockFixture, "model", new Set(["env-credential"])), false);
+});
+
 test("containsSecrets returns true on secret", () => {
   assert.equal(containsSecrets("apiKey: sk-abc123"), true);
 });

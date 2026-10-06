@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   LocalExportPublicationAdapter,
+  addedLinesOfPatch,
   nodeLocalExportFs,
   parsePorcelainZ,
   type LocalExportDeps,
@@ -329,10 +330,10 @@ test("when every file carries a secret nothing is exported and the result says s
   assert.equal(fs.files.has("/exports/app/ns-1/changes.patch"), false);
 });
 
-test("a secret that only the patch carries (a removed line) takes that file out of the patch, not the others", async () => {
+test("a secret that only the patch carries (an added line of a tracked file) takes that file out of the patch, not the others", async () => {
   const diff = (args: string[]): string => {
     const paths = args.slice(args.indexOf("--") + 1);
-    return paths.map((p) => (p === "e2e/flows/old.spec.ts" ? `diff --git a/${p} b/${p}\n-const k = 'LEAK-MARKER'\n` : `diff --git a/${p} b/${p}\n+ok\n`)).join("");
+    return paths.map((p) => (p === "e2e/flows/old.spec.ts" ? patchOf(p, ["+const k = 'LEAK-MARKER'"]) : patchOf(p, ["+ok"]))).join("");
   };
   const { adapter, fs } = harness([" M e2e/flows/a.spec.ts", " M e2e/flows/old.spec.ts", ""].join("\0"), {
     containsSecret: (text) => text.includes("LEAK-MARKER"),
@@ -348,4 +349,107 @@ test("a secret that only the patch carries (a removed line) takes that file out 
   const manifest = JSON.parse(fs.files.get("/exports/app/ns-1/export.json") ?? "{}");
   assert.deepEqual(manifest.files, ["e2e/flows/a.spec.ts"]);
   assert.deepEqual(manifest.skipped, ["e2e/flows/old.spec.ts"]);
+});
+
+/* A unified diff of one text file, as `git diff --binary HEAD` prints it: `body` holds the hunk lines, the header counts follow from them. */
+function patchOf(path: string, body: readonly string[]): string {
+  const old = body.filter((l) => !l.startsWith("+")).length;
+  const added = body.filter((l) => !l.startsWith("-")).length;
+  return `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1,${old} +1,${added} @@\n${body.join("\n")}\n`;
+}
+
+const LEAKS = (text: string): boolean => text.includes("LEAK-MARKER");
+
+test("only the lines a change adds are screened: a literal already in the file, or removed from it, does not hold the export back", async () => {
+  const seen: string[] = [];
+  const diff = () => patchOf("e2e/fixtures.ts", [" const PRE_EXISTING = 'LEAK-MARKER';", "-const REMOVED = 'LEAK-MARKER';", "+const ADDED = 'fine';"]);
+  const { adapter } = harness(" M e2e/fixtures.ts\0", { containsSecret: (text) => (seen.push(text), LEAKS(text)), diff });
+  mirrorFiles.set("/m/e2e/fixtures.ts", "const PRE_EXISTING = 'LEAK-MARKER';\nconst ADDED = 'fine';\n");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.equal(res.leftOut, undefined);
+  assert.ok(seen.length > 0 && seen.every((text) => !LEAKS(text)), "nothing but the added line reached the screen");
+});
+
+test("a secret on an added line of a tracked file is caught", async () => {
+  const diff = () => patchOf("e2e/fixtures.ts", [" const keep = 1;", "+const k = 'LEAK-MARKER';"]);
+  const { adapter } = harness(" M e2e/fixtures.ts\0", { containsSecret: LEAKS, diff });
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, false);
+  assert.deepEqual(res.leftOut, [{ path: "e2e/fixtures.ts", reason: "contains a secret" }]);
+});
+
+test("a new file is screened whole: all of its lines are added", async () => {
+  const { adapter } = harness("?? e2e/flows/leaky.spec.ts\0", { containsSecret: LEAKS });
+  mirrorFiles.set("/m/e2e/flows/leaky.spec.ts", "const k = 'LEAK-MARKER'");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.deepEqual(res.leftOut, [{ path: "e2e/flows/leaky.spec.ts", reason: "contains a secret" }]);
+});
+
+test("a binary patch body is never screened", async () => {
+  const seen: string[] = [];
+  const diff = () => "diff --git a/e2e/assets/logo.png b/e2e/assets/logo.png\nnew file mode 100644\nindex 0000000..1111111\nGIT binary patch\nliteral 12\nzcmZQzLEAK-MARKERzzzz\n\nliteral 0\nHcmV?d00001\n\n";
+  const { adapter } = harness("?? e2e/assets/logo.png\0", { containsSecret: (text) => (seen.push(text), false), diff });
+  mirrorFiles.set("/m/e2e/assets/logo.png", "binary");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.ok(seen.every((text) => !LEAKS(text) && !text.includes("zcmZQz")), "the base85 body stays out of the screen");
+});
+
+test("deleting a file that held a secret exports the deletion: removed lines leave nothing new", async () => {
+  const diff = () => patchOf("e2e/flows/old.spec.ts", ["-const k = 'LEAK-MARKER';"]);
+  const { adapter } = harness(" D e2e/flows/old.spec.ts\0", { containsSecret: LEAKS, diff });
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.equal(res.leftOut, undefined);
+});
+
+const NEW_FILE_HEADER = "diff --git a/e2e/n.ts b/e2e/n.ts\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/e2e/n.ts\n";
+
+test("addedLinesOfPatch returns every line of a new file", () => {
+  assert.equal(addedLinesOfPatch(`${NEW_FILE_HEADER}@@ -0,0 +1,2 @@\n+one\n+two\n`), "one\ntwo");
+});
+
+test("addedLinesOfPatch leaves context and removed lines out, across hunks and files", () => {
+  const patch = [
+    "diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", "@@ -1,3 +1,3 @@", " ctx-a", "-old-a", "+new-a", " ctx-a2",
+    "@@ -10,1 +10,3 @@", " ctx-b", "+new-b", "+new-b2",
+    "diff --git a/c.ts b/c.ts", "--- a/c.ts", "+++ b/c.ts", "@@ -1 +1 @@", "-old-c", "+new-c", "",
+  ].join("\n");
+
+  assert.equal(addedLinesOfPatch(patch), "new-a\nnew-b\nnew-b2\nnew-c");
+});
+
+test("addedLinesOfPatch keeps an added line that looks like a file header, a hunk header or a diff header", () => {
+  const body = ["+++ b/evil", "+@@ -1 +1 @@", "+diff --git a/x b/x", "+--- a/x"];
+
+  assert.equal(addedLinesOfPatch(`${NEW_FILE_HEADER}@@ -0,0 +1,4 @@\n${body.join("\n")}\n`), ["++ b/evil", "@@ -1 +1 @@", "diff --git a/x b/x", "--- a/x"].join("\n"));
+});
+
+test("addedLinesOfPatch skips binary patch bodies and the 'no newline' marker", () => {
+  const patch = `${NEW_FILE_HEADER}@@ -0,0 +1 @@\n+text\n\\ No newline at end of file\ndiff --git a/b.bin b/b.bin\nindex 1..2 100644\nGIT binary patch\nliteral 5\nzcmZQz\n\nliteral 0\nHcmV?d00001\n\n`;
+
+  assert.equal(addedLinesOfPatch(patch), "text");
+});
+
+test("addedLinesOfPatch reads a hunk it cannot follow whole, so nothing is skipped by accident", () => {
+  const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,5 +1,5 @@\n-old\n+new\nnot a hunk line\n";
+
+  const text = addedLinesOfPatch(patch);
+
+  assert.ok(text.includes("old") && text.includes("new") && text.includes("not a hunk line"));
+});
+
+test("addedLinesOfPatch of an empty patch is empty", () => {
+  assert.equal(addedLinesOfPatch(""), "");
 });

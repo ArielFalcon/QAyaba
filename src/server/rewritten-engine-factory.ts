@@ -114,7 +114,7 @@ import { resolveSandbox, type Sandbox } from "../../qa-engine/src/shared-infrast
 import { setSandboxGroup } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
 import { setupCodeProject, createDefaultCodeSetupDeps } from "../../qa-engine/src/contexts/test-execution/infrastructure/code-setup";
 import { requireEnv } from "../util/env";
-import { RedactionPortAdapter, recordAudit, sanitizeText } from "../orchestrator/sanitizer";
+import { RedactionPortAdapter, containsSecrets, recordAudit } from "../orchestrator/sanitizer";
 import { ensureMirror, ensureMirrorAtBranch, defaultMirrorDeps, workdirRoot, realGit, authHeaderArgs, hardenGitArgs, assertTrustedGitTree } from "../integrations/repo-mirror";
 import { stageServiceContext, serviceContextDir } from "./service-context";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
@@ -259,21 +259,19 @@ export function buildVcsPublish(
  * and whose value is a quoted literal (the stock fixtures' DEFAULT_PASSWORD_SELECTOR is one), and a
  * file held back for it would leave the suite without its fixtures. A real credential in such a
  * constant is still caught by the exact-value check (when it came from the environment) and by the
- * token-shaped patterns.
+ * value-shaped patterns, which read the original text rather than what this one left behind.
  */
 const EXPORT_IGNORED_SECRET_PATTERNS: ReadonlySet<string> = new Set(["env-credential"]);
 
 /*
- * The secret screen the local exporter applies to every file and to the patch before they leave the
- * mirror: the exact value of any secret-named env var, or any token-shaped secret the sanitizer's
- * code-friendly ("model") mode recognises. qa-engine cannot read env or import src/, so the screen is
- * built here and injected.
+ * The secret screen the local exporter applies to every new file and to the lines a patch adds
+ * before they leave the mirror: the exact value of any secret-named env var, or any secret the
+ * sanitizer's code-friendly ("model") mode recognises, each pattern judging the text on its own.
+ * qa-engine cannot read env or import src/, so the screen is built here and injected.
  */
 export function buildExportSecretCheck(env: Record<string, string | undefined>): (text: string) => boolean {
   const redactor = new RedactionPortAdapter(env);
-  return (text) =>
-    redactor.containsEnvSecretValue(text) ||
-    sanitizeText(text, "model").detection.patterns.some((name) => !EXPORT_IGNORED_SECRET_PATTERNS.has(name));
+  return (text) => redactor.containsEnvSecretValue(text) || containsSecrets(text, "model", EXPORT_IGNORED_SECRET_PATTERNS);
 }
 
 

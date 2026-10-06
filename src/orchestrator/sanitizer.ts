@@ -203,10 +203,16 @@ export function sanitizeText(input: string, mode: SanitizeMode = "issue"): { tex
 }
 
 
-export function containsSecrets(text: string, mode: SanitizeMode = "issue"): boolean {
+/*
+ * True when the text carries a secret by any named pattern. Each pattern reads the ORIGINAL text, so
+ * `ignoring` (pattern names a caller does not want to gate on) never hides a span from the others:
+ * sanitizeText's detection cannot say that, because its patterns run in order on already-redacted text.
+ */
+export function containsSecrets(text: string, mode: SanitizeMode = "issue", ignoring: ReadonlySet<string> = new Set()): boolean {
   if (!text) return false;
   const masked = text.replace(/data:[^;]+;base64,[A-Za-z0-9+/=]+/gi, "");
-  for (const { p, skip, modelSkip } of NAMED_SECRET_PATTERNS) {
+  for (const { name, p, skip, modelSkip } of NAMED_SECRET_PATTERNS) {
+    if (ignoring.has(name)) continue;
     /*
      * These are module-level /g regexes; .test()/.exec() advance and persist lastIndex,
      * which would make repeated calls alternate — reset so detection is deterministic.
