@@ -9,7 +9,7 @@
   },
   "agent": {
     "qa-generator": {
-      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare): resolving a conflict between memories is not the generator's job.",
+      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare), because resolving a conflict between memories is not the generator's job, and mem_session_summary, because the generator ends on its verdict and has no session to summarize.",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-generator.md}",
@@ -21,8 +21,10 @@
         "webfetch": false,
         "engram_mem_judge": false,
         "engram_mem_compare": false,
+        "engram_mem_session_summary": false,
         "mem_judge": false,
-        "mem_compare": false
+        "mem_compare": false,
+        "mem_session_summary": false
       },
       "maxSteps": 50,
       "temperature": 0.2
@@ -423,7 +425,7 @@
       "temperature": 0.3
     },
     "qa-explorer": {
-      "description": "Read-only blast-radius explorer. Maps a change's affected symbols, FE↔BE links and contracts into a distilled ExplorationBrief JSON so the test-writer need not re-read the code. Writes nothing; emits only the brief. Has serena+engram MCP access by design (no playwright — it never drives a browser).",
+      "description": "Read-only blast-radius explorer. Maps a change's affected symbols, FE↔BE links and contracts into a distilled ExplorationBrief JSON so the test-writer need not re-read the code. Writes nothing; emits only the brief. Has serena+engram MCP access by design (no playwright — it never drives a browser), except mem_session_summary: it emits only the brief and has no session to summarize.",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-explorer.md}",
@@ -455,7 +457,9 @@
         "browser_hover": false,
         "browser_select_option": false,
         "browser_tabs": false,
-        "browser_wait_for": false
+        "browser_wait_for": false,
+        "engram_mem_session_summary": false,
+        "mem_session_summary": false
       },
       "maxSteps": 25,
       "temperature": 0.2

@@ -152,6 +152,11 @@ const MEMORY_MAINTENANCE_REASON =
   "Resolving a conflict between memories is not the generator's job: a judgment it files stays pending, " +
   "pending judgments accumulate, and a memory-maintenance process is the place that owns them.";
 
+const SESSION_SUMMARY_REASON =
+  "A session summary closes a session an agent owns, and a pipeline role has none. The memory server's own " +
+  "instructions call the summary mandatory before an agent says it is done, which competes with the role's " +
+  "verdict as its last action and spends a step of a hard cap. The denial is runtime config, not prompt wording.";
+
 /* Tools of a server an agent otherwise holds that it is DELIBERATELY denied, by agent and then by the
    id the runtime reports (server name, an underscore, the tool), each with the reason. The prefixed
    id is the denial that binds; its bare twin is the redundant half of the belt-and-braces. Adding an
@@ -162,6 +167,10 @@ const DELIBERATE_MCP_TOOL_DENIALS: ToolDenials = {
   "qa-generator": {
     engram_mem_judge: MEMORY_MAINTENANCE_REASON,
     engram_mem_compare: MEMORY_MAINTENANCE_REASON,
+    engram_mem_session_summary: SESSION_SUMMARY_REASON,
+  },
+  "qa-explorer": {
+    engram_mem_session_summary: SESSION_SUMMARY_REASON,
   },
 };
 
@@ -520,6 +529,21 @@ test("qa-generator keeps serena+engram+playwright as the test author, minus the 
   }
 });
 
+test("the generator and the explorer are denied the session summary under both tool ids, and still recall and save memory", () => {
+  const { agents } = loadAgentConfig();
+  for (const name of ["qa-generator", "qa-explorer"]) {
+    const tools = agentTools(agents[name]);
+    for (const id of ["engram_mem_session_summary", "mem_session_summary"]) {
+      assert.equal(tools[id], false, `${name} must deny "${id}". ${SESSION_SUMMARY_REASON}`);
+    }
+    /* One tool is denied, not the memory: recalling and saving stay open under both ids. */
+    for (const tool of ["mem_search", "mem_save", "mem_get_observation", "mem_context"]) {
+      assert.notEqual(tools[tool], false, `${name} must keep "${tool}"`);
+      assert.notEqual(tools[`engram_${tool}`], false, `${name} must keep "engram_${tool}"`);
+    }
+  }
+});
+
 test("every agent that holds an MCP server denies exactly the tools its exemption list names", () => {
   const { agents } = loadAgentConfig();
   let checked = 0;
@@ -531,13 +555,21 @@ test("every agent that holds an MCP server denies exactly the tools its exemptio
       assertDeniedToolsAreTheExemptionList(name, tools, server);
     }
   }
-  /* Meaningfulness guard: agents do hold servers, and the generator's exemption list is exercised. */
+  /* Meaningfulness guard: agents do hold servers, and the exemption lists are exercised. */
   assert.ok(checked >= 5, `expected >=5 (agent, held server) pairs checked, got ${checked}`);
   assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-generator"] ?? {}).length > 0);
+  assert.ok(Object.keys(DELIBERATE_MCP_TOOL_DENIALS["qa-explorer"] ?? {}).length > 0);
 });
 
 test("the exemption list of a held server is enforced both ways", () => {
-  const denied = { engram_mem_judge: false, engram_mem_compare: false, mem_judge: false, mem_compare: false };
+  const denied = {
+    engram_mem_judge: false,
+    engram_mem_compare: false,
+    engram_mem_session_summary: false,
+    mem_judge: false,
+    mem_compare: false,
+    mem_session_summary: false,
+  };
   const allowed = (tools: Record<string, unknown>, denials?: ToolDenials) =>
     assertMcpServerAllowed("qa-generator", tools, "engram", denials);
   const exact = (tools: Record<string, unknown>, denials?: ToolDenials) =>

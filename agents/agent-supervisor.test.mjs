@@ -123,6 +123,64 @@ test("ensureCodexConfig: preserves existing auth content in the file (survives c
   assert.ok(after.includes("[mcp_servers.serena]"), "must still have mcp_servers after merge");
 });
 
+// The lines each [mcp_servers.<name>] table holds, by server name. A table ends at the next header.
+function mcpTables(toml) {
+  const tables = {};
+  let current = null;
+  for (const line of toml.split(/\r?\n/)) {
+    const header = /^\[mcp_servers\.([^\]]+)\]$/.exec(line);
+    if (header) {
+      current = header[1];
+      tables[current] = [];
+    } else if (/^\[/.test(line)) {
+      current = null;
+    } else if (current !== null) {
+      tables[current].push(line);
+    }
+  }
+  return tables;
+}
+
+// What a table assigns to `disabled_tools`, or undefined when it assigns nothing. An array of plain
+// TOML strings is also a JSON array.
+function disabledToolsOf(tableLines) {
+  const line = tableLines.find((l) => /^disabled_tools\s*=/.test(l));
+  return line === undefined ? undefined : JSON.parse(line.slice(line.indexOf("=") + 1));
+}
+
+// Governance: no pipeline role closes a session, and the memory server's own instructions call the
+// session summary mandatory before an agent says it is done. Codex has one config.toml for every role,
+// so the denial is made on the engram server itself. The pinned Codex (0.139.0) offers the model no
+// tool its `disabled_tools` lists.
+test("ensureCodexConfig: the engram table disables the session summary and no other server disables a tool", () => {
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-disabled-"));
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+
+  const tables = mcpTables(readFileSync(join(codexHome, "config.toml"), "utf8"));
+  assert.deepEqual(disabledToolsOf(tables.engram), ["mem_session_summary"]);
+  assert.deepEqual(disabledToolsOf(tables.serena) ?? [], []);
+  assert.deepEqual(disabledToolsOf(tables.playwright) ?? [], []);
+});
+
+test("ensureCodexConfig: a config.toml written before the denial is upgraded in place, with one engram table", () => {
+  const codexHome = mkdtempSync(join(tmpdir(), "codex-upgrade-"));
+  const configPath = join(codexHome, "config.toml");
+  // What a codex-data volume holds from an earlier boot: auth, and an engram table with no disabled tools.
+  writeFileSync(
+    configPath,
+    '[auth]\napi_key = "sk-test-value"\n\n' +
+      '[mcp_servers.engram]\ncommand = "engram"\nargs = ["mcp", "--tools=agent"]\nenv = { ENGRAM_DATA_DIR = "/old" }\n',
+    "utf8",
+  );
+
+  ensureCodexConfig(codexHome, { ENGRAM_DATA_DIR: "/data" });
+
+  const after = readFileSync(configPath, "utf8");
+  assert.equal(after.split("[mcp_servers.engram]").length - 1, 1, "the old engram table must be replaced, not duplicated");
+  assert.deepEqual(disabledToolsOf(mcpTables(after).engram), ["mem_session_summary"]);
+  assert.ok(after.includes('api_key = "sk-test-value"'), "the auth content must survive the upgrade");
+});
+
 // T-P0-3: sandbox regression guard — read-only roles resolve to read-only, generator to workspace-write.
 // AC0.1.3 RELAXED: the per-role MCP exclusion is satisfied by the per-role sandbox boundary,
 // NOT by a per-role MCP config. This test pins the contract so it can never silently regress.

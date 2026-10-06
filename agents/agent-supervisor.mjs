@@ -436,7 +436,13 @@ export function ensureCodexConfig(codexHome, env = process.env) {
   }
 
   // MCP server definitions (mirroring the top-level "mcp" server registry in opencode.json).
-  // Each entry: { command: string[], environment?: Record<string,string> }
+  // Each entry: { command: string[], environment?: Record<string,string>, disabledTools?: string[] }
+  //
+  // `disabledTools` becomes the server's `disabled_tools`: Codex does not offer those tools to the model.
+  // OpenCode denies per agent in opencode.json `tools{}`; Codex has ONE config.toml for every role, so a
+  // disabled tool is disabled for all Codex roles. engram's `mem_session_summary` is disabled because no
+  // pipeline role has a session to close, and the server's own instructions call the summary mandatory
+  // before an agent says it is done, which competes with the role's verdict as its last action.
   const MCP_SERVERS = [
     {
       name: "serena",
@@ -446,6 +452,7 @@ export function ensureCodexConfig(codexHome, env = process.env) {
       name: "engram",
       command: ["engram", "mcp", "--tools=agent"],
       environment: { ENGRAM_DATA_DIR: "{env:ENGRAM_DATA_DIR}" },
+      disabledTools: ["mem_session_summary"],
     },
     {
       name: "playwright",
@@ -471,6 +478,9 @@ export function ensureCodexConfig(codexHome, env = process.env) {
         .map(([k, v]) => `${k} = ${JSON.stringify(resolveEnvPlaceholder(v))}`)
         .join(", ");
       mcpToml += `env = { ${resolvedPairs} }\n`;
+    }
+    if (server.disabledTools) {
+      mcpToml += `disabled_tools = ${tomlStringArray(server.disabledTools)}\n`;
     }
     mcpToml += "\n";
   }
