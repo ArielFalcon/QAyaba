@@ -75,16 +75,6 @@ test("the Java language server heap defaults to the same value in the compose bu
   assert.equal(/^ARG JDTLS_XMX=(\S+)$/m.exec(dockerfile)?.[1], fromCompose);
 });
 
-test("the console login host allowlist is passed through to the orchestrator and is empty by default", () => {
-  const value = declaredValue("orchestrator", "QA_WEB_LOGIN_HOST_ALLOWLIST");
-  assert.equal(typeof value, "string", "the allowlist is passed through");
-  assert.equal(interpolationDefault(value, "QA_WEB_LOGIN_HOST_ALLOWLIST"), "", "with nothing set only loopback Host headers log in");
-});
-
-test("only the orchestrator, which serves the console login, receives the host allowlist", () => {
-  assert.ok(!("QA_WEB_LOGIN_HOST_ALLOWLIST" in compose.services.agents.environment));
-});
-
 // Containers reach each other by service name. When the Docker CLI injects proxy variables, a client
 // that honors them (the Go console does) would send `orchestrator:8080` to the corporate proxy
 // unless the service names are in the bypass list.
@@ -98,3 +88,16 @@ for (const service of Object.keys(compose.services)) {
     }
   });
 }
+
+// The console signs in with the local API token (`./slim/qayaba.sh console` puts it on the clipboard).
+// QA_WEB_AUTO_LOGIN would hand an operator session to any peer that sends `Host: localhost`, the
+// agents container included, whose code is driven by an LLM.
+test("no service enables the automatic console login", () => {
+  for (const [name, service] of Object.entries(compose.services)) {
+    assert.ok(!("QA_WEB_AUTO_LOGIN" in (service.environment ?? {})), `${name} must not declare QA_WEB_AUTO_LOGIN`);
+  }
+});
+
+test("no service imports an environment file that could switch the automatic login on", () => {
+  for (const [name, service] of Object.entries(compose.services)) assert.equal(service.env_file, undefined, `${name} declares env_file`);
+});

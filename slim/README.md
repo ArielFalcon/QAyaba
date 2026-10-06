@@ -23,7 +23,7 @@ de los secretos; `./slim/qayaba.sh sbom` genera la lista real de paquetes de la 
 | CA corporativa | No contemplada | `slim/certs/*.crt` para todos los clientes |
 | Publicación | PR con auto-merge + Issues en GitHub | **Exportación local** en `slim/exports/<app>/<run>/` (parche + MR.md/ISSUE.md) |
 | SCM | GitHub | Cualquier host git (GitLab): `GIT_REMOTE_BASE` + `GIT_TOKEN` |
-| Login de la consola | OAuth de GitHub | Token local (`config/.api_token`) |
+| Login de la consola | OAuth de GitHub | Token local (`config/.api_token`), sin login automático: `./slim/qayaba.sh console` lo copia al portapapeles |
 | Auto-mantenimiento | Sí | No |
 
 ## Requisitos
@@ -63,8 +63,10 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 ./slim/qayaba.sh check                # binarios, language servers y configuración: sin nada pendiente de descargar;
                                       # puerto de la consola solo en loopback y alcanzable desde la red de compose
 
-# 5. Pega la clave de la API del LLM del día: consola web (http://localhost:8080/app, panel «agent runtime ·
-#    LLM gateway») o pantalla «agent runtime» de la TUI (tecla `a`). OPENCODE_API_KEY en slim/.env es
+# 5. Abre la consola web (el token local queda en el portapapeles: pégalo en la pantalla de acceso) y pega
+#    la clave de la API del LLM del día en el panel «agent runtime · LLM gateway», o usa la pantalla
+#    «agent runtime» de la TUI (tecla `a`).
+./slim/qayaba.sh console OPENCODE_API_KEY en slim/.env es
 #    opcional: la pila arranca sin ella y el agente espera la clave (ver «Clave diaria del LLM»).
 ```
 
@@ -91,7 +93,7 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 ./slim/qayaba.sh run <app> <sha|rama>                               # diff: el blast radius de un commit (se encola)
 ./slim/qayaba.sh run <app> <sha> manual --guidance "el alta de pedidos"
 ./slim/qayaba.sh tui                                                # consola de terminal
-open http://localhost:8080/app                                      # consola web
+./slim/qayaba.sh console                                            # consola web: copia el token local y abre http://localhost:8080/app
 ./slim/qayaba.sh exports <app>                                      # resultados exportados
 ./slim/qayaba.sh sbom                                               # lista de paquetes de la imagen (para la revisión de seguridad)
 ```
@@ -124,6 +126,21 @@ Las credenciales van en `DEV_TEST_USER`/`DEV_TEST_PASS` de `slim/.env`. El naveg
 tiene certificado de cliente: si el proveedor pide mTLS de forma opcional, continúa sin él y muestra el
 formulario de usuario y contraseña (verificado contra un proveedor HTTPS que solicita certificado).
 Si el proveedor **exige** certificado sin alternativa, hace falta un usuario técnico con contraseña en DEV.
+
+## Consola web
+
+La consola web **no inicia sesión sola**: pide el token local de la API (`config/.api_token`, generado al
+arrancar por primera vez en el directorio `config/` del equipo). No hay login automático porque cualquier
+contenedor de la red de compose —el de agentes incluido, cuyo código dirige un LLM— podría obtener una sesión
+de operador con solo enviar `Host: localhost`.
+
+```bash
+./slim/qayaba.sh console           # copia el token al portapapeles (pbcopy), imprime la URL y la abre (open)
+./slim/qayaba.sh console --print   # además imprime el token (sin portapapeles, o para verlo)
+```
+
+El token no se imprime salvo con `--print`. La consola lo guarda solo en `sessionStorage` (se borra al cerrar la
+pestaña) y nunca lo pone en una URL.
 
 ## Clave diaria del LLM
 
@@ -221,7 +238,7 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | Contenedores reiniciándose por memoria | La suma de límites no cabe en la máquina virtual de Docker Desktop | Revisa «Presupuesto de memoria»: sube la memoria de la máquina virtual o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
 | El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
 | Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |
-| La consola web no inicia sesión (`/api/auth/local` responde 404) al abrirla por un nombre distinto de `localhost` | El login local solo acepta una cabecera `Host` de loopback (defensa frente a *DNS rebinding*) | Abre `http://localhost:8080/app`, o añade el nombre a `QA_WEB_LOGIN_HOST_ALLOWLIST` en `slim/.env` (lista separada por comas) y ejecuta `./slim/qayaba.sh up` |
+| La consola web muestra «qayaba · login» | Es lo esperado: no hay login automático | `./slim/qayaba.sh console` copia el token local al portapapeles; pégalo en la pantalla de acceso |
 | `preflight` marca la pasarela LLM como `UNREACHABLE` | DNS/VPN, proxy o CA corporativa | Sigue la línea `fix:` que imprime: conectar la VPN, `EXTRA_NO_PROXY` en `slim/.env` o `./slim/qayaba.sh export-ca` |
 | `check` falla con «the tui service cannot reach the orchestrator» | El orquestador no está sano, no escucha en todas las interfaces o un proxy intercepta el nombre del servicio | `./slim/qayaba.sh ps` y `logs orchestrator`; revisa `EXTRA_NO_PROXY` |
 | `check` falla con «published on every interface» | Se modificó `ports:` del orquestador | Restablece `127.0.0.1:${QAYABA_PORT:-8080}:8080` en `slim/compose.yml` |

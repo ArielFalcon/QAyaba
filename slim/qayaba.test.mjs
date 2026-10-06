@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const slimFile = (name) => fileURLToPath(new URL(`./${name}`, import.meta.url));
@@ -145,4 +145,96 @@ test("sbom asks for a build first when the image does not exist", () => {
   const result = qayaba(["sbom"], { failOn: "image inspect" });
   assert.notEqual(result.status, 0);
   assert.match(result.output, /build/);
+});
+
+// The `console` command touches the macOS clipboard and the default browser. Its tests therefore run
+// with a PATH that holds only the stand-ins and the few system tools the script needs, so neither a
+// real pbcopy nor a real open can ever be reached.
+const SYSTEM_TOOLS = ["bash", "dirname", "grep", "tail", "cut", "cat", "tr", "sed", "awk"];
+const STANDIN_RECORDER = (name) => `#!/bin/sh
+echo "$*" > "$STUB_DIR/${name}.args"
+cat > "$STUB_DIR/${name}.stdin"
+`;
+
+function findOnPath(tool) {
+  for (const dir of process.env.PATH.split(delimiter)) {
+    const candidate = join(dir, tool);
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(`${tool} not found on PATH`);
+}
+
+function consoleCli(args, { token = "tok-0123456789abcdef", pbcopy = true, open = true, env = "" } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "qayaba-console-"));
+  try {
+    const slim = join(root, "slim");
+    const bin = join(root, "bin");
+    const stubs = join(root, "stubs");
+    for (const dir of [slim, bin, stubs, join(root, "config")]) mkdirSync(dir);
+    copyFileSync(slimFile("qayaba.sh"), join(slim, "qayaba.sh"));
+    writeFileSync(join(slim, ".env"), env);
+    if (token) writeFileSync(join(root, "config", ".api_token"), token);
+    for (const tool of SYSTEM_TOOLS) symlinkSync(findOnPath(tool), join(bin, tool));
+    for (const [name, present] of [["pbcopy", pbcopy], ["open", open]]) {
+      if (!present) continue;
+      writeFileSync(join(bin, name), STANDIN_RECORDER(name));
+      chmodSync(join(bin, name), 0o755);
+    }
+    const run = spawnSync(join(bin, "bash"), [join(slim, "qayaba.sh"), ...args], { encoding: "utf8", env: { PATH: bin, HOME: root, STUB_DIR: stubs } });
+    const recorded = (file) => (existsSync(join(stubs, file)) ? readFileSync(join(stubs, file), "utf8") : undefined);
+    return { ...run, output: `${run.stdout}${run.stderr}`, clipboard: recorded("pbcopy.stdin"), clipboardArgs: recorded("pbcopy.args"), opened: recorded("open.args")?.trim() };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const TOKEN = "tok-0123456789abcdef";
+
+test("console puts the local API token on the clipboard and never prints it", () => {
+  const result = consoleCli(["console"]);
+  assert.equal(result.status, 0, result.output);
+  assert.equal(result.clipboard.trim(), TOKEN);
+  assert.ok(!result.output.includes(TOKEN), "the token stays out of the terminal output");
+  assert.ok(!result.clipboardArgs.includes(TOKEN), "the token is not passed on a command line");
+});
+
+test("console prints the console URL and opens it in the browser", () => {
+  const result = consoleCli(["console"]);
+  assert.match(result.stdout, /http:\/\/localhost:8080\/app/);
+  assert.equal(result.opened, "http://localhost:8080/app");
+});
+
+test("console follows the published port the operator configured", () => {
+  const result = consoleCli(["console"], { env: "QAYABA_PORT=9191\n" });
+  assert.equal(result.opened, "http://localhost:9191/app");
+});
+
+test("console prints the token only when asked to, and still copies it", () => {
+  const result = consoleCli(["console", "--print"]);
+  assert.equal(result.status, 0, result.output);
+  assert.ok(result.stdout.includes(TOKEN));
+  assert.equal(result.clipboard.trim(), TOKEN);
+});
+
+test("console without a clipboard tool does not print the token and says how to get it", () => {
+  const result = consoleCli(["console"], { pbcopy: false });
+  assert.equal(result.status, 0, result.output);
+  assert.ok(!result.output.includes(TOKEN));
+  assert.match(result.output, /--print/);
+  assert.match(result.output, /http:\/\/localhost:8080\/app/);
+});
+
+test("console without a browser opener still prints the URL", () => {
+  const result = consoleCli(["console"], { open: false });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.stdout, /http:\/\/localhost:8080\/app/);
+  assert.equal(result.opened, undefined);
+});
+
+test("console fails, copying and opening nothing, while there is no API token yet", () => {
+  const result = consoleCli(["console"], { token: "" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.output, /no API token yet/);
+  assert.equal(result.clipboard, undefined);
+  assert.equal(result.opened, undefined);
 });

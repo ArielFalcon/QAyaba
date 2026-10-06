@@ -16,6 +16,9 @@
 #                                           enqueue one e2e run on the server's sequential queue
 #                                           (mode: diff | context | complete | exhaustive | manual)
 #   ./slim/qayaba.sh tui                    terminal console (runs in a container; nothing runs on the host)
+#   ./slim/qayaba.sh console [--print]      web console: copies the local API token to the clipboard (pbcopy),
+#                                           prints the console URL and opens it (open); the token is printed
+#                                           only with --print
 #   ./slim/qayaba.sh exports [app]          list exported publications (patch + MR/Issue bodies)
 #   ./slim/qayaba.sh sbom [args]            software bill of materials of the built image (docker scout sbom, or
 #                                           docker sbom); without either, see slim/INVENTORIO.md
@@ -101,6 +104,28 @@ probe_gateway() {
         mkdir -p /usr/local/share/ca-certificates/corp && cp /certs/*.crt /usr/local/share/ca-certificates/corp/ && update-ca-certificates >/dev/null 2>&1
       fi
       exec sh /probe-gateway.sh /override.json'
+}
+
+console_login() {
+  # The web console signs in with the local API token: it is put on the clipboard, never printed
+  # unless asked for, and never passed on a command line.
+  local print_token=0 token url
+  case "${1:-}" in
+    "") ;;
+    --print) print_token=1 ;;
+    *) die "usage: console [--print]" ;;
+  esac
+  token="$(api_token)"
+  url="http://localhost:$(env_value QAYABA_PORT 8080)/app"
+  if command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$token" | pbcopy
+    echo "the API token is on the clipboard: paste it at the console's sign-in prompt"
+  elif [ "$print_token" -eq 0 ]; then
+    echo "no clipboard tool found: run './slim/qayaba.sh console --print' to display the token (it is also in config/.api_token)"
+  fi
+  if [ "$print_token" -eq 1 ]; then echo "token: $token"; fi
+  echo "console: $url"
+  if command -v open >/dev/null 2>&1; then open "$url" >/dev/null 2>&1 || true; fi
 }
 
 export_ca() {
@@ -199,6 +224,7 @@ case "$cmd" in
           body: JSON.stringify(b),
         }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });' ;;
   tui) "${COMPOSE[@]}" run --rm tui ;;
+  console) console_login "$@" ;;
   sbom) sbom "$@" ;;
   exports) ls -1t "$SLIM_DIR/exports/${1:-}" 2>/dev/null || echo "no exports yet" ;;
   help|*) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" ;;

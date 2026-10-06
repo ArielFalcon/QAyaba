@@ -385,11 +385,11 @@ usuario técnico con contraseña en DEV.
 
 ## 10. Consolas: TUI y web
 
-- **Web** (`http://localhost:8080/app`): estática, sin build; auto-login local (`QA_WEB_AUTO_LOGIN`),
-  seguro porque el puerto solo se publica en loopback. El inicio de sesión comprueba además la cabecera `Host`
-  (defensa frente a *DNS rebinding*): solo acepta `localhost`, `127.0.0.1` y `::1`. Si la consola se abre por
-  otro nombre que apunte al puerto de loopback, hay que añadirlo a `QA_WEB_LOGIN_HOST_ALLOWLIST` (lista separada
-  por comas; el compose lo pasa al orquestador, vacío por defecto).
+- **Web** (`http://localhost:8080/app`): estática, sin build; **sin login automático**. `QA_WEB_AUTO_LOGIN`
+  entregaría una sesión de operador de 24 h a cualquier par de la red de compose que envíe `Host: localhost`
+  (el contenedor de agentes incluido, cuyo código dirige un LLM), así que slim no lo define. La consola pide el
+  token local de la API (`config/.api_token`) y lo guarda solo en `sessionStorage`; `./slim/qayaba.sh console`
+  lo copia al portapapeles (`pbcopy`) sin imprimirlo (salvo `--print`), imprime la URL y la abre.
 - **TUI**: la imagen compila la consola Go solo para Linux. No se entrega ningún binario para ejecutar
   en el equipo: la lista de aplicaciones permitidas de un portátil gestionado bloquea los binarios sin firmar.
   - `qayaba.sh tui` la ejecuta en un contenedor que llega al orquestador por nombre de servicio y
@@ -417,7 +417,7 @@ usuario técnico con contraseña en DEV.
 | S3 | Presupuesto de memoria para la máquina virtual por defecto de 8 GiB (2560m + 4g + 128m, JDTLS a 1 GiB) | `slim/compose.yml`, `slim/Dockerfile` | Hecho |
 | S4 | CA corporativa en cada cliente: almacén de Java verificado en el build, git del sistema, Serena sin informe de uso | `slim/java-trust-ca.sh`, `slim/Dockerfile` | Hecho |
 | S5 | El build exige Node ≥ 24 y que `better-sqlite3` abra una base | `slim/Dockerfile` | Hecho |
-| S6 | Paso de `QA_WEB_LOGIN_HOST_ALLOWLIST` al orquestador y `NO_PROXY` en la consola de terminal | `slim/compose.yml` | Hecho |
+| S6 | `NO_PROXY` en la consola de terminal; sin login automático de la consola web y `./slim/qayaba.sh console` | `slim/compose.yml`, `slim/qayaba.sh` | Hecho |
 | S7 | Diagnóstico: alcance de la pasarela de LLM (`preflight`) y puerto/red de compose (`check`) | `slim/qayaba.sh`, `slim/probe-gateway.sh` | Hecho |
 | S8 | Inventario para la revisión de seguridad y `qayaba.sh sbom` | `slim/INVENTORIO.md`, `slim/qayaba.sh` | Hecho |
 
@@ -491,7 +491,7 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 | Arreglos propios de `FAILURE_CAPTURE_BLOCK` y de la normalización de rutas del *merge-guard* | Sustituyen a los de esta rama (F1) | §2.3 |
 | Mapa FE↔BE en SQLite (`context_maps`) además de `e2e/.qa/context.json`; las ejecuciones de contexto del onboarding siguen el `qa.shadow` de la app | Con `shadow: false` se exporta un MR con el `context.json` a `slim/exports/`; con `shadow: true` el mapa queda en SQLite | §8 |
 | Clave de la pasarela de LLM pegada desde la consola y enmascarada en errores del agente | La pila arranca sin clave y se la entrega en ejecución | §7 |
-| `QA_WEB_LOGIN_HOST_ALLOWLIST` | Paso opcional al orquestador | §10 |
+| `QA_WEB_LOGIN_HOST_ALLOWLIST` y `QA_WEB_AUTO_LOGIN` | Slim no los define: la consola web se abre con el token local | §10 |
 | Puerto por defecto 458 | Slim sigue publicando `127.0.0.1:8080` | §4 |
 
 ### 14.2 Adaptación al equipo objetivo
@@ -506,7 +506,7 @@ Un portátil gestionado con lista de aplicaciones permitidas, Docker Desktop con
 3. **Memoria.** Presupuesto de 6,6 GiB para una máquina virtual de 8 GiB, comprobado por un test (§4).
 4. **CA en cada cliente.** El almacén de Java se verifica en el build; git y Serena quedan configurados (§6).
 5. **Node y módulo nativo.** El build lo comprueba (§5.5).
-6. **Consola.** `QA_WEB_LOGIN_HOST_ALLOWLIST` y `NO_PROXY` en la consola de terminal (§6, §10).
+6. **Consola.** Sin login automático (se accede con el token local, `qayaba.sh console`) y `NO_PROXY` en la consola de terminal (§6, §10).
 7. **Diagnóstico.** `preflight` sondea la pasarela y `check` el puerto y la red de compose (§6).
 8. **Revisión de seguridad.** `slim/INVENTORIO.md` y `./slim/qayaba.sh sbom` (§5.2).
 

@@ -123,8 +123,9 @@ El agente de IA es de **solo lectura** sobre los repositorios vigilados: solo el
 | `agents` | 4097 (supervisor) | No | Solo el orquestador, por `agents:4097` |
 
 `./slim/qayaba.sh check` verifica que el puerto 8080 está publicado únicamente en loopback y que el orquestador
-responde por su dirección de la red de compose. El inicio de sesión local de la consola exige además que la
-cabecera `Host` sea de loopback (o esté en `QA_WEB_LOGIN_HOST_ALLOWLIST`).
+responde por su dirección de la red de compose. La consola web no tiene inicio de sesión automático
+(`QA_WEB_AUTO_LOGIN` no se define): se accede con el token local, que `./slim/qayaba.sh console` copia al
+portapapeles. Un contenedor de la red de compose no puede obtener una sesión de operador.
 
 ## 5. Volúmenes y montajes
 
@@ -188,7 +189,7 @@ los bloquea, la consola sigue funcionando sin iconos ni tipografía propia (ver 
 |---|---|---|---|
 | Clave de la pasarela de LLM (caduca a diario) | Se pega en la consola web o en la TUI; opcionalmente `OPENCODE_API_KEY` en `slim/.env` | Entorno de `orchestrator` y `agents`; en el orquestador, además `/app/.env` (modo `0600`) dentro del contenedor. Ningún volumen la conserva | No se guarda en el navegador ni en URL; se enmascara en errores de transporte y en las salidas registradas; el filtrado de entorno la quita de los procesos del repositorio vigilado |
 | Token de git | `GIT_TOKEN` (solo lectura) en `slim/.env` | Entorno de `orchestrator` | `agents` no lo recibe; se aplica con `-c url.<…>.insteadOf` solo en `clone`/`fetch` y no queda en `.git/config`; se oculta en logs y se bloquea en el entorno de procesos no confiables |
-| Token de la API local | `config/.api_token` (generado) o `QA_API_TOKEN` | Anfitrión (`config/`, no versionado) | El inicio de sesión de la consola es una sesión de corta duración, no entrega el token |
+| Token de la API local | `config/.api_token` (generado) o `QA_API_TOKEN` | Anfitrión (`config/`, no versionado) | La consola pide este token (sin login automático) y lo guarda solo en `sessionStorage`; `./slim/qayaba.sh console` lo copia al portapapeles sin imprimirlo |
 | `WEBHOOK_SECRET` | `slim/.env` | Entorno de `orchestrator` | Firma HMAC del webhook |
 | Credenciales de DEV (`DEV_ENV_*`, `DEV_TEST_*`) | `slim/.env` | Entorno de ambos servicios (el MCP de Playwright inicia sesión) | Alcance limitado al origen de la aplicación |
 | `settings.xml` de Maven | Fichero local | `./maven` (solo `agents`) | No versionado; excluido del contexto de build |
