@@ -57,8 +57,11 @@ ARG TARGETARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Trust: corporate CA(s) that re-terminate TLS (slim/certs/*.crt), for every client in the image.
+# OpenSSL clients, curl and apt read the system bundle; Node, Python (requests, pip) and git are
+# pointed at it explicitly; Java keeps its own truststore and is handled right after the JDK install.
 COPY slim/certs/ /usr/local/share/ca-certificates/corp/
-RUN update-ca-certificates
+RUN update-ca-certificates \
+ && git config --system http.sslCAInfo /etc/ssl/certs/ca-certificates.crt
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
@@ -75,6 +78,12 @@ RUN rm -f /etc/apt/sources.list.d/nodesource.list \
  && apt-get install -y --no-install-recommends python3 python3-venv openjdk-21-jdk-headless \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" /opt/java21
+
+# Java's own truststore (/etc/ssl/certs/java/cacerts) does not follow the system bundle, and the JDK
+# was installed after update-ca-certificates ran: import the corporate CAs explicitly and fail the
+# build unless every one of them is trusted.
+COPY --chmod=755 slim/java-trust-ca.sh /usr/local/bin/java-trust-ca
+RUN java-trust-ca
 
 # npm: the internal mirror for every npm in the image. The GLOBAL npmrc is read whatever the user,
 # HOME or filtered environment (the e2e install runs as the sandbox user with a scrubbed env).
@@ -102,9 +111,11 @@ RUN fetch-artifact "codebase-memory-mcp-linux-${TARGETARCH}.tar.gz" \
  && chmod +x /usr/local/bin/codebase-memory-mcp /usr/local/bin/engram \
  && rm -f /tmp/cbm.tar.gz /tmp/engram.tar.gz
 
-# Serena (semantic code navigation for the agents) from the PyPI mirror.
+# Serena (semantic code navigation for the agents) from the PyPI mirror. SERENA_USAGE_REPORTING=false
+# keeps it from reporting usage, at build time and at run time.
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ARG SERENA_VERSION=1.5.3
+ENV SERENA_USAGE_REPORTING=false
 RUN python3 -m venv /opt/serena \
  && /opt/serena/bin/pip install --no-cache-dir --index-url "$PIP_INDEX_URL" "serena-agent==${SERENA_VERSION}" \
  && ln -s /opt/serena/bin/serena /usr/local/bin/serena

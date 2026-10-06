@@ -197,6 +197,7 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
 | `certificate verify failed` / `SELF_SIGNED_CERT_IN_CHAIN` en el build | Falta la CA corporativa | `./slim/qayaba.sh export-ca` y reconstruir |
+| `java-trust-ca: … holds no PEM certificate` o `… are not trusted by Java` en el build | Un `.crt` de `slim/certs/` no es PEM, o el almacén de Java no admite el certificado | Reexporta con `./slim/qayaba.sh export-ca` (PEM) y reconstruye; el build falla a propósito para que Java (Serena/JDTLS, Maven) no quede sin confiar en la CA |
 | `fetch-artifact: cannot download …` | Host no permitido | Apunta su `*_BASE` a un remoto de Artifactory o vendoriza el fichero en `slim/vendor/` |
 | `fetch-artifact: checksum mismatch` | Fichero distinto al fijado | Descarga exactamente la versión listada en `slim/vendor/SHA256SUMS` |
 | `apt-get update` falla | Sin acceso a Ubuntu | `APT_MIRROR` (amd64) / `APT_PORTS_MIRROR` (arm64) |
