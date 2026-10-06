@@ -12,6 +12,7 @@ import {
   concurrencyFor,
   FREE_CPUS,
   MAX_WORKERS,
+  rangeProblemOf,
   runOptionsFrom,
   sourcePathOf,
   summarize,
@@ -30,6 +31,26 @@ test("every preset names source files and test files that exist (a moved module 
     }
     for (const t of preset.tests) {
       assert.ok(existsSync(join(ROOT, t)), `${name}: test file ${t} does not exist`);
+    }
+  }
+});
+
+test("a line range names real lines of its file: it starts at line 1 or later, never ends before it starts and stops at the last line", () => {
+  assert.equal(rangeProblemOf("src/a.ts", 10), undefined, "an entry with no range names the whole file");
+  assert.equal(rangeProblemOf("src/a.ts:1-10", 10), undefined, "the first and the last line are in the file");
+  assert.equal(rangeProblemOf("src/a.ts:5-5", 10), undefined, "a single line is a range");
+  assert.match(rangeProblemOf("src/a.ts:0-3", 10)!, /line 1/);
+  assert.match(rangeProblemOf("src/a.ts:7-6", 10)!, /before it starts/);
+  assert.match(rangeProblemOf("src/a.ts:5-11", 10)!, /ends at line 11 but the file has 10 lines/);
+  assert.match(rangeProblemOf("src/a.ts:5", 10)!, /start-end/);
+});
+
+test("every preset's line ranges lie inside their files (a range left past the end of an edited file would mutate nothing)", () => {
+  for (const [name, preset] of Object.entries(PRESETS)) {
+    for (const entry of preset.mutate) {
+      const text = readFileSync(join(ROOT, sourcePathOf(entry)), "utf8");
+      const lineCount = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+      assert.equal(rangeProblemOf(entry, lineCount), undefined, `${name}: ${entry}`);
     }
   }
 });

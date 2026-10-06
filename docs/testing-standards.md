@@ -250,6 +250,24 @@ header fragments were restructured away: each section now carries the words that
 there is no per-section fallback to mutate. The classification module had no survivor. **After** is the
 re-run; it has no documented survivors. The adapter test that hands the routes to the login discovery is
 not in the preset: it needs the stock seed from `config/`, which the mutation sandbox does not copy.
+The pack's line ranges were corrected later: code added above them had moved the statements they name
+(the candidate filter, the cut and the log now sit at lines 199-201, the sections block and the list of
+routes left out at 238-247), so the ranges had come to mutate other lines of the pack. The After column
+is the re-run over the corrected ranges (2026-10-06, default workers, 87 mutants, 24 of them compile
+errors): no survivors. The sections block now also holds the row of the pages a redirect reached, and
+its mutants are killed too.
+
+redirect-advisory (2026-10-06, default workers) is a new preset over the lines that say why a route
+degraded and where a redirect led (`route-catalog.ts`: the degrade reasons, the redirect target, the
+catalog and the two log warnings; `dom-snapshot.ts`: the state line of a degraded route, the advisory
+block and the capture that joins it to the grounded routes) and the split that keeps the block out of
+the pack's live DOM section (`context-pack.ts`), run against their own tests. **Before** is its first
+run: 173 mutants, 38 of them compile errors, 127 killed and 8 survived. All 8 are string literals: the
+separator between the routes a warning, a note or the advisory block names, the one between a degrade
+reason and the path it names, the one that tells two lists of nodes apart in the key that groups the
+routes reaching one page, the one between several advisory sections of a split capture, and the default
+of the first part of that split (a split always yields one part). No test pins them and none is
+triaged yet, so none is listed as a documented survivor. **After** is pending that triage.
 
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
@@ -266,7 +284,8 @@ not in the preset: it needs the stock seed from `config/`, which the mutation sa
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
-| route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 62 / 0 / 0 — 100% (100%) | — |
+| route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 63 / 0 / 0 — 100% (100%) | — |
+| redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | — | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 491 / 6 / 4 — 99.2% (98%) | — |
 
