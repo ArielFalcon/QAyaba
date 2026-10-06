@@ -93,3 +93,86 @@ test("serveDashboard re-reads an asset when its mtime changes (bind-mount edits)
     rmSync(dist, { recursive: true, force: true });
   }
 });
+
+/* The console page is where the LLM gateway key is pasted: whatever the browser may load, run or send
+   from there is decided by these headers. */
+function header(res: { headers: Record<string, string> }, name: string): string | undefined {
+  return Object.entries(res.headers).find(([key]) => key.toLowerCase() === name)?.[1];
+}
+
+function directives(policy: string): Map<string, string[]> {
+  return new Map(
+    policy.split(";").map((part) => part.trim().split(/\s+/)).filter((parts) => parts[0] !== "").map(([name, ...sources]) => [name!, sources]),
+  );
+}
+
+async function serveEach(): Promise<Array<[string, ReturnType<typeof mkRes>]>> {
+  const dist = mkdtempSync(join(tmpdir(), "dash-headers-"));
+  const empty = mkdtempSync(join(tmpdir(), "dash-headers-empty-"));
+  try {
+    mkdirSync(join(dist, "js"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html>");
+    writeFileSync(join(dist, "js", "format.js"), "1");
+    const out: Array<[string, ReturnType<typeof mkRes>]> = [];
+    for (const [label, url, dir] of [
+      ["the console page", "/app", dist],
+      ["a script", "/app/js/format.js", dist],
+      ["a refused path", "/app/../../etc/passwd", dist],
+      ["the placeholder", "/app", empty],
+    ] as const) {
+      const res = mkRes();
+      await serveDashboard({ url, method: "GET" } as never, res as never, { dir });
+      out.push([label, res]);
+    }
+    return out;
+  } finally {
+    rmSync(dist, { recursive: true, force: true });
+    rmSync(empty, { recursive: true, force: true });
+  }
+}
+
+test("every console response forbids sniffing and sends no referrer", async () => {
+  for (const [label, res] of await serveEach()) {
+    assert.equal(header(res, "x-content-type-options"), "nosniff", label);
+    assert.equal(header(res, "referrer-policy"), "no-referrer", label);
+  }
+});
+
+test("every console response carries a policy that keeps the page to its own origin", async () => {
+  for (const [label, res] of await serveEach()) {
+    const policy = directives(header(res, "content-security-policy") ?? "");
+    assert.ok(policy.size > 0, `${label} has a content security policy`);
+    for (const name of ["default-src", "script-src", "connect-src"]) {
+      assert.deepEqual(policy.get(name), ["'self'"], `${label}: ${name} allows only the console's own origin`);
+    }
+    for (const [name, sources] of policy) {
+      assert.ok(!sources.some((source) => /^(https?:|\*|wss?:)/.test(source)), `${label}: ${name} names no foreign origin`);
+    }
+  }
+});
+
+test("the policy never lets a script run inline or from a string", async () => {
+  for (const [label, res] of await serveEach()) {
+    const scripts = directives(header(res, "content-security-policy") ?? "").get("script-src") ?? [];
+    assert.ok(scripts.length > 0, `${label} restricts scripts`);
+    assert.ok(!scripts.some((source) => /unsafe|data:|blob:/.test(source)), label);
+  }
+});
+
+test("the policy keeps the page out of frames, forbids a rebased URL and plugins, and posts forms only home", async () => {
+  for (const [label, res] of await serveEach()) {
+    const policy = directives(header(res, "content-security-policy") ?? "");
+    assert.deepEqual(policy.get("frame-ancestors"), ["'none'"], label);
+    assert.deepEqual(policy.get("base-uri"), ["'none'"], label);
+    assert.deepEqual(policy.get("object-src"), ["'none'"], label);
+    assert.deepEqual(policy.get("form-action"), ["'self'"], label);
+  }
+});
+
+test("the policy lets the console's own images, inline images and fonts load", async () => {
+  for (const [label, res] of await serveEach()) {
+    const policy = directives(header(res, "content-security-policy") ?? "");
+    assert.ok(policy.get("img-src")?.includes("'self'") && policy.get("img-src")?.includes("data:"), label);
+    assert.ok(policy.get("font-src")?.includes("'self'"), label);
+  }
+});

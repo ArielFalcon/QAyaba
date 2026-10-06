@@ -179,9 +179,10 @@ Se buscaron llamadas salientes en `src/`, `qa-engine/src/` y `agents/` (`fetch`,
 - engram (`engram mcp --tools=agent`, por stdio) y `codebase-memory-mcp` (CLI local) trabajan sobre ficheros
   locales; son binarios de terceros y su código no está en este repositorio.
 
-En el **navegador del operador** (no en los contenedores), la consola web carga hojas de estilo de
-`fonts.googleapis.com`, tipografías de `fonts.gstatic.com` y un script de `unpkg.com` (`lucide`, iconos); si la red
-los bloquea, la consola sigue funcionando sin iconos ni tipografía propia (ver §8, punto 4).
+En el **navegador del operador** (no en los contenedores), la consola web no pide nada fuera de su origen: los
+iconos (`lucide` 0.460.0) y las tipografías (Archivo y JetBrains Mono, licencia OFL) se sirven desde
+`web/public/vendor/` y la consola se entrega con una política de seguridad de contenido que solo admite su propio
+origen (ver §8, punto 4).
 
 ## 7. Tratamiento de secretos
 
@@ -213,8 +214,12 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
    orquestador tiene `no-new-privileges`.
 3. **Los puertos 4096 y 4097 no tienen autenticación propia.** No se publican, pero cualquier contenedor de la red
    de compose (incluido `tui`) puede alcanzarlos.
-4. **La consola web carga recursos de terceros desde el navegador** (Google Fonts y `unpkg.com`, sin SRI ni CSP) en
-   la misma página donde se pega la clave del LLM.
+4. **La consola web no carga recursos de terceros.** Iconos y tipografías están en `web/public/vendor/` (con su
+   licencia y sus sumas SHA-256 en `web/public/vendor/README.md`) y cada respuesta de `/app` lleva
+   `Content-Security-Policy` (`default-src`, `script-src` y `connect-src` solo `'self'`; sin script en línea;
+   `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`), `X-Content-Type-Options: nosniff` y
+   `Referrer-Policy: no-referrer`. Queda `style-src 'unsafe-inline'`, porque la consola fija atributos `style` en
+   el HTML que pinta.
 5. **Dependencias no fijadas una a una:** paquetes apt (los de Ubuntu 24.04 en la fecha del build), dependencias
    transitivas de `serena-agent` y las etiquetas de las imágenes base. `./slim/qayaba.sh sbom` captura lo instalado.
 6. **Servidores de lenguaje de otros idiomas.** Solo TypeScript y Java están aprovisionados en el build. Si Serena

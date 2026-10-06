@@ -2,6 +2,11 @@
  * Serves the web console (web/public — plain HTML/CSS/JS, no build step) same-origin at /app so it
  * shares the orchestrator origin — no CORS. Reads are confined to that directory (path traversal).
  * The API stays Bearer-protected; only the static shell is public.
+ *
+ * Every response carries SECURITY_HEADERS: the page is where the LLM gateway key is pasted, so the
+ * browser is told to load, run and send nothing beyond this origin. The console ships its own icons
+ * and fonts (web/public/vendor) and runs no inline script; the only inline allowance is `style-src
+ * 'unsafe-inline'` because the console sets style attributes on the markup it renders.
  */
 import { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -22,6 +27,25 @@ const MIME: Record<string, string> = {
   ".ico": "image/x-icon",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
+};
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join("; ");
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
 };
 
 const PLACEHOLDER =
@@ -76,7 +100,7 @@ export async function serveDashboard(
   const index = join(opts.dir, "index.html");
 
   if (!existsSync(index)) {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...SECURITY_HEADERS });
     res.end(PLACEHOLDER);
     return true;
   }
@@ -88,7 +112,7 @@ export async function serveDashboard(
   const root = normalize(opts.dir);
   const resolved = normalize(join(opts.dir, rel));
   if (resolved !== root && !resolved.startsWith(root + "/") && !resolved.startsWith(root + "\\")) {
-    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8", ...SECURITY_HEADERS });
     res.end("forbidden");
     return true;
   }
@@ -107,7 +131,7 @@ export async function serveDashboard(
     body = fresh.body;
   }
 
-  res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream" });
+  res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream", ...SECURITY_HEADERS });
   res.end(body);
   return true;
 }

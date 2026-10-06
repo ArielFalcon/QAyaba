@@ -1,16 +1,43 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Qayaba Console — self-contained stylesheet.
    Bundles the Qayaba design tokens + base utilities + the console UI, so
-   this dashboard has NO dependency on the host project. Fonts load from the
-   Google Fonts CDN (swap for self-hosted @font-face if your host is offline).
+   this dashboard has NO dependency on the host project. Fonts and icons are
+   vendored under ../vendor/, so the console loads nothing from another origin.
    ═══════════════════════════════════════════════════════════════════════ */
 
 /* ───────── design tokens (fonts · colors · typography · spacing · base) ───────── */
 /* Qayaba webfonts.
-   Loaded from Google Fonts CDN. Archivo (display + UI) and JetBrains Mono
-   (labels, code, verdict tags). If you self-host, replace this @import with
-   local @font-face rules — see readme.md > Visual Foundations. */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+   Archivo (display + UI) and JetBrains Mono (labels, code, verdict tags), vendored as latin-subset
+   variable woff2 files (SIL Open Font License; see ../vendor/README.md). The browser fetches them from
+   this origin only, which the console's content security policy requires. */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../vendor/fonts/archivo-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../vendor/fonts/archivo-latin-wght-italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../vendor/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../vendor/fonts/jetbrains-mono-latin-wght-italic.woff2') format('woff2');
+}
 /* ───────────────────────────────────────────────────────────────────────
    Qayaba — Color
    Warm ink on bone paper. The verdict palette is functional, not decorative:

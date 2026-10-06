@@ -71,9 +71,11 @@ python3 -m http.server 4330 --directory /tmp/qayaba-console
 - **Routing.** Client routes use `?run=<id>` and `#<section>` on whatever path it's mounted at
   (`/app`), with History API. `?run=<id>` deep-links a run (the landing's "live engine" link can
   point here). The orchestrator's `/app/*` → `index.html` fallback already supports this.
-- **Offline / air-gapped.** Replace the Google Fonts `@import` at the top of `styles/console.css`
-  with self-hosted `@font-face`, and swap the Lucide CDN `<script>` in `index.html` for a vendored
-  copy. Nothing else is remote.
+- **Offline / air-gapped.** Nothing is remote: the fonts (`@font-face` in `styles/console.css`) and the
+  Lucide icons are vendored under `vendor/` (sources, versions, licenses and hashes in
+  `vendor/README.md`), and the orchestrator serves the console under a content security policy that
+  allows only its own origin (`src/server/static.ts`). Keep it that way: no inline `<script>`, no inline
+  event handler, no CDN reference.
 - **Accessibility / motion.** Honors `prefers-reduced-motion`. App-shell layout (sidebar + topbar
   fixed, content scrolls inside) — no layout shift on navigation.
 
