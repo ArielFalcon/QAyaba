@@ -275,6 +275,9 @@ export const PROTECTED_PATHS: string[] = [
   /* The slim profile's image and compose file: what it bakes in, mounts and exposes — the root entries above do not cover them. */
   "slim/Dockerfile",
   "slim/compose.yml",
+  /* The slim image's gateway lock (provider allowlist, no literal key in a layer) and the ignore rules that keep secrets out of its build context. */
+  "slim/opencode-config.mjs",
+  "slim/Dockerfile.dockerignore",
   /* Decides what the image build context contains — dropping an entry can bake .env into the image. */
   ".dockerignore",
   "docker-compose.yml",

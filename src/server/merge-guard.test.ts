@@ -239,6 +239,16 @@ test("an exact protected entry protects that file only, never a longer path that
   }
 });
 
+/* The build step that locks OpenCode to the operator's LLM gateway and refuses a key written into the image,
+   and the ignore rules that keep secrets out of the slim image's build context: rewriting either quietly
+   sends code and the key to a public provider, or bakes a secret into a layer. */
+test("isProtectedPath flags the slim gateway lock and the slim image's build-context ignore rules", () => {
+  for (const file of ["slim/opencode-config.mjs", "slim/Dockerfile.dockerignore"]) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
 test("isProtectedPath flags the test infrastructure an autonomous fix could weaken to pass its own checks", () => {
   const testInfrastructure = [
     "test-setup.mjs",
