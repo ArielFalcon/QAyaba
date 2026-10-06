@@ -1,5 +1,5 @@
 import { envStoreFor, applyEnvVars, type EnvStoreFs } from "./env-store";
-import { profileCapabilities, resolveDeploymentProfile } from "./deployment-profile";
+import { profileCapabilities, resolveDeploymentProfile, type ProfileCapabilities } from "./deployment-profile";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import {
   configFromEnv,
@@ -32,11 +32,11 @@ export interface AgentRuntimeManager {
   restart(provider: AgentProvider): Promise<AgentProviderHealth>;
   facade(): AgentFacade;
   hasOpenSessions(): boolean;
-  /* Resolves when every provider a role is assigned to is configured; throws AgentUnavailableError (an infrastructure refusal) naming those that need configuration. */
+  /* Resolves when every provider a role is assigned to is ready; throws AgentUnavailableError (an infrastructure refusal) naming those that need configuration or have failed. A provider whose key the gateway has not verified (degraded) is still ready. */
   assertRunnable(): Promise<void>;
 }
 
-/* Starts every message that refuses a run because an assigned provider needs configuration. */
+/* Starts every message that refuses a run because an assigned provider is not ready. */
 export const AGENT_NOT_READY = "agent runtime is not ready";
 const PASTE_THE_KEY = "paste the LLM gateway key in the console (agent runtime) or the terminal console, then run again";
 
@@ -173,17 +173,31 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
     /*
      * A provider that needs configuration holds no key this process can mask in logs and error
      * output, or not the key the agent runs with: a run on it would put output the redaction cannot
-     * cover into Issues and exports. Only that state refuses a run; an unreadable or failing provider
-     * is reported by its own health and by the run's own error.
+     * cover into Issues and exports. A provider that has failed (its gateway rejected the key or
+     * cannot be reached, or its supervisor cannot be read) cannot run anything, and a run started on
+     * it only spends its queue slot. Those two states refuse a run; starting, stopped and degraded
+     * (the key is held but the gateway could not verify it) do not.
      */
     async assertRunnable() {
       const providers = await health();
-      const blocked = PROVIDERS.filter((provider) => usedProvider(config, provider) && providers[provider].status === "needs_config");
-      if (blocked.length === 0) return;
-      const reasons = blocked.map((provider) => `${provider} needs configuration: ${providers[provider].error ?? PASTE_THE_KEY}`);
+      const reasons: string[] = [];
+      for (const provider of PROVIDERS.filter((p) => usedProvider(config, p))) {
+        const { status, error } = providers[provider];
+        if (status === "needs_config") reasons.push(`${provider} needs configuration: ${error ?? PASTE_THE_KEY}`);
+        else if (status === "failed") reasons.push(`${provider} has failed: ${error ?? PASTE_THE_KEY}`);
+      }
+      if (reasons.length === 0) return;
       throw new AgentUnavailableError(redactionPort.redact(`${AGENT_NOT_READY} (${reasons.join("; ")})`));
     },
   };
+}
+
+/* The readiness check a run (or onboarding) is handed: present only where the deployment profile asks for it, so a deployment that does not gate keeps starting runs as before. */
+export function agentReadinessGate(
+  capabilities: Pick<ProfileCapabilities, "gateRunsOnAgentReadiness">,
+  runtime: Pick<AgentRuntimeManager, "assertRunnable">,
+): { assertAgentReady?: () => Promise<void> } {
+  return capabilities.gateRunsOnAgentReadiness ? { assertAgentReady: () => runtime.assertRunnable() } : {};
 }
 
 /* What the request itself names: a key for, or the selection of, a provider this deployment does not offer. */

@@ -36,7 +36,7 @@ import { installHttpDispatcher } from "./util/net";
 import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha, getRepoInfoViaGit, isGithubRemote } from "./integrations/repo-mirror";
 import { profileCapabilities, resolveDeploymentProfile } from "./server/deployment-profile";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
-import { createAgentRuntimeManager } from "./server/agent-runtime";
+import { agentReadinessGate, createAgentRuntimeManager } from "./server/agent-runtime";
 import { CodexRuntimeStrategy, OpenCodeRuntimeStrategy } from "./agent-runtime";
 import { appendLog, appendActivity, deleteAppHistory, runVerdictCounts } from "./server/history";
 import { type RunMode, type TestTarget } from "./types";
@@ -169,7 +169,7 @@ function currentAgentDeps(): AgentDeps {
 }
 
 /* Where the profile asks for it (slim), a run starts only while every assigned agent provider is configured: refused at the API, and again when a queued run starts. */
-const agentReadinessGate = CAPABILITIES.gateRunsOnAgentReadiness ? { assertAgentReady: () => agentRuntime.assertRunnable() } : {};
+const readinessGate = agentReadinessGate(CAPABILITIES, agentRuntime);
 
 
 /*
@@ -185,7 +185,7 @@ let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive(), ...agentReadinessGate };
+  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive(), ...readinessGate };
 }
 
 /*
@@ -516,7 +516,10 @@ const onboardingJob = createOnboardingJob({
   },
   ensureMirrorAtBranch: (repo, baseBranch) =>
     ensureMirrorAtBranch(repo, baseBranch, defaultMirrorDeps),
-  hasOpencodeApiKey: () => Boolean(process.env.OPENCODE_API_KEY),
+  /* The same readiness check a run starts under where the profile asks for it (fingerprint-aware, so a key this process holds but the agent does not, or the reverse, is refused); elsewhere the key's presence. */
+  assertAgentReady: readinessGate.assertAgentReady ?? (async () => {
+    if (!process.env.OPENCODE_API_KEY) throw new Error("OPENCODE_API_KEY is not set — the proposer cannot run");
+  }),
   hasProposerAgent: () => hasProposerAgentConfigured(),
   buildProposer: (ctx) => new LlmProfileProposerAdapter(defaultAgentDeps, PROPOSER_MODEL, ctx),
   buildOnboardingService: (proposer, onRound) => new OnboardingService(proposer, 3, onRound),
@@ -661,7 +664,7 @@ const apiDeps: ApiDeps = {
   /* Same-origin web console: a short-lived session only for a trusted peer AND Host (see auth.ts). */
   localLogin: createLocalConsoleLogin(process.env, signingSecret, AUTH_SESSION_TTL_SECONDS),
   agentRuntime,
-  ...agentReadinessGate,
+  ...readinessGate,
   /*
    * Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
    * an enqueued or stale "running" record so the operator's stop always clears the run — never

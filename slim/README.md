@@ -179,11 +179,15 @@ Qué conviene tener presente:
   servicio de agentes (p. ej. una clave antigua de `slim/.env` tras reiniciar solo el orquestador): ambos
   comparan una huella corta de la clave (12 caracteres del SHA-256), nunca la clave, y si no coinciden la
   consola pide pegarla otra vez.
-- **Sin clave no se ejecuta.** Mientras un proveedor asignado esté en «needs configuration», `POST /api/runs`
-  (y por tanto `./slim/qayaba.sh run`) responde 503 con el motivo y no encola nada; una ejecución ya encolada,
-  o disparada por un webhook o una continuación, termina como `infra-error` (no es un fallo del código) con el
-  mismo motivo antes de tocar el agente. Así ninguna ejecución corre con una clave que el orquestador no pueda
-  enmascarar en los registros y en las incidencias.
+- **Sin clave utilizable no se ejecuta.** Mientras un proveedor asignado esté en «needs configuration» o en
+  «failed» (la pasarela rechaza la clave o no responde, o el orquestador no puede leer el servicio de agentes),
+  `POST /api/runs` (y por tanto `./slim/qayaba.sh run`) responde 503 con el motivo y no encola nada; una
+  ejecución ya encolada, o disparada por un webhook o una continuación, termina como `infra-error` (no es un
+  fallo del código) con el mismo motivo antes de tocar el agente. La misma comprobación rige la ejecución manual
+  fuera del servicio (`npm run qa`) y la propuesta de límites del onboarding. En «degraded» (el servicio tiene
+  la clave pero la pasarela no pudo verificarla) sí se ejecuta. Así ninguna ejecución corre con una clave que
+  el orquestador no pueda enmascarar en los registros y en las incidencias, ni gasta un turno de la cola con
+  una pasarela que ya ha dicho que no.
 - **Dónde queda la clave.** Solo en la memoria y en el entorno de los procesos del orquestador y del servicio
   de agentes: ningún fichero la conserva (el perfil slim no escribe `/app/.env`) y ningún volumen tampoco, así
   que se pierde al reiniciar. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de

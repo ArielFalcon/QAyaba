@@ -111,8 +111,8 @@ export interface OnboardingJobDeps {
   /** Provisions (or refreshes) one repo's mirror at its base branch HEAD, returning the mirror dir.
    *  Production: repo-mirror.ts's ensureMirrorAtBranch + MirrorRegistryAdapter composition. */
   ensureMirrorAtBranch(repo: string, baseBranch: string): Promise<string>;
-  /** Env-guard part 1: OPENCODE_API_KEY presence. */
-  hasOpencodeApiKey(): boolean;
+  /** Env-guard part 1: resolves when the agent runtime can run the proposer; rejects with the reason it cannot. */
+  assertAgentReady(): Promise<void>;
   /** Env-guard part 2: the qa-proposer agent is configured on the target opencode server. */
   hasProposerAgent(): Promise<boolean>;
   /** Composes the LLM proposer adapter for this run; ctx.signal is the job AbortSignal. */
@@ -347,8 +347,10 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
 
     try {
       /* Env-guard before the runner-busy guard and before resolvingMirrors — a missing key/agent must never burn a mirror cycle. */
-      if (!deps.hasOpencodeApiKey()) {
-        fail("OPENCODE_API_KEY is not set — the proposer cannot run");
+      try {
+        await deps.assertAgentReady();
+      } catch (err) {
+        fail(redactionPort.redactError(err));
         return;
       }
       const hasAgent = await deps.hasProposerAgent();

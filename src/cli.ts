@@ -17,7 +17,7 @@
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
 import { qayabaRoot } from "./paths";
-import { enqueueTrackedRun } from "./server/runner";
+import { enqueueTrackedRun, type RunnerDeps } from "./server/runner";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
 import { readFileSync } from "node:fs";
@@ -29,9 +29,9 @@ import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
 import { runSucceeded } from "./cli-exit";
 import { renderRunReport } from "./qa/value-report";
-import { createAgentRuntimeManager } from "./server/agent-runtime";
+import { agentReadinessGate, createAgentRuntimeManager, type AgentRuntimeManager } from "./server/agent-runtime";
 import { envStoreFor } from "./server/env-store";
-import { profileCapabilities, resolveDeploymentProfile } from "./server/deployment-profile";
+import { profileCapabilities, resolveDeploymentProfile, type ProfileCapabilities } from "./server/deployment-profile";
 import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
@@ -49,6 +49,15 @@ const cliAgentRuntime = createAgentRuntimeManager({
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
 const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliAgentRuntime.facade().deps() });
+
+/* What a standalone run is enqueued with: the same agent-readiness gate the service applies where the deployment profile asks for it, so a run the service would refuse is not started from here. */
+export function cliRunnerDeps(
+  runEvents: RunnerDeps["runEvents"],
+  capabilities: ProfileCapabilities = profileCapabilities(resolveDeploymentProfile(process.env)),
+  runtime: Pick<AgentRuntimeManager, "assertRunnable"> = cliAgentRuntime,
+): RunnerDeps {
+  return { runEvents, engineFactory: cliEngineFactory, ...agentReadinessGate(capabilities, runtime) };
+}
 
 /*
  * Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived
@@ -179,7 +188,7 @@ async function main(): Promise<void> {
     mode: args.mode,
     guidance: args.guidance,
     source: "manual",
-  }, { runEvents, engineFactory: cliEngineFactory });
+  }, cliRunnerDeps(runEvents));
   await queue.drain();
   const record = getRecord(id);
   /*

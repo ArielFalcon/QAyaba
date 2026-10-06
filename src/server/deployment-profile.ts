@@ -30,7 +30,7 @@ export interface ProfileCapabilities {
   persistRuntimeSecrets: boolean;
   /* The agent providers this install can run: the image of an install that ships no codex CLI offers only opencode. */
   agentProviders: readonly AgentProvider[];
-  /* A run is refused (as an infrastructure error, before any engine work) while an assigned agent provider needs configuration: no key this process can mask in logs, or not the key the agent holds. Off → the run itself reports an unusable agent. */
+  /* A run is refused (as an infrastructure error, before any engine work) while an assigned agent provider is not ready: it needs configuration (no key this process can mask in logs, or not the key the agent holds) or it has failed (its gateway rejected the key, or it cannot be reached). Off → the run itself reports an unusable agent. */
   gateRunsOnAgentReadiness: boolean;
 }
 

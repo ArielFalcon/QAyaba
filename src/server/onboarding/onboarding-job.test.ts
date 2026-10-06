@@ -79,7 +79,7 @@ function buildDeps(overrides: Partial<OnboardingJobDeps> = {}): OnboardingJobDep
   return {
     isRunnerBusy: () => false,
     ensureMirrorAtBranch: async (repo: string) => `/mirrors/${repo.replaceAll("/", "__")}`,
-    hasOpencodeApiKey: () => true,
+    assertAgentReady: async () => {},
     hasProposerAgent: async () => true,
     buildProposer: () => alwaysCorrectProposer(),
     buildOnboardingService: fakeOnboardingService(CORRECT_PROFILE) as OnboardingJobDeps["buildOnboardingService"],
@@ -252,10 +252,12 @@ test("runner-busy guard fires before resolvingMirrors: job fails fast and ensure
 
 /* ── Env-guard short-circuit, both branches ──────────────────────────── */
 
-test("missing OPENCODE_API_KEY short-circuits to failed BEFORE resolvingMirrors starts", async () => {
+test("an agent runtime that is not ready short-circuits to failed BEFORE resolvingMirrors starts, with the readiness check's reason", async () => {
   let mirrorCalls = 0;
   const deps = buildDeps({
-    hasOpencodeApiKey: () => false,
+    assertAgentReady: async () => {
+      throw new Error("agent runtime is not ready (opencode needs configuration)");
+    },
     ensureMirrorAtBranch: async (repo: string) => {
       mirrorCalls += 1;
       return `/mirrors/${repo}`;
@@ -264,10 +266,10 @@ test("missing OPENCODE_API_KEY short-circuits to failed BEFORE resolvingMirrors 
   const job = createOnboardingJob(deps);
   await job.propose({ app: "nname", repo: "ArielFalcon/nname-gateway", services: [] });
 
-  assert.equal(mirrorCalls, 0, "ensureMirrorAtBranch must never be called with no OPENCODE_API_KEY");
+  assert.equal(mirrorCalls, 0, "ensureMirrorAtBranch must never be called while the agent runtime is not ready");
   const status = job.status();
   assert.equal(status.state, ONBOARD_STATE.failed);
-  assert.match(status.error ?? "", /OPENCODE_API_KEY/);
+  assert.match(status.error ?? "", /opencode needs configuration/);
 });
 
 test("missing qa-proposer agent on the target server short-circuits to a distinct actionable failed", async () => {

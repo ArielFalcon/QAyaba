@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AGENT_NOT_READY, createAgentRuntimeManager } from "./agent-runtime";
+import { AGENT_NOT_READY, agentReadinessGate, createAgentRuntimeManager } from "./agent-runtime";
 import { AgentUnavailableError } from "../errors";
 import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
@@ -469,16 +469,26 @@ test("a refused run says what to do even when the provider gave no reason", asyn
   await assert.rejects(manager.assertRunnable(), (err: unknown) => (err as Error).message.length > AGENT_NOT_READY.length);
 });
 
-test("a provider in any other state does not stop a run: only a missing or mismatched key does", async () => {
-  for (const status of ["healthy", "starting", "degraded", "failed", "stopped"] as const) {
+test("a provider that is healthy, starting, stopped or only degraded (key unverified) does not stop a run", async () => {
+  for (const status of ["healthy", "starting", "degraded", "stopped"] as const) {
     await managerWith({}, { status, configured: true }).assertRunnable();
   }
 });
 
-test("a provider that no role is assigned to never stops a run", async () => {
-  const manager = managerWith({}, { status: "healthy" }, { status: "needs_config", configured: false });
+test("a run is refused, as agent unavailability, while an assigned provider has failed, carrying its reason", async () => {
+  const manager = managerWith({}, { status: "failed", configured: true, error: "the gateway rejected the key" });
 
-  await manager.assertRunnable();
+  await assert.rejects(manager.assertRunnable(), (err: unknown) => {
+    assert.ok(err instanceof AgentUnavailableError);
+    assert.ok((err as Error).message.startsWith(AGENT_NOT_READY));
+    assert.ok((err as Error).message.includes("opencode"), "names the provider");
+    assert.ok((err as Error).message.includes("the gateway rejected the key"), "carries the provider's own reason");
+    return true;
+  });
+});
+
+test("a provider that no role is assigned to never stops a run, whatever its state", async () => {
+  await managerWith({}, { status: "healthy" }, { status: "failed", configured: true }).assertRunnable();
 });
 
 test("the provider the single-mode assignment names is the one that is checked", async () => {
@@ -489,9 +499,27 @@ test("the provider the single-mode assignment names is the one that is checked",
   await assert.rejects(codexNeedsKey.assertRunnable(), (err: unknown) => (err as Error).message.includes("codex"));
 });
 
-test("a provider whose health cannot be read is not mistaken for one that needs a key", async () => {
+test("a provider whose health cannot be read stops the run with the cause, as a failure and not as a missing key", async () => {
   const throwing: AgentRuntimeStrategy = { ...strategy("opencode", []), health: async () => { throw new Error("supervisor down"); } };
   const manager = createAgentRuntimeManager({ env: {}, fs: memoryFs(), strategies: { opencode: throwing, codex: strategy("codex", []) } });
 
-  await manager.assertRunnable();
+  await assert.rejects(manager.assertRunnable(), (err: unknown) => {
+    assert.ok(err instanceof AgentUnavailableError);
+    assert.ok((err as Error).message.includes("supervisor down"), "carries the cause");
+    return true;
+  });
+});
+
+test("the readiness gate a deployment hands the runner refuses through the manager only where the profile asks for it", async () => {
+  const refusing = { assertRunnable: async () => { throw new AgentUnavailableError("not ready"); } };
+  let asked = 0;
+  const counting = { assertRunnable: async () => { asked += 1; } };
+
+  const slim = agentReadinessGate(profileCapabilities("slim"), refusing);
+  const full = agentReadinessGate(profileCapabilities("full"), refusing);
+  await agentReadinessGate(profileCapabilities("slim"), counting).assertAgentReady?.();
+
+  await assert.rejects(slim.assertAgentReady?.() ?? Promise.resolve(), AgentUnavailableError);
+  assert.equal(full.assertAgentReady, undefined, "no gate where the profile does not ask for one");
+  assert.equal(asked, 1);
 });
