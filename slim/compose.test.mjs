@@ -84,3 +84,17 @@ test("the console login host allowlist is passed through to the orchestrator and
 test("only the orchestrator, which serves the console login, receives the host allowlist", () => {
   assert.ok(!("QA_WEB_LOGIN_HOST_ALLOWLIST" in compose.services.agents.environment));
 });
+
+// Containers reach each other by service name. When the Docker CLI injects proxy variables, a client
+// that honors them (the Go console does) would send `orchestrator:8080` to the corporate proxy
+// unless the service names are in the bypass list.
+for (const service of Object.keys(compose.services)) {
+  test(`${service} bypasses the proxy for the compose services and the extra internal domains`, () => {
+    for (const name of ["NO_PROXY", "no_proxy"]) {
+      const value = declaredValue(service, name);
+      const [list] = String(value).split("${EXTRA_NO_PROXY");
+      assert.deepEqual(list.split(",").filter(Boolean).sort(), ["127.0.0.1", "agents", "localhost", "orchestrator"], `${service} ${name}`);
+      assert.equal(interpolationDefault(value, "EXTRA_NO_PROXY"), "", `${service} ${name} appends EXTRA_NO_PROXY`);
+    }
+  });
+}

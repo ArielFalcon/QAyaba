@@ -159,6 +159,9 @@ services:
       QA_HOST: orchestrator:8080
       QAYABA_ROOT: /app
       TERM: ${TERM:-xterm-256color}
+      # The console reaches the orchestrator by service name: it must never go through a proxy.
+      NO_PROXY: agents,orchestrator,localhost,127.0.0.1,${EXTRA_NO_PROXY:-}
+      no_proxy: agents,orchestrator,localhost,127.0.0.1,${EXTRA_NO_PROXY:-}
     volumes:
       - ../config:/app/config:ro
     deploy:

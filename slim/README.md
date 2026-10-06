@@ -40,7 +40,7 @@ El diseño completo, sus razones y los riesgos están en
 ```bash
 # 0. Diagnóstico de red (sin sudo): proxy visto por los contenedores, alcance a cada destino, inspección TLS
 cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los datos de GitLab/DEV
-./slim/qayaba.sh preflight
+./slim/qayaba.sh preflight            # incluye el alcance de la pasarela LLM del override (desde un contenedor, sin credenciales)
 
 # 1. CA corporativa (si el preflight muestra un emisor TLS corporativo)
 ./slim/qayaba.sh export-ca            # escribe slim/certs/corporate-ca.crt desde el llavero del sistema
@@ -54,7 +54,8 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 # 4. Construir (todas las descargas ocurren aquí) y arrancar
 ./slim/qayaba.sh build
 ./slim/qayaba.sh up
-./slim/qayaba.sh check                # binarios, language servers y configuración: sin nada pendiente de descargar
+./slim/qayaba.sh check                # binarios, language servers y configuración: sin nada pendiente de descargar;
+                                      # puerto de la consola solo en loopback y alcanzable desde la red de compose
 
 # 5. Pega la clave de la API del LLM del día: consola web (http://localhost:8080/app, panel «agent runtime ·
 #    LLM gateway») o pantalla «agent runtime» de la TUI (tecla `a`). OPENCODE_API_KEY en slim/.env es
@@ -207,3 +208,6 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
 | Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |
 | La consola web no inicia sesión (`/api/auth/local` responde 404) al abrirla por un nombre distinto de `localhost` | El login local solo acepta una cabecera `Host` de loopback (defensa frente a *DNS rebinding*) | Abre `http://localhost:8080/app`, o añade el nombre a `QA_WEB_LOGIN_HOST_ALLOWLIST` en `slim/.env` (lista separada por comas) y ejecuta `./slim/qayaba.sh up` |
+| `preflight` marca la pasarela LLM como `UNREACHABLE` | DNS/VPN, proxy o CA corporativa | Sigue la línea `fix:` que imprime: conectar la VPN, `EXTRA_NO_PROXY` en `slim/.env` o `./slim/qayaba.sh export-ca` |
+| `check` falla con «the tui service cannot reach the orchestrator» | El orquestador no está sano, no escucha en todas las interfaces o un proxy intercepta el nombre del servicio | `./slim/qayaba.sh ps` y `logs orchestrator`; revisa `EXTRA_NO_PROXY` |
+| `check` falla con «published on every interface» | Se modificó `ports:` del orquestador | Restablece `127.0.0.1:${QAYABA_PORT:-8080}:8080` en `slim/compose.yml` |

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # QAyaba slim — operator entry point (macOS bash 3.2 compatible; needs only docker).
 #
-#   ./slim/qayaba.sh preflight              probe what the network allows (host + a container)
+#   ./slim/qayaba.sh preflight              probe what the network allows (host + a container) and whether
+#                                           the LLM gateway declared in the override is reachable
 #   ./slim/qayaba.sh export-ca              export the macOS System keychain CAs to slim/certs/
 #   ./slim/qayaba.sh build                  build the image (all downloads happen here)
 #   ./slim/qayaba.sh up | down | ps | logs [service]
-#   ./slim/qayaba.sh check                  verify the running image is complete and offline-ready
+#   ./slim/qayaba.sh check                  verify the running image is complete and offline-ready, and that the
+#                                           console port is loopback-only and reachable from the compose network
 #   ./slim/qayaba.sh onboard <app> <repo> [service-repo ...]
 #                                           clone + index every repo and propose the stitcher boundaries
 #   ./slim/qayaba.sh onboard-status <app>   | onboard-confirm <app>
@@ -74,6 +76,28 @@ preflight() {
       for u in $HOSTS; do printf "%-55s " "$u"; curl -sS -o /dev/null -m 10 -w "%{http_code}\n" "$u" 2>/dev/null || echo 000; done
       echo "== TLS issuer seen for registry.npmjs.org (a corporate issuer means TLS inspection → run export-ca)"
       echo | openssl s_client -connect registry.npmjs.org:443 -servername registry.npmjs.org 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null || echo "unreachable"'
+  local gateway_rc=0
+  probe_gateway || gateway_rc=$?
+  return "$gateway_rc"
+}
+
+probe_gateway() {
+  # The gateway the override declares, probed from a container that sees what the running services
+  # see: the built image's CAs (slim/certs) and the same proxy bypass list. The probe sends no credentials.
+  local override="$SLIM_DIR/opencode.override.json" no_proxy_list
+  echo "== LLM gateway from inside a container (any HTTP status = reachable; no credentials are sent)"
+  if [ ! -f "$override" ]; then
+    echo "no slim/opencode.override.json: the LLM gateway is not declared, nothing to probe"
+    return 0
+  fi
+  no_proxy_list="agents,orchestrator,localhost,127.0.0.1,$(env_value EXTRA_NO_PROXY)"
+  docker run --rm -e "NO_PROXY=$no_proxy_list" -e "no_proxy=$no_proxy_list" \
+    -v "$SLIM_DIR/probe-gateway.sh:/probe-gateway.sh:ro" -v "$override:/override.json:ro" -v "$SLIM_DIR/certs:/certs:ro" \
+    "$(env_value NODE_IMAGE node:24-bookworm)" sh -c '
+      if ls /certs/*.crt >/dev/null 2>&1; then
+        mkdir -p /usr/local/share/ca-certificates/corp && cp /certs/*.crt /usr/local/share/ca-certificates/corp/ && update-ca-certificates >/dev/null 2>&1
+      fi
+      exec sh /probe-gateway.sh /override.json'
 }
 
 export_ca() {
@@ -97,8 +121,29 @@ check() {
   "${COMPOSE[@]}" exec -T orchestrator sh -c '
     set -e
     codebase-memory-mcp --version 2>/dev/null || echo "codebase-memory-mcp present"
-    node -e "require(\"better-sqlite3\"); console.log(\"better-sqlite3 ok\")"
+    node -e "const Database = require(\"better-sqlite3\"); new Database(\":memory:\").close(); console.log(\"better-sqlite3 ok\")"
     npm config get registry'
+  check_console_port
+  check_compose_network
+}
+
+check_console_port() {
+  # The console, API and webhook must be published on the host's loopback interface only.
+  local published
+  published="$("${COMPOSE[@]}" port orchestrator 8080 2>/dev/null || true)"
+  [ -n "$published" ] || die "the console port is not published (is the orchestrator up? ./slim/qayaba.sh ps)"
+  case "$published" in
+    127.0.0.1:*|"[::1]:"*) echo "console port published on loopback only: $published" ;;
+    *) die "the console port is published on every interface ($published); it must be 127.0.0.1 only (see ports: in slim/compose.yml)" ;;
+  esac
+}
+
+check_compose_network() {
+  # Run as the tui service itself, so it uses the service's own environment (QA_HOST, proxy variables)
+  # and DNS exactly as the terminal console does.
+  "${COMPOSE[@]}" run --rm --no-deps -T tui sh -c \
+    'curl -fsS -m 10 -o /dev/null -w "orchestrator answers on http://$QA_HOST/api/health (HTTP %{http_code})\n" "http://$QA_HOST/api/health"' \
+    || die "the tui service cannot reach the orchestrator on orchestrator:8080: check that the orchestrator is healthy (./slim/qayaba.sh ps), that it listens on every interface (LISTEN_HOST) and that no proxy intercepts the service name (EXTRA_NO_PROXY)"
 }
 
 cmd="${1:-help}"; shift || true
