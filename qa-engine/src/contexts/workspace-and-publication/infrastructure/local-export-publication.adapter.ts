@@ -1,12 +1,17 @@
 /* Local publication effector (slim deployment profile). Implements the collaborator surfaces PublicationPortAdapter dispatches to — git write (publish), PR (openWithAutoMerge), Issue (open) and the shadow preview (openPr/openIssue) — but writes to disk instead of an SCM host. The publish DECISION is untouched; only its effect moves: a would-be PR becomes files/**, changes.patch and MR.md under exportDir, a would-be Issue becomes ISSUE.md. A human submits them, so nothing writes to the watched repo automatically.
  *
- * Git use on the mirror is read-only (status/diff) plus a transient intent-to-add for untracked files that is always reset before returning, so the next run's mirror sync sees exactly the tree remote publication would leave. What leaves the mirror is confined like remote publication: denylisted paths and anything that is not a regular file inside the mirror are left out and named (with the reason) in export.json and MR.md, never copied. Every exported file and the patch are also screened for secrets through an injected check; a hit leaves the file out. The adapter never reads env: exportDir, mirrorDir, the git runner and the secret check are injected. */
+ * Git use on the mirror is read-only (status/diff) plus a transient intent-to-add for untracked files that is always reset before returning, so the next run's mirror sync sees exactly the tree remote publication would leave. What leaves the mirror is confined like remote publication: denylisted paths and anything that is not a regular file inside the mirror are left out and named (with the reason) in export.json and MR.md, never copied. Every exported file and the patch are also screened for secrets through an injected check; a hit leaves the file out. The screen never trusts what git chooses to show: its diff forces textual hunks regardless of attributes, and a file git still hides is screened from the file itself. The adapter never reads env: exportDir, mirrorDir, the git runner and the secret check are injected. */
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { WriteConfinementService } from "../domain/write-confinement.service.ts";
 
 /* A submodule directory belongs to the sandbox, which can plant a repository in it whose config names a command. Reporting a submodule's dirty content makes git enter it and run that command as the orchestrator, so every status and diff here refuses to look (same flag as VcsWriteAdapter.hasChanges). */
 const IGNORE_SUBMODULE_CONTENT = "--ignore-submodules=dirty";
+
+/* What git shows of a file is decided by attributes the sandbox can write (an in-tree .gitattributes of any depth, .git/info/attributes) and by diff drivers: `-diff` or a binary driver turns a text change into "Binary files differ" or a base85 body. The diff that feeds the secret screen therefore forces textual hunks, with no external diff program and no text conversion. */
+const SCREEN_DIFF_FLAGS = ["--text", "--no-ext-diff", "--no-textconv"];
+/* The patch that is exported keeps binary files applicable. */
+const EXPORT_DIFF_FLAGS = ["--binary", "--no-ext-diff", "--no-textconv"];
 
 export type ExportGit = (args: string[], cwd: string) => Promise<string>;
 
@@ -62,6 +67,8 @@ interface ChangedFile {
   path: string;
   deleted: boolean;
   untracked: boolean;
+  /* HEAD holds this path and the change is a plain edit of it (status M or unchanged on each side). Anything else that survives — untracked, staged new, intent-to-add, renamed, copied, type-changed — brings the whole file as new content. */
+  modifiedInPlace: boolean;
 }
 
 /* A changed path that did not leave the mirror. Names and a reason only, never contents. */
@@ -74,6 +81,7 @@ const REASON_DENYLISTED = "denylisted path";
 const REASON_NOT_REGULAR = "not a regular file inside the mirror";
 const REASON_SECRET = "contains a secret";
 const REASON_UNREADABLE = "unreadable";
+const REASON_ATTRIBUTES = "attributes file";
 
 interface ExportedChanges {
   files: string[];
@@ -94,40 +102,62 @@ export function parsePorcelainZ(out: string): ChangedFile[] {
     const y = entry[1]!;
     const path = entry.slice(3);
     if (x === "R" || x === "C") i++;
-    files.push({ path, deleted: x === "D" || y === "D", untracked: x === "?" && y === "?" });
+    files.push({
+      path,
+      deleted: x === "D" || y === "D",
+      untracked: x === "?" && y === "?",
+      modifiedInPlace: (x === " " || x === "M") && (y === " " || y === "M"),
+    });
   }
   return files;
 }
 
 const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+const BINARY_FILES_DIFFER = /^Binary files .* differ$/;
 
-/* The lines a `git diff --binary` patch adds, without their `+` and joined by newlines: all the lines of a new file, only the new ones of a changed file. Context and removed lines are not part of what a change publishes, and a binary patch body (base85 of the file) is not text. A hunk is read by the line counts of its `@@` header, so an added line that looks like a file or hunk header is still an added line. A hunk that does not follow its counts makes the whole patch the answer: when unsure, everything is screened. */
-export function addedLinesOfPatch(patch: string): string {
+/* What a patch shows of the content it adds. `added` is the text of the added lines; `hidden` is true when a file section carries no hunks because git printed it as binary (a "GIT binary patch" body or a "Binary files differ" line), so its content is NOT in `added` and has to be read from the file. */
+export interface PatchScan {
+  added: string;
+  hidden: boolean;
+}
+
+/* The lines a patch adds, without their `+` and joined by newlines: all the lines of a new file, only the new ones of a changed file. Context and removed lines are not part of what a change publishes, and a binary patch body (base85 of the file) is not text. A hunk is read by the line counts of its `@@` header, so an added line that looks like a file or hunk header is still an added line. A hunk that does not follow its counts makes the whole patch the answer: when unsure, everything is screened. */
+export function scanPatch(patch: string): PatchScan {
   const lines = patch.split("\n");
   const added: string[] = [];
+  let hidden = false;
   let i = 0;
   while (i < lines.length) {
-    const header = HUNK_HEADER.exec(lines[i++]!);
-    if (!header) continue;
+    const line = lines[i++]!;
+    const header = HUNK_HEADER.exec(line);
+    if (!header) {
+      if (line === "GIT binary patch" || BINARY_FILES_DIFFER.test(line)) hidden = true;
+      continue;
+    }
     let oldLeft = header[1] === undefined ? 1 : Number(header[1]);
     let newLeft = header[2] === undefined ? 1 : Number(header[2]);
     while (oldLeft > 0 || newLeft > 0) {
-      const line = lines[i++];
-      if (line === undefined) return patch;
-      if (line.startsWith("+")) {
-        added.push(line.slice(1));
+      const body = lines[i++];
+      if (body === undefined) return { added: patch, hidden };
+      if (body.startsWith("+")) {
+        added.push(body.slice(1));
         newLeft--;
-      } else if (line.startsWith("-")) {
+      } else if (body.startsWith("-")) {
         oldLeft--;
-      } else if (line.startsWith(" ") || line === "") {
+      } else if (body.startsWith(" ") || body === "") {
         oldLeft--;
         newLeft--;
-      } else if (!line.startsWith("\\")) {
-        return patch;
+      } else if (!body.startsWith("\\")) {
+        return { added: patch, hidden };
       }
     }
   }
-  return added.join("\n");
+  return { added: added.join("\n"), hidden };
+}
+
+/* A git attributes file at any depth, matched the way a case-insensitive host treats the name. */
+function isAttributesFile(path: string): boolean {
+  return path.split("/").pop()?.toLowerCase() === ".gitattributes";
 }
 
 export class LocalExportPublicationAdapter {
@@ -233,39 +263,45 @@ export class LocalExportPublicationAdapter {
     return exported;
   }
 
-  /* The sandbox writes the mirror, so what git reports is not trusted as exportable: a path the write-confinement denylist covers (CI files, Dockerfiles, env files) never leaves, and a surviving file must be a regular file whose resolved path stays inside the mirror — a planted link would otherwise copy whatever it points at. A deletion has no file to read and only needs the denylist. */
+  /* The sandbox writes the mirror, so what git reports is not trusted as exportable: a path the write-confinement denylist covers (CI files, Dockerfiles, env files) never leaves, an attributes file of any depth never leaves (the published suite has no use for one, and it changes what git shows of every file it governs), and a surviving file must be a regular file whose resolved path stays inside the mirror — a planted link would otherwise copy whatever it points at. A deletion has no file to read and only needs the path checks. */
   private confine(mirrorDir: string, changed: readonly ChangedFile[]): { exportable: ChangedFile[]; leftOut: LeftOut[] } {
     const mirrorReal = this.fs.realpath(mirrorDir) + sep;
     const exportable: ChangedFile[] = [];
     const leftOut: LeftOut[] = [];
     for (const file of changed) {
       if (this.confinement.isCodeDenied(file.path)) leftOut.push({ path: file.path, reason: REASON_DENYLISTED });
+      else if (isAttributesFile(file.path)) leftOut.push({ path: file.path, reason: REASON_ATTRIBUTES });
       else if (!file.deleted && !this.isConfinedRegularFile(mirrorDir, mirrorReal, file.path)) leftOut.push({ path: file.path, reason: REASON_NOT_REGULAR });
       else exportable.push(file);
     }
     return { exportable, leftOut };
   }
 
-  /* A file the injected screen reads as carrying a secret stays in the mirror: the agent runs with the orchestrator's environment in reach, so a hardcoded credential must not travel to a human as an apply-ready patch. Only a new file is read whole, because all of its lines are new; a tracked file is screened through the lines its patch adds, so a literal that was already in the repository never holds an unrelated change back. A deletion adds nothing. */
+  /* A file the injected screen reads as carrying a secret stays in the mirror: the agent runs with the orchestrator's environment in reach, so a hardcoded credential must not travel to a human as an apply-ready patch. A file that brings its whole content as new (untracked, staged new, intent-to-add, renamed) is read whole, because all of its lines are new; a plain modification of a tracked file is screened through the lines its patch adds, so a literal that was already in the repository never holds an unrelated change back. A deletion adds nothing. */
   private screenContents(mirrorDir: string, changed: readonly ChangedFile[]): { exportable: ChangedFile[]; leftOut: LeftOut[] } {
     const exportable: ChangedFile[] = [];
     const leftOut: LeftOut[] = [];
     for (const file of changed) {
-      if (file.deleted || !file.untracked) {
+      if (file.deleted || file.modifiedInPlace) {
         exportable.push(file);
         continue;
       }
-      let content: string;
-      try {
-        content = this.fs.read(join(mirrorDir, file.path));
-      } catch {
-        leftOut.push({ path: file.path, reason: REASON_UNREADABLE });
-        continue;
-      }
-      if (this.deps.containsSecret(content)) leftOut.push({ path: file.path, reason: REASON_SECRET });
+      const reason = this.screenRawContent(mirrorDir, file.path);
+      if (reason) leftOut.push({ path: file.path, reason });
       else exportable.push(file);
     }
     return { exportable, leftOut };
+  }
+
+  /* Why the file as it sits in the mirror must stay out of the export, or undefined when it is clean. */
+  private screenRawContent(mirrorDir: string, path: string): string | undefined {
+    let content: string;
+    try {
+      content = this.fs.read(join(mirrorDir, path));
+    } catch {
+      return REASON_UNREADABLE;
+    }
+    return this.deps.containsSecret(content) ? REASON_SECRET : undefined;
   }
 
   private isConfinedRegularFile(mirrorDir: string, mirrorReal: string, path: string): boolean {
@@ -278,23 +314,26 @@ export class LocalExportPublicationAdapter {
     }
   }
 
-  /* Diff against HEAD over exactly the changed paths, screened for secrets through the lines the diff adds. Untracked files enter the diff via intent-to-add, which is reset afterwards even when a diff throws. A hit on the whole patch is narrowed to the files whose own diff carries it; those leave the export and the patch is rebuilt without them. A hit no single file explains is a secret spanning files, so nothing is exported. */
+  /* Diff against HEAD over exactly the changed paths, screened for secrets through the lines the diff adds. The screen reads a diff that forces textual hunks, so no attribute or diff driver can hide a file's lines; the exported patch is a separate diff that keeps binary files applicable. A file whose section is still hidden (git printed it as binary anyway) is screened from the file itself. Untracked files enter the diff via intent-to-add, which is reset afterwards even when a diff throws. A hit on the whole patch, or a hidden section, is narrowed file by file: those whose own diff carries a secret leave the export and the patch is rebuilt without them. A hit no single file explains is a secret spanning files, so nothing is exported. */
   private async buildScreenedPatch(mirrorDir: string, changed: readonly ChangedFile[]): Promise<{ patch: string; exportable: ChangedFile[]; leftOut: LeftOut[] }> {
     const untracked = changed.filter((f) => f.untracked).map((f) => f.path);
     if (untracked.length > 0) await this.deps.git(["add", "--intent-to-add", "--", ...untracked], mirrorDir);
     try {
-      const diffOf = (files: readonly ChangedFile[]): Promise<string> =>
-        this.deps.git(["diff", "--binary", IGNORE_SUBMODULE_CONTENT, "HEAD", "--", ...files.map((f) => f.path)], mirrorDir);
-      const patch = await diffOf(changed);
-      if (!this.deps.containsSecret(addedLinesOfPatch(patch))) return { patch, exportable: [...changed], leftOut: [] };
+      const diffOf = (flags: readonly string[], files: readonly ChangedFile[]): Promise<string> =>
+        this.deps.git(["diff", ...flags, IGNORE_SUBMODULE_CONTENT, "HEAD", "--", ...files.map((f) => f.path)], mirrorDir);
+      const whole = scanPatch(await diffOf(SCREEN_DIFF_FLAGS, changed));
+      const hit = this.deps.containsSecret(whole.added);
+      if (!hit && !whole.hidden) return { patch: await diffOf(EXPORT_DIFF_FLAGS, changed), exportable: [...changed], leftOut: [] };
       const exportable: ChangedFile[] = [];
       const leftOut: LeftOut[] = [];
       for (const file of changed) {
-        if (this.deps.containsSecret(addedLinesOfPatch(await diffOf([file])))) leftOut.push({ path: file.path, reason: REASON_SECRET });
+        const scan = scanPatch(await diffOf(SCREEN_DIFF_FLAGS, [file]));
+        const reason = this.deps.containsSecret(scan.added) ? REASON_SECRET : scan.hidden && !file.deleted ? this.screenRawContent(mirrorDir, file.path) : undefined;
+        if (reason) leftOut.push({ path: file.path, reason });
         else exportable.push(file);
       }
-      if (leftOut.length === 0) return { patch: "", exportable: [], leftOut: changed.map((f) => ({ path: f.path, reason: REASON_SECRET })) };
-      return { patch: exportable.length > 0 ? await diffOf(exportable) : "", exportable, leftOut };
+      if (hit && leftOut.length === 0) return { patch: "", exportable: [], leftOut: changed.map((f) => ({ path: f.path, reason: REASON_SECRET })) };
+      return { patch: exportable.length > 0 ? await diffOf(EXPORT_DIFF_FLAGS, exportable) : "", exportable, leftOut };
     } finally {
       if (untracked.length > 0) await this.deps.git(["reset", "-q", "--", ...untracked], mirrorDir);
     }

@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   LocalExportPublicationAdapter,
-  addedLinesOfPatch,
   nodeLocalExportFs,
   parsePorcelainZ,
+  scanPatch,
   type LocalExportDeps,
   type LocalExportFs,
 } from "@contexts/workspace-and-publication/infrastructure/local-export-publication.adapter.ts";
@@ -24,18 +25,23 @@ function memFs(): LocalExportFs & { files: Map<string, string>; copies: Array<[s
     exists: (path) => files.has(path),
     isRegularFile: () => true,
     realpath: (path) => path,
-    read: (path) => mirrorFiles.get(path) ?? "",
+    read: (path) => {
+      if (unreadableFiles.has(path)) throw new Error("EACCES");
+      return mirrorFiles.get(path) ?? "";
+    },
   };
 }
 
-/* What the in-memory mirror holds, keyed by absolute path. A path not listed reads as an empty file. */
+/* What the in-memory mirror holds, keyed by absolute path. A path not listed reads as an empty file; one in `unreadableFiles` cannot be read. */
 const mirrorFiles = new Map<string, string>();
+const unreadableFiles = new Set<string>();
 
 function harness(
   statusOut: string,
   opts: { diffThrows?: boolean; containsSecret?: (text: string) => boolean; diff?: (args: string[]) => string } = {},
 ) {
   mirrorFiles.clear();
+  unreadableFiles.clear();
   const calls: string[][] = [];
   const excludesWritten: Array<[string, readonly string[]]> = [];
   const fs = memFs();
@@ -66,10 +72,10 @@ function harness(
 test("parsePorcelainZ: untracked, modified, deleted and a rename (source token skipped)", () => {
   const out = ["?? e2e/flows/new.spec.ts", " M e2e/fixtures.ts", " D e2e/flows/old.spec.ts", "R  e2e/flows/b.spec.ts", "e2e/flows/a.spec.ts", ""].join("\0");
   assert.deepEqual(parsePorcelainZ(out), [
-    { path: "e2e/flows/new.spec.ts", deleted: false, untracked: true },
-    { path: "e2e/fixtures.ts", deleted: false, untracked: false },
-    { path: "e2e/flows/old.spec.ts", deleted: true, untracked: false },
-    { path: "e2e/flows/b.spec.ts", deleted: false, untracked: false },
+    { path: "e2e/flows/new.spec.ts", deleted: false, untracked: true, modifiedInPlace: false },
+    { path: "e2e/fixtures.ts", deleted: false, untracked: false, modifiedInPlace: true },
+    { path: "e2e/flows/old.spec.ts", deleted: true, untracked: false, modifiedInPlace: false },
+    { path: "e2e/flows/b.spec.ts", deleted: false, untracked: false, modifiedInPlace: false },
   ]);
 });
 
@@ -95,7 +101,10 @@ test("publish stages untracked files only as intent-to-add and resets them after
   const { adapter, calls } = harness(["?? e2e/flows/a.spec.ts", ""].join("\0"));
   await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
   const verbs = calls.map((c) => c.slice(0, 2).join(" "));
-  assert.deepEqual(verbs, ["status --porcelain", "add --intent-to-add", "diff --binary", "reset -q"]);
+  assert.equal(verbs[0], "status --porcelain");
+  assert.equal(verbs[1], "add --intent-to-add");
+  assert.equal(verbs.at(-1), "reset -q");
+  assert.ok(verbs.slice(2, -1).every((v) => v.startsWith("diff ")), "only diffs run between the intent-to-add and its reset");
 });
 
 test("the intent-to-add reset still runs when the diff throws, and the error surfaces", async () => {
@@ -414,6 +423,8 @@ test("deleting a file that held a secret exports the deletion: removed lines lea
   assert.equal(res.leftOut, undefined);
 });
 
+const addedLinesOfPatch = (patch: string): string => scanPatch(patch).added;
+
 const NEW_FILE_HEADER = "diff --git a/e2e/n.ts b/e2e/n.ts\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/e2e/n.ts\n";
 
 test("addedLinesOfPatch returns every line of a new file", () => {
@@ -452,4 +463,201 @@ test("addedLinesOfPatch reads a hunk it cannot follow whole, so nothing is skipp
 
 test("addedLinesOfPatch of an empty patch is empty", () => {
   assert.equal(addedLinesOfPatch(""), "");
+});
+
+/* A real repository and the real git binary: what git shows for a file depends on attributes, so a faked git cannot say whether a hidden diff is screened. */
+const TOKEN = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
+const leaksToken = (text: string): boolean => /ghp_[A-Za-z0-9]{20,}/.test(text);
+
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" });
+}
+
+function realRepoHarness(files: Record<string, string | Buffer>) {
+  const root = mkdtempSync(join(tmpdir(), "qa-export-git-"));
+  const mirror = join(root, "mirror");
+  const exportDir = join(root, "export");
+  mkdirSync(mirror, { recursive: true });
+  runGit(mirror, ["init", "-q", "-b", "main"]);
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(mirror, path)), { recursive: true });
+    writeFileSync(join(mirror, path), content);
+  }
+  runGit(mirror, ["add", "-A"]);
+  runGit(mirror, ["commit", "-q", "-m", "init"]);
+  const adapter = new LocalExportPublicationAdapter({
+    exportDir,
+    mirrorDir: mirror,
+    baseBranch: "main",
+    addPaths: ["e2e"],
+    excludes: [],
+    git: async (args, cwd) => runGit(cwd, args),
+    writeExcludes: () => {},
+    containsSecret: leaksToken,
+    fs: nodeLocalExportFs,
+    log: () => {},
+  });
+  const write = (path: string, content: string | Buffer): void => {
+    mkdirSync(dirname(join(mirror, path)), { recursive: true });
+    writeFileSync(join(mirror, path), content);
+  };
+  const publish = () => adapter.publish({ mirrorDir: mirror, branch: "b", sha: "abc1234" });
+  const exportedText = (): string[] => (existsSync(exportDir) ? allFileContents(exportDir) : []);
+  return { root, mirror, exportDir, write, publish, exportedText, git: (args: string[]) => runGit(mirror, args) };
+}
+
+const withBinary = (text: string): Buffer => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]), Buffer.from(text)]);
+
+test("a tracked file whose diff an attributes file hides is still screened for the lines it adds", async () => {
+  const h = realRepoHarness({ "e2e/a.ts": "const a = 1;\n" });
+  try {
+    h.write("e2e/.gitattributes", "* -diff\n");
+    h.write("e2e/a.ts", `const a = 1;\nconst k = "${TOKEN}";\n`);
+
+    const res = await h.publish();
+
+    assert.equal(res.changed, false);
+    assert.ok(res.leftOut?.some((l) => l.path === "e2e/a.ts" && l.reason === "contains a secret"));
+    assert.equal(h.exportedText().some((c) => c.includes(TOKEN)), false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a diff driver that declares every file binary does not hide an added secret either", async () => {
+  const h = realRepoHarness({ "e2e/a.ts": "const a = 1;\n" });
+  try {
+    h.git(["config", "diff.hidden.binary", "true"]);
+    writeFileSync(join(h.mirror, ".git", "info", "attributes"), "* diff=hidden\n");
+    h.write("e2e/a.ts", `const a = 1;\nconst k = "${TOKEN}";\n`);
+
+    const res = await h.publish();
+
+    assert.equal(res.changed, false);
+    assert.equal(h.exportedText().some((c) => c.includes(TOKEN)), false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a secret appended to a tracked binary file is caught", async () => {
+  const h = realRepoHarness({ "e2e/logo.png": withBinary("v1") });
+  try {
+    h.write("e2e/logo.png", withBinary(`v2 ${TOKEN}`));
+
+    const res = await h.publish();
+
+    assert.equal(res.changed, false);
+    assert.deepEqual(res.leftOut, [{ path: "e2e/logo.png", reason: "contains a secret" }]);
+    assert.equal(h.exportedText().some((c) => c.includes(TOKEN)), false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a secret in a binary file the agent staged or marked intent-to-add is caught", async () => {
+  const h = realRepoHarness({ "e2e/a.ts": "const a = 1;\n" });
+  try {
+    h.write("e2e/staged.bin", withBinary(`staged ${TOKEN}`));
+    h.write("e2e/planned.bin", withBinary(`planned ${TOKEN}`));
+    h.git(["add", "e2e/staged.bin"]);
+    h.git(["add", "--intent-to-add", "e2e/planned.bin"]);
+
+    const res = await h.publish();
+
+    assert.equal(res.changed, false);
+    assert.deepEqual(res.leftOut?.map((l) => l.path).sort(), ["e2e/planned.bin", "e2e/staged.bin"]);
+    assert.equal(h.exportedText().some((c) => c.includes(TOKEN)), false);
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a binary file with no secret is exported as an applicable binary patch", async () => {
+  const h = realRepoHarness({ "e2e/a.ts": "const a = 1;\n" });
+  try {
+    h.write("e2e/logo.png", withBinary("clean"));
+
+    const res = await h.publish();
+
+    assert.equal(res.changed, true);
+    assert.equal(res.leftOut, undefined);
+    assert.match(readFileSync(join(h.exportDir, "changes.patch"), "utf8"), /GIT binary patch/);
+    assert.ok(existsSync(join(h.exportDir, "files", "e2e", "logo.png")));
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("the intent-to-add of an untracked file is still reset after the screen", async () => {
+  const h = realRepoHarness({ "e2e/a.ts": "const a = 1;\n" });
+  try {
+    h.write("e2e/new.spec.ts", "test('ok')\n");
+
+    await h.publish();
+
+    assert.equal(h.git(["status", "--porcelain", "--", "e2e"]).trim(), "?? e2e/new.spec.ts");
+  } finally {
+    rmSync(h.root, { recursive: true, force: true });
+  }
+});
+
+test("a file git still reports as binary is screened from its raw content", async () => {
+  const hidden = (path: string) => `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\nBinary files a/${path} and b/${path} differ\n`;
+  const diff = (args: string[]): string => args.slice(args.indexOf("--") + 1).map(hidden).join("");
+  const { adapter } = harness([" M e2e/leaky.png", " M e2e/clean.png", ""].join("\0"), { containsSecret: LEAKS, diff });
+  mirrorFiles.set("/m/e2e/leaky.png", "binary LEAK-MARKER");
+  mirrorFiles.set("/m/e2e/clean.png", "binary");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(res.leftOut, [{ path: "e2e/leaky.png", reason: "contains a secret" }]);
+});
+
+test("a hidden file that cannot be read is left out as unreadable, never exported unscreened", async () => {
+  const hidden = "diff --git a/e2e/x.png b/e2e/x.png\nindex 1111111..2222222 100644\nBinary files a/e2e/x.png and b/e2e/x.png differ\n";
+  const { adapter } = harness(" M e2e/x.png\0", { diff: () => hidden });
+  unreadableFiles.add("/m/e2e/x.png");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, false);
+  assert.deepEqual(res.leftOut, [{ path: "e2e/x.png", reason: "unreadable" }]);
+});
+
+test("a staged new file or a rename is screened whole, like an untracked one", async () => {
+  const { adapter } = harness(["A  e2e/added.ts", "R  e2e/renamed.ts", "e2e/was.ts", ""].join("\0"), { containsSecret: LEAKS });
+  mirrorFiles.set("/m/e2e/added.ts", "const k = 'LEAK-MARKER'");
+  mirrorFiles.set("/m/e2e/renamed.ts", "const k = 'LEAK-MARKER'");
+
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, false);
+  assert.deepEqual(res.leftOut?.map((l) => l.path).sort(), ["e2e/added.ts", "e2e/renamed.ts"]);
+});
+
+test("an attributes file at any depth stays out of the export, whatever its state", async () => {
+  const status = ["?? e2e/.gitattributes", " M e2e/sub/.GitAttributes", " D e2e/sub/deep/.gitattributes", "?? e2e/flows/a.spec.ts", ""].join("\0");
+  const { adapter, fs } = harness(status);
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(fs.copies.map(([src]) => src), ["/m/e2e/flows/a.spec.ts"]);
+  assert.deepEqual(res.leftOut, [
+    { path: "e2e/.gitattributes", reason: "attributes file" },
+    { path: "e2e/sub/.GitAttributes", reason: "attributes file" },
+    { path: "e2e/sub/deep/.gitattributes", reason: "attributes file" },
+  ]);
+});
+
+test("scanPatch reports a section git printed as binary, and not an added line that merely says so", () => {
+  const binaryBody = `${NEW_FILE_HEADER}GIT binary patch\nliteral 5\nzcmZQz\n\n`;
+  const binaryLine = "diff --git a/b.png b/b.png\nindex 1..2 100644\nBinary files a/b.png and b/b.png differ\n";
+  const lookalike = `${NEW_FILE_HEADER}@@ -0,0 +1,2 @@\n+GIT binary patch\n+Binary files a and b differ\n`;
+
+  assert.equal(scanPatch(binaryBody).hidden, true);
+  assert.equal(scanPatch(binaryLine).hidden, true);
+  assert.equal(scanPatch(lookalike).hidden, false);
+  assert.equal(scanPatch(lookalike).added, "GIT binary patch\nBinary files a and b differ");
 });
