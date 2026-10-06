@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { E2E_AUTH_FILE } from "../../../../src/shared-kernel/e2e-auth.ts";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
@@ -1585,4 +1587,47 @@ test("a DOM capture within the output bound still yields its snapshots", { timeo
     assert.equal(snaps.length, 1);
     assert.equal(snaps[0]?.route, "/home");
   });
+});
+
+/* Runs the real capture script against a fake playwright whose first navigation (the central login) throws an error that echoes the credentials. Returns the loginError the script reports. */
+function loginErrorFor(user: string, password: string): string {
+  const root = mkdtempSync(join(tmpdir(), "qa-capture-scrub-"));
+  try {
+    mkdirSync(join(root, "node_modules", "playwright"), { recursive: true });
+    writeFileSync(
+      join(root, "node_modules", "playwright", "index.js"),
+      `let calls = 0;
+const page = {
+  on() {},
+  goto: async () => { if (calls++ === 0) throw new Error("login rejected for " + process.env.DEV_TEST_USER + " / " + process.env.DEV_TEST_PASS); throw new Error("offline"); },
+};
+exports.chromium = { launch: async () => ({ newContext: async () => ({ newPage: async () => page }), close: async () => {} }) };`,
+    );
+    mkdirSync(join(root, join(E2E_AUTH_FILE, "..")), { recursive: true });
+    writeFileSync(join(root, E2E_AUTH_FILE), JSON.stringify({ loginUrl: "https://idp.example/login" }));
+    const script = join(root, "capture.cjs");
+    writeFileSync(script, buildCaptureScript(join(root, "node_modules", "playwright")));
+    const out = execFileSync(process.execPath, [script], {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? "", PW_CAPTURE_INPUT: JSON.stringify({ baseUrl: "https://app.example", routes: ["/a"] }), DEV_TEST_USER: user, DEV_TEST_PASS: password },
+      encoding: "utf8",
+    });
+    const rows = JSON.parse(out) as Array<{ loginError?: string }>;
+    return rows[0]?.loginError ?? "";
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a login error never carries the password even when the user name is a prefix of it", () => {
+  const loginError = loginErrorFor("test", "test1234");
+
+  assert.equal(loginError.includes("1234"), false);
+  assert.equal(loginError.includes("test"), false);
+});
+
+test("a login error never carries the user name when the password is a prefix of it", () => {
+  const loginError = loginErrorFor("admin-user-1", "admin");
+
+  assert.equal(loginError.includes("admin"), false);
 });

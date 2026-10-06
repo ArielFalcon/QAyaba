@@ -560,7 +560,9 @@ const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
     if (auth && process.env.DEV_TEST_USER && process.env.DEV_TEST_PASS) {
       try { await centralLogin(page, auth, process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS); }
       catch (e) {
-        const scrubbed = [process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS].reduce((text, secret) => text.split(secret).join("[redacted]"), String(e && e.message || e));
+        /* Longest value first: scrubbing a user name that is a prefix of the password would leave the rest of the password in the text. */
+        const secrets = [process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS].sort((a, b) => b.length - a.length);
+        const scrubbed = secrets.reduce((text, secret) => text.split(secret).join("[redacted]"), String(e && e.message || e));
         loginError = scrubbed.slice(0, 200);
       }
     }
