@@ -211,11 +211,11 @@ const maintainer = createMaintainerRuntime({
   root: ROOT,
   selfRepo: SELF_REPO,
   autonomous: AUTONOMOUS_MAINTAINER,
+  /* Incidents are always recorded; only a profile with self-maintenance lets them start the maintainer agent or reach GitHub. */
+  selfMaintenance: CAPABILITIES.selfMaintenance,
   port,
 });
-const { confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
-/* Incidents are always recorded; only a profile with self-maintenance lets them start the maintainer agent. */
-const triggerMaintainer = CAPABILITIES.selfMaintenance ? maintainer.triggerMaintainer : async (): Promise<void> => {};
+const { triggerMaintainer, confirmSwapAfterBoot, recoverMaintainerState, recoverRollbackRecord } = maintainer;
 
 process.on("SIGTERM", () => {
   console.log("[qa] SIGTERM received — cancelling in-flight run and draining");

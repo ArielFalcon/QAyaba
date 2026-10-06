@@ -40,6 +40,8 @@ export interface MaintainerConfig {
   root: string;
   selfRepo: string;
   autonomous: boolean;  /* SELF_MAINTAINER_AUTOMERGE — the ops kill-switch (default off) */
+  /* Whether the deployment profile lets the maintainer act at all. Off, no path starts the agent or reaches GitHub (incidents are still recorded, and a promote still waiting stays on disk for a profile that can finish it); a swap already staged is still verified and rolled back. */
+  selfMaintenance: boolean;
   port: number;
 }
 
@@ -107,6 +109,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
   }
 
   async function triggerMaintainer(): Promise<void> {
+    if (!cfg.selfMaintenance) return;
     const pending = getIncidents().filter((i) => i.status === "pending");
     if (pending.length === 0) return;
 
@@ -367,6 +370,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
   }
 
   function recoverMaintainerState(): void {
+    if (!cfg.selfMaintenance) return;
     const diagnosing = getIncidents().filter((i) => i.status === "diagnosing");
     if (diagnosing.length > 0) {
       logJson("info", "maintainer recovering: incidents were mid-diagnosis; re-triggering", { count: diagnosing.length });
@@ -391,7 +395,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        * re-drive it so the merge/bookkeeping is not silently lost. Cleared on any terminal outcome.
        */
       const pending = readPendingPromote(dataDir);
-      if (pending?.promote) {
+      if (pending?.promote && cfg.selfMaintenance) {
         logJson("info", "re-driving a promote interrupted by a restart", { prUrl: pending.prUrl ?? "" });
         void (async () => {
           try {
@@ -453,6 +457,8 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        */
       if (marker.promote) {
         writePendingPromote(dataDir, { promote: marker.promote, prUrl: marker.prUrl, fix: marker.fix, at: new Date().toISOString() });
+        /* Without self-maintenance the record stays for a profile that can finish the merge. */
+        if (!cfg.selfMaintenance) return;
         try {
           await promote(marker.promote, marker.prUrl, marker.fix);
         } finally {

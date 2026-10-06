@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaintainerRuntime, type MaintainerSideEffects, type MaintainerConfig } from "./maintainer-runtime";
-import { recordIncident, getIncident, getIncidents, getMaintainerStatus } from "./maintainer";
+import { recordIncident, getIncident, getIncidents, getMaintainerStatus, setMaintainerStatus, updateIncident } from "./maintainer";
+import { PENDING_PROMOTE_FILE, writePendingPromote } from "./self-update";
 import type { AgentDeps } from "../integrations/opencode-client";
 import { DEFAULT_CHANGE_LIMITS, PROTECTED_PATHS } from "./merge-guard";
 
@@ -50,13 +51,14 @@ function agentDeps(promptReturn: string, onPrompt?: (prompt: string) => void): A
 
 interface Spies {
   createPR: number;
+  enableAutoMerge: number;
   performSwap: number;
   exit: number[];
   gateCmds: string[];
 }
 
-function harness(opts: { root: string; autonomous: boolean; promptReturn: string; onPrompt?: (prompt: string) => void; gitCalls?: string[][] }) {
-  const calls: Spies = { createPR: 0, performSwap: 0, exit: [], gateCmds: [] };
+function harness(opts: { root: string; autonomous: boolean; selfMaintenance?: boolean; promptReturn: string; onPrompt?: (prompt: string) => void; gitCalls?: string[][] }) {
+  const calls: Spies = { createPR: 0, enableAutoMerge: 0, performSwap: 0, exit: [], gateCmds: [] };
   const git = async (args: string[]): Promise<string> => {
     opts.gitCalls?.push(args);
     if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n";
@@ -70,7 +72,9 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
         return { url: "https://gh/pr/1", number: 1, nodeId: "n1" };
       },
       mergePullRequest: async () => {},
-      enableAutoMerge: async () => {},
+      enableAutoMerge: async () => {
+        calls.enableAutoMerge++;
+      },
       getPrStatus: async () => ({ merged: true, state: "open", checks: "success" }),
     } as unknown as MaintainerSideEffects["github"],
     performSwap: () => {
@@ -95,6 +99,7 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
     root: opts.root,
     selfRepo: "Org/qayaba",
     autonomous: opts.autonomous,
+    selfMaintenance: opts.selfMaintenance ?? true,
     port: 9999,
   };
   return { runtime: createMaintainerRuntime(cfg, fx), calls };
@@ -269,6 +274,7 @@ test("triggerMaintainer redacts a secret-shaped error before logging the session
     root,
     selfRepo: "Org/qayaba",
     autonomous: true,
+    selfMaintenance: true,
     port: 9999,
   };
   const rt = createMaintainerRuntime(cfg, fx);
@@ -337,6 +343,7 @@ test("triggerMaintainer redacts a token-shaped error before logging the post-swa
     root,
     selfRepo: "Org/qayaba",
     autonomous: true,
+    selfMaintenance: true,
     port: 9999,
   };
   const rt = createMaintainerRuntime(cfg, fx);
@@ -356,4 +363,70 @@ test("triggerMaintainer redacts a token-shaped error before logging the post-swa
   } finally {
     console.error = originalError;
   }
+});
+
+/* A profile without self-maintenance (slim) never lets the maintainer agent run or touch GitHub, whichever path would start it. */
+const PENDING_PROMOTE = { promote: { repo: "Org/qayaba", prNumber: 7, nodeId: "node-7" }, prUrl: "https://gh/pr/7", at: "2026-10-01T00:00:00.000Z" };
+
+test("without self-maintenance a pending incident never starts the maintainer agent", async () => {
+  const root = freshRoot();
+  setMaintainerStatus("idle");
+  const inc = recordIncident({ source: "health-check", severity: "critical", summary: "gated trigger case" });
+  let opened = false;
+  const { runtime } = harness({ root, autonomous: false, selfMaintenance: false, promptReturn: fixReply(), onPrompt: () => { opened = true; } });
+
+  await runtime.triggerMaintainer();
+
+  assert.equal(opened, false);
+  assert.equal(getMaintainerStatus(), "idle");
+  assert.equal(getIncident(inc.id)?.status, "pending", "the incident stays recorded for a profile that can act on it");
+});
+
+test("without self-maintenance recovering incidents left mid-diagnosis does not re-trigger the maintainer", () => {
+  setMaintainerStatus("idle");
+  const root = freshRoot();
+  const stuck = recordIncident({ source: "health-check", severity: "critical", summary: "stuck mid-diagnosis" });
+  updateIncident(stuck.id, { status: "diagnosing" });
+  recordIncident({ source: "health-check", severity: "critical", summary: "waiting to be diagnosed" });
+  const { runtime } = harness({ root, autonomous: false, selfMaintenance: false, promptReturn: fixReply() });
+
+  runtime.recoverMaintainerState();
+
+  assert.equal(getMaintainerStatus(), "idle", "no diagnosis started");
+});
+
+test("with self-maintenance, recovering incidents left mid-diagnosis re-triggers the maintainer", async () => {
+  setMaintainerStatus("idle");
+  const root = freshRoot();
+  const stuck = recordIncident({ source: "health-check", severity: "critical", summary: "stuck mid-diagnosis" });
+  updateIncident(stuck.id, { status: "diagnosing" });
+  recordIncident({ source: "health-check", severity: "critical", summary: "waiting to be diagnosed" });
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply() });
+
+  runtime.recoverMaintainerState();
+
+  assert.equal(getMaintainerStatus(), "diagnosing", "the maintainer started");
+  while (getMaintainerStatus() !== "idle") await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("without self-maintenance a promote interrupted by a restart is neither re-driven nor dropped", () => {
+  const root = freshRoot();
+  writePendingPromote(join(root, "data"), PENDING_PROMOTE);
+  const { runtime, calls } = harness({ root, autonomous: false, selfMaintenance: false, promptReturn: fixReply() });
+
+  runtime.confirmSwapAfterBoot();
+
+  assert.equal(calls.enableAutoMerge, 0, "nothing reaches GitHub");
+  assert.ok(existsSync(join(root, "data", PENDING_PROMOTE_FILE)), "the record stays for a profile that can finish it");
+});
+
+test("with self-maintenance a promote interrupted by a restart is re-driven", async () => {
+  const root = freshRoot();
+  writePendingPromote(join(root, "data"), PENDING_PROMOTE);
+  const { runtime, calls } = harness({ root, autonomous: false, promptReturn: fixReply() });
+
+  runtime.confirmSwapAfterBoot();
+
+  assert.equal(calls.enableAutoMerge, 1, "the merge is taken up again");
+  while (existsSync(join(root, "data", PENDING_PROMOTE_FILE))) await new Promise((resolve) => setImmediate(resolve));
 });
