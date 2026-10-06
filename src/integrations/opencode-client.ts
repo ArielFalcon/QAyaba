@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
 import { saveAgentTurnEvent } from "../server/history";
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
@@ -486,8 +487,22 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
   const dispatcherTimeoutMs = Math.max(generatorMax, REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, PLANNER_TIMEOUT_MS) + 30_000;
   await installHttpDispatcher(dispatcherTimeoutMs);
 
-  const raw = await buildRawAgentTransport();
+  return buildAgentDeps(await buildRawAgentTransport(), dispatcherTimeoutMs);
+}
 
+/*
+ * The production AgentDeps over a raw transport: the engine's transport policy plus the shell's
+ * collaborators. The redactor masks the exact values of the process's secret env vars (the same
+ * RedactionPortAdapter every other outbound text goes through), read live from `env`, so an LLM
+ * gateway key — which has no shape the sanitizer could recognize — is masked in provider-fault
+ * messages and persisted turns from the moment it is set, including a key pasted after boot.
+ */
+export function buildAgentDeps(
+  raw: RawAgentTransport,
+  dispatcherTimeoutMs: number,
+  env: Record<string, string | undefined> = process.env,
+): AgentDeps {
+  const redaction = new RedactionPortAdapter(env);
   return createAgentDeps(raw, {
     defaultPromptTimeoutMs: dispatcherTimeoutMs,
     getFallbackModel,
@@ -495,6 +510,7 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
     takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
     prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
     maxStepsFor: maxStepsFromConfig,
+    redact: (text) => redaction.redact(text),
   });
 }
 

@@ -141,14 +141,19 @@ function extractText(parts: Array<{ type: string; text?: string }> | undefined, 
   return stripReasoningWrappers(all.map(textOf).join(""));
 }
 
-export function agentErrorToInfra(error: RawAgentErrorPayload): AgentUnavailableError {
+/** Masks configured secret values in provider-originated text. The shell injects it (it alone knows which values are secret); absent means the text passes through unchanged. */
+export type SecretRedactor = (text: string) => string;
+
+export function agentErrorToInfra(error: RawAgentErrorPayload, redact: SecretRedactor = (text) => text): AgentUnavailableError {
   const d = error.data ?? {};
-  const detail = d.message ? `: ${d.message}` : "";
+  /* A gateway may echo the credential it rejected, so everything the provider supplied is masked before it enters a message that is logged and published. */
+  const detail = d.message ? `: ${redact(d.message)}` : "";
+  const providerID = d.providerID ? redact(d.providerID) : undefined;
   const tail = "INCONCLUSIVE (infrastructure), not a test failure";
   switch (error.name) {
     case "ProviderAuthError":
       return new AgentUnavailableError(
-        `OpenCode provider '${d.providerID ?? "?"}' rejected the request (auth / out of credits)${detail}. ` +
+        `OpenCode provider '${providerID ?? "?"}' rejected the request (auth / out of credits)${detail}. ` +
           `${tail} — check OPENCODE_API_KEY and your OpenCode credit balance.`,
       );
     case "APIError": {
@@ -208,6 +213,8 @@ export interface AgentDepsCollaborators {
   prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
   /** The agent's configured step limit (agents/opencode.json `agent.<id>.maxSteps`), or undefined when it has none. Shell-injected like getFallbackModel. */
   maxStepsFor?(agent: string): number | undefined;
+  /** Masks the exact values of configured secrets (an LLM gateway key has no recognizable shape, so the shape-based sanitizer cannot find it). Applied to provider-fault messages and to the emitted turn's output. Shell-injected; absent means no masking beyond sanitizeText. */
+  redact?: SecretRedactor;
 }
 
 /* Measurement is best-effort and must never disturb the prompt path: a fault is logged loudly and yields null. */
@@ -316,7 +323,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                   .then(({ res, observed }) => {
                     recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
                     if (res.agentError) {
-                      throw agentErrorToInfra(res.agentError);
+                      throw agentErrorToInfra(res.agentError, collab.redact);
                     }
                     recordCircuitSuccess(breakerRole);
                     if (res.tokens) {
@@ -348,7 +355,7 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       : null;
                     /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
                     if (effectiveOnTurn) {
-                      const sanitizedOutput = sanitizeText(outputRaw).text;
+                      const sanitizedOutput = sanitizeText(collab.redact ? collab.redact(outputRaw) : outputRaw).text;
                       const turnEvent: AgentTurnEvent = {
                         runId: opts?.descriptor?.runId ?? null,
                         sessionId: id,

@@ -772,6 +772,84 @@ test("createAgentDeps: sanitize-before-emit — a leaked secret is redacted in t
   assert.match(turns[0]!.outputText, /\[REDACTED\]/, "the secret must be replaced with the canonical redaction marker before it reaches storage/logging");
 });
 
+/* A configured secret has no recognizable shape (an LLM gateway key is whatever the operator pastes),
+   so the shape-based sanitizer cannot mask it: the shell injects a redactor that knows its exact value. */
+const GATEWAY_SECRET = "Zk8#mQ2!vL9-gateway";
+const maskGatewaySecret = (text: string): string => text.split(GATEWAY_SECRET).join("[MASKED]");
+
+test("agentErrorToInfra masks a configured secret the provider echoed, keeping the rest of the diagnosis", () => {
+  const err = agentErrorToInfra(
+    { name: "APIError", data: { message: `invalid api key ${GATEWAY_SECRET}`, statusCode: 401, providerID: GATEWAY_SECRET } },
+    maskGatewaySecret,
+  );
+
+  assert.equal(isInfraError(err), true);
+  assert.ok(!err.message.includes(GATEWAY_SECRET), "the diagnosis must not carry the secret");
+  assert.match(err.message, /invalid api key/);
+  assert.match(err.message, /401/);
+});
+
+test("agentErrorToInfra without a redactor reports the provider's message as given", () => {
+  const err = agentErrorToInfra({ name: "APIError", data: { message: `invalid api key ${GATEWAY_SECRET}`, statusCode: 401 } });
+
+  assert.ok(err.message.includes(GATEWAY_SECRET));
+});
+
+test("createAgentDeps: a provider fault that echoes a configured secret is masked in the error the prompt rejects with", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    promptSession: async () => ({
+      parts: [],
+      agentError: { name: "ProviderAuthError", data: { message: `bad credentials ${GATEWAY_SECRET}`, providerID: "gateway" } },
+    }),
+  });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, redact: maskGatewaySecret });
+  const session = await deps.open("qa-generator", "/tmp");
+
+  await assert.rejects(
+    () => session.prompt("do the thing"),
+    (err: unknown) => {
+      assert.equal(isInfraError(err), true);
+      assert.ok(!(err as Error).message.includes(GATEWAY_SECRET), "the rejection must not carry the secret");
+      assert.match((err as Error).message, /bad credentials/);
+      return true;
+    },
+  );
+  resetCircuit();
+});
+
+test("createAgentDeps: a configured secret in the agent's reply is masked in the emitted turn event and stays raw for the caller", async () => {
+  resetCircuit();
+  const reply = `using ${GATEWAY_SECRET} and also sk-abcdefghijklmnopqrstuvwxyz1234`;
+  const raw = makeRawTransport({ promptSession: async () => ({ parts: [{ type: "text", text: reply }] }) });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, redact: maskGatewaySecret });
+  const turns: AgentTurnEvent[] = [];
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-redact" }, onTurn: (t) => turns.push(t) });
+
+  const out = await session.prompt("do the thing");
+
+  assert.equal(out, reply);
+  assert.equal(turns.length, 1);
+  assert.ok(!turns[0]!.outputText.includes(GATEWAY_SECRET), "the configured secret is masked");
+  assert.doesNotMatch(turns[0]!.outputText, /sk-abcdefghijklmnopqrstuvwxyz1234/, "the shape-based sanitizer still applies");
+  assert.match(turns[0]!.outputText, /\[MASKED\]/);
+  resetCircuit();
+});
+
+test("createAgentDeps: without a redactor an arbitrary-shaped secret in the reply reaches the turn event unchanged", async () => {
+  resetCircuit();
+  const reply = `using ${GATEWAY_SECRET}`;
+  const raw = makeRawTransport({ promptSession: async () => ({ parts: [{ type: "text", text: reply }] }) });
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+  const turns: AgentTurnEvent[] = [];
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-plain" }, onTurn: (t) => turns.push(t) });
+
+  await session.prompt("do the thing");
+
+  assert.equal(turns[0]!.outputText, reply);
+  resetCircuit();
+});
+
 test("createAgentDeps: the default turn sink calls collab.persistTurn when a runId is present and the caller supplies no onTurn override", async () => {
   resetCircuit();
   const raw = makeRawTransport({

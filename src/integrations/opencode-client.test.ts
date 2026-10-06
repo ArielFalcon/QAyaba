@@ -22,6 +22,7 @@ import {
   maxStepsFromConfig,
   fallbackModelFromConfig,
   createRawEventStreamOpener,
+  buildAgentDeps,
 } from "./opencode-client";
 import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
 import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
@@ -1455,4 +1456,53 @@ test("a connection reset on the real stream client reaches the stream lifecycle 
   }
   assert.deepEqual(calls.map((c) => c.kind), ["opening", "connected", "interrupted", "closed"]);
   assert.equal(new Set(calls.map((c) => c.token)).size, 1);
+});
+
+/* An LLM gateway key has no recognizable shape, so the production transport masks the exact values of the
+   process's secret env vars (the redaction the engine's other outputs already use), read live so a key pasted
+   after boot is covered from that moment on. */
+const ARBITRARY_KEY = "Zk8#mQ2!vL9-gateway";
+
+function echoingTransport(agentError?: { name: string; data: { message: string; statusCode: number } }): import("@contexts/generation/infrastructure/agent-transport-policy").RawAgentTransport {
+  return {
+    createSession: async () => ({ id: "wired-session" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: `key in use: ${ARBITRARY_KEY}` }], ...(agentError ? { agentError } : {}) }),
+    abortSession: async () => {},
+    deleteSession: async () => {},
+  };
+}
+
+test("production agent deps mask a secret env value in a provider fault, including a key set after they were built", async () => {
+  const env: Record<string, string | undefined> = {};
+  const deps = buildAgentDeps(
+    echoingTransport({ name: "APIError", data: { message: `rejected ${ARBITRARY_KEY}`, statusCode: 401 } }),
+    5_000,
+    env,
+  );
+  env.OPENCODE_API_KEY = ARBITRARY_KEY;
+  const session = await deps.open("qa-generator", "/tmp");
+
+  await assert.rejects(
+    () => session.prompt("go"),
+    (err: unknown) => {
+      assert.ok(!(err as Error).message.includes(ARBITRARY_KEY), "the rejection must not carry the key");
+      assert.match((err as Error).message, /rejected/);
+      return true;
+    },
+  );
+});
+
+test("production agent deps mask a secret env value in the turn event they emit", async () => {
+  const deps = buildAgentDeps(echoingTransport(), 5_000, { OPENCODE_API_KEY: ARBITRARY_KEY });
+  const outputs: string[] = [];
+  const session = await deps.open("qa-generator", "/tmp", {
+    descriptor: { runId: "run-wired" },
+    onTurn: (t) => outputs.push(t.outputText),
+  });
+
+  await session.prompt("go");
+
+  assert.equal(outputs.length, 1);
+  assert.ok(!outputs[0]!.includes(ARBITRARY_KEY), "the emitted turn must not carry the key");
+  assert.match(outputs[0]!, /key in use/);
 });
