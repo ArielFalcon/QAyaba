@@ -8,7 +8,7 @@ import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/a
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
-import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { buildRouteCatalog, buildTestIdIndex, centralLoginWarning, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { E2E_AUTH_FILE } from "../../../shared-kernel/e2e-auth.ts";
@@ -52,6 +52,8 @@ export interface RouteSnapshot {
   finalUrl?: string;
   /* The route settled on another origin than the app (e.g. a central login): never grounded, whatever its path. */
   offOrigin?: boolean;
+  /* Why the declared central login failed before this capture, scrubbed of the credentials; the same text on every route of the capture. Absent when no login was attempted or it succeeded. */
+  loginError?: string;
 }
 
 export interface CaptureDomInput {
@@ -280,9 +282,11 @@ export function formatDomCapture(snaps: RouteSnapshot[], changed?: ChangedElemen
   return text === "" ? undefined : text;
 }
 
-/* Names the routes whose capture degraded, and, when the redirects look like a gated app, says so. Log only. */
+/* Names a failed central login, the routes whose capture degraded, and, when the redirects look like a gated app, says so. Log only. */
 function warnOnDegradedRoutes(snaps: readonly RouteSnapshot[]): void {
   const catalogs = snaps.map(buildRouteCatalog);
+  const loginFailed = centralLoginWarning(catalogs);
+  if (loginFailed) console.warn(loginFailed);
   const degraded = degradedRouteWarning(catalogs);
   if (degraded) console.warn(degraded);
   const gated = gatedAppAdvisory(catalogs);
@@ -515,7 +519,7 @@ const RENDER_LOGIN_BUDGET_MS = 60_000;
 const renderTimeoutFor = (routeCount: number): number =>
   Math.min(RENDER_BASE_TIMEOUT_MS + Math.max(1, routeCount) * RENDER_PER_ROUTE_TIMEOUT_MS, RENDER_MAX_TIMEOUT_MS);
 
-/* The capture runs the same declared central login as the seed authenticate() fixture (E2E_AUTH_FILE, credentials from DEV_TEST_USER/PASS) before snapshotting, so authenticated routes are grounded on the real page instead of the identity provider's form. A failed login is reported on stderr and the capture proceeds — those routes then degrade exactly as they would without a login. */
+/* The capture runs the same declared central login as the seed authenticate() fixture (E2E_AUTH_FILE, credentials from DEV_TEST_USER/PASS) before snapshotting, so authenticated routes are grounded on the real page instead of the identity provider's form. Like that fixture it does not log in when a saved session is loaded (PW_STORAGE_STATE). A failed login does not stop the capture: the failure, scrubbed of the credentials, rides on every route of the JSON result (`loginError`; stderr is never read), and those routes degrade exactly as they would without a login. */
 export function buildCaptureScript(playwrightRequirePath = "playwright"): string {
   return `const { chromium } = require(${JSON.stringify(playwrightRequirePath)});
 const fs = require("fs");
@@ -551,11 +555,16 @@ const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
     let currentRouteErrors = [];
     page.on("pageerror", function(err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
     page.on("console", function(msg) { if (msg.type() === "error") currentRouteErrors.push({ type: "console", text: msg.text() }); });
-    const auth = readAuthConfig();
+    const auth = process.env.PW_STORAGE_STATE ? null : readAuthConfig();
+    let loginError;
     if (auth && process.env.DEV_TEST_USER && process.env.DEV_TEST_PASS) {
       try { await centralLogin(page, auth, process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS); }
-      catch (e) { process.stderr.write("[qa] DOM capture: central login failed (" + String(e && e.message || e).slice(0, 200) + ") — authenticated routes will not be grounded\\n"); }
+      catch (e) {
+        const scrubbed = [process.env.DEV_TEST_USER, process.env.DEV_TEST_PASS].reduce((text, secret) => text.split(secret).join("[redacted]"), String(e && e.message || e));
+        loginError = scrubbed.slice(0, 200);
+      }
     }
+    const withLoginError = (entry) => loginError ? Object.assign(entry, { loginError: loginError }) : entry;
     for (const route of routes) {
       currentRouteErrors = [];
       try {
@@ -616,8 +625,8 @@ const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
             return Array.from(document.querySelectorAll('[' + a + ']')).map(function(el) { return el.getAttribute(a); }).filter(function(v) { return v; });
           }, testIdAttr);
         } catch(_e) { testIdRawList = []; }
-        out.push({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, offOrigin });
-      } catch (e) { out.push({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors }); }
+        out.push(withLoginError({ route, yaml, rawAttrs, testIdRawList, testIdAttr, settled, runtimeErrors: currentRouteErrors, finalUrl, offOrigin }));
+      } catch (e) { out.push(withLoginError({ route, error: String(e && e.message || e).slice(0, 200), runtimeErrors: currentRouteErrors })); }
     }
   } catch (e) { process.stderr.write(String(e)); } finally { if (browser) await browser.close().catch(() => {}); }
   process.stdout.write(JSON.stringify(out));
@@ -720,11 +729,12 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
         child.on("close", () => {
           if (finished) return;
           try {
-            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; offOrigin?: boolean }>;
+            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; offOrigin?: boolean; loginError?: string }>;
             done(raw.map((r) => {
               if (r.error) {
                 const errored: RouteSnapshot = { route: r.route, error: r.error };
                 if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
+                if (r.loginError) errored.loginError = r.loginError;
                 return errored;
               }
               const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
@@ -739,6 +749,7 @@ export function createCaptureDomDeps(authDir: string, maxOutputChars: number = M
               if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
               if (r.finalUrl) snap.finalUrl = r.finalUrl;
               if (r.offOrigin) snap.offOrigin = true;
+              if (r.loginError) snap.loginError = r.loginError;
               return snap;
             }));
           } catch {

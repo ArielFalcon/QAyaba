@@ -1406,6 +1406,38 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
   assert.ok(msg.includes("DEGRADED") || msg.includes("WARNING"), "attributed as a degraded-capture event");
 });
 
+test("a failed central login is warned about once, even when every route captured", async () => {
+  const deps: CaptureDomDeps = {
+    render: async () => [
+      { route: "/a", nodes: ["button: Save"], settled: true, loginError: "still on the central login page" },
+      { route: "/b", nodes: ["button: Pay"], settled: true, loginError: "still on the central login page" },
+    ],
+  };
+  const warned: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(" ")); };
+  try {
+    await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  } finally {
+    console.warn = origWarn;
+  }
+  const loginWarnings = warned.filter((w) => w.includes("still on the central login page"));
+  assert.equal(loginWarnings.length, 1, "the failure is named once, not once per route");
+});
+
+test("no central login warning when the login did not fail", async () => {
+  const deps: CaptureDomDeps = { render: async () => [{ route: "/a", nodes: ["button: Save"], settled: true }] };
+  const warned: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(" ")); };
+  try {
+    await captureDomForRoutes(["/a"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  } finally {
+    console.warn = origWarn;
+  }
+  assert.equal(warned.some((w) => /login/i.test(w)), false);
+});
+
 /* ── Authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
    The render child spawns a separate Node process that does chromium.launch() + newContext(). A
    comment claimed scrubEnv(/^DEV_/) passes DEV_ENV_USER/PASS through to the child so gated routes

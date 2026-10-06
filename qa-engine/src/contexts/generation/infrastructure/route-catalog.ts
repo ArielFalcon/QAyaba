@@ -38,6 +38,8 @@ export interface RouteCatalog {
   reachedPasswordField?: boolean;
   /** Whether the redirect left the app's origin (a central login); absent when the route did not redirect. */
   reachedOtherOrigin?: boolean;
+  /** Why the declared central login failed before this capture; absent when none was attempted or it succeeded. */
+  loginError?: string;
 }
 
 /** Build the test-id index from the raw, role-independent capture (every element carrying the configured testIdAttribute, including role-less elements). Counts occurrences so presence and uniqueness are checkable. Blank values are ignored. */
@@ -113,6 +115,7 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
     settled: !degraded && snapshot.settled === true,
     testIds: degraded ? new Map() : (snapshot.testIds ?? new Map()),
     ...(degraded ? { degradeReason } : {}),
+    ...(snapshot.loginError === undefined ? {} : { loginError: snapshot.loginError }),
     ...(redirectedTo === undefined
       ? {}
       : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false, reachedOtherOrigin: offOrigin }),
@@ -125,6 +128,12 @@ export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string 
   if (degraded.length === 0) return undefined;
   const named = degraded.map((c) => `${c.route} (${[c.degradeReason, c.redirectedTo].filter(Boolean).join(" ")})`);
   return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
+}
+
+/** Names the declared central login's failure, once however many routes carry it, or undefined when the login did not fail. It is a warning of its own: every route may still have captured (public pages) while the ones behind the login did not. */
+export function centralLoginWarning(catalogs: readonly RouteCatalog[]): string | undefined {
+  const error = catalogs.find((c) => c.loginError !== undefined)?.loginError;
+  return error === undefined ? undefined : `[qa] WARNING: the declared central login failed (${error}) — routes behind it are NOT grounded.`;
 }
 
 /** A note, for the log only, when redirects look like a gated app: two or more routes reached one page, or the page reached has a password field. The app may need a login declared in its config: `auth:` when the page is on the app's own origin, `e2e.auth:` when it is another origin's (a central login). Undefined when nothing looks gated. */
