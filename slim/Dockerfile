@@ -179,8 +179,10 @@ RUN mkdir -p /root/.config \
 COPY --from=tui /out/qayaba /usr/local/bin/qayaba
 # The Node here is the Playwright base image's, not the deps stage's: the sources require Node >= 24 and
 # better-sqlite3 was compiled against node:24 headers. Opening a database loads the native addon, so
-# a mismatch fails this build instead of the first run.
-RUN node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 24) { console.error("runtime Node " + process.version + " is older than 24"); process.exit(1); } const Database = require("better-sqlite3"); new Database(":memory:").close(); console.log("node " + process.version + ", better-sqlite3 ok");'
+# a mismatch fails this build instead of the first run. The log names the Node version, and says so when
+# this Node (before 24.14) has no http.setGlobalProxyFromEnv: the gateway key check then cannot use a
+# proxy and reports the key as unverified behind one instead of failing it.
+RUN node -e 'const major = Number(process.versions.node.split(".")[0]); if (major < 24) { console.error("runtime Node " + process.version + " is older than 24"); process.exit(1); } const Database = require("better-sqlite3"); new Database(":memory:").close(); const proxy = typeof require("http").setGlobalProxyFromEnv === "function"; console.log("node " + process.version + ", better-sqlite3 ok, http.setGlobalProxyFromEnv " + (proxy ? "present" : "ABSENT (needs Node 24.14+): behind a proxy the LLM gateway key check reports the key as unverified"));'
 
 # LISTEN_HOST: inside the container the control plane listens on every interface so the published
 # port (slim/compose.yml binds it to 127.0.0.1 on the host) and the tui service can reach it.

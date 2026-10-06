@@ -67,6 +67,24 @@ test("the Node and native module check fails when the runtime Node is older than
   assert.match(result.stderr, /older than 24/);
 });
 
+test("the Node check prints the runtime's Node version, so a build log shows which Node the image really has", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const result = spawnSync(process.execPath, ["-e", nodeCheck[1]], { cwd: root, encoding: "utf8" });
+  assert.ok(result.stdout.includes(process.version), result.stdout);
+});
+
+test("the Node check says so when the runtime Node has no proxy support for the gateway key check, and stays quiet when it has", () => {
+  const root = fileURLToPath(new URL("..", import.meta.url));
+  const without = `Object.defineProperty(require("http"), "setGlobalProxyFromEnv", { value: undefined, configurable: true }); ${nodeCheck[1]}`;
+  const withApi = `Object.defineProperty(require("http"), "setGlobalProxyFromEnv", { value: () => {}, configurable: true }); ${nodeCheck[1]}`;
+  const missing = spawnSync(process.execPath, ["-e", without], { cwd: root, encoding: "utf8" });
+  const present = spawnSync(process.execPath, ["-e", withApi], { cwd: root, encoding: "utf8" });
+  assert.equal(missing.status, 0, "an older minor is reported, not a build failure");
+  assert.match(missing.stdout, /setGlobalProxyFromEnv/);
+  assert.match(missing.stdout, /unverified/);
+  assert.doesNotMatch(present.stdout, /unverified/);
+});
+
 test("the effective OpenCode config is built from the base and the override, so the build stops without a gateway", () => {
   const step = /^RUN node \/tmp\/qayaba\/opencode-config\.mjs (\S+) (\S+) > \S+$/m.exec(dockerfile);
   assert.ok(step, "the deps stage runs opencode-config.mjs with both inputs and no fallback");

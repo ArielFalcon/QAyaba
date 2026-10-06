@@ -35,7 +35,14 @@ Si el equipo no dispone de ninguna de las dos herramientas, el comando remite a 
 
 Las tres referencias son **etiquetas**, no resúmenes (*digest*). Para fijarlas de forma inmutable, indica
 `PW_IMAGE=<repo>@sha256:…` (y equivalentes) en `slim/.env`. El build comprueba que el Node de la imagen final
-sea ≥ 24 y que `better-sqlite3` abra una base de datos.
+sea ≥ 24 y que `better-sqlite3` abra una base de datos, e imprime la versión de Node.
+
+La verificación de la clave contra el gateway (`agents/agent-supervisor.mjs`) necesita **Node ≥ 24.14**, que es
+la versión que incorpora `http.setGlobalProxyFromEnv`: con ella la consulta a `<baseURL>/models` respeta
+`HTTPS_PROXY`/`NO_PROXY`. En un Node anterior la consulta sale directa; si hay un proxy configurado para el
+host del gateway y la conexión falla, el estado es `degraded` («key not verified (no proxy support in this
+Node)») y no `failed`, porque ese fallo no dice nada sobre la clave. El build avisa en su salida cuando la
+imagen final no tiene esa función.
 
 ### 2.2 Paquetes del sistema (apt, Ubuntu 24.04)
 

@@ -72,6 +72,9 @@ function redactForResponse(msg) {
 //   2xx            -> healthy
 //   401 / 403      -> failed   "key rejected by the LLM gateway"
 //   transport error-> failed   "LLM gateway unreachable"
+//   transport error, on a Node that cannot apply the environment's proxy while a proxy applies to
+//                    the gateway host -> degraded "key not verified (no proxy support in this Node)":
+//                    the direct attempt says nothing about the key
 //   anything else  -> degraded (the gateway answered, but the key is unverified)
 // The key is only ever sent to the baseURL of the provider configured to read it, and never logged or
 // returned: every message below is built without it and passed through redaction.
@@ -118,7 +121,35 @@ function untilAborted(signal, work) {
   });
 }
 
-async function checkGateway({ id, url, key }, { fetchImpl, signal }) {
+// Whether the environment routes a request for `url` through a proxy, by the same variables
+// http.setGlobalProxyFromEnv reads: HTTPS_PROXY for https, HTTP_PROXY for http (either case), unless
+// NO_PROXY exempts the host. A NO_PROXY entry is `*`, a host or a domain (a leading `.` or `*.` is
+// ignored; a domain also covers its subdomains), optionally with a port.
+export function proxyAppliesTo(url, env = process.env) {
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return false;
+  }
+  const secure = target.protocol === "https:";
+  const proxy = secure ? env.HTTPS_PROXY || env.https_proxy : env.HTTP_PROXY || env.http_proxy;
+  if (!proxy) return false;
+  const port = target.port || (secure ? "443" : "80");
+  const host = target.hostname.toLowerCase();
+  const exempt = String(env.NO_PROXY ?? env.no_proxy ?? "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .some((entry) => {
+      if (entry === "*") return true;
+      const [name, entryPort] = entry.toLowerCase().replace(/^\*?\./, "").split(/:(?=\d+$)/);
+      if (entryPort !== undefined && entryPort !== port) return false;
+      return host === name || host.endsWith(`.${name}`);
+    });
+  return !exempt;
+}
+
+async function checkGateway({ id, url, key }, { fetchImpl, signal, proxyHonoured, env }) {
   try {
     const res = await untilAborted(signal, fetchImpl(url, {
       method: "GET",
@@ -132,18 +163,24 @@ async function checkGateway({ id, url, key }, { fetchImpl, signal }) {
     return { kind: "unverified", id, detail: `HTTP ${res.status}` };
   } catch (err) {
     const cause = err?.cause?.code ?? err?.cause?.message ?? (err instanceof Error ? err.message : String(err));
-    return { kind: "unreachable", id, detail: String(cause).split(key).join("[REDACTED_CREDENTIAL]") };
+    const detail = String(cause).split(key).join("[REDACTED_CREDENTIAL]");
+    if (!proxyHonoured && proxyAppliesTo(url, env)) return { kind: "unproxied", id, detail };
+    return { kind: "unreachable", id, detail };
   }
 }
 
-// One outcome for all the gateways: the worst one wins (rejected > unreachable > unverified).
-export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = GATEWAY_CHECK_TIMEOUT_MS, signalFor = (ms) => AbortSignal.timeout(ms) } = {}) {
-  const outcomes = await Promise.all(targets.map((target) => checkGateway(target, { fetchImpl, signal: signalFor(timeoutMs) })));
+// One outcome for all the gateways: the worst one wins (rejected > unreachable > unverified, and a
+// gateway left unverified for want of proxy support ranks with the unverified ones).
+// `proxyHonoured` says whether this Node applies the environment's proxy to fetch (useEnvProxy).
+export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = GATEWAY_CHECK_TIMEOUT_MS, signalFor = (ms) => AbortSignal.timeout(ms), proxyHonoured = true, env = process.env } = {}) {
+  const outcomes = await Promise.all(targets.map((target) => checkGateway(target, { fetchImpl, signal: signalFor(timeoutMs), proxyHonoured, env })));
   const pick = (kind) => outcomes.find((o) => o.kind === kind);
   const rejected = pick("rejected");
   if (rejected) return { status: "failed", error: `key rejected by the LLM gateway (${rejected.id}: ${rejected.detail})` };
   const unreachable = pick("unreachable");
   if (unreachable) return { status: "failed", error: `LLM gateway unreachable (${unreachable.id}: ${unreachable.detail})` };
+  const unproxied = pick("unproxied");
+  if (unproxied) return { status: "degraded", error: `key not verified (no proxy support in this Node): the LLM gateway could not be reached directly and a proxy is configured for it (${unproxied.id}: ${unproxied.detail})` };
   const unverified = pick("unverified");
   if (unverified) return { status: "degraded", error: `LLM gateway answered ${unverified.detail} to the key check, so the key is unverified (${unverified.id})` };
   return { status: "healthy" };
@@ -151,20 +188,24 @@ export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = G
 
 // Node's fetch ignores HTTP(S)_PROXY/NO_PROXY unless asked; the gateway check must reach the gateway
 // the way `opencode serve` does. Needs a Node that has http.setGlobalProxyFromEnv (24.14+): on an
-// older one the check goes direct, which is only wrong on a network that forces the proxy.
+// older one the check goes direct, and a transport error on a host the proxy applies to is reported
+// as an unverified key (verifyGateways), never as an unreachable gateway.
 export function useEnvProxy(http = nodeHttp, env = process.env) {
   if (typeof http.setGlobalProxyFromEnv !== "function") {
-    console.warn(`[agent-supervisor] Node ${process.version} cannot apply HTTPS_PROXY to the LLM gateway check; it goes direct`);
+    console.warn(`[agent-supervisor] Node ${process.version} cannot apply HTTPS_PROXY to the LLM gateway check; it goes direct and a failure behind a proxy reads as an unverified key`);
     return false;
   }
   http.setGlobalProxyFromEnv(env);
   return true;
 }
 
+// Set at boot from useEnvProxy(); stays true (nothing to warn about) until then.
+let proxyHonoured = true;
+
 async function confirmReady(provider, child) {
   try {
     const targets = gatewayTargets(readOpencodeConfig(process.env), process.env);
-    const outcome = targets.length === 0 ? { status: "healthy" } : await verifyGateways(targets);
+    const outcome = targets.length === 0 ? { status: "healthy" } : await verifyGateways(targets, { proxyHonoured });
     if (children.get(provider) !== child) return;
     setState(provider, { status: outcome.status, error: outcome.error === undefined ? undefined : redactForResponse(outcome.error) });
   } catch (err) {
@@ -637,7 +678,7 @@ export function ensureCodexConfig(codexHome, env = process.env) {
 // without binding the port or registering signal handlers.
 const isMainModule = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMainModule) {
-  useEnvProxy();
+  proxyHonoured = useEnvProxy();
   // Generate the Codex config.toml BEFORE ensureDesired so MCP servers are available
   // from the first codex exec turn. CODEX_HOME defaults to /root/.codex.
   const codexHome = process.env.CODEX_HOME || join(process.env.HOME || "/root", ".codex");

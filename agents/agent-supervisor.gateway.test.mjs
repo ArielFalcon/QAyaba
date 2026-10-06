@@ -174,3 +174,86 @@ test("proxy settings of the environment are applied to the gateway call when thi
   assert.deepEqual(applied, [env]);
   assert.equal(unsupported, false);
 });
+
+// On a Node without http.setGlobalProxyFromEnv the check goes direct. On a network that forces a
+// proxy that is a transport error the proxy would have avoided, so it says nothing about the key.
+const refusedDirect = async () => {
+  throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }) });
+};
+const PROXY_ENV = { HTTPS_PROXY: "http://proxy.example.test:3128" };
+
+test("a transport error with a proxy configured but not applicable on this Node leaves the key unverified, not failed", async () => {
+  const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: false, env: PROXY_ENV });
+
+  assert.equal(outcome.status, "degraded");
+  assert.match(outcome.error, /not verified/);
+  assert.match(outcome.error, /no proxy support/);
+  assert.doesNotMatch(outcome.error, /unreachable/);
+  assert.ok(outcome.error.includes("corp"), "the provider is named");
+  assert.ok(!JSON.stringify(outcome).includes(KEY));
+});
+
+test("the same transport error is unreachable when this Node applies the proxy", async () => {
+  const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: true, env: PROXY_ENV });
+
+  assert.equal(outcome.status, "failed");
+  assert.match(outcome.error, /unreachable/);
+});
+
+test("without a proxy in the environment a Node that cannot apply one still reports an unreachable gateway", async () => {
+  const outcome = await verifyGateways([target()], { fetchImpl: refusedDirect, proxyHonoured: false, env: {} });
+
+  assert.equal(outcome.status, "failed");
+  assert.match(outcome.error, /unreachable/);
+});
+
+test("a gateway host that NO_PROXY exempts is reached direct, so a transport error there is unreachable", async () => {
+  const env = { ...PROXY_ENV, NO_PROXY: "localhost,.example.test" };
+
+  const outcome = await verifyGateways([target("corp", "https://llm.example.test/v1/models")], { fetchImpl: refusedDirect, proxyHonoured: false, env });
+
+  assert.equal(outcome.status, "failed");
+  assert.match(outcome.error, /unreachable/);
+});
+
+test("NO_PROXY entries match the host exactly, as a domain suffix or as a wildcard, with or without a port", async () => {
+  const exempt = ["llm.example.test", "example.test", ".example.test", "*.example.test", "llm.example.test:443", "*"];
+  const notExempt = ["other.test", "m.example.test", "llm.example.test:8443", "ample.test"];
+  const run = async (noProxy) =>
+    (await verifyGateways([target("corp", "https://llm.example.test/v1/models")], { fetchImpl: refusedDirect, proxyHonoured: false, env: { ...PROXY_ENV, NO_PROXY: noProxy } })).status;
+
+  for (const entry of exempt) assert.equal(await run(entry), "failed", `exempt: ${entry}`);
+  for (const entry of notExempt) assert.equal(await run(entry), "degraded", `not exempt: ${entry}`);
+});
+
+test("only the proxy variable for the gateway's scheme counts, in either case", async () => {
+  const run = async (env, url) => (await verifyGateways([target("corp", url)], { fetchImpl: refusedDirect, proxyHonoured: false, env })).status;
+
+  assert.equal(await run({ HTTP_PROXY: "http://p:1" }, "https://llm.example.test/models"), "failed");
+  assert.equal(await run({ https_proxy: "http://p:1" }, "https://llm.example.test/models"), "degraded");
+  assert.equal(await run({ HTTP_PROXY: "http://p:1" }, "http://llm.example.test/models"), "degraded");
+  assert.equal(await run({ http_proxy: "http://p:1" }, "http://llm.example.test/models"), "degraded");
+  assert.equal(await run({ HTTPS_PROXY: "" }, "https://llm.example.test/models"), "failed");
+});
+
+test("a gateway that answers is judged on its answer whatever this Node does about proxies", async () => {
+  const rejected = await verifyGateways([target()], { fetchImpl: answering(401), proxyHonoured: false, env: PROXY_ENV });
+  const accepted = await verifyGateways([target()], { fetchImpl: answering(200), proxyHonoured: false, env: PROXY_ENV });
+
+  assert.equal(rejected.status, "failed");
+  assert.equal(accepted.status, "healthy");
+});
+
+test("an unreachable gateway outranks one that is only unverified for want of proxy support", async () => {
+  const byHost = async (url) => {
+    if (url.includes("a.test")) return refusedDirect();
+    throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("refused"), { code: "ECONNREFUSED" }) });
+  };
+  const env = { ...PROXY_ENV, NO_PROXY: "b.test" };
+
+  const outcome = await verifyGateways([target("a", "https://a.test/models"), target("b", "https://b.test/models")], { fetchImpl: byHost, proxyHonoured: false, env });
+
+  assert.equal(outcome.status, "failed");
+  assert.match(outcome.error, /unreachable/);
+  assert.ok(outcome.error.includes("b"));
+});
