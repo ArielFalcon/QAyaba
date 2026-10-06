@@ -186,10 +186,13 @@ test("the agents command still ends in the supervisor", () => {
 // effective config therefore reaches the agents only through read-only named volumes that a one-shot
 // service fills from the image (root without CAP_SYS_ADMIN cannot remount a read-only mount). The home
 // `.opencode` directory is read by OpenCode as a config directory too, so it is held read-only and empty.
+// On Linux OpenCode also loads a managed config from /etc/opencode LAST, so it beats the global one: that
+// directory is held read-only and empty as well.
 const OPENCODE_CONFIG_DIR = "/root/.config/opencode";
 const PROMPT_DIR = "/root/.config/agent";
 const OPENCODE_HOME_DIR = "/root/.opencode";
-const FROZEN_DIRS = [OPENCODE_CONFIG_DIR, PROMPT_DIR, OPENCODE_HOME_DIR];
+const OPENCODE_MANAGED_DIR = "/etc/opencode";
+const FROZEN_DIRS = [OPENCODE_CONFIG_DIR, PROMPT_DIR, OPENCODE_HOME_DIR, OPENCODE_MANAGED_DIR];
 
 function mountsOf(service) {
   return (compose.services[service].volumes ?? []).map((entry) => {
@@ -201,7 +204,7 @@ function mountsOf(service) {
 const [configInitName, configInit] =
   Object.entries(compose.services.agents.depends_on ?? {}).find(([, dependency]) => dependency.condition === "service_completed_successfully") ?? [];
 
-test("the agents read the OpenCode config, the prompts and the home config directory from read-only named volumes", () => {
+test("the agents read the OpenCode config, the prompts and the home and managed config directories from read-only named volumes", () => {
   for (const target of FROZEN_DIRS) {
     const mount = agentMounts.find((m) => m.target === target);
     assert.ok(mount, `${target} is mounted into the agents`);
@@ -254,7 +257,7 @@ function runConfigInit({ image, volumes }) {
     seed(volumeRoot, volumes);
     const script = compose.services[configInitName].command[2].replaceAll("$$", "$").replaceAll("/root/.config", sourceRoot).replaceAll("/frozen", volumeRoot);
     const run = spawnSync("sh", ["-c", script], { encoding: "utf8" });
-    const trees = Object.fromEntries(["opencode", "agent", "opencode-home"].map((name) => [name, existsSync(join(volumeRoot, name)) ? listTree(join(volumeRoot, name)) : undefined]));
+    const trees = Object.fromEntries(["opencode", "agent", "opencode-home", "opencode-managed"].map((name) => [name, existsSync(join(volumeRoot, name)) ? listTree(join(volumeRoot, name)) : undefined]));
     return { run, trees };
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -276,6 +279,8 @@ test("the init command makes each volume an exact copy of the image's config and
       "opencode/agent/old.md": "old prompt",
       "agent/stale.md": "old",
       "opencode-home/opencode.json": '{"provider":{}}',
+      "opencode-managed/opencode.json": '{"enabled_providers":["other"]}',
+      "opencode-managed/.hidden": "dotfile",
     },
   });
 
@@ -283,10 +288,11 @@ test("the init command makes each volume an exact copy of the image's config and
   assert.deepEqual(trees.opencode, [".hidden=dotfile", "agent/", "agent/qa-generator.md=prompt", 'opencode.json={"share":"disabled"}']);
   assert.deepEqual(trees.agent, ["roles/", "roles/qa-reviewer.md=neutral prompt"]);
   assert.deepEqual(trees["opencode-home"], [], "the home config directory is left empty");
+  assert.deepEqual(trees["opencode-managed"], [], "the managed config directory is left empty");
 });
 
 test("the init command fails, and so the agents never start, when the image carries no OpenCode config", () => {
-  const { run } = runConfigInit({ image: { "agent/p.md": "prompt" }, volumes: { "opencode/stale.json": "x", "opencode-home/x": "x" } });
+  const { run } = runConfigInit({ image: { "agent/p.md": "prompt" }, volumes: { "opencode/stale.json": "x", "opencode-home/x": "x", "opencode-managed/x": "x" } });
 
   assert.notEqual(run.status, 0);
 });

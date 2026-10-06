@@ -151,6 +151,7 @@ portapapeles. Un contenedor de la red de compose no puede obtener una sesión de
 | `opencode-config` → `/root/.config/opencode` (solo lectura) | `agents`; `config-init` lo escribe | Configuración efectiva de OpenCode (`opencode.json`, `agents/`, `AGENTS.md`, skills), copiada de la imagen en cada `up` | Volumen; regenerable. El agente no puede escribirla |
 | `agent-prompts` → `/root/.config/agent` (solo lectura) | `agents`; `config-init` lo escribe | Prompts neutrales respecto al proveedor | Volumen; regenerable. El agente no puede escribirlo |
 | `opencode-home` → `/root/.opencode` (solo lectura) | `agents`; `config-init` lo vacía | Nada: OpenCode lee `~/.opencode/` como directorio de configuración, así que se mantiene vacío y no escribible | Volumen; siempre vacío |
+| `opencode-managed` → `/etc/opencode` (solo lectura) | `agents`; `config-init` lo vacía | Nada: en Linux OpenCode carga `/etc/opencode/opencode.json[c]` el último, por encima de la configuración global, así que se mantiene vacío y no escribible | Volumen; siempre vacío |
 
 ## 6. Salida de red
 
@@ -245,7 +246,11 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
    global; la imagen fija `OPENCODE_DISABLE_PROJECT_CONFIG=true`, de modo que solo rige la global. Además, esa
    configuración llega a `agents` por volúmenes de solo lectura que rellena `config-init` desde la imagen en cada
    arranque (§5): el shell del agente (root) no puede reescribirla para el siguiente reinicio, y `~/.opencode/`,
-   que OpenCode también lee como directorio de configuración, queda vacío y no escribible. Contrapartida: el
+   que OpenCode también lee como directorio de configuración, queda vacío y no escribible. Lo mismo ocurre con
+   `/etc/opencode/`, el directorio de configuración gestionada: en Linux OpenCode lo carga el último y su
+   `opencode.json` prevalece sobre la configuración global, de modo que, si el agente pudiera escribirlo, reapuntaría
+   la pasarela en el siguiente reinicio; se monta vacío y de solo lectura, y el supervisor no pasa a `opencode serve`
+   la variable `OPENCODE_TEST_MANAGED_CONFIG_DIR`, que movería ese directorio. Contrapartida: el
    `AGENTS.md` y la configuración propios del repositorio vigilado no se cargan. Las *skills* externas que OpenCode
    descubre en la copia de trabajo no son configuración sino contexto y esta medida no las desactiva.
 

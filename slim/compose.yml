@@ -107,8 +107,9 @@ services:
   # at every start (every key paste restarts it) and the agents' shell runs as root, so the config must
   # not live in a directory the agents can write. This service copies the image's config into named
   # volumes that the agents mount read-only; root without CAP_SYS_ADMIN cannot remount them read-write.
-  # The home `.opencode` directory is read by OpenCode as a config directory as well: it is kept empty
-  # and read-only. `up` runs this again, so each start begins from the image's config.
+  # The home `.opencode` directory is read by OpenCode as a config directory as well, and on Linux it
+  # loads a managed config from /etc/opencode after every other source (it beats the global one): both
+  # are kept empty and read-only. `up` runs this again, so each start begins from the image's config.
   config-init:
     image: *image
     restart: "no"
@@ -122,6 +123,7 @@ services:
           cp -a "/root/.config/$$name/." "/frozen/$$name/"
         done
         find /frozen/opencode-home -mindepth 1 -delete
+        find /frozen/opencode-managed -mindepth 1 -delete
         test -f /frozen/opencode/opencode.json
     environment:
       NO_PROXY: agents,orchestrator,localhost,127.0.0.1,${EXTRA_NO_PROXY:-}
@@ -130,6 +132,7 @@ services:
       - opencode-config:/frozen/opencode
       - agent-prompts:/frozen/agent
       - opencode-home:/frozen/opencode-home
+      - opencode-managed:/frozen/opencode-managed
     deploy:
       resources:
         limits:
@@ -171,12 +174,13 @@ services:
       - mirrors:/app/.mirrors # same path as the orchestrator: the agent's session cwd
       - engram-data:/data
       - opencode-data:/root/.local/share/opencode
-      # The effective OpenCode config, the provider-neutral prompts and the (empty) home config
-      # directory, read-only: only config-init writes them. The agents' shell cannot change the config
-      # OpenCode reads at its next start.
+      # The effective OpenCode config, the provider-neutral prompts and the (empty) home and managed
+      # config directories, read-only: only config-init writes them. The agents' shell cannot change the
+      # config OpenCode reads at its next start.
       - opencode-config:/root/.config/opencode:ro
       - agent-prompts:/root/.config/agent:ro
       - opencode-home:/root/.opencode:ro
+      - opencode-managed:/etc/opencode:ro
       # Optional: Artifactory Maven mirror for the Java language server's dependency resolution.
       # Read-only: the file may hold credentials and the agents' shell must not rewrite it.
       - ./maven:/root/.m2-settings:ro
@@ -226,4 +230,5 @@ volumes:
   opencode-config:
   agent-prompts:
   opencode-home:
+  opencode-managed:
   maven-repository:

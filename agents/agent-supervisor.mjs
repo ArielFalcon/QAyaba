@@ -284,13 +284,20 @@ function selectedProviders() {
   return [single];
 }
 
+// OpenCode loads its managed config from this directory after every other source; the variable moves
+// that directory, so the process never receives it and the managed config stays where the deployment
+// froze it.
+const OPENCODE_MANAGED_DIR_ENV = "OPENCODE_TEST_MANAGED_CONFIG_DIR";
+
 function commandFor(provider) {
   // Only OpenCode is a managed long-lived process.
   if (provider === "opencode") {
+    const env = { ...process.env };
+    delete env[OPENCODE_MANAGED_DIR_ENV];
     return {
       cmd: "opencode",
       args: ["serve", "--hostname", process.env.OPENCODE_SERVE_HOSTNAME || "0.0.0.0", "--port", "4096"],
-      env: { ...process.env },
+      env,
     };
   }
   return undefined;

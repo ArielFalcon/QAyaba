@@ -231,7 +231,8 @@ Dos caminos podrían saltarse ese límite, y los dos están cerrados:
   un directorio escribible por el agente: el servicio de un solo uso `config-init` copia la de la imagen a volúmenes
   con nombre (`opencode-config`, `agent-prompts`) y `agents` los monta **de solo lectura** en
   `/root/.config/opencode` y `/root/.config/agent` (root sin `CAP_SYS_ADMIN` no puede remontarlos). El directorio
-  `~/.opencode`, que OpenCode también lee como directorio de configuración, queda montado vacío y de solo lectura.
+  `~/.opencode`, que OpenCode también lee como directorio de configuración, queda montado vacío y de solo lectura;
+  igual `/etc/opencode`, la configuración gestionada que OpenCode carga la última y que prevalece sobre la global.
   `config-init` se ejecuta en cada `./slim/qayaba.sh up` y `agents` espera a que termine bien; cada arranque
   parte, pues, de la configuración de la imagen. Cambiar el override exige reconstruir la imagen, como antes.
 

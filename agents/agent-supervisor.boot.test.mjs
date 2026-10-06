@@ -35,7 +35,7 @@ function writeStubOpencode(dir) {
   writeFileSync(
     file,
     '#!/usr/bin/env node\n' +
-      'console.log(`STUB_OPENCODE key=${process.env.OPENCODE_API_KEY ? "present" : "missing"} projectConfig=${process.env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "unset"} args=${process.argv.slice(2).join(" ")}`);\n' +
+      'console.log(`STUB_OPENCODE key=${process.env.OPENCODE_API_KEY ? "present" : "missing"} projectConfig=${process.env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "unset"} managedDir=${process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR ?? "unset"} args=${process.argv.slice(2).join(" ")}`);\n' +
       'const parent = process.ppid;\n' +
       'process.on("SIGTERM", () => process.exit(0));\n' +
       // Never outlive the supervisor, even when a test has to kill it hard.
@@ -200,6 +200,16 @@ test("opencode serve inherits the switch that makes it ignore the watched reposi
     const line = await nextLine(output, /^STUB_OPENCODE/);
 
     assert.match(line, /projectConfig=true/);
+  });
+});
+
+// OpenCode loads a managed config from /etc/opencode after every other source; the compose file freezes
+// that directory, and the variable that would move it elsewhere never reaches the process.
+test("opencode serve never receives the variable that relocates its managed config directory", async () => {
+  await withSupervisor({ OPENCODE_API_KEY: SECRET, OPENCODE_TEST_MANAGED_CONFIG_DIR: "/tmp/elsewhere" }, async ({ output }) => {
+    const line = await nextLine(output, /^STUB_OPENCODE/);
+
+    assert.match(line, /managedDir=unset/);
   });
 });
 
