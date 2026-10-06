@@ -102,13 +102,13 @@ dev:
 #   # here, it is run identically by the tests' authenticate() fixture, by the DOM capture
 #   # that grounds selectors on authenticated routes, and followed by the agent. Credentials
 #   # come from DEV_TEST_USER / DEV_TEST_PASS (never here). Only loginUrl is required.
-#   # An alternative to the top-level `auth:` block above: declare one of the two (a session
-#   # saved through `auth:` is loaded instead of running this flow).
+#   # An alternative to the top-level `auth:` block above: declare one of the two, never both
+#   # (the config is rejected at load).
 #   auth:
 #     loginUrl: "https://sso.example.internal/"   # URL prefix of the central login page
 #     startPath: "/"                              # app path that starts the flow
-#     # trigger: "text=Iniciar sesión"            # click in the app when "/" does not redirect by itself
-#     # passwordEntry: "text=Usuario y contraseña" # reach the user/password form (e.g. after a certificate step)
+#     # trigger: "text=Sign in"                   # click in the app when "/" does not redirect by itself
+#     # passwordEntry: "text=Username and password" # reach the user/password form (e.g. after a certificate step)
 #     # usernameSelector: "#username"             # defaults cover username/email inputs
 #     # passwordSelector: "#password"             # default: input[type=password]
 #     # submitSelector: "#kc-login"               # default: button[type=submit], input[type=submit]
