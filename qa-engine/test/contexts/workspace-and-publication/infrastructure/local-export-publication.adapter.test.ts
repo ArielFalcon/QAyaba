@@ -23,10 +23,18 @@ function memFs(): LocalExportFs & { files: Map<string, string>; copies: Array<[s
     exists: (path) => files.has(path),
     isRegularFile: () => true,
     realpath: (path) => path,
+    read: (path) => mirrorFiles.get(path) ?? "",
   };
 }
 
-function harness(statusOut: string, opts: { diffThrows?: boolean } = {}) {
+/* What the in-memory mirror holds, keyed by absolute path. A path not listed reads as an empty file. */
+const mirrorFiles = new Map<string, string>();
+
+function harness(
+  statusOut: string,
+  opts: { diffThrows?: boolean; containsSecret?: (text: string) => boolean; diff?: (args: string[]) => string } = {},
+) {
+  mirrorFiles.clear();
   const calls: string[][] = [];
   const excludesWritten: Array<[string, readonly string[]]> = [];
   const fs = memFs();
@@ -41,11 +49,12 @@ function harness(statusOut: string, opts: { diffThrows?: boolean } = {}) {
       if (args[0] === "status") return statusOut;
       if (args[0] === "diff") {
         if (opts.diffThrows) throw new Error("diff exploded");
-        return "diff --git a/e2e/flows/a.spec.ts b/e2e/flows/a.spec.ts\n";
+        return opts.diff?.(args) ?? "diff --git a/e2e/flows/a.spec.ts b/e2e/flows/a.spec.ts\n";
       }
       return "";
     },
     writeExcludes: (dir, patterns) => void excludesWritten.push([dir, patterns]),
+    containsSecret: opts.containsSecret ?? (() => false),
     fs,
     now: () => new Date("2026-09-27T10:00:00.000Z"),
     log: () => {},
@@ -169,6 +178,7 @@ test("when every change is skipped nothing is diffed (an empty pathspec would di
   const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
 
   assert.equal(res.changed, false);
+  assert.deepEqual(res.leftOut?.map((l) => l.path), [".github/workflows/ci.yml"]);
   assert.equal(calls.some((c) => c[0] === "diff" || c[0] === "add"), false);
   assert.equal(fs.files.has("/exports/app/ns-1/changes.patch"), false);
   const manifest = JSON.parse(fs.files.get("/exports/app/ns-1/export.json") ?? "{}");
@@ -201,6 +211,7 @@ function realFsHarness(root: string, status: string) {
       return args[0] === "status" ? status : "";
     },
     writeExcludes: () => {},
+    containsSecret: () => false,
     fs: nodeLocalExportFs,
     log: () => {},
   });
@@ -244,10 +255,97 @@ test("a regular file reached through a symlinked directory is not exported eithe
     const res = await adapter.publish({ mirrorDir: mirror, branch: "b", sha: "abc1234" });
 
     assert.equal(res.changed, false);
+    assert.deepEqual(res.leftOut?.map((l) => l.path), ["e2e/linked/secret.txt"]);
     assert.equal(allFileContents(exportDir).some((c) => c.includes(SECRET)), false);
     const manifest = JSON.parse(readFileSync(join(exportDir, "export.json"), "utf8"));
     assert.deepEqual(manifest.skipped, ["e2e/linked/secret.txt"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a partial export names what it left out so the caller can tell it from a complete one", async () => {
+  const { adapter } = harness(["?? e2e/flows/a.spec.ts", "?? Dockerfile", ""].join("\0"));
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(res.leftOut?.map((l) => l.path), ["Dockerfile"]);
+});
+
+test("a complete export carries no left-out list", async () => {
+  const { adapter } = harness("?? e2e/flows/a.spec.ts\0");
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.leftOut, undefined);
+});
+
+test("MR.md has a Left out section with each name and its reason, and never the content", async () => {
+  const { adapter, fs } = harness(["?? e2e/flows/a.spec.ts", "?? .github/workflows/ci.yml", "?? e2e/flows/leaky.spec.ts", ""].join("\0"), {
+    containsSecret: (text) => text.includes("LEAK-MARKER"),
+  });
+  mirrorFiles.set("/m/e2e/flows/leaky.spec.ts", "const k = 'LEAK-MARKER'");
+  await adapter.publish({ mirrorDir: "/m", branch: "qa/e2e-abc", sha: "abc1234" });
+  await adapter.openWithAutoMerge("group/app", "qa/e2e-abc", "qa-bot: pass run", "BODY");
+
+  const md = fs.files.get("/exports/app/ns-1/MR.md") ?? "";
+  const section = md.slice(md.indexOf("## Left out"));
+  assert.ok(md.includes("## Left out"));
+  assert.ok(section.includes(".github/workflows/ci.yml"));
+  assert.ok(section.includes("e2e/flows/leaky.spec.ts"));
+  assert.match(section, /contains a secret/);
+  assert.equal(md.includes("LEAK-MARKER"), false);
+});
+
+test("MR.md has no Left out section when nothing was left out", async () => {
+  const { adapter, fs } = harness("?? e2e/flows/a.spec.ts\0");
+  await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+  await adapter.openWithAutoMerge("group/app", "b", "t", "BODY");
+
+  assert.equal((fs.files.get("/exports/app/ns-1/MR.md") ?? "").includes("## Left out"), false);
+});
+
+test("a file whose content carries a secret is neither copied nor patched, and is left out as such", async () => {
+  const { adapter, calls, fs } = harness(["?? e2e/flows/a.spec.ts", "?? e2e/flows/leaky.spec.ts", ""].join("\0"), {
+    containsSecret: (text) => text.includes("LEAK-MARKER"),
+  });
+  mirrorFiles.set("/m/e2e/flows/leaky.spec.ts", "const k = 'LEAK-MARKER'");
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(fs.copies.map(([src]) => src), ["/m/e2e/flows/a.spec.ts"]);
+  assert.deepEqual(res.leftOut, [{ path: "e2e/flows/leaky.spec.ts", reason: "contains a secret" }]);
+  const diff = calls.find((c) => c[0] === "diff") ?? [];
+  assert.equal(diff.includes("e2e/flows/leaky.spec.ts"), false);
+  assert.equal([...fs.files.values()].some((c) => c.includes("LEAK-MARKER")), false);
+});
+
+test("when every file carries a secret nothing is exported and the result says so", async () => {
+  const { adapter, fs } = harness("?? e2e/flows/leaky.spec.ts\0", { containsSecret: (text) => text.includes("LEAK-MARKER") });
+  mirrorFiles.set("/m/e2e/flows/leaky.spec.ts", "LEAK-MARKER");
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, false);
+  assert.equal(res.leftOut?.length, 1);
+  assert.equal(fs.files.has("/exports/app/ns-1/changes.patch"), false);
+});
+
+test("a secret that only the patch carries (a removed line) takes that file out of the patch, not the others", async () => {
+  const diff = (args: string[]): string => {
+    const paths = args.slice(args.indexOf("--") + 1);
+    return paths.map((p) => (p === "e2e/flows/old.spec.ts" ? `diff --git a/${p} b/${p}\n-const k = 'LEAK-MARKER'\n` : `diff --git a/${p} b/${p}\n+ok\n`)).join("");
+  };
+  const { adapter, fs } = harness([" M e2e/flows/a.spec.ts", " M e2e/flows/old.spec.ts", ""].join("\0"), {
+    containsSecret: (text) => text.includes("LEAK-MARKER"),
+    diff,
+  });
+  const res = await adapter.publish({ mirrorDir: "/m", branch: "b", sha: "abc1234" });
+
+  assert.equal(res.changed, true);
+  assert.deepEqual(res.leftOut, [{ path: "e2e/flows/old.spec.ts", reason: "contains a secret" }]);
+  const patch = fs.files.get("/exports/app/ns-1/changes.patch") ?? "";
+  assert.ok(patch.includes("e2e/flows/a.spec.ts"));
+  assert.equal(patch.includes("LEAK-MARKER"), false);
+  const manifest = JSON.parse(fs.files.get("/exports/app/ns-1/export.json") ?? "{}");
+  assert.deepEqual(manifest.files, ["e2e/flows/a.spec.ts"]);
+  assert.deepEqual(manifest.skipped, ["e2e/flows/old.spec.ts"]);
 });

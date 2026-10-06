@@ -341,9 +341,13 @@ anterior lo fijaba a `amd64`).
   `slim/exports/<app>/<run>/`:
   - `files/`;
   - `changes.patch` (aplicable con `git apply --index`);
-  - `MR.md`, con la rama sugerida, la rama destino, los pasos y la descripción;
+  - `MR.md`, con la rama sugerida, la rama destino, los pasos, la descripción y, si hubo archivos que no salieron, la sección «Left out» (ruta y motivo, nunca el contenido);
   - `ISSUE.md`;
-  - `export.json`.
+  - `export.json` (con `skipped` y `leftOut`).
+
+  Antes de escribir, cada archivo y el parche pasan por un filtro de secretos inyectado desde la
+  composición (valor exacto de variables de entorno con nombre de credencial y tokens con forma
+  reconocible); un acierto deja ese archivo fuera con el motivo «contains a secret».
 
   La decisión no cambia. La fuente de verdad sigue siendo git: tras fusionar el MR, la siguiente
   ejecución parte de la suite actualizada.

@@ -103,9 +103,11 @@ Cada ejecución que decide publicar deja en `slim/exports/<app>/<run>/`:
 
 - `files/`: los specs, el manifiesto y (en modo contexto) `context.json`;
 - `changes.patch`: aplicable con `git apply --index`;
-- `MR.md`: título, rama sugerida, rama destino, pasos para aplicarlo y la descripción del MR;
+- `MR.md`: título, rama sugerida, rama destino, pasos para aplicarlo y la descripción del MR; si algún archivo quedó fuera, una sección «Left out» con su ruta y el motivo (nunca el contenido);
 - `ISSUE.md`: cuando la decisión es abrir una incidencia;
-- `export.json`: metadatos; `skipped` lista las rutas que no se exportaron (archivos de CI, Dockerfiles o `.env`, enlaces simbólicos y cualquier cosa que no sea un archivo regular dentro del mirror).
+- `export.json`: metadatos; `skipped` lista las rutas que no se exportaron y `leftOut` añade el motivo de cada una: archivos de CI, Dockerfiles o `.env` («denylisted path»), enlaces simbólicos y cualquier cosa que no sea un archivo regular dentro del mirror, y los archivos o fragmentos del parche donde se detectó un secreto («contains a secret»: el valor exacto de una variable de entorno con nombre de credencial, o un token con forma reconocible).
+
+Un export vacío porque todo quedó fuera no significa «la suite ya cubre el cambio»: la nota de la ejecución dice cuántos archivos se dejaron fuera y por qué. Un export parcial se abre igualmente y nombra lo que faltó.
 
 La fuente de verdad sigue siendo git: al fusionar el MR, la siguiente ejecución parte de la suite actualizada.
 

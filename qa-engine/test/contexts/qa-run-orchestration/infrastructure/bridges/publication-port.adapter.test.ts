@@ -525,6 +525,51 @@ test("PROD-BLOCKER: publish() short-circuits to a noop-shaped outcome when vcsWr
   assert.match(result.outcome, /noop/, "the outcome must honestly reflect that nothing was published, matching legacy's own no-change skip semantic (CLAUDE.md-documented: a green run with no e2e/ changes opens no PR)");
 });
 
+test("an export that left every changed file out is not reported as a suite that already covers the change", async () => {
+  const decide = new PublishDecisionService();
+  let prCalled = false;
+  const pr = { openWithAutoMerge: async () => { prCalled = true; return { url: "/exports/MR.md", number: 0 }; } };
+  const vcsWrite = { publish: async () => ({ changed: false, leftOut: [{ path: "e2e/leaky.spec.ts", reason: "contains a secret" }] }) };
+  const adapter = new PublicationPortAdapter({ decide, pr, issue: fakeIssue(), shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite, render: fakeRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+
+  assert.equal(prCalled, false, "nothing was exported, so there is no merge request to open");
+  assert.ok(result.outcome.includes("e2e/leaky.spec.ts"), "the note names what was left out");
+  assert.ok(result.outcome.includes("contains a secret"), "the note carries the reason");
+  assert.doesNotMatch(result.outcome, /already covers/, "a blocked export must not read as an up-to-date suite");
+  assert.doesNotMatch(result.outcome, /^noop/, "a blocked export is not a no-op");
+});
+
+test("a partial export still opens the request and its outcome names the files that stayed behind", async () => {
+  const decide = new PublishDecisionService();
+  const vcsWrite = { publish: async () => ({ changed: true, leftOut: [{ path: "Dockerfile", reason: "denylisted path" }] }) };
+  const pr = { openWithAutoMerge: async () => ({ url: "/exports/MR.md", number: 0 }) };
+  const adapter = new PublicationPortAdapter({ decide, pr, issue: fakeIssue(), shadowLog: new ShadowLogAdapter(() => {}), sanitize: identitySanitize, vcsWrite, render: fakeRender() }, {
+    repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true,
+  });
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+
+  assert.ok(result.outcome.includes("/exports/MR.md"));
+  assert.ok(result.outcome.includes("Dockerfile"));
+});
+
+test("the left-out names in the outcome pass through the sanitizer like every other published text", async () => {
+  const decide = new PublishDecisionService();
+  const vcsWrite = { publish: async () => ({ changed: false, leftOut: [{ path: "e2e/SENSITIVE-NAME.ts", reason: "denylisted path" }] }) };
+  const adapter = new PublicationPortAdapter(
+    { decide, pr: fakePr(), issue: fakeIssue(), shadowLog: new ShadowLogAdapter(() => {}), sanitize: (t) => t.replaceAll("SENSITIVE-NAME", "[REDACTED]"), vcsWrite, render: fakeRender() },
+    { repo: "org/app", branch: "qa-bot/abc1234", reviewerApproved: true, coverageBlocks: false, shadow: false, e2eChanged: true },
+  );
+
+  const result = await adapter.publish({ verdict: "pass", cases: [], logs: "", mirrorDir: "/mirrors/org/app", sha: "abc1234" });
+
+  assert.equal(result.outcome.includes("SENSITIVE-NAME"), false);
+});
+
 test("PROD-BLOCKER: publish() throws loudly on the 'pr' route when vcsWrite is absent (fail-closed — never silently opens a PR against a phantom branch)", async () => {
   const decide = new PublishDecisionService();
   const pr = fakePr();

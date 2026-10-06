@@ -297,6 +297,11 @@ export class RedactionPortAdapter implements RedactionPort {
   containsSecret(text: string): boolean {
     return containsSecrets(text);
   }
+
+  /* True when the text carries the exact value of a secret-named env var. Separate from containsSecret(): that guard reads the text AFTER redaction, which no longer holds an env value, so it only knows the patterns. A value found here is a secret whatever its shape. */
+  containsEnvSecretValue(text: string): boolean {
+    return envSecretValues(this.env).some((value) => text.includes(value));
+  }
 }
 
 

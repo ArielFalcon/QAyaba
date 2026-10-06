@@ -34,6 +34,8 @@ export interface VcsPublishCollaborator {
     /* Tracked-file denylist revert, forwarded so RunQaUseCase can merge it into gateSignals.confinement. Optional on stubs. */
     revertedDenylisted?: string[];
     revertedDangerous?: string[];
+    /* Changed paths that stayed out of the publication (denylisted, not a regular file, or carrying a secret), with the reason. Absent when nothing stayed behind. Names and reasons only, never contents. */
+    leftOut?: readonly { path: string; reason: string }[];
   }>;
 }
 
@@ -81,6 +83,11 @@ export interface PublicationPortStaticContext {
 /* Sanitize the verdict in the title the same way every other rendered field is sanitized. */
 function renderTitle(verdict: RunVerdict, sanitize: (text: string) => string): string {
   return `qa-bot: ${sanitize(verdict)} run`;
+}
+
+/* Names and reasons of the paths an export left out, for the run note. */
+function describeLeftOut(leftOut: readonly { path: string; reason: string }[]): string {
+  return `${leftOut.length} changed file(s) left out of the export: ${leftOut.map((l) => `${l.path} (${l.reason})`).join(", ")}`;
 }
 
 export class PublicationPortAdapter implements PublicationPort {
@@ -194,13 +201,19 @@ export class PublicationPortAdapter implements PublicationPort {
           branch: this.ctx.branch,
           sha: decision.sha,
         });
+        /* Files that stayed behind are named in the outcome: an export blocked by them must never read as a suite that already covers the change. */
+        const leftOutNote = written.leftOut?.length ? sanitize(describeLeftOut(written.leftOut)) : undefined;
         if (!written.changed) {
-          return { outcome: "noop: vcsWrite reported no changes to publish — the suite already covers the change, no PR opened" };
+          return {
+            outcome: leftOutNote
+              ? `export-incomplete: nothing was exported, no PR opened — ${leftOutNote}`
+              : "noop: vcsWrite reported no changes to publish — the suite already covers the change, no PR opened",
+          };
         }
         const pr = await this.deps.pr.openWithAutoMerge(this.ctx.repo, this.ctx.branch, title, prBodyText());
         /* Forward the tracked-file denylist revert. Never fabricated: absent/empty stays omitted. */
         return {
-          outcome: `pr: ${pr.url}`,
+          outcome: leftOutNote ? `pr: ${pr.url} (partial export — ${leftOutNote})` : `pr: ${pr.url}`,
           ...(written.revertedDenylisted?.length ? { revertedDenylisted: written.revertedDenylisted } : {}),
           /* Same as revertedDenylisted — never fabricated, absent/empty stays omitted. */
           ...(written.revertedDangerous?.length ? { revertedDangerous: written.revertedDangerous } : {}),

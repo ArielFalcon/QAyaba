@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildPublicationEffectors } from "./rewritten-engine-factory";
@@ -71,4 +71,44 @@ test("full profile (default): GitHub PR/Issue adapters and no export-backed shad
 
 test("an unknown profile fails loud instead of silently publishing remotely", () => {
   assert.throws(() => buildPublicationEffectors({ ...base, env: { QAYABA_PROFILE: "lite" } }), /QAYABA_PROFILE/);
+});
+
+/* A slim export of one file the agent wrote into a real temp mirror, screened by the check the composition root injects. */
+async function exportOneFile(content: string, env: Record<string, string>) {
+  const root = mkdtempSync(join(tmpdir(), "qa-export-screen-"));
+  try {
+    const mirrorDir = join(root, "mirror");
+    mkdirSync(join(mirrorDir, "e2e"), { recursive: true });
+    writeFileSync(join(mirrorDir, "e2e", "flow.spec.ts"), content);
+    const fx = buildPublicationEffectors(
+      { ...base, mirrorDir, env: { QAYABA_PROFILE: "slim", QAYABA_EXPORT_DIR: join(root, "out"), ...env } },
+      async (args) => (args[0] === "status" ? "?? e2e/flow.spec.ts\0" : ""),
+      () => {},
+    );
+    return await fx.vcsWrite!.publish({ mirrorDir, branch: "qa/e2e", sha: "abc1234" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("slim profile: a file carrying the exact value of a secret env var is left out of the export", async () => {
+  const password = "correct-horse-battery-staple";
+  const res = await exportOneFile(`await page.fill("#pw", "${password}");`, { E2E_APP_PASSWORD: password });
+  assert.equal(res.changed, false);
+  assert.deepEqual(res.leftOut?.map((l) => l.path), ["e2e/flow.spec.ts"]);
+});
+
+test("slim profile: a file carrying a token-shaped secret is left out of the export", async () => {
+  const token = "ghp_" + "a1B2".repeat(9);
+  const res = await exportOneFile(`const t = "${token}";`, {});
+  assert.equal(res.changed, false);
+  assert.equal(res.leftOut?.length, 1);
+});
+
+test("slim profile: ordinary test code that merely names a credential is exported (the stock fixtures must not be held back)", async () => {
+  const res = await exportOneFile(`const DEFAULT_PASSWORD_SELECTOR = 'input[type="password"]';\nexport const user = process.env.E2E_APP_PASSWORD;`, {
+    E2E_APP_PASSWORD: "correct-horse-battery-staple",
+  });
+  assert.equal(res.changed, true);
+  assert.equal(res.leftOut, undefined);
 });
