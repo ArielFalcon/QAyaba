@@ -452,6 +452,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
   const mapInjected = archMap !== null;
   const blastRadiusSupplied = Boolean(input.contextBrief?.blastRadius.length);
+  /* The specs that already exist are listed for a diff or a manual run; an empty list is no listing. */
+  const existingSuiteFiles = input.mode === "diff" || input.mode === "manual" ? (input.existingSpecFiles ?? []) : [];
+  const suiteListed = existingSuiteFiles.length > 0;
 
   const briefShowsLandmarks = Boolean(input.contextBrief?.routes?.some((r) => r.domLandmarks?.length)) && !treeInPrompt;
   const contextBriefContent = input.contextBrief
@@ -698,7 +701,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  const task = buildTask(input, { mapInjected, blastRadiusSupplied });
+  const task = buildTask(input, { mapInjected, blastRadiusSupplied, suiteListed });
 
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -781,20 +784,17 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
     ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
     ...(() => {
-      const specFiles = isGenerationMode && (input.mode === "diff" || input.mode === "manual")
-        ? input.existingSpecFiles
-        : undefined;
-      if (!specFiles?.length) return [];
+      if (!suiteListed) return [];
       const manifestContent = [
-        `## existing-suite-manifest (${specFiles.length} spec file(s) — do NOT rewrite flows already covered here)`,
-        ...specFiles.map((f) => `- ${f}`),
+        `## existing-suite-manifest (${existingSuiteFiles.length} spec file(s) — do NOT rewrite flows already covered here)`,
+        ...existingSuiteFiles.map((f) => `- ${f}`),
       ].join("\n");
-      return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2 })];
+      return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2, claims: [claim.provides("existing-suite")] })];
     })(),
     ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
     ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
-    ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
+    ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536, claims: [claim.provides("exemplars")] })] : []),
     ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
     ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
     /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
@@ -804,7 +804,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
     ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
     ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
-    ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
+    ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2, claims: [claim.provides("learned-rules")] })] : []),
     section("task", "task", task.text, { priority: 1, claims: task.claims }),
     ...(() => {
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
@@ -1214,6 +1214,8 @@ interface TaskGuards {
   mapInjected: boolean;
   /* A brief carrying a blast radius is rendered in this prompt. */
   blastRadiusSupplied: boolean;
+  /* The listing of the specs that already exist is rendered in this prompt. */
+  suiteListed: boolean;
 }
 
 /* The change's real size, from the changed files and the diff's own lines. */
@@ -1255,10 +1257,14 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
       `## Objective — commit to this BEFORE writing`,
       ACCEPTANCE_CRITERION_RULE,
       ``,
-      `Use serena to read the relevant code and the existing ${input.e2eRelDir}/ suite.`,
+      /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
+      `Use serena to read the relevant code${guards.suiteListed ? "" : ` and the existing ${input.e2eRelDir}/ suite`}.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
-    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
+    return {
+      text,
+      claims: [claim.directs("analyze-repo"), claim.directs("state-outcome"), ...(guards.suiteListed ? [] : [claim.directs("read", "existing-suite")])],
+    };
   }
 
   const intent = input.intent;

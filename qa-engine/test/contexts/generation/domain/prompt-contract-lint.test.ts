@@ -10,11 +10,13 @@ import {
   TRUST_LEXICON,
   APP_LOGIN_SECTION_ID,
   HARNESS_FACTS_SECTION_ID,
+  STEP_LIMIT_SECTION_ID,
   type ArtifactReference,
   type LintCell,
   type LintSection,
   type PromptClaim,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 function sec(
@@ -684,5 +686,107 @@ test("the polarity lexicons detect their phrases case-insensitively and repeated
   for (let round = 0; round < 3; round++) {
     assert.equal(lintCell(cell([sec("b", [frames("blast-radius", "established")], { text: negated })])).length, 1, `negated, round ${round}`);
     assert.equal(lintCell(cell([sec("m", [frames("arch-map", "unverified")], { text: established })])).length, 1, `established, round ${round}`);
+  }
+});
+
+/* ── the step limit, the suite listing, the learned rules and the exemplars: one provider each, framed at most once, and referred to only where carried ── */
+
+const ONCE_PROVIDED_FACTS = ["step-limit", "existing-suite", "learned-rules", "exemplars"] as const;
+
+test("each of the step limit, the existing suite, the learned rules and the exemplars has one provider: a second is reported with both sections", () => {
+  for (const fact of ONCE_PROVIDED_FACTS) {
+    const duplicated = lintCell(cell([sec("b", [provides(fact)]), sec("a", [provides(fact)]), sec("c")]));
+    assert.deepEqual(duplicated.map((f) => [f.rule, f.fact, ...f.sections]), [["R2", fact, "a", "b"]], fact);
+    assert.deepEqual(lintCell(cell([sec("a", [provides(fact)]), sec("c")])), [], `${fact}: one provider is clean`);
+  }
+});
+
+test("each of those facts is framed at most once: a second framing section is reported with the first, whatever its stance", () => {
+  for (const fact of ONCE_PROVIDED_FACTS) {
+    for (const [first, second] of [["established", "unverified"], ["unverified", "unverified"]] as const) {
+      const findings = lintCell(cell([sec("b", [frames(fact, second)]), sec("a", [frames(fact, first)])]));
+      assert.deepEqual(findings.map((f) => [f.rule, f.fact, ...f.sections]), [["R1", fact, "a", "b"]], `${fact}: ${first} then ${second}`);
+    }
+    assert.deepEqual(lintCell(cell([sec("a", [frames(fact, "established")]), sec("b")])), [], `${fact}: one framing is clean`);
+  }
+});
+
+test("directing a read or an orientation of the existing suite while a section lists it is a contradiction naming both; with no listing the read stays clean", () => {
+  for (const action of ["read", "orient"] as const) {
+    const findings = lintCell(cell([sec("task", [directs(action, "existing-suite")]), sec("existing-suite-manifest", [provides("existing-suite")])]));
+    assert.deepEqual(findings.map((f) => [f.rule, f.fact, ...f.sections]), [["R3", "existing-suite", "existing-suite-manifest", "task"]], action);
+    assert.deepEqual(lintCell(cell([sec("task", [directs(action, "existing-suite")])])), [], `${action}: nothing lists the suite`);
+  }
+});
+
+test("a facts-only section is flagged for a directive word inside a fenced block: a fence is no exemption", () => {
+  for (const [open, close] of [["```", "```"], ["```text", "```"], ["   ```", "   ```"]] as const) {
+    const fenced = sec(STEP_LIMIT_SECTION_ID, [provides("step-limit")], { factsOnly: true, text: `This turn runs at most 40 steps.\n${open}\nnever stop early\n${close}` });
+    assert.deepEqual(lintCell(cell([fenced])).map((f) => [f.rule, ...f.sections]), [["R6", STEP_LIMIT_SECTION_ID]], JSON.stringify(open));
+  }
+  const dataOnly = sec(STEP_LIMIT_SECTION_ID, [provides("step-limit")], { factsOnly: true, text: "This turn runs at most 40 steps.\n```\n40\n```" });
+  assert.deepEqual(lintCell(cell([dataOnly])), [], "a fenced block of plain data is clean");
+});
+
+interface ReferenceCase {
+  artifact: string;
+  /* A section that carries the artifact, as the builder declares it. */
+  provider: LintSection;
+  /* Words a directive uses to point at the artifact. */
+  refers: readonly string[];
+  /* Words that only look like it. */
+  unrelated: readonly string[];
+}
+
+const NEW_REFERENCE_CASES: readonly ReferenceCase[] = [
+  {
+    artifact: "step-limit",
+    provider: sec(STEP_LIMIT_SECTION_ID, [provides("step-limit")]),
+    refers: ["Finish before the step limit.", "The STEP LIMIT applies to this turn."],
+    unrelated: ["Take it one step at a time.", "There is no limit on the specs.", "Mind the step limitations."],
+  },
+  {
+    artifact: "existing-suite",
+    provider: sec("existing-suite-manifest", [provides("existing-suite")]),
+    refers: ["Skim the suite listing above first.", "Every spec in the suite listed above is covered.", "Suite listing above: it is complete."],
+    unrelated: ["The test suite is large.", "Keep a listing of the routes."],
+  },
+  {
+    artifact: "learned-rules",
+    provider: sec("learned-rules", [provides("learned-rules")]),
+    refers: ["Apply the learned rules.", "The proven rules below take priority.", "Experimental rules are only hints."],
+    unrelated: ["The working rules above apply.", "Rules learned elsewhere do not count."],
+  },
+  {
+    artifact: "exemplars",
+    provider: sec("skill-exemplars", [provides("exemplars")]),
+    refers: ["Follow the exemplars below.", "Adapt one exemplar to the change.", "Apply these test templates.", "Exemplars below match this change's shape."],
+    unrelated: ["An exemplary change.", "Page templates are rendered by the app."],
+  },
+];
+
+test("a section that points at the step limit, the suite listing, the learned rules or the exemplars needs that artifact in the cell", () => {
+  const references = { artifactReferences: ARTIFACT_REFERENCES };
+  for (const { artifact, provider, refers } of NEW_REFERENCE_CASES) {
+    for (let round = 0; round < 3; round++) {
+      for (const phrase of refers) {
+        const dangling = lintCell(cell([sec("task", [], { text: phrase })]), references);
+        assert.deepEqual(dangling, [{ rule: "R13", sections: ["task"], artifact }], `${artifact}: "${phrase}", round ${round}`);
+        assert.deepEqual(lintCell(cell([sec("task", [], { text: phrase }), provider]), references), [], `${artifact}: "${phrase}" beside its provider`);
+      }
+    }
+  }
+});
+
+test("only the artifact's own provider meets its reference, and words that merely resemble a reference point at nothing", () => {
+  const references = { artifactReferences: ARTIFACT_REFERENCES };
+  for (const { artifact, refers, unrelated } of NEW_REFERENCE_CASES) {
+    for (const other of NEW_REFERENCE_CASES.filter((c) => c.artifact !== artifact)) {
+      const findings = lintCell(cell([sec("task", [], { text: refers[0] ?? "" }), other.provider]), references);
+      assert.deepEqual(findings.map((f) => f.artifact), [artifact], `${artifact} is not met by the provider of ${other.artifact}`);
+    }
+    for (const phrase of unrelated) {
+      assert.deepEqual(lintCell(cell([sec("task", [], { text: phrase })]), references), [], `${artifact}: "${phrase}"`);
+    }
   }
 });

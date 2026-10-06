@@ -238,6 +238,19 @@ descriptor's second regular-file check, the attribute's redaction test folded in
 the prose scan's initial array. **After** is the final run over the extended preset with the machine
 default of 8 workers: 491 killed, 6 timeouts, 4 survivors, all documented below.
 
+The lint then gained four single-source facts (the step limit, the listing of the existing suite, the
+learned rules and the exemplars) and the artifact references that point at them (2026-10-06, default
+workers, 745 mutants, 244 of them compile errors): 491 killed, 6 timeouts, 4 survivors, the same four
+documented below, and none in the lint. A fact id and the step-limit section id are typed as facts, so
+the mutants that empty them cannot compile and there is no wording to pin. The table of artifact
+references is not in the preset, so it was broken by hand against the lint's tests, together with the
+builder's listing guard, its three provider claims and the guard on the manual suite read, against the
+builder's: 53 mutants (a pattern short of a word, a flag, a boundary or an alternative, or matching more
+than it should; a provider swapped; a fact dropped from the single-source list; the facts-only rule made
+blind to fenced text). The first tests killed 51. The two that survived were the case-insensitive flag of
+the suite-listing and exemplar patterns, because no phrase of theirs began with a capital; each now has
+one, and both are killed.
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
