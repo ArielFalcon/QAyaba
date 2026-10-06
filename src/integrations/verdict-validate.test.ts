@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkGeneratorVerdict, parseReviewerVerdict, repairInstruction } from "./verdict-validate";
+import { parseVerdict } from "./verdict-parse";
 
 test("checkGeneratorVerdict accepts a well-formed generator block", () => {
   const c = checkGeneratorVerdict('done.\n{"specs":["login.spec.ts"],"specMetas":[{"file":"login.spec.ts","flow":"login","objective":"valid creds reach the dashboard","targets":["AuthService.login"]}],"note":""}');
@@ -8,9 +9,54 @@ test("checkGeneratorVerdict accepts a well-formed generator block", () => {
   assert.deepEqual(c.issues, []);
 });
 
-test("checkGeneratorVerdict accepts an EMPTY specs list (valid no-op skip)", () => {
-  const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
+test("checkGeneratorVerdict accepts an empty specs list that carries a reasoned no-op", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"noop":{"reason":"nothing in this change is worth an E2E test"}}');
   assert.equal(c.valid, true);
+  assert.deepEqual(c.issues, []);
+});
+
+test("checkGeneratorVerdict rejects an empty specs list with no no-op decision, naming the missing field", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"note":"nothing in this change is worth an E2E test"}');
+  assert.equal(c.valid, false);
+  assert.ok(c.issues.some((i) => i.includes("noop")), `issues should name the missing decision: ${c.issues.join("; ")}`);
+});
+
+test("checkGeneratorVerdict does not read `approved` as a decision: empty specs, approved true, no reason is invalid", () => {
+  const c = checkGeneratorVerdict('{"specs":[],"approved":true}');
+  assert.equal(c.valid, false);
+  assert.ok(c.issues.some((i) => i.includes("noop")), c.issues.join("; "));
+});
+
+test("checkGeneratorVerdict rejects a no-op whose reason is missing, blank or not text", () => {
+  for (const noop of ["{}", '{"reason":"   "}', '{"reason":""}', '{"reason":7}', "true", '"because"']) {
+    const c = checkGeneratorVerdict(`{"specs":[],"noop":${noop}}`);
+    assert.equal(c.valid, false, noop);
+    assert.ok(c.issues.some((i) => i.includes("noop")), `${noop}: ${c.issues.join("; ")}`);
+  }
+});
+
+test("checkGeneratorVerdict ignores a no-op that sits beside real specs, even a malformed one", () => {
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}').valid, true);
+  assert.equal(checkGeneratorVerdict('{"specs":["a.spec.ts"],"noop":true}').valid, true);
+});
+
+test("a reasoned no-op with no specs key is a valid declared no-op, for the parser and the validator alike", () => {
+  const text = '{"noop":{"reason":"nothing in this change is worth an E2E test"}}';
+  const parsed = parseVerdict(text);
+  assert.equal(parsed.parsed, true);
+  assert.deepEqual(parsed.specs, []);
+  assert.equal(parsed.noopReason, "nothing in this change is worth an E2E test");
+  const c = checkGeneratorVerdict(text);
+  assert.equal(c.valid, true, c.issues.join("; "));
+});
+
+test("a no-op that carries no reason is no decision, for the parser and the validator alike, whether or not a specs key sits beside it", () => {
+  for (const noop of ["{}", '{"reason":"   "}', '{"reason":7}', "true", '"because"']) {
+    for (const text of [`{"noop":${noop}}`, `{"specs":[],"noop":${noop}}`]) {
+      assert.equal(parseVerdict(text).noopReason, undefined, text);
+      assert.equal(checkGeneratorVerdict(text).valid, false, text);
+    }
+  }
 });
 
 test("checkGeneratorVerdict accepts specMetas without targets (targets default to [])", () => {
@@ -100,7 +146,7 @@ test("parseReviewerVerdict takes the LAST verdict object", () => {
   assert.equal(v.approved, false);
 });
 
-test("Phase 4 (a): advisory-only verdict — blockingCount is zero, gate passes", () => {
+test("advisory-only verdict — blockingCount is zero, gate passes", () => {
   /* A verdict with advisory corrections only must yield blockingCount=0 so the caller's
      severity gate approves (advisory corrections are non-fatal notes, not regeneration triggers).
    */
@@ -119,7 +165,7 @@ test("Phase 4 (a): advisory-only verdict — blockingCount is zero, gate passes"
   assert.equal(v.corrections.length, 2, "both advisory corrections surfaced as strings");
 });
 
-test("Phase 4 (b): blocking correction — blockingCount is non-zero, gate fails", () => {
+test("blocking correction — blockingCount is non-zero, gate fails", () => {
   /* A verdict with at least one blocking correction must yield blockingCount>=1. */
   const json = JSON.stringify({
     approved: false,
@@ -135,7 +181,7 @@ test("Phase 4 (b): blocking correction — blockingCount is non-zero, gate fails
   assert.equal(v.corrections.length, 2, "both corrections in the flat list");
 });
 
-test("Phase 4 (c): missing severity field defaults to blocking (fail-closed backward compat)", () => {
+test("missing severity field defaults to blocking (fail-closed backward compat)", () => {
   /* A plain-string correction (no severity field) must be treated as blocking so older
      reviewer outputs do not accidentally pass the gate with unclassified corrections.
    */
@@ -150,7 +196,7 @@ test("Phase 4 (c): missing severity field defaults to blocking (fail-closed back
   assert.equal(v.corrections[0], "[other] some.spec.ts: a correction without a severity field");
 });
 
-test("Phase 4 (c2): mixed structured and plain-string corrections — plain strings count as blocking", () => {
+test("mixed structured and plain-string corrections — plain strings count as blocking", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "mixed format",
@@ -164,7 +210,7 @@ test("Phase 4 (c2): mixed structured and plain-string corrections — plain stri
   assert.equal(v.corrections.length, 2);
 });
 
-test("Phase 4 (e): approve-when-resolved — zero blocking in round 2 approves even with advisories", () => {
+test("approve-when-resolved — zero blocking in round 2 approves even with advisories", () => {
   /* Simulates the round-2 verdict after the generator resolved the blocking correction:
      the remaining advisory nit must NOT prevent approval.
    */
@@ -181,7 +227,7 @@ test("Phase 4 (e): approve-when-resolved — zero blocking in round 2 approves e
   assert.equal(v.approved, true);
 });
 
-test("FIX 4: a [false-positive] correction self-labeled 'advisory' is counted as BLOCKING", () => {
+test("a [false-positive] correction self-labeled 'advisory' is counted as BLOCKING", () => {
   /* The gameable hole: a model downgrades a grave finding to "advisory" so the severity gate would
      let it publish. The grave class tag overrides the self-assigned severity → blockingCount >= 1.
    */
@@ -197,7 +243,7 @@ test("FIX 4: a [false-positive] correction self-labeled 'advisory' is counted as
   assert.equal(v.blockingCount, 1, "a grave [false-positive] tag must be blocking even if self-labeled advisory");
 });
 
-test("FIX 4: [wrong-objective] and [no-cleanup] self-labeled advisory also count as blocking", () => {
+test("[wrong-objective] and [no-cleanup] self-labeled advisory also count as blocking", () => {
   const json = JSON.stringify({
     approved: false,
     rationale: "wrong target + leaks data",
@@ -210,7 +256,7 @@ test("FIX 4: [wrong-objective] and [no-cleanup] self-labeled advisory also count
   assert.equal(v.blockingCount, 2, "both grave tags are forced blocking");
 });
 
-test("FIX 4: a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory severity", () => {
+test("a NON-grave tag ([fragile-selector]) keeps its self-assigned advisory severity", () => {
   /* Only the grave classes are forced; the recoverable fragile-selector stays advisory when labeled so. */
   const json = JSON.stringify({
     approved: true,
@@ -225,7 +271,7 @@ test("FIX 4: a NON-grave tag ([fragile-selector]) keeps its self-assigned adviso
 
 /* ── FIX A: per-entry correction tolerance — one malformed element must NOT nuke the array ───── */
 
-test("FIX A: a malformed correction element degrades to BLOCKING (fails closed), valid sibling kept", () => {
+test("a malformed correction element degrades to BLOCKING (fails closed), valid sibling kept", () => {
   /* The fail-OPEN hole: an array-level `.catch([])` collapsed the WHOLE corrections array to [] when
      any single element was malformed. Combined with the severity gate (blockingCount===0), a verdict
      carrying one BLOCKING correction + one unparseable element yielded blockingCount=0 → the gate
@@ -251,7 +297,7 @@ test("FIX A: a malformed correction element degrades to BLOCKING (fails closed),
   assert.ok(v.blockingCount > 0, "fail-CLOSED: a malformed entry must keep blockingCount > 0");
 });
 
-test("FIX A: a non-array corrections field still falls back to [] (orthogonal advisory-slip tolerance)", () => {
+test("a non-array corrections field still falls back to [] (orthogonal advisory-slip tolerance)", () => {
   /* The per-entry change must NOT regress the separate guarantee that a wholly mis-shaped corrections
      field (a stray string, not an array) is a tolerable advisory slip — it must never false-block a
      genuine approval. This is the existing "tolerates malformed corrections" contract, re-pinned.
@@ -268,6 +314,11 @@ test("repairInstruction names the generator shape and the specific issues", () =
   assert.match(msg, /specs/);
   assert.match(msg, /expected array/);
   assert.match(msg, /ONLY the closing JSON/i);
+});
+
+test("repairInstruction offers the generator the no-op decision and never offers it to the reviewer", () => {
+  assert.match(repairInstruction("generator", ["specs: expected array"]), /noop/);
+  assert.doesNotMatch(repairInstruction("reviewer", ["approved: required"]), /noop/);
 });
 
 test("repairInstruction names the reviewer shape", () => {

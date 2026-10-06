@@ -14,12 +14,20 @@ import type {
   ExplorationBrief,
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
+import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
+import { diffStat } from "@contexts/generation/domain/diff-stat.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
+import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
+import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
 import { assemble, section, type AssembledPrompt } from "./context-assembler.ts";
 import { roleWindowBytes } from "./model-window-catalog.ts";
 
 export type { AssembledPrompt };
+export { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES };
 
 /* Throws loudly if a brief render is attempted before wiring — never a silent no-op (CLAUDE.md's "surface integration errors loudly" invariant) — but every real production path wires this before any run starts, and every test either wires it locally or never exercises `w.brief`/ `input.contextBrief` (renderBrief is only called when a brief is actually present). */
 let explorationBriefAdapter: ExplorationBriefAdapter | undefined;
@@ -28,13 +36,34 @@ export function setExplorationBriefCollaborators(fns: BriefFns): void {
   explorationBriefAdapter = new ExplorationBriefAdapter(fns);
 }
 
-function renderBrief(brief: ExplorationBrief, opts?: { suppressFeBe?: boolean }): string {
+function renderBrief(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }): string {
   if (!explorationBriefAdapter) {
     throw new Error(
       "prompts: renderExplorationBrief collaborator not wired — call setExplorationBriefCollaborators() at composition time (see rewritten-engine-factory.ts)",
     );
   }
   return explorationBriefAdapter.render(brief, opts);
+}
+
+/* Facts only: what the harness is configured with and what its shared fixtures export. Every value is sanitized; nothing here directs the agent. Absent facts render no section. */
+function renderHarnessFacts(facts: HarnessFacts, e2eRelDir: string): string {
+  const s = (x: string): string => sanitizeText(x).text;
+  const lines: string[] = [];
+  if (facts.testIdAttribute) lines.push(`testIdAttribute: ${s(facts.testIdAttribute)}`);
+  if (facts.fixtures?.exports.length) {
+    lines.push(`fixtures: ${s(`${e2eRelDir}/${facts.fixtures.file}`)} exports ${facts.fixtures.exports.map(s).join(", ")}`);
+  }
+  return lines.length > 0 ? [`## ${PROMPT_HEADINGS.harnessFacts}`, ...lines, ``].join("\n") : "";
+}
+
+/* The files whose content the surviving sections render compactly: reading one of them re-fetches what the prompt already carries. A section that was shed contributes nothing. */
+function providedPathsOf(input: OpencodeRunInput, sectionSizes: Record<string, number>): string[] {
+  const paths: string[] = [];
+  if (sectionSizes["arch-map"] !== undefined) paths.push(`${input.e2eRelDir}/.qa/context.json`);
+  if (sectionSizes[HARNESS_FACTS_SECTION_ID] !== undefined && input.harnessFacts?.fixtures) {
+    paths.push(`${input.e2eRelDir}/${input.harnessFacts.fixtures.file}`);
+  }
+  return paths;
 }
 
 function renderCommitMessage(intent: CommitIntent | undefined, includeBody: boolean): string {
@@ -187,7 +216,7 @@ export function buildWorkerPromptAssembled(w: ParallelWorkerInput): AssembledPro
     hasLinks || hasDrift
       ? [
           "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
@@ -265,7 +294,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. JD-C3: `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
+/* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
 const GROUNDING_UNCOVERED_ESCAPE =
   `If a route you must touch is NOT represented in the injected grounding above, you MUST still ` +
   `browser_navigate that specific route before writing its selectors — never guess them.`;
@@ -308,6 +337,14 @@ function renderFixCaseEvidenceLines(c: QaCase): string[] {
   return lines;
 }
 
+/* Read only where the agent has no DOM tree and explores the live page itself: with a tree in the prompt it transcribes and does not navigate, so there is nothing to observe. */
+const RUNTIME_SIGNALS_LINES: readonly string[] = [
+  `- Also inspect runtime signals with the Playwright MCP: browser_console_messages (catch JS errors`,
+  `  and warnings — a console error on the changed flow is a real bug signal) and browser_network_requests`,
+  `  (read the actual API calls/responses the flow makes, and assert against their real shape — status,`,
+  `  required fields, error responses — not invented contracts).`,
+];
+
 export interface BuildPromptAssembledOpts {
   /** Explicit byte-budget override for tests/telemetry that must not depend on the live model-window catalog. Undefined ⇒ the qa-generator catalog window (production path). */
   budgetBytes?: number;
@@ -318,15 +355,26 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const openapiHint = Array.isArray(input.openapi) ? input.openapi.join(", ") : input.openapi;
   const isCode = input.target === "code";
   const memTarget = input.mode === "context" ? "context" : input.target;
-  /* Authoritative grounding (Context Pack DOM slice or injected a11y tree): regeneration must not command a re-navigation — the agent fixes from the injected grounding. */
-  const hasInjectedGrounding = isGenerationMode && Boolean(input.contextPack || input.domSnapshot);
   /* A re-generation turn (fix / reviewer-corrections / coverage-gap) has already distilled the blast radius — it must not re-activate serena or re-skim the repo. */
-  const isReGen =
-    isGenerationMode &&
-    Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
+  const isReGen = isGenerationMode && isReGenTurn(input);
+
+  const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
+
+  /* The tree is a failure-point tree only when the run says so; any other captured tree is the live page. Every reference to "the tree above" below is driven by these two, so a prompt never points at a tree it does not carry. */
+  const hasFailureTree = Boolean(sanitizedDomSnapshot && isGenerationMode && input.failureSourced);
+  const hasLiveTree = Boolean(sanitizedDomSnapshot && isGenerationMode && !input.failureSourced);
+
+  /* The live DOM has one section: a freshly captured live tree replaces the pack's own (older) live DOM, and the pack keeps whatever else it holds. A failure tree is a different fact and coexists with it. */
+  const packText = input.contextPack && isGenerationMode ? input.contextPack : "";
+  const packHasLiveDom = packText !== "" && deriveClaimsFromPackText(packText).some((c) => c.kind === "provides" && c.fact === "dom-live");
+  const contextPackContent = packHasLiveDom && hasLiveTree ? (withoutPackSection(packText, PACK_HEADINGS.liveDom) ?? "") : packText;
+  const contextPackClaims: PromptClaim[] = contextPackContent ? deriveClaimsFromPackText(contextPackContent) : [];
+  const packProvides = (fact: FactId): boolean => contextPackClaims.some((c) => c.kind === "provides" && c.fact === fact);
+  /* A DOM tree is in the prompt when the pack carries a live DOM or a captured tree is injected: the tree is then the only selector source, and a regeneration fixes from it instead of re-navigating. A pack of contracts alone is not a tree. */
+  const treeInPrompt = packProvides("dom-live") || hasFailureTree || hasLiveTree;
 
   const workingRulesLines: string[] = [
-    `## Working rules`,
+    `## ${PROMPT_HEADINGS.workingRules}`,
     ...(input.mode === "context"
       ? [
           `- This is a CONTEXT mode run: you are building the FE↔BE architecture map, not writing tests.`,
@@ -347,8 +395,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `  * Module with deps → integration test: real module + test doubles`,
           `  * Handler/endpoint → integration test: test client, real request, assert status + body`,
           `  * Trivial delegation/getter/setter → skip`,
-          `- Assert on BEHAVIOR, not implementation. Include edge cases from the diff.`,
-          `- One objective per test, derived from commit intent. Use realistic test data.`,
+          `- Assert on BEHAVIOR, not implementation. Include edge cases.`,
+          `- One objective per test. Use realistic test data.`,
           `- Never write a test whose only assertion is "does not throw".`,
           `- COMPILE-CHECK before finishing: after writing/fixing the tests, compile them with the project's build tool (mvn -B test-compile · gradle testClasses · go vet ./... · cargo check --tests · npx tsc --noEmit) and FIX any errors BEFORE emitting your verdict. The orchestrator runs the suite only AFTER you finish — a compile failure costs a full regeneration round, so a clean compile is cheaper than a fix loop.`,
         ]
@@ -358,18 +406,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           `- Test-data prefix: ${input.namespace}`,
           `- LIVE DEV URL: ${input.baseUrl ?? "(not provided — ABORT and report infra-error: no base URL)"}`,
           `  In the SPEC files, reach the app via the PW_BASE_URL env var (the orchestrator sets it at run time).`,
-          ...(input.contextPack
+          ...(packProvides("dom-live")
             ? [
-                `- A Context Pack (blast-radius + DOM slice + contracts) was pushed into this prompt by the`,
-                `  orchestrator BEFORE this session started. Where the pack supplies the DOM for a route,`,
+                `- A Context Pack (live DOM${packProvides("api-operations") ? " + contracts" : ""}) was pushed into this prompt by the`,
+                `  orchestrator before this session started. Where the pack supplies the DOM for a route,`,
                 `  TRANSCRIBE selectors directly from the "Live DOM" section — do NOT use browser_navigate or`,
-                `  browser_snapshot on routes already covered in the pack (the ground truth is already here).`,
+                `  browser_snapshot on routes already covered in the pack.`,
                 `  For routes NOT covered in the pack (not listed in the DOM section), use the Playwright MCP`,
                 `  to explore the live page before writing selectors.`,
               ]
-            : input.domSnapshot
+            : treeInPrompt
             ? [
-                `- An injected a11y tree is provided below (the ground truth for the affected routes) —`,
+                `- An injected a11y tree is provided below for the affected routes —`,
                 `  transcribe selectors from it; do NOT browser_navigate a route it covers. Use the Playwright`,
                 `  MCP only for a route NOT present in that tree.`,
               ]
@@ -377,51 +425,50 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
                 `- Playwright MCP is AVAILABLE and you MUST use it BEFORE writing any test: browser_navigate to`,
                 `  the LIVE DEV URL above, then browser_snapshot to read the ACTUAL DOM. Selectors MUST be verified`,
                 `  against the real DOM, NEVER invented from code analysis alone.`,
+                ...RUNTIME_SIGNALS_LINES,
               ]),
-          `- Also inspect runtime signals with the Playwright MCP: browser_console_messages (catch JS errors`,
-          `  and warnings — a console error on the changed flow is a real bug signal) and browser_network_requests`,
-          `  (read the actual API calls/responses the flow makes, and assert against their real shape — status,`,
-          `  required fields, error responses — not invented contracts). Drive the backend through the UI only.`,
           `- Consult the playwright-authoring skill for robust specs and this app's capabilities.`,
           ...(openapiHint
             ? [
-                `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses). Drive the app through the web UI like a user — never call the API directly.`,
+                `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses).`,
               ]
             : []),
-          `- Selector priority: (1) getByTestId when the tree line's \`-> [attr]\` hint STARTS WITH the configured testIdAttribute name (e.g. \`data-testid=value\`) — an \`id=\`/\`name=\`/href hint does NOT qualify; (2) getByRole / getByLabel when no test-id hint; (3) getByText for text-only elements; (4) scoped CSS/locator only as last resort. No raw CSS classes or XPath — these break on refactor.`,
         ]),
     `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, mem_context, and mem_session_summary calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
-    input.needsReview
-      ? `- An INDEPENDENT reviewer judges your specs after you finish and may return corrections for a follow-up turn. Self-review against the test-value-review criteria BEFORE finishing (every spec must fail if its feature breaks); do not rely on spawning a subagent.`
-      : `- Review disabled for this run.`,
   ];
   const workingRulesContent = workingRulesLines.join("\n");
+  const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];
 
-  const archMapContent = input.contextMap
-    ? [
-        renderArchitectureContext(
-          input.contextMap,
-          input.mode === "diff" ? input.intent?.changedFiles : undefined,
-          { suppressFeBeLinks: !!input.contextPack },
-        ) ?? "",
-        ``,
-      ].join("\n")
-    : "";
+  /* The brief owns FE-BE links when it carries them (the map yields its own), the pack's contracts section owns API operations when present (the map yields its list), and a brief drops its landmark hints when a tree exists. */
+  const archMap = input.contextMap
+    ? renderArchitectureContextParts(
+        input.contextMap,
+        input.mode === "diff" ? input.intent?.changedFiles : undefined,
+        {
+          suppressFeBeLinks: Boolean(input.contextBrief?.feBe?.length),
+          suppressApiOperations: packProvides("api-operations"),
+        },
+      )
+    : null;
+  const archMapContent = input.contextMap ? [archMap?.text ?? "", ``].join("\n") : "";
+  const archMapClaims: PromptClaim[] = archMap?.claims ?? [];
+  const mapInjected = archMap !== null;
+  const blastRadiusSupplied = Boolean(input.contextBrief?.blastRadius.length);
 
+  const briefShowsLandmarks = Boolean(input.contextBrief?.routes?.some((r) => r.domLandmarks?.length)) && !treeInPrompt;
   const contextBriefContent = input.contextBrief
     ? [
-        renderBrief(input.contextBrief, { suppressFeBe: !!input.contextPack }),
-        `(The brief above distilled the blast radius — do NOT re-read that code. Verify selectors against the live DOM.)`,
+        renderBrief(input.contextBrief, { omitLandmarks: treeInPrompt }),
+        `(The brief above is established: it distilled the blast radius, risks, objective and contracts, so do NOT re-read that code. Verification is the harness's job — its static, execution and review gates.${briefShowsLandmarks ? " Route landmarks are hints, never selectors." : ""})`,
         ``,
       ].join("\n")
     : "";
-
-  const sanitizedDomSnapshot = input.domSnapshot ? sanitizeText(input.domSnapshot, "model").text : undefined;
+  const contextBriefClaims: PromptClaim[] = input.contextBrief ? briefClaims(input.contextBrief, briefShowsLandmarks) : [];
 
   const domContent = sanitizedDomSnapshot && isGenerationMode
-    ? input.failureSourced
+    ? hasFailureTree
       ? [
-          `## GROUND TRUTH AT FAILURE`,
+          `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
           ``,
           `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix.`,
           `Do NOT use general knowledge of what tables, forms, or components usually contain.`,
@@ -442,22 +489,15 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ``,
         ].join("\n")
       : [
-          `## Live DEV accessibility tree (GROUND TRUTH for selectors — trust this over HTML intuition)`,
+          `## ${PROMPT_HEADINGS.liveDevTree} (GROUND TRUTH for selectors — trust this over HTML intuition)`,
           ``,
           `These are the roles + accessible names the browser ACTUALLY exposes for the target routes.`,
-          `Lines may carry a trailing \`-> [attr=…]\` hint — it can show id=, name=, href, or type= as well as`,
-          `the test-id attribute, so only a hint that STARTS WITH the configured testIdAttribute name (e.g.`,
-          `\`data-testid=value\`) means \`getByTestId('value')\` will resolve; an \`id=\`/\`name=\`/href/type= hint does`,
-          `NOT qualify — use \`getByRole\`/\`getByLabel\` with the accessible name from the tree instead.`,
-          `When no \`-> [...]\` hint is present at all, also use \`getByRole\` with the accessible name from the tree.`,
+          `Lines may carry a trailing \`-> [attr=…]\` hint showing id=, name=, href, or type= as well as the test-id attribute.`,
           `Author selectors ONLY from what appears below:`,
           `- If a role you expected (e.g. \`columnheader\`) is NOT listed, it is NOT in the a11y tree —`,
           `  do NOT use \`getByRole\` for it. Fall back to \`getByText\` or a scoped locator.`,
           `- If a name appears MORE THAN ONCE, a bare \`getByRole\`/\`getByText\` matches multiple elements`,
           `  (strict-mode violation) — scope it to a unique parent/section, or use a unique attribute.`,
-          `- This tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic`,
-          `  lists, multi-step form steps) are NOT here. Assert them with auto-waiting`,
-          `  (\`await expect(locator).toBeVisible()\`, \`waitForURL\`), never \`waitForTimeout\`.`,
           ``,
           `Lines tagged [CHANGED: …] are what THIS change introduced — your objective targets these.`,
           ``,
@@ -466,22 +506,39 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
     : "";
 
-  /* VOLATILE: Lever-2 deterministic selector contradictions (W1). Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
+  const domClaims: PromptClaim[] =
+    domContent === ""
+      ? []
+      : hasFailureTree
+      ? [claim.provides("dom-failure"), claim.frames("dom-failure", "established")]
+      : [claim.provides("dom-live"), claim.frames("dom-live", "established")];
+
+  /* VOLATILE: Lever-2 deterministic selector contradictions. Each is a VERIFIED finding from comparing the generated specs' selectors against the captured failure-point a11y tree — an absent selector ("role:name is NOT in the captured tree; present roles: …") or an ambiguous one ("matches MULTIPLE nodes …"). */
   const selectorContradictionsContent =
     input.selectorContradictions?.length && isGenerationMode
       ? [
           `## ⚠ Lever-2 selector contradictions (DETERMINISTIC — resolve EVERY one)`,
           ``,
-          `These selectors were checked against the captured failure-point tree above and FAILED.`,
-          `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT in the captured tree`,
+          `These selectors were checked against ${hasFailureTree ? "the captured failure-point tree above" : hasLiveTree ? "the captured tree above" : "the page's captured a11y tree"} and FAILED.`,
+          `Each is a verified fact, not a hint: a contradicted \`role:name\` is NOT ${treeInPrompt ? "in the captured tree" : "on the page"}`,
           `(the listed present roles are what IS there) — do NOT re-use it. Replace it with a role/name`,
-          `that appears in the tree, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
+          `${treeInPrompt ? "that appears in the tree" : "from the present roles listed"}, or a \`getByText\`/scoped locator; for a "matches MULTIPLE" finding,`,
           `scope the locator to a unique parent. You MUST resolve every item before finishing:`,
           ``,
+          "```",
           ...input.selectorContradictions.map((c) => `- ${sanitizeText(c).text}`),
+          "```",
           ``,
         ].join("\n")
       : "";
+
+  const selectorContradictionsClaims: PromptClaim[] = !selectorContradictionsContent
+    ? []
+    : hasFailureTree
+    ? [claim.directs("consult", "dom-failure")]
+    : hasLiveTree
+    ? [claim.directs("consult", "dom-live")]
+    : [];
 
   const hasStaticGateCase = Boolean(input.fixCases?.some((c) => c.name === "static-gate"));
 
@@ -495,7 +552,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               `failure. Fix the underlying error; do NOT rewrite or touch tests that passed the gate.`,
             ]
           : [
-              `The following tests FAILED during execution against DEV. Fix ONLY these`,
+              `The following tests FAILED during execution${isCode ? "" : " against DEV"}. Fix ONLY these`,
               `tests; do NOT rewrite or touch tests that passed.`,
             ]),
         ``,
@@ -505,23 +562,23 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
           ...renderFixCaseEvidenceLines(c),
         ]),
         ``,
-        ...(input.failureSourced
+        ...(hasFailureTree
           ? [
-              `The captured a11y tree at the failure point is injected ABOVE as "GROUND TRUTH AT FAILURE".`,
+              `The captured a11y tree at the failure point is injected ABOVE as "${PROMPT_HEADINGS.groundTruthAtFailure}".`,
               `1. Read the test file to understand what it asserts`,
-              `2. Consult ONLY the GROUND TRUTH tree above — do NOT navigate or snapshot the live page.`,
+              `2. Consult ONLY that tree — do NOT navigate or snapshot the live page.`,
               `   The tree above is the page AT THE FAILURE POINT, not the current live state.`,
               `   ${GROUNDING_UNCOVERED_ESCAPE}`,
               `3. Fix the ROOT CAUSE, guided by the error type:`,
               `   - "strict mode violation" → scope the selector to a section first`,
-              `   - "locator.click: … not found" → the element doesn't exist; check role/label in the GROUND TRUTH tree`,
+              `   - "locator.click: … not found" → the element doesn't exist; check role/label in that tree`,
               `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
               `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
               `4. PRESERVE each test's objective and assertions — fix only what's broken`,
             ]
-          : hasInjectedGrounding
+          : treeInPrompt
           ? [
-              `Fix from the injected grounding above (Context Pack / DOM tree) — do NOT navigate to re-derive`,
+              `Fix from the injected grounding above (the DOM tree) — do NOT navigate to re-derive`,
               `a route it already covers; navigate ONLY a route absent from the injected grounding.`,
               GROUNDING_UNCOVERED_ESCAPE,
               `1. Read the test file to understand what it asserts`,
@@ -531,6 +588,14 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
               `   - "locator.click: … not found" → the element doesn't exist; check role/label in the injected grounding`,
               `   - "expect(…).toBeVisible() timed out" → the element exists but isn't visible; check loading states`,
               `   - "locator resolved to N elements" → use .filter({hasText:…}) or scope to a unique parent`,
+              `4. PRESERVE each test's objective and assertions — fix only what's broken`,
+            ]
+          : isCode
+          ? [
+              `For each failure:`,
+              `1. Read the test file to understand what it asserts`,
+              `2. Read the code under test that the failure points at`,
+              `3. Fix the ROOT CAUSE: a wrong expectation, a wrong test double or setup, or a compile error`,
               `4. PRESERVE each test's objective and assertions — fix only what's broken`,
             ]
           : [
@@ -550,6 +615,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n")
     : "";
 
+  const fixContentClaims: PromptClaim[] = fixContent && hasFailureTree ? [claim.directs("consult", "dom-failure")] : [];
+
   /* VOLATILE: Reviewer corrections — the highest-priority re-generation signal. The agent must resolve every flagged item before finishing. Positioned in VOLATILE after DOM so the DOM grounding is already established when the corrections reference it. */
   const reviewContent = input.reviewCorrections?.length && isGenerationMode
     ? [
@@ -557,9 +624,11 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ``,
         `An independent reviewer REJECTED the previous specs. Fix EACH item below precisely;`,
         `do NOT rewrite specs that were not flagged.`,
-        hasInjectedGrounding
-          ? `Re-verify against the injected grounding above (Context Pack / DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
-          : `Where a fix concerns a selector or an assertion, re-verify it against the live DOM with the Playwright MCP before editing.`,
+        treeInPrompt
+          ? `Re-verify against the injected grounding above (the DOM tree) before editing — do NOT re-navigate a route it already covers. ${GROUNDING_UNCOVERED_ESCAPE}`
+          : isCode
+          ? `Where a fix concerns an assertion, re-verify it against the code under test before editing.`
+          : `Where a fix concerns a selector or an assertion, re-verify it against the live page with the Playwright MCP before editing.`,
         ``,
 
         ...input.reviewCorrections.map((c) => `- ${sanitizeText(c).text}`),
@@ -575,7 +644,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         `tests so those lines are actually executed and asserted (covering ≠ asserting — assert the`,
         `behavior of the changed code, do not just touch the line):`,
         ``,
-        ...(hasInjectedGrounding
+        ...(treeInPrompt
           ? [
               `Resolve any new selectors from the injected grounding above — do NOT re-navigate routes it already covers.`,
               GROUNDING_UNCOVERED_ESCAPE,
@@ -591,24 +660,47 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ? [input.learnedRules, ``].join("\n")
     : "";
 
-  /* A re-generation turn must not re-orient; the blast radius is already in the grounding above. Suppress serena re-activation. */
+  /* A brief that carries a blast radius already has it distilled; the advisory structural copy of it only appears when there is none. */
+  const staticSignalContent = input.staticSignal && isGenerationMode && !blastRadiusSupplied ? input.staticSignal : "";
+  const staticSignalClaims: PromptClaim[] = staticSignalContent
+    ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
+    : [];
+
+  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries one (a brief with a blast radius, or the structural signal); otherwise it only forbids the re-skim. */
+  const blastRadiusGrounded = blastRadiusSupplied || staticSignalContent !== "";
   const regenDisciplineContent = isReGen
     ? [
         `## Re-generation turn — do NOT re-orient`,
         ``,
-        `Re-generation turn: the blast radius was already explored and distilled above. Do NOT re-activate`,
+        blastRadiusGrounded
+          ? `Re-generation turn: the blast radius was already explored and distilled above. Do NOT re-activate`
+          : `Re-generation turn: do NOT re-activate`,
         `serena, do NOT re-run find_referencing_symbols, do NOT re-skim the repository or re-read unchanged`,
-        `code. Work from the grounding already in this prompt and change only what the correction requires.`,
-        `(One exception: if a correction names a specific symbol that is NOT in the grounding above, read ONLY that symbol.)`,
+        blastRadiusGrounded
+          ? `code. Work from the grounding already in this prompt and change only what the correction requires.`
+          : `code. Change only what the correction requires.`,
+        `(One exception: if a correction names a specific symbol you have not seen, read ONLY that symbol.)`,
         ``,
       ].join("\n")
     : "";
 
-  const contextPackContent = input.contextPack && isGenerationMode ? input.contextPack : "";
+  /* The stock auth seed did not sign in: the generator authors the login before any spec. Where to read the login page from depends on whether a live-DOM Context Pack is actually in this prompt. */
+  const authSetupPath = `${input.e2eRelDir}/auth.setup.ts`;
+  const appLoginContent =
+    input.authSeedUnauthored && isGenerationMode && !isCode
+      ? [
+          `## ${PROMPT_HEADINGS.appLogin}`,
+          `${PROMPT_HEADINGS.appLogin} is configured, but ${authSetupPath} is still the stock seed and did not sign in.`,
+          `Rewrite ${authSetupPath}: open the login page with the Playwright MCP and read its real fields before writing selectors.`,
+          `Import test from @playwright/test, not from ./fixtures.`,
+          `Keep reading DEV_TEST_USER and DEV_TEST_PASS. Delete the seed marker on the first line.`,
+          `Wait until the password field is hidden (cookies are set on the redirect) before storageState.`,
+          `Then write the specs for this change. Each spec that needs the app calls authenticate().`,
+          `The orchestrator signs in with your setup file before execute.`,
+        ].join("\n")
+      : "";
 
-  const taskContent = buildTask(input);
-
-  const staticSignalContent = input.staticSignal && isGenerationMode ? input.staticSignal : "";
+  const task = buildTask(input, { mapInjected, blastRadiusSupplied });
 
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -634,8 +726,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
   const serviceLinksContent =
     (hasServiceLinks || hasContractDrift) && isGenerationMode
       ? [
-          "## Cross-service links (deterministic — from the stitcher, advisory)",
-          "Structural cross-service contract links resolved from the code, NOT a gate. Verify against the live app; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
+          `## ${PROMPT_HEADINGS.crossServiceLinks} (deterministic — from the stitcher, advisory)`,
+          "Structural cross-service contract links resolved from the code, advisory and NOT a gate; absent links do NOT imply no dependency. Transport/source name how each hop was derived (FE→BE HTTP, BE→BE HTTP, event).",
           "",
           ...(hasServiceLinks
             ? orderedLinks.slice(0, MAX_LINKS).map((l) => {
@@ -652,12 +744,18 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
+  const serviceLinksClaims: PromptClaim[] = serviceLinksContent
+    ? [claim.provides("service-links"), claim.frames("service-links", "unverified")]
+    : [];
+
+  const harnessFactsContent = isGenerationMode && input.harnessFacts ? renderHarnessFacts(input.harnessFacts, input.e2eRelDir) : "";
+
   const diffArchetypesContent =
     input.diffArchetypes?.length && isGenerationMode
       ? `Change shape (deterministic): ${input.diffArchetypes.join(", ")} — prioritise tests that exercise these`
       : "";
 
-  /* CHANGE-COVERAGE OBSERVATION marker (design D-E rationale): no deterministic oracle exists for "did the rich exemplar template change generation quality" — flagging here (+ engram) so a future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate. apply-batch-3 rider (orchestrator-directed): no live caller populates input.structuralPatterns, so without a local derivation the "archetype-matched templates re-enter the generation prompt" scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the diff (this function already reads input.diff for cappedDiffText above), rather than adding new qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely absent/empty one falls back to a local derivation from the diff already in scope. */
+  /* CHANGE-COVERAGE OBSERVATION marker: no deterministic oracle exists for "did the rich exemplar template change generation quality" — flagging here (+ engram) so a future audit can measure rich-exemplar vs one-line-diffArchetypes-hint defect-catch rate. No live caller populates input.structuralPatterns, so without a local derivation the "archetype-matched templates re-enter the generation prompt" scenario went unmet for a real run. Derived HERE instead, at the layer that already holds the diff (this function already reads input.diff for cappedDiffText above), rather than adding new qa-engine plumbing: an explicitly-supplied input.structuralPatterns still wins; only a genuinely absent/empty one falls back to a local derivation from the diff already in scope. */
   const skillExemplarsContent = (() => {
     if (!isGenerationMode) return "";
     if (input.skillExemplars?.length) {
@@ -678,11 +776,12 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return renderExemplarsForPrompt(deduped);
   })();
 
-  return assemble([
-    section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true }),
+  const assembled = assemble([
+    section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
-    ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true })] : []),
-    ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2 })] : []),
+    ...(archMapContent ? [section("arch-map", "semi-stable", archMapContent, { priority: 1, cacheable: true, claims: archMapClaims })] : []),
+    ...(contextBriefContent ? [section("context-brief", "semi-stable", contextBriefContent, { priority: 2, claims: contextBriefClaims })] : []),
+    ...(harnessFactsContent ? [section(HARNESS_FACTS_SECTION_ID, "semi-stable", harnessFactsContent, { priority: 0, claims: [claim.provides("harness-facts")] })] : []),
     ...(() => {
       const specFiles = isGenerationMode && (input.mode === "diff" || input.mode === "manual")
         ? input.existingSpecFiles
@@ -694,25 +793,27 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       ].join("\n");
       return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2 })];
     })(),
-    ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3 })] : []),
-    ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3 })] : []),
+    ...(staticSignalContent ? [section("static-signal", "semi-stable", staticSignalContent, { priority: 3, claims: staticSignalClaims })] : []),
+    ...(serviceLinksContent ? [section("service-links", "semi-stable", serviceLinksContent, { priority: 3, claims: serviceLinksClaims })] : []),
     ...(diffArchetypesContent ? [section("diff-archetypes", "semi-stable", diffArchetypesContent, { priority: 3 })] : []),
     ...(skillExemplarsContent ? [section("skill-exemplars", "semi-stable", skillExemplarsContent, { priority: 3, maxBytes: 1536 })] : []),
-    ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap" })] : []),
+    ...(appLoginContent ? [section(APP_LOGIN_SECTION_ID, "volatile", appLoginContent, { priority: 0, shedAs: "critical-recap" })] : []),
+    ...(contextPackContent ? [section("context-pack", "volatile", contextPackContent, { priority: 0, shedAs: "critical-recap", claims: contextPackClaims })] : []),
     /* VOLATILE: grounding (DOM snapshot — priority 1 within VOLATILE so it's first and the selectorContradictions section can reference "the tree above" correctly). */
-    ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1 })] : []),
-    ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2 })] : []),
-    ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3 })] : []),
+    ...(domContent ? [section("dom-snapshot", "volatile", domContent, { priority: 1, claims: domClaims })] : []),
+    ...(selectorContradictionsContent ? [section("selector-contradictions", "volatile", selectorContradictionsContent, { priority: 2, claims: selectorContradictionsClaims })] : []),
+    ...(fixContent ? [section("fix-cases", "volatile", fixContent, { priority: 3, claims: fixContentClaims })] : []),
     /* VOLATILE: reviewer corrections (priority 4 — after grounding context is established). */
     ...(reviewContent ? [section("reviewer-corrections", "volatile", reviewContent, { priority: 4, maxBytes: 20_000, overflow: "drop" })] : []),
     ...(coverageContent ? [section("coverage-gap", "volatile", coverageContent, { priority: 5, shedAs: "critical-recap" })] : []),
     ...(learnedRulesContent ? [section("learned-rules", "volatile", learnedRulesContent, { priority: 2 })] : []),
-    section("task", "task", taskContent, { priority: 1 }),
+    section("task", "task", task.text, { priority: 1, claims: task.claims }),
     ...(() => {
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
-      return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable" })] : [];
+      return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : [];
     })(),
   ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
+  return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
 }
 
 export function buildPrompt(input: OpencodeRunInput): string {
@@ -732,7 +833,7 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
   ];
   if (input.domSnapshot && input.failureSourced) {
     parts.push(
-      `## GROUND TRUTH AT FAILURE`,
+      `## ${PROMPT_HEADINGS.groundTruthAtFailure}`,
       ``,
       `The tree below is the page AT THE FAILURE POINT — the ONLY source of truth for this fix. Quote the`,
       `exact \`role: name\` line before writing any locator; an unquotable locator MUST be replaced.`,
@@ -784,8 +885,17 @@ export function buildFollowupPrompt(input: OpencodeRunInput): string {
 export function renderArchitectureContext(
   ctx: ArchitectureContext,
   changedFiles?: string[],
-  opts: { suppressFeBeLinks?: boolean } = {},
+  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
 ): string | null {
+  return renderArchitectureContextParts(ctx, changedFiles, opts)?.text ?? null;
+}
+
+/** The rendered map plus the claims its content makes: the map itself, its API operations and its FE↔BE links when they were rendered. */
+export function renderArchitectureContextParts(
+  ctx: ArchitectureContext,
+  changedFiles?: string[],
+  opts: { suppressFeBeLinks?: boolean; suppressApiOperations?: boolean } = {},
+): { text: string; claims: PromptClaim[] } | null {
   if (!ctx.routes?.length && !ctx.api?.length) return null;
 
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -801,13 +911,9 @@ export function renderArchitectureContext(
   ).slice(0, MAX_ITEMS);
 
   const lines: string[] = [];
-  lines.push("## Architecture context (from e2e/.qa/context.json)");
+  lines.push(`## ${PROMPT_HEADINGS.architectureContext} (from e2e/.qa/context.json)`);
   lines.push(`Built at ${s(ctx.builtAtSha).slice(0, 7)} — the FE↔BE map this app's QA uses to cross the frontend→backend boundary.`);
-  lines.push(
-    "This map is a non-authoritative AID, extracted from source and possibly STALE or INCOMPLETE: " +
-      "use it to widen the blast radius and locate flows, but verify every route, selector and contract " +
-      "against the actual code and the live DOM. If the map and what you observe disagree, the code/DOM wins.",
-  );
+  lines.push("This map was extracted from source and may be stale or incomplete.");
   lines.push("");
 
   if (ctx.routes.length) {
@@ -818,7 +924,8 @@ export function renderArchitectureContext(
     lines.push("");
   }
 
-  if (ctx.api.length) {
+  const listsApiOperations = ctx.api.length > 0 && !opts.suppressApiOperations;
+  if (listsApiOperations) {
     lines.push(`### API operations (${ctx.api.length} endpoints)`);
     for (const o of ctx.api.slice(0, MAX_ITEMS)) {
       lines.push(`- \`${s(o.operationId)}\`: ${s(o.method)} ${s(o.path)}${o.service ? ` (${s(o.service)})` : ""}`);
@@ -844,11 +951,25 @@ export function renderArchitectureContext(
     lines.push("");
   }
 
-  lines.push("When the blast radius from the diff touches a route, use its FE↔BE links");
-  lines.push("to also consider the backend operations — a frontend change can break backend");
-  lines.push("behaviour and vice-versa.");
   const out = lines.join("\n");
-  return out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out;
+  const claims: PromptClaim[] = [claim.provides("arch-map"), claim.frames("arch-map", "unverified")];
+  if (listsApiOperations) claims.push(claim.provides("api-operations"));
+  if (relevantLinks.length && !opts.suppressFeBeLinks) claims.push(claim.provides("fe-be-links"));
+  return { text: out.length > MAX_LEN ? out.slice(0, MAX_LEN) + "\n…(context truncated)" : out, claims };
+}
+
+/* What a rendered brief provides and how it frames it: the blast radius, risks and contracts it distilled are established, its landmark hints (kept only when no DOM tree exists) are not. */
+function briefClaims(brief: ExplorationBrief, showsLandmarks: boolean): PromptClaim[] {
+  const claims: PromptClaim[] = [];
+  const fact = (id: FactId, as: "established" | "unverified"): void => {
+    claims.push(claim.provides(id), claim.frames(id, as));
+  };
+  if (brief.blastRadius.length) fact("blast-radius", "established");
+  if (brief.risks?.length) fact("risks", "established");
+  if (brief.feBe?.length) claims.push(claim.provides("fe-be-links"));
+  if (brief.contracts?.length) fact("contracts", "established");
+  if (showsLandmarks) fact("landmarks", "unverified");
+  return claims;
 }
 
 
@@ -925,14 +1046,53 @@ export function buildContextTask(input: OpencodeRunInput): string {
     `- Keep the map small: this is an E2E authoring aid, not exhaustive documentation.`,
     ``,
     `## Output`,
-    `End with ONLY this JSON (no other text):`,
-    `{"approved":true,"specs":["${input.e2eRelDir}/.qa/context.json"],"note":"built architecture map with X routes, Y api operations, Z links"}`,
+    `End with ONLY this JSON (no other text). \`specs\` names the map relative to ${input.e2eRelDir}/, like every spec path:`,
+    `{"specs":[".qa/context.json"],"note":"built architecture map with X routes, Y api operations, Z links"}`,
   ].join("\n");
 }
 
-function buildCodeTask(input: OpencodeRunInput): string {
+interface TaskParts {
+  text: string;
+  claims: PromptClaim[];
+}
+
+/* The changed-files line every diff-shaped task carries. */
+function changedFilesLine(input: OpencodeRunInput, label: string): string {
+  return `- ${label}: ${sanitizeText(input.intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`;
+}
+
+/* A regeneration is a correction turn: the whole-repository analysis, the diff and the scope budget of a first pass are already in the session, and the regen-discipline section owns scope. Every mode keeps what a correction still needs — the objective rule, and the intent, guidance or changed files that say what the corrections are about. */
+function buildCodeRegenTask(input: OpencodeRunInput): TaskParts {
+  const intent = input.intent;
+  const lines: string[] = [];
   if (input.mode === "manual") {
-    return [
+    lines.push(
+      `Re-generation pass for the UNIT/INTEGRATION tests of ${input.repo}, FOCUSED on:`,
+      ``,
+      sanitizeText(input.guidance ?? "(no guidance provided)").text,
+    );
+  } else if (input.mode === "complete" || input.mode === "exhaustive") {
+    lines.push(`Re-generation pass for the ${input.mode} source-code test suite run of ${input.repo}.`);
+  } else {
+    lines.push(
+      `Re-generation pass for the UNIT/INTEGRATION tests of commit ${input.sha} of ${input.repo}.`,
+      ``,
+      `## Change intent (Conventional Commits)`,
+      `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
+      ``,
+      `## Commit message (the author's intent — derive each test's objective from this)`,
+      renderCommitMessage(intent, false),
+    );
+  }
+  if (intent?.changedFiles?.length) lines.push(``, changedFilesLine(input, "Changed files (derive the scope from these)"));
+  if (input.mode === "manual") lines.push(``, `## Objective — commit to this BEFORE writing`, ACCEPTANCE_CRITERION_RULE);
+  return { text: lines.join("\n"), claims: input.mode === "manual" ? [claim.directs("state-outcome")] : [] };
+}
+
+function buildCodeTask(input: OpencodeRunInput): TaskParts {
+  if (isReGenTurn(input)) return buildCodeRegenTask(input);
+  if (input.mode === "manual") {
+    const text = [
       `Generate or update UNIT/INTEGRATION tests for the source code of ${input.repo}, FOCUSED on:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
@@ -943,9 +1103,10 @@ function buildCodeTask(input: OpencodeRunInput): string {
       `Read the relevant source and the repo's existing tests (serena); match their framework and conventions.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
   }
   if (input.mode === "complete" || input.mode === "exhaustive") {
-    return [
+    const text = [
       input.mode === "exhaustive"
         ? `Audit and REGENERATE the source-code test suite of ${input.repo} from scratch.`
         : `Analyze the WHOLE repository ${input.repo} and grow its source-code test suite where it matters.`,
@@ -956,19 +1117,19 @@ function buildCodeTask(input: OpencodeRunInput): string {
         ? `Re-evaluate every existing test for correctness, value and necessity; remove or rewrite the trivial, false-positive, redundant or obsolete.`
         : `Generate tests ONLY for important UNCOVERED logic (the delta). Do not duplicate existing coverage.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo")] };
   }
 
   const intent = input.intent;
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  return [
+  const text = [
     `Generate or update UNIT/INTEGRATION tests for the source-code changes in commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
     `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-    `- Changed files (derive the scope from these): ${sanitizeText(intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`,
+    changedFilesLine(input, "Changed files (derive the scope from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, !isReGen),
+    renderCommitMessage(intent, true),
     ``,
     `Cross-check against the diff: if the code does more than the message claims, test what the code`,
     `actually changes, not just what the message promises.`,
@@ -981,12 +1142,94 @@ function buildCodeTask(input: OpencodeRunInput): string {
     `Test the changed logic DIRECTLY (no web, no browser, no Playwright): call the changed functions/`,
     `modules and assert behavior + edge cases. Match the repo's existing test framework and conventions.`,
   ].join("\n");
+  return { text, claims: [claim.provides("diff")] };
 }
 
-function buildTask(input: OpencodeRunInput): string {
+function buildServiceBlock(input: OpencodeRunInput): string[] {
+  if (!input.service) return [];
+  const svcOpenapiHints = input.service.openapi
+    ? Array.isArray(input.service.openapi)
+      ? input.service.openapi
+      : [input.service.openapi]
+    : undefined;
+  const svcOpenapi = svcOpenapiHints?.map((h) => `contracts/${h}`).join(", ");
+  return [
+    ``,
+    `## Cross-repo change (microservice)`,
+    `The commit under test belongs to the microservice ${input.service.repo}, NOT to this frontend repo.`,
+    `- A READ-ONLY staged snapshot (its OpenAPI/contract files under contracts/, plus this commit's`,
+    `  diff as CHANGE.patch and its changed files' post-change content under changed/ — NOT the`,
+    `  service's full source) is at: ${input.service.mirrorDir}`,
+    ...(svcOpenapi ? [`- The service's OpenAPI contract(s): ${svcOpenapi} (relative to that staged snapshot)`] : []),
+    `- Use the architecture context below (operations whose service matches this repo) plus the`,
+    `  staged contract and this commit's staged diff/changed files to find which frontend routes`,
+    `  and flows this change affects.`,
+  ];
+}
+
+/* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction of a first pass, this explains a decision already made, not evidence that may have shed). classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot). `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
+function classifierNoteLines(input: OpencodeRunInput): string[] {
+  if (!input.classificationReason) return [];
+  return [
+    `## Classifier note`,
+    `${sanitizeText(input.classificationReason, "model").text}${input.contradiction ? " (the commit message under-promised — trust the diff)" : ""}`,
+    ``,
+  ];
+}
+
+function buildRegenTask(input: OpencodeRunInput): TaskParts {
+  const intent = input.intent;
+  const opening =
+    input.mode === "manual"
+      ? [
+          `Re-generation pass for the E2E tests of ${input.repo}, FOCUSED on the following guidance:`,
+          ``,
+          sanitizeText(input.guidance ?? "(no guidance provided)").text,
+        ]
+      : input.mode === "complete" || input.mode === "exhaustive"
+      ? [`Re-generation pass for the ${input.mode} E2E suite run of ${input.repo}.`]
+      : [
+          `Re-generation pass for the E2E tests of commit ${input.sha} of ${input.repo}.`,
+          ``,
+          `## Change intent (Conventional Commits)`,
+          `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
+          changedFilesLine(input, "Changed files (derive the scope/area from these)"),
+          ``,
+          `## Commit message (the author's intent — derive each test's objective from this)`,
+          renderCommitMessage(intent, false),
+          ``,
+          ...classifierNoteLines(input),
+        ];
+  const text = [
+    ...opening,
+    ``,
+    `## Objective — commit to this BEFORE writing`,
+    ACCEPTANCE_CRITERION_RULE,
+    ...buildServiceBlock(input),
+  ].join("\n");
+  return { text, claims: [claim.directs("state-outcome")] };
+}
+
+/* What the prompt already supplies, so the task does not send the agent to fetch it again. */
+interface TaskGuards {
+  /* The architecture map is rendered in this prompt. */
+  mapInjected: boolean;
+  /* A brief carrying a blast radius is rendered in this prompt. */
+  blastRadiusSupplied: boolean;
+}
+
+/* The change's real size, from the changed files and the diff's own lines. */
+function sizeSentence(input: OpencodeRunInput): string {
+  const { files, added, removed } = diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles });
+  return `The change touches ${files} file${files === 1 ? "" : "s"} with +${added}/-${removed} lines,`;
+}
+
+function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
+  if (input.mode === "context") return { text: buildContextTask(input), claims: [claim.directs("analyze-repo")] };
   if (input.target === "code") return buildCodeTask(input);
+  if (isReGenTurn(input)) return buildRegenTask(input);
   if (input.mode === "complete" || input.mode === "exhaustive") {
-    return [
+    const text = [
       input.mode === "exhaustive"
         ? `Audit and REGENERATE the entire E2E suite of ${input.repo} from scratch.`
         : `Analyze the WHOLE repository ${input.repo} and grow the E2E suite where it matters.`,
@@ -1003,9 +1246,10 @@ function buildTask(input: OpencodeRunInput): string {
         ? `3. Re-evaluate EVERY existing test for correctness, value and necessity (apply the test-value-review criteria): remove or rewrite tests that are trivial, false positives, redundant or obsolete. Ensure every important flow is covered — a fully re-evaluated suite, not a delta.`
         : `3. Generate tests ONLY for the important UNCOVERED flows (the delta over the existing suite). Do not duplicate existing coverage.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo")] };
   }
   if (input.mode === "manual") {
-    return [
+    const text = [
       `Generate/update E2E tests for ${input.repo}, FOCUSED on the following guidance:`,
       ``,
       sanitizeText(input.guidance ?? "(no guidance provided)").text,
@@ -1016,93 +1260,58 @@ function buildTask(input: OpencodeRunInput): string {
       `Use serena to read the relevant code and the existing ${input.e2eRelDir}/ suite.`,
       `Stay focused on the guidance; do not generate unrelated tests.`,
     ].join("\n");
+    return { text, claims: [claim.directs("analyze-repo"), claim.directs("state-outcome")] };
   }
-  if (input.mode === "context") return buildContextTask(input);
 
   const intent = input.intent;
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  const svcOpenapiHints = input.service?.openapi
-    ? Array.isArray(input.service.openapi)
-      ? input.service.openapi
-      : [input.service.openapi]
-    : undefined;
-  const svcOpenapi = svcOpenapiHints?.map((h) => `contracts/${h}`).join(", ");
-  const serviceBlock = input.service
-    ? [
-        ``,
-        `## Cross-repo change (microservice)`,
-        `The commit under test belongs to the microservice ${input.service.repo}, NOT to this frontend repo.`,
-        `- A READ-ONLY staged snapshot (its OpenAPI/contract files under contracts/, plus this commit's`,
-        `  diff as CHANGE.patch and its changed files' post-change content under changed/ — NOT the`,
-        `  service's full source) is at: ${input.service.mirrorDir}`,
-        ...(svcOpenapi ? [`- The service's OpenAPI contract(s): ${svcOpenapi} (relative to that staged snapshot)`] : []),
-        `- Use the architecture context below (operations whose service matches this repo) plus the`,
-        `  staged contract and this commit's staged diff/changed files to find which frontend routes`,
-        `  and flows this change affects.`,
-        `- Exercise the backend ONLY through the frontend UI at the LIVE DEV URL — never call the service directly.`,
-      ]
-    : [];
-  return [
+  const text = [
     `Generate/update E2E tests for the flows affected by commit ${input.sha} of ${input.repo}.`,
     ``,
     `## Change intent (Conventional Commits)`,
     `- Type: ${intent?.type ?? "unknown"}${intent?.breaking ? " (BREAKING)" : ""}`,
-    `- Changed files (derive the scope/area from these): ${sanitizeText(intent?.changedFiles?.join(", ") ?? "").text || "(unknown)"}`,
+    changedFilesLine(input, "Changed files (derive the scope/area from these)"),
     ``,
     `## Commit message (the author's intent — derive each test's objective from this)`,
-    renderCommitMessage(intent, !isReGen),
+    renderCommitMessage(intent, true),
     ``,
-    ...(isReGen
-      ? []
-      : [
-          `Cross-check against the diff: if the code does more than the message claims, cover what`,
-          `the code actually changes, not just what the message promises.`,
-          ``,
-        ]),
-    /* Rendered whenever the classifier computed a reason, regardless of regen round (unlike the diff cross-check instruction above, this explains a decision already made, not evidence that may have shed). F2 fix (adversarial review, LOW): classificationReason is a MODEL-bound string (it only ever reaches the generation prompt, never an Issue body), so it is sanitized in "model" mode — matching the sibling model-bound calls on this path (domSnapshot at :687/:1083/:1743). The previous call omitted the mode arg, defaulting to the aggressive "issue" (Issue-bound) policy: it failed safe (over-redacted) but contradicted this very comment. `contradiction` only toggles a STATIC literal suffix (no user/model text flows through it), so there is nothing to sanitize on that field. */
-    ...(input.classificationReason
-      ? [
-          `## Classifier note`,
-          `${sanitizeText(input.classificationReason, "model").text}${input.contradiction ? " (the commit message under-promised — trust the diff)" : ""}`,
-          ``,
-        ]
-      : []),
+    `Cross-check against the diff: if the code does more than the message claims, cover what`,
+    `the code actually changes, not just what the message promises.`,
+    ``,
+    ...classifierNoteLines(input),
     `## Objective — commit to this BEFORE writing`,
     ACCEPTANCE_CRITERION_RULE,
     ``,
-    `## Architecture context`,
-    `If ${input.e2eRelDir}/.qa/context.json exists, READ it to understand which routes and`,
-    `API operations the changed files belong to. Use the feBe links to widen the blast`,
-    `radius across the frontend→backend boundary: a frontend change may affect the`,
-    `backend behaviour and vice-versa. If the map is missing or stale, note the`,
-    `limitation explicitly in your verdict note.`,
-    ``,
-    /* JD-C1: the first pass scopes the blast radius (serena + page exploration). A RE-generation pass already has that grounding distilled above and is governed by the regen-discipline section — re-commanding `find_referencing_symbols` / "explore the page" here would CONTRADICT it and let the agent justify re-exploring. So the scope-budget orientation lines are first-pass only. */
-    ...(isReGen
-      ? [
-          `## Scope (re-generation pass)`,
-          `Change ONLY what the correction/coverage-gap above requires. Do not broaden scope or re-survey`,
-          `the repo — work from the grounding already in this prompt.`,
-        ]
+    ...(guards.mapInjected
+      ? []
       : [
-          `## Scope budget (diff mode — do NOT over-work)`,
-          `The blast radius IS your budget. This is ONE commit, so keep generation fast and focused:`,
-          `- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`,
-          `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
-          `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
-          `- Explore ONLY the page(s) the change affects — not the whole app.`,
-          `A handful of focused specs is the right output for a single-commit diff, not a suite rewrite.`,
+          `## ${PROMPT_HEADINGS.architectureContext}`,
+          `If ${input.e2eRelDir}/.qa/context.json exists, READ it to understand which routes and`,
+          `API operations the changed files belong to. Use the feBe links to widen the blast`,
+          `radius across the frontend→backend boundary: a frontend change may affect the`,
+          `backend behaviour and vice-versa. If the map is missing or stale, note the`,
+          `limitation explicitly in your verdict note.`,
+          ``,
         ]),
-    ...serviceBlock,
+    `## Scope budget (diff mode — do NOT over-work)`,
+    `The blast radius IS your budget. ${sizeSentence(input)} so keep generation fast and focused:`,
+    ...(guards.blastRadiusSupplied ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
+    `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
+    `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
+    `- Explore ONLY the page(s) the change affects — not the whole app.`,
+    `A handful of focused specs is the right output here, not a suite rewrite.`,
+    ...buildServiceBlock(input),
   ].join("\n");
+  const claims: PromptClaim[] = [claim.directs("state-outcome")];
+  if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
+  if (!guards.blastRadiusSupplied) claims.push(claim.directs("orient", "blast-radius"));
+  return { text, claims };
 }
 
 /* Returns empty string for all non-diff modes, code mode, and re-generation passes (where the diff is already distilled in the grounding above and repeating it burns tokens). */
 function buildDiffSection(input: OpencodeRunInput): string {
   if (input.target === "code") return "";
   if (input.mode !== "diff") return "";
-  const isReGen = Boolean(input.fixCases?.length || input.reviewCorrections?.length || input.coverageGap);
-  if (isReGen) return "";
+  if (isReGenTurn(input)) return "";
   /* Cap BEFORE sanitizing: capDiff splits on diff file-header boundaries and must see the raw structure; sanitizeText only redacts secret-shaped substrings. */
   return [
     `## Commit diff`,
@@ -1112,7 +1321,7 @@ function buildDiffSection(input: OpencodeRunInput): string {
   ].join("\n");
 }
 
-/* ── Reviewer prompt assembly (Phase 1a precursor) ────────────────────────── The prompt for the independent reviewer session. The contract-repair re-prompt and session lifecycle stay in reviewIndependently; only the BUILD of the initial prompt string lives here. */
+/* ── Reviewer prompt assembly ────────────────────────── The prompt for the independent reviewer session. The contract-repair re-prompt and session lifecycle stay in reviewIndependently; only the BUILD of the initial prompt string lives here. */
 
 export function reviewObjective(input: ReviewInput): { subject: string; heading: string; body: string[]; targetNoun: string } {
   if (input.mode === "manual") {
@@ -1311,7 +1520,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     return raw;
   })();
 
-  /* VOLATILE: runtime execution evidence — D4/D5 injection. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
+  /* VOLATILE: runtime execution evidence. Deterministic orchestrator evidence (HTTP status codes + final URLs captured via page.on('response')) injected BEFORE the spec contents so the reviewer can weigh the objective server-error signal before reading test code. Priority 1.5 — after DOM grounding (which grounds UI facts) but before specs themselves. Absent when the run produced no execution evidence (first-time generate, code mode, etc.). */
   const executionResultContent = input.executionResult ?? "";
 
   return assemble([
@@ -1323,7 +1532,7 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(executionResultContent ? [section("reviewer-execution-result", "volatile", executionResultContent, { priority: 1.5 })] : []),
     section("reviewer-specs", "volatile", specContent, { priority: 2, maxBytes: 44_000, overflow: "summarize" }),
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
-    /* VOLATILE: Phase 4 prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
+    /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
     section("reviewer-output-contract", "critical-recap", outputContractContent, { priority: 1 }),
   ], { budgetBytes: roleWindowBytes("qa-reviewer") });

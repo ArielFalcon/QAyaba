@@ -1,6 +1,7 @@
 /*
- * Serves the web dashboard same-origin at /app so it shares the orchestrator origin — no CORS.
- * Confine reads to distDir (path traversal). API stays Bearer-protected; only the static shell is public.
+ * Serves the web console (web/public — plain HTML/CSS/JS, no build step) same-origin at /app so it
+ * shares the orchestrator origin — no CORS. Reads are confined to that directory (path traversal).
+ * The API stays Bearer-protected; only the static shell is public.
  */
 import { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -28,18 +29,16 @@ const PLACEHOLDER =
   '<body style="font-family:system-ui;background:#14100e;color:#f5f1ee;display:grid;place-items:center;height:100vh;margin:0">' +
   '<div style="text-align:center;max-width:32rem;padding:1rem">' +
   '<h1 style="font-weight:500">qayaba · dashboard</h1>' +
-  '<p style="color:#b9aea6">The web dashboard is not built yet. Build it into <code>web/dist</code> and it will be served here at <code>/app</code>.</p>' +
+  '<p style="color:#b9aea6">The web console is missing: <code>web/public/index.html</code> was not found in this install.</p>' +
   "</div></body>";
 
 export interface ServeDashboardOptions {
-  distDir: string;
+  dir: string;
 }
 
-/* Prefer web/public when present; web/dist is a build artifact and must not shadow live source. */
+/* The console's directory under the install root. It is served as-is: there is no build output. */
 export function resolveDashboardDir(root: string): string {
-  const pub = join(root, "web", "public");
-  if (existsSync(join(pub, "index.html"))) return pub;
-  return join(root, "web", "dist");
+  return join(root, "web", "public");
 }
 
 /* Cache by (path, mtime) so a bind-mounted web/public can change while the process lives. */
@@ -47,17 +46,17 @@ interface CachedFile {
   mtimeMs: number;
   body: Buffer;
 }
-interface DistCache {
+interface DirCache {
   index: CachedFile | null;
   assets: Map<string, CachedFile>;
 }
-const distCaches = new Map<string, DistCache>();
+const dirCaches = new Map<string, DirCache>();
 
-function cacheFor(distDir: string): DistCache {
-  let c = distCaches.get(distDir);
+function cacheFor(dir: string): DirCache {
+  let c = dirCaches.get(dir);
   if (!c) {
     c = { index: null, assets: new Map() };
-    distCaches.set(distDir, c);
+    dirCaches.set(dir, c);
   }
   return c;
 }
@@ -74,7 +73,7 @@ export async function serveDashboard(
   opts: ServeDashboardOptions,
 ): Promise<boolean> {
   const url = (req.url ?? "/app").split("?")[0] ?? "/app";
-  const index = join(opts.distDir, "index.html");
+  const index = join(opts.dir, "index.html");
 
   if (!existsSync(index)) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -85,16 +84,16 @@ export async function serveDashboard(
   let rel = url.replace(/^\/app/, "");
   if (rel === "" || rel === "/") rel = "/index.html";
 
-  /* Confine to distDir — never serve outside the build (path traversal). */
-  const root = normalize(opts.distDir);
-  const resolved = normalize(join(opts.distDir, rel));
+  /* Confine to the console's directory — never serve outside it (path traversal). */
+  const root = normalize(opts.dir);
+  const resolved = normalize(join(opts.dir, rel));
   if (resolved !== root && !resolved.startsWith(root + "/") && !resolved.startsWith(root + "\\")) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("forbidden");
     return true;
   }
 
-  const cache = cacheFor(opts.distDir);
+  const cache = cacheFor(opts.dir);
   const file = existsSync(resolved) && statSync(resolved).isFile() ? resolved : index;
 
   let body: Buffer;

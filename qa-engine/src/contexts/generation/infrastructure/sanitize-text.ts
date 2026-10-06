@@ -1,6 +1,6 @@
 /* Prompt-side secret redaction. Twin of src/orchestrator/sanitizer.ts — qa-engine must not import src/; the regex set is duplicated here and sanitize-text-parity.test.ts keeps both in lockstep. Post-redaction fail-loud: if a secret is still detectable, throw SecretLeakError rather than sending it. */
 
-import { REDACTED, SecretLeakError, type RedactionPort } from "@kernel/ports/redaction.port.ts";
+import { REDACTED, SecretLeakError } from "@kernel/ports/redaction.port.ts";
 
 export interface SecretDetection {
   redacted: boolean;
@@ -171,8 +171,3 @@ export function assertNoSecretLeak(redactedText: string, mode: SanitizeMode, bou
   }
 }
 
-/** RedactionPort view of this module. containsSecret reuses sanitizeText's detection pass. Twin of src/orchestrator/sanitizer.ts's adapter. */
-export const redactionAdapter: RedactionPort = {
-  redact: (text: string): string => sanitizeText(text).text,
-  containsSecret: (text: string): boolean => sanitizeText(text).detection.redacted,
-};

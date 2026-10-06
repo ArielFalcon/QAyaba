@@ -12,10 +12,6 @@ import {
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/delegation-result.ts";
 import { SIDEKICK_AUTHORITY } from "@contexts/qa-run-orchestration/application/coordination/authority.ts";
-import {
-  PARALLEL_WORKER_MISSING_FOR_SIDEKICK,
-  PARALLEL_WORKER_REUSABLE_FIELDS,
-} from "@contexts/qa-run-orchestration/application/coordination/parallel-worker-reuse.ts";
 
 const scope = {
   readablePaths: ["e2e/"],
@@ -67,6 +63,7 @@ test("DelegationResult cannot belong to another brief", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   };
   assert.equal(belongsToBrief(result, "d1", "r1"), true);
   assert.equal(belongsToBrief(result, "d2", "r1"), false);
@@ -82,12 +79,4 @@ test("DelegationResult status and recommendation unions match the architecture c
     "failed",
   ]);
   assert.deepEqual([...DELEGATION_RECOMMENDATIONS], ["accept", "review", "retry", "escalate"]);
-});
-
-test("ParallelWorkerInput is inspected for reuse and is NOT converted into DelegationBrief", () => {
-  assert.ok(PARALLEL_WORKER_REUSABLE_FIELDS.includes("objective"));
-  assert.ok(PARALLEL_WORKER_REUSABLE_FIELDS.includes("runId"));
-  assert.ok(PARALLEL_WORKER_MISSING_FOR_SIDEKICK.includes("authority"));
-  assert.ok(PARALLEL_WORKER_MISSING_FOR_SIDEKICK.includes("acceptanceCriteria"));
-  assert.ok(PARALLEL_WORKER_MISSING_FOR_SIDEKICK.includes("escalationPolicy"));
 });

@@ -1,4 +1,6 @@
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
+import { DEFAULT_HOST } from "./port";
 
 const PRODUCT_CONTEXT = `
 You are answering questions about qayaba — the TUI (Terminal UI) for the qayaba QA engine.
@@ -68,8 +70,8 @@ The service must be running: \`docker compose up\` (or the orchestrator started 
 ## How to delete a project
 
 Select 'Delete Project' from the home screen. Two options:
-- **Config only:** removes config/apps/<name>.yaml, keeps the run history and the
-  repo mirror cache.
+- **Config only:** removes config/apps/<name>.yaml and the app's stored login
+  session / client certificate, keeps the run history and the repo mirror cache.
 - **Full purge:** also removes the PRIMARY repo mirror (regenerable cache) and the
   app's run history (irreversible). Service-repo mirrors may be shared with other
   apps and are left intact. The watched repo itself is NEVER touched.
@@ -114,8 +116,8 @@ Can be disabled per-app: qa.needsReview: false.
 - **fail** — test failures detected → GitHub Issue with sanitized logs
 - **flaky** — passes only after retries → quarantined (no Issue)
 - **invalid** — static checks fail (tsc/lint/manifest)
-- **infra-error** — DEV unhealthy, network issue, or crash
-- **skipped** — style-only commit or agent-approved no-op (valid no-op)
+- **infra-error** — the run could not reach a verdict, never a code bug: DEV unhealthy, a network issue or a crash; or, when the run says so, an agent that ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")})
+- **skipped** — style-only commit, or the agent declared a no-op with a reason (nothing in the change worth an E2E test)
 
 ## Pipeline steps (what happens during a run)
 
@@ -158,7 +160,7 @@ It is bounded to runs still in the in-memory history (ephemeral).
 - AGENT_SINGLE_PROVIDER — opencode or codex when AGENT_RUNTIME_MODE=single
 - GITHUB_TOKEN — required for PR/Issue creation
 - WEBHOOK_SECRET — required for production webhook validation
-- QA_HOST — orchestrator address (default: localhost:8080)
+- QA_HOST — orchestrator address (default: ${DEFAULT_HOST})
 - QA_API_TOKEN — if the service requires auth
 
 ## Architecture

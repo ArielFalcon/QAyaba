@@ -1,6 +1,9 @@
 /* these two copies must stay byte-compatible; engine cannot import src/ */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { parseVerdict } from "../../../../../src/integrations/verdict-parse.ts";
 import { parseReviewerVerdict } from "../../../../../src/integrations/verdict-validate.ts";
@@ -21,6 +24,17 @@ test("PARITY: parseGenerator on a valid generator verdict matches legacy parseVe
   assert.equal(got.note, legacy.note);
 });
 
+test("PARITY: parseGenerator reads a declared no-op's reason the way the legacy parser does, and never reads `approved` as one", () => {
+  const adapter = makeRealAdapter();
+  const declared = JSON.stringify({ specs: [], noop: { reason: "nothing worth an E2E test" } });
+  assert.equal(adapter.parseGenerator(declared).noopReason, "nothing worth an E2E test");
+  assert.equal(adapter.parseGenerator(declared).noopReason, parseVerdict(declared).noopReason);
+  for (const undecided of ['{"specs":[],"approved":true}', '{"approved":true}', '{"specs":[],"noop":{"reason":"  "}}']) {
+    assert.equal("noopReason" in adapter.parseGenerator(undecided), false, undecided);
+    assert.equal(parseVerdict(undecided).noopReason, undefined, undecided);
+  }
+});
+
 test("PARITY: parseGenerator on a parse miss is fail-closed — matches legacy parsed:false output", () => {
   const text = "the agent wrote prose with no JSON verdict";
   const adapter = makeRealAdapter();
@@ -31,6 +45,25 @@ test("PARITY: parseGenerator on a parse miss is fail-closed — matches legacy p
   assert.equal(got.parsed, legacy.parsed);
   assert.deepEqual(got.specs, []);
   assert.deepEqual(got.specs, legacy.specs ?? []);
+});
+
+/* specs is the list of spec paths the run executes; an entry that is not a path string makes the
+   verdict unparseable, never a crash and never a shorter list read as the agent's decision. */
+test("a generator verdict listing a spec that is not a path string is a parse miss, with or without a suite dir", () => {
+  const specDir = mkdtempSync(join(tmpdir(), "verdict-specs-"));
+  try {
+    const adapter = makeRealAdapter();
+    for (const specs of [[{ path: "flows/a.spec.ts" }], [1], ["flows/a.spec.ts", null]]) {
+      const text = JSON.stringify({ specs });
+      for (const dir of [specDir, undefined]) {
+        const got = adapter.parseGenerator(text, dir);
+        assert.equal(got.parsed, false, `${text} (suite dir: ${dir !== undefined})`);
+        assert.deepEqual(got.specs, [], `${text} (suite dir: ${dir !== undefined})`);
+      }
+    }
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+  }
 });
 
 test("PARITY: parseGenerator with specMetas forwards them — a gutted adapter that drops specMetas FAILS", () => {

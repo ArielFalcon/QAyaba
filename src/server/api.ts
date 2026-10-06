@@ -42,6 +42,9 @@ import {
   ProposeBoundariesInputSchema,
   ConfirmBoundariesInputSchema,
   IntelligenceViewSchema,
+  ContextMapViewSchema,
+  AgentTurnViewSchema,
+  AppTelemetryViewSchema,
   SignalsViewSchema,
   CoordinationEventsViewSchema,
   TrendsViewSchema,
@@ -80,7 +83,7 @@ export type LoginOutcome =
 
 export interface ApiDeps {
   queue: { readonly size: number };
-  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number): string;
+  enqueue(app: string, sha: string, target: TestTarget, mode: RunMode, guidance?: string, shadow?: boolean, commits?: number, triggerRepo?: string, baseSha?: string): string;
   loadApp(name: string): AppConfig;  /* throws if the app is not configured */
   listApps(): AppConfig[];
   resolveRef(repo: string, ref: string): Promise<string>;
@@ -92,6 +95,11 @@ export interface ApiDeps {
    * for an app. Absent ⇒ the /intelligence route returns 501.
    */
   intelligence?: (app: string) => z.infer<typeof IntelligenceViewSchema>;
+  /*
+   * Read-only FE<->BE architecture map (context.json) persisted from the app's last successful
+   * mode:context run. Absent ⇒ the route returns 501; null ⇒ 404 (no stored map yet).
+   */
+  contextMap?: (app: string) => z.infer<typeof ContextMapViewSchema> | null;
   /*
    * Read-only fleet-wide integrity readout (ground-truth value-oracle vs. proxy pass-rate).
    * Absent ⇒ the /signals route returns 501.
@@ -117,21 +125,21 @@ export interface ApiDeps {
    * `cases` optionally narrows to specific failed case names; omitted → all failed.
    */
   continueRun?: (parentId: string, cases: string[] | undefined, guidance?: string) => string;
-  /* App onboarding/deletion (F5). Absent ⇒ the corresponding routes return 501. */
+  /* App onboarding/deletion. Absent ⇒ the corresponding routes return 501. */
   createApp?: (input: AdminCreateAppInput) => Promise<CreateAppResult>;
   updateApp?: (input: AdminUpdateAppInput) => Promise<CreateAppResult>;
   deleteApp?: (name: string, purge: boolean) => { removed: string[] };
   listRepos?: (owner: string, page: number) => Promise<{ repos: Array<{ fullName: string; private: boolean; description: string | null }>; hasMore: boolean }>;
   runEvents?: RunEventStore;
-  
+
   boundaries?: {
     propose(app: string, input: z.infer<typeof ProposeBoundariesInputSchema>): { ok: true } | { ok: false; error: string } | Promise<{ ok: true } | { ok: false; error: string }>;
     status(app: string): z.infer<typeof OnboardingJobStatusSchema>;
     confirm(app: string): { ok: true } | { ok: false; error: string };
   };
-  
+
   getAgentTurns?: (runId: string) => AgentTurnRecord[];
-  
+
   telemetryAnalysis?: (app: string, windowDays?: number) => TelemetryAnalysis;
   /*
    * Cadence (ms) of the SSE durable-poll loop in handleRunEvents. Injected so tests can drive
@@ -145,10 +153,11 @@ export interface ApiDeps {
   login?: (githubToken: string) => Promise<LoginOutcome>;
   /*
    * Same-origin web-console bootstrap (GET /api/auth/local). Returns a minted session, or
-   * null when this request is not trusted (not loopback / QA_WEB_AUTO_LOGIN off). Absent
+   * null when this request is not trusted (not loopback / QA_WEB_AUTO_LOGIN off, or the Host
+   * header names a non-loopback, non-allowlisted hostname — the DNS-rebinding check). Absent
    * or null ⇒ 404 — the capability is not advertised, and QA_API_TOKEN is never returned.
    */
-  localLogin?: (remoteAddress: string) => { token: string; username: string; expiresAt: string } | null;
+  localLogin?: (remoteAddress: string, host: string | undefined) => { token: string; username: string; expiresAt: string } | null;
   /*
    * The OAuth App client id (public) advertised in the version handshake, so the console can run
    * the device flow without baking it in. Absent ⇒ not advertised (client falls back to its own).
@@ -220,7 +229,7 @@ export async function handleApi(
     return handleRunEvents(req, res, deps, eventMatch[1]!);
   }
 
-  
+
   const turnsMatch = path.match(/^\/api\/runs\/([^/]+)\/turns$/);
   if (req.method === "GET" && turnsMatch) {
     return handleRunTurns(res, deps, turnsMatch[1]!);
@@ -270,12 +279,17 @@ export async function handleApi(
     return handleAppIntelligence(res, deps, intelMatch[1]!);
   }
 
+  const contextMapMatch = path.match(/^\/api\/apps\/([^/]+)\/context-map$/);
+  if (req.method === "GET" && contextMapMatch) {
+    return handleContextMap(res, deps, contextMapMatch[1]!);
+  }
+
   const trendsMatch = path.match(/^\/api\/apps\/([^/]+)\/trends$/);
   if (req.method === "GET" && trendsMatch) {
     return handleAppTrends(res, deps, trendsMatch[1]!, parseWindow(url.searchParams.get("window")), url.searchParams.get("format"));
   }
 
-  
+
   const telemetryMatch = path.match(/^\/api\/apps\/([^/]+)\/telemetry$/);
   if (req.method === "GET" && telemetryMatch) {
     return handleAppTelemetry(res, deps, telemetryMatch[1]!, parseWindow(url.searchParams.get("window")));
@@ -420,9 +434,19 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
     }
   }
 
+  /* Range start for a diff run (the diff spans baseSha..sha), validated like the sha: it reaches git as an argument. */
+  let baseSha: string | undefined;
+  if (typeof body.baseSha === "string" && body.baseSha.length > 0) {
+    if (!/^[0-9a-f]{7,40}$/i.test(body.baseSha)) {
+      json(res, 400, { error: "'baseSha' must be 7–40 hex characters" });
+      return true;
+    }
+    baseSha = body.baseSha;
+  }
+
   let id: string;
   try {
-    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits);
+    id = deps.enqueue(appConfig.name, sha, target, mode, guidance, shadow, commits, undefined, baseSha);
   } catch (err) {
     json(res, 500, { error: `failed to enqueue run: ${err instanceof Error ? err.message : String(err)}` });
     return true;
@@ -583,7 +607,7 @@ function handleRunTurns(res: ServerResponse, deps: ApiDeps, id: string): boolean
     promptText: sanitizeText(t.promptText).text,
     outputText: sanitizeText(t.outputText).text,
   }));
-  json(res, 200, turns);
+  contractJson(res, 200, z.array(AgentTurnViewSchema), turns);
   return true;
 }
 
@@ -633,7 +657,7 @@ function handleListRuns(res: ServerResponse, deps: ApiDeps, app: string | null |
   return true;
 }
 
-function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }> } {
+function appView(app: AppConfig): { name: string; repo: string; baseUrl: string; versionUrl: string; code: boolean; shadow: boolean; needsReview: boolean; testDataPrefix: string; services: Array<{ repo: string; openapi?: string; versionUrl?: string }>; authKind?: "form" | "mtls" } {
   /* Code-mode apps have no dev environment (and no baseUrl). */
   return {
     name: app.name,
@@ -649,6 +673,7 @@ function appView(app: AppConfig): { name: string; repo: string; baseUrl: string;
       openapi: typeof s.openapi === "string" ? s.openapi : s.openapi?.[0],
       versionUrl: s.versionUrl,
     })),
+    ...(app.auth ? { authKind: app.auth.kind } : {}),
   };
 }
 
@@ -676,12 +701,37 @@ function handleAppIntelligence(res: ServerResponse, deps: ApiDeps, name: string)
   return true;
 }
 
+function handleContextMap(res: ServerResponse, deps: ApiDeps, name: string): boolean {
+  if (!deps.contextMap) {
+    json(res, 501, { error: "context map is not available" });
+    return true;
+  }
+  try {
+    deps.loadApp(name);  /* 404 when the app isn't configured */
+  } catch {
+    json(res, 404, { error: `app not found: '${name}'` });
+    return true;
+  }
+  const view = deps.contextMap(name);
+  if (!view) {
+    json(res, 404, { error: `no stored architecture map for app '${name}'` });
+    return true;
+  }
+  contractJson(res, 200, ContextMapViewSchema, view);
+  return true;
+}
+
 function handleSignals(res: ServerResponse, deps: ApiDeps): boolean {
   if (!deps.signals) {
     json(res, 501, { error: "signals is not available" });
     return true;
   }
-  contractJson(res, 200, SignalsViewSchema, deps.signals());
+  try {
+    contractJson(res, 200, SignalsViewSchema, deps.signals());
+  } catch (err) {
+    /* A ledger read failure (e.g. permission error) is a real fault, not an empty-fleet view — surface it loudly instead of hanging the request or fabricating zeros. */
+    json(res, 500, { error: `signals query failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
   return true;
 }
 
@@ -690,7 +740,11 @@ function handleCoordinationEvents(res: ServerResponse, deps: ApiDeps, runId: str
     json(res, 501, { error: "coordinationEvents is not available" });
     return true;
   }
-  contractJson(res, 200, CoordinationEventsViewSchema, deps.coordinationEvents({ runId, limit }));
+  try {
+    contractJson(res, 200, CoordinationEventsViewSchema, deps.coordinationEvents({ runId, limit }));
+  } catch (err) {
+    json(res, 500, { error: `coordination-events query failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
   return true;
 }
 
@@ -816,7 +870,7 @@ function handleAppTelemetry(res: ServerResponse, deps: ApiDeps, name: string, wi
   }
   try {
     const analysis = deps.telemetryAnalysis(name, window);
-    json(res, 200, analysis);
+    contractJson(res, 200, AppTelemetryViewSchema, analysis);
   } catch (err) {
     json(res, 500, { error: `telemetry query failed: ${err instanceof Error ? err.message : String(err)}` });
   }
@@ -1130,7 +1184,7 @@ function handleLocalLogin(req: IncomingMessage, res: ServerResponse, deps: ApiDe
     return true;
   }
   const remoteAddress = req.socket?.remoteAddress ?? "";
-  const outcome = deps.localLogin(remoteAddress);
+  const outcome = deps.localLogin(remoteAddress, req.headers.host);
   if (!outcome) {
     json(res, 404, { error: "local console login is not available" });
     return true;
@@ -1301,8 +1355,8 @@ async function handleProposeBoundaries(req: IncomingMessage, res: ServerResponse
   /*
    * propose() rejects the mutex SYNCHRONOUSLY (a plain {ok:false} object, not a promise) — see
    * onboarding-job.ts's own contract. Only that synchronous shape can be inspected here; an
-   * ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget,
-   * spec E1) — any error surfacing later only shows up on the next status() poll.
+   * ACCEPTED kickoff returns a Promise the handler deliberately never awaits (fire-and-forget)
+   * — any error surfacing later only shows up on the next status() poll.
    */
   const result = deps.boundaries.propose(name, parsed.data);
   if (!(result instanceof Promise) && !result.ok) {

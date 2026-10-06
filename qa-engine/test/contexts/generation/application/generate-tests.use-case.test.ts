@@ -3,12 +3,25 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
+import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
+import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildPromptAssembled,
+  buildWorkerPromptAssembled,
+  buildReviewerPromptAssembled,
+  buildExplorerPrompt,
+  specFileForFlow,
+} from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 
 /* Orchestration sequence through port stubs: render → open session → parse deliverable →
    reconcile manifest. A parse miss without review is fail-closed (empty specs, no phantom names).
  */
 
-test("B.3.1: renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
+test("renders → opens session → parses deliverable → reconciles manifest (sequence)", async () => {
   const calls: string[] = [];
   const ports: GenerationPorts = {
     runtime: {
@@ -63,6 +76,46 @@ test("B.3.1: renders → opens session → parses deliverable → reconciles man
   assert.ok(calls.includes("parse"), "deliverable was parsed");
   assert.ok(calls.includes("reconcile"), "manifest was reconciled");
   assert.deepEqual(out.specs, ["flows/login.spec.ts"]);
+});
+
+test("the files the rendered prompt already carries are handed to the session with the prompt, and no key is added when it lists none", async () => {
+  const seenOpts: Array<Record<string, unknown> | undefined> = [];
+  const build = (providedPaths: readonly string[] | undefined): GenerationPorts => ({
+    runtime: {
+      openSession: async () => ({
+        prompt: async (_text, opts) => {
+          seenOpts.push(opts as Record<string, unknown> | undefined);
+          return { output: '{"specs":["flows/login.spec.ts"]}' };
+        },
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "PROMPT", sectionSizes: { task: 6 }, ...(providedPaths ? { providedPaths } : {}) }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/login.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  });
+  const input: OpencodeRunInput = {
+    repo: "org/demo", sha: "abc", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+  };
+
+  await new GenerateTestsUseCase(build(["e2e/.qa/context.json"])).generate(input);
+  await new GenerateTestsUseCase(build(undefined)).generate(input);
+
+  assert.deepEqual(seenOpts[0]?.providedPaths, ["e2e/.qa/context.json"]);
+  assert.equal(seenOpts[0]?.sectionSizes !== undefined, true, "the section sizes still travel with it");
+  assert.equal("providedPaths" in (seenOpts[1] ?? {}), false);
 });
 
 test("code target skips manifest reconciliation entirely (legacy opencode-client.ts:800 parity) and passes specMetas through raw", async () => {
@@ -121,7 +174,7 @@ test("code target skips manifest reconciliation entirely (legacy opencode-client
   assert.deepEqual(out.specs, ["src/foo.test.ts"]);
 });
 
-test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
+test("fires exactly ONE bounded repair when checkGenerator returns valid:false", async () => {
   const promptTexts: string[] = [];
   let sessionPromptCount = 0;
 
@@ -195,7 +248,7 @@ test("B.3.2: fires exactly ONE bounded repair when checkGenerator returns valid:
   assert.deepEqual(out.specs, ["flows/repair.spec.ts"], "repaired specs in result");
 });
 
-test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
+test("reviewer contract miss fires exactly ONE bounded re-prompt (valid:false)", async () => {
   const promptTexts: string[] = [];
   let reviewCallCount = 0;
 
@@ -264,9 +317,99 @@ test("B.3.3: reviewer contract miss fires exactly ONE bounded re-prompt (valid:f
   assert.equal(reviewCallCount, 2, "parseReview called twice: initial + after repair");
 });
 
+/* The FIRST reviewer pass must ground the review like every regen pass does: the reviewer prompt
+   (rendered by the real prompt builders) carries the live DOM, the base URL and the reviewer's own
+   learned-rule render. Only the agent runtime (the LLM boundary) is faked. */
+async function firstReviewerPrompt(input: Partial<OpencodeRunInput>): Promise<string> {
+  let reviewerPrompt = "";
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          if (role === "reviewer") reviewerPrompt = text;
+          return { output: role === "reviewer" ? '{"approved":true,"corrections":[]}' : '{"specs":["flows/contact.spec.ts"]}' };
+        },
+        dispose: () => {},
+      }),
+    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/contact.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: {
+      read: async () => [],
+      reconcile: async (_d, e) => [...e] as ManifestEntry[],
+    },
+    budget: {
+      capDiff: (d) => d,
+      capText: (t) => t,
+      budgetForRole: () => 0,
+    },
+  };
+
+  await new GenerateTestsUseCase(ports).generate({
+    repo: "r",
+    sha: "s",
+    diff: "diff --git a/src/checkout.ts b/src/checkout.ts\n+export const pay = () => charge();\n",
+    mirrorDir: "/nonexistent/mirror",
+    e2eRelDir: "e2e",
+    namespace: "ns",
+    needsReview: true,
+    target: "e2e",
+    mode: "diff",
+    appName: "a",
+    ...input,
+  });
+  return reviewerPrompt;
+}
+
+test("first reviewer pass: the reviewer prompt carries the live DOM, the base URL and the reviewer's learned rules", async () => {
+  const prompt = await firstReviewerPrompt({
+    baseUrl: "https://dev.example.test",
+    domSnapshot: "button \"Place order\"",
+    reviewerLearnedRules: "- checkout form → assert the confirmation number is shown (E-FALSE-POSITIVE)",
+  });
+
+  assert.ok(prompt.includes("https://dev.example.test"));
+  assert.ok(prompt.includes("button \"Place order\""));
+  assert.ok(prompt.includes("assert the confirmation number is shown"));
+});
+
+test("first reviewer pass: the generator's learned-rule hints never reach the reviewer prompt", async () => {
+  const prompt = await firstReviewerPrompt({
+    learnedRules: "### Experimental rule (E-FLAKY)\n- Consider: wait for the spinner to disappear",
+  });
+
+  assert.ok(!prompt.includes("wait for the spinner to disappear"));
+});
+
+test("first reviewer pass: a guided run is judged against the operator guidance, not the commit diff", async () => {
+  const prompt = await firstReviewerPrompt({
+    mode: "manual",
+    guidance: "verify the contact form sends a message",
+    intent: { type: "fix", breaking: false, message: "fix the checkout flow", changedFiles: ["src/checkout.ts"] },
+  });
+
+  assert.ok(prompt.includes("verify the contact form sends a message"));
+  assert.ok(!prompt.includes("export const pay = () => charge();"));
+});
+
+test("first reviewer pass: the reviewer prompt names the commit's change type", async () => {
+  const withIntent = await firstReviewerPrompt({
+    intent: { type: "perf", breaking: false, message: "speed up checkout", changedFiles: ["src/checkout.ts"] },
+  });
+  const withoutIntent = await firstReviewerPrompt({});
+
+  assert.match(withIntent, /\bperf\b/);
+  assert.doesNotMatch(withoutIntent, /\bperf\b/, "setup check: the change type reaches the prompt only through the intent");
+});
+
 /* Fail-closed: parse miss without review.
  */
-test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
+test("parse miss → empty specs (fail-closed, no phantom spec names)", async () => {
   const ports: GenerationPorts = {
     runtime: {
       openSession: async () => ({
@@ -319,7 +462,7 @@ test("B.3.4: parse miss → empty specs (fail-closed, no phantom spec names)", a
    reconcile still fires (so an empty entries array can prune/no-op per the port's own contract),
    but with nothing to upsert.
  */
-test("B.3.5: manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
+test("manifest.reconcile is called with [] when the deliverable carries specs but no specMetas", async () => {
   let reconcileArgs: ManifestEntry[] | undefined;
   const ports: GenerationPorts = {
     runtime: {
@@ -799,4 +942,42 @@ test("assembled manifest entries satisfy the real ManifestEntrySchema shape (obj
   assert.ok(typeof entry?.changeRef === "object" && entry.changeRef !== null, "changeRef: present");
   assert.ok(typeof entry?.changeRef?.sha === "string" && entry.changeRef.sha.length > 0, "changeRef.sha: non-empty string");
   assert.ok(typeof entry?.changeRef?.type === "string" && entry.changeRef.type.length > 0, "changeRef.type: non-empty string");
+});
+
+/* The generator reports "login.spec.ts" for the spec it wrote at e2e/flows/login.spec.ts. */
+async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
+  const mirrorDir = mkdtempSync(join(tmpdir(), "generate-suite-paths-"));
+  try {
+    mkdirSync(join(mirrorDir, "e2e", "flows"), { recursive: true });
+    writeFileSync(join(mirrorDir, "e2e", "flows", "login.spec.ts"), "export {};\n");
+    const ports: GenerationPorts = {
+      runtime: { openSession: async () => ({ prompt: async () => ({ output: '{"specs":["login.spec.ts"]}' }), dispose: () => {} }) },
+      rendering: {
+        render: () => "",
+        renderMain: () => ({ text: "PROMPT", sectionSizes: {} }),
+        renderWorker: () => ({ text: "", sectionSizes: {} }),
+        renderReviewer: () => ({ text: "", sectionSizes: {} }),
+        renderExplorer: () => "",
+        specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+      },
+      verdicts: new VerdictParserAdapter({
+        parseVerdict: () => ({ parsed: true, approved: true, specs: ["login.spec.ts"] }),
+        parseReviewerVerdict: () => ({ approved: true, corrections: [], blockingCount: 0, parsed: true, valid: true, issues: [] }),
+      }),
+      manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+      budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    };
+    const out = await new GenerateTestsUseCase(ports).generate({
+      repo: "org/demo", sha: "abc", diff: "d", mirrorDir, e2eRelDir: "e2e", namespace: "ns",
+      needsReview: false, target, mode: "diff", appName: "a",
+    });
+    return out.specs;
+  } finally {
+    rmSync(mirrorDir, { recursive: true, force: true });
+  }
+}
+
+test("an e2e generation reports its specs as suite-relative paths; a code generation keeps the names it was given", async () => {
+  assert.deepEqual(await reportedSpecsFor("e2e"), ["flows/login.spec.ts"]);
+  assert.deepEqual(await reportedSpecsFor("code"), ["login.spec.ts"]);
 });

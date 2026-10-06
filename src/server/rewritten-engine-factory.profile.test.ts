@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildPublicationEffectors } from "./rewritten-engine-factory";
 import { LocalExportPublicationAdapter } from "@contexts/workspace-and-publication/infrastructure/local-export-publication.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
@@ -23,20 +26,25 @@ test("slim profile: one local exporter serves git write, PR, Issue and shadow pr
 });
 
 test("slim profile: exports land under <exportRoot>/<app>/<namespace> and only e2e/ is scanned", async () => {
-  const gitCalls: Array<{ args: string[]; cwd?: string }> = [];
-  const fx = buildPublicationEffectors(
-    { ...base, env: { QAYABA_PROFILE: "slim", QAYABA_EXPORT_DIR: "/exports" } },
-    async (args, cwd) => {
-      gitCalls.push({ args, cwd });
-      return "";
-    },
-    () => {},
-  );
-  const res = await fx.vcsWrite!.publish({ mirrorDir: "/mirrors/group__shop", branch: "qa/e2e", sha: "abc1234" });
-  assert.equal(res.changed, false);
-  assert.deepEqual(gitCalls[0]?.args, ["status", "--porcelain", "-z", "--untracked-files=all", "--", "e2e"]);
-  const pr = await fx.githubPr.openWithAutoMerge("group/shop", "qa/e2e", "t", "b");
-  assert.equal(pr.url, "/exports/shop/qa-bot-abc1234-run1/MR.md");
+  const exportDir = mkdtempSync(join(tmpdir(), "qa-export-"));
+  try {
+    const gitCalls: Array<{ args: string[]; cwd?: string }> = [];
+    const fx = buildPublicationEffectors(
+      { ...base, env: { QAYABA_PROFILE: "slim", QAYABA_EXPORT_DIR: exportDir } },
+      async (args, cwd) => {
+        gitCalls.push({ args, cwd });
+        return "";
+      },
+      () => {},
+    );
+    const res = await fx.vcsWrite!.publish({ mirrorDir: "/mirrors/group__shop", branch: "qa/e2e", sha: "abc1234" });
+    assert.equal(res.changed, false);
+    assert.deepEqual(gitCalls[0]?.args, ["status", "--porcelain", "-z", "--untracked-files=all", "--", "e2e"]);
+    const pr = await fx.githubPr.openWithAutoMerge("group/shop", "qa/e2e", "t", "b");
+    assert.equal(pr.url, join(exportDir, "shop", "qa-bot-abc1234-run1", "MR.md"));
+  } finally {
+    rmSync(exportDir, { recursive: true, force: true });
+  }
 });
 
 test("slim profile: context mode exports only the context map", async () => {

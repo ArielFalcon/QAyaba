@@ -34,7 +34,7 @@ test("RunEventStore evicts the oldest run's buffer past the retention cap (no le
   assert.equal(store.replay("r3").length, 1);
 });
 
-test("RunEventStore replay backfills from the durable store after eviction/restart (OBS-01)", () => {
+test("RunEventStore replay backfills from the durable store after eviction/restart", () => {
   const db: Array<{ seq: number; runId: string; ts: number; body: unknown }> = [];
   const store = createRunEventStore({
     maxRuns: 1,

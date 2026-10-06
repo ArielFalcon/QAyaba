@@ -15,31 +15,25 @@ export interface RunEvidence {
   onFailure: string;
 }
 
-/* Shared by every non-pass verdict. flaky/infra-error ignore both the onFailure guard outcome (except flaky stays quarantine) and shadow. */
-function reportSideEffect(verdict: RunVerdict, onFailure: string, shadow: boolean): SideEffect {
+/* Shared by every non-pass verdict. flaky/infra-error ignore both the onFailure guard outcome (except flaky stays quarantine) and shadow; skipped is always silent. */
+function reportSideEffect(verdict: Exclude<RunVerdict, "pass">, onFailure: string, shadow: boolean): SideEffect {
   if (onFailure !== "github-issue") {
     return verdict === "flaky" ? "quarantine" : "none";
   }
   switch (verdict) {
     case "fail":
-      return shadow ? "shadow-log" : "issue";
     case "invalid":
       return shadow ? "shadow-log" : "issue";
     case "infra-error":
       return "none";
     case "flaky":
       return "quarantine";
-    default:
-      /* pass and skipped never reach this helper — decide() routes them first. */
+    case "skipped":
       return "none";
   }
 }
 
 export function decide(ev: RunEvidence): RunDecision {
-  if (ev.verdict === "skipped") {
-    return RunDecision.of("skipped", "none");
-  }
-
   if (ev.verdict !== "pass") {
     return RunDecision.of(ev.verdict, reportSideEffect(ev.verdict, ev.onFailure, ev.shadow));
   }

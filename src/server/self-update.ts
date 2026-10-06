@@ -4,10 +4,15 @@ import { existsSync, rmSync, cpSync, writeFileSync, readFileSync, mkdirSync } fr
 import { join } from "node:path";
 
 export const SWAP_MARKER_FILE = "pending-swap.json";
+/*
+ * boot-guard.mjs runs before src/ is even loaded (it must survive a bad swap intact — see its own
+ * header), so it cannot import this constant; it keeps its own literal copy instead. The two must
+ * be kept in sync by hand — self-update.test.ts asserts they match.
+ */
 export const MAX_BOOT_ATTEMPTS = 3;
 
 /*
- * Durable record of a promote that is IN FLIGHT (SELF-03). confirmSwapAfterBoot clears the swap
+ * Durable record of a promote that is IN FLIGHT. confirmSwapAfterBoot clears the swap
  * marker BEFORE the (up-to-10-min) promote poll, so a crash during the poll would otherwise lose
  * the promote entirely. This record, written before the poll and cleared after a terminal outcome,
  * is re-driven on the next boot. Kept separate from the swap marker so it can survive the marker
@@ -45,9 +50,9 @@ export interface SwapMarker {
   at: string;
   attempt: number;
   prUrl?: string;
-  
+
   promote?: { repo: string; prNumber: number; nodeId: string };
-  
+
   fix?: { prTitle?: string; changes?: string[]; rootCause?: string };
 }
 
@@ -166,18 +171,6 @@ export function confirmSwapHealthy(appDir: string, dataDir: string, fs: SwapFs =
     const p = join(appDir, b);
     if (fs.exists(p)) fs.rm(p);
   }
-}
-
-/*
- * Pure boot-guard decision shared with boot-guard.mjs: given the marker read at boot,
- * decide whether to do nothing, count this boot as an attempt, or roll back.
- */
-export function bootGuardDecision(
-  marker: SwapMarker | null,
-): { action: "none" } | { action: "increment"; next: SwapMarker } | { action: "rollback" } {
-  if (!marker) return { action: "none" };
-  if (marker.attempt >= MAX_BOOT_ATTEMPTS) return { action: "rollback" };
-  return { action: "increment", next: { ...marker, attempt: marker.attempt + 1 } };
 }
 
 /*

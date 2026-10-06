@@ -113,7 +113,7 @@ test("selectBestProfile: when every candidate is ZERO_SCORE, returns the first o
   assert.equal(best?.id, "zeroA", "all-zero scores are equally bad — pick must be the first candidate, deterministically");
 });
 
-/* ---- Fix 4: ZERO_SCORE aliasing — the shared singleton must be frozen ---- */
+/* ---- ZERO_SCORE aliasing — the shared singleton must be frozen ---- */
 
 test("scoreProfile: a zero-coverage score is frozen (ZERO_SCORE singleton must not be mutable by callers)", async () => {
   const missingBackend: RepoRef = { repo: "org/nonexistent", mirrorDir: "/nonexistent/path" };
@@ -125,7 +125,7 @@ test("scoreProfile: a zero-coverage score is frozen (ZERO_SCORE singleton must n
   }, "mutating a frozen object must throw in strict mode");
 });
 
-/* ---- Fix 5: NaN defensiveness — a NaN-poisoned candidate must never win, order-independent ---- */
+/* ---- NaN defensiveness — a NaN-poisoned candidate must never win, order-independent ---- */
 
 test("selectBestProfile: a NaN-poisoned resolvedScore never wins, regardless of its position in the array", () => {
   const poisoned = withScore({ id: "poisoned" }, { links: 0, drift: 0, external: 0, unresolved: 0, coverage: 0, resolutionRatio: 0, resolvedScore: NaN });

@@ -2,6 +2,7 @@
 
 import { lastJsonMatching } from "../integrations/verdict-parse";
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 
 export interface BlastNode {
   symbol: string; 
@@ -28,8 +29,8 @@ export interface RouteRecon {
   component?: string;  /* the component/page it renders */
   domLandmarks?: string[];  /* HINTS only — NOT verified selectors (see module header) */
   /*
-   * DEPRECATED (vestigial after F3): nothing PRODUCES `true` anymore — the explorer never navigates and
-   * the planner's Lever-3 route-verification step was removed — and grounding no longer reads it
+   * DEPRECATED (vestigial): nothing PRODUCES `true` anymore — the explorer never navigates and
+   * the planner has no route-verification step — and grounding no longer reads it
    * (captureDomByRoute renders all candidate routes, soft-404-guarded). Retained only so the schema /
    * parser / older briefs stay backward-compatible; do not add new logic that branches on it.
    */
@@ -181,26 +182,21 @@ export function coerceExplorationBrief(raw: unknown): ExplorationBrief | null {
 }
 
 /*
- * Renders a brief as the prompt section the test-writer receives. Sanitizes every field (the brief
- * is agent-produced from attacker-influenceable repo content — prompt-injection / secret-exfil
- * defense) and is BOUNDED so a huge brief cannot blow the token budget, exactly like
- * renderArchitectureContext. Leads with the selector-fidelity guard (decision D).
- * D3 fix: when `suppressFeBe` is true the FE↔BE links section is omitted because a Context Pack
- * is already present in the prompt — the pack already carries FE↔BE, so rendering it a second time
- * from the brief wastes budget and forces earlier shedding of other signal.
+ * Renders a brief as the DATA the test-writer receives: no directive, no trust framing. The prompt
+ * that embeds it owns how the facts are framed, so a fact is never labeled twice. Sanitizes every
+ * field (the brief is agent-produced from attacker-influenceable repo content — prompt-injection /
+ * secret-exfil defense) and is BOUNDED so a huge brief cannot blow the token budget, exactly like
+ * renderArchitectureContext. `omitLandmarks` drops the route landmarks when a DOM tree is already in
+ * the prompt: the tree is the only selector source, a hint beside it is a second one.
  */
-export function renderExplorationBrief(brief: ExplorationBrief, opts: { suppressFeBe?: boolean } = {}): string {
+export function renderExplorationBrief(brief: ExplorationBrief, opts: { omitLandmarks?: boolean } = {}): string {
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
   const MAX_ITEMS = 200;
   const MAX_LEN = 20_000;
 
   const lines: string[] = [];
-  lines.push("## Exploration brief (distilled — verify before trusting)");
-  lines.push(`Built for ${s(brief.builtForSha).slice(0, 7)} — a DISTILLED map of the blast radius so you do NOT re-explore the code.`);
-  lines.push(
-    "This brief is NOT authoritative: verify selectors against the live DOM — the domLandmarks below " +
-      "are HINTS, never trusted selectors. If the brief disagrees with the code or the DOM, the code/DOM wins.",
-  );
+  lines.push(`## ${PROMPT_HEADINGS.explorationBrief}`);
+  lines.push(`Built for ${s(brief.builtForSha).slice(0, 7)}`);
   lines.push("");
 
   lines.push(`### Objective`);
@@ -213,7 +209,7 @@ export function renderExplorationBrief(brief: ExplorationBrief, opts: { suppress
   }
   lines.push("");
 
-  if (brief.feBe?.length && !opts.suppressFeBe) {
+  if (brief.feBe?.length) {
     lines.push(`### FE↔BE links (${brief.feBe.length})`);
     for (const l of brief.feBe.slice(0, MAX_ITEMS)) {
       lines.push(`- Route \`${s(l.route)}\` → \`${s(l.operationId)}\`${l.via ? ` (via ${s(l.via)})` : ""}`);
@@ -232,17 +228,17 @@ export function renderExplorationBrief(brief: ExplorationBrief, opts: { suppress
   }
 
   if (brief.routes?.length) {
-    lines.push(`### Routes (recon — landmarks are HINTS, verify against the live DOM)`);
+    lines.push(`### Routes`);
     for (const r of brief.routes.slice(0, MAX_ITEMS)) {
       const comp = r.component ? ` → ${s(r.component)}` : "";
-      const marks = r.domLandmarks?.length ? ` — landmarks (HINTS): ${r.domLandmarks.slice(0, MAX_ITEMS).map(s).join(", ")}` : "";
-      lines.push(`- \`${s(r.path)}\`${comp}${marks} [${r.verified ? "verified" : "unverified"}]`);
+      const marks = !opts.omitLandmarks && r.domLandmarks?.length ? ` — landmarks: ${r.domLandmarks.slice(0, MAX_ITEMS).map(s).join(", ")}` : "";
+      lines.push(`- \`${s(r.path)}\`${comp}${marks}`);
     }
     lines.push("");
   }
 
   if (brief.risks?.length) {
-    lines.push(`### Risks / what to assert (${brief.risks.length})`);
+    lines.push(`### Risks (${brief.risks.length})`);
     for (const risk of brief.risks.slice(0, MAX_ITEMS)) lines.push(`- ${s(risk)}`);
     lines.push("");
   }

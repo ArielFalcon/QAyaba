@@ -12,7 +12,7 @@ import {
   CreateRunInputSchema, CreateRunResultSchema, AskRequestSchema, AskResponseSchema,
   ContinueRequestSchema, ContinueResultSchema,
   CreateAppInputSchema, UpdateAppInputSchema, CreateAppResultSchema,
-  DeleteAppResultSchema, RepoInfoSchema, OnboardServiceInputSchema,
+  DeleteAppResultSchema, RepoInfoSchema, OnboardServiceInputSchema, AppAuthInputSchema,
   RepoListItemSchema, RepoListResponseSchema,
   OnboardingJobStatusSchema, ProposeBoundariesInputSchema, ConfirmBoundariesInputSchema,
   PublicAgentConfigSchema, AgentConfigUpdateSchema, AgentConfigApplyResultSchema,
@@ -23,6 +23,8 @@ import {
   CoordinationEventSchema, CoordinationEventsViewSchema,
   TrendWindowSchema, CoverageTrendSchema, ValueTrendSchema, FlakyTrendSchema, ErrorClassCountSchema,
   TrendsViewSchema, ReportInsightSchema, ReportViewSchema, RunReportViewSchema,
+  ArchitectureContextSchema, ContextMapViewSchema,
+  AgentTurnViewSchema, AppTelemetryViewSchema,
 } from "./commands";
 
 export const API_VERSION = "1.0.0";
@@ -48,6 +50,7 @@ const NAMED_SCHEMAS = {
   ContinueRequest: ContinueRequestSchema,
   ContinueResult: ContinueResultSchema,
   OnboardServiceInput: OnboardServiceInputSchema,
+  AppAuthInput: AppAuthInputSchema,
   RepoInfo: RepoInfoSchema,
   CreateAppInput: CreateAppInputSchema,
   UpdateAppInput: UpdateAppInputSchema,
@@ -83,6 +86,10 @@ const NAMED_SCHEMAS = {
   ReportInsight: ReportInsightSchema,
   ReportView: ReportViewSchema,
   RunReportView: RunReportViewSchema,
+  ArchitectureContext: ArchitectureContextSchema,
+  ContextMapView: ContextMapViewSchema,
+  AgentTurnView: AgentTurnViewSchema,
+  AppTelemetryView: AppTelemetryViewSchema,
 } as const;
 
 function componentSchemas(): Record<string, unknown> {
@@ -180,6 +187,14 @@ function paths(): Record<string, unknown> {
         },
       },
     },
+    "/api/v1/runs/{id}/turns": {
+      get: {
+        operationId: "getRunTurns",
+        summary: "The run's agent turns in chronological order, each with its efficiency measurements (read-only); a measurement is null when the runtime could not supply it",
+        parameters: [idParam],
+        responses: { "200": { description: "agent turns", content: jsonArray("AgentTurnView") } },
+      },
+    },
     "/api/v1/runs/{id}/ask": {
       post: { operationId: "askRun", parameters: [idParam], requestBody: { required: true, content: jsonBody("AskRequest") }, responses: { "200": { description: "answer", content: jsonBody("AskResponse") } } },
     },
@@ -258,6 +273,17 @@ function paths(): Record<string, unknown> {
         responses: { "200": { description: "intelligence view", content: jsonBody("IntelligenceView") } },
       },
     },
+    "/api/v1/apps/{name}/context-map": {
+      get: {
+        operationId: "getAppContextMap",
+        summary: "The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only)",
+        parameters: [nameParam],
+        responses: {
+          "200": { description: "context map view", content: jsonBody("ContextMapView") },
+          "404": { description: "app not found, or no stored architecture map yet for this app" },
+        },
+      },
+    },
     "/api/v1/runs/{id}/report": {
       get: {
         operationId: "getRunReport",
@@ -275,6 +301,14 @@ function paths(): Record<string, unknown> {
         summary: "Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only)",
         parameters: [nameParam, windowParam, formatParam],
         responses: { "200": { description: "trends view", content: jsonBody("TrendsView") } },
+      },
+    },
+    "/api/v1/apps/{name}/telemetry": {
+      get: {
+        operationId: "getAppTelemetry",
+        summary: "Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only)",
+        parameters: [nameParam, windowParam],
+        responses: { "200": { description: "app telemetry", content: jsonBody("AppTelemetryView") } },
       },
     },
     "/api/v1/apps/{name}/report": {

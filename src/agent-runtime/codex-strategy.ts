@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { capabilitiesForRole } from "./types";
 import { AgentUnavailableError } from "../errors";
 import { sanitizeText } from "../orchestrator/sanitizer";
-import { saveAgentTurn } from "../server/history";
+import { saveAgentTurnEvent } from "../server/history";
 import {
   checkCodexCircuit,
   recordCodexCircuitFailure,
@@ -16,12 +16,13 @@ import type { AgentOpenDescriptor, AgentTurnEvent, LiveActivity } from "../integ
 import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS } from "../integrations/opencode-client";
 import { extractJsonObjects } from "../integrations/verdict-parse";
 import type { RunEventBody } from "../contract/events";
-import type {
-  AgentModelInfo,
-  AgentProviderHealth,
-  AgentRole,
-  AgentRuntimeSession,
-  AgentRuntimeStrategy,
+import {
+  AGENT_NAME_FOR_ROLE,
+  type AgentModelInfo,
+  type AgentProviderHealth,
+  type AgentRole,
+  type AgentRuntimeSession,
+  type AgentRuntimeStrategy,
 } from "./types";
 
 
@@ -241,24 +242,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
     const defaultOnTurn = opts?.descriptor?.runId
       ? (t: AgentTurnEvent) => {
           try {
-            saveAgentTurn({
-              runId: t.runId,
-              sessionId: t.sessionId,
-              role: t.role,
-              round: t.round,
-              isRepair: t.isRepair,
-              ts: t.ts,
-              objective: t.objective ?? null,
-              promptText: t.promptText,
-              outputText: t.outputText,
-              promptBytes: t.promptBytes,
-              tokensInput: t.tokensInput,
-              tokensOutput: t.tokensOutput,
-              tokensReasoning: t.tokensReasoning,
-              tokensCacheRead: t.tokensCacheRead,
-              tokensCacheWrite: t.tokensCacheWrite,
-              cost: t.cost,
-            });
+            saveAgentTurnEvent(t);
           } catch (err) {
             console.warn(`[qa] agent_turns persist failed: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -272,6 +256,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
      * reconstructed from `ts`, not from this counter.
      */
     let round = 0;
+    /*
+     * Circuit breaker role key: mirrors opts?.descriptor?.role ?? agent in
+     * agent-transport-policy.ts, so a caller-supplied descriptor role wins over the raw
+     * openSession role — keeps the breaker keyed the same way across both runtimes.
+     */
+    const breakerRole = opts?.descriptor?.role ?? role;
     return {
       id: session.id,
       /*
@@ -284,17 +274,18 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
       prompt: async (text, promptOpts) => {
         const thisRound = round++;
         /*
-         * Circuit breaker guard (mirrors checkCircuit() in opencode-client.ts:1607).
-         * If the codex circuit is open (repeated infra failures), reject immediately
+         * Circuit breaker guard — the Codex counterpart of the checkCircuit() gate the OpenCode
+         * transport policy applies (agent-transport-policy.ts). If the codex circuit is open
+         * (repeated infra failures), reject immediately
          * without spending a codex exec — the error surfaces as infra-error via codexErrorToInfra.
          */
-        checkCodexCircuit();
+        checkCodexCircuit(breakerRole);
         let rawOutput: string;
         try {
           rawOutput = await session.prompt(withCodexRolePreamble(role, text, this.promptRoot));
-          recordCodexCircuitSuccess();
+          recordCodexCircuitSuccess(breakerRole);
         } catch (err) {
-          recordCodexCircuitFailure();
+          recordCodexCircuitFailure(breakerRole);
           throw err;
         }
         /*
@@ -303,6 +294,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
          * Used by chat/Q&A so the operator receives only the final answer without reasoning traces.
          */
         const output = promptOpts?.textOnly ? stripCodexReasoningWrappers(rawOutput) : rawOutput;
+        /*
+         * finalStepOnly: the caller wants what the agent concluded with, not the reasoning it wrote on
+         * the way. `codex exec` returns only its final message, so the same wrapper stripping is all
+         * there is to do. The persisted turn is unchanged by it.
+         */
+        const returned = promptOpts?.finalStepOnly ? stripCodexReasoningWrappers(rawOutput) : output;
         if (effectiveOnTurn) {
           effectiveOnTurn({
             runId: opts?.descriptor?.runId ?? null,
@@ -322,9 +319,12 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
             cost: null,
             ts: new Date().toISOString(),
             sectionSizes: promptOpts?.sectionSizes ?? null,
+            /* Codex has no step-budget concept and, in production, no tool stream (the supervisor returns only the final message): unknown, never fabricated. */
+            stepBudget: null,
+            callMetrics: null,
           });
         }
-        return output;
+        return returned;
       },
       dispose: () => session.dispose(),
     };
@@ -334,7 +334,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
     if (opts?.apiKey) this.env.CODEX_API_KEY = opts.apiKey;
     /*
      * Clear the circuit breaker on restart so the operator's recovery action (rotate API key)
-     * is not blocked by stale failures — mirrors resetCircuit() in opencode-client.ts.
+     * is not blocked by stale failures — as disposeSharedClient() resets the OpenCode breaker.
      */
     resetCodexCircuit();
     const supervised = await supervisorRestart(this.env, this.provider, opts?.apiKey, opts?.env);
@@ -344,7 +344,7 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
   }
 
   /*
-   * startEventStream for Codex (C1.4 / AC1.4.3).
+   * startEventStream for Codex.
    * ARCHITECTURAL NOTE — Codex is exec-per-prompt (no global SSE server):
    * Unlike OpenCode's persistent session server, `codex exec` is a one-shot process per prompt.
    * There is no global event bus to subscribe to. The stream here is a no-op registration
@@ -352,8 +352,8 @@ export class CodexRuntimeStrategy implements AgentRuntimeStrategy {
    * for individual codex prompts are emitted via the JSONL mapper (mapCodexExecEvent) inside
    * runExec when a caller supplies an onRunEvent hook — that per-exec streaming is separate from
    * this session-lifetime subscription.
-   * PROVISIONAL: the exact `codex exec --json` JSONL event shape is UNVERIFIED (T-P1-0 image-gated
-   * fixture not yet captured). The mapper in activity-mapper.ts uses the same defensive probe
+   * PROVISIONAL: the exact `codex exec --json` JSONL event shape is UNVERIFIED (the image-gated
+   * agents/smoke/capture-codex-jsonl.smoke.mjs fixture is not yet captured). The mapper in activity-mapper.ts uses the same defensive probe
    * (event.msg ?? event.message ?? event.text ?? event.content) as extractCodexLastMessage.
    * This MUST be re-validated once the real fixture is committed from the built agents image.
    */
@@ -535,22 +535,34 @@ const ROLE_SKILLS: Partial<Record<AgentRole, readonly string[]>> = {
   sidekick: ["playwright-authoring"],
 };
 
-function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string): string {
+/* The static layer a Codex turn ships with: the shared prompt, the role prompt and the role's inlined skills, each as read from the prompt tree ("" or omitted when absent). */
+export interface CodexPreambleParts {
+  shared: string;
+  rolePrompt: string;
+  skills: ReadonlyArray<{ name: string; body: string }>;
+}
+
+export function codexPreambleParts(role: AgentRole, promptRoot: string): CodexPreambleParts {
   const shared = readPrompt(join(promptRoot, "AGENTS.md"));
   const rolePrompt = readPrompt(join(promptRoot, "roles", `${rolePromptName(role)}.md`));
   /*
    * Inline each role's SKILL.md next to AGENTS.md and the role prompt. Codex has no on-disk
    * skills tree in the session; a missing skill is omitted (fail-open) and warned by name.
    */
-  const skillBlocks = (ROLE_SKILLS[role] ?? [])
+  const skills = (ROLE_SKILLS[role] ?? [])
     .map((name) => {
       const path = join(promptRoot, "skills", name, "SKILL.md");
       const body = readPrompt(path);
       if (!body) console.warn(`[qa] codex preamble: skill '${name}' referenced by role '${role}' did not resolve at ${path} — inlining without it.`);
       return { name, body };
     })
-    .filter(({ body }) => body.length > 0)
-    .map(({ name, body }) => `## Skill: ${name}\n${body}`);
+    .filter(({ body }) => body.length > 0);
+  return { shared, rolePrompt, skills };
+}
+
+function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string): string {
+  const { shared, rolePrompt, skills } = codexPreambleParts(role, promptRoot);
+  const skillBlocks = skills.map(({ name, body }) => `## Skill: ${name}\n${body}`);
   return [
     `Agent role: ${role}`,
     "",
@@ -565,17 +577,9 @@ function withCodexRolePreamble(role: AgentRole, text: string, promptRoot: string
   ].join("\n");
 }
 
+/* The role's prompt is agent/roles/<agent name>.md; workerCode has no prompt of its own and reads the worker's. */
 export function rolePromptName(role: AgentRole): string {
-  if (role === "primary") return "qa-generator";
-  if (role === "reviewer") return "qa-reviewer";
-  if (role === "chat") return "qa-assistant";
-  if (role === "worker") return "qa-worker";
-  if (role === "workerCode") return "qa-worker";
-  if (role === "sidekick") return "qa-sidekick";
-  if (role === "reflector") return "qa-reflector";
-  if (role === "explorer") return "qa-explorer";
-  if (role === "proposer") return "qa-proposer";
-  return "qa-maintainer";
+  return AGENT_NAME_FOR_ROLE[role === "workerCode" ? "worker" : role];
 }
 
 function readPrompt(path: string): string {

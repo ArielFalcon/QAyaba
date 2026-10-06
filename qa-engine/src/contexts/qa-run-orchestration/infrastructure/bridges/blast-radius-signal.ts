@@ -60,7 +60,7 @@ export function renderBlastRadiusSignal(input: BlastRadiusSignalInput): string {
   const lines: string[] = [];
   lines.push("## Structural blast radius (deterministic — from the code graph, advisory)");
   lines.push(
-    "Derived from the indexed call graph at confidence >= 0.55. This is generation GUIDANCE, not a gate — verify against the live code. Absent edges (e.g. Lombok accessors) do NOT imply no dependency.",
+    "Derived from the indexed call graph at confidence >= 0.55. Advisory guidance, not a gate. Absent edges (e.g. Lombok accessors) do NOT imply no dependency.",
   );
   lines.push("");
   lines.push(...renderSymbolBlock("Impacted symbols", input.impacted));

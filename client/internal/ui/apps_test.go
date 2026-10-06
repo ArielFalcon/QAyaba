@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -254,59 +257,62 @@ func TestCreateInputTakesFirstFrontendWhenMultiplePresent(t *testing.T) {
 	}
 }
 
-/* DEV-environment Basic Auth field. authMode defaults to "disabled" (no auth header written) and the auth row on the form (space toggles it, like target/shadow/review) cycles it to "basic", which reveals the user+password inputs. */
+/* Environment Basic and app login are separate rows. Both default off. */
 func TestAuthDefaultsDisabledAndTogglesToBasic(t *testing.T) {
 	m := newOnboardModel(nil)
-	if m.authMode != "disabled" {
-		t.Fatalf("auth must default to disabled; got %q", m.authMode)
+	if m.authMode != "disabled" || m.envBasic {
+		t.Fatalf("auth must default off; mode=%q basic=%v", m.authMode, m.envBasic)
 	}
 	m.step = appStepForm
+	m.formCursor = fEnvAuth
+	m.toggleFormValue()
+	if !m.envBasic {
+		t.Fatal("space on env auth should turn HTTP Basic on")
+	}
 	m.formCursor = fAuth
 	m.toggleFormValue()
-	if m.authMode != "basic" {
-		t.Fatalf("space on auth row should switch to basic; got %q", m.authMode)
+	if m.authMode != "form" {
+		t.Fatalf("space on app login should switch to form; got %q", m.authMode)
 	}
 }
 
-/* The env user/password rows only exist when basic auth is on, so tab/shift+tab must skip over
-   fAuthUser/fAuthPass while auth is disabled (landing on fSave/fAuth respectively without ever
-   stopping on the hidden rows), and must be able to stop on them once basic auth reveals them.
-   fAuth itself (the toggle) is never hidden, so two forward hops from fPrefix land on fSave. */
+/* Credential rows exist only while their layer is on. Toggles themselves stay reachable. */
 func TestMoveFormFocusSkipsHiddenAuthFieldsWhenDisabled(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm
 	m.authMode = "disabled"
 
 	m.formCursor = fPrefix
-	m.moveFormFocus(1) /* -> fAuth (always visible, never skipped) */
+	m.moveFormFocus(1)
+	if m.formCursor != fEnvAuth {
+		t.Fatalf("expected fEnvAuth after one tab from fPrefix; got %d", m.formCursor)
+	}
+	m.moveFormFocus(1)
 	if m.formCursor != fAuth {
-		t.Fatalf("expected fAuth after one tab from fPrefix; got %d", m.formCursor)
+		t.Fatalf("expected fAuth, skipping hidden env credentials; got %d", m.formCursor)
 	}
-	m.moveFormFocus(1) /* -> must skip fAuthUser/fAuthPass straight to fSave */
-	if m.formCursor == fAuthUser || m.formCursor == fAuthPass {
-		t.Fatalf("disabled auth must skip the hidden credential rows; got %d", m.formCursor)
-	}
+	m.moveFormFocus(1)
 	if m.formCursor != fSave {
-		t.Fatalf("expected fSave after skipping the hidden auth rows; got %d", m.formCursor)
+		t.Fatalf("expected fSave, skipping hidden app credentials; got %d", m.formCursor)
 	}
 
-	/* Backward from fSave must skip back over the hidden rows to fAuth. */
 	m.formCursor = fSave
 	m.moveFormFocus(-1)
 	if m.formCursor != fAuth {
-		t.Fatalf("expected fAuth when tabbing back from fSave with auth disabled; got %d", m.formCursor)
+		t.Fatalf("expected fAuth when tabbing back from fSave; got %d", m.formCursor)
 	}
 
-	/* With basic auth on, the same rows must become reachable. */
-	m.authMode = "basic"
+	m.envBasic = true
+	m.formCursor = fEnvAuth
+	m.moveFormFocus(1)
+	if m.formCursor != fEnvUser {
+		t.Fatalf("expected fEnvUser when environment auth is on; got %d", m.formCursor)
+	}
+	m.authMode = "form"
 	m.formCursor = fAuth
 	m.moveFormFocus(1)
 	if m.formCursor != fAuthUser {
-		t.Fatalf("expected fAuthUser to be reachable when basic auth is on; got %d", m.formCursor)
-	}
-	m.moveFormFocus(1)
-	if m.formCursor != fAuthPass {
-		t.Fatalf("expected fAuthPass to be reachable when basic auth is on; got %d", m.formCursor)
+		t.Fatalf("expected fAuthUser when app login is on; got %d", m.formCursor)
 	}
 }
 
@@ -315,31 +321,139 @@ func TestFormViewShowsAuthAndRevealsCredsWhenBasic(t *testing.T) {
 	m.step, m.width = appStepForm, 100
 	m.repo = "org/web"
 	out := strings.ToLower(m.View())
-	if !strings.Contains(out, "authentication") {
-		t.Fatalf("form must show an authentication row:\n%s", out)
+	if !strings.Contains(out, "env auth") || !strings.Contains(out, "app login") {
+		t.Fatalf("form must show both auth layers:\n%s", out)
 	}
 	if strings.Contains(out, "env password") {
 		t.Fatal("password row must be hidden while auth is disabled")
 	}
-	m.authMode = "basic"
+	m.envBasic = true
 	out = strings.ToLower(m.View())
 	if !strings.Contains(out, "env user") || !strings.Contains(out, "env password") {
-		t.Fatalf("basic auth must reveal user+password:\n%s", out)
+		t.Fatalf("environment auth must reveal user+password:\n%s", out)
+	}
+}
+
+func TestFormAuthEnvKeysAreAppScoped(t *testing.T) {
+	m := newOnboardModel(nil)
+	m.nameInput.SetValue("jhipster-store")
+	m.authMode = "form"
+	m.userInput.SetValue("admin")
+	m.passInput.SetValue("admin")
+	env := m.envVars()
+	if env["QA_JHIPSTER_STORE_TEST_USER"] != "admin" || env["QA_JHIPSTER_STORE_TEST_PASS"] != "admin" {
+		t.Fatalf("form auth must persist app-scoped DEV test creds; got %+v", env)
+	}
+	if _, ok := env["DEV_ENV_USER"]; ok {
+		t.Fatal("form auth must not write the environment Basic Auth keys")
+	}
+	decl := m.authDeclaration()
+	if decl == nil || decl.Kind != "form" || decl.UsernameEnv == nil || *decl.UsernameEnv != "QA_JHIPSTER_STORE_TEST_USER" {
+		t.Fatalf("form auth must declare usernameEnv; got %+v", decl)
+	}
+}
+
+func TestMtlsAuthReadsP12AsBase64(t *testing.T) {
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "client.p12")
+	if err := os.WriteFile(certPath, []byte("p12-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := newOnboardModel(nil)
+	m.nameInput.SetValue("jhipster-store")
+	m.authMode = "mtls"
+	m.userInput.SetValue(certPath)
+	m.passInput.SetValue("secret")
+	env, err := m.collectedEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["QA_JHIPSTER_STORE_CLIENT_CERT"] != base64.StdEncoding.EncodeToString([]byte("p12-bytes")) {
+		t.Fatalf("certificate must be base64; got %q", env["QA_JHIPSTER_STORE_CLIENT_CERT"])
+	}
+	if env["QA_JHIPSTER_STORE_CLIENT_CERT_PASS"] != "secret" {
+		t.Fatalf("passphrase not stored; got %+v", env)
+	}
+	missing := m
+	missing.userInput.SetValue(filepath.Join(dir, "nope.p12"))
+	if _, err := missing.collectedEnv(); err == nil {
+		t.Fatal("a missing certificate file must fail save")
+	}
+}
+
+/* AppView.AuthKind is a generated enum pointer (contract.AppViewAuthKind), not a plain
+   *string — newEditAppModel must convert it into the model's plain-string authMode/storedAuth
+   and seed the placeholder text, exactly as it did before the type was named by codegen. */
+func TestNewEditAppModelReadsStoredAuthKindFromAppView(t *testing.T) {
+	form := contract.AppViewAuthKindForm
+	app := contract.AppView{Name: "shop", Repo: "org/shop", AuthKind: &form}
+	m := newEditAppModel(nil, app)
+	if m.authMode != "form" {
+		t.Fatalf("authMode=%q, want form", m.authMode)
+	}
+	if m.storedAuth != "form" {
+		t.Fatalf("storedAuth=%q, want form (so an edit that clears it can detect the change)", m.storedAuth)
+	}
+	if m.userInput.Placeholder != "app user" {
+		t.Fatalf("form placeholders not applied: %q", m.userInput.Placeholder)
+	}
+
+	mtls := contract.AppViewAuthKindMtls
+	app.AuthKind = &mtls
+	m = newEditAppModel(nil, app)
+	if m.authMode != "mtls" {
+		t.Fatalf("authMode=%q, want mtls", m.authMode)
+	}
+	if m.userInput.Placeholder != "path to .p12" {
+		t.Fatalf("mtls placeholder not applied: %q", m.userInput.Placeholder)
+	}
+}
+
+func TestAuthModeCyclesThroughFormAndCertificate(t *testing.T) {
+	m := newOnboardModel(nil)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue()
+	if m.authMode != "form" {
+		t.Fatalf("one space should reach form; got %q", m.authMode)
+	}
+	m.toggleFormValue()
+	if m.authMode != "mtls" {
+		t.Fatalf("two spaces should reach certificate; got %q", m.authMode)
+	}
+	m.toggleFormValue()
+	if m.authMode != "disabled" {
+		t.Fatalf("three spaces should return to none; got %q", m.authMode)
 	}
 }
 
 func TestEnvVarsFromBasicAuth(t *testing.T) {
 	m := newOnboardModel(nil)
-	m.authMode = "basic"
-	m.userInput.SetValue("envuser")
-	m.passInput.SetValue("envpass")
+	m.envBasic = true
+	m.envUserInput.SetValue("envuser")
+	m.envPassInput.SetValue("envpass")
 	env := m.envVars()
 	if env["DEV_ENV_USER"] != "envuser" || env["DEV_ENV_PASS"] != "envpass" {
 		t.Fatalf("basic auth must yield DEV_ENV_USER/PASS; got %+v", env)
 	}
-	m.authMode = "disabled"
+	m.envBasic = false
 	if len(m.envVars()) != 0 {
 		t.Fatal("disabled auth must yield no env vars")
+	}
+}
+
+func TestEnvBasicAndFormCanBeCollectedTogether(t *testing.T) {
+	m := newOnboardModel(nil)
+	m.nameInput.SetValue("shop")
+	m.envBasic = true
+	m.envUserInput.SetValue("gate")
+	m.envPassInput.SetValue("gate-pass")
+	m.authMode = "form"
+	m.userInput.SetValue("admin")
+	m.passInput.SetValue("admin-pass")
+	env := m.envVars()
+	if env["DEV_ENV_USER"] != "gate" || env["QA_SHOP_TEST_USER"] != "admin" {
+		t.Fatalf("both layers must be collected in one save; got %+v", env)
 	}
 }
 
@@ -361,8 +475,85 @@ func TestBuildUpdateInputOmitsEnvWhenNone(t *testing.T) {
 	}
 }
 
+/* Edit mode's "leave blank to keep stored creds" shortcut must not apply when the user just
+   turned app login ON (there is nothing stored to keep yet) — blank credentials must error
+   and the save must not proceed (no command == no network update sent). */
+func TestEditModeEnablingFormAuthWithBlankUserErrorsAndDoesNotSave(t *testing.T) {
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev"}
+	m := newEditAppModel(nil, app)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	if m.authMode != "form" {
+		t.Fatalf("expected form; got %q", m.authMode)
+	}
+	m, cmd := m.save()
+	if m.err == "" {
+		t.Fatal("expected a validation error for blank app username when enabling app login")
+	}
+	if cmd != nil {
+		t.Fatal("must not send an update when app login was enabled with blank credentials")
+	}
+}
+
+/* Same rule for the certificate layer: switching to mtls with a blank certificate path must
+   error rather than silently keep whatever (unrelated) credentials were stored before. */
+func TestEditModeEnablingMtlsAuthWithBlankCertPathErrorsAndDoesNotSave(t *testing.T) {
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev"}
+	m := newEditAppModel(nil, app)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	m.toggleFormValue() /* form -> mtls */
+	if m.authMode != "mtls" {
+		t.Fatalf("expected mtls; got %q", m.authMode)
+	}
+	m, cmd := m.save()
+	if m.err == "" {
+		t.Fatal("expected a validation error for a blank certificate path when enabling app login")
+	}
+	if cmd != nil {
+		t.Fatal("must not send an update when mtls was enabled with a blank certificate path")
+	}
+}
+
+/* The legitimate path this whole guard must not break: authMode left UNCHANGED from what's
+   stored, with blank fields — that's "keep the secrets already on the server", not "enable
+   with nothing supplied", and must still save without error. */
+func TestEditModeKeepsStoredAuthWhenModeUnchangedAndCredentialsLeftBlank(t *testing.T) {
+	form := contract.AppViewAuthKindForm
+	app := contract.AppView{Name: "shop", Repo: "org/web", BaseUrl: "https://dev", AuthKind: &form}
+	m := newEditAppModel(nil, app)
+	if m.authMode != "form" || m.storedAuth != "form" {
+		t.Fatalf("setup: authMode=%q storedAuth=%q", m.authMode, m.storedAuth)
+	}
+	env, err := m.collectedEnv()
+	if err != nil {
+		t.Fatalf("unchanged auth with blank fields must not error; got %v", err)
+	}
+	if env != nil {
+		t.Fatalf("expected nil env (keep stored creds); got %+v", env)
+	}
+}
+
+/* Switching the auth mode must clear the credential inputs' actual VALUES, not just their
+   placeholder text — otherwise a value typed under the old mode silently gets reinterpreted
+   under the new one (e.g. a form username saved as if it were a certificate path). */
+func TestTogglingAuthModeClearsCredentialInputValues(t *testing.T) {
+	m := newOnboardModel(nil)
+	m.step = appStepForm
+	m.formCursor = fAuth
+	m.toggleFormValue() /* disabled -> form */
+	m.userInput.SetValue("admin")
+	m.passInput.SetValue("secret")
+	m.toggleFormValue() /* form -> mtls */
+	if m.userInput.Value() != "" || m.passInput.Value() != "" {
+		t.Fatalf("expected credential values cleared on mode change; user=%q pass=%q", m.userInput.Value(), m.passInput.Value())
+	}
+}
+
 /* Regression: on a text field, j/k must be typed, not treated as motion — otherwise words
-   containing them (e.g. "joomeco", "webapp") can't be entered. Navigation is tab/arrows only. */
+   containing them (e.g. "job", "kite") can't be entered. Navigation is tab/arrows only. */
 func TestFormTextFieldAcceptsJAndKAsInput(t *testing.T) {
 	m := newOnboardModel(nil)
 	m.step = appStepForm

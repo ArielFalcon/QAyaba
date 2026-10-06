@@ -1,5 +1,5 @@
 /* test/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.test.ts
-   RED-first (Task E.0): GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
+   GenerationPortAdapter must delegate to the REAL GenerateTestsUseCase.generate()
    and map {specs, reviewed, approved, note} -> {specs, approved, note}. specSources is populated from
    a file-read collaborator (file I/O stays OUTSIDE the domain, per fix-loop.aggregate.ts's own
    FixLoopGenerateResult.specSources contract) — absent/empty when the read collaborator is absent.
@@ -11,10 +11,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
 import { Objective } from "@kernel/objective.ts";
-import type { GenerationPorts, GenerationResult } from "@contexts/generation/application/generate-tests.use-case.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
+import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
-import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { GenerationEnrichment, RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
+import type { TestTarget } from "@kernel/run-mode.ts";
+import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
+import {
+  buildPromptAssembled,
+  buildWorkerPromptAssembled,
+  buildReviewerPromptAssembled,
+  buildExplorerPrompt,
+  specFileForFlow,
+} from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 
 function fakeGenerationPorts(overrides: {
   generatorOutput?: string;
@@ -67,6 +78,50 @@ test("generate() delegates to GenerateTestsUseCase and maps GenerationResult ont
   assert.equal(result.note, "ok");
 });
 
+const STATIC_CONTEXT = {
+  repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+  namespace: "qa-bot-abc1234", target: "e2e" as TestTarget, mode: "diff" as const, diff: "",
+};
+const CHECKOUT = [Objective.of({ flow: "checkout", objective: "user can checkout", targets: [] })];
+
+test("generate() forwards how the generation ended and that no reviewer ran when generation is not reviewed", async () => {
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: false });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.end, GENERATION_END.DELIVERED);
+  assert.equal(result.reviewed, false);
+  assert.equal(result.approved, true, "the flag stays, but reviewed says it is not a reviewer's approval");
+});
+
+test("generate() forwards that a reviewer ran when generation is reviewed", async () => {
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: true });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.reviewed, true);
+  assert.equal(result.approved, true);
+});
+
+test("generate() forwards an exhausted generation's end, its note and the main turn's stats", async () => {
+  const ports = fakeGenerationPorts();
+  const exhausting: GenerationPorts = {
+    ...ports,
+    runtime: {
+      openSession: async () => ({
+        prompt: async (_text: string, opts?: { onTurnStats?: (s: { maxSteps: number | null; stepsUsed: number | null; exhausted: boolean | null; writeCount: number | null; observationComplete: boolean }) => void }) => {
+          opts?.onTurnStats?.({ maxSteps: 30, stepsUsed: 30, exhausted: true, writeCount: 0, observationComplete: true });
+          return { output: "Maximum steps for this agent have been reached." };
+        },
+        dispose: async () => {},
+      }),
+    } as unknown as GenerationPorts["runtime"],
+    verdicts: { ...ports.verdicts, parseGenerator: () => ({ specs: [], parsed: true, outputTail: "cut off" }) },
+  };
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(exhausting), { ...STATIC_CONTEXT, needsReview: false });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.equal(result.end, GENERATION_END.EXHAUSTED);
+  assert.equal(result.turn?.stepsUsed, 30);
+  assert.equal(result.turn?.writeCount, 0);
+  assert.match(result.note ?? "", /30\/30/);
+});
+
 test("generate() surfaces approved:false with a note when the reviewer rejects (needsReview:true)", async () => {
   const ports = fakeGenerationPorts();
   ports.verdicts.parseReview = () => ({
@@ -110,6 +165,44 @@ test("generate() omits specSources when no readSpecSource collaborator is inject
   const result = await adapter.generate([], "/mirrors/org/app/e2e");
 
   assert.equal(result.specSources, undefined);
+});
+
+test("generate() never reports re-exploration counts, however much navigation the call-efficiency tracker recorded during the turn", async (t) => {
+  const sessionId = "sess-navigation-heavy";
+  t.after(() => callEfficiencyTracker.clear(sessionId));
+  /* The stream of tool events a real turn produces, recorded while the generator turn runs. */
+  const runtime = {
+    openSession: async () => ({
+      /* A real session carries its id, which is what anything that reads the tracker per session would use. */
+      id: sessionId,
+      prompt: async () => {
+        callEfficiencyTracker.attach(sessionId, "/mirrors/org/app");
+        for (let i = 0; i < 25; i++) {
+          callEfficiencyTracker.record({
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: `prt-${i}`, sessionID: sessionId, messageID: "m", type: "tool", callID: `call-${i}`,
+                tool: "playwright_browser_navigate", state: { status: "completed", input: { url: `http://dev/${i}` }, output: "ok" },
+              },
+            },
+          });
+        }
+        return { output: "generator-json" };
+      },
+      dispose: async () => {},
+    }),
+  } as unknown as GenerationPorts["runtime"];
+  const useCase = new GenerateTestsUseCase({ ...fakeGenerationPorts(), runtime });
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+  });
+
+  const result = await adapter.generate([], "/mirrors/org/app/e2e");
+
+  assert.equal("reexploreNavigations" in result, false, "measuring calls must not activate the progress gate's re-exploration signal");
+  assert.equal(callEfficiencyTracker.take(sessionId, "")?.totalCalls, 25, "the tracker really held the navigation the signal could have been fed with");
 });
 
 /* already forwards opts?.signal into runtime.openSession(role, mirrorDir, { signal }) for BOTH the
@@ -304,7 +397,7 @@ test("generate() with absent enrichment.contextPack/existingSpecFiles omits both
   }
 });
 
-/* T4: enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
+/* enrichment.contextMap must reach OpencodeRunInput.contextMap so prompts.ts can run
    renderArchitectureContext. Spreading only contextPack text is not enough.
  */
 const T4_CONTEXT_MAP = {
@@ -360,6 +453,32 @@ test("generate() maps enrichment.contextBrief onto OpencodeRunInput", async () =
     await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { contextBrief: brief });
 
     assert.deepEqual(capturedInput?.contextBrief, brief);
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
+test("generate() maps enrichment.harnessFacts onto OpencodeRunInput and omits the key when there are none", async () => {
+  const ports = fakeGenerationPorts();
+  const captured: OpencodeRunInput[] = [];
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    captured.push(input);
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+    const harnessFacts = { testIdAttribute: "data-cy", fixtures: { file: "fixtures.ts", exports: ["test", "expect"] } };
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { harnessFacts });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", {});
+
+    assert.deepEqual(captured[0]?.harnessFacts, harnessFacts);
+    assert.equal("harnessFacts" in (captured[1] ?? {}), false);
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;
   }
@@ -701,9 +820,8 @@ test("generate() with no ctx.services OMITS the services key entirely from Openc
   }
 });
 
-/* renderLearnedRules: same section headers, same framing sentences, same proven/experimental
-   split, same per-rule field layout as the generator prompt contract.
- */
+/* renderLearnedRules: proven (active) rules and experimental (candidate) hints go to separate
+   sections, proven first, each rule carrying its trigger, action and error class. */
 
 const activeRule: RetrievedRule = {
   id: "rule-active", trigger: "selector absent", action: "use role+name", errorClass: "E-EXEC-FAIL",
@@ -714,85 +832,62 @@ const candidateRule: RetrievedRule = {
   status: "candidate", confidence: "low",
 };
 
-test("renderLearnedRules: active-only rule set matches legacy's renderRulesForPrompt byte-for-byte", () => {
-  const rendered = renderLearnedRules([activeRule]);
+/* The rendered markdown split into its "## " sections. */
+function sections(rendered: string): Array<{ heading: string; body: string }> {
+  return rendered
+    .split(/^## /m)
+    .slice(1)
+    .map((chunk) => {
+      const [heading = "", ...rest] = chunk.split("\n");
+      return { heading, body: rest.join("\n") };
+    });
+}
+const isExperimental = (heading: string): boolean => /experimental|unproven/i.test(heading);
 
-  assert.equal(
-    rendered,
-    [
-      "## Proven rules from past QA runs",
-      "These rules were earned from real failures and validated by measured outcomes. Apply them when they match the current change.",
-      "",
-      "### Rule (E-EXEC-FAIL, confidence=high)",
-      "- Trigger: selector absent",
-      "- Action: use role+name",
-      "",
-    ].join("\n"),
-  );
+test("renderLearnedRules: an active rule is offered as a proven rule with its trigger, action, error class and confidence", () => {
+  const found = sections(renderLearnedRules([activeRule]));
+
+  assert.equal(found.length, 1);
+  assert.equal(isExperimental(found[0]!.heading), false);
+  for (const field of ["selector absent", "use role+name", "E-EXEC-FAIL", "high"]) {
+    assert.ok(found[0]!.body.includes(field), `the proven rule must carry ${field}`);
+  }
 });
 
-test("renderLearnedRules: candidate-only rule set uses the experimental framing, not the proven one", () => {
-  const rendered = renderLearnedRules([candidateRule]);
+test("renderLearnedRules: a candidate rule is offered only as an experimental hint, never as a proven rule", () => {
+  const found = sections(renderLearnedRules([candidateRule]));
 
-  assert.equal(
-    rendered,
-    [
-      "## Experimental rules (unproven — consider, not prescriptive)",
-      "These are hypotheses from recent runs that have not yet been validated by enough measured outcomes. Consider them when clearly applicable, but do not let them override your judgment.",
-      "",
-      "### Experimental rule (E-FLAKY)",
-      "- Trigger: flaky wait",
-      "- Consider: use expect.poll",
-      "",
-    ].join("\n"),
-  );
+  assert.equal(found.length, 1);
+  assert.equal(isExperimental(found[0]!.heading), true);
+  for (const field of ["flaky wait", "use expect.poll", "E-FLAKY"]) {
+    assert.ok(found[0]!.body.includes(field), `the experimental hint must carry ${field}`);
+  }
 });
 
-test("renderLearnedRules: mixed active+candidate renders BOTH sections, proven first, byte-for-byte", () => {
-  const rendered = renderLearnedRules([activeRule, candidateRule]);
+test("renderLearnedRules: a mixed set renders the proven section first and keeps each rule in its own section", () => {
+  const [proven, experimental, ...rest] = sections(renderLearnedRules([activeRule, candidateRule]));
 
-  assert.equal(
-    rendered,
-    [
-      "## Proven rules from past QA runs",
-      "These rules were earned from real failures and validated by measured outcomes. Apply them when they match the current change.",
-      "",
-      "### Rule (E-EXEC-FAIL, confidence=high)",
-      "- Trigger: selector absent",
-      "- Action: use role+name",
-      "",
-      "## Experimental rules (unproven — consider, not prescriptive)",
-      "These are hypotheses from recent runs that have not yet been validated by enough measured outcomes. Consider them when clearly applicable, but do not let them override your judgment.",
-      "",
-      "### Experimental rule (E-FLAKY)",
-      "- Trigger: flaky wait",
-      "- Consider: use expect.poll",
-      "",
-    ].join("\n"),
-  );
+  assert.equal(rest.length, 0);
+  assert.equal(isExperimental(proven!.heading), false);
+  assert.equal(isExperimental(experimental!.heading), true);
+  assert.ok(proven!.body.includes("use role+name") && !proven!.body.includes("use expect.poll"));
+  assert.ok(experimental!.body.includes("use expect.poll") && !experimental!.body.includes("use role+name"));
 });
 
-test("renderLearnedRules: empty input renders the empty string (matches legacy's early return)", () => {
+test("renderLearnedRules: empty input renders the empty string", () => {
   assert.equal(renderLearnedRules([]), "");
 });
 
-/* renderLearnedRulesForReviewer: active-only (never candidates), two framing sentences, and the
-   `- trigger → action (errorClass)` line format — NOT the generator's proven/experimental renderer.
- */
+/* renderLearnedRulesForReviewer: active rules only (never candidates), framed as reject-on-sight
+   rules, one line per rule carrying its trigger, action and error class. */
 
-test("renderLearnedRulesForReviewer: active rule matches legacy's renderRulesForReviewer byte-for-byte", () => {
+test("renderLearnedRulesForReviewer: an active rule becomes a reject-on-sight line with its trigger, action and error class", () => {
   const rendered = renderLearnedRulesForReviewer([activeRule]);
 
-  assert.equal(
-    rendered,
-    [
-      "## App-specific reject-on-sight rules (earned from past runs on this app)",
-      "Each was learned from a real failure and proven by the value oracle or sustained prevention.",
-      "Treat them as an extension of the anti-pattern catalog: if a spec violates one, REJECT.",
-      "",
-      "- selector absent → use role+name (E-EXEC-FAIL)",
-    ].join("\n"),
-  );
+  assert.match(rendered, /reject/i, "the reviewer must be told a violated proven rule is grounds to reject");
+  const line = rendered.split("\n").find((l) => l.includes("selector absent"));
+  assert.ok(line, "the rule appears in the list");
+  assert.ok(line.includes("use role+name") && line.includes("E-EXEC-FAIL"), `one line carries trigger, action and error class: ${line}`);
 });
 
 test("renderLearnedRulesForReviewer: candidate-only input renders '' — unproven rules never gate the reviewer", () => {
@@ -808,4 +903,133 @@ test("renderLearnedRulesForReviewer: a mixed set renders ONLY the active rule's 
 
 test("renderLearnedRulesForReviewer: empty input renders the empty string", () => {
   assert.equal(renderLearnedRulesForReviewer([]), "");
+});
+
+/* The first reviewer pass is the publish gate, so it may only reject on PROVEN (active) learned
+   rules — unproven candidates are generator hints, never grounds for rejection. Driven through the
+   real bridge, use case and prompt builders; only the agent runtime (the LLM boundary) is faked. */
+
+const provenRule: RetrievedRule = {
+  id: "rule-proven", trigger: "the diff touches the owner search form",
+  action: "assert the owners table lists the searched last name", errorClass: "E-FALSE-POSITIVE",
+  status: "active", confidence: "high",
+};
+const unprovenRule: RetrievedRule = {
+  id: "rule-unproven", trigger: "the diff renders a paginated visit history",
+  action: "assert exactly five visit rows are listed", errorClass: "E-WRONG-OBJECTIVE",
+  status: "candidate", confidence: "low",
+};
+
+async function runFirstReviewPass(rules: readonly RetrievedRule[]): Promise<{ generatorPrompt: string; reviewerPrompt: string }> {
+  const prompts: Record<string, string> = {};
+  const useCase = new GenerateTestsUseCase({
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          prompts[role] = text;
+          return { output: role === "reviewer" ? '{"approved":true,"corrections":[]}' : '{"specs":["flows/search.spec.ts"]}' };
+        },
+        dispose: async () => {},
+      }),
+    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/search.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
+    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
+  });
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234", needsReview: true, target: "e2e", mode: "diff",
+    diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
+  });
+  await adapter.generate([], "/nonexistent/mirror/e2e", undefined, undefined, rules.length ? { learnedRules: rules } : undefined);
+  return { generatorPrompt: prompts.primary ?? "", reviewerPrompt: prompts.reviewer ?? "" };
+}
+
+test("first review pass: the reviewer sees proven learned rules and never unproven candidates", async () => {
+  const { reviewerPrompt } = await runFirstReviewPass([provenRule, unprovenRule]);
+
+  assert.ok(reviewerPrompt.includes(provenRule.action), "a proven rule must reach the reviewer");
+  assert.ok(!reviewerPrompt.includes(unprovenRule.trigger), "an unproven candidate's trigger must never reach the reviewer");
+  assert.ok(!reviewerPrompt.includes(unprovenRule.action), "an unproven candidate's action must never reach the reviewer");
+});
+
+test("first review pass: the generator still receives unproven candidates as hints", async () => {
+  const { generatorPrompt } = await runFirstReviewPass([provenRule, unprovenRule]);
+
+  assert.ok(generatorPrompt.includes(unprovenRule.action));
+  assert.ok(generatorPrompt.includes(provenRule.action));
+});
+
+test("first review pass: candidate-only rules leave the reviewer prompt identical to a run with no learned rules", async () => {
+  const withCandidates = await runFirstReviewPass([unprovenRule]);
+  const withoutRules = await runFirstReviewPass([]);
+
+  assert.equal(withCandidates.reviewerPrompt, withoutRules.reviewerPrompt);
+});
+
+/* A stock auth seed that did not sign in is a run fact the use case hands to generation; it must
+   reach the generator prompt through this bridge. Real bridge, use case and prompt builders; only
+   the agent runtime (the LLM boundary) is faked. */
+
+async function generatorPromptFor(
+  run: { e2eRelDir: string; target: TestTarget },
+  enrichment?: GenerationEnrichment,
+): Promise<string> {
+  let generatorPrompt = "";
+  const useCase = new GenerateTestsUseCase({
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (text: string) => {
+          if (role === "primary") generatorPrompt = text;
+          return { output: '{"specs":[]}' };
+        },
+        dispose: async () => {},
+      }),
+    },
+    rendering: new PromptRenderingAdapter({
+      buildPromptAssembled, buildWorkerPromptAssembled, buildReviewerPromptAssembled, buildExplorerPrompt, specFileForFlow,
+    }),
+    verdicts: {
+      parseGenerator: () => ({ specs: [], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }),
+    },
+    manifest: { read: async () => [], reconcile: async (_specDir, entries) => [...entries] },
+    budget: { capDiff: (d: string) => d, capText: (t: string) => t, budgetForRole: () => 0 },
+  });
+  const adapter = new GenerationPortAdapter(useCase, {
+    repo: "org/app", appName: "app", mirrorDir: "/nonexistent/mirror", e2eRelDir: run.e2eRelDir,
+    namespace: "qa-bot-abc1234", needsReview: false, target: run.target, mode: "diff", baseUrl: "https://dev",
+    diff: "diff --git a/src/owners.ts b/src/owners.ts\n+export const search = () => [];\n",
+  });
+  await adapter.generate([], `/nonexistent/mirror/${run.e2eRelDir}`, undefined, undefined, enrichment);
+  return generatorPrompt;
+}
+
+test("an unauthored auth seed makes the generator prompt ask to rewrite the suite's auth.setup.ts", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "tests/e2e", target: "e2e" }, { authSeedUnauthored: true });
+
+  assert.match(prompt, /^## App login$/m);
+  assert.ok(prompt.includes("tests/e2e/auth.setup.ts"), "the rewrite must target the suite folder's own setup file");
+});
+
+test("a signed-in auth seed leaves auth.setup.ts out of the generator prompt", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "tests/e2e", target: "e2e" });
+
+  assert.ok(prompt.length > 0, "the generator was prompted");
+  assert.doesNotMatch(prompt, /^## App login$/m);
+  assert.ok(!prompt.includes("auth.setup.ts"));
+});
+
+test("a code-target run never renders the app login section, even with an unauthored seed", async () => {
+  const prompt = await generatorPromptFor({ e2eRelDir: "e2e", target: "code" }, { authSeedUnauthored: true });
+
+  assert.ok(prompt.length > 0, "the generator was prompted");
+  assert.doesNotMatch(prompt, /^## App login$/m);
+  assert.ok(!prompt.includes("auth.setup.ts"));
 });

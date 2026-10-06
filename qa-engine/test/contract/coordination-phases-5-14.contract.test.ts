@@ -7,6 +7,7 @@ import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import {
   applyPushback,
+  validateDelegationAuthority,
   buildProgressSnapshot,
   capabilityForFixLoopRound,
   createDelegationBrief,
@@ -16,7 +17,7 @@ import {
   DEFAULT_ADAPTIVE_POLICY,
   evidenceFromChangeAnalysis,
   evidenceFromValidation,
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   nextEscalation,
   canRetrySameCapability,
   advanceAfterNeedsLead,
@@ -114,6 +115,7 @@ test("pushback blocks writes outside scope and foreign briefs", () => {
     concerns: [],
     unresolvedQuestions: [],
     recommendation: "accept",
+    acceptance: [],
   });
   assert.equal(blocked.status, "blocked");
   assert.equal(blocked.recommendation, "escalate");
@@ -203,7 +205,7 @@ test("LeadContext accumulates decisions without OpencodeRunInput fields", () => 
 });
 
 test("coordination telemetry records proposals", () => {
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   tel.record({
     runId: "r1",
     kind: "proposal",
@@ -216,7 +218,7 @@ test("coordination telemetry records proposals", () => {
 
 test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () => {
   assert.equal(deriveAdaptiveSignals([], 5), undefined);
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   for (let i = 0; i < 5; i++) {
     tel.record({
       runId: `r${i}`,
@@ -238,8 +240,47 @@ test("deriveAdaptiveSignals needs min samples; then raises escalate rate", () =>
   assert.equal(DEFAULT_ADAPTIVE_POLICY.delegationFileThreshold(signals!), 12);
 });
 
+test("deriveAdaptiveSignals scopes to one app's own events — another app's escalation trend never leaks in", () => {
+  const tel = new CoordinationTelemetryRecorder();
+  /* app "noisy": 5 delegations, all escalated (should raise ITS OWN threshold). */
+  for (let i = 0; i < 5; i++) {
+    tel.record({ runId: `noisy-${i}`, app: "noisy", kind: "delegation", reason: "x", durationMs: 100, at: i });
+    tel.record({ runId: `noisy-${i}`, app: "noisy", kind: "escalation", reason: "no progress", at: i });
+  }
+  /* app "calm": 5 delegations, zero escalations. */
+  for (let i = 0; i < 5; i++) {
+    tel.record({ runId: `calm-${i}`, app: "calm", kind: "delegation", reason: "x", durationMs: 100, at: i });
+  }
+  const noisySignals = deriveAdaptiveSignals(tel.events, 5, { app: "noisy" });
+  const calmSignals = deriveAdaptiveSignals(tel.events, 5, { app: "calm" });
+  assert.ok(noisySignals);
+  assert.ok(calmSignals);
+  assert.ok(noisySignals!.recentEscalateRate >= 0.9, "the noisy app's own escalations must dominate its own rate");
+  assert.equal(calmSignals!.recentEscalateRate, 0, "the calm app must not inherit the noisy app's escalation rate");
+});
+
+test("deriveAdaptiveSignals bounds derivation to a recent window — an old escalation burst ages out", () => {
+  const tel = new CoordinationTelemetryRecorder();
+  /* An old burst of escalated delegations, followed by many recent clean ones. Once the window
+     (windowSize) is smaller than the total event count, the old burst must no longer dominate the
+     "recent*" rates — proving these fields are windowed, not all-time. */
+  for (let i = 0; i < 5; i++) {
+    tel.record({ runId: `old-${i}`, kind: "delegation", reason: "x", durationMs: 100, at: i });
+    tel.record({ runId: `old-${i}`, kind: "escalation", reason: "no progress", at: i });
+  }
+  for (let i = 0; i < 50; i++) {
+    tel.record({ runId: `recent-${i}`, kind: "delegation", reason: "x", durationMs: 100, at: 1000 + i });
+  }
+  const allTime = deriveAdaptiveSignals(tel.events, 5, { windowSize: 10_000 });
+  const windowed = deriveAdaptiveSignals(tel.events, 5, { windowSize: 20 });
+  assert.ok(allTime);
+  assert.ok(windowed);
+  assert.ok(allTime!.recentEscalateRate > 0, "sanity: the old burst is visible without a window");
+  assert.equal(windowed!.recentEscalateRate, 0, "a small recent window must exclude the aged-out escalation burst");
+});
+
 test("adaptive proposer raises file threshold when escalate rate is high", async () => {
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   for (let i = 0; i < 5; i++) {
     tel.record({
       runId: `r${i}`,

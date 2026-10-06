@@ -102,7 +102,7 @@ test("callersOf fan-out is CAPPED: a large impacted set spawns at most MAX_CALLE
   assert.ok(callersOfCalls > 0, "the cap must not silence callersOf entirely");
 });
 
-test("JD-FIX3: callersOf fan-out is CONCURRENCY-bounded, not just count-bounded — at most CALLER_CONCURRENCY (5) in-flight at once, even though up to MAX_CALLER_ANCHORS (25) total calls happen", async () => {
+test("callersOf fan-out is CONCURRENCY-bounded, not just count-bounded — at most CALLER_CONCURRENCY (5) in-flight at once, even though up to MAX_CALLER_ANCHORS (25) total calls happen", async () => {
   const bigImpacted = Array.from({ length: 30 }, (_, i) => ({ file: `src/F${i}.java`, symbol: `m${i}` }));
   let inFlight = 0;
   let maxInFlight = 0;

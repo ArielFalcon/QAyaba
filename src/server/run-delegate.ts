@@ -8,7 +8,10 @@ import type { RunMode, TestTarget } from "../types";
 export interface DelegateRunInput {
   app: string;
   sha: string;
-  target: TestTarget;
+  /** Range start: the service's diff spans baseSha..sha (same meaning as the webhook and standalone paths). */
+  baseSha?: string;
+  /** Absent means the service picks it from the app's config (code apps run in code mode). */
+  target?: TestTarget;
   mode: RunMode;
   guidance?: string;
 }
@@ -21,6 +24,8 @@ export interface DelegateRunDeps {
   timeoutMs?: number;
   now?: () => number;
   onUpdate?: (rec: { status: string; step?: string }) => void;
+  /** Called with the run id the moment the service accepts the run, before waiting for it. */
+  onEnqueued?: (id: string) => void;
 }
 
 export interface DelegateRunResult {
@@ -46,7 +51,8 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
     body: JSON.stringify({
       app: input.app,
       sha: input.sha,
-      target: input.target,
+      ...(input.baseSha ? { baseSha: input.baseSha } : {}),
+      ...(input.target ? { target: input.target } : {}),
       mode: input.mode,
       ...(input.guidance ? { guidance: input.guidance } : {}),
     }),
@@ -58,6 +64,7 @@ export async function delegateRun(input: DelegateRunInput, deps: DelegateRunDeps
   }
   const id = typeof createBody.id === "string" ? createBody.id : "";
   if (!id) throw new Error("the service accepted the run but returned no run id");
+  deps.onEnqueued?.(id);
 
   const start = now();
   let last: DelegateRunResult = { id, status: "enqueued", verdict: null, passed: 0, failed: 0, timedOut: false };

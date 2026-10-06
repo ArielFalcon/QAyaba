@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 import { recordIncident, setMaintainerStatus, getIncidents, updateIncident } from "./maintainer";
 import { parseMaintainerSummary } from "./maintainer-summary";
-import { assessChange, assessRate, parseNumstat, readDeployHistory, recordDeploy } from "./merge-guard";
+import { assessChange, assessRate, DEFAULT_CHANGE_LIMITS, parseNumstat, PROTECTED_PATHS, readDeployHistory, recordDeploy } from "./merge-guard";
 import {
   performSwap,
   confirmSwapHealthy,
@@ -20,6 +20,7 @@ import { defaultMirrorDeps, authHeaderArgs, type MirrorDeps } from "../integrati
 import { github } from "../integrations/github";
 
 import { scrubEnv } from "../../qa-engine/src/shared-infrastructure/process-sandbox/scrub-env";
+import { VcsWriteAdapter } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/vcs-write.adapter";
 import { logJson } from "../integrations/logger";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import type { AgentDeps } from "../integrations/opencode-client";
@@ -99,7 +100,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     if (!mdeps.exists(dir)) {
       await mdeps.git([...authHeaderArgs(), "clone", url, dir]);
     } else {
-      await mdeps.git([...authHeaderArgs(), "fetch", "origin"], dir);
+      await mdeps.git([...authHeaderArgs(), "fetch", "--no-recurse-submodules", "origin"], dir);
       await mdeps.git(["checkout", "-f", "main"], dir);
       await mdeps.git(["reset", "--hard", "origin/main"], dir);
     }
@@ -124,9 +125,9 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
       /* Step 1: Prepare working copy (clone/fetch + create branch) */
       const mirrorDeps = fx.mirrorDeps;
       await ensureMirrorSelf(maintainerWorkDir, mirrorDeps);
-      await mirrorDeps.git(["checkout", "-B", branchName], maintainerWorkDir);
+      await new VcsWriteAdapter(mirrorDeps.git).checkoutBranch(maintainerWorkDir, branchName);
 
-      
+
       const session = await deps.open("qa-maintainer", maintainerWorkDir, {
         descriptor: { role: "qa-maintainer" },
       });
@@ -162,10 +163,12 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
           "This fix is AUTO-DEPLOYED: it is hot-swapped into the running service, verified",
           "healthy (the canary), and only then merged to main. So it must be NECESSARY, MINIMAL",
           "and SAFE. Hard constraints (a fix that breaks them is blocked and left for a human):",
-          "  - Keep it small: at most 15 files / 400 changed lines.",
-          "  - Do NOT modify the recovery/build files: boot-guard.mjs, src/server/self-update.ts,",
-          "    src/server/merge-guard.ts, any Dockerfile, docker-compose.yml, or .github/ — these",
-          "    are the safety net and image build; changing them requires a human.",
+          `  - Keep it small: at most ${DEFAULT_CHANGE_LIMITS.maxFiles} files / ${DEFAULT_CHANGE_LIMITS.maxLines} changed lines.`,
+          "  - Do NOT modify any protected path: the recovery net, the secret and auth boundaries,",
+          "    this very gate and the image build. Changing one requires a human. (A trailing /",
+          "    is a whole directory; a leading * matches any file with that suffix; a leading **/",
+          "    matches that directory or file name at any depth, * standing for any characters.)",
+          ...PROTECTED_PATHS.map((path) => `      ${path}`),
           "Output a summary in this format (the `justification` is mandatory — without all three",
           "fields the fix is NOT deployed):",
           "```",
@@ -253,7 +256,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
         for (const inc of pending) updateIncident(inc.id, { status: "fixed", prUrl: pr.url });
         console.log(`[maintainer] fix PR opened: ${pr.url}`);
 
-        
+
         const leaveForHuman = (why: string, severity: "warn" | "critical" = "warn") => {
           setMaintainerStatus("idle");
           if (severity === "critical") {
@@ -264,19 +267,19 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
         /* Layer 1 — a valid necessity/minimality justification is MANDATORY. */
         if (!summary.justification) return leaveForHuman("fix lacks a valid justification");
-        
+
         if (!cfg.autonomous) return leaveForHuman("autonomous deploy disabled (SELF_MAINTAINER_AUTOMERGE=false)");
 
-        
+
         const numstat = await mirrorDeps.git(["diff", "--numstat", "--no-renames", "origin/main...HEAD"], maintainerWorkDir);
         const scope = assessChange(parseNumstat(numstat));
         if (!scope.ok) return leaveForHuman(scope.reasons.join("; "), "critical");
 
-        
+
         const rate = assessRate(readDeployHistory(DEPLOY_LEDGER), Date.now());
         if (!rate.ok) return leaveForHuman(rate.reasons.join("; "), "critical");
 
-        
+
         const scrubbed = scrubEnv();
         try {
           fx.exec("npm install --no-audit --no-fund", { cwd: maintainerWorkDir, stdio: "inherit", env: scrubbed });
@@ -304,7 +307,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
 
         /*
          * All gates green → CANARY DEPLOY. Never kill an in-flight QA run: drain the queue first.
-         * Stop ACCEPTING new runs BEFORE draining (SELF-07): otherwise a webhook arriving in the
+         * Stop ACCEPTING new runs BEFORE draining: otherwise a webhook arriving in the
          * window between drain() and process.exit() would start a run that then races performSwap's
          * src/ rewrite (reading a half-swapped tree) or gets SIGKILLed mid-flight on exit.
          */
@@ -384,7 +387,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     const marker = fx.realSwapFs.readMarker(join(dataDir, SWAP_MARKER_FILE));
     if (!marker) {
       /*
-       * No swap pending — but a promote may have been mid-poll when a prior boot died (SELF-03):
+       * No swap pending — but a promote may have been mid-poll when a prior boot died:
        * re-drive it so the merge/bookkeeping is not silently lost. Cleared on any terminal outcome.
        */
       const pending = readPendingPromote(dataDir);
@@ -445,7 +448,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
        * Then PROMOTE: merge the PR so main adopts the now-proven fix. Promotion is gated by the
        * OUTER GUARD (the required CI check on main) and is best-effort — the running service
        * already has the fix, so a promotion failure never rolls it back, only flags a human.
-       * Record the in-flight promote durably (SELF-03) so a crash during the up-to-10-min poll
+       * Record the in-flight promote durably so a crash during the up-to-10-min poll
        * re-drives it on the next boot instead of dropping it; clear it on any terminal outcome.
        */
       if (marker.promote) {
@@ -459,7 +462,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     }, 20_000);
   }
 
-  
+
   async function promote(
     p: { repo: string; prNumber: number; nodeId: string },
     prUrl?: string,
@@ -569,7 +572,7 @@ export function createMaintainerRuntime(cfg: MaintainerConfig, fx: MaintainerSid
     return true;
   }
 
-  
+
   function recoverRollbackRecord(): void {
     const raw = realMemoryFs.read(ROLLBACK_BRIDGE);
     if (!raw) return;

@@ -54,6 +54,14 @@ export class GitHubPrAdapter implements GitHubPrPort {
     }
   }
 
+  /*
+   * REST merge fallback — reached only when enableAutoMerge fails (e.g. auto-merge is not
+   * enabled on the repo). Unconditional: it does NOT poll or wait for any check to report
+   * green. That is safe here specifically because openWithAutoMerge is only ever called after
+   * the orchestrator's own deterministic harness (static gate + execution + reviewer) has
+   * already proved the run green — this is not a substitute for branch-protection status
+   * checks, it is the publish step for a run this process already validated itself.
+   */
   private async mergePullRequest(repo: string, number: number, mergeMethod = "squash"): Promise<void> {
     const res = await this.http.fetch(`https://api.github.com/repos/${repo}/pulls/${number}/merge`, {
       method: "PUT",

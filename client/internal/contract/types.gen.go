@@ -213,6 +213,42 @@ func (e AgentRestartRequestProvider) Valid() bool {
 	}
 }
 
+// Defines values for AppAuthInputKind.
+const (
+	AppAuthInputKindForm AppAuthInputKind = "form"
+	AppAuthInputKindMtls AppAuthInputKind = "mtls"
+)
+
+// Valid indicates whether the value is a known member of the AppAuthInputKind enum.
+func (e AppAuthInputKind) Valid() bool {
+	switch e {
+	case AppAuthInputKindForm:
+		return true
+	case AppAuthInputKindMtls:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AppViewAuthKind.
+const (
+	AppViewAuthKindForm AppViewAuthKind = "form"
+	AppViewAuthKindMtls AppViewAuthKind = "mtls"
+)
+
+// Valid indicates whether the value is a known member of the AppViewAuthKind enum.
+func (e AppViewAuthKind) Valid() bool {
+	switch e {
+	case AppViewAuthKindForm:
+		return true
+	case AppViewAuthKindMtls:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConfirmBoundariesInputConfirm.
 const (
 	True ConfirmBoundariesInputConfirm = true
@@ -222,6 +258,36 @@ const (
 func (e ConfirmBoundariesInputConfirm) Valid() bool {
 	switch e {
 	case True:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CoordinationEventKind.
+const (
+	Delegation CoordinationEventKind = "delegation"
+	Escalation CoordinationEventKind = "escalation"
+	Outcome    CoordinationEventKind = "outcome"
+	Proposal   CoordinationEventKind = "proposal"
+	Pushback   CoordinationEventKind = "pushback"
+	Router     CoordinationEventKind = "router"
+)
+
+// Valid indicates whether the value is a known member of the CoordinationEventKind enum.
+func (e CoordinationEventKind) Valid() bool {
+	switch e {
+	case Delegation:
+		return true
+	case Escalation:
+		return true
+	case Outcome:
+		return true
+	case Proposal:
+		return true
+	case Pushback:
+		return true
+	case Router:
 		return true
 	default:
 		return false
@@ -1064,6 +1130,49 @@ type AgentRestartResponse struct {
 	Health AgentProviderHealth `json:"health"`
 }
 
+// AgentTurnView defines model for AgentTurnView.
+type AgentTurnView struct {
+	CallBuckets             *map[string]float32 `json:"callBuckets"`
+	CallsBeforeFirstWrite   *int                `json:"callsBeforeFirstWrite"`
+	Cost                    *float32            `json:"cost"`
+	DuplicateCallCount      *int                `json:"duplicateCallCount"`
+	Exhausted               *bool               `json:"exhausted"`
+	IsRepair                bool                `json:"isRepair"`
+	MaxSteps                *int                `json:"maxSteps"`
+	Objective               *string             `json:"objective"`
+	OutputText              string              `json:"outputText"`
+	PromptBytes             int                 `json:"promptBytes"`
+	PromptProvidedReadCount *int                `json:"promptProvidedReadCount"`
+	PromptText              string              `json:"promptText"`
+	RedundantReadCount      *int                `json:"redundantReadCount"`
+	Role                    string              `json:"role"`
+	Round                   int                 `json:"round"`
+	RunId                   *string             `json:"runId"`
+	SessionId               string              `json:"sessionId"`
+	StepsUsed               *int                `json:"stepsUsed"`
+	TokensCacheRead         *float32            `json:"tokensCacheRead"`
+	TokensCacheWrite        *float32            `json:"tokensCacheWrite"`
+	TokensInput             *float32            `json:"tokensInput"`
+	TokensOutput            *float32            `json:"tokensOutput"`
+	TokensReasoning         *float32            `json:"tokensReasoning"`
+	TotalCalls              *int                `json:"totalCalls"`
+	Ts                      string              `json:"ts"`
+	WriteCount              *int                `json:"writeCount"`
+}
+
+// AppAuthInput defines model for AppAuthInput.
+type AppAuthInput struct {
+	CertEnv     *string          `json:"certEnv,omitempty"`
+	CertPassEnv *string          `json:"certPassEnv,omitempty"`
+	Kind        AppAuthInputKind `json:"kind"`
+	LoginPath   *string          `json:"loginPath,omitempty"`
+	PasswordEnv *string          `json:"passwordEnv,omitempty"`
+	UsernameEnv *string          `json:"usernameEnv,omitempty"`
+}
+
+// AppAuthInputKind defines model for AppAuthInput.Kind.
+type AppAuthInputKind string
+
 // AppService defines model for AppService.
 type AppService struct {
 	Openapi    *string `json:"openapi,omitempty"`
@@ -1071,17 +1180,81 @@ type AppService struct {
 	VersionUrl *string `json:"versionUrl,omitempty"`
 }
 
+// AppTelemetryView defines model for AppTelemetryView.
+type AppTelemetryView struct {
+	App    string `json:"app"`
+	ByRole []struct {
+		MedianCacheHitRate *float32 `json:"medianCacheHitRate"`
+		MedianPromptBytes  *float32 `json:"medianPromptBytes"`
+		P95PromptBytes     *float32 `json:"p95PromptBytes"`
+		Role               string   `json:"role"`
+		TurnCount          int      `json:"turnCount"`
+	} `json:"byRole"`
+	Efficiency struct {
+		DuplicateRatio              *float32 `json:"duplicateRatio"`
+		ExhaustedRate               *float32 `json:"exhaustedRate"`
+		MedianCallsBeforeFirstWrite *float32 `json:"medianCallsBeforeFirstWrite"`
+		RedundantReadRatio          *float32 `json:"redundantReadRatio"`
+		TurnsMeasured               int      `json:"turnsMeasured"`
+	} `json:"efficiency"`
+	GeneratedAt         string   `json:"generatedAt"`
+	GroundingPresence   *float32 `json:"groundingPresence"`
+	MedianTurnsPerRun   *float32 `json:"medianTurnsPerRun"`
+	MedianWallClockSec  *float32 `json:"medianWallClockSec"`
+	P95WallClockSec     *float32 `json:"p95WallClockSec"`
+	RepairFraction      *float32 `json:"repairFraction"`
+	ReviewerConvergence struct {
+		ApproveRate          *float32 `json:"approveRate"`
+		AvgCorrectionsRound0 *float32 `json:"avgCorrectionsRound0"`
+		AvgCorrectionsRound1 *float32 `json:"avgCorrectionsRound1"`
+	} `json:"reviewerConvergence"`
+	RunCount   int  `json:"runCount"`
+	WindowDays *int `json:"windowDays"`
+}
+
 // AppView defines model for AppView.
 type AppView struct {
-	BaseUrl        string       `json:"baseUrl"`
-	Code           bool         `json:"code"`
-	Name           string       `json:"name"`
-	NeedsReview    bool         `json:"needsReview"`
-	Repo           string       `json:"repo"`
-	Services       []AppService `json:"services"`
-	Shadow         bool         `json:"shadow"`
-	TestDataPrefix string       `json:"testDataPrefix"`
-	VersionUrl     string       `json:"versionUrl"`
+	AuthKind       *AppViewAuthKind `json:"authKind,omitempty"`
+	BaseUrl        string           `json:"baseUrl"`
+	Code           bool             `json:"code"`
+	Name           string           `json:"name"`
+	NeedsReview    bool             `json:"needsReview"`
+	Repo           string           `json:"repo"`
+	Services       []AppService     `json:"services"`
+	Shadow         bool             `json:"shadow"`
+	TestDataPrefix string           `json:"testDataPrefix"`
+	VersionUrl     string           `json:"versionUrl"`
+}
+
+// AppViewAuthKind defines model for AppView.AuthKind.
+type AppViewAuthKind string
+
+// ArchitectureContext defines model for ArchitectureContext.
+type ArchitectureContext struct {
+	Api []struct {
+		Method      string  `json:"method"`
+		OperationId string  `json:"operationId"`
+		Path        string  `json:"path"`
+		Service     *string `json:"service,omitempty"`
+		Spec        *string `json:"spec,omitempty"`
+	} `json:"api"`
+	BuiltAtSha string `json:"builtAtSha"`
+	FeBe       []struct {
+		OperationId string  `json:"operationId"`
+		Route       string  `json:"route"`
+		Via         *string `json:"via,omitempty"`
+	} `json:"feBe"`
+	Flows *[]struct {
+		Id         string    `json:"id"`
+		Operations *[]string `json:"operations,omitempty"`
+		Routes     []string  `json:"routes"`
+	} `json:"flows,omitempty"`
+	Routes []struct {
+		Component *string `json:"component,omitempty"`
+		Name      *string `json:"name,omitempty"`
+		Path      string  `json:"path"`
+		Source    *string `json:"source,omitempty"`
+	} `json:"routes"`
 }
 
 // AskRequest defines model for AskRequest.
@@ -1109,6 +1282,14 @@ type ConfirmBoundariesInput struct {
 // ConfirmBoundariesInputConfirm defines model for ConfirmBoundariesInput.Confirm.
 type ConfirmBoundariesInputConfirm bool
 
+// ContextMapView defines model for ContextMapView.
+type ContextMapView struct {
+	App        string              `json:"app"`
+	BuiltAtSha string              `json:"builtAtSha"`
+	Map        ArchitectureContext `json:"map"`
+	UpdatedAt  string              `json:"updatedAt"`
+}
+
 // ContinueRequest defines model for ContinueRequest.
 type ContinueRequest struct {
 	Cases    *[]string `json:"cases,omitempty"`
@@ -1119,6 +1300,35 @@ type ContinueRequest struct {
 type ContinueResult struct {
 	Id          string `json:"id"`
 	ParentRunId string `json:"parentRunId"`
+}
+
+// CoordinationEvent defines model for CoordinationEvent.
+type CoordinationEvent struct {
+	Action              *string               `json:"action,omitempty"`
+	At                  int                   `json:"at"`
+	Attempt             *int                  `json:"attempt,omitempty"`
+	Capability          *string               `json:"capability,omitempty"`
+	CoverageRatio       *float32              `json:"coverageRatio,omitempty"`
+	DelegationId        *string               `json:"delegationId,omitempty"`
+	DurationMs          *int                  `json:"durationMs,omitempty"`
+	Escalations         *int                  `json:"escalations,omitempty"`
+	FailureClass        *string               `json:"failureClass,omitempty"`
+	FinalOutcome        *string               `json:"finalOutcome,omitempty"`
+	Kind                CoordinationEventKind `json:"kind"`
+	ProgressFingerprint *string               `json:"progressFingerprint,omitempty"`
+	Reason              string                `json:"reason"`
+	ReviewOutcome       *string               `json:"reviewOutcome,omitempty"`
+	RunId               string                `json:"runId"`
+	ValueScore          *float32              `json:"valueScore,omitempty"`
+}
+
+// CoordinationEventKind defines model for CoordinationEvent.Kind.
+type CoordinationEventKind string
+
+// CoordinationEventsView defines model for CoordinationEventsView.
+type CoordinationEventsView struct {
+	Events    []CoordinationEvent `json:"events"`
+	Truncated bool                `json:"truncated"`
 }
 
 // CoverageTrend defines model for CoverageTrend.
@@ -1132,6 +1342,7 @@ type CoverageTrend struct {
 
 // CreateAppInput defines model for CreateAppInput.
 type CreateAppInput struct {
+	Auth           *AppAuthInput          `json:"auth,omitempty"`
 	BaseUrl        *string                `json:"baseUrl,omitempty"`
 	DryRun         *bool                  `json:"dryRun,omitempty"`
 	Env            *map[string]string     `json:"env,omitempty"`
@@ -1164,6 +1375,7 @@ type CreateAppResult struct {
 // CreateRunInput defines model for CreateRunInput.
 type CreateRunInput struct {
 	App      string               `json:"app"`
+	BaseSha  *string              `json:"baseSha,omitempty"`
 	Commits  *int                 `json:"commits,omitempty"`
 	Guidance *string              `json:"guidance,omitempty"`
 	Mode     CreateRunInputMode   `json:"mode"`
@@ -1229,10 +1441,11 @@ type FlakyTrend struct {
 
 // IntelligenceView defines model for IntelligenceView.
 type IntelligenceView struct {
-	App        string             `json:"app"`
-	Curriculum *CurriculumView    `json:"curriculum"`
-	Rules      []LearningRuleView `json:"rules"`
-	Scorecard  *ScorecardView     `json:"scorecard"`
+	App               string             `json:"app"`
+	Curriculum        *CurriculumView    `json:"curriculum"`
+	CurriculumCorrupt bool               `json:"curriculumCorrupt"`
+	Rules             []LearningRuleView `json:"rules"`
+	Scorecard         *ScorecardView     `json:"scorecard"`
 }
 
 // LearningRuleView defines model for LearningRuleView.
@@ -1571,8 +1784,8 @@ type ScorecardView struct {
 	AvgValueScore *float32 `json:"avgValueScore"`
 	Entries       []struct {
 		At          string   `json:"at"`
-		KilledCount int      `json:"killedCount"`
-		MutantCount int      `json:"mutantCount"`
+		KilledCount *int     `json:"killedCount"`
+		MutantCount *int     `json:"mutantCount"`
 		Target      string   `json:"target"`
 		ValueScore  *float32 `json:"valueScore"`
 	} `json:"entries"`
@@ -1584,6 +1797,14 @@ type ScorecardView struct {
 
 // SignalsView defines model for SignalsView.
 type SignalsView struct {
+	Coordination *struct {
+		AvgDelegationMs     *float32 `json:"avgDelegationMs"`
+		ContractFailureRate *float32 `json:"contractFailureRate"`
+		DelegateRuns        int      `json:"delegateRuns"`
+		EscalationRate      *float32 `json:"escalationRate"`
+		Measured            bool     `json:"measured"`
+		TotalRuns           int      `json:"totalRuns"`
+	} `json:"coordination,omitempty"`
 	Coverage struct {
 		AvgRatio     *float32 `json:"avgRatio"`
 		Measured     bool     `json:"measured"`
@@ -1641,7 +1862,9 @@ type TrendsView struct {
 
 // UpdateAppInput defines model for UpdateAppInput.
 type UpdateAppInput struct {
+	Auth           *AppAuthInput          `json:"auth,omitempty"`
 	BaseUrl        *string                `json:"baseUrl,omitempty"`
+	ClearAuth      *bool                  `json:"clearAuth,omitempty"`
 	DryRun         *bool                  `json:"dryRun,omitempty"`
 	Env            *map[string]string     `json:"env,omitempty"`
 	NeedsReview    *bool                  `json:"needsReview,omitempty"`
@@ -1697,6 +1920,11 @@ type GetAppReportParams struct {
 // GetAppReportParamsFormat defines parameters for GetAppReport.
 type GetAppReportParamsFormat string
 
+// GetAppTelemetryParams defines parameters for GetAppTelemetry.
+type GetAppTelemetryParams struct {
+	Window *int `form:"window,omitempty" json:"window,omitempty"`
+}
+
 // GetAppTrendsParams defines parameters for GetAppTrends.
 type GetAppTrendsParams struct {
 	Window *int                      `form:"window,omitempty" json:"window,omitempty"`
@@ -1705,6 +1933,12 @@ type GetAppTrendsParams struct {
 
 // GetAppTrendsParamsFormat defines parameters for GetAppTrends.
 type GetAppTrendsParamsFormat string
+
+// GetCoordinationEventsParams defines parameters for GetCoordinationEvents.
+type GetCoordinationEventsParams struct {
+	RunId *string `form:"runId,omitempty" json:"runId,omitempty"`
+	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // ListReposParams defines parameters for ListRepos.
 type ListReposParams struct {

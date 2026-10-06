@@ -24,9 +24,9 @@ import type { AgentRuntimeStrategy } from "./types";
 const ALLOWED_ASYMMETRIES: Record<string, string> = {
   onUsage:
     "Codex strategy intentionally does not accept onUsage: `codex exec --json` does not expose " +
-    "token usage in the current JSONL schema (pending T-P1-0 image-gated fixture confirmation). " +
+    "token usage in the current JSONL schema (pending an image-gated fixture confirming it). " +
     "Emitting null snapshots would fabricate data. A pending hook is documented in codex-strategy.ts " +
-    "for when the fixture proves usage is available. See AC3.3.1 / T-P3-3.",
+    "for when the fixture proves usage is available.",
   startEventStream:
     "Codex is exec-per-prompt; there is no persistent session server or global SSE bus. " +
     "CodexRuntimeStrategy.startEventStream is a no-op structural stub that provides method " +
@@ -121,7 +121,7 @@ const opencode = new OpenCodeRuntimeStrategy({ env: {} });
 const codex = new CodexRuntimeStrategy({ env: {} });
 const strategies: AgentRuntimeStrategy[] = [opencode, codex];
 
-describe("contract-parity guard (T-P3-1 / C3.1)", () => {
+describe("contract-parity guard", () => {
   for (const capability of OBSERVABLE_CONTRACT) {
     it(`both strategies expose capability: ${capability.name} (or asymmetry is declared)`, () => {
       for (const strategy of strategies) {
@@ -145,7 +145,7 @@ describe("contract-parity guard (T-P3-1 / C3.1)", () => {
     });
   }
 
-  it("AC3.1.2 — a capability present on one strategy but absent on the other (and not in ALLOWED_ASYMMETRIES) fails the guard", () => {
+  it("a capability present on one strategy but absent on the other (and not in ALLOWED_ASYMMETRIES) fails the guard", () => {
     /* Simulate: a hypothetical new capability added only to opencode, not in allowlist.
        The probe returns true for opencode, false for codex, with no allowlist entry.
      */

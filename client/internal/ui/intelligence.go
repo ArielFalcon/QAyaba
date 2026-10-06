@@ -168,14 +168,20 @@ func (m intelligenceModel) body() string {
 			start = len(sc.Entries) - 5
 		}
 		for _, e := range sc.Entries[start:] {
-			b.WriteString("    " + hintStyle.Render(fmt.Sprintf("%s  %-4s  killed %d/%d  %s",
-				fmtScore(e.ValueScore), e.Target, e.KilledCount, e.MutantCount, relativeTime(e.At))) + "\n")
+			b.WriteString("    " + hintStyle.Render(fmt.Sprintf("%s  %-4s  killed %s/%s  %s",
+				fmtScore(e.ValueScore), e.Target, fmtCount(e.KilledCount), fmtCount(e.MutantCount), relativeTime(e.At))) + "\n")
 		}
 	}
 	b.WriteString("\n")
 
 	/* ── CURRICULUM: which scenario archetypes have proven their worth ───────── */
-	if v.Curriculum != nil && len(v.Curriculum.Archetypes) > 0 {
+	if v.CurriculumCorrupt {
+		/* The stored row exists but cannot be read — a fault to repair, never the "no curriculum
+		   yet" of an app that simply has none. */
+		b.WriteString(labelRule(w, "curriculum", "") + "\n")
+		b.WriteString("  " + errorStyle.Render("✗ corrupt") + "  " +
+			hintStyle.Render("the stored curriculum cannot be read — archetype guidance is unavailable until it is repaired") + "\n")
+	} else if v.Curriculum != nil && len(v.Curriculum.Archetypes) > 0 {
 		proven := 0
 		for _, a := range v.Curriculum.Archetypes {
 			if a.CaughtRealBug {
@@ -263,6 +269,16 @@ func fmtScore(s *float32) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.2f", *s)
+}
+
+// fmtCount renders a nullable oracle count (mutantCount/killedCount): nil means "not measured",
+// never a fabricated 0, and never the raw pointer itself (which %d would otherwise print as an
+// address, not the pointed-to value).
+func fmtCount(n *int) string {
+	if n == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%d", *n)
 }
 
 func confidenceMeter(conf string) string {

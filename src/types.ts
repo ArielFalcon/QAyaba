@@ -78,13 +78,13 @@ export interface AgentResult {
   approved: boolean;  /* reviewer verdict (true when not reviewed) */
   note?: string;  /* reason when not approved (e.g. did not converge) */
   /*
-   * Option (c): browser NAVIGATIONS (route visits) the agent made THIS turn (RE-2 telemetry; counts
-   * `navigate`, not snapshots). Threaded into the fix-loop's RoundResult so the progress gate can
+   * Browser NAVIGATIONS (route visits) the agent made THIS turn (re-exploration telemetry;
+   * counts `navigate`, not snapshots). Threaded into the fix-loop's RoundResult so the progress gate can
    * treat a heavy-re-navigation retry that merely reshuffles the failure set as "no progress".
    * Absent ⇒ treated as 0 (no gating).
    */
   reexploreNavigations?: number;
-  
+
   objectiveCount?: number;
 }
 
@@ -254,6 +254,10 @@ export interface RunOutcome {
     static: boolean;
     coverageRatio: number | null;
     valueScore: number | null;
+    /* Real value-oracle counts when measured; absent means it never measured this run — never a
+     * fabricated 0 (indistinguishable from a genuine measured zero). */
+    mutantCount?: number;
+    killedCount?: number;
     reviewerCorrections: string[];
     /*
      * The reviewer's one/two-sentence reasoning for its verdict — on APPROVAL too, not only
@@ -300,11 +304,11 @@ export interface RunOutcome {
     catalogGateInWindow?: number;
     catalogGateAdvisory?: number;
     catalogGateFailClosed?: number;
-    
+
     structuralSignalBytes?: number;
     serviceLinksCount?: number;
     contractDriftCount?: number;
-    
+
     crossRepoImpactedCount?: number;
   };
   rulesRetrieved: string[];

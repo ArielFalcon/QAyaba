@@ -22,6 +22,24 @@ function rule(overrides: Partial<LearningRule> = {}): LearningRule {
   };
 }
 
+describe("renderLedgerReport — engine-side classes", () => {
+  it("reads an engine-side class in plain words, never as its E-… code", () => {
+    for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION"] as const) {
+      const out = renderLedgerReport([rule({ errorClass, status: "active", confidence: "medium" })]);
+      assert.doesNotMatch(out, new RegExp(errorClass), errorClass);
+      assert.doesNotMatch(out, /\bE-[A-Z]/, errorClass);
+    }
+  });
+});
+
+describe("renderLedgerReport — the precondition class", () => {
+  it("reads the precondition class in plain words, never as its E-… code", () => {
+    const out = renderLedgerReport([rule({ errorClass: "E-PRECONDITION", status: "active", confidence: "medium" })]);
+    assert.doesNotMatch(out, /E-PRECONDITION/);
+    assert.doesNotMatch(out, /\bE-[A-Z]/);
+  });
+});
+
 describe("renderLedgerReport — human-readable audit view", () => {
   it("renders a friendly empty state", () => {
     const out = renderLedgerReport([], { app: "portfolio" });

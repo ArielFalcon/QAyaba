@@ -3,6 +3,7 @@
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
+import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 
 
 export type CommitType =
@@ -77,7 +78,7 @@ export interface RouteRecon {
   path: string;
   component?: string;
   domLandmarks?: string[];
-  verified: boolean; /* DEPRECATED (vestigial after F3); retained for backward-compat, never branched on */
+  verified: boolean; /* DEPRECATED (vestigial: the planner never navigates); retained for backward-compat, never branched on */
 }
 export interface ExplorationBrief {
   builtForSha: string;
@@ -111,7 +112,10 @@ export interface OpencodeRunInput {
   reviewCorrections?: string[];
   coverageGap?: string;
   selectorContradictions?: string[];
+  /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
   learnedRules?: string;
+  /* Reviewer render of the retrieved rules: PROVEN (active) rules only, as reject-on-sight rules. The reviewer is the publish gate, so an unproven candidate must never become grounds for rejection; absent when no proven rule was retrieved. */
+  reviewerLearnedRules?: string;
   domSnapshot?: string;
   failureSourced?: boolean;
   runId?: string;
@@ -119,6 +123,10 @@ export interface OpencodeRunInput {
   explorer?: boolean;
   contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
+  /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */
+  harnessFacts?: HarnessFacts;
+  /* App login is declared but <e2eRelDir>/auth.setup.ts is still the stock seed and did not sign in: the generator must rewrite it before writing specs. Absent = nothing to rewrite. */
+  authSeedUnauthored?: boolean;
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
   staticSignal?: string;
   diffArchetypes?: string[];
@@ -150,7 +158,6 @@ export interface ReviewInput {
   /* A DETERMINISTIC snapshot of the live DEV DOM (roles + accessible names of the routes the spec targets), captured by the ORCHESTRATOR — not the generator, so independence holds. It grounds the reviewer's UI-fact claims (labels, button/link text) in reality instead of its training memory of "similar apps", which is what made it hallucinate corrections (e.g. "the button says Add Owner" when DEV says "Submit"). Absent for code mode / when capture is unavailable. */
   domSnapshot?: string;
   runId?: string;
-  objective?: string;
   priorCorrections?: string[];
   executionResult?: string;
 }

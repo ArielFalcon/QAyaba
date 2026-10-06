@@ -12,7 +12,8 @@ export interface ProgressSnapshot {
   readonly mutationFingerprint?: string;
 }
 
-export function fingerprintOf(parts: readonly string[]): string {
+/* An absent part joins as an empty string. */
+export function fingerprintOf(parts: readonly (string | undefined)[]): string {
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }
 
@@ -26,7 +27,7 @@ export function buildProgressSnapshot(input: {
 }): ProgressSnapshot {
   return {
     failureFingerprint: fingerprintOf([
-      input.failureClass ?? "",
+      input.failureClass,
       ...(input.failingNames ?? []).slice().sort(),
     ]),
     ...(input.changedFiles

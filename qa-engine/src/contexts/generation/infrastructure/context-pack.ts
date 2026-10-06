@@ -1,10 +1,36 @@
 /* Deterministic pre-generation context pack (DOM + explorer brief + contracts). Read-only on watched repos. Every component is fail-open: a failed piece yields an absent section, never a crashed run. */
 
 import { sanitizeText } from "./sanitize-text.ts";
-import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps } from "./dom-snapshot.ts";
+import { capDomLines, captureDomForRoutes, defaultCaptureDomDeps, MAX_ROUTES } from "./dom-snapshot.ts";
 import type { CaptureDomDeps } from "./dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext, ApiOperation } from "../application/ports/generation-ports.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
+import { partitionRoutes, type UncapturableRoute } from "../../../shared-kernel/route-capturability.ts";
+import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
+import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
+
+export { PACK_HEADINGS };
+
+const SECTION_FACTS: ReadonlyArray<readonly [string, FactId]> = [
+  [PACK_HEADINGS.blastRadius, "blast-radius"],
+  [PACK_HEADINGS.feBe, "fe-be-links"],
+  [PACK_HEADINGS.risks, "risks"],
+  [PACK_HEADINGS.liveDom, "dom-live"],
+  [PACK_HEADINGS.contracts, "api-operations"],
+];
+
+const escapeRegExp = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/* The pack reaches the prompt as an already-built string, so its claims come from the sections it actually rendered: a pack with only a DOM provides only the DOM. The live DOM's own heading labels it ground truth, so that is the one fact the pack frames. */
+export function deriveClaimsFromPackText(text: string): PromptClaim[] {
+  const claims: PromptClaim[] = [];
+  for (const [heading, fact] of SECTION_FACTS) {
+    if (!new RegExp(`^### ${escapeRegExp(heading)}`, "m").test(text)) continue;
+    claims.push(claim.provides(fact));
+    if (fact === "dom-live") claims.push(claim.frames(fact, "established"));
+  }
+  return claims;
+}
 
 
 export interface ContextPackInput {
@@ -21,7 +47,7 @@ export interface ContextPackInput {
   /* Diff/guidance selector signals forwarded to formatDomSnapshot for [CHANGED: …] annotation. Absent/empty → no annotation. */
   changedElements?: ChangedElement[];
 
-  /* Pillar 1 (selector grounding): the config-declared test-id convention (e.g. "data-cy"), forwarded to captureDomForRoutes so the DOM capture queries the right attribute and the agent transcribes real test-ids instead of guessing. Absent → capture defaults to "data-testid". */
+  /* Selector grounding: the config-declared test-id convention (e.g. "data-cy"), forwarded to captureDomForRoutes so the DOM capture queries the right attribute and the agent transcribes real test-ids instead of guessing. Absent → capture defaults to "data-testid". */
   testIdAttribute?: string;
 
   /* Before this field, candidateRoutes was populated ONLY from a brief (briefRoutePaths / contextMapRoutes gated on brief.feBe) — with the explorer pass unwired by design in production, there was NO brief-less route path at all, so the pack was structurally empty on every real run. */
@@ -31,7 +57,6 @@ export interface ContextPackInput {
 export interface ContextPackAssembly {
   text: string | undefined;
 
-  blastRadiusBytes: number;
   domBytes: number;
   contractBytes: number;
 }
@@ -97,34 +122,56 @@ function filterRelevantContracts(
 
 const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
 
-function renderBlastRadius(brief: ExplorationBrief): string {
-  if (!brief.blastRadius.length) return "";
-  const lines: string[] = ["### Blast radius (code — distilled from Serena)"];
-  for (const n of brief.blastRadius.slice(0, 200)) {
-    lines.push(`- \`${s(n.symbol)}\` (${s(n.file)}) — ${s(n.role)}`);
-  }
-  if (brief.feBe?.length) {
-    lines.push("### FE↔BE links");
-    for (const l of brief.feBe.slice(0, 50)) {
-      lines.push(`- Route \`${s(l.route)}\` → \`${s(l.operationId)}\`${l.via ? ` (via ${s(l.via)})` : ""}`);
-    }
-  }
-  if (brief.risks?.length) {
-    lines.push("### Risks / assert to catch regression");
-    for (const r of brief.risks.slice(0, 20)) lines.push(`- ${s(r)}`);
-  }
-  return lines.join("\n");
+/* The most routes the pack lists as not capturable: a long list says no more than its first lines. */
+export const MAX_LISTED_UNCAPTURABLE = 8;
+
+/* The routes left out of the capture because they name no single page, each with why. They are not degraded pages: nothing was captured for them. */
+function renderNotCapturable(routes: readonly UncapturableRoute[]): string {
+  if (routes.length === 0) return "";
+  const listed = routes.slice(0, MAX_LISTED_UNCAPTURABLE).map((entry) => `- ${s(entry.route)} (${entry.reason})`);
+  const more = routes.length - listed.length;
+  return [`### ${PACK_HEADINGS.notCapturable}`, ...listed, ...(more > 0 ? [`(+${more} more)`] : [])].join("\n");
 }
 
 function renderContracts(ops: ApiOperation[]): string {
   if (!ops.length) return "";
-  const lines: string[] = ["### Relevant API contracts (from context.json — assert these at the boundary)"];
+  const lines: string[] = [`### ${PACK_HEADINGS.contracts} (from context.json — assert these at the boundary)`];
   for (const op of ops) {
     lines.push(`- \`${s(op.operationId)}\`: ${s(op.method)} ${s(op.path)}${op.service ? ` (${s(op.service)})` : ""}`);
   }
   return lines.join("\n");
 }
 
+
+/* The pack without one of its sections, for a caller that supplies that content fresher elsewhere. `undefined` when no section remains: a header with nothing under it is no pack. */
+export function withoutPackSection(text: string, heading: string): string | undefined {
+  const start = new RegExp(`^### ${escapeRegExp(heading)}`);
+  const kept: string[] = [];
+  let skipping = false;
+  let removed = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) skipping = start.test(line);
+    if (skipping) removed = true;
+    else kept.push(line);
+  }
+  if (!removed) return text;
+  if (!kept.some((line) => line.startsWith("### "))) return undefined;
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s+$/, "");
+}
+
+interface PackSection {
+  text: string;
+  /* How the pack's header names the section. */
+  held: string;
+}
+
+const hasText = (section: PackSection): boolean => section.text.length > 0;
+
+/* The capture reports the grounded routes and, after them, the pages redirects reached under a heading of their own; the live DOM section takes the first and the pack keeps the second as a section apart. */
+function splitRedirectSection(captured: string): { grounded: string; advisory: string } {
+  const [grounded = "", ...advisory] = captured.split(new RegExp(`^(?=### ${escapeRegExp(PACK_HEADINGS.redirected)})`, "m"));
+  return { grounded: grounded.trimEnd(), advisory: advisory.join("").trimEnd() };
+}
 
 export async function buildContextPack(
   input: ContextPackInput,
@@ -133,13 +180,8 @@ export async function buildContextPack(
   const log = deps.log ?? (() => {});
   const domBudgetChars = Math.floor(DOM_BUDGET_BYTES / BYTES_PER_CHAR);
 
-  let blastSection = "";
-  if (input.brief && input.brief.blastRadius.length > 0) {
-    blastSection = renderBlastRadius(input.brief);
-  }
-
-  const DOM_ROUTE_CAP = 6;
   let domSection = "";
+  let redirectSection = "";
   const briefRoutePaths = new Set<string>(
     (input.brief?.routes ?? [])
       .filter((r) => r.path)
@@ -153,18 +195,22 @@ export async function buildContextPack(
     }
   }
   const deterministicRoutes = new Set<string>(input.routes ?? []);
-  const candidateRoutes = [...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes].filter(Boolean);
-  const briefRoutes = candidateRoutes.slice(0, DOM_ROUTE_CAP);
+  /* A route that names no single page is dropped, and a route named twice counted once, BEFORE the cut: neither may take the slot of a route behind it. */
+  const { capturable, uncapturable } = partitionRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
+  const briefRoutes = capturable.slice(0, MAX_ROUTES);
+  for (const entry of uncapturable) log(`[qa] context-pack: route not capturable, left out of the capture: ${entry.route} (${entry.reason})`);
   if (briefRoutes.length > 0 && input.e2eDir && input.baseUrl) {
     try {
       const rawCaptured = await deps.captureDomForRoutes(briefRoutes, { e2eDir: input.e2eDir, baseUrl: input.baseUrl, testIdAttribute: input.testIdAttribute }, deps.domDeps, input.changedElements);
       const raw = rawCaptured ? sanitizeText(rawCaptured, "model").text : rawCaptured;
       if (raw) {
-        const lines = raw.split("\n");
+        const { grounded, advisory } = splitRedirectSection(raw);
+        redirectSection = advisory;
+        const lines = grounded.split("\n");
         const maxLines = Math.max(10, Math.floor(domBudgetChars / 60));
         const { kept, dropped } = capDomLines(lines, maxLines);
         domSection = [
-          "### Live DOM (a11y tree — GROUND TRUTH for selectors)",
+          `### ${PACK_HEADINGS.liveDom} (a11y tree — GROUND TRUTH for selectors)`,
           "These roles + accessible names are what the browser ACTUALLY exposes.",
           "Author selectors ONLY from what appears here — if a role is absent, it is NOT in the tree.",
           kept.join("\n"),
@@ -186,26 +232,31 @@ export async function buildContextPack(
     log(`[qa] context-pack: ${relevantOps.length} relevant API contract(s) included`);
   }
 
-  const blastRadiusBytes = Buffer.byteLength(blastSection, "utf8");
   const domBytes = Buffer.byteLength(domSection, "utf8");
   const contractBytes = Buffer.byteLength(contractSection, "utf8");
 
-  const parts = [blastSection, domSection, contractSection].filter((p) => p.length > 0);
-  if (parts.length === 0) {
-    return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+  const sections = [
+    { text: domSection, held: "the live DOM of the routes it covers" },
+    { text: redirectSection, held: "the pages reached by redirect (advisory)" },
+    { text: contractSection, held: "the API contracts relevant to this objective" },
+  ].filter(hasText);
+  if (sections.length === 0) {
+    return { text: undefined, domBytes: 0, contractBytes: 0 };
   }
+  /* The list of routes left out accompanies a pack that has something to say; it is no reason to make one. */
+  sections.push(...[{ text: renderNotCapturable(uncapturable), held: "the routes not capturable, with why" }].filter(hasText));
 
+  /* The header names the sections the pack actually rendered: a pack with no DOM never mentions one. */
+  const held = sections.map((section) => section.held).join(" and ");
+  const parts = sections.map((section) => section.text);
   const packHeader = [
-    "## Context Pack (pushed by the orchestrator before the first write)",
+    `## ${PACK_HEADINGS.pack} (pushed by the orchestrator before the first write)`,
     "",
-    "This pack is the ground truth for this objective. It was built deterministically by",
-    "the orchestrator BEFORE this session started. Use it to transcribe real selectors and",
-    "verify blast-radius symbols; do NOT re-navigate routes already covered here or re-read",
-    "code symbols already in the blast-radius section (the brief already distilled them).",
-    "If the pack is absent for a route, fall back to the Playwright MCP to explore it yourself.",
+    "The orchestrator built this pack deterministically before this session started.",
+    `It holds ${held}.`,
     "",
   ].join("\n");
 
   const text = packHeader + parts.join("\n\n");
-  return { text, blastRadiusBytes, domBytes, contractBytes };
+  return { text, domBytes, contractBytes };
 }

@@ -21,12 +21,13 @@ import type {
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import {
   createCoordinationPort,
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   SidekickExecutor,
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
+import { scriptedGeneration } from "../../../support/generation-output.ts";
 const MIRROR = "/tmp/qa-fixloop";
 const SPEC_DIR = `${MIRROR}/e2e`;
 
@@ -125,7 +126,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -135,7 +136,7 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
       return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () => {
@@ -152,6 +153,10 @@ test("active fix-loop-regen uses sidekick for FixLoop regen and skips Generation
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [
+            { criterion: 1, status: "unverified" },
+            { criterion: 2, status: "met" },
+          ],
         });
       },
     },
@@ -179,7 +184,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -206,6 +211,7 @@ test("active with only pre-generate enabled keeps FixLoop on GenerationPort", as
           concerns: [],
           unresolvedQuestions: ["layout?"],
           recommendation: "escalate",
+          acceptance: [],
         });
       },
     },
@@ -229,7 +235,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
   const ports = basePorts({
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
@@ -239,7 +245,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
       return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () =>
@@ -255,6 +261,7 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
           concerns: [],
           unresolvedQuestions: ["which layout?"],
           recommendation: "escalate",
+          acceptance: [],
         }),
     },
   });
@@ -281,6 +288,201 @@ test("FixLoop needs-lead advances escalation ladder and fails open to Generation
   );
 });
 
+/* A first execute that fails once, then passes — enough to reach one FixLoop regen round. */
+function failOnceThenPass(): ExecutionPort["execute"] {
+  let executeCalls = 0;
+  return async () => {
+    executeCalls++;
+    if (executeCalls === 1) {
+      return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
+    }
+    return { verdict: "pass", cases: [{ name: "login", status: "pass" }], logs: "" };
+  };
+}
+
+test("an app login keeps FixLoop regen on the lead and never opens a sidekick session", async () => {
+  ensureFixedSpec();
+  let generateCalls = 0;
+  let opened = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
+    },
+    execute: failOnceThenPass(),
+  });
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        opened++;
+        return sessionReturning({
+          delegationId: "coord-fixloop-login-fix-loop-regen",
+          runId: "coord-fixloop-login",
+          status: "completed",
+          summary: "should not run",
+          filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+          acceptance: [],
+        });
+      },
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    sidekick,
+    authSession: { prepare: async () => ({ unauthored: false }) },
+    authContext: {
+      baseUrl: "https://dev.example",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    },
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-login" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(opened, 0, "the sidekick browser has no login session, so it must never author the fix");
+  assert.equal(generateCalls, 2, "initial generate + the FixLoop regen, both on the lead");
+});
+
+test("a FixLoop sidekick whose claimed files are not on disk falls back to the lead and is recorded as claimed-files-missing", async () => {
+  let generateCalls = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
+    },
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () =>
+        sessionReturning({
+          delegationId: "coord-fixloop-missing-fix-loop-regen",
+          runId: "coord-fixloop-missing",
+          status: "completed",
+          summary: "claimed without writing",
+          filesChanged: [{ path: "e2e/never-written-fix.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+          acceptance: [],
+        }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-missing" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCalls, 2, "the FixLoop regen falls back to the lead when no claimed file exists");
+  const delegation = tel.events.find((e) => e.kind === "delegation" && e.reason.includes("fix-loop"));
+  assert.equal(delegation?.failureClass, "claimed-files-missing");
+});
+
+test("a FixLoop sidekick reporting an unmet criterion is blocked and the regen falls back to the lead", async () => {
+  ensureFixedSpec();
+  let generateCalls = 0;
+  const ports = basePorts({
+    generate: async () => {
+      generateCalls++;
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
+    },
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () =>
+        sessionReturning({
+          delegationId: "coord-fixloop-unmet-fix-loop-regen",
+          runId: "coord-fixloop-unmet",
+          status: "completed",
+          summary: "rewrote the spec",
+          filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+          acceptance: [
+            { criterion: 1, status: "unmet", note: "the login case still fails on DEV" },
+            { criterion: 2, status: "met" },
+          ],
+        }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  const out = await useCase.run({ ...input, runId: "coord-fixloop-unmet" });
+  assert.equal(out.decision.verdict, "pass");
+  assert.equal(generateCalls, 2, "initial generate + the FixLoop regen on the lead, not the blocked sidekick work");
+  const delegation = tel.events.find((e) => e.kind === "delegation" && e.reason.includes("fix-loop"));
+  assert.equal(delegation?.failureClass, "blocked");
+});
+
+test("a FixLoop sidekick result without an acceptance report is recorded as a pushback contract finding", async () => {
+  ensureFixedSpec();
+  const ports = basePorts({
+    generate: async () => (scriptedGeneration({ specs: ["lead.spec.ts"], approved: true })),
+    execute: failOnceThenPass(),
+  });
+  const tel = new CoordinationTelemetryRecorder();
+  const answer = {
+    delegationId: "coord-fixloop-noreport-fix-loop-regen",
+    runId: "coord-fixloop-noreport",
+    status: "completed",
+    summary: "fixed selector",
+    filesChanged: [{ path: "e2e/fixed.spec.ts" }],
+    evidence: [],
+    validation: [],
+    assumptions: [],
+    concerns: ["fails acceptance criterion 1"],
+    unresolvedQuestions: [],
+    recommendation: "accept",
+  };
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => ({
+        async prompt() {
+          return { output: JSON.stringify(answer) };
+        },
+        async dispose() {},
+      }),
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["fix-loop-regen"],
+    coordinationTelemetry: tel,
+    sidekick,
+  });
+  await useCase.run({ ...input, runId: "coord-fixloop-noreport" });
+  const finding = tel.events.find((e) => e.kind === "pushback");
+  assert.equal(finding?.failureClass, "acceptance-report-missing");
+  assert.equal(finding?.delegationId, "coord-fixloop-noreport-fix-loop-regen");
+  assert.equal(finding?.app, "demo");
+});
+
 test("FixLoop honors abort-human when wall-clock budget is exhausted", async () => {
   let generateCalls = 0;
   let executeCalls = 0;
@@ -289,14 +491,14 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
     wallClockBudgetMs: 0,
     generate: async () => {
       generateCalls++;
-      return { specs: ["lead.spec.ts"], approved: true };
+      return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
     },
     execute: async () => {
       executeCalls++;
       return { verdict: "fail", cases: [{ name: "login", status: "fail", detail: "boom" }], logs: "" };
     },
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () => {
@@ -313,6 +515,7 @@ test("FixLoop honors abort-human when wall-clock budget is exhausted", async () 
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },

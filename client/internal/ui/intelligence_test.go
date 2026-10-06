@@ -141,6 +141,43 @@ func TestIntelligenceGroundTruthScorecard(t *testing.T) {
 	}
 }
 
+// O3: mutantCount/killedCount are now *int (nullable — "not measured" vs a genuine measured
+// zero). A real value must render as its actual digits, and a nil (never measured) must render
+// as a placeholder, never as a raw pointer address or a fabricated "0".
+func TestIntelligenceScorecardEntryRendersRealAndUnmeasuredCounts(t *testing.T) {
+	avg := float32(0.82)
+	killed, mutants := 17, 20
+	m := newIntelligenceModel(api.New("http://x", ""), "qayaba")
+	m.loading = false
+	m.width = 96
+	m.view = &contract.IntelligenceView{
+		App: "qayaba",
+		Scorecard: &contract.ScorecardView{
+			AvgValueScore: &avg, LastValueScore: &avg, MeasuredRuns: 2, TotalRuns: 2,
+			Entries: []struct {
+				At          string   `json:"at"`
+				KilledCount *int     `json:"killedCount"`
+				MutantCount *int     `json:"mutantCount"`
+				Target      string   `json:"target"`
+				ValueScore  *float32 `json:"valueScore"`
+			}{
+				{At: "2026-09-01T00:00:00Z", KilledCount: &killed, MutantCount: &mutants, Target: "code", ValueScore: &avg},
+				{At: "2026-09-02T00:00:00Z", KilledCount: nil, MutantCount: nil, Target: "e2e", ValueScore: nil},
+			},
+		},
+	}
+	out := m.body()
+	if !strings.Contains(out, "killed 17/20") {
+		t.Fatalf("expected the real measured counts 'killed 17/20' to render:\n%s", out)
+	}
+	if strings.Contains(out, "killed 0/0") {
+		t.Fatalf("an unmeasured entry must never render as the fabricated rate 'killed 0/0':\n%s", out)
+	}
+	if !strings.Contains(out, "killed —/—") {
+		t.Fatalf("an unmeasured entry must render a placeholder, not a raw pointer or garbage value:\n%s", out)
+	}
+}
+
 func TestDashboardIntelKeyOpensIntelligence(t *testing.T) {
 	m := dashWith([]contract.AppView{{Name: "portfolio"}})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
@@ -149,5 +186,28 @@ func TestDashboardIntelKeyOpensIntelligence(t *testing.T) {
 	}
 	if msg, ok := cmd().(intelligenceSelectedMsg); !ok || msg.app != "portfolio" {
 		t.Fatalf("i should open intelligence for the selected app, got %#v", cmd())
+	}
+}
+
+/* A corrupt stored curriculum is a fault the operator must see, not the "no curriculum yet" of an
+   app that simply has none. */
+func TestIntelligenceShowsACorruptCurriculumAsCorrupt(t *testing.T) {
+	cases := []struct {
+		name    string
+		view    contract.IntelligenceView
+		corrupt bool
+	}{
+		{"a corrupt stored curriculum", contract.IntelligenceView{App: "shop", CurriculumCorrupt: true}, true},
+		{"no curriculum yet", contract.IntelligenceView{App: "shop"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newIntelligenceModel(api.New("http://x", ""), "shop")
+			m, _ = m.Update(intelligenceLoadedMsg{view: tc.view})
+			got := strings.ToLower(visibleText(m.View()))
+			if strings.Contains(got, "corrupt") != tc.corrupt {
+				t.Fatalf("corrupt shown = %v, want %v:\n%s", !tc.corrupt, tc.corrupt, got)
+			}
+		})
 	}
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LoginPathSchema } from "../../qa-engine/src/shared-kernel/login-path";
 
 /*
  * ── boundaries[] schema (Stitcher → Generation seam) ──────────────────────────
@@ -96,20 +97,7 @@ export const AppConfigSchema = z
       needsReview: z.boolean(),
       testDataPrefix: z.string().min(1, { error: "qa.testDataPrefix is required" }),
       shadow: z.boolean().optional(),
-      /*
-       * Diff-mode fan-out: when true, a diff run plans the blast radius into objectives
-       * and dispatches parallel qa-workers (>=2 objectives; single-agent otherwise).
-       * SCHEMA-ONLY (not implemented): YAML parses the flag; the engine ignores it. Do not
-       * treat a true value as parallel generation.
-       */
-      parallelDiff: z.boolean().optional(),
-      
       explorer: z.boolean().optional(),
-      /*
-       * SCHEMA-ONLY (not implemented): YAML parses the flag; fix-loop / coverage retries still
-       * open a fresh generator session. Do not treat a true value as session reuse.
-       */
-      sessionContinuity: z.boolean().optional(),
       /*
        * Change-coverage policy (the value keystone). off = skip; signal (default) = measure +
        * record only; enforce = also try to close the gap and block publishing if it stays low.
@@ -132,8 +120,6 @@ export const AppConfigSchema = z
        * byte-for-byte. NO `enforce`: advisory signals have no block semantics.
        */
       structuralSignals: z.object({ mode: z.enum(["off", "signal"]) }).optional(),
-      /* SCHEMA-ONLY (not implemented): YAML parses the flag; decide stays all-or-nothing. */
-      specTriage: z.boolean().optional(),
       /*
        * Run-intelligence report tuning. `weights` overrides the ranker's per-insight interestingness
        * weight by insight id (e.g. { "change-coverage": 1.5 }); ids left out keep their defaults.
@@ -152,7 +138,7 @@ export const AppConfigSchema = z
           maxRetries: z.number().int().min(0).max(5).optional(),
         })
         .optional(),
-      
+
       iterationBudget: z.number().int().positive().optional(),
       /*
        * Optional run-level wall-clock ceiling (ms). When the run's total elapsed time exceeds this at
@@ -194,6 +180,23 @@ export const AppConfigSchema = z
           .optional(),
       })
       .optional(),
+    /*
+     * App login. Absent = public app. `form` is a Playwright setup project that
+     * writes storageState; `mtls` is a software PKCS#12 presented on the TLS
+     * handshake. Values stay in the env store — these fields are variable names.
+     * HTTP Basic of the DEV environment stays DEV_ENV_USER/PASS and is not this block.
+     */
+    auth: z
+      .object({
+        kind: z.enum(["form", "mtls"]),
+        usernameEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        passwordEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        certEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        certPassEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+        /* Where the login page lives when it is not found by following the app's own links. Form logins only. */
+        loginPath: LoginPathSchema.optional(),
+      })
+      .optional(),
     code: z.boolean().optional(),
     /*
      * Stitcher → Generation seam: the app's declared cross-service call conventions
@@ -207,7 +210,7 @@ export const AppConfigSchema = z
       onFailure: z.string().min(1),
     }),
   })
-  
+
   .refine((c) => c.code === true || c.dev !== undefined, {
     error: "dev is required unless code: true (code mode has no web environment)",
     path: ["dev"],
@@ -219,6 +222,22 @@ export const AppConfigSchema = z
   .refine((c) => !(c.code === true && (c.boundaries?.length ?? 0) > 0), {
     error: "boundaries are only valid for e2e apps (code-mode apps have no cross-service graph)",
     path: ["boundaries"],
+  })
+  .refine((c) => !(c.code === true && c.auth !== undefined), {
+    error: "auth is only valid for e2e apps (code-mode apps have no browser session)",
+    path: ["auth"],
+  })
+  .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
+    error: "auth.kind form requires usernameEnv and passwordEnv",
+    path: ["auth"],
+  })
+  .refine((c) => c.auth?.kind !== "mtls" || c.auth.loginPath === undefined, {
+    error: "auth.loginPath is only valid for kind form",
+    path: ["auth", "loginPath"],
+  })
+  .refine((c) => c.auth?.kind !== "mtls" || (!!c.auth.certEnv && !!c.auth.certPassEnv), {
+    error: "auth.kind mtls requires certEnv and certPassEnv",
+    path: ["auth"],
   })
   .refine(
     (c) => {
@@ -274,17 +293,35 @@ export const SpecMetaSchema = z.object({
   targets: z.array(z.string()).default([]),
 });
 
+/* A generator's decision to write nothing, with the reason it gives. */
+const NoopDecisionSchema = z.object({ reason: z.string().trim().min(1) });
+
 /*
- * The GENERATOR's deliverable. It no longer self-reports `approved` — the independent
- * reviewer is the authoritative gate — so its closing JSON is just the specs it wrote plus
- * optional per-spec metadata. An EMPTY specs array is a valid no-op (nothing worth testing),
- * so `specs` is required-but-may-be-empty. A stray `approved` field is ignored (stripped).
+ * The GENERATOR's deliverable. It does not self-report `approved` — the independent
+ * reviewer is the authoritative gate — so its closing JSON is the specs it wrote plus
+ * optional per-spec metadata. An EMPTY specs array is a decision only when it carries a
+ * reasoned `noop` ({"specs":[],"noop":{"reason":"…"}}): silence is not a decision, and neither is
+ * `approved`, which is ignored (stripped). A missing `specs` is an empty list, so a reasoned `noop`
+ * alone is a decision, exactly as `parseVerdict` reads it. A `noop` beside real specs is not read at all.
  */
-export const GeneratorVerdictSchema = z.object({
-  specs: z.array(z.string()),
-  specMetas: z.array(SpecMetaSchema).optional(),
-  note: z.string().optional(),
-});
+export const GeneratorVerdictSchema = z
+  .object({
+    specs: z.array(z.string()).default([]),
+    specMetas: z.array(SpecMetaSchema).optional(),
+    note: z.string().optional(),
+    noop: z.unknown().optional(),
+  })
+  .superRefine((verdict, ctx) => {
+    if (verdict.specs.length > 0 || NoopDecisionSchema.safeParse(verdict.noop).success) return;
+    ctx.addIssue({
+      code: "custom",
+      path: ["noop"],
+      message:
+        verdict.noop === undefined
+          ? 'an empty "specs" list is only a decision with a "noop" object: {"noop":{"reason":"why nothing was written"}}'
+          : 'a "noop" needs a non-empty text "reason"',
+    });
+  });
 
 export type ValidatedGeneratorVerdict = z.infer<typeof GeneratorVerdictSchema>;
 

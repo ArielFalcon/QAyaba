@@ -29,7 +29,7 @@ test("renderIssue: a fail run with 3 failing cases shows the headline and capped
   assert.match(body, /Error: getByRole resolved to 0 elements/);
 });
 
-test("renderIssue: contains no raw execution-log text (the regression this slice fixes — no logs input exists to embed)", () => {
+test("renderIssue: contains no raw execution-log text (no logs input exists to embed)", () => {
   const body = renderIssue({ verdict: "fail", cases: [failCase()] });
   /* renderIssue's own input shape (RenderIssueInput) carries no `logs` field at all — structural
      proof that a raw log dump cannot reach the body through this function.
@@ -57,7 +57,7 @@ test("renderIssue: an invalid verdict renders the static-gate headline", () => {
   assert.match(body, /the generated tests could not be validated \(static gate\)/);
 });
 
-/* ── Existing engine-adjudication + reviewer-unavailable sections — KEPT (binding rider) ────────── */
+/* ── Existing engine-adjudication + reviewer-unavailable sections — KEPT ────────── */
 
 test("renderIssue: renders an 'Engine adjudication' section when adjudication is present", () => {
   const body = renderIssue({

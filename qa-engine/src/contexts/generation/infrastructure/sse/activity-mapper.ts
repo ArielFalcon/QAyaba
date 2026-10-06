@@ -1,23 +1,11 @@
-/* This is the v2-ready, enriched successor to agent-activity.ts's router: it uses every SDK signal worth surfacing (docs/tui-vnext.md §6) and NEVER surfaces model prose — only structured tool/todo/command facts. SDK facts used (types.gen.d.ts): message.part.updated → properties.part: Part (sessionID lives on the part) ToolPart { tool, callID, state: ToolState } ToolState .status running|completed|error · .title (OpenCode-authored label) · .input (filePath/command/description) · .output text/reasoning/step parts → PROSE → dropped todo.updated → { sessionID, todos: [{ content, status }] } command.executed → { sessionID, name, arguments } session.error → { sessionID?, error } */
+/* This is the v2-ready, enriched successor to agent-activity.ts's router: it uses every SDK signal worth surfacing and NEVER surfaces model prose — only structured tool/todo/command facts. SDK facts used (types.gen.d.ts): message.part.updated → properties.part: Part (sessionID lives on the part) ToolPart { tool, callID, state: ToolState } ToolState .status running|completed|error · .title (OpenCode-authored label) · .input (filePath/command/description) · .output text/reasoning/step parts → PROSE → dropped todo.updated → { sessionID, todos: [{ content, status }] } command.executed → { sessionID, name, arguments } session.error → { sessionID?, error } */
 
 import type { RunEventBody } from "@kernel/contract/events.ts";
+import { kindForTool, toolInputPath } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 
 export interface RawOpencodeEvent {
   type: string;
   properties?: Record<string, unknown>;
-}
-
-type ActivityKind = "analyzing" | "writing" | "command" | "subagent";
-
-const WRITE_TOOLS = /^(write|edit|multiedit|create|apply_patch|patch)$/i;
-const SHELL_TOOLS = /^(bash|shell|run|exec)$/i;
-const SUBAGENT_TOOLS = /^(task|agent|subtask|dispatch)$/i;
-
-function kindForTool(tool: string): ActivityKind {
-  if (WRITE_TOOLS.test(tool)) return "writing";
-  if (SHELL_TOOLS.test(tool)) return "command";
-  if (SUBAGENT_TOOLS.test(tool)) return "subagent";
-  return "analyzing";
 }
 
 function basename(p: string): string {
@@ -37,8 +25,8 @@ interface ToolStateLike {
 function targetFor(tool: string, state: ToolStateLike): string {
   if (state.title && state.title.trim()) return cap(state.title.trim());
   const input = state.input ?? {};
-  const file = input.filePath ?? input.path ?? input.file ?? input.filename;
-  if (typeof file === "string" && file) return basename(file);
+  const file = toolInputPath(input);
+  if (file) return basename(file);
   const cmd = input.command ?? input.cmd ?? input.script;
   if (typeof cmd === "string" && cmd) return cap(cmd.trim());
   const desc = input.description ?? input.prompt;
@@ -48,8 +36,8 @@ function targetFor(tool: string, state: ToolStateLike): string {
 
 function specFile(state: ToolStateLike): string | undefined {
   const input = state.input ?? {};
-  const f = input.filePath ?? input.path ?? input.file;
-  if (typeof f === "string" && /\.spec\.[tj]sx?$/.test(f)) return basename(f);
+  const f = toolInputPath(input);
+  if (f && /\.spec\.[tj]sx?$/.test(f)) return basename(f);
   return undefined;
 }
 
@@ -137,8 +125,8 @@ export function mapCodexExecEvent(line: string): RunEventBody[] {
   if (type === "tool_use" || type === "tool") {
     const tool = String(event.name ?? "tool");
     const input = event.input as Record<string, unknown> | undefined ?? {};
-    const file = input.filePath ?? input.path ?? input.file;
-    const target = (typeof file === "string" && file) ? basename(file) : cap(tool);
+    const file = toolInputPath(input);
+    const target = file ? basename(file) : cap(tool);
     const kind = kindForTool(tool);
     return [{ type: "agent.activity", kind, target, status: "running" }];
   }

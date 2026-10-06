@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,7 +11,6 @@ import {
   parseVerdict,
   extractJsonObjects,
   specFileForFlow,
-  agentTimeout,
   buildWorkerPrompt,
   buildExplorerPrompt,
   renderArchitectureContext,
@@ -19,9 +18,13 @@ import {
   buildReviewerPromptAssembled,
   renderExecutionResult,
   AgentDeps,
-  AgentTurnEvent,
   askAssistant,
+  maxStepsFromConfig,
+  fallbackModelFromConfig,
+  createRawEventStreamOpener,
 } from "./opencode-client";
+import { setRawEventStreamOpener, startScopedEventStream } from "@contexts/generation/infrastructure/sse/event-stream";
+import type { StreamLifecycleSink, StreamToken } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 import type { ArchitectureContext, ExplorationBrief, OpencodeRunInput, ReviewInput, ParallelWorkerInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
@@ -39,7 +42,7 @@ test("renderArchitectureContext sanitizes injected fields (no prompt-injection /
   assert.doesNotMatch(out, /ghp_AAAA/, "a token in context.json must be redacted before the prompt");
 });
 
-test("renderArchitectureContext: a root route '/' does not scope-match every changed file (M9)", () => {
+test("renderArchitectureContext: a root route '/' does not scope-match every changed file", () => {
   const ctx: ArchitectureContext = {
     builtAtSha: "abc1234def",
     routes: [{ path: "/" }, { path: "/checkout" }],
@@ -75,7 +78,6 @@ test("buildPrompt includes repo, sha, namespace, e2e folder and the diff", () =>
   assert.match(p, /qa-bot-abc123/);
   assert.match(p, /e2e\//);
   assert.match(p, /const x = 1;/);
-  assert.match(p, /independent reviewer/i);
   assert.match(p, /project="demo-app"/);
 });
 
@@ -98,7 +100,7 @@ test("buildPrompt sanitizes the diff (defense in depth)", () => {
   assert.match(p, /\[REDACTED\]/);
 });
 
-test("buildPrompt (Slice 6b, model mode): a bare short unquoted assignment is treated as code-shaped, not a secret — narrower than issue mode by design", () => {
+test("buildPrompt (model mode): a bare short unquoted assignment is treated as code-shaped, not a secret — narrower than issue mode by design", () => {
   /* model mode only redacts a quoted
      string literal or a high-entropy (>=12 chars, mixed-case, has-digit) bare token. "hunter2" is
      neither (7 chars, no uppercase) — model mode intentionally leaves it alone, trading a weak-secret
@@ -109,17 +111,14 @@ test("buildPrompt (Slice 6b, model mode): a bare short unquoted assignment is tr
   assert.match(p, /hunter2/, "model mode must not redact a short bare unquoted value — it reads as code, not a secret literal");
 });
 
-test("buildPrompt without review omits the reviewer instruction", () => {
-  const p = buildPrompt({ ...input, needsReview: false });
-  assert.match(p, /Review disabled for this run/);
-  assert.doesNotMatch(p, /independent reviewer/i);
+test("buildPrompt does not depend on whether review is enabled: the run's review flag never reaches the agent", () => {
+  assert.equal(buildPrompt({ ...input, needsReview: false }), buildPrompt({ ...input, needsReview: true }));
 });
 
-test("buildPrompt includes the OpenAPI hint and the no-direct-call rule when configured", () => {
+test("buildPrompt includes the OpenAPI hint when configured (the no-direct-call rule lives in AGENTS Global rules)", () => {
   const p = buildPrompt({ ...input, openapi: "**/src/main/resources/openapi/*.yaml" });
   assert.match(p, /OpenAPI contract/);
   assert.match(p, /src\/main\/resources\/openapi/);
-  assert.match(p, /never call the API directly/);
 });
 
 test("buildPrompt joins multiple OpenAPI globs and omits the line when no hint is set", () => {
@@ -242,6 +241,43 @@ test("parseVerdict reads the new generator contract (specs, no approved) — app
   assert.equal(v.specMetas?.length, 1);
 });
 
+test("parseVerdict reads a declared no-op's reason", () => {
+  const v = parseVerdict('done.\n{"specs":[],"noop":{"reason":"The diff only renames an internal helper."}}');
+  assert.equal(v.parsed, true);
+  assert.deepEqual(v.specs, []);
+  assert.equal(v.noopReason, "The diff only renames an internal helper.");
+});
+
+test("parseVerdict trims a no-op's reason and reads a blank or missing one as no decision", () => {
+  assert.equal(parseVerdict('{"specs":[],"noop":{"reason":"  because  "}}').noopReason, "because");
+  for (const noop of ['{"reason":"   "}', "{}", "true", '"because"', '{"reason":5}']) {
+    const v = parseVerdict(`{"specs":[],"noop":${noop}}`);
+    assert.equal(v.parsed, true, noop);
+    assert.equal(v.noopReason, undefined, noop);
+  }
+});
+
+test("parseVerdict finds a closing verdict that carries only a no-op", () => {
+  const v = parseVerdict('{"noop":{"reason":"nothing to test"}}');
+  assert.equal(v.parsed, true);
+  assert.equal(v.noopReason, "nothing to test");
+});
+
+test("parseVerdict never reads `approved` as a no-op decision", () => {
+  for (const text of ['{"approved":true}', '{"approved":true,"specs":[]}']) {
+    const v = parseVerdict(text);
+    assert.equal(v.parsed, true, text);
+    assert.deepEqual(v.specs, [], text);
+    assert.equal(v.noopReason, undefined, text);
+  }
+});
+
+test("parseVerdict reads the specs and the reason of a verdict that carries both", () => {
+  const v = parseVerdict('{"specs":["a.spec.ts"],"noop":{"reason":"also nothing"}}');
+  assert.deepEqual(v.specs, ["a.spec.ts"]);
+  assert.equal(v.noopReason, "also nothing");
+});
+
 test("parseVerdict handles a verdict with a NESTED object (regression: old regex truncated it)", () => {
   const v = parseVerdict('done.\n{"approved": true, "specs": ["a.spec.ts"], "meta": {"changeRef": {"sha": "x"}}}');
   assert.equal(v.parsed, true);
@@ -308,7 +344,10 @@ test("buildPrompt surfaces reviewer corrections as the highest-priority block", 
   const p = buildPrompt({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] });
   assert.match(p, /Apply reviewer corrections/);
   assert.match(p, /scope the selector to the header/);
-  assert.ok(p.indexOf("Apply reviewer corrections") < p.indexOf("Generate/update E2E tests"));
+  const order = Object.keys(
+    buildPromptAssembled({ ...input, reviewCorrections: ["a.spec.ts: scope the selector to the header"] }).sectionSizes,
+  );
+  assert.ok(order.indexOf("reviewer-corrections") < order.indexOf("task"), "corrections come before the task");
 });
 
 test("buildWorkerPrompt injects the exploration brief and forbids re-exploring the code", () => {
@@ -354,7 +393,7 @@ test("buildPrompt injects the exploration brief and tells the generator not to r
   assert.doesNotMatch(buildPrompt(input), /Exploration brief/, "no brief → no brief section (back-compat)");
 });
 
-test("FIX 2: buildExplorerPrompt renders the GUIDANCE (not the empty diff) as the manual exploration objective", () => {
+test("buildExplorerPrompt renders the GUIDANCE (not the empty diff) as the manual exploration objective", () => {
   const p = buildExplorerPrompt({
     ...input,
     mode: "manual",
@@ -382,11 +421,11 @@ test("specFileForFlow produces a safe path under flows/", () => {
   assert.equal(specFileForFlow("   "), "flows/flow.spec.ts");
 });
 
-test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (Q2: workers do NOT navigate)", () => {
+test("buildWorkerPrompt is surgical: exact file, write-early discipline, no manifest writes (workers do NOT navigate)", () => {
   const w: ParallelWorkerInput = { objective: "pay", flow: "checkout", symbols: ["pay"], needsUi: true, specFile: "flows/checkout.spec.ts", repo: "r", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns", baseUrl: "https://dev", appName: "a", mode: "complete" };
   const p = buildWorkerPrompt(w);
   assert.match(p, /Write EXACTLY this file: e2e\/flows\/checkout\.spec\.ts/);
-  /* Q2: workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
+  /* Workers no longer explore (browser_navigate/browser_snapshot removed from qa-worker MCP).
      They transcribe the injected a11y tree instead. No LIVE DEV URL line in needsUi branch.
    */
   assert.doesNotMatch(p, /browser_navigate/);
@@ -425,7 +464,7 @@ test("buildWorkerPrompt injects the live a11y tree as GROUND TRUTH when provided
    are the "section order contract" that must stay green whenever prompts.ts or context-assembler.ts
    are modified.
  */
-test("Phase 1b E.5: buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
+test("buildWorkerPrompt assembled output preserves all functional sections in canonical order", () => {
   const base: ParallelWorkerInput = {
     objective: "verify checkout flow",
     flow: "checkout",
@@ -494,7 +533,6 @@ test("buildPrompt renders the cross-repo service section in diff mode", () => {
   assert.match(text, /org\/orders-svc/);
   assert.match(text, /\/m\/svc/);
   assert.match(text, /api\/\*\.yaml/);
-  assert.match(text, /ONLY through the frontend UI/);
 });
 
 test("buildPrompt has no cross-repo section without a service", () => {
@@ -537,7 +575,7 @@ test("buildContextTask without services is unchanged (no microservice section)",
    surfaces were dead (no production caller); this builder is still live.
  */
 
-test("Phase 5 regression gate: buildWorkerPrompt for complete mode preserves objective + context sections", () => {
+test("buildWorkerPrompt for complete mode preserves objective + context sections", () => {
   /* Complete mode workers receive a prompt from buildWorkerPrompt. The prompt must still contain */
   const completeWorker: ParallelWorkerInput = {
     objective: "Given the owners list, when the user clicks Add Owner, then a form appears",
@@ -704,7 +742,7 @@ test("3.11(b) fix-pass prompt WITHOUT failureSourced retains browser_navigate in
    renders `c.detail?.slice(0, 500)`, so the contradiction was truncated away exactly when an absent
    selector was found. It is now its OWN un-truncated section, threaded via input.selectorContradictions.
  */
-test("W1: buildPrompt renders the selector contradiction in FULL even when the case detail is long", () => {
+test("buildPrompt renders the selector contradiction in FULL even when the case detail is long", () => {
   const longDetail = "Error: expect(locator).toBeVisible() failed\n" + "x".repeat(900); /* > 500 chars → detail is sliced */
   const contradiction =
     'row: "Bob Smith DISTINCTIVE-MARKER-9f3a" is NOT in the captured failure-point tree. Present roles: button, link, heading, table';
@@ -732,7 +770,7 @@ test("W1: buildPrompt renders the selector contradiction in FULL even when the c
   assert.ok(contradictionIdx < fixBlockIdx, "contradictions come before the fix-cases block");
 });
 
-test("W1: buildPrompt renders MULTIPLE contradictions, each as its own bullet", () => {
+test("buildPrompt renders MULTIPLE contradictions, each as its own bullet", () => {
   const cs = [
     'textbox: "Owner name" matches MULTIPLE nodes (strict-mode ambiguity — scope to a unique parent)',
     'columnheader: "Name" is NOT in the captured failure-point tree. Present roles: cell, row',
@@ -748,7 +786,7 @@ test("W1: buildPrompt renders MULTIPLE contradictions, each as its own bullet", 
   assert.match(p, /matches MULTIPLE nodes/);
 });
 
-test("W1: buildPrompt omits the contradiction section when none are provided", () => {
+test("buildPrompt omits the contradiction section when none are provided", () => {
   const p = buildPrompt({
     ...input,
     failureSourced: true,
@@ -811,7 +849,7 @@ function makeReviewInput(dir: string, overrides?: Partial<ReviewInput>): ReviewI
   };
 }
 
-test("Phase 1a D.1: buildReviewerPrompt produces the independence framing and key structural sections (diff mode)", () => {
+test("buildReviewerPrompt produces the independence framing and key structural sections (diff mode)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// login spec\ntest('login', async () => {});");
@@ -833,7 +871,7 @@ test("Phase 1a D.1: buildReviewerPrompt produces the independence framing and ke
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects the diff as the objective in diff mode (not manual framing)", () => {
+test("buildReviewerPrompt injects the diff as the objective in diff mode (not manual framing)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-diff-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -847,7 +885,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects the diff as the objective in dif
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt uses guidance as the objective in manual mode (not diff)", () => {
+test("buildReviewerPrompt uses guidance as the objective in manual mode (not diff)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-manual-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -861,7 +899,7 @@ test("Phase 1a D.1: buildReviewerPrompt uses guidance as the objective in manual
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects the DOM snapshot when provided", () => {
+test("buildReviewerPrompt injects the DOM snapshot when provided", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-dom-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -876,7 +914,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects the DOM snapshot when provided",
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt omits the DOM section when no snapshot is provided", () => {
+test("buildReviewerPrompt omits the DOM section when no snapshot is provided", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-nodom-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -888,12 +926,12 @@ test("Phase 1a D.1: buildReviewerPrompt omits the DOM section when no snapshot i
   }
 });
 
-/* Phase 1b deixis guard (regression for the stale "above" wording): the canonical reorder places the
+/* Deixis guard (no stale "above" wording): the canonical reorder places the
    ## Instructions section BEFORE the spec contents and the Live DEV DOM, so any instruction that
    claims either is "above" is FALSE. Assert the instructions are position-independent AND that the
    real section order matches the wording (Instructions precede both specs and DOM).
  */
-test("Phase 1b: reviewer Instructions are position-independent and precede the specs/DOM they reference", () => {
+test("reviewer Instructions are position-independent and precede the specs/DOM they reference", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-deixis-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// SPEC_BODY_MARKER\ntest('x', async () => {});");
@@ -927,7 +965,7 @@ test("Phase 1b: reviewer Instructions are position-independent and precede the s
   }
 });
 
-test("Phase 1a D.1: buildReviewerPrompt injects learnedRules when present and adds the extra rule instruction", () => {
+test("buildReviewerPrompt injects learnedRules when present and adds the extra rule instruction", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prompt-rules-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -941,7 +979,7 @@ test("Phase 1a D.1: buildReviewerPrompt injects learnedRules when present and ad
   }
 });
 
-test("Phase 4: buildReviewerPrompt includes severity instructions in the output contract", () => {
+test("buildReviewerPrompt includes severity instructions in the output contract", () => {
   /* The output contract section must explain the blocking/advisory severity field so the
      reviewer knows to emit structured correction objects.
    */
@@ -958,7 +996,7 @@ test("Phase 4: buildReviewerPrompt includes severity instructions in the output 
   }
 });
 
-test("Phase 4: buildReviewerPrompt without priorCorrections omits the prior-corrections section", () => {
+test("buildReviewerPrompt without priorCorrections omits the prior-corrections section", () => {
   /* On round 1, there are no prior corrections to inject — the section must be absent. */
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-no-prior-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
@@ -971,7 +1009,7 @@ test("Phase 4: buildReviewerPrompt without priorCorrections omits the prior-corr
   }
 });
 
-test("Phase 4 (d): buildReviewerPrompt injects priorCorrections as a VOLATILE section on round 2+", () => {
+test("buildReviewerPrompt injects priorCorrections as a VOLATILE section on round 2+", () => {
   /* On round 2, the reviewer must receive its own round-1 corrections so it can converge. */
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-prior-round-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
@@ -989,7 +1027,7 @@ test("Phase 4 (d): buildReviewerPrompt injects priorCorrections as a VOLATILE se
   }
 });
 
-test("Phase 4: buildReviewerPrompt prior-corrections section appears AFTER specs in the assembled order", () => {
+test("buildReviewerPrompt prior-corrections section appears AFTER specs in the assembled order", () => {
   /* The prior-corrections section is in the VOLATILE band at priority 4 (after specs at priority 2).
      This ensures it never crowds out the primary spec contents the reviewer is judging.
    */
@@ -1008,7 +1046,7 @@ test("Phase 4: buildReviewerPrompt prior-corrections section appears AFTER specs
   }
 });
 
-test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrections by default)", () => {
+test("complete/exhaustive buildReviewerPrompt works unchanged (no priorCorrections by default)", () => {
   /* complete/exhaustive runs call buildReviewerPrompt with mode="complete" and no priorCorrections.
      The existing behavior must be preserved: no prior-corrections section, no regressions.
    */
@@ -1025,7 +1063,7 @@ test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchange
     assert.match(p, /COMPLETE_SPEC_MARKER/, "spec content inlined");
     /* The whole-repo objective framing must appear (not the commit-diff framing). */
     assert.match(p, /whole-repo complete run/, "complete mode uses whole-repo objective framing");
-    /* Severity contract must appear (Phase 4 — both complete and diff share the reviewer role). */
+    /* Severity contract must appear (both complete and diff share the reviewer role). */
     assert.match(p, /blocking/, "severity blocking instruction in contract");
     assert.match(p, /advisory/, "severity advisory instruction in contract");
   } finally {
@@ -1038,7 +1076,7 @@ test("Phase 4 regression: complete/exhaustive buildReviewerPrompt works unchange
    These tests prove the wiring is active and can never silently regress to inert again.
  */
 
-test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
+test("buildPromptAssembled applies qa-generator budget — normal prompt fits, no sections shed", () => {
   /* A minimal diff-mode prompt is well within the qa-generator budget
      (roleWindowBytes("qa-generator") = floor(window × 0.75 × 4) — with the GLM 1M
      catalog entry this is 3,000,000 bytes).
@@ -1068,7 +1106,7 @@ test("Slice F F.3: buildPromptAssembled applies qa-generator budget — normal p
   );
 });
 
-test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
+test("buildReviewerPromptAssembled applies qa-reviewer budget — oversized learnedRules section is shed", () => {
   /* The qa-reviewer budget is derived from the model-window catalog (roleWindowBytes("qa-reviewer")).
      To force an overflow size-independently: pad learnedRules to the ROLE BUDGET + 8 KB so the
      combined prompt exceeds the budget whatever window the reviewer's model resolves to.
@@ -1125,8 +1163,8 @@ test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — o
   }
 });
 
-/* ── T8: renderExecutionResult + ReviewInput.executionResult ──────────────────
-   These tests drive the T8 reviewer-consumer chain:
+/* ── renderExecutionResult + ReviewInput.executionResult ──────────────────
+   These tests drive the reviewer-consumer chain:
    - renderExecutionResult is a pure renderer: sanitizes finalUrl, bounds total
    output at 4000 chars, caps per-case detail at 500 chars.
    - ReviewInput gains an optional executionResult field.
@@ -1134,12 +1172,12 @@ test("Slice F F.3: buildReviewerPromptAssembled applies qa-reviewer budget — o
    section when executionResult is present, and omits it when absent.
  */
 
-test("T8 R1: renderExecutionResult is exported from opencode-client", () => {
+test("renderExecutionResult is exported from opencode-client", () => {
   /* The function must exist and be callable as a named export. */
   assert.strictEqual(typeof renderExecutionResult, "function");
 });
 
-test("T8 R2: renderExecutionResult returns a non-empty string with the authoritative heading", () => {
+test("renderExecutionResult returns a non-empty string with the authoritative heading", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [{ name: "login test", httpStatus: 500, finalUrl: "https://app.example.com/login" }],
@@ -1149,7 +1187,7 @@ test("T8 R2: renderExecutionResult returns a non-empty string with the authorita
   assert.match(result, /authoritative/i, "heading must be marked as authoritative");
 });
 
-test("T8 R3: renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
+test("renderExecutionResult sanitizes finalUrl (strips token query param)", () => {
   const result = renderExecutionResult({
     verdict: "fail",
     cases: [
@@ -1163,7 +1201,7 @@ test("T8 R3: renderExecutionResult sanitizes finalUrl (strips token query param)
   assert.doesNotMatch(result, /ghp_AAAA/, "finalUrl token must be redacted before reaching the reviewer");
 });
 
-test("T8 R4: renderExecutionResult total output is bounded at 4000 chars", () => {
+test("renderExecutionResult total output is bounded at 4000 chars", () => {
   const cases = Array.from({ length: 20 }, (_, i) => ({
     name: `test ${i}`,
     detail: "x".repeat(1000),
@@ -1174,7 +1212,7 @@ test("T8 R4: renderExecutionResult total output is bounded at 4000 chars", () =>
   assert.ok(result.length <= 4000, `total output must be <= 4000 chars, got ${result.length}`);
 });
 
-test("T8 R5: renderExecutionResult caps per-case detail at 500 chars", () => {
+test("renderExecutionResult caps per-case detail at 500 chars", () => {
   const longDetail = "z".repeat(1000);
   const result = renderExecutionResult({
     verdict: "fail",
@@ -1188,7 +1226,7 @@ test("T8 R5: renderExecutionResult caps per-case detail at 500 chars", () => {
   );
 });
 
-test("T8 R6: buildReviewerPrompt omits execution-result section when executionResult is absent", () => {
+test("buildReviewerPrompt omits execution-result section when executionResult is absent", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-no-execresult-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -1200,7 +1238,7 @@ test("T8 R6: buildReviewerPrompt omits execution-result section when executionRe
   }
 });
 
-test("T8 R7: buildReviewerPrompt injects execution-result section when executionResult is present", () => {
+test("buildReviewerPrompt injects execution-result section when executionResult is present", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-rev-execresult-"));
   mkdirSync(join(dir, "e2e"), { recursive: true });
   writeFileSync(join(dir, "e2e", "login.spec.ts"), "// spec");
@@ -1217,7 +1255,7 @@ test("T8 R7: buildReviewerPrompt injects execution-result section when execution
   }
 });
 
-test("T8 R8: buildReviewerPrompt execution-result section is VOLATILE (precedes output contract)", () => {
+test("buildReviewerPrompt execution-result section is VOLATILE (precedes output contract)", () => {
   /* The execution-result section is VOLATILE evidence — it must appear BEFORE the
      CRITICAL-recap output contract so the contract is always last (as the assembler guarantees).
    */
@@ -1243,3 +1281,178 @@ test("T8 R8: buildReviewerPrompt execution-result section is VOLATILE (precedes 
   }
 });
 
+
+function writeAgentsConfig(config: unknown): { path: string; cleanup: () => void } {
+  const dir = mkdtempSync(join(tmpdir(), "opencode-config-"));
+  const path = join(dir, "opencode.json");
+  writeFileSync(path, typeof config === "string" ? config : JSON.stringify(config));
+  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("maxStepsFromConfig reads the configured step limit of the acting agent", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-reviewer": { maxSteps: 10 } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
+  assert.equal(maxStepsFromConfig("qa-reviewer", path), 10);
+});
+
+test("maxStepsFromConfig is undefined for an unknown agent, an agent with no limit, or a non-numeric limit", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-x": {}, "qa-y": { maxSteps: "many" } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-unknown", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-x", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-y", path), undefined);
+});
+
+test("maxStepsFromConfig is undefined when the config file is missing or malformed", (t) => {
+  t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+});
+
+test("maxStepsFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the report names the file");
+});
+
+test("maxStepsFromConfig does not report a config file that is simply absent", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  assert.equal(maxStepsFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("maxStepsFromConfig follows the file when it changes", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 } } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an unchanged file keeps answering");
+
+  writeFileSync(path, JSON.stringify({ agent: { "qa-generator": { maxSteps: 20 } } }));
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(path, later, later);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 20);
+});
+
+test("maxStepsFromConfig reports a non-numeric limit loudly, once per version of the file, naming the agent and the file", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-y": { maxSteps: "many" } } });
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-y", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-generator", path), 50, "an agent with a valid limit is unaffected");
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  const report = String(errors.mock.calls[0]!.arguments[0]);
+  assert.match(report, /qa-y/);
+  assert.match(report, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("maxStepsFromConfig stays silent for an agent that simply sets no limit", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-x": {} } });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-x", path), undefined);
+  assert.equal(maxStepsFromConfig("qa-unknown", path), undefined);
+  assert.equal(errors.mock.callCount(), 0);
+});
+
+test("a config file that cannot be inspected for a reason other than being absent is reported once, not on every turn", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path: aFile, cleanup } = writeAgentsConfig({});
+  t.after(cleanup);
+  const unreadable = join(aFile, "opencode.json"); /* a file where a directory is expected: stat fails with ENOTDIR, not ENOENT */
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-generator", unreadable), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+});
+
+test("fallbackModelFromConfig reads the fallback model of the agent from the same config file", (t) => {
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": "opencode-go/other-model" }, agent: { "qa-generator": { maxSteps: 50 } } });
+  t.after(cleanup);
+  assert.equal(fallbackModelFromConfig("qa-generator", path), "opencode-go/other-model");
+  assert.equal(fallbackModelFromConfig("qa-reviewer", path), undefined, "no fallback is opt-in per agent");
+  assert.equal(fallbackModelFromConfig("qa-generator", join(tmpdir(), "definitely-not-here", "opencode.json")), undefined);
+});
+
+test("fallbackModelFromConfig says so loudly, once per version of the file, when the config is malformed", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig("{ not json");
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  assert.equal(maxStepsFromConfig("qa-generator", path), undefined, "the step limit read shares the same cached parse");
+  assert.equal(errors.mock.callCount(), 1, "one report for the file, whichever setting asked");
+});
+
+test("fallbackModelFromConfig reports a fallback that is not a model name, once, instead of using it", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ model_fallback: { "qa-generator": 7 } });
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(fallbackModelFromConfig("qa-generator", path), undefined);
+  assert.equal(errors.mock.callCount(), 1);
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-generator/);
+});
+
+/*
+ * The real opener over the real SDK stream client, with only the network faked: a connection that
+ * delivers its first event and then resets. The SDK retries such a failure by itself, so the
+ * iterable never ends or throws; the error callback is the only place the drop is visible.
+ */
+const RECONNECTS_BEFORE_GIVING_UP = 3;
+
+/* `giveUp` ends the SDK's endless retrying after a few connections, so a missing error callback fails the test instead of hanging the suite. */
+async function resettingEventClient(giveUp: () => void): Promise<{ event: { subscribe: unknown } }> {
+  const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
+  const encoder = new TextEncoder();
+  let connections = 0;
+  const connect = async (): Promise<Response> => {
+    if (++connections >= RECONNECTS_BEFORE_GIVING_UP) giveUp();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        if (pulls === 1) controller.enqueue(encoder.encode('retry: 1\ndata: {"type":"server.connected","properties":{}}\n\n'));
+        else controller.error(new Error("connection reset"));
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  };
+  return createOpencodeClient({ baseUrl: "http://agents.invalid:4096", fetch: connect as typeof fetch }) as never;
+}
+
+test("the real opener hands the SDK's error callback through, so a connection reset the SDK retries on its own is reported", async () => {
+  const controller = new AbortController();
+  const opener = createRawEventStreamOpener({ getEventClient: async () => (await resettingEventClient(() => controller.abort())) as never });
+  const errors: string[] = [];
+  const stream = await opener.open("/m/reset", controller.signal, (error) => {
+    errors.push(error instanceof Error ? error.message : String(error));
+    controller.abort();
+  });
+  const types: Array<string | undefined> = [];
+  for await (const event of stream!) types.push(event.type);
+  assert.deepEqual(types, ["server.connected"]);
+  assert.deepEqual(errors, ["connection reset"]);
+});
+
+test("a connection reset on the real stream client reaches the stream lifecycle as an interruption under the stream's own token", async () => {
+  const calls: Array<{ kind: string; token: StreamToken }> = [];
+  const controller = new AbortController();
+  const lifecycle: StreamLifecycleSink = {
+    streamOpening: (_d, token) => calls.push({ kind: "opening", token }),
+    streamConnected: (_d, token) => calls.push({ kind: "connected", token }),
+    streamInterrupted: (_d, token) => { calls.push({ kind: "interrupted", token }); controller.abort(); },
+    streamClosed: (_d, token) => calls.push({ kind: "closed", token }),
+  };
+  const opener = createRawEventStreamOpener({ getEventClient: async () => (await resettingEventClient(() => controller.abort())) as never });
+  const restore = setRawEventStreamOpener(opener);
+  try {
+    await startScopedEventStream("/m/reset", () => {}, controller.signal, undefined, lifecycle);
+  } finally {
+    restore();
+  }
+  assert.deepEqual(calls.map((c) => c.kind), ["opening", "connected", "interrupted", "closed"]);
+  assert.equal(new Set(calls.map((c) => c.token)).size, 1);
+});

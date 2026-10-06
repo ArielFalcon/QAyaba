@@ -1,7 +1,30 @@
-/* Spawns a command, captures stdout/stderr, and kills the whole process tree (injected ProcessKillPort) on timeout or abort. detached:true so the child leads its own process group; negative-pid kill reaps forked grandchildren that a plain child.kill() would orphan. */
+/* Spawns a command, captures stdout/stderr (all of it up to a bound, or only the newest part on request), and kills the whole process tree (injected ProcessKillPort) on timeout or abort. detached:true so the child leads its own process group; negative-pid kill reaps forked grandchildren that a plain child.kill() would orphan. */
 
 import { spawn } from "node:child_process";
-import type { SandboxedBinaryRunner, SandboxedBinaryRunnerDeps, SandboxedRunRequest, SandboxedRunResult } from "./sandboxed-binary-runner.ts";
+import { BoundedOutputTail } from "../../shared-kernel/process-sandbox/bounded-output-tail.ts";
+import { BoundedWholeOutput } from "../../shared-kernel/process-sandbox/bounded-whole-output.ts";
+import { DEFAULT_MAX_OUTPUT_CHARS, type SandboxedBinaryRunner, type SandboxedBinaryRunnerDeps, type SandboxedRunRequest, type SandboxedRunResult } from "./sandboxed-binary-runner.ts";
+
+interface OutputCapture {
+  append(chunk: string): void;
+  text(): string;
+  readonly exceeded: boolean;
+}
+
+/* The newest output only: never exceeds anything, so it never asks for the child to be killed. */
+class NewestOutput implements OutputCapture {
+  readonly exceeded = false;
+  private readonly tail: BoundedOutputTail;
+  constructor(keepChars: number) {
+    this.tail = new BoundedOutputTail(keepChars);
+  }
+  append(chunk: string): void {
+    this.tail.append(chunk);
+  }
+  text(): string {
+    return this.tail.text();
+  }
+}
 
 export class SandboxedBinaryRunnerAdapter implements SandboxedBinaryRunner {
   constructor(private readonly deps: SandboxedBinaryRunnerDeps) {}
@@ -14,8 +37,10 @@ export class SandboxedBinaryRunnerAdapter implements SandboxedBinaryRunner {
         detached: true,
       });
 
-      let stdout = "";
-      let stderr = "";
+      const maxOutputChars = this.deps.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
+      const capture = (): OutputCapture => (req.outputKeepChars === undefined ? new BoundedWholeOutput(maxOutputChars) : new NewestOutput(req.outputKeepChars));
+      const stdout = capture();
+      const stderr = capture();
       let timedOut = false;
       let settled = false;
 
@@ -32,7 +57,7 @@ export class SandboxedBinaryRunnerAdapter implements SandboxedBinaryRunner {
         ? setTimeout(() => {
             timedOut = true;
             this.deps.processKill.killTree(child);
-            settle(() => resolve({ exitCode: null, stdout, stderr, timedOut }));
+            settle(() => resolve({ exitCode: null, stdout: stdout.text(), stderr: stderr.text(), timedOut }));
           }, req.timeoutMs)
         : undefined;
 
@@ -40,15 +65,23 @@ export class SandboxedBinaryRunnerAdapter implements SandboxedBinaryRunner {
         ? (): void => {
             timedOut = true;
             this.deps.processKill.killTree(child);
-            settle(() => resolve({ exitCode: null, stdout, stderr, timedOut }));
+            settle(() => resolve({ exitCode: null, stdout: stdout.text(), stderr: stderr.text(), timedOut }));
           }
         : undefined;
       if (onAbort) req.signal!.addEventListener("abort", onAbort, { once: true });
 
-      child.stdout?.on("data", (d: Buffer | string) => (stdout += String(d)));
-      child.stderr?.on("data", (d: Buffer | string) => (stderr += String(d)));
+      /* A run that passes the output bound is killed and rejected: a caller that parses the output would otherwise parse a truncated document. */
+      const failOnOverflow = (name: string, output: OutputCapture): void => {
+        if (!output.exceeded || settled) return;
+        this.deps.processKill.killTree(child);
+        settle(() => reject(new Error(`${req.command} wrote more than ${maxOutputChars} chars to ${name}; killed`)));
+      };
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (d: string) => { stdout.append(d); failOnOverflow("stdout", stdout); });
+      child.stderr?.on("data", (d: string) => { stderr.append(d); failOnOverflow("stderr", stderr); });
       child.on("error", (err) => settle(() => reject(err)));
-      child.on("close", (code) => settle(() => resolve({ exitCode: code, stdout, stderr, timedOut })));
+      child.on("close", (code) => settle(() => resolve({ exitCode: code, stdout: stdout.text(), stderr: stderr.text(), timedOut })));
     });
   }
 }

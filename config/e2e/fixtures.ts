@@ -3,10 +3,10 @@
 // data, cleanup and the app's own capabilities (geolocation, mobile/offline,
 // cookies/cache, photo upload).
 //
-// Hybrid model: the skeleton is shared (this file); the app-specific parts are
-// filled in by the agent and persisted in git. Login is declared by the operator
-// when the app config has an `e2e.auth` block (see `centralLogin` below); otherwise
-// the agent adjusts the default flow. For the "how" of each capability, see the
+// Hybrid model: the skeleton is shared (this file); the app-specific login
+// selectors live in auth.setup.ts, filled in by the agent and persisted in git.
+// When the app config has an `e2e.auth` block, the operator declares the login flow
+// instead (see `centralLogin` below). For the "how" of each capability, see the
 // `playwright-authoring` skill.
 
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
@@ -150,7 +150,7 @@ export interface QaFixtures {
   namespace: string; // PER-ATTEMPT data prefix `qa-bot-<sha>-w<worker>r<retry>` (use to NAME/find created
                      // entities). The run-level BASE is `process.env.PW_NAMESPACE` (no -wXrY) — match by THAT
                      // for cleanup/teardown so all workers' and retries' data is covered.
-  authenticate: () => Promise<void>; // the app's real login (operator-declared central login, else the default flow)
+  authenticate: () => Promise<void>; // the app's real login (storageState, the operator-declared central login, or one form fill)
   cleanup: (undo: () => Promise<void>) => void; // registers undo steps (LIFO, automatic)
   // system-owned: do not edit — the orchestrator reads these dumps for change-coverage.
   _coverage: void;
@@ -170,19 +170,21 @@ export const test = base.extend<QaFixtures>({
     await use(`${base}-w${testInfo.workerIndex}r${testInfo.retry}`);
   },
 
-  // App login. When the operator declared the flow (.qa/auth.local.json, from the app config's
-  // `e2e.auth`), centralLogin() runs it and this fixture must not be rewritten. Otherwise the
-  // default flow below assumes a login button that redirects to an external identity provider
-  // (Keycloak selectors) and returns: ADJUST the marked selectors to the app's real login. For
-  // PUBLIC pages, simply do not call authenticate().
+  // App login. When the orchestrator already saved a session, PW_STORAGE_STATE
+  // is loaded by playwright.config.ts and this fixture does not fill the form.
+  // Otherwise, when the operator declared the flow (.qa/auth.local.json, from the app
+  // config's `e2e.auth`), centralLogin() runs it and this fixture must not be rewritten;
+  // without a declaration it performs the same steps as auth.setup.ts. No creds → public
+  // app, no-op (a public app must not fail specs that call authenticate defensively).
   authenticate: async ({ page }, use) => {
     await use(async () => {
+      if (process.env.PW_STORAGE_STATE) {
+        if (page.url() === "about:blank") await page.goto("/");
+        return;
+      }
       const user = process.env.DEV_TEST_USER;
       const pass = process.env.DEV_TEST_PASS;
       if (!user || !pass) {
-        // No creds configured → treat the app as PUBLIC and skip login (no-op). A public app
-        // (e.g. PetClinic) needs no auth; throwing here would fail every spec that defensively
-        // calls authenticate(). Set DEV_TEST_USER/PASS only if the app actually requires Keycloak login.
         console.warn("[qa] authenticate(): DEV_TEST_USER/PASS not set — app treated as PUBLIC, skipping login.");
         return;
       }
@@ -192,12 +194,18 @@ export const test = base.extend<QaFixtures>({
         return;
       }
       await page.goto("/");
-      await page.getByRole("link", { name: /log ?in|sign ?in/i }).click(); // ADJUST to the real button
-      // Now on the Keycloak domain (a different origin):
-      await page.locator("#username").fill(user); // standard Keycloak selectors
-      await page.locator("#password").fill(pass);
-      await page.locator("#kc-login, [type=submit]").first().click();
-      await page.waitForURL((url) => !/\/(auth|realms)\//.test(url.pathname)); // back in the app
+      await page.getByLabel(/username|email|user/i).fill(user);
+      await page.getByLabel(/^password$/i).fill(pass);
+      await page.getByRole("button", { name: /log ?in|sign ?in|entrar/i }).click();
+      const password = page.getByLabel(/^password$/i);
+      try {
+        await password.first().waitFor({ state: "hidden", timeout: 8000 });
+      } catch {
+        /* Still on the form — throw below. */
+      }
+      if ((await password.count()) > 0 && (await password.first().isVisible())) {
+        throw new Error("login did not leave the password form; rewrite e2e/auth.setup.ts for this app");
+      }
     });
   },
 
@@ -321,16 +329,16 @@ export { expect };
 // a CommonJS-style synchronous load is not defined in this native-ESM module
 // ("type":"module") and would throw a ReferenceError that the catch would swallow.
 let errorResponses: { url: string; status: number; resourceType: string }[] = [];
-// Feature B (app-defect detection): browser console `error`-level entries and uncaught `pageerror`
+// App-defect detection: browser console `error`-level entries and uncaught `pageerror`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
 // page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
-// orchestrator's classifyRuntimeErrors (src/qa/failure-adjudicator.ts) turns this into a diagnostic
-// signal ONLY — it never blocks or masks a real generated-test defect (see that module's doc).
+// orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
+// blocks or masks a real generated-test defect.
 let runtimeErrors: { type: string; text: string }[] = [];
 test.beforeEach(async ({ page }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
-  runtimeErrors = [];                                 // Feature B: same per-test reset discipline
+  runtimeErrors = [];                                 // same per-test reset discipline
   try {
     page.on('response', (r) => {
       try { const s = r.status(); if (s >= 400) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
@@ -375,8 +383,8 @@ test.afterEach(async ({ page }, testInfo) => {
     // title); the filename only guarantees uniqueness + retry.
     const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
     const safeProject = project.replace(/[^a-z0-9]+/gi, "-").slice(0, 40);
-    // D1/D2: compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
-    // via the D2 heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
+    // Compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
+    // via the attribution heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
     // (Path-family intentionally omitted: in a SPA the finalUrl is the UI route (e.g. /orders) while
     // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
     // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
@@ -398,7 +406,7 @@ test.afterEach(async ({ page }, testInfo) => {
       });
       if (survivors.length > 0) httpStatus = survivors[survivors.length - 1]!.status; // last survivor
     } catch {}
-    // Feature B: dedupe (same type+text pair collapses to one entry — a repeated framework error
+    // Runtime errors: dedupe (same type+text pair collapses to one entry — a repeated framework error
     // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
     // (the orchestrator only needs enough to classify, not an exhaustive log), and truncate each
     // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full

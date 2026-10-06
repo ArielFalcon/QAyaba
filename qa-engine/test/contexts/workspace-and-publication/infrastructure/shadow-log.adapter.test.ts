@@ -87,19 +87,19 @@ test("shadow-log.adapter.ts source never imports a real network/process I/O prim
 
 /* A bare (non-"node:"-prefixed) static specifier and a dynamic import() call must both be caught.
  */
-test("FIX V: the forbidden-I/O scan catches a bare (non-'node:'-prefixed) specifier — Judge B's exact evasion 1", () => {
+test("the forbidden-I/O scan catches a bare (non-'node:'-prefixed) specifier", () => {
   const evaded = 'import { spawn } from "child_process";\nexport function x() { spawn("ls"); }\n';
   const hits = scanForbiddenIO(evaded);
   assert.ok(hits.length > 0, "a bare 'child_process' specifier must be caught, not just the 'node:'-prefixed form");
 });
 
-test("FIX V: the forbidden-I/O scan catches a dynamic import() of a real I/O primitive — Judge B's exact evasion 2", () => {
+test("the forbidden-I/O scan catches a dynamic import() of a real I/O primitive", () => {
   const evaded = 'export async function x() { const { spawn } = await import("node:child_process"); spawn("ls"); }\n';
   const hits = scanForbiddenIO(evaded);
   assert.ok(hits.length > 0, "a dynamic import() of a real I/O primitive must be caught, not just a static 'from' import");
 });
 
-test("FIX V: the forbidden-I/O scan also catches WebSocket and the remaining node: I/O modules (tls, dns) plus their bare/dynamic forms", () => {
+test("the forbidden-I/O scan also catches WebSocket and the remaining node: I/O modules (tls, dns) plus their bare/dynamic forms", () => {
   assert.ok(scanForbiddenIO('new WebSocket("wss://example.com")').length > 0, "WebSocket must be caught");
   assert.ok(scanForbiddenIO('import tls from "node:tls";').length > 0, "node:tls must be caught");
   assert.ok(scanForbiddenIO('import dns from "dns";').length > 0, "bare dns must be caught");
@@ -112,7 +112,7 @@ test("FIX V: the forbidden-I/O scan also catches WebSocket and the remaining nod
    top of that review, not a substitute for it — see this file's own module-level comment above for
    the honestly-scoped claim.
  */
-test("FIX V: the scan's own claim is honestly scoped — a genuinely novel obfuscation (string concatenation into a dynamic import) is a documented, out-of-scope gap, not a false 'entirely removes the burden' guarantee", () => {
+test("the scan's own claim is honestly scoped — a genuinely novel obfuscation (string concatenation into a dynamic import) is a documented, out-of-scope gap, not a false 'entirely removes the burden' guarantee", () => {
   const stillEvades = 'const mod = "child" + "_process";\nexport async function x() { const { spawn } = await import(mod); spawn("ls"); }\n';
   const hits = scanForbiddenIO(stillEvades);
   assert.deepEqual(hits, [], "documented limitation: a computed/concatenated module specifier is NOT caught by this static scan — human review (PROTECTED_PATHS) is the real guard, not this defense-in-depth scan");

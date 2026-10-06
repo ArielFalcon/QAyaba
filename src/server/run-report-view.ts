@@ -12,6 +12,7 @@
  */
 import type { RunRecord, RunOutcome } from "../types";
 import type { ReportView } from "../contract/commands";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 
 type Insight = ReportView["insights"][number];
 
@@ -86,7 +87,7 @@ function runHeadline(record: RunRecord, outcome: RunOutcome | null, counts: Retu
     case "invalid":
       return `INVALID — static gate rejected the suite`;
     case "infra-error":
-      return `INFRA — DEV unavailable, not a code fault`;
+      return `INFRA — ${infraErrorGloss(outcome?.errorClass)}`;
     default:
       return `SKIPPED — no test-worthy change`;
   }

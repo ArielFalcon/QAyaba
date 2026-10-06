@@ -107,6 +107,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{id}/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The run's agent turns in chronological order, each with its efficiency measurements (read-only); a measurement is null when the runtime could not supply it */
+        get: operations["getRunTurns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{id}/ask": {
         parameters: {
             query?: never;
@@ -256,6 +273,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/apps/{name}/context-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The FE<->BE architecture map (e2e/.qa/context.json) persisted from the app's last successful mode:context run (read-only) */
+        get: operations["getAppContextMap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{id}/report": {
         parameters: {
             query?: never;
@@ -282,6 +316,23 @@ export interface paths {
         };
         /** Period-over-period trends for an app: coverage, value-oracle, verdicts, error classes (read-only) */
         get: operations["getAppTrends"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/{name}/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prompt-size, grounding, repair and wall-clock aggregates over an app's agent turns, plus agent-efficiency aggregates (read-only) */
+        get: operations["getAppTelemetry"];
         put?: never;
         post?: never;
         delete?: never;
@@ -587,6 +638,8 @@ export interface components {
             needsReview: boolean;
             testDataPrefix: string;
             services: components["schemas"]["AppService"][];
+            /** @enum {string} */
+            authKind?: "form" | "mtls";
         };
         AppService: {
             repo: string;
@@ -628,6 +681,7 @@ export interface components {
             /** @enum {string} */
             mode: "diff" | "complete" | "exhaustive" | "manual" | "context";
             sha?: string;
+            baseSha?: string;
             ref?: string;
             guidance?: string;
             shadow?: boolean;
@@ -663,6 +717,15 @@ export interface components {
             openapi?: string;
             versionUrl?: string;
         };
+        AppAuthInput: {
+            /** @enum {string} */
+            kind: "form" | "mtls";
+            usernameEnv?: string;
+            passwordEnv?: string;
+            certEnv?: string;
+            certPassEnv?: string;
+            loginPath?: string;
+        };
         RepoInfo: {
             name: string;
             fullName: string;
@@ -684,6 +747,7 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            auth?: components["schemas"]["AppAuthInput"];
             dryRun?: boolean;
             validateOnly?: boolean;
         };
@@ -700,6 +764,8 @@ export interface components {
             env?: {
                 [key: string]: string;
             };
+            auth?: components["schemas"]["AppAuthInput"];
+            clearAuth?: boolean;
             dryRun?: boolean;
         };
         CreateAppResult: {
@@ -902,8 +968,8 @@ export interface components {
             lastValueScore: number | null;
             entries: {
                 valueScore: number | null;
-                mutantCount: number;
-                killedCount: number;
+                mutantCount: number | null;
+                killedCount: number | null;
                 target: string;
                 at: string;
             }[];
@@ -923,6 +989,7 @@ export interface components {
             rules: components["schemas"]["LearningRuleView"][];
             scorecard: components["schemas"]["ScorecardView"] | null;
             curriculum: components["schemas"]["CurriculumView"] | null;
+            curriculumCorrupt: boolean;
         };
         SignalsView: {
             valueOracle: {
@@ -1062,6 +1129,99 @@ export interface components {
         RunReportView: {
             current: components["schemas"]["ReportView"];
             evolution: components["schemas"]["ReportView"] | null;
+        };
+        ArchitectureContext: {
+            builtAtSha: string;
+            routes: {
+                path: string;
+                name?: string;
+                component?: string;
+                source?: string;
+            }[];
+            api: {
+                operationId: string;
+                method: string;
+                path: string;
+                service?: string;
+                spec?: string;
+            }[];
+            feBe: {
+                route: string;
+                operationId: string;
+                via?: string;
+            }[];
+            flows?: {
+                id: string;
+                routes: string[];
+                operations?: string[];
+            }[];
+        };
+        ContextMapView: {
+            app: string;
+            map: components["schemas"]["ArchitectureContext"];
+            builtAtSha: string;
+            updatedAt: string;
+        };
+        AgentTurnView: {
+            runId: string | null;
+            sessionId: string;
+            role: string;
+            round: number;
+            isRepair: boolean;
+            ts: string;
+            objective: string | null;
+            promptText: string;
+            outputText: string;
+            promptBytes: number;
+            tokensInput: number | null;
+            tokensOutput: number | null;
+            tokensReasoning: number | null;
+            tokensCacheRead: number | null;
+            tokensCacheWrite: number | null;
+            cost: number | null;
+            totalCalls: number | null;
+            stepsUsed: number | null;
+            maxSteps: number | null;
+            callsBeforeFirstWrite: number | null;
+            writeCount: number | null;
+            redundantReadCount: number | null;
+            duplicateCallCount: number | null;
+            promptProvidedReadCount: number | null;
+            pathProvidedReadCount: number | null;
+            exhausted: boolean | null;
+            callBuckets: {
+                [key: string]: number;
+            } | null;
+        };
+        AppTelemetryView: {
+            app: string;
+            generatedAt: string;
+            windowDays: number | null;
+            runCount: number;
+            byRole: {
+                role: string;
+                medianPromptBytes: number | null;
+                p95PromptBytes: number | null;
+                medianCacheHitRate: number | null;
+                turnCount: number;
+            }[];
+            reviewerConvergence: {
+                avgCorrectionsRound0: number | null;
+                avgCorrectionsRound1: number | null;
+                approveRate: number | null;
+            };
+            groundingPresence: number | null;
+            repairFraction: number | null;
+            medianTurnsPerRun: number | null;
+            medianWallClockSec: number | null;
+            p95WallClockSec: number | null;
+            efficiency: {
+                turnsMeasured: number;
+                medianCallsBeforeFirstWrite: number | null;
+                exhaustedRate: number | null;
+                redundantReadRatio: number | null;
+                duplicateRatio: number | null;
+            };
         };
     };
     responses: never;
@@ -1275,6 +1435,28 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": string;
+                };
+            };
+        };
+    };
+    getRunTurns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description agent turns */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTurnView"][];
                 };
             };
         };
@@ -1607,6 +1789,35 @@ export interface operations {
             };
         };
     };
+    getAppContextMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description context map view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextMapView"];
+                };
+            };
+            /** @description app not found, or no stored architecture map yet for this app */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getRunReport: {
         parameters: {
             query?: {
@@ -1660,6 +1871,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrendsView"];
+                };
+            };
+        };
+    };
+    getAppTelemetry: {
+        parameters: {
+            query?: {
+                window?: number;
+            };
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description app telemetry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppTelemetryView"];
                 };
             };
         };

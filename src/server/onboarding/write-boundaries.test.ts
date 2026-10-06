@@ -3,7 +3,7 @@
    (yaml-boundary-profile.adapter.ts) — the round-trip tests below drive that REAL parser
    (via YamlBoundaryProfileAdapter, reader-injected) so a drift between the two never ships
    silently. spliceBoundariesBlock() must be idempotent and must never touch any OTHER
-   `${VAR}` placeholder or comment elsewhere in the document (spec C1, C4).
+   `${VAR}` placeholder or comment elsewhere in the document.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -91,7 +91,7 @@ test("serializeBoundary: an http profile without an optional receiver round-trip
   assert.deepEqual(profiles[0], profile);
 });
 
-/* ── idempotent splice (spec C4) ───────────────────────────────────────────────── */
+/* ── idempotent splice ───────────────────────────────────────────────── */
 
 test("spliceBoundariesBlock: writing the same profile twice leaves exactly one boundaries: block", () => {
   const original = [
@@ -143,7 +143,7 @@ test("spliceBoundariesBlock: appends a boundaries: block when absent", () => {
   assert.ok(spliced.includes("**/*.api.ts"));
 });
 
-/* ── ${VAR} placeholders and comments elsewhere stay byte-identical (spec C1) ──── */
+/* ── ${VAR} placeholders and comments elsewhere stay byte-identical ──── */
 
 test("spliceBoundariesBlock: never touches ${VAR} placeholders or comments outside the boundaries block", () => {
   const original = [

@@ -52,6 +52,28 @@ test("capDiff FIX (2nd known bug): a genuinely single-file diff over budget now 
   assert.ok(out.length >= 100, "the output now carries real (truncated) diff content, not just the marker text");
 });
 
+/* The degenerate-fallback re-add computes `name = extractDiffFilePath(firstFile)` and does
+   `omitted.splice(omitted.indexOf(name), 1)` with NO bounds check. When the oversized first file's
+   header is malformed enough that extractDiffFilePath can't find its "b/" path (it returns ""),
+   `indexOf("")` is -1 (an empty string is never a real omitted filename) and `splice(-1, 1)` deletes
+   the LAST entry of `omitted` instead of doing nothing — silently un-reporting a genuinely omitted
+   file that has nothing to do with the malformed one.
+ */
+test("capDiff FIX (splice guard): a malformed-header oversized first file must not delete an unrelated LAST omitted file", () => {
+  /* No " b/..." on this header line — extractDiffFilePath fails (""); the main loop's fallback
+     regex (a/-path only) still finds a name for it, so it lands in `omitted` as "bigfile.ts". */
+  const bigfile = "diff --git a/bigfile.ts\n" + "+line\n".repeat(20);
+  const second = "diff --git a/src/second.ts b/src/second.ts\n+x\n";
+  const third = "diff --git a/src/third.ts b/src/third.ts\n+y\n";
+  const out = capDiff(bigfile + second + third, 50);
+
+  assert.ok(
+    out.includes("src/third.ts"),
+    "FIXED: third.ts is a genuinely separate omission and must stay reported — the unrelated malformed name lookup must not delete it",
+  );
+  assert.ok(out.includes("src/second.ts"), "second.ts must also still be reported as omitted");
+});
+
 /* relocated cappedDiffText can pick a per-file-section sanitize mode by extension. Same parsing
    capDiff already uses internally — no new logic.
  */

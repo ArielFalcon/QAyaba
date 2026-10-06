@@ -9,6 +9,10 @@ export interface VcsCommitResult {
 }
 
 type Git = (args: string[], cwd?: string) => Promise<string>;
+
+/* A submodule directory belongs to the sandbox, which can plant a repository in it whose config names a command. Reporting a submodule's dirty content makes git enter it and run that command as the orchestrator; a pointer moved off its recorded commit is still reported, without entering it. */
+const IGNORED_SUBMODULE_STATE = "dirty";
+
 type WriteExcludesFn = (dir: string, patterns: readonly string[]) => void | Promise<void>;
 
 export class VcsWriteAdapter implements VcsWritePort {
@@ -72,12 +76,13 @@ export class VcsWriteAdapter implements VcsWritePort {
     await this.git(["push", "--force-with-lease", "-u", "origin", branch], dir);
   }
 
+  /* Quiet, because a switch that is not quiet reports the local changes it carries over, and that report walks into every submodule: the sandbox's own `.gitmodules` (`ignore = none`) overrides any diff.ignoreSubmodules on the command line, so only not producing the report keeps git out. */
   async checkoutBranch(dir: string, branch: string): Promise<void> {
-    await this.git(["checkout", "-B", branch], dir);
+    await this.git(["checkout", "-q", "-B", branch], dir);
   }
 
   async hasChanges(dir: string, pathspecs: readonly string[]): Promise<boolean> {
-    const status = await this.git(["status", "--porcelain", "--", ...pathspecs], dir);
+    const status = await this.git(["status", "--porcelain", `--ignore-submodules=${IGNORED_SUBMODULE_STATE}`, "--", ...pathspecs], dir);
     return status.trim().length > 0;
   }
 

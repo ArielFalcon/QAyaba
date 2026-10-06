@@ -43,6 +43,30 @@ window.QayabaMockData = (function () {
       coverageSeries: [0.84, 0.86, 0.80, 0.88, 0.90, 0.90, 0.92],
       vmix: [{ v: 'pass', n: 73 }, { v: 'fail', n: 6 }, { v: 'flaky', n: 3 }, { v: 'skipped', n: 4 }],
       errClasses: [['timing-flake', 6], ['selector-fragile', 4], ['coverage-miss', 3], ['auth-flow', 2]],
+      /* Sample FE<->BE architecture map — mock mode only; live mode renders only what
+         GET /apps/:name/context-map actually returns, or an honest empty state. */
+      contextMap: {
+        builtAtSha: 'f3a9c21',
+        updatedAt: '2026-09-20T10:15:00Z',
+        map: {
+          builtAtSha: 'f3a9c21',
+          routes: [
+            { path: '/checkout', name: 'Checkout', component: 'CheckoutPage' },
+            { path: '/cart', name: 'Cart', component: 'CartPage' },
+            { path: '/profile', name: 'Profile', component: 'ProfilePage' },
+          ],
+          api: [
+            { operationId: 'createOrder', method: 'POST', path: '/api/orders' },
+            { operationId: 'getCart', method: 'GET', path: '/api/cart' },
+            { operationId: 'getProfile', method: 'GET', path: '/api/profile' },
+          ],
+          feBe: [
+            { route: '/checkout', operationId: 'createOrder' },
+            { route: '/cart', operationId: 'getCart' },
+            { route: '/profile', operationId: 'getProfile' },
+          ],
+        },
+      },
     },
   ];
 
@@ -134,7 +158,7 @@ window.QayabaMockData = (function () {
     {
       id: 'r-1840', app: 'checkout-api', sha: 'a1b2c3d', verdict: 'fail', mode: 'diff',
       message: 'fix(cart): reject negative quantities', author: 'devon',
-      time: '22m ago', specs: 2, reviewer: 'approved', decision: 'Issue #91',
+      time: '22m ago', specs: 2, reviewer: 'approved', decision: 'Issue #91', canContinue: true,
       branch: 'DEV', duration: '1m 47s', coverage: 'covered', oracle: '—',
       stages: [['classify', 'done'], ['generate', 'done'], ['validate', 'done'], ['execute', 'fail'], ['decide', 'done']],
       changed: ['src/cart/CartController.java', 'src/cart/CartService.java'],

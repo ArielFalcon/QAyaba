@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toIntelligenceView } from "./intelligence-view";
+import Database from "better-sqlite3";
+import { loadIntelligenceView, toIntelligenceView } from "./intelligence-view";
+import { saveCurriculum } from "./history";
 import { foldCurriculum, initCurriculum } from "../qa/learning/curriculum";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { IntelligenceViewSchema } from "../contract/commands";
 
 test("toIntelligenceView projects rules, scorecard and curriculum", () => {
   const rules = [
@@ -53,9 +57,72 @@ test("toIntelligenceView projects the curriculum's evidence counters", () => {
   assert.deepEqual({ evaluated: untouched.evaluated, credited: untouched.credited }, { evaluated: 0, credited: 0 });
 });
 
+test("toIntelligenceView passes through a null (unmeasured) mutantCount/killedCount, never coercing to 0", () => {
+  const scorecard = {
+    app: "qayaba", updatedAt: "2026-01-02",
+    entries: [
+      { runId: "x", app: "qayaba", sha: "s", target: "e2e", valueScore: null, mutantCount: null, killedCount: null, at: "2026-01-02" },
+    ],
+    summary: { totalRuns: 1, measuredRuns: 0, avgValueScore: null, lastValueScore: null },
+  } as never;
+
+  const view = toIntelligenceView("qayaba", [], scorecard, null);
+  assert.equal(view.scorecard?.entries[0]!.mutantCount, null);
+  assert.equal(view.scorecard?.entries[0]!.killedCount, null);
+});
+
 test("toIntelligenceView tolerates a missing scorecard and curriculum", () => {
   const view = toIntelligenceView("portfolio", [], null, null);
   assert.equal(view.scorecard, null);
   assert.equal(view.curriculum, null);
   assert.deepEqual(view.rules, []);
+});
+
+/* The API response is the schema-parsed view (api.ts contractJson), so these assert on what an
+   operator's client actually receives: a corrupt curriculum row must read as corrupt, never as the
+   "no curriculum yet" of an app that simply has none. */
+test("the intelligence API reports a corrupt curriculum row as corrupt", () => {
+  const body = IntelligenceViewSchema.parse(toIntelligenceView("app", [], null, CURRICULUM_CORRUPT));
+
+  assert.equal(body.curriculumCorrupt, true);
+  assert.equal(body.curriculum, null);
+});
+
+test("the intelligence API does not report an app with no curriculum yet as corrupt", () => {
+  const body = IntelligenceViewSchema.parse(toIntelligenceView("app", [], null, null));
+
+  assert.equal(body.curriculumCorrupt, false);
+  assert.equal(body.curriculum, null);
+});
+
+/* The API's read path over the real history store. A stored curriculum row that no longer parses
+   (a partial write) is simulated by overwriting its data in this test process's own database. */
+function storeCorruptCurriculum(app: string): void {
+  saveCurriculum(initCurriculum(app));
+  const raw = new Database(process.env.HISTORY_DB_PATH!);
+  try {
+    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run('{"app":', app);
+  } finally {
+    raw.close();
+  }
+}
+
+test("the stored intelligence view reports a corrupt curriculum row as corrupt", () => {
+  const app = `intelligence-corrupt-${Math.random().toString(36).slice(2)}`;
+  storeCorruptCurriculum(app);
+
+  const view = IntelligenceViewSchema.parse(loadIntelligenceView(app));
+
+  assert.equal(view.curriculumCorrupt, true);
+  assert.equal(view.curriculum, null);
+});
+
+test("the stored intelligence view reports a readable curriculum row with its content, not as corrupt", () => {
+  const app = `intelligence-readable-${Math.random().toString(36).slice(2)}`;
+  saveCurriculum(initCurriculum(app));
+
+  const view = IntelligenceViewSchema.parse(loadIntelligenceView(app));
+
+  assert.equal(view.curriculumCorrupt, false);
+  assert.notEqual(view.curriculum, null);
 });

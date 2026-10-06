@@ -6,7 +6,9 @@
 
 import { RunRecord } from "../types";
 import { sanitizeText } from "../orchestrator/sanitizer";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 import { listRunOutcomes, listLearningRules, loadCurriculum } from "./history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 
 export function buildRunChatContext(): string {
   return sanitizeText([
@@ -22,8 +24,8 @@ export function buildRunChatContext(): string {
     "· fail   → test failures detected → GitHub Issue opened for the team",
     "· flaky  → passes only after retries → quarantined (no action needed)",
     "· invalid → static checks failed (compilation, linting, or metadata)",
-    "· infra-error → DEV environment was unhealthy or unreachable",
-    "· skipped → the commit needed no testing (style-only or valid no-op)",
+    `· infra-error → the run could not reach a verdict, never a code bug: DEV was unhealthy or unreachable; or, when the run says so, the agent ran out of steps (${infraErrorGloss("E-STEP-BUDGET")}) or decided nothing (${infraErrorGloss("E-NO-DECISION")}); or the app's login failed before any test was written (${infraErrorGloss("E-PRECONDITION")})`,
+    "· skipped → the commit needed no testing (style-only, or the agent declared a no-op with a reason)",
     "",
     "## Boundaries of this chat",
     "· You have NO tools — cannot read files, run commands, or call MCPs.",
@@ -37,9 +39,16 @@ export function buildLearningContext(app: string): string | null {
   try {
     const outcomes = listRunOutcomes(app, 10);
     const rules = listLearningRules(app, 20);
-    const curriculum = loadCurriculum(app);
+    /*
+     * A corrupt row (logged by loadCurriculum() itself) is stated as corrupt, never folded into
+     * "no curriculum yet": the operator asking why archetype guidance is missing needs the real
+     * reason, and an app that simply has none must not read as broken.
+     */
+    const curriculumRaw = loadCurriculum(app);
+    const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
+    const curriculum = curriculumCorrupt ? null : curriculumRaw;
 
-    if (outcomes.length === 0 && rules.length === 0 && !curriculum) return null;
+    if (outcomes.length === 0 && rules.length === 0 && !curriculum && !curriculumCorrupt) return null;
 
     const lines: string[] = ["## Learning state for this app", ""];
 
@@ -62,6 +71,12 @@ export function buildLearningContext(app: string): string | null {
         lines.push(`  trigger: ${r.trigger.slice(0, 120)}`);
         lines.push(`  action: ${r.action.slice(0, 120)}`);
       }
+      lines.push("");
+    }
+
+    if (curriculumCorrupt) {
+      lines.push("### Curriculum: CORRUPT");
+      lines.push("- The stored curriculum for this app cannot be read, so its proven scenario archetypes are unavailable. This is a fault to repair, not an app without a curriculum.");
       lines.push("");
     }
 

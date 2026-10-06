@@ -2,10 +2,10 @@
 # qa — interactive layer for the qayaba control API.
 # Talks HTTP to a RUNNING orchestrator (docker compose up). Needs: curl, jq.
 # Auth: set QA_API_TOKEN to match the service's QA_API_TOKEN.
-# Host:  override with QA_HOST (default localhost:8080).
+# Host:  override with QA_HOST (default localhost:458, the service's default PORT).
 set -euo pipefail
 
-QA_HOST="${QA_HOST:-localhost:8080}"
+QA_HOST="${QA_HOST:-localhost:458}"
 BASE="http://${QA_HOST}"
 
 if [ -t 1 ]; then
@@ -58,7 +58,7 @@ Commands:
     incidents       List recorded incidents
   help            Show this help
 
-Env: QA_HOST (default localhost:8080) · QA_API_TOKEN (if the service requires auth)
+Env: QA_HOST (default localhost:458) · QA_API_TOKEN (if the service requires auth)
 
 Examples:
   qa run portfolio --latest --target e2e --mode complete --watch

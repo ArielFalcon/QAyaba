@@ -22,7 +22,7 @@ export class PublishDecisionService {
       case "flaky":
         return { outcome: "quarantine", reason: "flaky — quarantine, no PR" };
       case "infra-error":
-        return { outcome: "noop", reason: "infra-error — DEV down, not a code bug; no side effect" };
+        return { outcome: "noop", reason: "infra-error — the run could not reach a verdict, not a code bug; no side effect" };
       case "skipped":
         return { outcome: "noop", reason: "skipped — no work to publish" };
       case "fail":

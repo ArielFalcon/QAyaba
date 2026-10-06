@@ -155,7 +155,7 @@ function spearman(a: number[], b: number[]): number {
   return cov / (sdA * sdB);
 }
 
-test("the fixture pair's joined intersection has n >= 3 — Spearman is undefined at n<2 and uninformative at n=2 (§9 guard)", () => {
+test("the fixture pair's joined intersection has n >= 3 — Spearman is undefined at n<2 and uninformative at n=2", () => {
   const joined = joinByFileFunction();
   assert.ok(joined.length >= 3, `fixture-construction failure: joined intersection n=${joined.length}, need >= 3`);
 });
@@ -167,7 +167,7 @@ test("promotion-readiness characterization: graph-vs-lizard ccn hotspot-set Jacc
   const graphKeys = new Set(graphRows.map((r) => `${r.file}::${r.function}`));
   const lizardKeys = new Set(lizardRows.map((r) => `${r.file}::${r.function}`));
   const value = jaccard(graphKeys, lizardKeys);
-  /* CHARACTERIZATION + PROMOTION REGRESSION GATE (NOT tuned).
+  /* Current-behavior pin + PROMOTION REGRESSION GATE (NOT tuned).
      The real symmetric-threshold Jaccard on this REAL fixture pair is 0.4545 (15/33), BELOW the 0.6
      promotion gate. This is NOT a methodology artifact — scope, join-key, and threshold were all
      ruled out by re-querying the live graph (the number does not move). Root cause: the
@@ -180,7 +180,7 @@ test("promotion-readiness characterization: graph-vs-lizard ccn hotspot-set Jacc
      This asserts the CURRENT non-viability and doubles as a regression gate: if a future upstream fix
      to the codebase-memory indexer's complexity algorithm lifts this to >= 0.6, THIS TEST WILL FAIL —
      and that failure is the SIGNAL to re-evaluate promoting CodebaseMemoryGraphAdapter to primary for
-     ccn (re-run against a fresh fixture pair and, per R7, add an absolute-ccn spot-check first).
+     ccn (re-run against a fresh fixture pair and add an absolute-ccn spot-check first).
    */
   assert.ok(
     value < 0.6,

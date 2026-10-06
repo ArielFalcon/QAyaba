@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toRunReportView } from "./run-report-view";
+import { infraErrorGloss } from "../qa/learning/taxonomy";
 import type { RunRecord, RunOutcome } from "../types";
 
 function record(over: Partial<RunRecord> = {}): RunRecord {
@@ -158,6 +159,24 @@ test("flaky verdict and skipped verdict produce their own headlines", () => {
     outcome: null,
   });
   assert.equal(skipped.headline, "SKIPPED — no test-worthy change");
+});
+
+test("an infra-error headline is worded by the class that closed the run, and never blames DEV for the engine-side ones", () => {
+  for (const errorClass of ["E-STEP-BUDGET", "E-NO-DECISION", "E-INFRA"] as const) {
+    const view = toRunReportView({
+      record: record({ verdict: "infra-error", cases: [], passed: 0, failed: 0 }),
+      outcome: outcome({}, { verdict: "infra-error", errorClass }),
+    });
+    assert.ok(view.headline.startsWith("INFRA"), errorClass);
+    assert.ok(view.headline.includes(infraErrorGloss(errorClass)), errorClass);
+    assert.doesNotMatch(view.headline, /\bDEV\b/, errorClass);
+  }
+});
+
+test("an infra-error run with no recorded outcome reads neutrally, not as a DEV outage", () => {
+  const view = toRunReportView({ record: record({ verdict: "infra-error", cases: [], passed: 0, failed: 0 }), outcome: null });
+  assert.ok(view.headline.includes(infraErrorGloss(null)));
+  assert.doesNotMatch(view.headline, /\bDEV\b/);
 });
 
 test("suite duration sums case timings; null when no case carried timing", () => {

@@ -41,7 +41,7 @@ test("PARITY: extractTestIdSelectorsWithIndex matches legacy — drops interpola
   assert.deepEqual(portedExtract(spec), []);
 });
 
-test("PARITY: extractTestIdSelectorsWithIndex matches legacy — a commented-out call is not extracted (W5)", () => {
+test("PARITY: extractTestIdSelectorsWithIndex matches legacy — a commented-out call is not extracted", () => {
   const spec = `// await page.getByTestId("ghost").click();\nawait page.getByTestId("real").click();`;
   assert.deepEqual(portedExtract(spec), [{ value: "real", index: 10 }]);
 });

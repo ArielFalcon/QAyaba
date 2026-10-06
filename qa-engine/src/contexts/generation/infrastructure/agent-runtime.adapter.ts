@@ -1,11 +1,11 @@
-import type { AgentRuntimePort, AgentSession, OpenSessionOpts,
+import type { AgentRuntimePort, AgentSession, OpenSessionOpts, AgentPromptOpts,
   UsageSnapshot, AgentTurnEvent, AgentOpenDescriptor } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
 
 interface LegacyAgentDeps {
   open(agent: string, cwd: string, opts?: { signal?: AbortSignal; timeoutMs?: number; model?: string;
     onUsage?: (u: UsageSnapshot) => void; onTurn?: (t: AgentTurnEvent) => void; descriptor?: AgentOpenDescriptor }): Promise<{
-      id: string; prompt(text: string, o?: { textOnly?: boolean; round?: number; isRepair?: boolean; sectionSizes?: Record<string, number> | null }): Promise<string>; dispose(): Promise<void>;
+      id: string; prompt(text: string, o?: AgentPromptOpts): Promise<string>; dispose(): Promise<void>;
     }>;
 }
 

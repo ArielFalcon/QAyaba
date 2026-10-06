@@ -40,7 +40,7 @@ export interface ExplorationBrief {
 export interface BriefFns {
   parseExplorationBrief(text: string): ExplorationBrief | null;
   coerceExplorationBrief(raw: unknown): ExplorationBrief | null;
-  renderExplorationBrief(brief: ExplorationBrief, opts?: { suppressFeBe?: boolean }): string;
+  renderExplorationBrief(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }): string;
 }
 
 export class ExplorationBriefAdapter {
@@ -54,7 +54,7 @@ export class ExplorationBriefAdapter {
     return this.fns.coerceExplorationBrief(raw);
   }
 
-  render(brief: ExplorationBrief, opts?: { suppressFeBe?: boolean }): string {
+  render(brief: ExplorationBrief, opts?: { omitLandmarks?: boolean }): string {
     return this.fns.renderExplorationBrief(brief, opts);
   }
 }

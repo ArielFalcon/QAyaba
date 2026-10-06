@@ -30,9 +30,9 @@ node --import tsx --test --test-name-pattern="skip" src/server/webhook-routing.t
 
 # Trigger one run manually (runs the SAME pipeline as the webhook). --mode defaults
 # to "diff"; complete/exhaustive scan the whole repo, manual is guidance-driven:
-npm run qa -- --app portfolio --sha <commit-sha>
-npm run qa -- --app portfolio --sha <sha> --mode exhaustive
-npm run qa -- --app portfolio --sha <sha> --mode manual --guidance "test the contact form"
+npm run qa -- --app my-app --sha <commit-sha>
+npm run qa -- --app my-app --sha <sha> --mode exhaustive
+npm run qa -- --app my-app --sha <sha> --mode manual --guidance "test the contact form"
 
 npm run start               # the long-lived webhook + queue service (src/index.ts)
 ```
@@ -46,10 +46,10 @@ any change to `src/`.
 doppler run -- docker compose up --build      # prod: Doppler injects secrets
 # or: cp .env.example .env  (fill OPENCODE_API_KEY) then `docker compose up --build`
 
-# Once "listening for webhooks on :8080", trigger a run:
-SHA=$(git ls-remote https://github.com/ArielFalcon/portfolio main | cut -f1)
-curl -X POST localhost:8080 -H 'content-type: application/json' \
-  -d "{\"repo\":\"ArielFalcon/portfolio\",\"sha\":\"$SHA\"}"
+# Once the log shows "qayaba listening on <addr>:458", trigger a run:
+SHA=$(git ls-remote https://github.com/<owner>/<repo> main | cut -f1)
+curl -X POST localhost:458 -H 'content-type: application/json' \
+  -d "{\"repo\":\"<owner>/<repo>\",\"sha\":\"$SHA\"}"
 docker compose logs -f orchestrator
 ```
 
@@ -131,7 +131,9 @@ a qa-engine `CompositionConfig`). Default `diff` mode shown:
    then `npm ci`. Runs **before** generation so the agent has the fixtures/config.
 4. **Generate** — agent session (OpenCode or Codex per the role assignment); the agent derives the objective from the
    commit intent, writes/improves specs + `e2e/.qa/manifest.json`, invokes the
-   reviewer. **If the agent approves with zero specs → no-op → `skipped`** (clean).
+   reviewer. **If the agent declares a no-op (`noop` with a reason) and writes zero specs → `skipped`**
+   (clean; the reason is the note). Zero specs with no `noop`, or with the step budget exhausted,
+   → `infra-error` (`E-NO-DECISION` / `E-STEP-BUDGET`), never a silent `skipped`.
 5. **Validate (Filter B)** — static gate: `tsc` + ESLint (`eslint-plugin-playwright`)
    + `playwright --list` + manifest validity. Fail → `invalid`.
 6. **Health pre-flight** — DEV down now → `infra-error` (not a code bug).
@@ -147,6 +149,7 @@ a qa-engine `CompositionConfig`). Default `diff` mode shown:
    `infra-error`. `flaky` → quarantine. Green with no `e2e/` changes → nothing.
 
 **Verdicts** (`src/types.ts` `RunVerdict`): `pass | fail | flaky | invalid | infra-error | skipped`.
+An `infra-error` classed `E-PRECONDITION` means the app's login could not be completed before testing: recorded, never learned from, no Issue.
 
 **Shadow mode** (`qa.shadow: true` in app config) replaces every PR/Issue side
 effect with a log line — used to onboard a repo without dirtying it.
@@ -210,23 +213,25 @@ runtimes guarantee independent judgment). The description below is the **OpenCod
 Codex runs the same roles via `codex exec` with the provider-neutral prompts in `agent/`.
 
 For the OpenCode runtime: generation, the reviewer subagent, and the MCP tools all live **inside**
-OpenCode. Config in `agents/opencode.json`. Two **different models** guarantee independent judgment,
-via a **single** OpenCode Go key (`OPENCODE_API_KEY`); models are named with the `opencode-go/`
-prefix (no per-provider keys):
+OpenCode. **`agents/opencode.json` is the single source of truth for the current roster and model
+assignments** — read it rather than trusting model ids in prose, which drift. Two **different
+models** guarantee independent judgment, via a **single** OpenCode Go key (`OPENCODE_API_KEY`);
+models are named with the `opencode-go/` prefix (no per-provider keys). The stable roles:
 
-- `qa-generator` (primary, `deepseek-v4-pro`) — writes tests, can read/edit/bash.
-- `qa-reviewer` (subagent, `qwen3.7-max`) — read-only quality judge, emits a JSON verdict.
-- `qa-maintainer` (primary, `deepseek-v4-pro`) — self-repair of THIS repo: diagnoses
+- `qa-generator` (primary) — writes tests, can read/edit/bash.
+- `qa-reviewer` (subagent) — read-only quality judge, emits a JSON verdict.
+- `qa-maintainer` (primary) — self-repair of THIS repo: diagnoses
   incidents, opens a fix PR; never touches watched repos. Used by `triggerMaintainer`.
   The fix is **auto-deployed only when explicitly opted in** (`SELF_MAINTAINER_AUTOMERGE="true"`;
   off by default) through layered safety gates (`src/server/merge-guard.ts`) + a
   **canary-before-promote** hot-swap with boot-guard rollback, gated by a **required `ci` check
-  on `main`** (the outer guard). See
-  [docs/self-maintenance.md](docs/self-maintenance.md) before touching this path.
-- `qa-assistant` (`deepseek-v4-flash`) — read-only run Q&A for the TUI chat; no tools,
+  on `main`** (the outer guard). See the threat-model header atop
+  `src/server/merge-guard.ts` before touching this path.
+- `qa-assistant` — read-only run Q&A for the TUI chat; no tools,
   answers only from the provided run context. Used by `/api/runs/:id/ask`.
 
-(The model ids are OpenCode-Go names that should be confirmed against `opencode models`.)
+`agents/opencode.json` also defines the coordination roles not detailed here (`qa-sidekick`,
+`qa-explorer`, `qa-proposer`, `qa-worker`/`qa-worker-code`, `qa-reflector`).
 
 Prompts are layered: `agents/AGENTS.md` (shared rules + anti-degradation
 protocols) → `agents/agent/*.md` (per-role procedure + JSON output contract) →
@@ -246,7 +251,10 @@ Codex consumes the **provider-neutral** mirror of these under `agent/` (`agent/r
   origin, redirect back) declares it in its YAML. Setup materializes it as
   `e2e/.qa/auth.local.json` (gitignored, never published) and the seed
   `authenticate()`, the DOM capture and the agent all run that same flow
-  (`qa-engine/src/shared-kernel/e2e-auth.ts`). Credentials stay in `DEV_TEST_*`.
+  (`qa-engine/src/shared-kernel/e2e-auth.ts`). Credentials stay in `DEV_TEST_*`. It is
+  the alternative to the top-level `auth:` block (orchestrator-prepared session through
+  `auth.setup.ts`): when a session was saved (`PW_STORAGE_STATE`), `authenticate()` loads
+  it and the declared flow does not run — declare one or the other.
 
 ### Deployment profiles (`QAYABA_PROFILE`)
 
@@ -264,10 +272,10 @@ from `GIT_REMOTE_BASE` (`GIT_TOKEN`), so any git host (GitLab) works for clone/f
 
 - **Root-cause & project-agnostic — never tailor a fix to a configured test
   app.** Every fix and feature targets the underlying cause and must hold for
-  ANY watched project. The apps in `config/apps/*` (`portfolio`, `petclinic`,
-  `jhipster-store`, `qayaba`, …) are *interchangeable test targets, not design
-  inputs* — never shape a code path "so app X passes"; reproduce on one,
-  diagnose the root, generalize the solution. The ONLY legitimate
+  ANY watched project. The apps configured under `config/apps/*` are
+  *interchangeable test targets, not design inputs* — never shape a code path
+  "so app X passes"; reproduce on one, diagnose the root, generalize the
+  solution. The ONLY legitimate
   project-shaped constraint is **declared, deliberate scope** (e.g.
   structural-signal analysis covers Java + JavaScript/TypeScript by design
   *for now*, widened later) — and even that lives in `config/` / the language
@@ -277,11 +285,16 @@ from `GIT_REMOTE_BASE` (`GIT_TOKEN`), so any git host (GitLab) works for clone/f
 - **Security boundary:** the LLM agent is **read-only** on watched repos. Only the
   deterministic orchestrator does git writes (push/PR). Never give the agent (or
   any future chat/operator layer) direct write to a watched repo.
+- **Governance-sensitive changes ship alone.** A change to a security invariant,
+  to agent write authority, or to a production activation switch merges in its
+  own PR, separate from unrelated features.
 - **App-specificity lives only in `config/`; agents/models only in `agents/`;
   nothing app-specific in `src/`.**
 - **Sequential queue** — one run at a time; never run concurrent QA against DEV.
-- **Honor the agent's no-op decision** — approved + zero specs is a *valid*
-  `skipped`, never `invalid`.
+- **Honor the agent's explicit no-op decision.** A declared `noop` with a reason and zero
+  specs is a valid `skipped` (the reason becomes the note), never `invalid`. Silence is not a
+  decision: zero specs without `noop`, or with the step budget exhausted, is `infra-error`
+  (`E-NO-DECISION` / `E-STEP-BUDGET`). `approved` is never a no-op signal.
 - **Surface integration errors loudly** — never swallow agent-runtime (OpenCode SDK /
   Codex exec) / runner / git errors into an empty result (a swallowed error once
   looked like "no tests written"). Throw and log.
@@ -298,7 +311,7 @@ from `GIT_REMOTE_BASE` (`GIT_TOKEN`), so any git host (GitLab) works for clone/f
 - **No build step.** `tsx` runs TS at runtime and is a devDependency — install ALL
   deps in Docker (not `--omit=dev`).
 - **Pin exact versions on the execution path.** Playwright is pinned to `1.60.0`
-  to match the browsers in the `playwright:v1.60.0` base image; a floating `^`
+  to match the browsers in the `playwright:v1.60.0-noble` base image; a floating `^`
   breaks execution. Don't loosen it.
 - **`.env` comments go on their own line.** `docker compose` `env_file` does NOT
   strip an inline `# comment` — it becomes part of the value (this once made an
@@ -318,6 +331,25 @@ from `GIT_REMOTE_BASE` (`GIT_TOKEN`), so any git host (GitLab) works for clone/f
 - **Serena needs a language server per watched-repo language.** The `agents` image
   bakes in JDK (Java/Spring), python3, and the TypeScript LS (Angular); add the
   runtime in `agents/Dockerfile` when onboarding a new language.
+
+## Testing standards
+
+Read [`docs/testing-standards.md`](docs/testing-standards.md) before writing or changing a test.
+The rules an agent must follow:
+
+1. **Test behavior through the public seam** (exported function, use case, port) — never a private
+   helper, never exact prose/prompt wording, never a whole internal object.
+2. **A bug fix starts with a test that fails for the bug's reason; a test gap starts by showing the
+   mutant survives** (`npm run mutate -- <preset>`).
+3. **Name tests by the behavior they check** — no process labels (ticket, batch, review or priority
+   ids) in test names, test file names or test comments.
+4. **Fakes for injected ports, doubles only at the process boundary**; import a production constant
+   instead of re-typing its literal.
+5. **Write only under `os.tmpdir()`** — the tracked-tree write guard throws otherwise; no real time
+   or network.
+6. **Never kill a mutant by asserting its literal**; restructure a genuinely equivalent one away, or
+   list it as a documented survivor in docs/testing-standards.md — no `// Stryker disable`
+   directives. Mutation thresholds are per preset, never repo-wide.
 
 ## The value/trust risk — read before adding "quality" logic
 
@@ -355,15 +387,17 @@ coverage signal, not add another LLM proxy.
 
 ## Current state
 
-Several apps are wired in `config/apps/` across the current **Java +
-JavaScript/TypeScript** scope — all interchangeable test targets, never design
-inputs (see Invariants): `jhipster-store` (Angular 21 gateway + Spring
-microservices, monorepo), `petclinic` (Spring, monorepo) and `portfolio`
-(static Astro) run in **e2e** mode against live DEV in **shadow mode**;
-`qayaba` runs in **code** mode (the engine tests its own source, `code:
-true`). The deploy gate is skipped wherever no `versionUrl` is configured
-(already-deployed/static targets). engram is enabled for persistent agent
-memory across runs.
+Watched apps are configured in `config/apps/` (gitignored — user data; see
+`config/apps/example.yaml`) across the current **Java + JavaScript/TypeScript**
+scope — always interchangeable test targets, never design inputs (see
+Invariants). Both run targets are exercised across onboarded apps: **e2e**
+mode against live DEV (monorepos with an Angular/Spring or Spring-only
+backend, and static-site frontends all run in **shadow mode** while
+onboarding), and **code** mode (`code: true`, no `dev:` block) for
+source-level testing without a browser — this engine tests its own source
+in code mode as one such target. The deploy gate is skipped wherever no
+`versionUrl` is configured (already-deployed/static targets). engram is
+enabled for persistent agent memory across runs.
 
 The agent runtime is **provider-agnostic** (`src/agent-runtime/`): OpenCode and Codex,
 in `single` or `dual` mode, behind one facade (the `agents` container's supervisor

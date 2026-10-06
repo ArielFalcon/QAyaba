@@ -2,7 +2,7 @@
 
 What the dashboard needs from the **ai-pipeline** orchestrator to show real data in
 every section, mapped against the **existing `/api/v1/*` contract**
-(`contract/openapi.json` → `@ai-pipeline/sdk`). Each row is either:
+(`contract/openapi.json` → `@qayaba/sdk`). Each row is either:
 
 - **✓ exists** — the contract already serves it (maybe with a small field/derivation note),
 - **⚠ extend** — an existing endpoint that needs more fields, or
@@ -23,7 +23,7 @@ contract schema names are in (parens).
 | Need | Endpoint | Status | Notes |
 |---|---|---|---|
 | Watched apps (sidebar, fleet) | `GET /api/v1/apps` → `AppView[]` | ✓ | `AppView` lacks a human **`stack`** label ("Astro · Vercel") and a **`status`** is derived from `code`/`shadow`. |
-| Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ⚠ extend | Dashboard shows `models.generator` / `models.reviewer`. Confirm both role→model ids are exposed here (or `/agent/models`). |
+| Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ✓ wired | Console maps `models.generator`/`models.reviewer` from `assignments.primary.model` / `assignments.reviewer.model`. |
 | Auth | — | — | Static shell public at `/app`; `/api/v1/*` Bearer-protected. The console sends `credentials:'include'` + optional `Authorization`. |
 
 ---
@@ -32,8 +32,8 @@ contract schema names are in (parens).
 
 | Block | Data needed (model field) | Endpoint | Status |
 |---|---|---|---|
-| **Live engine band** | engine `status`, `health{ok,last,interval}`, `queue{running,queued}`, `sessions`, `mirrors`, `webhook` | `GET /api/v1/queue` → `QueueStatus{pending, running{id,app}}` | ⚠ extend — only queue counts exist. Health-poller state, open sessions, last mirror-prune, webhook status are **not** in the contract. Add an **engine status** endpoint (or extend `/queue`). |
-| **Running now** | the executing run summary (`id,app,mode,sha,message,stages,elapsed`) | `queue.running` + `GET /api/v1/runs/{id}` | ⚠ — pipeline `stages[]` is a dashboard concept; derive from `RunRecord.step`/`activity` or add a `stages` array. `elapsed` from `stepStartedAt`/`at`. |
+| **Live engine band** | engine `status`, `health{ok,last,interval}`, `queue{running,queued}`, `sessions`, `mirrors`, `webhook` | `GET /api/v1/queue` → `QueueStatus{pending, running{id,app}}` + `GET /api/v1/health` → `{ok, openSessions}` | ⚠ extend — queue counts, process liveness and open sessions are wired (the band says "engine operational" only when `/health` answers ok, "status unknown" otherwise). Health-poller cadence, last mirror-prune and webhook status are **not** in the contract. Add an **engine status** endpoint (or extend `/queue`). |
+| **Running now** | the executing run summary (`id,app,mode,sha,message,stages,elapsed`) | `queue.running` + `GET /api/v1/runs/{id}` | ⚠ — pipeline `stages[]` is a dashboard concept; derive from `RunRecord.step`/`activity` or add a `stages` array. `elapsed` counts from the record's `at` (its creation — the contract has no separate run-start time); `stepStartedAt` times only the current step. |
 | **Fleet signals (6 KPIs, period-over-period + sparkline)** | `valueOracle{v,prev,baseline,series}`, `reviewerPass{v,prev,series}`, `runs{measured,total,prevMeasured,prevTotal,series}`, `suitesGreen{v,total,prev,series}`, `prsAutoMerged{v,prev,series}`, `issuesOpen{v,prev,series}` | `GET /api/v1/signals` → `SignalsView` | ⚠ **extend (key gap)** — `SignalsView` today is `{valueOracle{measured,avgScore,measuredRuns,totalRuns}, reviewer{passRate,runs}, coverage{...}}`. It has **no previous-window value, no sparkline `series`, and none of `suitesGreen`/`prsAutoMerged`/`issuesOpen`**. Extend to a fleet, period-over-period shape with `series[]` + those three counters. |
 | **Where the guardrails fire (fleet ErrorClass)** | `fleetErrorClasses: [[class,count]]` | — | ✗ new — fleet-wide rollup. Either aggregate `errorClasses` from each app's `/trends`, or add `GET /api/v1/signals/error-classes`. |
 | **Recent activity (5 runs)** | recent runs across **all** apps | `GET /api/v1/runs?limit=5` | ⚠ — the SDK's `listRuns` always passes `?app=`. Confirm `GET /api/v1/runs` (no `app`) returns a **fleet-wide** feed; otherwise the console must fan out per app and merge. |
@@ -44,7 +44,7 @@ contract schema names are in (parens).
 
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| **Stats strip** | `stats{runs7d,passRate,specsAdded,openIssues,watching}` + 7-day `verdictMix[]` | — | ✗ new — fleet rollup. No fleet stats / fleet verdict-mix endpoint today (verdict mix exists only per-app in `/trends`). Add `GET /api/v1/signals` fields or `GET /api/v1/stats`. |
+| **Stats strip** | `stats{runs7d,passRate,specsAdded,openIssues,watching}` + 7-day `verdictMix[]` | — | ⚠ partially wired — the console derives `runs7d`/`passRate`/`specsAdded`/`verdictMix` client-side from the per-app run feeds (7d window bounded by the 20-runs-per-app feed). `openIssues` has no endpoint yet (stays mock). A fleet rollup endpoint would make this exact. |
 | **Run list (+ verdict filter)** | runs (fleet): `verdict, app, sha, message, mode, specs(count), time, stages(mini)` | `GET /api/v1/runs?app=&verdict=&mode=&limit=` → `RunRecord[]` | ✓/⚠ — `RunRecord` has `verdict, app, sha, mode, note, specs[], at`. Needs fleet-wide listing (see §1 recent), a `verdict`/`mode` filter, and a `stages` mini-pipeline (derive). `message` = `note`. `time` = relative(`at`). |
 | **Running row** | `queue.running` + summary | `GET /api/v1/queue` | ⚠ (as §1). |
 
@@ -91,6 +91,7 @@ contract schema names are in (parens).
 | **Activity tab · runs** | runs for the app | `GET /api/v1/runs?app={name}` → `RunRecord[]` | ✓ |
 | **Activity tab · suite** | committed specs for the app `[{file,status,n,coverage}]` | — | ✗ new — no committed-suite endpoint. Add `GET /api/v1/apps/{name}/suite`. |
 | **What Qayaba knows (engram)** | per-app episodic memory `[{text}]` | — | ✗ new — add `GET /api/v1/apps/{name}/memory` (episodic notes). Distinct from `intelligence` rules. |
+| **Activity tab · map** | FE<->BE architecture map `{map:{routes,api,feBe,flows?},builtAtSha,updatedAt}` | `GET /api/v1/apps/{name}/context-map` → `ContextMapView` | ✓ wired (Batch F) — 404 (no stored map yet) renders an honest empty state; live mode never shows a mock map. |
 
 ---
 
@@ -109,14 +110,14 @@ contract schema names are in (parens).
 |---|---|---|---|
 | Flywheel counters | `flywheel: [{id,stat,unit,note}]` (labeler→oracle→reflector→distiller→curriculum) | — | ✗ new — fleet counters. Some derivable from `IntelligenceView.scorecard`. |
 | Governed rule inventory | `ledger.rules: [{id,status,trigger,action,errorClass,confidence,usage,outcomes,success}]` | `GET /api/v1/apps/{name}/intelligence` → `IntelligenceView.rules[]` (`LearningRuleView`) | ✓ per-app — fields map (`confidence` `low/medium/high`→`low/med/high`; `status` `candidate/active/deprecated/superseded` ✓; `usageCount/outcomeCount/successRate`). ⚠ needs a **fleet** aggregate + a stable rule **id** (contract rule has no id). |
-| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]` | ✓ per-app (`archetype,caughtRealBug,promotionCount`); fleet aggregate ⚠. |
+| Scenario archetypes | `ledger.archetypes: [{name,caughtRealBug,promotions}]`, `ledger.corruptCurricula: [app]` | `IntelligenceView.curriculum` → `CurriculumView.archetypes[]`, `IntelligenceView.curriculumCorrupt` | ✓ wired — console aggregates each app's `curriculum.archetypes` into the fleet ledger (promotions summed, `caughtRealBug` OR-ed); an app whose stored curriculum is corrupt is flagged in the card, never shown as an empty curriculum. |
 | Governance / audit log | `ledger.audit: [{rule,issue,level}]` | — | ✗ new. |
 | Engram (all apps) | `engram: [{app,text}]` | — | ✗ new (see §5 memory). |
 
 ### Reports
 | Block | Data needed | Endpoint | Status |
 |---|---|---|---|
-| Insight blocks (ranked) | `reports.insights: [{metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ **maps well** — `ReportInsight{id,title,chart,value,unit,delta,multiplier,direction,goodWhen,series,breakdown,score}`. Map `shape`←`chart`, `headline`←`title`, `weight`←`score`. It's **per-app**; the dashboard's Reports is exec/fleet → call for the primary app or add a fleet report. |
+| Insight blocks (ranked) | `reports.insights: [{app,metric,shape,headline,detail,weight}]` | `GET /api/v1/apps/{name}/report` → `ReportView.insights[]` (`ReportInsight`) | ✓ wired — the console ranks every app's `/report` insights together, each block naming its app (`shape`←`chart`, `headline`←`title`, `weight`←`score`); viz renders an honest icon (no invented series). Templates stay client-side presets. |
 | Templates | `reports.templates: [{id,name,desc,blocks,schedule,channel}]` | — | ✗ new (or keep client-side presets). |
 | Generate / schedule / export | actions | — | ✗ new (future POST). |
 
@@ -154,7 +155,10 @@ consumes them and normalizes to the UI's `{onStep,onPlan,onCase,onLog,onVerdict}
 | Trigger run (dialog) | `POST /api/v1/runs` (`CreateRunInput{app,target,mode,sha}`) → `CreateRunResult` | ✓ (`api.createRun`) |
 | Cancel run | `DELETE /api/v1/runs/{id}` | ✓ (`api.cancelRun`) |
 | Ask about a run | `POST /api/v1/runs/{id}/ask` → `AskResponse` | ✓ (`api.ask`) |
-| Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ (available; "Re-run" button is currently a no-op) |
+| Continue/re-run | `POST /api/v1/runs/{id}/continue` | ✓ wired — the run-detail "Re-run failed cases" button (offered only for a finished run with failed cases, the only runs the server continues) calls `api.continueRun`; on a new run id it reloads the fleet and follows the verdict via `queueVerdictWatch` (same flow as the trigger dialog); a refusal shows the server's reason. |
+| Run report (post-run summary) | `GET /api/v1/runs/{id}/report` → `RunReportView{current, evolution|null}` | ✓ wired — run detail renders a "post-run report" card (insights ranked by `score`, evolution availability noted) when the read returns data; 404/null → section hidden. |
+| Agent turns | `GET /api/v1/runs/{id}/turns` → `AgentTurnView[]` | ✓ wired — run detail renders "What the agents did" (role · round · tokens · efficiency line · sanitized output snippet) when turns exist; empty → section hidden. Each efficiency measurement (calls, calls before the first write, writes, steps used/max, redundant reads, duplicate calls, reads already in the prompt, step limit hit) is `null` when the runtime could not supply it, and the console shows `n/a` for it — never a zero. |
+| App telemetry | `GET /api/v1/apps/{name}/telemetry` → `AppTelemetryView` | Read-only aggregates over an app's agent turns; its `efficiency` block (median calls before the first write, exhausted rate, redundant-read and duplicate ratios) covers only measured turns. Not rendered in the console yet. |
 
 ---
 

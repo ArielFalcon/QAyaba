@@ -4,12 +4,13 @@
  * control-plane wrappers. Domain/policy lives in qa-engine.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
-import { saveAgentTurn } from "../server/history";
+import { saveAgentTurnEvent } from "../server/history";
+import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker";
 
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import { setRuntimeRoleModels } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
@@ -29,7 +30,7 @@ export { activityRouter, registerRunSession, unregisterRunSession, startActivity
 export type { LiveActivity };
 
 /* Re-export so control-plane importers keep resolving extractJsonObjects/parseVerdict here. */
-import { type FinalVerdict, extractJsonObjects, parseVerdict } from "./verdict-parse";
+import { extractJsonObjects, parseVerdict } from "./verdict-parse";
 export { extractJsonObjects, parseVerdict };
 
 import {
@@ -59,12 +60,7 @@ const runtimeConfig = configFromEnv();
 setRuntimeRoleModels(runtimeRoleModelsFromConfig(runtimeConfig));
 
 
-import {
-  checkCircuit,
-  recordCircuitSuccess,
-  recordCircuitFailure,
-  resetCircuit,
-} from "@contexts/generation/infrastructure/resilience/circuit-breaker";
+import { resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker";
 export { resetCircuit };
 import {
   createAgentDeps,
@@ -101,21 +97,108 @@ export {
 };
 export type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent, UsageSnapshot };
 
-/*
- * Read fallback model mapping from opencode.json (root-level key). Keeps the
- * fallback logic in one place so the orchestrator can retry with a different
- * model when the primary is unavailable. Opt-in: absent `model_fallback` key
- * (the default) means no fallback — the primary error propagates unchanged.
- */
-function getFallbackModel(agent: string): string | undefined {
+interface AgentsConfig {
+  agent?: Record<string, { maxSteps?: unknown } | undefined>;
+  model_fallback?: Record<string, unknown>;
+}
+
+interface AgentsConfigEntry {
+  mtimeMs: number;
+  size: number;
+  /** The parsed file, or null when it could not be parsed (already reported). */
+  config: AgentsConfig | null;
+  /** Settings of this version of the file already reported as unusable, so each is reported once. */
+  reported: Set<string>;
+}
+
+const DEFAULT_AGENTS_CONFIG_PATH = (): string => join(process.cwd(), "agents", "opencode.json");
+
+/* Parsed per file and per version of the file (modification time + size): the step limit is asked for on every turn, the fallback model on every prompt. */
+const agentsConfigCache = new Map<string, AgentsConfigEntry>();
+/* The last failure to even inspect a file, per file, so a file that stays unreadable is reported once and not on every turn. */
+const agentsConfigStatFailures = new Map<string, string>();
+
+function reportAgentsConfigProblem(configPath: string, problem: string): void {
+  console.error(`[qa] agent config ${configPath}: ${problem}`);
+}
+
+function readAgentsConfigEntry(configPath: string): AgentsConfigEntry | null {
+  let stats;
   try {
-    const configPath = join(process.cwd(), "agents", "opencode.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf8"));
-    return raw.model_fallback?.[agent] as string | undefined;
-  } catch {
+    stats = statSync(configPath);
+    agentsConfigStatFailures.delete(configPath);
+  } catch (err) {
+    agentsConfigCache.delete(configPath);
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      agentsConfigStatFailures.delete(configPath);
+    } else if (agentsConfigStatFailures.get(configPath) !== String(code)) {
+      agentsConfigStatFailures.set(configPath, String(code));
+      reportAgentsConfigProblem(configPath, `cannot be read (${err instanceof Error ? err.message : String(err)}); step limits and fallback models read as absent`);
+    }
+    return null;
+  }
+  const cached = agentsConfigCache.get(configPath);
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) return cached;
+
+  let config: AgentsConfig | null = null;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (err) {
+    reportAgentsConfigProblem(configPath, `cannot be parsed (${err instanceof Error ? err.message : String(err)}); step limits and fallback models read as absent`);
+  }
+  const entry: AgentsConfigEntry = { mtimeMs: stats.mtimeMs, size: stats.size, config, reported: new Set() };
+  agentsConfigCache.set(configPath, entry);
+  return entry;
+}
+
+/* Reports a setting of the current version of the file that is present but unusable, once. */
+function reportUnusableSetting(entry: AgentsConfigEntry, configPath: string, key: string, problem: string): void {
+  if (entry.reported.has(key)) return;
+  entry.reported.add(key);
+  reportAgentsConfigProblem(configPath, problem);
+}
+
+/*
+ * The fallback model for `agent` from opencode.json's root-level `model_fallback` map, so the orchestrator can
+ * retry with a different model when the primary is unavailable. Opt-in: an absent key means no fallback and the
+ * primary error propagates unchanged. A file that cannot be parsed, or an entry that is not a model name, is
+ * reported on the error log (once per version of the file) and reads as absent.
+ */
+export function fallbackModelFromConfig(agent: string, configPath: string = DEFAULT_AGENTS_CONFIG_PATH()): string | undefined {
+  const entry = readAgentsConfigEntry(configPath);
+  const model: unknown = entry?.config?.model_fallback?.[agent];
+  if (model === undefined) return undefined;
+  if (typeof model !== "string" || model.length === 0) {
+    reportUnusableSetting(entry!, configPath, `model_fallback.${agent}`, `model_fallback for '${agent}' is not a model name (${JSON.stringify(model)}); no fallback is used`);
     return undefined;
   }
+  return model;
+}
+
+function getFallbackModel(agent: string): string | undefined {
+  return fallbackModelFromConfig(agent);
+}
+
+/*
+ * The acting agent's step limit from opencode.json (`agent.<id>.maxSteps`) — the same limit the
+ * OpenCode server enforces — so a turn's exhaustion is reported against the real budget, never a
+ * hardcoded copy. Undefined when the file, the agent or a limit is absent; a file that cannot be
+ * parsed, or a limit that is not a number, is reported on the error log (once per version of the
+ * file) and reads as absent.
+ */
+export function maxStepsFromConfig(
+  agent: string,
+  configPath: string = DEFAULT_AGENTS_CONFIG_PATH(),
+): number | undefined {
+  const entry = readAgentsConfigEntry(configPath);
+  const limit: unknown = entry?.config?.agent?.[agent]?.maxSteps;
+  if (limit === undefined) return undefined;
+  if (typeof limit !== "number") {
+    reportUnusableSetting(entry!, configPath, `agent.${agent}.maxSteps`, `maxSteps for '${agent}' is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
+    return undefined;
+  }
+  return limit;
 }
 
 /*
@@ -125,51 +208,41 @@ function getFallbackModel(agent: string): string | undefined {
  */
 let sharedClient: Awaited<ReturnType<typeof import("@opencode-ai/sdk").createOpencodeClient>> | undefined;
 
+/* Constructing the client does no I/O; the transport circuit breaker lives in
+   agent-transport-policy.ts's createAgentDeps, fed by the session calls that actually hit the server. */
 async function getSharedClient() {
-  checkCircuit();
   if (sharedClient) return sharedClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk");
   const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
-  try {
-    sharedClient = createOpencodeClient({
-      baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-      ...(serverPassword
-        ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-        : {}),
-    });
-    recordCircuitSuccess();
-  } catch (err) {
-    recordCircuitFailure();
-    throw err;
-  }
+  sharedClient = createOpencodeClient({
+    baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
+    ...(serverPassword
+      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
+      : {}),
+  });
   return sharedClient;
 }
 
 /*
  * Separate v2 SDK client, used ONLY for the live event subscription (observability
  * path). Sessions/verdict stay on the v1 blocking client above — the deliberate
- * split (docs/tui-vnext.md §5 D5): events→v2 scoped subscribe (advisory-only, zero
+ * split: events→v2 scoped subscribe (advisory-only, zero
  * verdict risk), generation/verdict→v1 blocking prompt (the determinism keystone).
  */
 let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient> | undefined;
 
+/* The advisory event stream is neither gated by nor fed into the transport breaker: it has its own
+   reconnect lifecycle, and a flaky SSE connection must never fail-fast healthy prompts. */
 async function getEventClient() {
-  checkCircuit();
   if (sharedEventClient) return sharedEventClient;
   const { createOpencodeClient } = await import("@opencode-ai/sdk/v2");
   const serverPassword = process.env.OPENCODE_SERVER_PASSWORD;
-  try {
-    sharedEventClient = createOpencodeClient({
-      baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
-      ...(serverPassword
-        ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
-        : {}),
-    });
-    recordCircuitSuccess();
-  } catch (err) {
-    recordCircuitFailure();
-    throw err;
-  }
+  sharedEventClient = createOpencodeClient({
+    baseUrl: process.env.OPENCODE_SERVE_URL ?? "http://agents:4096",
+    ...(serverPassword
+      ? { headers: { Authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}` } }
+      : {}),
+  });
   return sharedEventClient;
 }
 
@@ -184,14 +257,26 @@ export function disposeSharedClient(): void {
 }
 
 
-const rawEventStreamOpener: RawEventStreamOpener = {
-  open: async (directory) => {
-    const client = await getEventClient();
-    const result = await client.event.subscribe({ directory });
-    return result.stream as AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined;
-  },
-};
-setRawEventStreamOpener(rawEventStreamOpener);
+/* What the raw event-stream opener needs from the SDK, injected so its use of the SDK's stream options is testable over a faked network. */
+export interface EventStreamOpenerDeps {
+  getEventClient(): Promise<Pick<Awaited<ReturnType<typeof getEventClient>>, "event">>;
+}
+
+export function createRawEventStreamOpener(deps: EventStreamOpenerDeps): RawEventStreamOpener {
+  return {
+    open: async (directory, signal, onSseError) => {
+      const client = await deps.getEventClient();
+      /* Forward the caller's AbortSignal into the SDK's own fetch-based SSE options (not the
+         `{ directory }` query parameters) so detach()/closeAll() actually tears down the
+         underlying HTTP connection instead of only stopping this side from consuming it.
+         The SDK reconnects a failed connection by itself and never surfaces the failure through
+         the returned iterable; `onSseError` is the only place the drop is visible. */
+      const result = await client.event.subscribe({ directory }, { signal, ...(onSseError ? { onSseError } : {}) });
+      return result.stream as AsyncIterable<{ type?: string; properties?: Record<string, unknown> }> | undefined;
+    },
+  };
+}
+setRawEventStreamOpener(createRawEventStreamOpener({ getEventClient }));
 
 
 export function getOpenSessions(): ReturnType<typeof engineGetOpenSessions> {
@@ -204,7 +289,7 @@ export function getOpenSessionCount(): number {
 
 
 export async function askAssistant(
-  
+
   input: { context: string; question: string; instruction?: string; agent?: string; runId?: string },
   deps: AgentDeps,
   cwd: string,
@@ -239,7 +324,7 @@ export async function askAssistant(
       `- If the context lacks the answer, reply (in the question's language): "No tengo suficiente información para responder eso."`,
     ].join("\n");
   const role = input.agent ?? "qa-assistant";
-  
+
   const session = await deps.open(role, cwd, {
     descriptor: { role, runId: input.runId },
   });
@@ -274,21 +359,21 @@ export const REVIEWER_TIMEOUT_MS = Number(process.env.OPENCODE_REVIEWER_TIMEOUT_
 /*
  * The explorer is a read-only PRE-pass; cap it well below the generator/diff budget so a hung
  * explorer cannot hold the sequential queue for the full window before the generator even starts.
- * 90s proved too tight on large microservice monorepos (petclinic): the read-only brief needs room
+ * 90s proved too tight on large microservice monorepos: the read-only brief needs room
  * to finish; 240s still sits far under the generator's 25-minute worst case.
  * Shared with CodexRuntimeStrategy so both providers use one per-role budget.
  */
 export const EXPLORER_TIMEOUT_MS = Number(process.env.OPENCODE_EXPLORER_TIMEOUT_MS) || 240 * 1000;
 /*
  * The fan-out planner for a SCOPED mode (diff/manual — one commit or one guidance string) derives
- * objectives from the brief + code; it must NOT navigate (F3), so it needs nowhere near the generator's
+ * objectives from the brief + code; it must NOT navigate, so it needs nowhere near the generator's
  * per-mode budget. Bound it with its OWN deadline: it reads OPENCODE_PLANNER_TIMEOUT_MS, NOT the global
  * OPENCODE_TIMEOUT_MS override (which, set to e.g. 900s, would otherwise let a misbehaving planner
  * consume the generator's whole window — the hang that produced 0 specs). Applied to diff/manual
  * REGARDLESS of whether the explorer brief arrived: a brief-less planner still only widens+plans a
  * single scope, and reverting it to the 5–10 min generator budget would re-open the hang on exactly the
  * monorepos this targets. Matched to EXPLORER_TIMEOUT_MS (240s) — the explorer does the comparable
- * read+widen and needed that much on petclinic — and folded into the dispatcher Math.max below.
+ * read+widen and needed that much on a large monorepo — and folded into the dispatcher Math.max below.
  * complete/exhaustive (whole-repo analysis, no scope) keep the per-mode generator budget.
  */
 const PLANNER_TIMEOUT_MS = Number(process.env.OPENCODE_PLANNER_TIMEOUT_MS) || 240 * 1000;
@@ -406,26 +491,10 @@ export async function defaultAgentDeps(): Promise<AgentDeps> {
   return createAgentDeps(raw, {
     defaultPromptTimeoutMs: dispatcherTimeoutMs,
     getFallbackModel,
-    persistTurn: (t) => {
-      saveAgentTurn({
-        runId: t.runId,
-        sessionId: t.sessionId,
-        role: t.role,
-        round: t.round,
-        isRepair: t.isRepair,
-        ts: t.ts,
-        objective: t.objective ?? null,
-        promptText: t.promptText,
-        outputText: t.outputText,
-        promptBytes: t.promptBytes,
-        tokensInput: t.tokensInput,
-        tokensOutput: t.tokensOutput,
-        tokensReasoning: t.tokensReasoning,
-        tokensCacheRead: t.tokensCacheRead,
-        tokensCacheWrite: t.tokensCacheWrite,
-        cost: t.cost,
-      });
-    },
+    persistTurn: saveAgentTurnEvent,
+    takeTurnCalls: (sessionId, promptText, providedPaths) => callEfficiencyTracker.take(sessionId, promptText, providedPaths),
+    prepareAttempt: (sessionId, attempt) => callEfficiencyTracker.prepareAttempt(sessionId, attempt),
+    maxStepsFor: maxStepsFromConfig,
   });
 }
 

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InfraError, AgentUnavailableError, StalledAgentError, isInfraError } from "./errors";
+import { InfraError, AgentUnavailableError, StalledAgentError, AgentTimeoutError, isInfraError } from "./errors";
+import { AgentTimeoutError as EngineAgentTimeoutError } from "@kernel/domain-error";
 
 test("InfraError is recognized as infrastructure", () => {
   assert.equal(isInfraError(new InfraError("DEV is unreachable")), true);
@@ -14,12 +15,6 @@ test("AgentUnavailableError (provider out of credits / auth) is infrastructure, 
   const shaped = new Error("provider error");
   shaped.name = "AgentUnavailableError";
   assert.equal(isInfraError(shaped), true);
-});
-
-test("a DeployTimeoutError-shaped error (matched by name) is infrastructure", () => {
-  const e = new Error("deploy timed out");
-  e.name = "DeployTimeoutError";
-  assert.equal(isInfraError(e), true);
 });
 
 test("an operator cancel is infrastructure (transient, not a code fault)", () => {
@@ -61,4 +56,9 @@ test("StalledAgentError is distinct from AgentUnavailableError (different operat
   assert.notEqual(stall.name, "InfraError");
   assert.equal(stall.name, "StalledAgentError");
   assert.equal(isInfraError(stall), true);
+});
+
+test("an agent call that exceeded its deadline is infrastructure, from either error taxonomy", () => {
+  assert.equal(isInfraError(new AgentTimeoutError("generate: timed out after 900000ms")), true);
+  assert.equal(isInfraError(new EngineAgentTimeoutError("generate: timed out after 900000ms")), true);
 });

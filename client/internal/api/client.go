@@ -23,11 +23,15 @@ type Client struct {
 	http    *http.Client
 }
 
+/* DefaultHost is where the orchestrator listens when its PORT is unset (DEFAULT_PORT in
+   src/server/port.ts); every entry point of this client falls back to it when QA_HOST is unset. */
+const DefaultHost = "localhost:458"
+
 /* ClientVersion is the wire version this binary reports to the server's handshake.
    Release builds inject it via -ldflags "-X .../internal/api.ClientVersion=v1.2.3". */
 var ClientVersion = "0.1.0"
 
-/* New builds a client for baseURL (e.g. "http://localhost:8080"). The http.Client
+/* New builds a client for baseURL (e.g. "http://localhost:458"). The http.Client
    has no global timeout on purpose — the SSE stream is long-lived; per-request
    deadlines come from the ctx the caller passes. */
 func New(baseURL, token string) *Client {

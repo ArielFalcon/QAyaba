@@ -123,5 +123,10 @@ COPY . .
 # lives in each repo's `e2e/`, and the orchestrator runs `npm ci` there per run
 # (qa/setup.ts). The image already ships the Playwright browsers.
 
+# Inside the container the process listens on every interface, or a published port (`docker run
+# -p`, compose `ports:`) could not reach it; what is exposed beyond the container is decided by the
+# publish address (-p / BIND_ADDR). A bare `npm run start` outside the image stays on loopback.
+ENV LISTEN_HOST=0.0.0.0
+
 # Service entry point: webhook + sequential queue.
 CMD ["npm", "run", "start"]

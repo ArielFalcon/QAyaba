@@ -15,6 +15,8 @@ import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunEventBody } from "@kernel/run-event.ts";
+import type { GenerationEndKind } from "@kernel/generation-end.ts";
+import type { AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 
 /**
  * Port-local CommitIntent. Generation's type is structurally assignable;
@@ -50,6 +52,13 @@ export interface ExplorationBrief {
   routes?: Array<{ path: string; component?: string; domLandmarks?: string[]; verified: boolean }>;
   risks?: string[];
   notes?: string;
+}
+
+/** Port-local HarnessFacts. Generation's type is structurally assignable; this barrel does not import across contexts. */
+export interface HarnessFacts {
+  /** Only when the app declares one: no default is invented. */
+  testIdAttribute?: string;
+  fixtures?: { file: string; exports: readonly string[] };
 }
 
 /** Single input → RunOutcome. Production implementation is RewrittenOrchestratorAdapter. */
@@ -143,6 +152,11 @@ export interface GenerationEnrichment {
    */
   contextPack?: string;
   /**
+   * App login is declared but the suite's auth.setup.ts is still the stock seed and did not
+   * sign in, so the generator must author the login first. Set only when true.
+   */
+  authSeedUnauthored?: boolean;
+  /**
    * Structured map from specDir/.qa/context.json. Distinct from contextPack
    * (assembled markdown). Absent when the json is missing/invalid (fail-open).
    */
@@ -152,6 +166,11 @@ export interface GenerationEnrichment {
    * unwired or fail-open.
    */
   contextBrief?: ExplorationBrief;
+  /**
+   * Facts about the suite's harness (configured test-id attribute, fixtures exports). Facts
+   * only, never an instruction. Absent when nothing was configured or scannable.
+   */
+  harnessFacts?: HarnessFacts;
   /**
    * On-disk spec paths enumerated before the first generate(), so the agent reuses
    * instead of duplicating.
@@ -183,17 +202,41 @@ export interface GenerationEnrichment {
    */
   crossRepoImpact?: { impactedLinks: readonly ImpactedLink[] };
 }
+/**
+ * What one generation hands the run. `end` says how it ended: with specs the run continues;
+ * without them, only a declared no-op is a decision, and the other ends say why nothing was
+ * written. `reviewed` is whether an independent reviewer looked at the specs: `approved` is
+ * that reviewer's verdict only when it is true — otherwise it is a placeholder, and the run must
+ * read it through `reviewerApprovalOf`. `note` explains an end that wrote nothing.
+ * `specSources` is just-generated spec text for selector checks; absent/empty is never
+ * fabricated. `specMetas` is the flow/objective projection for publication; absent/empty omits
+ * the "tested" section. `parsed` is false only when no verdict JSON could be parsed. `turn` is
+ * what the generation's main turn measured, when its runtime can measure a turn.
+ */
+export interface GenerationOutput {
+  specs: string[];
+  end: GenerationEndKind;
+  reviewed: boolean;
+  approved: boolean;
+  note?: string;
+  specSources?: string[];
+  parsed?: boolean;
+  specMetas?: { flow?: string; objective?: string }[];
+  turn?: AgentTurnStats;
+}
+
+/** The reviewer's verdict on a generation, or undefined when no reviewer looked at it: the one way the run reads `approved`. */
+export function reviewerApprovalOf(generation: Pick<GenerationOutput, "reviewed" | "approved">): boolean | undefined {
+  return generation.reviewed ? generation.approved : undefined;
+}
+
 export interface GenerationPort {
   /**
    * `signal` interrupts in-flight generation on cancel. `diff` is the real
    * per-run commit diff (diff mode only); absent falls back to the adapter's
    * static per-run value. `enrichment` is independently absent-safe.
-   * `specSources` is just-generated spec text for selector checks; absent/empty
-   * is never fabricated. `specMetas` is the flow/objective projection for
-   * publication; absent/empty omits the "tested" section.
-   * `parsed` is false only when no verdict JSON could be parsed.
    */
-  generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<{ specs: string[]; approved: boolean; note?: string; specSources?: string[]; parsed?: boolean; specMetas?: { flow?: string; objective?: string }[] }>;
+  generate(objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput>;
 }
 /**
  * `priorCorrections` lets the next review judge convergence on previously
@@ -201,8 +244,6 @@ export interface GenerationPort {
  */
 export interface ReviewEnrichment {
   priorCorrections?: readonly string[];
-  /** When no manual guidance exists, the reviewer's objective is the commit intent message. */
-  intent?: CommitIntent;
   /**
    * Same retrieved rules the generator saw. The adapter renders only active
    * rules; candidates are for the generator to explore, never for the judge to
@@ -282,6 +323,9 @@ export interface ExecutionPort {
 export interface ObjectiveSignalPort {
   /**
    * `valueScore` absent means not measured — never a fabricated 0.
+   * `mutantCount`/`killedCount` mirror the value-oracle's own ValueOracleResult: absent means the
+   * oracle never ran this measure() call (e.g. coverage.mode "off"); `null` means it ran but has no
+   * count to report. Neither is ever fabricated as 0 — that would read as a genuine measured zero.
    * `diff` absent (non-diff modes) → assembler never invoked → decide() gets
    * null → "unknown" → never blocks.
    * `baselineCases` are this run's passing case names; absent falls back to the
@@ -291,7 +335,7 @@ export interface ObjectiveSignalPort {
    * `opts.namespace` overrides the dump namespace for the regen's second
    * measure(); the first measurement is untouched.
    */
-  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; uncovered?: { file: string; lines: number[] }[] }>;
+  measure(br: BlastRadius, specDir: string, diff?: string, baselineCases?: string[], opts?: { namespace?: string }): Promise<{ status: "pass" | "fail" | "unknown"; ratio: number | null; valueScore?: number | null; mutantCount?: number | null; killedCount?: number | null; uncovered?: { file: string; lines: number[] }[] }>;
   /**
    * Single source of truth for whether a measured status blocks publish.
    * Only "enforce" + "fail" blocks; "unknown" never blocks regardless of mode.
@@ -371,10 +415,22 @@ export interface RetrievedRule {
   status: "active" | "candidate";
   confidence: "low" | "medium" | "high";
 }
+/**
+ * Port-local RelevanceBias — mirrors cross-run-learning's RuleGovernanceService.RelevanceBias
+ * structurally (same no-cross-context-import rule as CommitIntent above, this barrel's own
+ * header). Deterministic retrieval-time bias toward rules whose errorClass/archetype matches THIS
+ * run's own signals (never an LLM signal) — see learning-port.adapter.ts for what RunQaUseCase
+ * actually has available to populate it with at retrieval time.
+ */
+export interface RelevanceBias {
+  errorClass?: string | null;
+  archetypes?: readonly string[];
+}
 export interface LearningPort {
   /** Off-path: a failure is logged and swallowed, never gates publish. */
   fold(outcome: RunOutcome): Promise<void>;
-  retrieve(sha: Sha): Promise<RetrievedRule[]>;
+  /** relevance is optional enrichment — omitted (or every field absent) retrieves ungrounded, exactly as before this bias existed. */
+  retrieve(sha: Sha, relevance?: RelevanceBias): Promise<RetrievedRule[]>;
 }
 /** Cross-cutting infra port, kernel-resident so neither context imports it from the other. */
 export type { DeployGatePort } from "@kernel/ports/deploy-gate.port.ts";
@@ -446,6 +502,8 @@ export interface GroundingResult {
   contextMap?: ArchitectureContext;
   /** Distilled explorer brief. Absent when explorer is unwired, throws, or returns nothing (fail-open). */
   contextBrief?: ExplorationBrief;
+  /** Facts about the suite's harness (the configured test-id attribute, what the fixtures file exports). Absent when nothing was configured or scannable (fail-open). */
+  harnessFacts?: HarnessFacts;
 }
 /**
  * Pre-generate first-write grounding (DOM/route/context pack), run once after
@@ -460,11 +518,14 @@ export interface PreGenerationGroundingPort {
    * Optional `diff` (diff mode only) for deterministic [CHANGED] markers.
    * Absent is unchanged.
    */
+  /* When `opts` is supplied, `sha` is REQUIRED — the collaborator's own exploreBrief contract needs
+   * a real commit sha, never a fabricated fallback (e.g. a run namespace). Omit `opts` entirely for
+   * a caller with no sha at all (the explorer pass is simply skipped, fail-open). */
   ground(
     specDir: string,
     signal?: AbortSignal,
     diff?: string,
-    opts?: { sha?: string; intent?: CommitIntent },
+    opts?: { sha: string; intent?: CommitIntent; runId?: string },
   ): Promise<GroundingResult>;
 }
 
@@ -529,8 +590,9 @@ export interface CrossRepoImpact {
 }
 /**
  * Advisory impacted-link narrowing. Fires only on cross-repo runs
- * (triggerRepo present and a resolved link targets it). Never throws: failure
- * degrades to null and whole-link rendering falls back.
+ * (triggerRepo present and a resolved link targets it). Failure degrades to null
+ * and whole-link rendering falls back, except UntrustedGitTreeError (untrusted
+ * code replaced the mirror's git dir), which is thrown and fails the run.
  */
 export interface CrossRepoImpactPort {
   resolve(triggerRepo: string, triggerSha: string, resolvedLinks: readonly ServiceLink[]): Promise<CrossRepoImpact | null>;
@@ -576,6 +638,20 @@ export interface CurriculumPort {
    */
   select(diff: string | undefined, changedFiles: readonly string[]): Promise<readonly SelectedExemplar[]>;
   fold(input: CurriculumFoldInput): Promise<void>;
+}
+
+/**
+ * Captures the FE<->BE architecture map (`${specDir}/.qa/context.json`) a successful mode:context
+ * generation wrote, and persists it as the app's durable stored map (shell-side SQLite — see
+ * history.ts's context_maps table). This is the write side; PreGenerationGroundingPort.loadContextMap
+ * is the read side. Invoked once per clean context-mode pass, in BOTH shadow and non-shadow runs —
+ * publishing e2e/.qa/context.json via PR stays independently shadow-gated (buildVcsPublish), but the
+ * stored map must survive regardless, since the mirror's e2e/.qa/context.json is wiped by the next
+ * run's `git checkout -f` + `git clean -fd`. Off-path: a capture fault is fault-isolated inside the
+ * adapter (never gates a verdict or publish), same contract as CurriculumPort.fold above.
+ */
+export interface ContextMapCapturePort {
+  capture(specDir: string, app: string, sha: string): Promise<void>;
 }
 
 export interface ConfinementResult {

@@ -6,8 +6,8 @@
 import { parse } from "yaml";
 import { AppConfigSchema } from "../orchestrator/schemas";
 import { expandEnv, type AppConfig } from "../orchestrator/config-loader";
-import { buildYaml, suggestName, type OnboardInput, type OnboardServiceInput } from "./onboard";
-import { serializeBoundary, spliceBoundariesBlock } from "./onboarding/write-boundaries";
+import { buildYaml, suggestName, type OnboardAuthInput, type OnboardInput, type OnboardServiceInput } from "./onboard";
+import { patchAppYaml } from "./onboarding/patch-app-yaml";
 import type { RepoInfo } from "../integrations/github";
 import type { TestTarget } from "../types";
 
@@ -20,8 +20,12 @@ export interface AppAdminDeps {
   deleteConfig(name: string): void;
   deleteMirror(repo: string): void;
   deleteHistory(app: string): number;
+  /** Removes the app's stored login session / client certificate (orchestrator-only auth directory). */
+  deleteAuthMaterial(app: string): void;
   applyEnv(vars: Record<string, string>): string[];
   loadApp(name: string): AppConfig;
+  /** The config file's text exactly as written: comments and `${VAR}` placeholders included (loadApp returns them expanded). */
+  readConfig(name: string): string;
   env: Record<string, string | undefined>;
 }
 
@@ -36,6 +40,7 @@ export interface CreateAppInput {
   testDataPrefix?: string;
   services?: OnboardServiceInput[];
   env?: Record<string, string>;
+  auth?: OnboardAuthInput;
   dryRun?: boolean;
   validateOnly?: boolean;
 }
@@ -51,6 +56,10 @@ export interface UpdateAppInput {
   testDataPrefix?: string;
   services?: OnboardServiceInput[];
   env?: Record<string, string>;
+  /** Absent on update preserves the auth block already in the YAML. */
+  auth?: OnboardAuthInput;
+  /** true drops the YAML auth block. Absent preserves it when auth is also absent. */
+  clearAuth?: boolean;
   dryRun?: boolean;
 }
 
@@ -89,6 +98,7 @@ export async function createApp(input: CreateAppInput, deps: AppAdminDeps): Prom
     shadow: input.shadow ?? true,
     testDataPrefix: input.testDataPrefix || "qa-bot",
     services: input.services,
+    ...(input.auth ? { auth: input.auth } : {}),
   };
   const yaml = buildYaml(onboard);
 
@@ -130,32 +140,35 @@ export async function updateApp(input: UpdateAppInput, deps: AppAdminDeps): Prom
     }
   }
 
-  const target = input.target ?? (existing.code ? "code" : "e2e");
-  const onboard: OnboardInput = {
-    name: input.name,
-    repo: repoInfo?.fullName ?? repo,
-    baseBranch: repoInfo?.defaultBranch ?? existing.baseBranch ?? "main",
-    baseUrl: input.baseUrl ?? existing.dev?.baseUrl ?? `https://github.com/${repo}`,
-    versionUrl: input.versionUrl ?? existing.dev?.versionUrl ?? undefined,
-    target,
-    needsReview: input.needsReview ?? existing.qa.needsReview,
-    shadow: input.shadow ?? existing.qa.shadow ?? true,
-    testDataPrefix: input.testDataPrefix ?? existing.qa.testDataPrefix ?? "qa-bot",
-    services: input.services ?? existing.services?.map((s) => ({
-      repo: s.repo,
-      openapi: Array.isArray(s.openapi) ? s.openapi[0] : s.openapi,
-      versionUrl: s.versionUrl,
-    })),
-  };
-
-  let yaml = buildYaml(onboard);
-  /* Preserve an existing boundaries: block — buildYaml carries none, so a naive rebuild would drop it. */
-  if (existing.boundaries?.length) {
-    const entryLines = existing.boundaries.flatMap((profile) => serializeBoundary(profile));
-    yaml = spliceBoundariesBlock(yaml, entryLines);
+  let rawYaml: string;
+  try {
+    rawYaml = deps.readConfig(input.name);
+  } catch (err) {
+    return { ok: false, errors: [`cannot read the config of app '${input.name}': ${err instanceof Error ? err.message : String(err)}`] };
   }
 
+  /* Edit the file in place: only what this call supplies is written, everything else stays as the operator left it.
+     A client that pre-filled its form from the expanded config resends values equal to what the file's placeholders
+     expand to, under the environment the app was loaded with or the one this call sets: those are not changes. */
   const expansionEnv = { ...deps.env, ...(input.env ?? {}) };
+  let yaml: string;
+  try {
+    yaml = patchAppYaml(rawYaml, {
+      ...(repoInfo ? { repo: repoInfo.fullName, baseBranch: repoInfo.defaultBranch } : {}),
+      ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+      ...(input.versionUrl !== undefined ? { versionUrl: input.versionUrl } : {}),
+      ...(input.target !== undefined ? { target: input.target } : {}),
+      ...(input.needsReview !== undefined ? { needsReview: input.needsReview } : {}),
+      ...(input.shadow !== undefined ? { shadow: input.shadow } : {}),
+      ...(input.testDataPrefix !== undefined ? { testDataPrefix: input.testDataPrefix } : {}),
+      ...(input.services !== undefined ? { services: input.services } : {}),
+      ...(input.auth !== undefined ? { auth: input.auth } : {}),
+      ...(input.clearAuth ? { clearAuth: true } : {}),
+    }, { expandWith: [deps.env, expansionEnv] });
+  } catch (err) {
+    return { ok: false, errors: [err instanceof Error ? err.message : String(err)] };
+  }
+
   try {
     AppConfigSchema.parse(parse(expandEnv(yaml, expansionEnv)));
   } catch (err) {
@@ -181,6 +194,10 @@ export function deleteApp(name: string, purge: boolean, deps: AppAdminDeps): { r
   const removed: string[] = [];
   deps.deleteConfig(name);
   removed.push(`config:${name}`);
+  /* Login material (session cookies, client certificate, its passphrase) is a live credential for an
+     app that no longer exists: every delete removes it, purge or not. */
+  deps.deleteAuthMaterial(name);
+  removed.push(`auth:${name}`);
   if (purge) {
     /* Only the primary mirror: a service repo's mirror may be shared with another app. */
     deps.deleteMirror(app.repo);

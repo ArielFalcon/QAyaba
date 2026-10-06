@@ -23,6 +23,18 @@ test("the OpenAPI document is well-formed and exposes the v1 surface", () => {
   }
 });
 
+test("the OpenAPI document documents the run turns and app telemetry reads with named response schemas", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const turns = doc.paths["/api/v1/runs/{id}/turns"] as { get?: { responses: Record<string, unknown> } };
+  const telemetry = doc.paths["/api/v1/apps/{name}/telemetry"] as { get?: { responses: Record<string, unknown> } };
+  assert.ok(turns?.get, "missing GET /api/v1/runs/{id}/turns");
+  assert.ok(telemetry?.get, "missing GET /api/v1/apps/{name}/telemetry");
+  assert.match(JSON.stringify(turns.get.responses["200"]), /#\/components\/schemas\/AgentTurnView/);
+  assert.match(JSON.stringify(telemetry.get.responses["200"]), /#\/components\/schemas\/AppTelemetryView/);
+  assert.ok(doc.components.schemas.AgentTurnView, "missing component AgentTurnView");
+  assert.ok(doc.components.schemas.AppTelemetryView, "missing component AppTelemetryView");
+});
+
 test("the OpenAPI document exposes app onboarding verbs for codegen clients", () => {
   const doc = buildOpenApiDocument() as Doc;
   const apps = doc.paths["/api/v1/apps"] as Record<string, unknown>;
@@ -36,7 +48,7 @@ test("the OpenAPI document exposes app onboarding verbs for codegen clients", ()
   assert.ok(repos.get, "missing GET /api/v1/repos");
 });
 
-test("the OpenAPI document exposes the boundary-onboarding endpoints and their schemas (Slice 5a)", () => {
+test("the OpenAPI document exposes the boundary-onboarding endpoints and their schemas", () => {
   const doc = buildOpenApiDocument() as Doc;
   for (const p of [
     "/api/v1/apps/{name}/boundaries/propose",
@@ -61,6 +73,44 @@ test("nested entities are $ref'd, not inlined (codegen-friendly)", () => {
   const doc = buildOpenApiDocument() as Doc;
   const cases = doc.components.schemas.RunRecord?.properties?.cases;
   assert.deepEqual(cases, { type: "array", items: { $ref: "#/components/schemas/QaCase" } });
+});
+
+/* Generalizes the check above: walk every component schema's own properties (one level — this
+   deliberately does not descend into oneOf/anyOf union branches, which legitimately repeat small
+   shapes like {kind, receiver} without warranting a named schema) and fail if the same inlined
+   object shape appears at two or more distinct locations. A structural duplicate is exactly the
+   signal that a schema was defined once (e.g. AppAuthInputSchema) but never added to NAMED_SCHEMAS
+   — codegen clients then get the shape twice instead of one shared, reusable type. */
+test("an inlined object shape reused at multiple locations must be a named, $ref'd schema", () => {
+  const doc = buildOpenApiDocument() as Doc;
+  const schemas = doc.components.schemas;
+
+  const isInlineObject = (v: unknown): v is { properties: Record<string, unknown> } =>
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    !("$ref" in (v as Record<string, unknown>)) &&
+    (v as Record<string, unknown>).type === "object" &&
+    typeof (v as Record<string, unknown>).properties === "object";
+
+  const locationsBySignature = new Map<string, string[]>();
+  for (const [schemaName, schema] of Object.entries(schemas)) {
+    for (const [propName, propValue] of Object.entries(schema.properties ?? {})) {
+      if (!isInlineObject(propValue)) continue;
+      const signature = JSON.stringify(propValue);
+      const locations = locationsBySignature.get(signature) ?? [];
+      locations.push(`${schemaName}.${propName}`);
+      locationsBySignature.set(signature, locations);
+    }
+  }
+
+  const duplicates = [...locationsBySignature.values()].filter((locations) => locations.length > 1);
+  assert.deepEqual(
+    duplicates,
+    [],
+    `inlined object shape duplicated at: ${duplicates.map((locations) => locations.join(" & ")).join("; ")} ` +
+      "— register it in NAMED_SCHEMAS so codegen clients share one type",
+  );
 });
 
 test("a real RunRecord shape validates against RunRecordSchema (runtime drift guard)", () => {

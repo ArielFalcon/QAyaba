@@ -2,9 +2,9 @@
  * Control plane: webhook + sequential queue + HTTP API. One run at a time against DEV.
  */
 
-import { execFileSync } from "node:child_process";
 import { createServer, IncomingMessage } from "node:http";
 import { join } from "node:path";
+import { qayabaRoot } from "./paths";
 import { randomBytes } from "node:crypto";
 import { writeFileSync, readFileSync, chmodSync, rmSync, unlinkSync, existsSync } from "node:fs";
 import { JobQueue } from "./server/queue";
@@ -14,10 +14,10 @@ import { loadAppConfig, listAppConfigs } from "./orchestrator/config-loader";
 import { YamlAppConfigAdapter } from "../qa-engine/src/contexts/app-catalog/infrastructure/yaml-app-config.adapter";
 import { resolveWebhookDispatch, type WebhookDispatch } from "./server/webhook-routing";
 import { handleApi, ApiDeps, type LoginOutcome } from "./server/api";
-import { authorizeBearer, issueSession, allowLocalWebLogin, isPublicControlPlaneRoute, LOCAL_CONSOLE_PRINCIPAL } from "./server/auth";
+import { authorizeBearer, createLocalConsoleLogin, issueSession, isPublicControlPlaneRoute } from "./server/auth";
 import { verifyGithubIdentity, authorizeUser } from "./server/github-auth";
 import { createFixedWindowLimiter } from "./server/rate-limit";
-import { toIntelligenceView } from "./server/intelligence-view";
+import { loadIntelligenceView } from "./server/intelligence-view";
 import { toSignalsView } from "./server/signals-view";
 import { readRecentCoordinationEvents, toCoordinationSignals } from "./server/coordination-events";
 import { toTrendsView } from "./server/trends-view";
@@ -26,14 +26,14 @@ import { toRunReportView } from "./server/run-report-view";
 import { createDurableRunEventStore } from "./server/durable-run-events";
 import { serveDashboard, resolveDashboardDir } from "./server/static";
 import { handleMaintainerApi, recordIncident, getMaintainerStatus, getIncidents } from "./server/maintainer";
-import { getRecord, listRecords, currentRun, updateRecord, interruptedRecords, continuationDepth, MAX_CONTINUATION_DEPTH, listLearningRules, loadScorecard, loadCurriculum, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis } from "./server/history";
-import { enqueueTrackedRun, cancelTrackedRun } from "./server/runner";
-import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
+import { getRecord, listRecords, currentRun, continuationDepth, MAX_CONTINUATION_DEPTH, loadScorecard, listRunOutcomes, getRunOutcome, getAgentTurns, computeTelemetryAnalysis, loadContextMap } from "./server/history";
+import { enqueueTrackedRun, enqueueContextMapRun, cancelTrackedRun, finalizeInterruptedRuns, type RunnerDeps } from "./server/runner";
+import { appAuthDir, createRewrittenEngineFactory, type ContextHealRunRequest } from "./server/rewritten-engine-factory";
 import { pruneMirrors, defaultMirrorPruneDeps, getDirectorySize } from "./server/mirror-prune";
 import { buildArtifactBytesMetrics, type ArtifactSizeCache } from "./server/metrics";
 import { createMaintainerRuntime } from "./server/maintainer-runtime";
 import { installHttpDispatcher } from "./util/net";
-import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getRepoInfoViaGit, isGithubRemote } from "./integrations/repo-mirror";
+import { resolveRef, defaultMirrorDeps, ensureMirrorAtBranch, getHeadSha, getRepoInfoViaGit, isGithubRemote } from "./integrations/repo-mirror";
 import { profileCapabilities, resolveDeploymentProfile } from "./server/deployment-profile";
 import { askAssistant, AgentDeps, getOpenSessionCount, defaultAgentDeps } from "./integrations/opencode-client";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
@@ -52,9 +52,10 @@ import { buildServiceBoundaryResolver } from "@contexts/service-topology/infrast
 
 import { CodebaseMemoryClient } from "../qa-engine/src/shared-infrastructure/code-graph/codebase-memory-client";
 import { RedactionPortAdapter } from "./orchestrator/sanitizer";
+import { resolvePort, resolveListenHost, describeListenAddress, serverErrorListener } from "./server/port";
 
 const SELF_REPO = process.env.QAYABA_REPO ?? "ArielFalcon/qayaba";
-const ROOT = process.env.QAYABA_ROOT ?? process.cwd();
+const ROOT = qayabaRoot();
 /* Deployment profile (QAYABA_PROFILE): gates the peripheral effectors — remote publication, self-maintenance, GitHub login. Resolved at boot so an invalid value stops the service instead of defaulting to remote writes. */
 const DEPLOYMENT_PROFILE = resolveDeploymentProfile(process.env);
 const CAPABILITIES = profileCapabilities(DEPLOYMENT_PROFILE);
@@ -64,7 +65,7 @@ const appCatalog = new YamlAppConfigAdapter({ load: loadAppConfig, list: listApp
 
 const redactionPort = new RedactionPortAdapter();
 /*
- * Durable backing (OBS-01) lives in createDurableRunEventStore, shared with the CLI so every
+ * Durable backing lives in createDurableRunEventStore, shared with the CLI so every
  * trigger persists events identically: the live SSE stream survives a restart (e.g. the
  * maintainer hot-swap's process.exit) and eviction from the in-memory ring.
  */
@@ -75,7 +76,8 @@ const runEvents = createDurableRunEventStore();
  */
 const AUTONOMOUS_MAINTAINER = process.env.SELF_MAINTAINER_AUTOMERGE === "true";
 
-const port = Number(process.env.PORT ?? 8080);
+const port = resolvePort(process.env);
+const listenHost = resolveListenHost(process.env);
 const MAX_BODY = 1_000_000;
 const secret = process.env.WEBHOOK_SECRET;
 
@@ -140,7 +142,6 @@ if (!secret && !ALLOW_UNSIGNED_WEBHOOK) {
 }
 
 const queue = new JobQueue((e) => {
-  const msg = e instanceof Error ? e.message : String(e);
   console.error("[qa] run failed:", e);
   /*
    * Incidents are recorded by the runner (with infra-vs-code classification).
@@ -167,7 +168,34 @@ function currentAgentDeps(): AgentDeps {
 }
 
 
-const engineFactory = createRewrittenEngineFactory({ getAgentDeps: currentAgentDeps });
+/*
+ * Forward-declared so enqueueContextHealRun (below) can close over it — the same pattern
+ * onboarding's own enqueueContextRun uses to close over `onboardingJob` before it exists (both
+ * closures only ever run after this module has finished initializing).
+ */
+let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
+
+/*
+ * The runner deps every enqueue path shares — the event store, the engine factory and the
+ * onboarding mirror-race guard — so no path can skip parking while onboarding provisions mirrors.
+ * Built at call time: engineFactory and onboardingJob are assigned later in this module.
+ */
+function runnerDeps(): RunnerDeps {
+  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() };
+}
+
+/*
+ * Context-map rebuild trigger for rewritten-engine-factory.ts's process-audit context heal. The
+ * sha is the triggering run's own sha (never the mirror HEAD, which at composition time is the
+ * previous run's sha — a gated app would wait for a version DEV no longer serves). Returns "" while
+ * draining; the factory then keeps the stale flag armed for the next run.
+ */
+const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
+  if (shuttingDown) return "";
+  return enqueueContextMapRun(queue, app, sha, runnerDeps());
+};
+
+engineFactory = createRewrittenEngineFactory({ getAgentDeps: currentAgentDeps, enqueueContextRun: enqueueContextHealRun });
 
 /*
  * Auto-maintenance runtime (ARCH-01): the self-deploy path lives in maintainer-runtime.ts; the
@@ -242,8 +270,8 @@ function enqueueApiRun(app: string, sha: string, target: string, mode: RunMode, 
     console.warn(`[qa] rejecting run ${app}@${sha} — shutting down`);
     return "";
   }
-  
-  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
+
+  return enqueueTrackedRun(queue, { app, sha, target: target as TestTarget, mode, guidance, shadow, commits, source: "webhook", triggerRepo, baseSha }, runnerDeps());
 }
 
 /*
@@ -286,7 +314,7 @@ function generatePrometheusMetrics(queue: JobQueue, openSessions: number): strin
   lines.push(`# TYPE qayaba_open_sessions gauge`);
   lines.push(`qayaba_open_sessions ${openSessions}`);
   /*
-   * Completed runs by verdict (OBS-05) — the metric an operator alerts on (fail/invalid/
+   * Completed runs by verdict — the metric an operator alerts on (fail/invalid/
    * infra-error rate shift). Sourced from the durable runs table, never a wrong-when-restarted
    * in-memory counter. Always emit the known verdict labels so a 0 is explicit (no missing series).
    */
@@ -374,31 +402,6 @@ function startHealthPoller(): void {
   }, 60_000);
 }
 
-function finalizeInterruptedRuns(): void {
-  const zombies = interruptedRecords();
-  if (zombies.length === 0) {
-    console.log("[qa] no interrupted runs from previous process — queue is clean");
-    return;
-  }
-  console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
-  for (const r of zombies) {
-    updateRecord(r.id, {
-      status: "done",
-      step: "done",
-      verdict: "infra-error",
-      note: "process restarted — run was interrupted",
-    });
-    recordIncident({
-      source: "health-check",
-      severity: "warn",
-      summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
-      detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
-    });
-    console.log(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
-  }
-  console.log(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
-}
-
 /*
  * A request is authorized if it carries EITHER the static machine token (CI/automation) OR a
  * valid user-session JWT minted by POST /api/auth/login. authorizeBearer does the constant-time
@@ -412,7 +415,7 @@ function authorized(req: IncomingMessage): boolean {
 const ASSISTANT_CWD = "/tmp";
 
 /*
- * Server-side app onboarding/deletion deps (F5): the orchestrator owns the GitHub
+ * Server-side app onboarding/deletion deps: the orchestrator owns the GitHub
  * token, the config dir and the mirror cache, so the TUI never touches them directly.
  */
 const appAdminDeps: AppAdminDeps = {
@@ -423,8 +426,10 @@ const appAdminDeps: AppAdminDeps = {
   deleteConfig: (name) => unlinkSync(join(ROOT, "config", "apps", `${name}.yaml`)),
   deleteMirror: (repo) => rmSync(join(process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
   deleteHistory: (app) => deleteAppHistory(app),
+  deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
   applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
   loadApp: (name) => loadAppConfig(name),
+  readConfig: (name) => readFileSync(join(ROOT, "config", "apps", `${name}.yaml`), "utf8"),
   env: process.env,
 };
 
@@ -516,23 +521,21 @@ const onboardingJob = createOnboardingJob({
   writeConfig: (path, content) => writeFileSync(path, content, "utf8"),
   configPath: (app) => join(ROOT, "config", "apps", `${app}.yaml`),
   indexRepo: (repo, mirrorDir) => indexRepoForOnboarding(repo, mirrorDir),
-  enqueueContextRun: ({ app, mirrorDir }) => {
-    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: mirrorDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    }).trim();
+  enqueueContextRun: async ({ app, mirrorDir }) => {
     /*
-     * shadow: false is the onboarding exception: this run publishes e2e/.qa/context.json even when
-     * the app YAML has qa.shadow: true (req.shadow overrides YAML in enqueueTrackedRun). Never pass
-     * triggerRepo — context mode cannot be driven from a service repo.
+     * Same shutdown guard every other enqueue path in this file honors (enqueueApiRun,
+     * continueRun): refuse new work once draining, rather than resolving HEAD and enqueueing a
+     * run that queue.drain() would just have to outlive. onboarding-job.ts's runMapping()
+     * already treats an empty-string return as a clean "spec skip", never a fail-open warning.
      */
-    return enqueueTrackedRun(
-      queue,
-      { app, sha, target: "e2e", mode: "context", shadow: false, source: "manual" },
-      { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() },
-    );
+    if (shuttingDown) return "";
+    const sha = await getHeadSha(mirrorDir, defaultMirrorDeps);
+    /*
+     * The SQLite context_maps store (history.ts, wired via ContextMapCapturePort) is the map's
+     * durability mechanism — it captures the validated map on every clean context-mode pass
+     * regardless of shadow, so the map survives the next mirror wipe without a context.json PR.
+     */
+    return enqueueContextMapRun(queue, app, sha, runnerDeps());
   },
   getContextRun: (runId) => {
     const rec = getRecord(runId);
@@ -552,7 +555,7 @@ const apiDeps: ApiDeps = {
   deleteApp: (name, purge) => adminDeleteApp(name, purge, appAdminDeps),
   ...(isGithubRemote() ? { listRepos: (owner: string, page: number) => github.listRepos(owner, page) } : {}),
   runEvents,
-  
+
   boundaries: {
     propose: (name, input) => {
       let app;
@@ -568,19 +571,21 @@ const apiDeps: ApiDeps = {
     status: (name) => onboardingJob.status(name),
     confirm: (name) => onboardingJob.confirm(name),
   },
-  
+
   getAgentTurns: (runId) => getAgentTurns(runId),
-  
+
   telemetryAnalysis: (app, windowDays) => computeTelemetryAnalysis(app, windowDays),
   resolveRef: (repo, ref) => resolveRef(repo, ref, defaultMirrorDeps),
   getRecord,
   listRecords,
   currentRun,
-  /*
-   * Same retrieve cap the engine injects into generation (listLearningRules(app, 200)) so the
-   * operator ledger is the live set, not a 20-row preview that silently drops the rest.
-   */
-  intelligence: (app) => toIntelligenceView(app, listLearningRules(app, 200), loadScorecard(app), loadCurriculum(app)),
+  intelligence: loadIntelligenceView,
+  /* Read-only stored FE<->BE architecture map. null (no row yet) -> the route 404s. */
+  contextMap: (app) => {
+    const stored = loadContextMap(app);
+    if (!stored) return null;
+    return { app, map: stored.data, builtAtSha: stored.builtAtSha, updatedAt: stored.updatedAt };
+  },
   signals: () => toSignalsView(
     listAppConfigs().map((a) => ({ scorecard: loadScorecard(a.name), runs: listRecords(a.name, 50), outcomes: listRunOutcomes(a.name, 50) })),
     toCoordinationSignals(readRecentCoordinationEvents({ limit: 1000 }).events),
@@ -649,23 +654,8 @@ const apiDeps: ApiDeps = {
         },
       }
     : {}),
-  /*
-   * Same-origin web console: mint a short-lived session (never the machine token) when the
-   * caller is loopback or QA_WEB_AUTO_LOGIN=true (local docker, where the browser hits the
-   * published port and the container sees a bridge IP).
-   */
-  localLogin: (remoteAddress) => {
-    if (!allowLocalWebLogin({ enabled: process.env.QA_WEB_AUTO_LOGIN === "true", remoteAddress })) {
-      return null;
-    }
-    const now = Date.now();
-    const token = issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, AUTH_SESSION_TTL_SECONDS, now);
-    return {
-      token,
-      username: LOCAL_CONSOLE_PRINCIPAL,
-      expiresAt: new Date(now + AUTH_SESSION_TTL_SECONDS * 1000).toISOString(),
-    };
-  },
+  /* Same-origin web console: a short-lived session only for a trusted peer AND Host (see auth.ts). */
+  localLogin: createLocalConsoleLogin(process.env, signingSecret, AUTH_SESSION_TTL_SECONDS),
   agentRuntime,
   /*
    * Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
@@ -673,7 +663,7 @@ const apiDeps: ApiDeps = {
    * leaving a zombie stuck at "0%" answering 409 to every stop press. queue.cancel(id) inside it
    * protects an innocent successor (it aborts only when the id matches the active run).
    */
-  cancelRun: (id) => cancelTrackedRun(queue, id),
+  cancelRun: (id) => cancelTrackedRun(queue, id, { runEvents }),
   continueRun: (parentId, cases, guidance) => {
     if (shuttingDown) return "";
     const parent = getRecord(parentId);
@@ -706,7 +696,7 @@ const apiDeps: ApiDeps = {
        * Honor the active agent runtime (Codex/dual) on continuations, exactly like the
        * webhook path above.
        */
-    }, { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() });
+    }, runnerDeps());
   },
 };
 
@@ -732,7 +722,7 @@ const server = createServer(async (req, res) => {
     /*
      * Public (pre-auth) surface: liveness, the version handshake, GitHub login, and the
      * same-origin local-console bootstrap. None of these return QA_API_TOKEN. /auth/local
-     * is public at the gate; the handler 404s untrusted callers (see allowLocalWebLogin).
+     * is public at the gate; the handler 404s untrusted callers (see localWebLoginAllowed).
      */
     const isPublic = isPublicControlPlaneRoute(req.method ?? "GET", apiPath);
     if (!isPublic && !authorized(req)) {
@@ -771,12 +761,12 @@ const server = createServer(async (req, res) => {
   }
 
   /*
-   * The web dashboard (a static SPA build) is served same-origin at /app, so it shares the
-   * orchestrator's origin and the operator's credentials (no CORS). Until web/dist exists this
-   * no-ops to a placeholder. The /api surface above stays Bearer-protected.
+   * The web console (web/public, served as-is) is served same-origin at /app, so it shares the
+   * orchestrator's origin and the operator's credentials (no CORS). A missing web/public answers a
+   * placeholder page. The /api surface above stays Bearer-protected.
    */
   if (req.method === "GET" && (path === "/app" || path.startsWith("/app/"))) {
-    if (await serveDashboard(req, res, { distDir: resolveDashboardDir(ROOT) })) return;
+    if (await serveDashboard(req, res, { dir: resolveDashboardDir(ROOT) })) return;
   }
 
   if (req.method === "POST") {
@@ -808,7 +798,7 @@ const server = createServer(async (req, res) => {
           return;
         }
         const { repo, sha, mode, guidance, baseSha } = result.payload;
-        
+
         let dispatch: WebhookDispatch[];
         try {
           dispatch = await resolveWebhookDispatch(appCatalog, repo, { mode, guidance, baseSha });
@@ -845,10 +835,21 @@ const server = createServer(async (req, res) => {
  * landing during boot creates a legitimate `enqueued` record that a late sweep would
  * wrongly finalize as infra-error.
  */
-finalizeInterruptedRuns();
+finalizeInterruptedRuns({ runEvents });
 
-server.listen(port, () => {
-  logJson("info", `qayaba listening on :${port}${apiToken ? " (API auth on)" : ""} [profile: ${DEPLOYMENT_PROFILE}]`);
+server.on(
+  "error",
+  serverErrorListener({
+    port,
+    listening: () => server.listening,
+    log: logJson,
+    exit: (code) => process.exit(code),
+    redact: (err) => redactionPort.redactError(err),
+  }),
+);
+
+server.listen(port, listenHost, () => {
+  logJson("info", `qayaba listening on ${describeListenAddress(server.address())}${apiToken ? " (API auth on)" : ""} [profile: ${DEPLOYMENT_PROFILE}]`);
   /*
    * Make global fetch proxy-aware (HTTP(S)_PROXY/NO_PROXY) from boot, before any GitHub API or
    * health call. No-op when no proxy is configured. (A per-run build refines the timeouts.)

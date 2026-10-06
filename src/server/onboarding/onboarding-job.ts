@@ -16,7 +16,7 @@ export const ONBOARD_STATE = {
   resolvingMirrors: "resolvingMirrors",
   proposing: "proposing",
   scoring: "scoring",
-  
+
   indexing: "indexing",
   /*
    * Post-confirm (and no-profile) architecture-map phase. NOT terminal and does NOT hold `busy`
@@ -136,7 +136,9 @@ export interface OnboardingJobDeps {
   /** Per-repo bound on indexRepo. Default 5 min. A timeout degrades that repo to `failed` and the phase continues. */
   indexTimeoutMs?: number;
   /** OPTIONAL: enqueue a `mode: context` run so onboarding writes e2e/.qa/context.json.
-   *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun with shadow: false. */
+   *  Absent → skip mapping. Composition resolves HEAD in mirrorDir and calls enqueueTrackedRun under
+   *  the app's own qa.shadow (no override) — the SQLite context_maps store captures the validated
+   *  map regardless of shadow, so this run does not need a context.json PR to keep it. */
   enqueueContextRun?(input: ContextMapRunRequest): string | Promise<string>;
   /** OPTIONAL: poll the enqueued context run. Missing after a successful enqueue is fail-open. */
   getContextRun?(runId: string): ContextMapRunSnapshot | undefined;
@@ -244,7 +246,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         `indexing ${repo} timed out`,
       );
     } catch (err) {
-      return { repo, status: REPO_INDEX_STATUS.failed, error: redactionPort.redactError(err) };
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding indexRepo failed (fail-open, advisory only)", { repo, error });
+      return { repo, status: REPO_INDEX_STATUS.failed, error };
     }
   }
 
@@ -264,7 +268,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       status = { ...status, indexProgress: progress };
     } catch (err) {
       /* Defensive-only: indexOneRepo never throws. Stay non-terminal so mapping can still run. */
-      status = { ...status, error: redactionPort.redactError(err) };
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runIndexing failed unexpectedly (fail-open, defensive-only)", { error });
+      status = { ...status, error };
     } finally {
       busy = false;
     }
@@ -304,7 +310,9 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       }
       finishDone();
     } catch (err) {
-      finishDone({ error: redactionPort.redactError(err) });
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runMapping failed (fail-open, advisory only)", { app, error });
+      finishDone({ error });
     }
   }
 
@@ -321,7 +329,11 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
         finishDone();
       }
     } catch (err) {
-      finishDone({ error: redactionPort.redactError(err) });
+      /* Defensive-only: runIndexing/runMapping never rethrow. Stay fail-open so a corrected app's
+       * boundaries (already written by confirm() before this ran) are never re-litigated. */
+      const error = redactionPort.redactError(err);
+      logJson("warn", "onboarding runPostConfirm failed unexpectedly (fail-open, defensive-only)", { error });
+      finishDone({ error });
     }
   }
 
@@ -376,7 +388,7 @@ export function createOnboardingJob(deps: OnboardingJobDeps): OnboardingJob {
       const system: RepoRef[] = req.services.map((repo, i) => ({ repo, mirrorDir: serviceMirrorDirs[i]! }));
       lastRepoRefs = [front, ...system];  /* available to confirm()'s indexing kickoff */
 
-      
+
       status = { ...status, state: ONBOARD_STATE.proposing };
       const controller = new AbortController();
       const proposer = deps.buildProposer({ app: req.app, signal: controller.signal });

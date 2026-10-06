@@ -1,7 +1,7 @@
-/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. */
+/* Sidekick executor: owns an AgentRuntimePort session for one DelegationBrief. Does not modify GenerateTestsUseCase. Model names stay out of this module — callers pass OpenSessionOpts.model for escalated capacity from external config. Free-form DelegationResult fields are scrubbed on parse — they re-enter lead context / notes. filesChanged paths are authority inputs (scope check, on-disk adoption) and stay raw; they are scrubbed only where echoed into a summary or concern. */
 import type { AgentRole } from "@kernel/agent-role.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { scrub, scrubStrings } from "./scrub.ts";
 import type { AgentCapability } from "./agent-capability.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
 import {
@@ -14,16 +14,9 @@ import {
 } from "./delegation-result.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 import { renderSidekickBrief } from "./sidekick-prompt.ts";
+import { readAcceptanceReport } from "./acceptance-report.ts";
 import { applyPushback } from "./pushback.ts";
 import { isPathWithinWritableRoots } from "./path-scope.ts";
-
-function scrub(text: string): string {
-  return sanitizeText(text).text;
-}
-
-function scrubStrings(values: readonly string[]): string[] {
-  return values.map(scrub);
-}
 
 export function resolveCapabilityRole(capability: AgentCapability): AgentRole {
   if (capability === "lead") return "primary";
@@ -112,6 +105,7 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
         .filter((e): e is EvidenceRef => !!e && typeof e === "object" && typeof (e as EvidenceRef).id === "string")
         .map((e) => ({ ...e, summary: typeof e.summary === "string" ? scrub(e.summary) : e.summary }))
     : [];
+  const acceptance = readAcceptanceReport(o.acceptance, brief.acceptanceCriteria.length);
   return {
     delegationId: o.delegationId,
     runId: o.runId,
@@ -124,6 +118,8 @@ function parseDelegationResult(raw: unknown, brief: DelegationBrief): Delegation
     concerns: scrubStrings(asStringArray(o.concerns)),
     unresolvedQuestions: scrubStrings(asStringArray(o.unresolvedQuestions)),
     recommendation: recommendation as DelegationRecommendation,
+    acceptance: acceptance.entries,
+    ...(acceptance.defect ? { acceptanceReportDefect: acceptance.defect } : {}),
   };
 }
 
@@ -149,6 +145,7 @@ function failedResult(brief: DelegationBrief, summary: string): DelegationResult
     concerns: [safe],
     unresolvedQuestions: [],
     recommendation: "escalate",
+    acceptance: [],
   };
 }
 
@@ -193,9 +190,9 @@ export class SidekickExecutor {
         return {
           ...parsed,
           status: "blocked",
-          summary: `write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`,
+          summary: scrub(`write outside writablePaths: ${illegal.map((f) => f.path).join(", ")}`),
           recommendation: "escalate",
-          concerns: [...parsed.concerns, `paths outside scope: ${illegal.map((f) => f.path).join(", ")}`],
+          concerns: [...parsed.concerns, scrub(`paths outside scope: ${illegal.map((f) => f.path).join(", ")}`)],
         };
       }
       return applyPushback(brief, parsed);

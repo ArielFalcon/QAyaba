@@ -1,10 +1,9 @@
 /* qa-engine/test/shared-infrastructure/code-graph/codebase-memory-code-graph.adapter.test.ts
    Behavioral tests for CodebaseMemoryCodeGraphAdapter — the REAL CodeGraphPort implementation for
    confidence floor, and `impactedSymbols`.
-   `callersOf` (inbound CALLS anchored on the symbol, §3.3) are now REAL — see the corrected grounding
-   recorded in apply-progress: File nodes use `file_path` (not `path`); FILE_CHANGES_WITH is stored
+   `callersOf` (inbound CALLS anchored on the symbol) are REAL. Verified against the real binary: File nodes use `file_path` (not `path`); FILE_CHANGES_WITH is stored
    DIRECTED, single row per pair, so the match MUST be UNDIRECTED + deduped by coupled file.
-   `existingCoverage`/`structurallyRelated` stay inert per spec §2 non-requirements (Scenario K).
+   `existingCoverage`/`structurallyRelated` stay inert: they are not graph-backed.
    The client is injected as a FAKE (never spawns a real process) — mirrors the sibling
    CodebaseMemoryGraphAdapter test's own DI pattern exactly.
  */
@@ -40,7 +39,7 @@ function blast(files: string[]): BlastRadius {
 }
 
 /* ---------------------------------------------------------------------------------------------
-   4a.1 — adapter skeleton + safe early-return
+   Adapter skeleton + safe early-return
    ---------------------------------------------------------------------------------------------
  */
 
@@ -64,7 +63,7 @@ test("coChangeCoupling returns ok([]) for an EMPTY files array WITHOUT calling c
   assert.equal(client.calls.length, 0);
 });
 
-test("existingCoverage and structurallyRelated stay inert ok([]) — never promoted to real graph data (Scenario K)", async () => {
+test("existingCoverage and structurallyRelated stay inert ok([]) — never promoted to real graph data", async () => {
   const client = new FakeClient(async () => {
     throw new Error("must not spawn — these methods are out of scope for this change entirely");
   });
@@ -77,7 +76,7 @@ test("existingCoverage and structurallyRelated stay inert ok([]) — never promo
   assert.equal(client.calls.length, 0);
 });
 
-test("syncTo spawns index_repository and maps a whole-index client degrade to err(IndexFailed) — never called by this slice's use-case wiring, but implemented+tested per design §6/R11", async () => {
+test("syncTo spawns index_repository and maps a whole-index client degrade to err(IndexFailed)", async () => {
   const client = new FakeClient(async () => ({ code: null, stdout: "", stderr: "codebase-memory-mcp ENOENT" }));
   const adapter = new CodebaseMemoryCodeGraphAdapter(client);
   const result = await adapter.syncTo("/repo", ["a.java"]);
@@ -96,9 +95,9 @@ test("syncTo resolves ok({nodeCount}) on a successful index_repository response"
   assert.equal(result.value.nodeCount, 42);
 });
 
-/* Probe fact #2 (apply-progress, onboarding-auto-index): index_repository REQUIRES repo_path in
+/* index_repository REQUIRES repo_path in
    EVERY call — the jsonArg literal previously omitted it (latent bug, never caught because syncTo
-   is never invoked live, ADR-4). Strengthened to assert the fake client actually receives it.
+   is never invoked live). Strengthened to assert the fake client actually receives it.
  */
 test("syncTo's jsonArg includes repo_path (probe fact #2 — index_repository requires it in every call)", async () => {
   const client = new FakeClient(async () => ({ code: 0, stdout: JSON.stringify({ node_count: 7 }), stderr: "" }));
@@ -110,7 +109,7 @@ test("syncTo's jsonArg includes repo_path (probe fact #2 — index_repository re
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a.2 — safe literal inlining (inlineList / inlineLiteral) — net-new, §3.0
+   Safe literal inlining (inlineList / inlineLiteral)
    ---------------------------------------------------------------------------------------------
  */
 
@@ -194,7 +193,7 @@ test("the escape transform is total/idempotent-safe for every string composed of
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a.3 — parsing / degrade contract
+   Parsing / degrade contract
    ---------------------------------------------------------------------------------------------
  */
 
@@ -230,7 +229,7 @@ test("impactedSymbols returns ok([]) — legitimate empty — when the graph res
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a.4 — confidence floor (§4.1)
+   Confidence floor
    ---------------------------------------------------------------------------------------------
  */
 
@@ -311,11 +310,11 @@ test("impactedSymbols drops a row whose confidence cell is missing/non-numeric (
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a.5 — impactedSymbols: literal outbound/inbound queries + anchor resolution (§3.1, §4.2)
+   impactedSymbols: literal outbound/inbound queries + anchor resolution
    ---------------------------------------------------------------------------------------------
  */
 
-test("impl-node anchor resolution: a changed file = the IMPL file yields a NON-EMPTY outbound result via the impl's real outgoing CALLS (Scenario C)", async () => {
+test("impl-node anchor resolution: a changed file = the IMPL file yields a NON-EMPTY outbound result via the impl's real outgoing CALLS", async () => {
   const outbound = JSON.parse(fixture("impacted-outbound.json"));
   const emptyInbound = { columns: outbound.columns, rows: [], total: 0 };
   let call = 0;
@@ -393,7 +392,7 @@ test("depth>=2 intermediate-hop interface/impl-split: the traversal degrades to 
   assert.equal(fabricatedFromSave.length, 0, "an empty c_name/c_file cell must never become a fabricated symbol");
 });
 
-test("Lombok/accessor-only anchor: zero CALLS edges returns a legitimate ok([]), never miscast as a positive 'no dependency' claim (R7, §4.3)", async () => {
+test("Lombok/accessor-only anchor: zero CALLS edges returns a legitimate ok([]), never miscast as a positive 'no dependency' claim", async () => {
   const cols = ["a_file", "a_name", "b_name", "b_file", "r1_conf", "c_name", "c_file", "r2_conf"];
   const empty = { columns: cols, rows: [], total: 0 };
   const client = new FakeClient(async () => ({ code: 0, stdout: JSON.stringify(empty), stderr: "" }));
@@ -444,7 +443,7 @@ test("either sub-query (outbound or inbound) returning CodeGraphUnavailable shor
 });
 
 /* ---------------------------------------------------------------------------------------------
-   R6 — no variable-length CALLS* Cypher, explicit unrolled hops per depth
+   No variable-length CALLS* Cypher, explicit unrolled hops per depth
    ---------------------------------------------------------------------------------------------
  */
 
@@ -512,7 +511,7 @@ test("out-of-range depth is clamped to the supported 1..3 range — never splice
 });
 
 /* ---------------------------------------------------------------------------------------------
-   R8 / Scenario F — CLI request shape: project key + query key (never cypher), across all calls
+   CLI request shape: project key + query key (never cypher), across all calls
    ---------------------------------------------------------------------------------------------
  */
 
@@ -543,7 +542,7 @@ test("impactedSymbols anchors WHERE file_path IN [...] with the inlined changed 
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a.9 — ground-truth accuracy characterization (§7, ADR-6, R13, Scenario J)
+   Ground-truth accuracy against a real captured fixture
    ---------------------------------------------------------------------------------------------
  */
 
@@ -612,15 +611,15 @@ test("precisionRecall helper: empty predicted set is 0 precision (not NaN/divide
    - createNewCourse @ CourseModel.java (hop1, from createCourse)
    - CourseModel @ CourseModel.java (hop2, from createCourse -> createNewCourse -> CourseModel ctor)
    - getDefaultImageUrl @ CourseModel.java (hop2)
-   EXCLUDED from ground truth despite appearing in the raw fixture rows (R4/§4.1 confidence floor —
+   EXCLUDED from ground truth despite appearing in the raw fixture rows (the confidence floor —
    correctly excluded, NOT a recall gap): three hop-2 edges in the captured fixture carry a
    sub-0.55 confidence (r2_conf), hand-verified against the raw fixture data:
    - setImageUrl @ CourseModel.java (r2_conf=0.38, via populateCourseImage)
    - generateDescriptionsAndCuisineType @ CourseI18nDescriptionGenerator.java (r2_conf=0.38, via populateCourseDescription)
    - equals @ DailyMenuModel.java (r2_conf=0.28, via isStrongMatch)
-   These are the CORRECT R4 floor behavior, not the adapter under-reporting — including them in the
+   These are the CORRECT floor behavior, not the adapter under-reporting — including them in the
    ground truth would have made the floor's OWN correctness look like a recall defect, which is
-   exactly the kind of "trust it because it compiles" mistake §7/Scenario J exists to prevent. A
+   exactly the kind of "trust it because it compiles" mistake this accuracy test exists to prevent. A
    first draft of this ground-truth set mistakenly included them (recall measured 0.6667, then 0.875
    after fixing an unrelated cross-row anchor-exclusion bug); removing these three sub-floor entries
    is the CORRECT ground truth, not floor-lowering to force green.
@@ -654,7 +653,7 @@ const GROUND_TRUTH: Ref[] = [
   { file: "src/main/java/es/name/restaurants/domain/model/course/CourseModel.java", symbol: "getDefaultImageUrl" },
 ];
 
-test("ground-truth accuracy: impactedSymbols against the REAL captured fixture reproduces the hand-verified ground truth (R13, Scenario J, §7)", async () => {
+test("ground-truth accuracy: impactedSymbols against the REAL captured fixture reproduces the hand-verified ground truth", async () => {
   const outbound = JSON.parse(fixture("impacted-outbound.json"));
   const emptyInbound = { columns: outbound.columns, rows: [], total: 0 };
   let call = 0;
@@ -673,12 +672,12 @@ test("ground-truth accuracy: impactedSymbols against the REAL captured fixture r
   /* RECORD the actual measured numbers (never assumed). */
   // eslint-disable-next-line no-console
   console.log(
-    `[codegraph-phase4 4a-i accuracy] n(predicted)=${result.value.length} n(truth)=${GROUND_TRUTH.length} ` +
+    `[codegraph accuracy] n(predicted)=${result.value.length} n(truth)=${GROUND_TRUTH.length} ` +
       `precision=${precision.toFixed(4)} recall=${recall.toFixed(4)}`,
   );
 
   assert.equal(precision, 1, "every symbol the adapter returns for this fixture must be in the ground truth (100% behavioral precision)");
-  /* PROVISIONAL floor at design time was >= 0.9 (§7/ADR-6). MEASURED against this real fixture,
+  /* PROVISIONAL floor at design time was >= 0.9. MEASURED against this real fixture,
      AFTER two real fixes surfaced during calibration (see the GROUND_TRUTH comment block above for
      the full history): the adapter reproduces the ENTIRE confidence-floor-respecting ground-truth
      set — measured recall = 1.0, n(predicted)=21, n(truth)=21. The floor below is the CONFIRMED
@@ -687,7 +686,7 @@ test("ground-truth accuracy: impactedSymbols against the REAL captured fixture r
   assert.equal(recall, 1, `measured recall ${recall} must equal the confirmed 1.0 floor (see console.log for the exact recorded number)`);
 });
 
-test("depth>=2 interface/impl-split fixture case, cross-check: 'save' entry is present but contributes no fabricated hop-2 symbol (calibration corner case, §7 step 4)", async () => {
+test("depth>=2 interface/impl-split fixture case, cross-check: 'save' entry is present but contributes no fabricated hop-2 symbol (calibration corner case)", async () => {
   const outbound = JSON.parse(fixture("impacted-outbound.json"));
   const emptyInbound = { columns: outbound.columns, rows: [], total: 0 };
   let call = 0;
@@ -707,8 +706,8 @@ test("depth>=2 interface/impl-split fixture case, cross-check: 'save' entry is p
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a-ii.1 — coChangeCoupling: real UNDIRECTED FILE_CHANGES_WITH mapping (§3.2)
-   Grounding (apply-progress, confirmed empirically against the real binary):
+   coChangeCoupling: real UNDIRECTED FILE_CHANGES_WITH mapping
+   Grounding (confirmed empirically against the real binary):
    - File node property is `file_path`, NOT `path`.
    - FILE_CHANGES_WITH is stored DIRECTED, single row per pair — the match MUST be UNDIRECTED
    `(f)-[r:FILE_CHANGES_WITH]-(g)` (never a directed-only anchor on the "changed" side) + dedupe
@@ -864,7 +863,7 @@ test("coChangeCoupling returns err(CodeGraphUnavailable) on invalid JSON / missi
 });
 
 /* ---------------------------------------------------------------------------------------------
-   4a-ii.2 — callersOf: real inbound CALLS mapping anchored on the symbol (§3.3)
+   callersOf: real inbound CALLS mapping anchored on the symbol
    ---------------------------------------------------------------------------------------------
  */
 

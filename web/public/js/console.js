@@ -13,34 +13,12 @@
   const refreshIcons = () => { try { window.lucide && lucide.createIcons(); } catch (e) {} };
   const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const CFG = (window.QayabaConsole && window.QayabaConsole.config) || { mode: 'mock', landingUrl: '/' };
-  const F = window.QayabaFormat || {
-    fixed: function (n, d, e) { return (typeof n === 'number' && isFinite(n)) ? n.toFixed(d) : (e || 'n/a'); },
-    multiplierLabel: function (c, p) { return (!p || typeof c !== 'number') ? 'n/a' : '×' + (c / p).toFixed(1); },
-    uniqueAbbrevs: function (shas, min) { return (shas || []).map(function (s) { return String(s || '').slice(0, min || 7); }); },
-    shortRepo: function (repo) {
-      var s = String(repo == null ? '' : repo);
-      var i = Math.max(s.lastIndexOf('/'), s.lastIndexOf(':'));
-      return i >= 0 ? s.slice(i + 1).replace(/\.git$/, '') : s;
-    },
-    renderMarkdown: function (md) { return String(md == null ? '' : md).replace(/[&<>]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]; }); },
-    pickChatAnswer: function (o) { return { text: o.apiAnswer || o.canned, kind: o.apiAnswer ? 'assistant' : 'canned' }; },
-    triggerExtras: function (mode) {
-      return { sha: mode === 'diff', delta: mode === 'diff', guidance: mode === 'manual' };
-    },
-    clampDiffCommits: function (n) {
-      var v = parseInt(String(n), 10);
-      if (!isFinite(v) || v < 1) return 1;
-      return v > 20 ? 20 : v;
-    },
-    triggerPayload: function (input) {
-      var extras = { sha: input.mode === 'diff', delta: input.mode === 'diff', guidance: input.mode === 'manual' };
-      var body = { app: input.app, mode: input.mode };
-      if (extras.sha && input.sha) body.sha = input.sha;
-      if (extras.delta && input.commits > 1) body.commits = input.commits;
-      if (extras.guidance && input.guidance) body.guidance = String(input.guidance).trim();
-      return body;
-    },
-  };
+  /* console.js is a thin render layer over format.js's pure helpers — no local fallback copy.
+     A missing format.js must fail loudly here (index.html loads it before console.js) rather
+     than silently running a drifted duplicate of fixed/multiplierLabel/etc.
+   */
+  if (!window.QayabaFormat) throw new Error('console.js requires format.js (window.QayabaFormat) to be loaded first');
+  const F = window.QayabaFormat;
   function liveRun() { return D && D.running ? D.running : null; }
   function refreshShaAbbrevs() {
     if (!D) return;
@@ -63,8 +41,13 @@
     const app = (D.apps || []).find(function (a) { return a.name === r.app; });
     return (app && app.repo) || r.app || '';
   }
-  function DevBadge() {
-    return '<div class="dev-badge"><span class="dev-badge__tag">En desarrollo</span><span class="dev-badge__note">· datos mock · backend pendiente</span></div>';
+  function DevBadge(note) {
+    return '<div class="dev-badge"><span class="dev-badge__tag">In development</span><span class="dev-badge__note">· ' + esc(note) + '</span></div>';
+  }
+  /* Only the mock console shows demo data; a live view renders what the API returned (or an
+     honest "not available"), so it never carries the mock-data flag. */
+  function MockDataBadge() {
+    return CFG.mode === 'live' ? '' : DevBadge('mock data · backend pending');
   }
   const apiOf = () => (window.QayabaConsole && window.QayabaConsole.api) || null;
   /* Asset URLs resolved relative to THIS script, so the dashboard works whether it
@@ -114,7 +97,6 @@
 
   /* ── number helpers ──────────────────────────────────────────────────── */
   const pctPts = (cur, prev) => Math.round((cur - prev) * 100);
-  const mult = (cur, prev) => (prev ? cur / prev : null);
   const fmtMMSS = (sec) => Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's';
   const fmtDur = (sec) => (sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + String(sec % 60).padStart(2, '0') + 's');
 
@@ -204,7 +186,8 @@
     if (!data || data.length === 0) return '<svg width="140" height="36" viewBox="0 0 140 36"></svg>';
     const w = o.w || 140, h = o.h || 36, color = o.color || 'var(--ember-500)', area = o.area !== false, pad = o.pad || 3, responsive = !!o.responsive;
     const min = Math.min.apply(null, data), max = Math.max.apply(null, data), span = (max - min) || 1, n = data.length;
-    const x = (i) => pad + (i * (w - pad * 2)) / (n - 1);
+    /* A single-point series divides by n-1=0 → x=NaN → broken <polyline>. Center it instead. */
+    const x = (i) => pad + (n > 1 ? (i * (w - pad * 2)) / (n - 1) : (w - pad * 2) / 2);
     const y = (v) => pad + (h - pad * 2) * (1 - (v - min) / span);
     const pts = data.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
     const areaPts = pad + ',' + (h - pad) + ' ' + pts + ' ' + (w - pad) + ',' + (h - pad);
@@ -305,6 +288,7 @@
   }
   function ErrorClassBars(data, color) {
     color = color || 'var(--ink-700)';
+    if (!data || !data.length) return '<div style="padding:4px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no ErrorClass data yet</div>';
     const sorted = data.slice().sort((a, b) => b[1] - a[1]);
     const max = Math.max.apply(null, sorted.map((d) => d[1]).concat([1]));
     return '<div style="display:flex;flex-direction:column;gap:9px">' + sorted.map(([cls, n]) =>
@@ -329,10 +313,13 @@
     dialog: false, dialogApp: null, dialogMode: 'diff', dialogCommits: 1,
     toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
     repTpl: 'exec', repView: 'blocks',
+    runExtras: null,
   };
   var teardown = [];
   var LIVE = null;
   var toastTimer = 0;
+  /* Live verdict watches of runs the operator queued, by run id → unsubscribe. */
+  var verdictWatches = Object.create(null);
 
   function LiveStepper(stages) {
     return '<div style="display:flex;align-items:center;flex-wrap:wrap">' + stages.map(([name, status], i) => {
@@ -352,15 +339,22 @@
       '<span style="font-family:var(--font-mono);font-size:12.5px;color:' + (tone || 'var(--bone-100)') + '">' + esc(value) + '</span></div>';
   }
   function LiveBand(live, running) {
+    const na = 'not available';
+    /* "operational" is a claim the health check has to back; without an answer the status is unknown. */
+    const engineLabel = live.status === 'operational' ? 'engine operational' : live.status === 'degraded' ? 'engine degraded' : 'engine status unknown';
+    const engineStatus = live.status === 'operational' ? PulseDot('var(--pass-500)', 9)
+      : '<span style="width:9px;height:9px;border-radius:50%;flex:none;background:' + (live.status === 'degraded' ? 'var(--fail-500)' : 'var(--ink-400)') + '"></span>';
+    const health = live.health || {};
+    const healthText = health.ok === true ? '/health · ok' + (health.last ? ' · ' + health.last : '') : health.ok === false ? '/health · failing' : na;
     return '<div class="pa-dot-bg" style="' + sty({ background: 'var(--ink-900)', border: '1px solid var(--ink-700)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }) + '">' +
       '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 26, flexWrap: 'wrap', padding: '14px 22px', borderBottom: '1px solid var(--ink-700)' }) + '">' +
-      '<div style="display:flex;align-items:center;gap:9px">' + PulseDot('var(--pass-500)', 9) +
-      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--bone-50)' }) + '">engine operational</span></div>' +
-      EngineChip('heart-pulse', 'health', '/health · ' + live.health.last) +
+      '<div style="display:flex;align-items:center;gap:9px">' + engineStatus +
+      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--bone-50)' }) + '">' + esc(engineLabel) + '</span></div>' +
+      EngineChip('heart-pulse', 'health', healthText) +
       EngineChip('layers', 'queue', live.queue.running + ' running · ' + live.queue.queued + ' queued') +
-      EngineChip('cpu', 'sessions', live.sessions + ' open') +
-      EngineChip('webhook', 'webhook', 'verified') +
-      EngineChip('trash-2', 'mirrors', 'cleaned ' + live.mirrors) + '</div>' +
+      EngineChip('cpu', 'sessions', live.sessions == null ? na : live.sessions + ' open') +
+      EngineChip('webhook', 'webhook', live.webhook || na) +
+      EngineChip('trash-2', 'mirrors', live.mirrors ? 'cleaned ' + live.mirrors : na) + '</div>' +
       (running
         ? '<button data-action="open-run" data-id="' + esc(running.id) + '" style="' + sty({ display: 'block', width: '100%', textAlign: 'left', border: 0, cursor: 'pointer', background: 'transparent', padding: '16px 22px 18px' }) + '">' +
           '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
@@ -370,7 +364,7 @@
           '<span style="font-family:var(--font-mono);font-size:12px;color:var(--ember-400)">' + esc(shaOf(running.sha)) + '</span>' +
           '<span style="font-size:13.5px;color:var(--bone-200)">' + esc(running.message) + '</span>' +
           '<span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:12.5px;color:var(--bone-100)">' +
-          I('timer', 13, 'color:var(--ink-400)') + '<span class="ov-timer">' + fmtMMSS(72) + '</span></span></div>' +
+          I('timer', 13, 'color:var(--ink-400)') + '<span class="ov-timer">' + fmtMMSS(Math.max(0, running.mins | 0)) + '</span></span></div>' +
           LiveStepper(running.stages || []) + '</button>'
         : '') + '</div>';
   }
@@ -423,17 +417,26 @@
                   sub: co.avgDelegationMs == null ? 'no delegation samples' : 'avg delegation ' + (co.avgDelegationMs >= 60000 ? Math.round(co.avgDelegationMs / 60000) + 'm' : Math.round(co.avgDelegationMs / 1000) + 's') })
       : '';
     const kpis = '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));gap:var(--space-3)">' +
-      KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
-      KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: rp.v == null ? 'n/a' : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
-      KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
-      KpiCard({ label: 'suites green', value: sg.v, unit: '/ ' + sg.total, dir: 'flat', good: null, deltaText: (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev), series: sg.series, seriesColor: 'var(--ember-500)', sub: 'apps with a green suite' }) +
-      KpiCard({ label: 'PRs auto-merged', value: pr.v, dir: 'up', good: true, deltaText: '+' + (pr.v - pr.prev), series: pr.series, seriesColor: 'var(--ember-500)', sub: 'tests committed to apps' }) +
-      KpiCard({ label: 'issues open', value: io.v, dir: 'down', good: true, deltaText: '' + (io.v - io.prev), series: io.series, seriesColor: 'var(--fail-500)', sub: 'awaiting a fix' }) + delegationKpi + '</div>';
+      /* A change chip needs a real previous value; without one (live SignalsView has no previous
+         window yet) the chip is omitted rather than computed against the current value. */
+      KpiCard({ big: true, label: 'value-oracle · fleet', value: F.fixed(vo.v, 2), dir: 'up', good: true, deltaText: (vo.v == null || vo.baseline == null) ? null : F.multiplierLabel(vo.v, vo.baseline), series: vo.series, seriesColor: 'var(--pass-500)', sub: 'mutation kill-rate vs baseline' }) +
+      KpiCard({ label: 'reviewer pass-rate', value: rp.v == null ? 'n/a' : Math.round(rp.v * 100) + '%', dir: 'up', good: true, deltaText: (rp.v == null || rp.prev == null) ? null : '+' + pctPts(rp.v, rp.prev) + ' pts', series: rp.series, seriesColor: 'var(--pass-500)', sub: 'quality verdicts passed' }) +
+      KpiCard({ label: 'runs measured', value: rn.measured, unit: '/ ' + rn.total, dir: 'up', good: true, deltaText: rn.prevMeasured == null ? null : '+' + (rn.measured - rn.prevMeasured), series: rn.series, seriesColor: 'var(--ember-500)', sub: 'of total this window' }) +
+      KpiCard({ label: 'suites green', value: sg.v == null ? 'n/a' : sg.v, unit: sg.v == null ? '' : '/ ' + sg.total, dir: 'flat', good: null,
+                deltaText: (sg.v == null || sg.prev == null) ? null : (sg.v - sg.prev >= 0 ? '+' : '') + (sg.v - sg.prev),
+                series: sg.series, seriesColor: 'var(--ember-500)', sub: sg.v == null ? 'not available from the API' : 'apps with a green suite' }) +
+      KpiCard({ label: 'PRs auto-merged', value: pr.v == null ? 'n/a' : pr.v, dir: 'up', good: true,
+                deltaText: (pr.v == null || pr.prev == null) ? null : '+' + (pr.v - pr.prev),
+                series: pr.series, seriesColor: 'var(--ember-500)', sub: pr.v == null ? 'not available from the API' : 'tests committed to apps' }) +
+      KpiCard({ label: 'issues open', value: io.v == null ? 'n/a' : io.v, dir: 'down', good: true,
+                deltaText: (io.v == null || io.prev == null) ? null : '' + (io.v - io.prev),
+                series: io.series, seriesColor: 'var(--fail-500)', sub: io.v == null ? 'not available from the API' : 'awaiting a fix' }) + delegationKpi + '</div>';
     const ledgerBtn = '<button data-action="nav" data-id="learning" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">ledger ' + I('arrow-right', 13) + '</button>';
     const allRunsBtn = '<button data-action="nav" data-id="runs" style="border:0;background:transparent;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:12px;color:var(--ember-600)">all runs ' + I('arrow-right', 13) + '</button>';
+    const windowLabel = (s.window && s.prevWindow) ? ('fleet signals · ' + s.window + ' vs ' + s.prevWindow) : 'fleet signals · not available from the API';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' +
       LiveBand(D.live, D.running) +
-      '<div><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">' + EYEBROW('fleet signals · ' + s.window + ' vs ' + s.prevWindow) +
+      '<div><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">' + EYEBROW(windowLabel) +
       '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">ground-truth first</span></div>' + kpis + '</div>' +
       '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + sectionHead('watched repositories · drill into App Value', 'Fleet') +
       '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:var(--space-4)">' + D.apps.map(AppFleetCard).join('') + '</div></div>' +
@@ -457,9 +460,9 @@
       '<div style="' + sty({ padding: 'var(--space-4) var(--space-5)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'space-between' }) + '">' +
       '<div style="display:flex;align-items:baseline;justify-content:space-between">' + EYEBROW('runs · 7d') +
       '<span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + stats.runs7d + '</span></div>' + VerdictBar(D.verdictMix, 9) + '</div>' +
-      statBox(Stat('Pass rate', Math.round(stats.passRate * 100) + '%', 'green + approved', 'var(--pass-600)')) +
+      statBox(Stat('Pass rate', stats.passRate == null ? 'n/a' : Math.round(stats.passRate * 100) + '%', 'green + approved', 'var(--pass-600)')) +
       statBox(Stat('Specs added', '+' + stats.specsAdded, 'merged to suites', 'var(--ember-600)')) +
-      statBox(Stat('Open issues', stats.openIssues, 'awaiting fix', 'var(--fail-600)')) + '</div>';
+      statBox(Stat('Open issues', stats.openIssues == null ? 'n/a' : stats.openIssues, stats.openIssues == null ? 'not available from the API' : 'awaiting fix', 'var(--fail-600)')) + '</div>';
     const chips = '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">' + filters.map((f) => {
       const on = filter === f, c = f === 'all' ? 'var(--ink-900)' : VERDICT_FILL[f];
       return '<button data-action="runfilter" data-id="' + f + '" style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 11px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11.5, letterSpacing: '0.02em', border: '1px solid ' + (on ? 'var(--ink-900)' : 'var(--bone-300)'), background: on ? 'var(--ink-900)' : 'transparent', color: on ? 'var(--bone-100)' : 'var(--text-body)' }) + '">' +
@@ -502,15 +505,17 @@
   function WorkforceChips(run) {
     const wf = run && run.workforce;
     if (!wf) return '';
-    const producer = wf.producer === 'sidekick' ? 'sidekick' : 'lead';
     const msToVerdict = wf.avgMs == null ? '' : Math.round(wf.avgMs / 1000) + 's';
-    const delegations = 'delegation' + (wf.delegations !== 1 ? 's' : '') + ' · ' +
-      (wf.repairs ? 'repairs: ' + wf.repairs : 'delegate only');
     return QChip('bot', 'specs by', wf.producer + (msToVerdict ? ' · ' + msToVerdict : ''), wf.producer === 'sidekick' ? 'var(--pass-600)' : 'var(--text-muted)') +
-      QChip('rotate-cw', 'delegations', String(wf.delegations) + (wf.failures ? ' · ' + wf.failures + ' failed' : ''), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
+      QChip('rotate-cw', 'delegations', F.delegationsLabel(wf), wf.failures ? 'var(--fail-500)' : 'var(--text-muted)');
   }
-  function WorkforceBadge() {
-    return '<span class="wtag">sk</span>';
+  /* Compact fleet-list badge, same "who actually produced this run" rule as WorkforceChips:
+     only the sidekick outcome earns the tag — a lead run (including a rejected delegation
+     that fell back to lead) stays silent.
+   */
+  function WorkforceBadge(run) {
+    const wf = run && run.workforce;
+    return (wf && wf.producer === 'sidekick') ? '<span class="wtag">sk</span>' : '';
   }
   function backBtn(action, label, extra) {
     return '<button data-action="' + action + '" style="display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;cursor:pointer;padding:0;align-self:flex-start;font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">' + I('arrow-left', 14) + ' ' + esc(label) + (extra || '') + '</button>';
@@ -529,14 +534,16 @@
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(run.app) + ' · ' + esc(run.branch) + ' · ' + esc(run.mode) + '</span></div>' +
       '<h2 style="' + sty({ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-strong)', margin: 0 }) + '">' + esc(run.message) + '</h2>' +
       '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-muted)">by ' + esc(run.author) + ' · ' + esc(run.time) + ' · ' + esc(run.duration) + '</span></div>' +
-      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) + Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run' }) + '</div></div>';
+      '<div style="display:flex;gap:8px;flex:none">' + Button({ variant: 'ghost', size: 'sm', leadingIcon: 'external-link', label: 'Logs' }) +
+      (run.canContinue ? Button({ variant: 'secondary', size: 'sm', leadingIcon: 'rotate-cw', label: 'Re-run failed cases', action: 'rerun', id: run.id }) : '') + '</div></div>';
     const specs = run.newSpecs.length === 0
-      ? '<span style="font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint)">no specs written — valid no-op</span>'
+      ? '<span style="font-family:var(--font-mono);font-size:12.5px;color:var(--text-faint)">' + (run.verdict === 'skipped' ? 'no specs written — valid no-op' : 'no specs written') + '</span>'
       : '<div style="display:flex;flex-direction:column">' + run.newSpecs.map((s, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         VerdictTag(s.status, { sm: true, dot: false }) +
         '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(s.file) + '</span>' +
         '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + s.n + ' test' + (s.n > 1 ? 's' : '') + '</span></div>').join('') + '</div>';
     const changed = '<div style="display:flex;flex-direction:column">' + run.changed.map((f, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 0', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('file-code-2', 15, 'color:var(--text-muted)') + '<span style="font-family:var(--font-mono);font-size:12px;color:var(--text-body)">' + esc(f) + '</span></div>').join('') + '</div>';
+    const extras = runExtrasCards(run);
     return '<div style="padding:20px 28px 36px;display:flex;flex-direction:column;gap:var(--space-5)">' +
       backBtn('back-runs', 'all runs') + header +
       Card({ eyebrow: 'pipeline · deploy gate → classify → generate → validate → execute → decide', title: 'Run stages', children: StageStepper(run.stages) }) +
@@ -548,8 +555,69 @@
       Card({ eyebrow: 'blast radius', title: 'Changed files', action: '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + run.changed.length + ' file' + (run.changed.length !== 1 ? 's' : '') + '</span>', children: changed }) +
       Card({ eyebrow: 'generation', title: 'Generated specs', action: '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + (run.specs ? '+' + run.specs : '0') + ' specs</span>', children: specs }) + '</div>' +
       Callout({ tone: decisionTone, label: 'decision · ' + run.verdict, icon: decisionIcon, children: esc(run.decision) }) +
+      extras.report +
       '<div style="display:flex;flex-direction:column;gap:var(--space-2)">' + EYEBROW('run log') + Terminal(run.log) + '</div>' +
+      extras.turns +
       runChat(run, false) + '</div>';
+  }
+  /* Run-scoped extras from the lazy reads (state.runExtras): the post-run report
+     (GET /runs/{id}/report → RunReportView) and the agent turns (GET /runs/{id}/turns).
+     Text-only and ranked by the contract's own score — no invented charts.
+   */
+  /* One turn's efficiency measurements. A measurement the runtime could not supply (null, or absent
+     on an older server) reads "n/a" — never a zero that would pass for a real reading. */
+  function turnEfficiencyLine(t) {
+    const val = (v) => (v == null ? 'n/a' : String(v));
+    const steps = t.stepsUsed == null && t.maxSteps == null ? 'n/a' : val(t.stepsUsed) + '/' + val(t.maxSteps);
+    const limit = t.exhausted == null ? 'n/a' : t.exhausted ? 'hit' : 'not hit';
+    return 'calls ' + val(t.totalCalls) + ' · before 1st write ' + val(t.callsBeforeFirstWrite) + ' · writes ' + val(t.writeCount) +
+      ' · steps ' + steps + ' · redundant reads ' + val(t.redundantReadCount) + ' · duplicate calls ' + val(t.duplicateCallCount) +
+      ' · reads already in prompt ' + val(t.promptProvidedReadCount) + ' · reads of listed files ' + val(t.pathProvidedReadCount) +
+      ' · step limit ' + limit;
+  }
+  function runExtrasCards(run) {
+    const ex = state.runExtras;
+    if (!ex || ex.runId !== run.id) return { report: '', turns: '' };
+    let report = '';
+    const rv = ex.report && ex.report.current;
+    if (rv && Array.isArray(rv.insights) && rv.insights.length) {
+      const arrow = { up: '↑', down: '↓', flat: '→' };
+      const rows = rv.insights.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).map((ins, i) => {
+        const good = ins.goodWhen === 'neutral' || ins.direction === ins.goodWhen;
+        const valTxt = ins.value == null
+          ? (ins.multiplier != null ? '×' + ins.multiplier : '')
+          : (Math.round(ins.value * 1000) / 1000) + (ins.unit === 'percent' ? '%' : ins.unit === 'ratio' ? '' : ins.unit === 'count' ? '' : ' ' + (ins.unit || ''));
+        const deltaTxt = ins.delta == null ? '' : '  ' + (ins.delta > 0 ? '+' : '') + (Math.round(ins.delta * 1000) / 1000);
+        return '<div style="' + sty({ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+          '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, flex: 'none', width: 20, textAlign: 'center', color: good ? 'var(--pass-600)' : 'var(--fail-600)' }) + '">' + (arrow[ins.direction] || '→') + '</span>' +
+          '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">' +
+          '<span style="font-size:13px;font-weight:600;color:var(--text-strong);line-height:1.4">' + esc(ins.title) + '</span>' +
+          (ins.caption ? '<span style="font-size:12px;color:var(--text-muted);line-height:1.45">' + esc(ins.caption) + '</span>' : '') + '</div>' +
+          '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', flex: 'none', whiteSpace: 'nowrap' }) + '">' + esc((valTxt + deltaTxt).trim()) + '</span></div>';
+      }).join('');
+      const evoNote = ex.report.evolution
+        ? 'evolution computed: the period report as of this run ships with this endpoint — not rendered inline yet'
+        : 'evolution not available yet — not enough history before this run';
+      report = Card({ eyebrow: 'post-run report · ranked by interestingness', title: 'What this run means', bodyPadding: false, children: '<div>' + rows + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;padding:9px 18px;border-top:var(--border-rule);font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + I('info', 12) + esc(evoNote) + '</div>' });
+    }
+    let turns = '';
+    if (ex.turns && ex.turns.length) {
+      const rows = ex.turns.map((t, i) => {
+        const out = String(t.outputText || '').replace(/\s+/g, ' ').trim();
+        const snippet = out.length > 320 ? out.slice(0, 320) + '…' : out;
+        const tokens = (t.tokensInput != null || t.tokensOutput != null) ? ' · ' + (t.tokensInput || 0) + ' in / ' + (t.tokensOutput || 0) + ' out' : '';
+        return '<div style="' + sty({ display: 'flex', flexDirection: 'column', gap: 4, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--ember-600)">' + esc(t.role || 'agent') + '</span>' +
+          '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">round ' + (t.round != null ? t.round : '—') + (t.isRepair ? ' · repair' : '') + tokens + '</span>' +
+          '<span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--text-faint)">' + esc(String(t.ts || '').slice(0, 19).replace('T', ' ')) + '</span></div>' +
+          '<span style="font-family:var(--font-mono);font-size:10.5px;color:' + (t.exhausted === true ? 'var(--fail-600)' : 'var(--text-faint)') + '">' + esc(turnEfficiencyLine(t)) + '</span>' +
+          (snippet ? '<span style="font-size:12.5px;color:var(--text-body);line-height:1.5;white-space:pre-wrap">' + esc(snippet) + '</span>' : '') + '</div>';
+      }).join('');
+      turns = Card({ eyebrow: 'agent turns · ' + ex.turns.length + ' LLM invocation' + (ex.turns.length !== 1 ? 's' : ''), title: 'What the agents did', bodyPadding: false, children: '<div>' + rows + '</div>' });
+    }
+    return { report: report, turns: turns };
   }
 
   function chatAnswer(run, live, q) {
@@ -757,6 +825,9 @@
   }
   function healthChart(history, ai, bi) {
     const g = hcGeom(history), n = g.n;
+    /* Live mode has no per-run history endpoint yet (API.md §5) — apps absent from the mock
+       arrive here with an empty history; render the empty state instead of crashing on pts[0]. */
+    if (!n) return '<div style="height:' + HC.H + 'px;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no per-run history yet — checkpoints appear as runs complete</div>';
     const pts = history.map((h, i) => ({ x: g.xPct(i), yv: (g.topPx(h.health) / HC.H) * 100, h: h, i: i }));
     const line = pts.map((p, k) => (k ? 'L' : 'M') + p.x.toFixed(2) + ' ' + p.yv.toFixed(2)).join(' ');
     const area = 'M ' + pts[0].x.toFixed(2) + ' 100 ' + pts.map((p) => 'L ' + p.x.toFixed(2) + ' ' + p.yv.toFixed(2)).join(' ') + ' L ' + pts[n - 1].x.toFixed(2) + ' 100 Z';
@@ -806,6 +877,14 @@
   }
   function appCompareInner() {
     const history = D.histories[state.appName] || [], sel = state.appSel;
+    /* Fewer than two checkpoints → nothing to diff (comparing a run against itself, or
+       against nothing, produced NaN deltas here before the per-run history endpoint existed).
+       Say so honestly instead of rendering "NaN%".
+     */
+    if (history.length < 2) {
+      return '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);padding:18px">' +
+        UnknownPanel('not enough run history yet', 'Snapshot comparison needs at least two completed runs for this app — check back once more runs land.', 'git-compare-arrows') + '</div>';
+    }
     const older = history[Math.min(sel.a, sel.b)] || {}, newer = history[Math.max(sel.a, sel.b)] || {};
     const pctDelta = Math.round((newer.passRate - older.passRate) * 100);
     const oracleNa = !older.oracle && !newer.oracle;
@@ -835,16 +914,39 @@
   }
   function appTabsInner() {
     const app = state.appName;
+    const appObj = D.apps.find((a) => a.name === app);
     const appRuns = D.runs.filter((r) => r.app === app);
     const runningHere = liveRun() && liveRun().app === app ? liveRun() : null;
     const appSuite = D.suite.filter((s) => s.app === app);
-    return Tabs({ value: state.appTab, action: 'apptab', tabs: [{ id: 'runs', label: 'Runs', icon: 'activity', count: appRuns.length + (runningHere ? 1 : 0) }, { id: 'suite', label: 'Suite', icon: 'list-checks', count: appSuite.length }] });
+    const mapRouteCount = appObj && appObj.contextMap ? appObj.contextMap.map.routes.length : null;
+    return Tabs({ value: state.appTab, action: 'apptab', tabs: [{ id: 'runs', label: 'Runs', icon: 'activity', count: appRuns.length + (runningHere ? 1 : 0) }, { id: 'suite', label: 'Suite', icon: 'list-checks', count: appSuite.length }, { id: 'map', label: 'Map', icon: 'network', count: mapRouteCount }] });
+  }
+  function appMapInner(appObj) {
+    const cm = appObj && appObj.contextMap;
+    if (!cm) {
+      return '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no stored architecture map yet — run a context-mode scan to build the FE&harr;BE map</div>';
+    }
+    const map = cm.map;
+    const header = '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 18px;border-bottom:var(--border-rule)">' +
+      '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">built at <span style="color:var(--text-body)">' + esc(shaOf(cm.builtAtSha)) + '</span> &middot; updated ' + esc(cm.updatedAt) + '</span></div>';
+    const rows = (map.routes || []).map((r, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+      I('route', 14, 'color:var(--text-muted);flex:none') +
+      '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(r.path) + '</span>' +
+      (r.component ? '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + esc(r.component) + '</span>' : '') + '</div>').join('');
+    const body = (map.routes || []).length
+      ? rows
+      : '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">map has no routes recorded</div>';
+    const summary = '<div style="display:flex;gap:18px;padding:11px 18px;border-top:var(--border-rule);font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">' +
+      '<span>' + (map.routes || []).length + ' routes</span><span>' + (map.api || []).length + ' operations</span><span>' + (map.feBe || []).length + ' FE&harr;BE links</span></div>';
+    return header + body + summary;
   }
   function appActivityInner() {
     const app = state.appName, tab = state.appTab;
+    const appObj = D.apps.find((a) => a.name === app);
     const appRuns = D.runs.filter((r) => r.app === app);
     const runningHere = liveRun() && liveRun().app === app ? liveRun() : null;
     const appSuite = D.suite.filter((s) => s.app === app);
+    if (tab === 'map') return appMapInner(appObj);
     if (tab === 'runs') {
       const rh = runningHere ? '<button class="row-hover" data-action="open-run" data-id="' + esc(runningHere.id) + '" style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, width: '100%', border: 0, borderLeft: '3px solid var(--ember-500)', background: 'var(--ember-100)', cursor: 'pointer', textAlign: 'left', padding: '11px 18px' }) + '">' +
         '<span style="width:84px;display:inline-flex;align-items:center;gap:6px;flex:none">' + PulseDot('var(--ember-500)', 7) + '<span style="font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600)">running</span></span>' +
@@ -857,6 +959,7 @@
         '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);flex:none">' + esc(r.time) + '</span></button>').join('');
       return rh + rrows;
     }
+    if (!appSuite.length) return '<div style="padding:24px 18px;text-align:center;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">no committed suite data yet</div>';
     return appSuite.map((s, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
       '<span style="width:60px;flex:none">' + VerdictTag(s.status, { sm: true, dot: false }) + '</span>' + I('file-code-2', 14, 'color:var(--text-muted);flex:none') +
       '<span style="' + sty({ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-body)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }) + '">' + esc(s.file) + '</span>' +
@@ -956,7 +1059,9 @@
         CfgRow('qa.valueOracle', app.oracle) + CfgRow('onFailure', 'github-issue') +
         CfgRow('shadow', app.shadow ? 'true' : 'false', app.shadow ? 'var(--flaky-600)' : 'var(--text-body)') + '</div>' }) +
       Card({ eyebrow: 'two-model loop', title: 'Models', children: '<div>' + CfgRow('generator', D.models.generator, null, true) + CfgRow('reviewer', D.models.reviewer) + '</div>' }) +
-      Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('') + '</div>' }) + '</div>';
+      Card({ eyebrow: 'engram · ' + appEngram.length + ' lessons', title: 'What Qayaba knows', bodyPadding: false, children: '<div>' + (appEngram.length
+        ? appEngram.map((e, i) => '<div style="' + sty({ display: 'flex', gap: 9, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' + I('sparkles', 13, 'color:var(--ember-600);flex:none;margin-top:2px') + '<span style="font-size:12px;color:var(--text-body);line-height:1.45">' + esc(e.text) + '</span></div>').join('')
+        : '<div style="padding:11px 18px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-faint)">not available from the API yet</div>') + '</div>' }) + '</div>';
     const targetChip = '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--bone-400)', fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-muted)' }) + '">' + I(app.target === 'code' ? 'terminal' : 'globe', 11) + esc(app.target) + '</span>';
     const header = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">' +
       '<div style="display:flex;flex-direction:column;gap:8px;min-width:0">' + EYEBROW(app.stack) +
@@ -986,38 +1091,45 @@
       '<div style="width:100%;height:4px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + (blocks ? 'var(--ink-900)' : 'var(--bone-400)') + '"></div></div></div></div>';
   }
   function viewIntegrity() {
-    const devBadge = DevBadge();
-    const it = D.integrity, pct = (x) => (x * 100).toFixed(1) + '%';
+    const devBadge = MockDataBadge();
+    const na = 'not available from the API';
+    const it = D.integrity, pct = (x) => (x == null ? 'n/a' : (x * 100).toFixed(1) + '%');
+    const ptsDelta = (v, prev) => (v == null || prev == null) ? '' : pctPts(v, prev) + ' pts';
     const kpis = '<div class="pa-stagger" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(168px, 1fr));gap:var(--space-3)">' +
-      KpiCard({ label: 'flaky / quarantine', value: pct(it.flakyRate.v), dir: 'down', good: true, deltaText: pctPts(it.flakyRate.v, it.flakyRate.prev) + ' pts', series: it.flakyRate.series, seriesColor: 'var(--flaky-500)', sub: 'passed only on retry → quarantined' }) +
-      KpiCard({ label: 'infra-error rate', value: pct(it.infraErrorRate.v), dir: 'up', good: null, deltaText: '+' + Math.abs(pctPts(it.infraErrorRate.v, it.infraErrorRate.prev)) + ' pts', series: it.infraErrorRate.series, seriesColor: 'var(--infra-500)', sub: 'DEV down — not the code' }) +
-      KpiCard({ label: 'invalid rate', value: pct(it.invalidRate.v), dir: 'down', good: true, deltaText: pctPts(it.invalidRate.v, it.invalidRate.prev) + ' pts', series: it.invalidRate.series, seriesColor: 'var(--ink-500)', sub: 'static-gate rejections' }) +
-      KpiCard({ label: 'time-to-green', value: it.timeToGreen.v + 's', dir: 'down', good: true, deltaText: (it.timeToGreen.v - it.timeToGreen.prev) + 's', sub: 'was ' + it.timeToGreen.prev + 's' }) +
-      KpiCard({ label: 'determinism', value: F.fixed(it.determinism, 2), dir: 'flat', good: null, deltaText: 'same-SHA', sub: '2 runs of a SHA agree' }) + '</div>';
+      KpiCard({ label: 'flaky / quarantine', value: pct(it.flakyRate.v), dir: 'down', good: true, deltaText: ptsDelta(it.flakyRate.v, it.flakyRate.prev), series: it.flakyRate.series, seriesColor: 'var(--flaky-500)', sub: it.flakyRate.v == null ? na : 'passed only on retry → quarantined' }) +
+      KpiCard({ label: 'infra-error rate', value: pct(it.infraErrorRate.v), dir: 'up', good: null, deltaText: (it.infraErrorRate.v == null || it.infraErrorRate.prev == null) ? '' : '+' + Math.abs(pctPts(it.infraErrorRate.v, it.infraErrorRate.prev)) + ' pts', series: it.infraErrorRate.series, seriesColor: 'var(--infra-500)', sub: it.infraErrorRate.v == null ? na : 'not the code' }) +
+      KpiCard({ label: 'invalid rate', value: pct(it.invalidRate.v), dir: 'down', good: true, deltaText: ptsDelta(it.invalidRate.v, it.invalidRate.prev), series: it.invalidRate.series, seriesColor: 'var(--ink-500)', sub: it.invalidRate.v == null ? na : 'static-gate rejections' }) +
+      KpiCard({ label: 'time-to-green', value: it.timeToGreen.v == null ? 'n/a' : it.timeToGreen.v + 's', dir: 'down', good: true, deltaText: (it.timeToGreen.v == null || it.timeToGreen.prev == null) ? '' : (it.timeToGreen.v - it.timeToGreen.prev) + 's', sub: it.timeToGreen.prev == null ? na : 'was ' + it.timeToGreen.prev + 's' }) +
+      KpiCard({ label: 'determinism', value: F.fixed(it.determinism, 2), dir: 'flat', good: null, deltaText: 'same-SHA', sub: it.determinism == null ? na : '2 runs of a SHA agree' }) + '</div>';
     const total = it.phases.reduce((s, p) => s + p[1], 0) || 1;
-    const phaseBar = '<div style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;width:100%;height:16px;border-radius:var(--radius-xs);overflow:hidden;gap:2px">' +
-      it.phases.map(([name, sec]) => '<div title="' + esc(name) + ' · ' + sec + 's" style="width:' + ((sec / total) * 100) + '%;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></div>').join('') + '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:8px 18px">' + it.phases.map(([name, sec]) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></span>' + esc(name) + '<span style="color:var(--text-faint)">' + sec + 's</span></span>').join('') + '</div></div>';
+    const phaseBar = it.phases.length
+      ? ('<div style="display:flex;flex-direction:column;gap:12px"><div style="display:flex;width:100%;height:16px;border-radius:var(--radius-xs);overflow:hidden;gap:2px">' +
+        it.phases.map(([name, sec]) => '<div title="' + esc(name) + ' · ' + sec + 's" style="width:' + ((sec / total) * 100) + '%;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></div>').join('') + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px 18px">' + it.phases.map(([name, sec]) => '<span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-body)"><span style="width:9px;height:9px;border-radius:2px;background:' + (PHASE_COLORS[name] || 'var(--bone-400)') + '"></span>' + esc(name) + '<span style="color:var(--text-faint)">' + sec + 's</span></span>').join('') + '</div></div>')
+      : '<div style="padding:6px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + na + '</div>';
     const gateStat = (value, desc, icon) => '<div style="' + sty({ display: 'flex', gap: 12, padding: '14px 16px', background: 'var(--surface-page)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '">' +
       '<span style="' + sty({ display: 'inline-flex', width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-xs)', background: 'var(--ink-900)', color: 'var(--bone-100)', flex: 'none' }) + '">' + I(icon, 17) + '</span>' +
-      '<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + value + '</span><span style="font-size:11.5px;color:var(--text-muted);line-height:1.35">' + esc(desc) + '</span></div></div>';
+      '<div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="' + sty({ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, letterSpacing: '-0.02em', color: 'var(--text-strong)', lineHeight: 1 }) + '">' + esc(value == null ? 'n/a' : value) + '</span><span style="font-size:11.5px;color:var(--text-muted);line-height:1.35">' + esc(desc) + '</span></div></div>';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-5)">' + devBadge + kpis +
-      Callout({ tone: 'note', label: 'trust · infra-error is not a failure', icon: 'unplug', children: 'Infrastructure failures (DEV down, timeouts) are styled and counted <strong>separately</strong> from code failures — they never open an Issue and never count against pass-rate. A blue infra-error means "not the code\'s fault", not "the tests are bad."' }) +
+      Callout({ tone: 'note', label: 'trust · infra-error is not a failure', icon: 'unplug', children: 'Infrastructure and engine-side failures (a DEV outage, a timeout, an agent that ran out of steps) are styled and counted <strong>separately</strong> from code failures — they never open an Issue and never count against pass-rate. A blue infra-error means "not the code\'s fault", not "the tests are bad."' }) +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px,1fr));gap:var(--space-4);align-items:start">' +
-      Card({ eyebrow: 'time-to-green · ' + it.timeToGreen.v + 's wall-clock', title: 'Phase timing', children: phaseBar }) +
+      Card({ eyebrow: 'time-to-green · ' + (it.timeToGreen.v == null ? na : it.timeToGreen.v + 's wall-clock'), title: 'Phase timing', children: phaseBar }) +
       Card({ eyebrow: 'how often the gate holds', title: 'Gate effectiveness', children: '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px,1fr));gap:var(--space-3)">' + gateStat(it.gates.enforceHeld.v, it.gates.enforceHeld.desc, 'shield-x') + gateStat(it.gates.regenRecovered.v, it.gates.regenRecovered.desc, 'rotate-cw') + gateStat(it.gates.staticRejected.v, it.gates.staticRejected.desc, 'file-x-2') + '</div>' }) + '</div>' +
-      Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: '<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>' }) + '</div>';
+      Card({ eyebrow: 'confidence is earned in layers', title: 'Quality gate', bodyPadding: false, children: D.gates.length ? ('<div>' + D.gates.map((g, i) => GateRow(g, i > 0)).join('') + '</div>') : '<div style="padding:16px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + na + '</div>' }) + '</div>';
   }
 
   function viewLearning() {
-    const devBadge = DevBadge();
+    const devBadge = MockDataBadge();
     const flywheel = D.flywheel, ledger = D.ledger;
     const confTone = { high: { c: 'var(--pass-600)', bg: 'var(--pass-100)' }, med: { c: 'var(--flaky-600)', bg: 'var(--flaky-100)' }, low: { c: 'var(--ink-500)', bg: 'var(--bone-200)' } };
     const STATUS = [['active', 'var(--pass-600)'], ['candidate', 'var(--ember-600)'], ['deprecated', 'var(--flaky-600)'], ['superseded', 'var(--ink-500)']];
     const notes = D.engram.map((e) => [e.app, e.text]);
+    const wheelRow = flywheel.length
+      ? flywheel.map((f, i) => FlowNode({ icon: f.icon, label: f.label, stat: f.stat, unit: f.unit, note: f.note, last: i === flywheel.length - 1 })).join('')
+      : '<div style="padding:16px 0;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">flywheel counters not available from the API yet</div>';
     const wheel = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;flex-direction:column;gap:3px">' + EYEBROW('labeler → oracle → reflector → distiller → curriculum') +
       '<h2 style="font-size:17px;font-weight:700;letter-spacing:-0.015em;color:var(--text-strong);margin:0">The learning flywheel</h2></div>' +
-      '<div style="display:flex;align-items:stretch;gap:0">' + flywheel.map((f, i) => FlowNode({ icon: f.icon, label: f.label, stat: f.stat, unit: f.unit, note: f.note, last: i === flywheel.length - 1 })).join('') + '</div>' +
+      '<div style="display:flex;align-items:stretch;gap:0">' + wheelRow + '</div>' +
       Callout({ tone: 'important', label: 'promotion uses two signals', children: 'The <strong>oracle</strong> (mutation / fault-injection) is strong ground-truth — it promotes rules to high confidence where it runs. A conservative <strong>prevention signal</strong> is always available and caps at medium. So the wheel turns for every onboarded app, and "high confidence" is reserved for rules backed by real evidence.' }) + '</div>';
     const inventory = '<div style="display:flex;flex-direction:column;gap:var(--space-4)"><div style="display:flex;align-items:center;gap:8px">' + I('book-marked', 15, 'color:var(--text-muted)') + EYEBROW('governed rule inventory · injected into future prompts') + '</div>' +
       STATUS.map(([st, c]) => {
@@ -1040,19 +1152,28 @@
           '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">' + items.length + '</span></div>' +
           '<div style="background:var(--surface-raised);border:var(--border-rule);border-radius:var(--radius-md);overflow:hidden">' + rows + '</div></div>';
       }).join('') + '</div>';
+    const emptyRow = (text) => '<div style="padding:14px 18px;font-family:var(--font-mono);font-size:12px;color:var(--text-faint)">' + esc(text) + '</div>';
     const maxPromo = Math.max.apply(null, ledger.archetypes.map((x) => x.promotions).concat([1]));
-    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' +
-      ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+    /* A corrupt stored curriculum is a fault to repair, shown as such — its archetypes are missing
+       from the list below, not proven absent. */
+    const corruptRows = (ledger.corruptCurricula || []).map((app) => '<div style="padding:11px 18px;border-bottom:var(--border-rule)">' +
+      UnknownPanel(app + ' · curriculum corrupt', 'The stored curriculum for ' + app + ' cannot be read, so its archetypes are missing here until it is repaired.', 'alert-triangle') + '</div>').join('');
+    const curriculum = Card({ eyebrow: 'curriculum · only proven archetypes inject', title: 'Scenario archetypes', bodyPadding: false, children: '<div>' + corruptRows + (ledger.archetypes.length
+      ? ledger.archetypes.slice().sort((a, b) => b.promotions - a.promotions).map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(a.name) + '</span>' +
         '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 4, flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', border: '1px solid ' + (a.caughtRealBug ? 'var(--pass-600)' : 'var(--bone-400)'), color: a.caughtRealBug ? 'var(--pass-600)' : 'var(--text-faint)', background: a.caughtRealBug ? 'var(--pass-100)' : 'transparent' }) + '">' + I(a.caughtRealBug ? 'bug' : 'circle-dashed', 11) + (a.caughtRealBug ? 'caught bug' : 'unproven') + '</span>' +
-        '<span style="width:56px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:6px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + ((a.promotions / maxPromo) * 100) + '%;height:100%;background:var(--ember-500)"></span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">' + a.promotions + '</span></span></div>').join('') + '</div>' });
-    const audit = Card({ eyebrow: 'audit / veto · rule lifecycle', title: 'Governance log', bodyPadding: false, children: '<div>' +
-      ledger.audit.map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
+        '<span style="width:56px;flex:none;display:flex;align-items:center;gap:6px"><span style="flex:1;height:6px;background:var(--surface-sunken);border-radius:999px;overflow:hidden"><span style="display:block;width:' + ((a.promotions / maxPromo) * 100) + '%;height:100%;background:var(--ember-500)"></span></span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted)">' + a.promotions + '</span></span></div>').join('')
+      : emptyRow('no proven archetypes yet')) + '</div>' });
+    const audit = Card({ eyebrow: 'audit / veto · rule lifecycle', title: 'Governance log', bodyPadding: false, children: '<div>' + (ledger.audit.length
+      ? ledger.audit.map((a, i) => '<div style="' + sty({ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderTop: i ? 'var(--border-rule)' : 0 }) + '">' +
         '<span style="font-family:var(--font-mono);font-size:11.5px;color:var(--ember-600);width:50px;flex:none">' + esc(a.rule) + '</span>' +
         '<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text-body);line-height:1.4">' + esc(a.issue) + '</span>' +
-        '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + (a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)'), color: a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)' }) + '">' + esc(a.level) + '</span></div>').join('') + '</div>' });
+        '<span style="' + sty({ fontFamily: 'var(--font-mono)', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 'var(--radius-xs)', flex: 'none', border: '1px solid ' + (a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)'), color: a.level === 'demoted' ? 'var(--flaky-600)' : 'var(--pass-600)' }) + '">' + esc(a.level) + '</span></div>').join('')
+      : emptyRow('not available from the API yet')) + '</div>' });
     const engram = '<div style="display:flex;flex-direction:column;gap:var(--space-3)"><div style="display:flex;align-items:center;gap:8px">' + I('database', 15, 'color:var(--text-muted)') + EYEBROW('engram · episodic memory · per-app, volatile') + '</div>' +
-      notes.map(([app, t]) => '<div style="' + sty({ display: 'flex', gap: 14, padding: 'var(--space-4)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '"><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-600);width:96px;flex:none">' + esc(app) + '</span><span style="font-size:13.5px;color:var(--text-body);line-height:1.5">' + esc(t) + '</span></div>').join('') + '</div>';
+      (notes.length
+        ? notes.map(([app, t]) => '<div style="' + sty({ display: 'flex', gap: 14, padding: 'var(--space-4)', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-sm)' }) + '"><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-600);width:96px;flex:none">' + esc(app) + '</span><span style="font-size:13.5px;color:var(--text-body);line-height:1.5">' + esc(t) + '</span></div>').join('')
+        : emptyRow('not available from the API yet')) + '</div>';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' + devBadge + wheel + inventory +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px,1fr));gap:var(--space-4);align-items:start">' + curriculum + audit + '</div>' + engram + '</div>';
   }
@@ -1060,7 +1181,10 @@
   function insightBlock(ins, rank) {
     const shapeIcon = { multiplier: 'x', gauge: 'gauge', bars: 'bar-chart-3', sparkline: 'trending-up', note: 'info' };
     let viz;
-    if (ins.shape === 'multiplier') viz = '<span style="font-family:var(--font-display);font-weight:800;font-size:40px;letter-spacing:-0.02em;color:var(--ember-600);line-height:1">×1.6</span>';
+    /* Real contract insights (ins.real) carry no decoration series — viz stays an honest icon;
+       the hardcoded mock charts below only ever render for mock data. */
+    if (ins.real) viz = '<span style="' + sty({ display: 'inline-flex', width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--ember-100)', color: 'var(--ember-600)' }) + '">' + I(shapeIcon[ins.shape] || 'info', 22) + '</span>';
+    else if (ins.shape === 'multiplier') viz = '<span style="font-family:var(--font-display);font-weight:800;font-size:40px;letter-spacing:-0.02em;color:var(--ember-600);line-height:1">×1.6</span>';
     else if (ins.shape === 'gauge') viz = CoverageGauge(0.92, 0.7, 104);
     else if (ins.shape === 'bars') viz = '<div style="width:100%">' + ErrorClassBars(D.fleetErrorClasses.slice(0, 4), 'var(--ink-700)') + '</div>';
     else if (ins.shape === 'sparkline') viz = '<div style="width:100%">' + Sparkline(D.integrity.flakyRate.series, { w: 220, h: 40, color: 'var(--flaky-500)', responsive: true }) + '</div>';
@@ -1068,13 +1192,21 @@
     return '<div style="' + sty({ display: 'flex', gap: 16, padding: '16px 18px', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', alignItems: 'center' }) + '">' +
       '<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px"><div style="display:flex;align-items:center;gap:8px">' +
       '<span style="font-family:var(--font-mono);font-size:10px;color:var(--text-faint)">#' + rank + '</span>' +
-      '<span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600);display:inline-flex;align-items:center;gap:4px">' + I(shapeIcon[ins.shape], 11) + esc(ins.metric) + '</span>' +
+      '<span style="font-family:var(--font-mono);font-size:9.5px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ember-600);display:inline-flex;align-items:center;gap:4px">' + I(shapeIcon[ins.shape], 11) + (ins.app ? esc(ins.app) + ' · ' : '') + esc(ins.metric) + '</span>' +
       '<span style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;color:var(--text-faint)">weight<span style="width:44px;height:5px;background:var(--surface-sunken);border-radius:999px;overflow:hidden;display:inline-block"><span style="display:block;width:' + (ins.weight * 100) + '%;height:100%;background:var(--ember-500)"></span></span></span></div>' +
       '<span style="font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:-0.015em;color:var(--text-strong)">' + esc(ins.headline) + '</span>' +
       '<span style="font-size:12.5px;color:var(--text-muted);line-height:1.45">' + esc(ins.detail) + '</span></div>' +
       '<div style="flex:none;width:140px;display:flex;align-items:center;justify-content:center">' + viz + '</div></div>';
   }
   function poster() {
+    /* The poster's figures (value-oracle multiplier, mutation kill-rate, coverage/flaky/PR deltas)
+       have no live data source (API.md §6 only feeds D.reports.insights, not this layout) — they
+       were a hardcoded illustration. Render them only in mock mode; live mode gets an honest
+       "not available" panel instead of fabricated numbers.
+     */
+    if (CFG.mode === 'live') {
+      return '<div style="' + sty({ padding: '48px 30px', textAlign: 'center', background: 'var(--surface-raised)', border: 'var(--border-rule)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-faint)' }) + '">not available from the API yet</div>';
+    }
     const grid = [['92%', 'change-coverage', 'above the 70% floor'], ['5.5%', 'flaky rate', 'down from 7.0%'], ['+23', 'PRs auto-merged', 'tests committed']]
       .map(([v, l, s]) => '<div style="display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--font-display);font-weight:800;font-size:34px;letter-spacing:-0.02em;color:var(--bone-50);line-height:1">' + v + '</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--ember-400)">' + l + '</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--ink-400)">' + s + '</span></div>').join('');
     return '<div class="pa-ticks pa-ticks--ink" style="position:relative;background:var(--ink-900);border-radius:var(--radius-md);border:1px solid var(--ink-700);overflow:hidden;padding:28px 30px;background-image:repeating-linear-gradient(0deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px), repeating-linear-gradient(90deg, rgba(194,78,44,0.07) 0 1px, transparent 1px 40px)">' +
@@ -1108,9 +1240,11 @@
       '<div style="display:flex;gap:7px">' + ['slack', 'email', 'teams'].map((c) => '<span style="flex:1;text-align:center;padding:7px 0;border-radius:var(--radius-sm);border:1px solid var(--bone-300);font-family:var(--font-mono);font-size:11px;color:var(--text-body)">' + c + '</span>').join('') + '</div>' +
       Button({ variant: 'primary', block: true, leadingIcon: 'sparkles', label: 'Generate report' }) +
       '<div style="display:flex;gap:8px">' + Button({ variant: 'secondary', size: 'sm', block: true, leadingIcon: 'image', label: 'Poster' }) + Button({ variant: 'ghost', size: 'sm', block: true, leadingIcon: 'download', label: 'CSV · JSON' }) + '</div></div>' });
-    return '<div class="page-with-rail">' + DevBadge() +
+    /* The template builder and delivery rail are presets with no endpoint behind them yet (API.md §6). */
+    const railBadge = CFG.mode === 'live' ? DevBadge('report builder and delivery are not wired to the API yet') : '';
+    return '<div class="page-with-rail">' + MockDataBadge() +
       '<div class="page-with-rail__grid">' + main +
-      '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + builder + delivery + '</div></div></div>';
+      '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + railBadge + builder + delivery + '</div></div></div>';
   }
 
   const NAV = [
@@ -1287,7 +1421,10 @@
     document.querySelectorAll('.pa-gauge-arc').forEach((el) => requestAnimationFrame(() => { el.style.strokeDashoffset = el.dataset.final; }));
     const ovTimers = document.querySelectorAll('.ov-timer');
     if (ovTimers.length) {
-      let s = 72;
+      /* Seed from the real run's elapsed time (same field the live-detail view reads),
+         never a fixed placeholder — the hero band must not show a fabricated countdown. */
+      const runningNow = D && D.running;
+      let s = runningNow ? Math.max(0, runningNow.mins | 0) : 0;
       const t = setInterval(() => { s++; document.querySelectorAll('.ov-timer').forEach((n) => n.textContent = fmtMMSS(s)); }, 1000);
       teardown.push(() => clearInterval(t));
     }
@@ -1428,12 +1565,35 @@
     const run = params.get('run'), app = params.get('app');
     const hash = (location.hash || '').replace('#', '');
     state.runId = null; state.appName = null;
-    if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) { state.runId = run; state.section = 'runs'; }
+    if (run && ((liveRun() && run === liveRun().id) || D.runs.some((r) => r.id === run))) {
+      state.runId = run; state.section = 'runs';
+      /* Deep-link enters without openRun — still fetch the lazy run extras (report + turns). */
+      loadRunExtras(run);
+    }
     else if (app && D.apps.some((a) => a.name === app)) { state.appName = app; state.section = 'overview'; initAppSel(app); }
     else state.section = TITLES[hash] ? hash : 'overview';
   }
   function go(section) { state.section = section; state.runId = null; state.appName = null; history.pushState({ section: section }, '', '#' + section); render(); }
-  function openRun(id) { state.runId = id; state.appName = null; state.section = 'runs'; history.pushState({ run: id }, '', '?run=' + encodeURIComponent(id)); render(); }
+  function openRun(id) { state.runId = id; state.appName = null; state.section = 'runs'; history.pushState({ run: id }, '', '?run=' + encodeURIComponent(id)); render(); loadRunExtras(id); }
+/* Lazy per-run reads (GET /runs/{id}/report + /runs/{id}/turns) — fetched once per open,
+   rendered only while the operator is still on that run, and only when real data exists. */
+function loadRunExtras(id) {
+  state.runExtras = { runId: id, report: null, turns: null };
+  const api = apiOf();
+  if (!api || !api.runReport) return;
+  Promise.all([
+    api.runReport(id).catch(() => null),
+    api.turns ? api.turns(id).catch(() => null) : Promise.resolve(null),
+  ]).then(([report, turns]) => {
+    if (!state.runExtras || state.runExtras.runId !== id) return;
+    state.runExtras.report = report || null;
+    state.runExtras.turns = Array.isArray(turns) && turns.length ? turns : null;
+    /* Repaint only the finished run's detail: the live run's own view is SSE-driven and never
+       shows these extras, so re-rendering it would just restart its stream. */
+    const live = liveRun();
+    if (state.runId === id && !(live && live.id === id)) render();
+  });
+}
   function openApp(name) { state.appName = name; state.runId = null; state.section = 'overview'; initAppSel(name); history.pushState({ app: name }, '', '?app=' + encodeURIComponent(name)); render(); }
   function backToRuns() { state.runId = null; state.section = 'runs'; history.pushState({ section: 'runs' }, '', '#runs'); render(); }
   function backToFleet() { state.appName = null; state.section = 'overview'; history.pushState({ section: 'overview' }, '', '#overview'); render(); }
@@ -1457,8 +1617,12 @@
   function queueVerdictWatch(runId) {
     if (!api || !api.subscribeRun) return;
     state.toastingRunId = runId;
-    api.subscribeRun(runId, {
+    /* One watch per run, and each is released once its verdict lands — a watch must never outlive
+       the run it follows. */
+    stopVerdictWatch(runId);
+    const unsubscribe = api.subscribeRun(runId, {
       onVerdict: () => {
+        stopVerdictWatch(runId);
         setTimeout(() => {
           loadAndRender().then(() => {
             state.toast = null; state.toastHtml = null;
@@ -1475,6 +1639,12 @@
       },
       onError: () => {},
     });
+    if (unsubscribe) verdictWatches[runId] = unsubscribe;
+  }
+  function stopVerdictWatch(runId) {
+    const unsubscribe = verdictWatches[runId];
+    delete verdictWatches[runId];
+    if (unsubscribe) unsubscribe();
   }
 
   root.addEventListener('click', function (e) {
@@ -1525,6 +1695,19 @@
         }).catch(() => { showToast('could not queue the run'); });
       }
     }
+    else if (action === 'rerun') {
+      /* Human-in-the-loop continuation (POST /runs/{id}/continue): re-runs fixing the parent's
+         failed cases. Same follow-the-verdict flow as the trigger dialog. */
+      const api = apiOf();
+      if (!api || !api.continueRun || !id) return;
+      showToast('queuing continuation of ' + id.slice(-6));
+      api.continueRun(id, {}).then((res) => {
+        const newId = res && res.id && res.id !== 'queued' ? res.id : null;
+        if (!newId) { showToast('continuation queued'); return; }
+        showToast('queued continuation of ' + id.slice(-6) + ' · run ' + newId.slice(-6));
+        loadAndRender().then(() => queueVerdictWatch(newId));
+      }).catch((err) => { showToast('could not queue the continuation' + (err && err.reason ? ': ' + err.reason : '')); });
+    }
     else if (action === 'toast-run') {
       state.toast = null; renderOverlays();
       if (state.toastingRunId) openRun(state.toastingRunId);
@@ -1551,95 +1734,67 @@
     if (loginScreen) loginScreen.style.display = 'none';
     loadingScreen();
     api.loadAll().then(function (data) {
+      sessionStorage.removeItem(LOCAL_RETRY_KEY);
       D = data;
       refreshShaAbbrevs();
       state.dialogApp = (D.apps && D.apps[0] && D.apps[0].name) || null;
       syncFromUrl();
       render();
-    }).catch(errorScreen);
+    }).catch(function (err) {
+      /* a 401 already brought up the login prompt — the session is gone, not the console */
+      if (err && err.status === 401) return;
+      errorScreen(err);
+    });
   }
 
+  /* The loopback auto-login (GET /api/v1/auth/local): the server hands a local operator a session
+     without a prompt. Resolves the token; rejects when the server refuses. */
+  function localLogin() {
+    const localUrl = ((window.QayabaConsole && window.QayabaConsole.config && window.QayabaConsole.config.baseUrl) || '') + '/api/v1/auth/local';
+    return fetch(localUrl, { credentials: 'include' }).then(function (r) {
+      if (!r.ok) throw new Error('no local session');
+      return r.json();
+    }).then(function (data) {
+      if (!data || !data.token) throw new Error('no local session');
+      return data.token;
+    });
+  }
+  function signInWith(token) {
+    sessionStorage.setItem('qayaba_token', token);
+    window.location.reload();
+  }
+
+  /* The session can expire at any time (a stale stored token at boot, or mid-session on any read
+     or stream): stop following runs, try the loopback auto-login once, and only then ask the
+     operator for a token. The retry mark lives until a console load succeeds, so a session the
+     server keeps refusing ends at the prompt instead of reloading forever; concurrent 401s wait
+     for the one retry in flight. */
+  const LOCAL_RETRY_KEY = 'qayaba_local_login_retried';
+  let localRetry = null;
+  function requireLogin() {
+    Object.keys(verdictWatches).forEach(stopVerdictWatch);
+    teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
+    if (localRetry) return;
+    if (CFG.mode !== 'live' || sessionStorage.getItem(LOCAL_RETRY_KEY)) {
+      bindLoginScreen();
+      return;
+    }
+    sessionStorage.setItem(LOCAL_RETRY_KEY, '1');
+    localRetry = localLogin().then(signInWith, bindLoginScreen).then(function () { localRetry = null; });
+  }
+  if (window.QayabaConsole && window.QayabaConsole.onAuthRequired) window.QayabaConsole.onAuthRequired(requireLogin);
+
+  let loginBound = false;
   function bindLoginScreen() {
     if (loginScreen) loginScreen.style.display = 'grid';
-    const btnGithub = document.getElementById('btn-github-login');
+    if (loginBound) return;
+    loginBound = true;
+    /* GitHub sign-in is not offered here: its device-flow endpoints do not allow cross-origin
+       browser calls, so it runs from the qayaba terminal client. The browser signs in with a pasted
+       API or session token, or automatically through the loopback auto-login (start()). */
     const btnToken = document.getElementById('btn-token-login');
     const tokenInput = document.getElementById('token-input');
-    const deviceCodeDiv = document.getElementById('github-device-code');
-    const deviceCodeDisplay = document.getElementById('device-code-display');
-    const verificationLink = document.getElementById('verification-link');
-    const loginStatus = document.getElementById('login-status');
     const loginError = document.getElementById('login-error');
-    let pollInterval = null;
-
-    btnGithub.addEventListener('click', async () => {
-      try {
-        loginError.style.display = 'none';
-        loginStatus.textContent = 'Requesting device code...';
-        const versionRes = await fetch('/api/v1/version');
-        const versionData = await versionRes.json();
-        const clientId = versionData.githubClientId;
-        if (!clientId) throw new Error('GitHub OAuth not configured on server');
-        const deviceRes = await fetch('https://github.com/login/device/code', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: clientId, scope: 'repo' })
-        });
-        const deviceData = await deviceRes.json();
-        deviceCodeDisplay.textContent = deviceData.user_code;
-        verificationLink.href = deviceData.verification_uri;
-        deviceCodeDiv.style.display = 'block';
-        loginStatus.textContent = 'Waiting for approval...';
-        const interval = (deviceData.interval || 5) * 1000;
-        const expiresIn = (deviceData.expires_in || 900) * 1000;
-        const startTime = Date.now();
-        pollInterval = setInterval(async () => {
-          if (Date.now() - startTime > expiresIn) {
-            clearInterval(pollInterval);
-            loginStatus.textContent = 'Code expired. Please try again.';
-            return;
-          }
-          try {
-            const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-              method: 'POST',
-              headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                client_id: clientId,
-                device_code: deviceData.device_code,
-                grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-              })
-            });
-            const tokenData = await tokenRes.json();
-            if (tokenData.access_token) {
-              clearInterval(pollInterval);
-              loginStatus.textContent = 'Authenticating...';
-              const loginRes = await fetch('/api/v1/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ githubToken: tokenData.access_token })
-              });
-              if (!loginRes.ok) throw new Error('Backend authentication failed');
-              const loginData = await loginRes.json();
-              sessionStorage.setItem('qayaba_token', loginData.token);
-              loginScreen.style.display = 'none';
-              window.location.reload();
-            } else if (tokenData.error === 'authorization_pending') {
-            } else if (tokenData.error === 'slow_down') {
-              clearInterval(pollInterval);
-              pollInterval = setInterval(arguments.callee, interval * 2);
-            } else {
-              throw new Error(tokenData.error_description || 'Authentication failed');
-            }
-          } catch (err) {
-            clearInterval(pollInterval);
-            loginError.textContent = err.message;
-            loginError.style.display = 'block';
-          }
-        }, interval);
-      } catch (err) {
-        loginError.textContent = err.message;
-        loginError.style.display = 'block';
-      }
-    });
 
     btnToken.addEventListener('click', async () => {
       try {
@@ -1665,17 +1820,7 @@
       return;
     }
     loadingScreen();
-    const localUrl = ((window.QayabaConsole && window.QayabaConsole.config && window.QayabaConsole.config.baseUrl) || '') + '/api/v1/auth/local';
-    fetch(localUrl, { credentials: 'include' }).then(function (r) {
-      if (!r.ok) throw new Error('no local session');
-      return r.json();
-    }).then(function (data) {
-      if (!data || !data.token) throw new Error('no local session');
-      sessionStorage.setItem('qayaba_token', data.token);
-      window.location.reload();
-    }).catch(function () {
-      bindLoginScreen();
-    });
+    localLogin().then(signInWith, bindLoginScreen);
   }
 
   start();

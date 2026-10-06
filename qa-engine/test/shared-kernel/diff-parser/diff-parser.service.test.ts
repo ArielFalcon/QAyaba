@@ -63,8 +63,6 @@ test("modifiedFiles: only files present on BOTH sides (a pure add is excluded)",
   assert.deepEqual(svc.modifiedFiles(d), ["src/mod.ts"]);
 });
 
-import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
-
 function htmlDiff(lines: string[], file = "src/home.component.html"): string {
   return [
     `diff --git a/${file} b/${file}`, `--- a/${file}`, `+++ b/${file}`,

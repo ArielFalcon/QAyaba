@@ -70,6 +70,19 @@ baseBranch: "main"             # target branch for the QA pull requests
 #     serviceRepoTemplate: "ms-name-{service}"
 #     openApiPath: "src/main/resources/openapi/api-definition.yaml"
 
+# App login. Omit the block for a public app. HTTP Basic of the whole DEV
+# environment is NOT this block — that is DEV_ENV_USER/PASS from onboarding
+# ("basic auth"). Values live in the env store; these fields are names only.
+#   form: usernameEnv + passwordEnv (a Playwright setup project saves storageState)
+#   mtls: certEnv (base64 PKCS#12) + certPassEnv
+# auth:
+#   kind: form
+#   usernameEnv: QA_EXAMPLE_TEST_USER
+#   passwordEnv: QA_EXAMPLE_TEST_PASS
+#   # Optional, form only: where the login page lives when following the app's own links does
+#   # not reach it. A path on the app's own origin (e.g. /signin), never a URL or //host.
+#   loginPath: /signin
+
 # `dev` is REQUIRED for e2e apps (the default) and OMITTED for code-mode apps.
 dev:
   baseUrl: "https://dev.example.internal"
@@ -89,6 +102,8 @@ dev:
 #   # here, it is run identically by the tests' authenticate() fixture, by the DOM capture
 #   # that grounds selectors on authenticated routes, and followed by the agent. Credentials
 #   # come from DEV_TEST_USER / DEV_TEST_PASS (never here). Only loginUrl is required.
+#   # An alternative to the top-level `auth:` block above: declare one of the two (a session
+#   # saved through `auth:` is loaded instead of running this flow).
 #   auth:
 #     loginUrl: "https://sso.example.internal/"   # URL prefix of the central login page
 #     startPath: "/"                              # app path that starts the flow
@@ -105,8 +120,6 @@ qa:
   needsReview: true            # the strict reviewer validates the generated E2E tests
   shadow: false                # true = run everything but do NOT publish PRs or open Issues (initial rollout)
   testDataPrefix: "qa-bot"     # test entities namespaced per SHA
-  # parallelDiff / sessionContinuity / specTriage are SCHEMA-ONLY: YAML accepts them, the engine
-  # ignores them. Do not set them expecting parallel generation, session reuse, or dual publish.
   # explorer: true             # single-agent runs first do a read-only "explorer" pass that
                                # distills the blast radius into a brief, so the generator gets a
                                # clean context window instead of re-exploring. Default off; adds one

@@ -1,9 +1,9 @@
-/* Behavioral tests for parsePlaywrightReport / firstErrorContext. QaCase comes from the
-   qa-engine kernel, not src/types.ts.
+/* Behavioral tests for parsePlaywrightReport. QaCase comes from the qa-engine kernel, not
+   src/types.ts.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePlaywrightReport, firstErrorContext } from "@contexts/test-execution/infrastructure/playwright-report.ts";
+import { parsePlaywrightReport } from "@contexts/test-execution/infrastructure/playwright-report.ts";
 
 test("maps nested specs to pass/fail cases", () => {
   const report = {
@@ -118,107 +118,6 @@ test("a spec with one executed pass and one skipped test still passes", () => {
   assert.equal(parsePlaywrightReport(report).passed, true);
 });
 
-test("firstErrorContext returns the errorContext string from errors[0]", () => {
-  const spec = {
-    title: "fails",
-    tests: [
-      {
-        status: "unexpected",
-        results: [
-          {
-            status: "failed",
-            error: { message: "expect failed" },
-            errors: [{ message: "expect failed", errorContext: "- button \"Submit\"" }],
-          },
-        ],
-      },
-    ],
-  };
-  assert.equal(firstErrorContext(spec), "- button \"Submit\"");
-});
-
-test("firstErrorContext returns undefined when errors[] is absent (pre-1.60 report)", () => {
-  const spec = {
-    title: "fails",
-    tests: [
-      {
-        status: "unexpected",
-        results: [{ status: "failed", error: { message: "boom" } }],
-      },
-    ],
-  };
-  assert.equal(firstErrorContext(spec), undefined);
-});
-
-test("firstErrorContext returns undefined when errors[] is present but errorContext is absent", () => {
-  const spec = {
-    title: "fails",
-    tests: [
-      {
-        status: "unexpected",
-        results: [
-          {
-            status: "failed",
-            errors: [{ message: "only message, no errorContext" }],
-          },
-        ],
-      },
-    ],
-  };
-  assert.equal(firstErrorContext(spec), undefined);
-});
-
-test("parsePlaywrightReport populates errorContext on a failed case when errors[] carries it", () => {
-  const report = {
-    suites: [
-      {
-        title: "s.spec.ts",
-        specs: [
-          {
-            title: "fails with context",
-            tests: [
-              {
-                status: "unexpected",
-                results: [
-                  {
-                    status: "failed",
-                    error: { message: "expect failed" },
-                    errors: [{ message: "expect failed", errorContext: "- button \"Submit\"" }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const parsed = parsePlaywrightReport(report);
-  const failed = parsed.cases.find((c) => c.status === "fail");
-  assert.ok(failed, "expected a failed case");
-  assert.equal(failed!.errorContext, "- button \"Submit\"");
-});
-
-test("parsePlaywrightReport backward-compat: errorContext absent on pre-1.60 report", () => {
-  const report = {
-    suites: [
-      {
-        specs: [
-          {
-            title: "old fail",
-            ok: false,
-            tests: [{ results: [{ status: "failed", error: { message: "classic error" } }] }],
-          },
-        ],
-      },
-    ],
-  };
-  const parsed = parsePlaywrightReport(report);
-  const failed = parsed.cases.find((c) => c.status === "fail");
-  assert.ok(failed);
-  assert.equal(failed!.errorContext, undefined);
-});
-
 test("parsePlaywrightReport: a parsed QaCase carries the spec file basename from the enclosing suite title", () => {
   const report = {
     suites: [
@@ -271,12 +170,4 @@ test("parsePlaywrightReport: a spec at the root suite (no file title) leaves fil
   /* file is either undefined or empty — must NOT be a meaningful path */
   const file = (parsed.cases[0]! as import("@kernel/qa-case.ts").QaCase).file;
   assert.ok(!file || file === "", `orphan test should have no meaningful file; got ${JSON.stringify(file)}`);
-});
-
-test("firstErrorContext is defensive against null/undefined shape variants (no throw)", () => {
-  assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [] }));
-  assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [{}] }));
-  assert.doesNotThrow(() => firstErrorContext({ title: "x", tests: [{ results: [{ errors: [] }] }] }));
-  /* All return undefined — never throw. */
-  assert.equal(firstErrorContext({ title: "x", tests: [] }), undefined);
 });

@@ -20,7 +20,6 @@ function nextStatus(
   coverageCreditConfirmed: boolean | null = null,
   oracleOutcomeCount = 0,
 ): RuleStatus {
-  if ((status as string) === "pending") return "candidate";
   if (outcomeCount < MIN_OUTCOMES) return status;
   switch (status) {
     case "candidate": {
@@ -31,9 +30,8 @@ function nextStatus(
     }
     case "active":
       return successRate < DEMOTE_RATE ? "deprecated" : "active";
-    case "deprecated":
-      return successRate >= PROMOTE_RATE ? "active" : "deprecated";
     default:
+      /* deprecated and superseded are retired: outcomes never revive them, only a human restores one. */
       return status;
   }
 }
@@ -57,7 +55,7 @@ export function applyOutcome(
   const n = (rule.outcomeCount ?? 0) + 1;
   const oracleOutcomeCount = (rule.oracleOutcomeCount ?? 0) + (isOracleScore ? 1 : 0);
   const prev = rule.successRate;
-  const successRate = prev === null || prev === undefined ? score : prev + (score - prev) / n;
+  const successRate = prev == null ? score : prev + (score - prev) / n;
   return {
     ...rule,
     outcomeCount: n,
@@ -68,7 +66,7 @@ export function applyOutcome(
   };
 }
 
-/** Context-directed attribution: fold an oracle outcome only onto rules that COULD have influenced it, so a global suite-quality score is not smeared across genuinely-irrelevant rules. Fail-open on two levels: (1) with no known diff archetypes, keep every rule; (2) PER RULE, an untagged rule (no archetype) carries no signal to discriminate on, so it is kept — only a rule whose archetype is PRESENT and does NOT match the diff is dropped as noise. Pure and deterministic. */
+/** Context-directed attribution: fold a run's outcome (oracle score or prevention credit) only onto rules that COULD have influenced it, so a suite-level signal is not smeared across genuinely-irrelevant rules. Fail-open on two levels: (1) with no known diff archetypes, keep every rule; (2) PER RULE, an untagged rule (no archetype) carries no signal to discriminate on, so it is kept — only a rule whose archetype is PRESENT and does NOT match the diff is dropped as noise. Pure and deterministic. */
 export function attributableRules(rules: LearningRule[], ctx: { diffArchetypes: string[] }): LearningRule[] {
   if (ctx.diffArchetypes.length === 0) return rules;
   const shapes = new Set(ctx.diffArchetypes);

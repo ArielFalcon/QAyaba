@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { UntrustedGitTreeError } from "@kernel/domain-error";
 import { stageServiceContext, serviceContextDir, type StageDeps, type ServiceContextManifest } from "./service-context";
 
 /* ── in-memory fake StageDeps ────────────────────────────────────────────────
@@ -150,6 +151,32 @@ test("stages the commit diff as CHANGE.patch and each changed file's post-change
   assert.equal(manifest.sha, "abc1234");
   /* A file named in the commit but no longer present post-change (deleted) is omitted, not thrown. */
   assert.ok(manifest.omitted.some((o) => o.path === "src/deleted-file.ts"));
+});
+
+test("an untrusted git dir in the service mirror fails the staging instead of being listed as an omitted file", async () => {
+  for (const failing of ["--patch", "--name-only"]) {
+    const deps = fakeDeps({}, {
+      git: async (args) => {
+        if (args.includes(failing)) throw new UntrustedGitTreeError("refusing to run git on /mirrors/svc/.git: it is a symbolic link");
+        return "";
+      },
+    });
+    await assert.rejects(
+      stageServiceContext({ workingCopyDir: "/work", service: { repo: "org/svc", mirrorDir: "/mirrors/svc" }, sha: "abc1234" }, deps),
+      UntrustedGitTreeError,
+      `git show ${failing}`,
+    );
+  }
+});
+
+test("any other git failure while staging the diff is listed as omitted and never stops the staging", async () => {
+  const deps = fakeDeps({}, {
+    git: async () => {
+      throw new Error("git failed");
+    },
+  });
+  const result = await stageServiceContext({ workingCopyDir: "/work", service: { repo: "org/svc", mirrorDir: "/mirrors/svc" }, sha: "abc1234" }, deps);
+  assert.ok(readManifest(deps, result.dir).omitted.some((o) => o.path === "CHANGE.patch"));
 });
 
 test("no sha: diff/changed staging is skipped entirely (context-mode services carry no per-run commit)", async () => {

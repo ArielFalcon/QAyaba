@@ -6,8 +6,9 @@ export class NullValueOracleAdapter implements ValueOraclePort {
   async measure(_br: BlastRadius, _repoDir: string, _namespace: string, _baselineCases?: string[]): Promise<ValueOracleResult> {
     return {
       valueScore: null,
-      mutantCount: 0,
-      killedCount: 0,
+      /* null, not 0 — "not measured", never a fabricated zero mutation/kill count. */
+      mutantCount: null,
+      killedCount: null,
       details: "valueOracle is off — no fault-injection or mutation scoring this run",
     };
   }

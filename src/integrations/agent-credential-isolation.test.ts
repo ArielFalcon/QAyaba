@@ -1,4 +1,4 @@
-/* Guard (post-ADR-001, Phase 2): the agent (`opencode`) container must NEVER receive
+/* Guard: the agent (`opencode`) container must NEVER receive
    git / control-plane write credentials. The core security invariant — "the LLM agent
    is read-only on watched repos; only the orchestrator does git writes" — rests on this
    credential isolation. That makes the invariant STRUCTURAL (the agent has no token to

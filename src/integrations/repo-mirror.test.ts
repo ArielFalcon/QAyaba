@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, MirrorDeps } from "./repo-mirror";
+import { execFileSync } from "node:child_process";
+import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { hardenGitArgs as engineHardenGitArgs, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenDetachedGitArgs as engineHardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+import { closeGitDir, GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { defaultMirrorDeps, realGit, ensureMirror, ensureMirrorAtBranch, getCommitDiff, listChangedSpecs, getCommitsBehind, getCommitMessage, getHeadSha, resolveRef, getChangedFilesInRange, getRangeDiff, hardenGitArgs, hardenDetachedGitArgs, MirrorDeps } from "./repo-mirror";
 
 /* authHeaderArgs() depends on GITHUB_TOKEN and the remote URL on GIT_REMOTE_BASE;
    clear both to isolate the logic (token-bearing tests set GITHUB_TOKEN per-test).
@@ -29,16 +36,46 @@ function recorder(exists: boolean | ((path: string) => boolean)): MirrorDeps & {
   };
 }
 
-test("hardenGitArgs prepends hook + ownership hardening before the git subcommand", () => {
-  const out = hardenGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"]);
-  /* Two command-line hardening flags, in order, BEFORE the subcommand:
-     - core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard)
-     - safe.directory=* → tolerate a mirror chowned to the sandbox uid by a prior
-     e2e/code execution (git-as-root would else abort with
-     "detected dubious ownership" and crash the next run).
-   */
-  assert.deepEqual(out.slice(0, 4), ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*"]);
-  assert.deepEqual(out.slice(4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
+test("hardenGitArgs prepends the hook hardening before the git subcommand and opts nothing out of git's ownership check without a working copy", () => {
+  const out = hardenDetachedGitArgs(["remote", "set-url", "origin", "https://example.com/x.git"]);
+  /* core.hooksPath=/dev/null → no repo hook runs as the orchestrator (root-RCE guard). */
+  assert.deepEqual(out.slice(0, 2), ["-c", "core.hooksPath=/dev/null"]);
+  assert.ok(!out.some((arg) => arg.startsWith("safe.directory")), "there is no verified working copy to opt out for");
+  assert.deepEqual(out.slice(-4), ["remote", "set-url", "origin", "https://example.com/x.git"]);
+});
+
+test("hardenGitArgs opts only the verified working copy out of git's ownership check: another repository reached with the same flags is still judged by git", () => {
+  const root = mkdtempSync(join(tmpdir(), "hardening-ownership-"));
+  try {
+    const repo = join(root, "repo");
+    const other = join(root, "other");
+    for (const dir of [repo, other]) {
+      execFileSync("git", ["init", "-q", dir]);
+      closeGitDir(dir);
+    }
+    /* Under this variable git judges every tree foreign, as it does a working copy the sandbox user owns. */
+    const env = { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" };
+    assert.throws(() => execFileSync("git", ["-C", other, "rev-parse", "--git-dir"], { env, stdio: "ignore" }), "control: git itself refuses a foreign-owned tree");
+
+    assert.doesNotThrow(() => execFileSync("git", hardenGitArgs(["rev-parse", "--git-dir"], repo), { cwd: repo, env, stdio: "ignore" }), "the verified working copy is usable");
+    assert.throws(() => execFileSync("git", hardenGitArgs(["-C", other, "rev-parse", "--git-dir"], repo), { cwd: repo, env, stdio: "ignore" }), "the opt-out reached the other tree too");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the shell hardens a git call exactly like the engine does, for a call with no working copy and for one with", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hardening-parity-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
+    for (const args of [[], ["status", "--porcelain"], ["diff", "--no-color", "abc1234^", "abc1234"]]) {
+      assert.deepEqual(engineHardenDetachedGitArgs(args), hardenDetachedGitArgs(args));
+      assert.deepEqual(engineHardenGitArgs(args, repo), hardenGitArgs(args, repo));
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test("clones, force-checks out and cleans when the working copy does not exist", async () => {
@@ -54,7 +91,7 @@ test("existing mirror: scrubs origin URL, fetches, force-checks out and cleans",
   const d = recorder((p) => !p.endsWith("index.lock"));
   await ensureMirror("org/app", "abc1234", d);
   assert.deepEqual(d.calls[0], ["remote", "set-url", "origin", "https://github.com/org/app.git"]);
-  assert.deepEqual(d.calls[1], ["fetch", "origin"]);
+  assert.deepEqual(d.calls[1], ["fetch", "--no-recurse-submodules", "origin"]);
   assert.deepEqual(d.calls[2], ["checkout", "-f", "abc1234"]);
   assert.deepEqual(d.calls[3], ["clean", "-fd", "-e", "node_modules"]);
 });
@@ -97,7 +134,7 @@ test("existing mirror: origin is reset to the tokenless URL before fetch (scrubs
     const d = recorder((p) => !p.endsWith("index.lock"));
     await ensureMirror("org/app", "abc1234", d);
     assert.deepEqual(d.calls[0], ["remote", "set-url", "origin", "https://github.com/org/app.git"]);
-    assert.deepEqual(d.calls[1], ["-c", INSTEADOF_FLAG, "fetch", "origin"]);
+    assert.deepEqual(d.calls[1], ["-c", INSTEADOF_FLAG, "fetch", "--no-recurse-submodules", "origin"]);
   } finally {
     delete process.env.GITHUB_TOKEN;
   }
@@ -207,6 +244,29 @@ test("listChangedSpecs passes --untracked-files=all so first-run specs in an unt
   const specs = await listChangedSpecs("/dir", "e2e", d);
   assert.deepEqual(specs, ["flows/login.spec.ts"]);
   assert.ok(d.calls[0]?.includes("--untracked-files=all"), "git status must pass --untracked-files=all");
+});
+
+test("listChangedSpecs never enters a submodule the sandbox populated inside the folder it scans", async () => {
+  /* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there; root git that
+     enters it runs the filter its config names. */
+  const root = mkdtempSync(join(tmpdir(), "list-specs-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command);
+    writeFileSync(join(fixture.repo, "new.spec.ts"), "test('x', () => {});\n");
+    const d: MirrorDeps = {
+      root,
+      exists: () => true,
+      removeFile: () => {},
+      git: async (args, cwd) => execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8" }),
+    };
+
+    assert.deepEqual(await listChangedSpecs(fixture.repo, ".", d), ["new.spec.ts"]);
+    assert.equal(ranPlantedCommand(marker), false, "the status ran the planted filter");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("getCommitsBehind rejects a non-hex sha before spawning git (injection defense)", async () => {
@@ -325,6 +385,32 @@ test("getCommitMessage propagates git show failure", async () => {
     git: async () => { throw new Error("git show failed"); },
   };
   await assert.rejects(() => getCommitMessage("/dir", "abc1234", d), /git show failed/);
+});
+
+test("getHeadSha resolves the mirror's checked-out HEAD through the injected git dependency, trimmed", async () => {
+  const calls: Array<{ args: string[]; cwd?: string }> = [];
+  const d: MirrorDeps = {
+    root: "/tmp/mirrors",
+    exists: () => true,
+    removeFile: () => {},
+    git: async (args, cwd) => {
+      calls.push({ args, cwd });
+      return "abc1234567890abc1234567890abc1234567890\n";
+    },
+  };
+  const sha = await getHeadSha("/dir", d);
+  assert.equal(sha, "abc1234567890abc1234567890abc1234567890");
+  assert.deepEqual(calls, [{ args: ["rev-parse", "HEAD"], cwd: "/dir" }], "must resolve HEAD via the injected git dependency, not a direct shell-out");
+});
+
+test("getHeadSha propagates git rev-parse failure (never swallowed to an empty sha)", async () => {
+  const d: MirrorDeps = {
+    root: "/tmp/mirrors",
+    exists: () => true,
+    removeFile: () => {},
+    git: async () => { throw new Error("rev-parse failed: not a git repository"); },
+  };
+  await assert.rejects(() => getHeadSha("/dir", d), /rev-parse failed/);
 });
 
 test("resolveRef propagates git ls-remote failure", async () => {
@@ -481,5 +567,178 @@ test("realGit scrubs the raw GITHUB_TOKEN value (no x-access-token prefix) from 
   } finally {
     if (previousToken === undefined) delete process.env.GITHUB_TOKEN;
     else process.env.GITHUB_TOKEN = previousToken;
+  }
+});
+
+/* The sandbox owns a working copy after a code/e2e run and can swap the root-owned `.git` for one of its own;
+   its config would plant a command git runs as the orchestrator on the next call (checkout, status, publish). */
+test("realGit refuses a working copy whose git dir was swapped and never runs its planted command", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const root = mkdtempSync(join(tmpdir(), "realgit-swapped-git-"));
+  const repo = join(root, "repo");
+  const marker = join(root, "marker");
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
+    writeFileSync(join(repo, "a.txt"), "x\n");
+    const planted = join(root, "planted-git");
+    cpSync(join(repo, ".git"), planted, { recursive: true });
+    const evil = join(root, "evil.sh");
+    writeFileSync(evil, `#!/bin/sh\necho ran >> "${marker}"\nexit 0\n`, { mode: 0o755 });
+    execFileSync("git", ["config", "--file", join(planted, "config"), "core.fsmonitor", evil]);
+    rmSync(join(repo, ".git"), { recursive: true });
+    symlinkSync(planted, join(repo, ".git"));
+
+    await assert.rejects(() => realGit(["status", "--porcelain"], repo), /git dir|\.git/i);
+    assert.equal(existsSync(marker) && readFileSync(marker, "utf8").includes("ran"), false, "git never ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("realGit refuses a command that needs a working copy when none is named, instead of running it unverified in the process's own directory", async () => {
+  const { realGit } = await import("./repo-mirror");
+  await assert.rejects(realGit(["status", "--porcelain"]), TypeError);
+});
+
+test("realGit still runs the commands that have no working copy yet: a clone and an ls-remote", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const root = mkdtempSync(join(tmpdir(), "realgit-detached-"));
+  try {
+    const source = join(root, "source");
+    execFileSync("git", ["init", "-q", source]);
+    writeFileSync(join(source, "a.txt"), "x\n");
+    execFileSync("git", ["add", "a.txt"], { cwd: source });
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.com", "commit", "-qm", "first"], { cwd: source });
+    const copy = join(root, "copy");
+
+    await realGit(["-c", "protocol.file.allow=always", "clone", "-q", source, copy]);
+    assert.ok(existsSync(join(copy, "a.txt")), "the clone ran");
+    assert.match(await realGit(["ls-remote", source]), /HEAD/, "the ls-remote ran");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("realGit still runs against an ordinary working copy", async () => {
+  const { realGit } = await import("./repo-mirror");
+  const repo = mkdtempSync(join(tmpdir(), "realgit-ordinary-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    closeGitDir(repo);
+    writeFileSync(join(repo, "a.txt"), "x\n");
+    assert.match(await realGit(["status", "--porcelain"], repo), /a\.txt/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* ── A mirror the sandbox left in a state the hardening refuses recovers on the next run ─────────────────
+   The mirror is a regenerable cache: the run deletes it and clones afresh, never running git inside it. */
+
+interface RemoteFixture {
+  root: string;
+  mirrors: string;
+  /** The commit before the gitlink `x` exists, and the commit that adds it. */
+  plain: string;
+  withGitlink: string;
+  deps: MirrorDeps;
+  restore(): void;
+}
+
+function makeRemote(): RemoteFixture {
+  const root = mkdtempSync(join(tmpdir(), "mirror-heal-"));
+  const git = (cwd: string, ...args: string[]): string => execFileSync("git", args, { cwd, env: GIT_ENV, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const source = join(root, "source");
+  git(root, "init", "-q", "-b", "main", source);
+  writeFileSync(join(source, "a.txt"), "a\n");
+  git(source, "add", "a.txt");
+  git(source, "commit", "-qm", "plain");
+  const plain = git(source, "rev-parse", "HEAD");
+  git(source, "update-index", "--add", "--cacheinfo", `160000,${plain},x`);
+  git(source, "commit", "-qm", "adds the gitlink x");
+  const withGitlink = git(source, "rev-parse", "HEAD");
+  execFileSync("git", ["clone", "-q", "--bare", source, join(root, "remote", "org", "app.git")], { env: GIT_ENV, stdio: "ignore" });
+  const previousBase = process.env.GIT_REMOTE_BASE;
+  process.env.GIT_REMOTE_BASE = `file://${join(root, "remote")}`;
+  const mirrors = join(root, "mirrors");
+  const deps: MirrorDeps = {
+    ...defaultMirrorDeps,
+    root: mirrors,
+    git: (args, cwd) => defaultMirrorDeps.git(cwd === undefined ? ["-c", "protocol.file.allow=always", ...args] : args, cwd),
+  };
+  return {
+    root,
+    mirrors,
+    plain,
+    withGitlink,
+    deps,
+    restore: () => {
+      if (previousBase === undefined) delete process.env.GIT_REMOTE_BASE;
+      else process.env.GIT_REMOTE_BASE = previousBase;
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+test("a mirror where the sandbox planted a repository at a path the next commit turns into a gitlink is recovered, and nothing planted runs", async () => {
+  const f = makeRemote();
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    const { marker, command } = writeMarkerCommand(f.root);
+    makeEmbeddedRepo(join(mirror, "x"), command);
+
+    const recovered = await ensureMirror("org/app", f.withGitlink, f.deps);
+
+    assert.equal(recovered, mirror);
+    assert.equal(ranPlantedCommand(marker), false, "the planted filter ran");
+    assert.equal(existsSync(join(mirror, "x", ".git")), false, "the planted repository is gone");
+    assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: mirror, encoding: "utf8" }).trim(), f.withGitlink);
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "", "the recovered mirror is usable");
+  } finally {
+    f.restore();
+  }
+});
+
+test("a mirror left holding a gitlink over an embedded repository (staged by an earlier version) is recovered on the next run", async () => {
+  const f = makeRemote();
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    makeEmbeddedRepo(join(mirror, "tmp-fixture-repo"));
+    execFileSync("git", ["add", "--", "."], { cwd: mirror, env: GIT_ENV, stdio: "ignore" }); /* what the unguarded add did */
+    assert.deepEqual(indexedGitlinks(mirror), ["tmp-fixture-repo"]);
+    await assert.rejects(realGit(["status"], mirror), UntrustedGitTreeError, "control: the wedged mirror is refused");
+
+    await ensureMirror("org/app", f.plain, f.deps);
+
+    assert.equal(existsSync(join(mirror, "tmp-fixture-repo")), false);
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "");
+  } finally {
+    f.restore();
+  }
+});
+
+test("a mirror directory replaced by a link is removed as the link, never through it, and the mirror is cloned afresh", async () => {
+  const f = makeRemote();
+  const outside = mkdtempSync(join(tmpdir(), "mirror-heal-outside-"));
+  try {
+    const mirror = await ensureMirror("org/app", f.plain, f.deps);
+    writeFileSync(join(outside, "precious.txt"), "keep\n");
+    const planted = join(f.root, "planted");
+    cpSync(mirror, planted, { recursive: true });
+    makeEmbeddedRepo(join(planted, "tmp-fixture-repo"));
+    execFileSync("git", ["add", "--", "."], { cwd: planted, env: GIT_ENV, stdio: "ignore" }); /* a wedged copy: the recovery has to act */
+    symlinkSync(outside, join(planted, "link-out"));
+    rmSync(mirror, { recursive: true });
+    symlinkSync(planted, mirror);
+
+    await ensureMirror("org/app", f.plain, f.deps);
+
+    assert.equal(readFileSync(join(outside, "precious.txt"), "utf8"), "keep\n", "the directory behind the link was deleted through it");
+    assert.equal(lstatSync(mirror).isSymbolicLink(), false, "the mirror is a real directory again");
+    assert.equal(await realGit(["status", "--porcelain"], mirror), "");
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+    f.restore();
   }
 });

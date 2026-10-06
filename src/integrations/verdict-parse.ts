@@ -7,6 +7,8 @@ export interface FinalVerdict {
   specs: string[];
   specMetas?: SpecMeta[];
   note?: string;
+  /** The reason the generator gave for writing nothing (`noop.reason`); absent unless it declared a no-op with a reason. `approved` is never a no-op signal. */
+  noopReason?: string;
   /** false when no verdict JSON was found (fail-closed). Distinguishes parse miss from rejection. */
   parsed: boolean;
 }
@@ -62,23 +64,38 @@ export function lastJsonMatching<T = Record<string, unknown>>(text: string, pred
   return undefined;
 }
 
-/* Discriminator: the generator's closing JSON carries a `specs` array or a boolean `approved`. */
+/* Discriminator: the generator's closing JSON carries a `specs` array, a `noop` decision or a boolean `approved`. */
 export function isClosingVerdict(o: Record<string, unknown>): boolean {
-  return Array.isArray(o.specs) || typeof o.approved === "boolean";
+  return Array.isArray(o.specs) || "noop" in o || typeof o.approved === "boolean";
+}
+
+/* The trimmed reason of a `noop` decision; undefined for anything that is not an object with a non-blank text `reason`. */
+function noopReasonOf(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const reason = (raw as Record<string, unknown>).reason;
+  const trimmed = typeof reason === "string" ? reason.trim() : "";
+  return trimmed === "" ? undefined : trimmed;
 }
 
 /*
- * Last balanced object with `specs` or `approved`. A missing `approved` is not a rejection
- * (the reviewer is the gate); no parseable block is fail-closed with parsed:false.
+ * Last balanced object with `specs`, `noop` or `approved`. A missing `approved` is not a rejection
+ * (the reviewer is the gate); no parseable block — or one listing a spec that is not a path
+ * string — is fail-closed with parsed:false. Whether writing no specs was a decision is only
+ * ever read from `noop.reason`, never from `approved`.
  */
 export function parseVerdict(text: string): FinalVerdict {
   const o = lastJsonMatching(text, isClosingVerdict);
+  const specs: unknown[] = Array.isArray(o?.specs) ? o.specs : [];
+  if (specs.some((spec) => typeof spec !== "string")) {
+    return { approved: false, specs: [], note: "the agent's verdict lists a spec that is not a path string", parsed: false };
+  }
   if (o) {
     return {
       approved: typeof o.approved === "boolean" ? o.approved : true,
-      specs: Array.isArray(o.specs) ? (o.specs as string[]) : [],
+      specs: specs as string[],
       specMetas: parseSpecMetas(o.specMetas),
       note: typeof o.note === "string" ? o.note : undefined,
+      noopReason: noopReasonOf(o.noop),
       parsed: true,
     };
   }

@@ -1,5 +1,5 @@
 /* Behavioral tests for the static gate (e2e checks + code-mode compile gate + manifest-entry
-   validation). The "B2 RED"/"B2 GREEN" tests below exercise the real, non-stubbed zero-assertion
+   validation). The zero-assertion tests below exercise the real, non-stubbed zero-assertion
    scan (checkZeroAssertionSpecs is baked into validateSpecs itself, never injectable) against
    real temp-dir fixtures — a no-op validateAll wiring that would pass every stub test must not
    pass a real one.
@@ -10,6 +10,7 @@ import {
   validateSpecs,
   type ValidateDeps,
   runCheck,
+  CHECK_OUTPUT_KEEP_CHARS,
   defaultValidateDeps,
   validateManifest,
   compileCommand,
@@ -111,6 +112,18 @@ test("runCheck flags a non-zero exit as a CODE failure, not infra", async () => 
   assert.match(res.output, /TS2322/);
 });
 
+test("runCheck keeps only the newest output of a check that writes megabytes, and still judges its exit", { timeout: 30_000 }, async () => {
+  /* A check runs code the agent wrote (tsc/eslint config, `playwright --list` imports every spec), so its output is untrusted and unbounded. */
+  const script =
+    "const line = 'check output line that repeats\\n'.repeat(1000); let n = 0;" +
+    "(function go() { if (n++ < 300) return process.stdout.write(line, go); process.stderr.write('THE-END\\n'); process.exitCode = 2; })();";
+  const res = await runCheck(process.execPath, ["-e", script], process.cwd());
+  assert.equal(res.ok, false, "the exit status is still judged");
+  assert.equal(res.infra, undefined);
+  assert.match(res.output, /THE-END/, "the newest output is kept");
+  assert.ok(res.output.length < CHECK_OUTPUT_KEEP_CHARS + 500, `the kept output stays bounded (was ${res.output.length} chars)`);
+});
+
 test("runCheck flags a missing binary (ENOENT) as INFRA", async () => {
   const res = await runCheck("/definitely/not/a/binary-qa-xyz", [], process.cwd(), 5_000);
   assert.equal(res.ok, false);
@@ -139,7 +152,7 @@ function makeTmpSpecDir(specContent: string): string {
   return dir;
 }
 
-test("B2 RED: a spec file with NO expect() call is flagged as a zero-assertion error", async () => {
+test("RED: a spec file with NO expect() call is flagged as a zero-assertion error", async () => {
   const specDir = makeTmpSpecDir([
     `import { test } from "@playwright/test";`,
     `test("login loads", async ({ page }) => {`,
@@ -160,7 +173,7 @@ test("B2 RED: a spec file with NO expect() call is flagged as a zero-assertion e
   }
 });
 
-test("B2 GREEN: a spec file with at least one expect() passes the zero-assertion check", async () => {
+test("GREEN: a spec file with at least one expect() passes the zero-assertion check", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("login succeeds", async ({ page }) => {`,
@@ -177,7 +190,7 @@ test("B2 GREEN: a spec file with at least one expect() passes the zero-assertion
   }
 });
 
-test("B2: await expect() and expect.soft() both count as assertions", async () => {
+test("await expect() and expect.soft() both count as assertions", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("soft assertion", async ({ page }) => {`,
@@ -194,7 +207,7 @@ test("B2: await expect() and expect.soft() both count as assertions", async () =
   }
 });
 
-test("B2: a spec asserting ONLY via expect.poll() is NOT flagged (regression — poll is a real assertion)", async () => {
+test("a spec asserting ONLY via expect.poll() is NOT flagged (regression — poll is a real assertion)", async () => {
   const specDir = makeTmpSpecDir([
     `import { test, expect } from "@playwright/test";`,
     `test("eventually consistent", async ({ page }) => {`,
@@ -211,7 +224,7 @@ test("B2: a spec asserting ONLY via expect.poll() is NOT flagged (regression —
   }
 });
 
-test("B2: a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagged — only flows/ is checked", async () => {
+test("a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagged — only flows/ is checked", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-seed-"));
   try {
     /* The seed cleanup.spec.ts sits at the e2e ROOT and has no expect() by design (skip-guarded). */
@@ -226,7 +239,7 @@ test("B2: a zero-assertion spec at the e2e ROOT (the cleanup seed) is NOT flagge
   }
 });
 
-test("B2: a zero-assertion GENERATED spec under flows/ IS flagged", async () => {
+test("a zero-assertion GENERATED spec under flows/ IS flagged", async () => {
   const dir = _mkdtempSync(_join(_tmpdir(), "qa-validate-b2-flows-"));
   try {
     _mkdirSync(_join(dir, "flows"));

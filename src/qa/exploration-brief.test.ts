@@ -7,6 +7,7 @@ import {
   coerceExplorationBrief,
   renderExplorationBrief,
 } from "./exploration-brief";
+import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint";
 
 function validBrief(overrides: Partial<ExplorationBrief> = {}): ExplorationBrief {
   return {
@@ -125,10 +126,27 @@ test("parseExplorationBrief output round-trips through validation", () => {
   assert.equal(validateExplorationBrief(brief!).ok, true);
 });
 
-test("renderExplorationBrief carries the selector-fidelity guard (landmarks are hints, code/DOM wins)", () => {
-  const out = renderExplorationBrief(validBrief());
-  assert.match(out, /HINTS/);
-  assert.match(out, /code\/DOM wins/i);
+test("renderExplorationBrief is data only: no directive and no trust language, the prompt owns the framing", () => {
+  const out = renderExplorationBrief(validBrief({ notes: "the coupon is applied server-side" }));
+  assert.equal(countDirectives(out), 0);
+  assert.equal(hasTrustLanguage(out), false);
+});
+
+test("renderExplorationBrief keeps route landmarks, and drops them when a DOM tree makes them redundant", () => {
+  const brief = validBrief();
+  const withLandmarks = renderExplorationBrief(brief);
+  for (const mark of brief.routes![0]!.domLandmarks!) assert.ok(withLandmarks.includes(mark), mark);
+
+  const withoutLandmarks = renderExplorationBrief(brief, { omitLandmarks: true });
+  for (const mark of brief.routes![0]!.domLandmarks!) assert.equal(withoutLandmarks.includes(mark), false, mark);
+  assert.ok(withoutLandmarks.includes("/checkout"), "the route itself stays");
+  assert.ok(withoutLandmarks.includes("CheckoutComponent"), "and the component it renders");
+});
+
+test("renderExplorationBrief always renders the FE-BE links it carries", () => {
+  const brief = validBrief();
+  assert.ok(renderExplorationBrief(brief).includes(brief.feBe![0]!.operationId));
+  assert.ok(renderExplorationBrief(brief, { omitLandmarks: true }).includes(brief.feBe![0]!.operationId));
 });
 
 test("renderExplorationBrief renders blast-radius symbols with their distilled role", () => {

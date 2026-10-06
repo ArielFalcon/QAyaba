@@ -6,6 +6,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WriteConfinementAdapter, type WriteConfinementAdapterDeps } from "@contexts/workspace-and-publication/infrastructure/write-confinement.adapter.ts";
+import { hardenGitArgs } from "../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
+import { GIT_ENV, indexedGitlinks, makeEmbeddedRepo, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
 
 function makeDeps(statusOut: string, gitCalls: Array<string[]>): WriteConfinementAdapterDeps {
   return {
@@ -369,8 +371,8 @@ test("real git fixture (negative): a rename fully INSIDE e2e/ is not a stray —
    `renameCounterpart`. A rename fully inside the allowed area (both sides pass classifyStrays
    untouched) whose NEW side is a symlink escaping the mirror only pushed the new side into the
    revert bucket: `git restore --staged --worktree --source=HEAD -- <new>` then leaves the old
-   side's staged deletion orphaned — the exact destructive pattern the round-1 fix closed via
-   classifyStrays, reopened here via the second code path that never got the same treatment.
+   side's staged deletion orphaned — the exact destructive pattern classifyStrays
+   closes, which this second code path must close too.
  */
 
 test("real git fixture: staged rename of an escaping symlink INSIDE e2e/ reverts BOTH sides — rename fully undone (e2e target)", async () => {
@@ -617,10 +619,10 @@ test("real git fixture: a tracked non-ASCII file inside e2e/ staged-renamed OUT 
    path (containing a real `"` character) is what actually reaches git, not the still-escaped form.
    Under `core.quotePath=false`, git still C-style-quotes a path for reasons OTHER than non-ASCII
    bytes (here: an embedded space) but leaves the non-ASCII bytes literal inside the quotes instead
-   of octal-escaping them (as it would under the default core.quotePath=true, round 3's fix). The
+   of octal-escaping them (as it would under the default core.quotePath=true). The
    old literal-character branch of decodeQuoted pushed a raw UTF-16 code unit as a single byte —
    invalid standalone UTF-8 for a non-ASCII char — corrupting the decoded path so the revert
-   pathspec matched nothing on disk, the same silent-bypass class as round 3.
+   pathspec matched nothing on disk, the same silent-bypass class as the octal-escape case.
  */
 test("real git fixture: an untracked stray needing quoting for an embedded space AND a literal non-ASCII char is ACTUALLY deleted from disk under core.quotePath=false (e2e target)", async () => {
   const repo = initRepo();
@@ -899,6 +901,110 @@ test("real git fixture: a thrown error mid-pairing (git diff fails right after g
     const status = execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repo, encoding: "utf8" });
     assert.ok(status.includes("?? stray.spec.ts"), "the stray must be back to untracked (??), not left staged as intent-to-add by a mid-sequence failure — the try/finally reset must always fire");
     assert.ok(status.includes(" D e2e/existing.spec.ts"), "the deletion must be untouched — the throw happened before the restore step ever ran");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* A committed gitlink's directory belongs to the sandbox, which can put a repository of its own there. Root git that
+   enters it runs the filter that repository's config names, so the calls under test must not enter it. The git fn
+   is plain git: the protection under test is the argv the adapter builds, not the hardening around it. */
+for (const isCode of [false, true]) {
+  test(`real git fixture: the status and rename detection never enter a submodule the sandbox populated, and a moved pointer is still reverted (${isCode ? "code" : "e2e"} target)`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
+    try {
+      const { marker, command } = writeMarkerCommand(root);
+      const fixture = makeGitlinkRepo(root);
+      const repo = fixture.repo;
+      plantNestedRepo(fixture, command, { movePointer: true });
+      /* A tracked file deleted and an untracked copy of it: the pair that makes the adapter ask git for rename detection. */
+      const kept = isCode ? "a.txt" : "e2e/spec.ts";
+      const moved = isCode ? "Dockerfile" : "moved-copy.txt";
+      writeFileSync(join(repo, moved), readFileSync(join(repo, kept)));
+      unlinkSync(join(repo, kept));
+      const adapter = new WriteConfinementAdapter({ git: realGitFn(repo), realpath: realpathSync, isSymlink: () => false });
+
+      await adapter.enforce(repo, isCode);
+
+      assert.equal(ranPlantedCommand(marker), false, "no git call of the confinement pass ran the planted filter");
+      assert.ok(existsSync(join(repo, kept)), "the tracked file that was deleted is restored");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("real git fixture: a submodule pointer moved off its recorded commit is still reverted as a stray change (e2e target)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-confinement-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command, { movePointer: true });
+    const adapter = new WriteConfinementAdapter({ git: realGitFn(fixture.repo), realpath: realpathSync, isSymlink: () => false });
+
+    const result = await adapter.enforce(fixture.repo, false);
+
+    assert.deepEqual(result.reverted, ["sub"]);
+    assert.equal(ranPlantedCommand(marker), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* A repository left inside the working copy (a test that runs `git init` under the tree, a git dependency directory,
+   or the sandbox's own doing) is never legitimate test output, and staging it would record a gitlink that leaves the
+   working copy unusable. It is removed like any other stray, without following a link inside it. */
+const removeDirectory = (path: string): void => rmSync(path, { recursive: true, force: true });
+const realFsDeps = (repo: string): WriteConfinementAdapterDeps => ({ git: realGitFn(repo), realpath: realpathSync, isSymlink: (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } }, removeDirectory });
+
+for (const isCode of [false, true]) {
+  test(`real git fixture: an embedded repository is removed from disk and reported, and the legitimate spec survives (${isCode ? "code" : "e2e"} target)`, async () => {
+    const repo = initRepo();
+    try {
+      const nested = isCode ? "tmp-fixture-repo" : "e2e/fixture-repo";
+      makeEmbeddedRepo(join(repo, nested));
+      writeFileSync(join(repo, "e2e", "new.spec.ts"), "test('y', () => {});\n");
+
+      const result = await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, isCode);
+
+      assert.equal(existsSync(join(repo, nested)), false, "the embedded repository was left in the working copy");
+      assert.ok(result.reverted.includes(`${nested}/`), `the removal is reported: ${JSON.stringify(result.reverted)}`);
+      assert.ok(result.strays >= 1);
+      assert.ok(existsSync(join(repo, "e2e", "new.spec.ts")), "a legitimate test file was removed with it");
+      execFileSync("git", hardenGitArgs(["add", "--", "."], repo), { cwd: repo, env: GIT_ENV, stdio: "ignore" });
+      assert.deepEqual(indexedGitlinks(repo), []);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+}
+
+test("real git fixture: removing an embedded repository never follows a link inside it", async () => {
+  const repo = initRepo();
+  const outside = mkdtempSync(join(tmpdir(), "qa-confinement-outside-"));
+  try {
+    writeFileSync(join(outside, "precious.txt"), "keep\n");
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+    symlinkSync(outside, join(repo, "tmp-fixture-repo", "link-out"));
+
+    await new WriteConfinementAdapter(realFsDeps(repo)).enforce(repo, true);
+
+    assert.equal(existsSync(join(repo, "tmp-fixture-repo")), false);
+    assert.equal(readFileSync(join(outside, "precious.txt"), "utf8"), "keep\n", "the directory behind the link was deleted through it");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("real git fixture: an embedded repository that cannot be removed fails the pass loudly instead of being staged later", async () => {
+  const repo = initRepo();
+  try {
+    makeEmbeddedRepo(join(repo, "tmp-fixture-repo"));
+    const { removeDirectory: _unwired, ...withoutRemoval } = realFsDeps(repo);
+
+    await assert.rejects(new WriteConfinementAdapter(withoutRemoval).enforce(repo, true), /tmp-fixture-repo/);
+    assert.equal(existsSync(join(repo, "tmp-fixture-repo")), true);
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }

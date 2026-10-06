@@ -49,9 +49,20 @@ export {
   type FileChange,
 } from "./delegation-result.ts";
 export {
-  PARALLEL_WORKER_MISSING_FOR_SIDEKICK,
-  PARALLEL_WORKER_REUSABLE_FIELDS,
-} from "./parallel-worker-reuse.ts";
+  ACCEPTANCE_REPORT_DEFECTS,
+  ACCEPTANCE_STATUSES,
+  readAcceptanceReport,
+  type AcceptanceReport,
+  type AcceptanceReportDefect,
+  type AcceptanceReportDefectReason,
+  type AcceptanceReportEntry,
+  type AcceptanceStatus,
+} from "./acceptance-report.ts";
+export {
+  classifyDelegationFailure,
+  DELEGATION_FAILURE_CLASSES,
+  type DelegationFailureClass,
+} from "./delegation-failure-class.ts";
 export { renderSidekickBrief } from "./sidekick-prompt.ts";
 export {
   resolveCapabilityRole,
@@ -80,11 +91,11 @@ export {
   type PushbackReason,
 } from "./pushback.ts";
 export { isPathWithinWritableRoots } from "./path-scope.ts";
-export { existingWritableFiles } from "./existing-writable-files.ts";
 export {
-  getSharedCoordinationTelemetry,
-  resetSharedCoordinationTelemetryForTests,
-} from "./shared-telemetry.ts";
+  existingWritableFiles,
+  defaultExistingWritableFilesDeps,
+  type ExistingWritableFilesDeps,
+} from "./existing-writable-files.ts";
 export { resolveSidekickModel } from "./resolve-sidekick-model.ts";
 export {
   buildProgressSnapshot,
@@ -113,11 +124,13 @@ export {
   type LeadContext,
 } from "./lead-context.ts";
 export {
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   deriveAdaptiveSignals,
+  DEFAULT_ADAPTIVE_WINDOW_SIZE,
   type CoordinationTelemetryEvent,
   type CoordinationTelemetryKind,
   type CoordinationTelemetryPort,
+  type DeriveAdaptiveSignalsOptions,
 } from "./coordination-telemetry.ts";
 export { capabilityForFixLoopRound } from "./fix-loop-capability.ts";
 export {

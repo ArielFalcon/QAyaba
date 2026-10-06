@@ -5,9 +5,10 @@
    fail-open branch (absent mirror, unindexed mirror, empty diff, no matches, thrown exceptions).
    Zero mirror/VCS/code-graph calls when no link matches.
  */
-import { test, describe, before, after } from "node:test";
+import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CrossRepoImpactPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/cross-repo-impact-port.adapter.ts";
@@ -19,6 +20,8 @@ import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import { Sha } from "@kernel/sha.ts";
 import { ok } from "@kernel/result.ts";
+import { closeGitDir } from "../../../../shared-infrastructure/process-sandbox/git-fixtures.ts";
+import { UntrustedGitTreeError } from "../../../../../src/shared-infrastructure/process-sandbox/git-hardening.ts";
 
 /* ── shared fixtures ─────────────────────────────────────────────────────────────────────────────
    A REAL on-disk temp directory, not a mock path — the mirror-existence check is real (existsSync),
@@ -118,10 +121,10 @@ function makeAdapter(opts: {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R1: mirror-freshness fetch fires BEFORE the diff/blastRadius read (design C.4 step 1.5).
+   Mirror-freshness fetch fires BEFORE the diff/blastRadius read.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () => {
+describe("CrossRepoImpactPortAdapter — fetch-before-diff ordering", () => {
   test("git fetch origin is invoked (via the shared runner + scrubEnv) BEFORE blastRadius reads the diff", async () => {
     const order: string[] = [];
     const runner = new RecordingRunner();
@@ -138,22 +141,54 @@ describe("CrossRepoImpactPortAdapter — C-R1: fetch-before-diff ordering", () =
       runner,
     });
 
+    execFileSync("git", ["init", "-q", MIRROR_DIR]);
+    closeGitDir(MIRROR_DIR);
     await adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]);
 
     assert.deepEqual(order, ["fetch", "blastRadius"], "the fetch must fire before the diff is read — otherwise a freshly-pushed trigger sha may not exist in a stale mirror");
     assert.equal(runner.calls.length, 1, "exactly one fetch call expected");
     assert.equal(runner.calls[0]?.command, "git");
-    assert.deepEqual(runner.calls[0]?.args, ["fetch", "origin"]);
+    assert.deepEqual(runner.calls[0]?.args.slice(-3), ["fetch", "--no-recurse-submodules", "origin"], "the fetch refreshes this repo's refs only and never enters a submodule the sandbox controls");
+    /* The mirror may belong to the sandbox user after a code-mode run: the fetch opts that one verified tree out of git's
+       ownership check and no other. Run the recorded hardening under a git that judges every tree foreign. */
+    const hardening = runner.calls[0]!.args.slice(0, -3);
+    const foreignOwner = { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: "1" };
+    const other = join(tmpRoot, "other-repo");
+    execFileSync("git", ["init", "-q", other]);
+    assert.doesNotThrow(() => execFileSync("git", [...hardening, "rev-parse", "--git-dir"], { env: foreignOwner, stdio: "ignore" }), "the verified mirror is usable");
+    assert.throws(() => execFileSync("git", [...hardening, "-C", other, "rev-parse", "--git-dir"], { env: foreignOwner, stdio: "ignore" }), "the opt-out reached another tree too");
     assert.equal(runner.calls[0]?.cwd, MIRROR_DIR);
     assert.equal(runner.calls[0]?.timeoutMs, 30_000);
+  });
+
+  test("a mirror whose git dir the sandbox swapped is never fetched, and resolving fails loudly instead of yielding no impact", async () => {
+    const swapped = join(tmpRoot, "swapped-mirror");
+    mkdirSync(swapped, { recursive: true });
+    const elsewhere = join(tmpRoot, "sandbox-controlled-git");
+    mkdirSync(elsewhere, { recursive: true });
+    symlinkSync(elsewhere, join(swapped, ".git"));
+    const runner = new RecordingRunner();
+    const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/resources/api-definition.yaml"]);
+    const adapter = makeAdapter({
+      mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: swapped }),
+      vcs: new FakeVcs(blast),
+      codeGraph: new FakeCodeGraph(),
+      runner,
+    });
+
+    await assert.rejects(
+      adapter.resolve(TRIGGER_REPO, TRIGGER_SHA, [matchingLink]),
+      (err: unknown) => err instanceof UntrustedGitTreeError && err.message.includes("swapped-mirror"),
+    );
+    assert.equal(runner.calls.length, 0, "git never started against the swapped git dir");
   });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R2: tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
+   Tier-1 (contract-file) + tier-2 (impacted-symbol) matching with Result narrowing.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
+describe("CrossRepoImpactPortAdapter — tiered matching", () => {
   test("a diff touching the OpenAPI contract file produces a tier-1 (contract-file) match", async () => {
     const blast = BlastRadius.of(Sha.of(TRIGGER_SHA), ["src/main/resources/api-definition.yaml"]);
     const vcs = new FakeVcs(blast);
@@ -216,10 +251,10 @@ describe("CrossRepoImpactPortAdapter — C-R2: tiered matching", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R3: every fail-open branch.
+   Every fail-open branch.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
+describe("CrossRepoImpactPortAdapter — fail-open branches", () => {
   test("an absent mirror dir (existsSync false) degrades to null", async () => {
     const adapter = makeAdapter({
       mirrors: new FakeMirrorRegistry({ [TRIGGER_REPO]: "/mirrors/does-not-exist-on-disk" }),
@@ -331,10 +366,10 @@ describe("CrossRepoImpactPortAdapter — C-R3: fail-open branches", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════
-   C-R4: the cheap pre-filter (FIX-6) — zero collaborator calls when no link matches the trigger repo.
+   The cheap pre-filter — zero collaborator calls when no link matches the trigger repo.
    ════════════════════════════════════════════════════════════════════════════════════════════════
  */
-describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
+describe("CrossRepoImpactPortAdapter — cheap pre-filter", () => {
   test("when no resolvedLinks entry has to.repo === triggerRepo, resolve() returns null WITHOUT calling mirrors/VCS/code-graph at all", async () => {
     let mirrorDirCalls = 0;
     const countingMirrors: MirrorRegistryPort = {
@@ -366,7 +401,7 @@ describe("CrossRepoImpactPortAdapter — C-R4: cheap pre-filter", () => {
     assert.equal(runner.calls.length, 0, "the fetch step must never fire on the cheap pre-filter path");
   });
 
-  test("an empty resolvedLinks array also short-circuits to null without any collaborator call (step 0.5)", async () => {
+  test("an empty resolvedLinks array also short-circuits to null without any collaborator call", async () => {
     let mirrorDirCalls = 0;
     const countingMirrors: MirrorRegistryPort = {
       mirrorDir: async () => { mirrorDirCalls++; return MIRROR_DIR; },

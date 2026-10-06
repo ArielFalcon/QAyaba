@@ -7,6 +7,10 @@ import { join } from "node:path";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
+import { TestRunEvidence, outputShowsTestsRan } from "./test-run-evidence.ts";
+import { hardenGitArgs } from "../../../shared-infrastructure/process-sandbox/git-hardening.ts";
+import { rethrowIfUntrusted } from "../../../shared-kernel/domain-error.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
@@ -61,7 +65,7 @@ export function detectCodeProject(repoDir: string, deps: DetectDeps = realDetect
         ? "yarn"
         : "npm";
     const pkg = deps.readJson(at("package.json")) ?? {};
-    /* `--ignore-scripts`: the watched repo is UNTRUSTED code running in the orchestrator. A package.json install lifecycle (preinstall/postinstall/prepare) is arbitrary code execution — the cheapest RCE vector. Skipping it closes that vector (SEC-01). Fail-safe: a repo that genuinely needs a build script will fail its test command → infra-error (inconclusive), never a false pass. (Only the code-mode UNTRUSTED install; the e2e seed install is the orchestrator's own trusted fixtures and keeps its scripts.) */
+    /* `--ignore-scripts`: the watched repo is UNTRUSTED code running in the orchestrator. A package.json install lifecycle (preinstall/postinstall/prepare) is arbitrary code execution — the cheapest RCE vector. Skipping it closes that vector. Fail-safe: a repo that genuinely needs a build script will fail its test command → infra-error (inconclusive), never a false pass. (Only the code-mode UNTRUSTED install; the e2e seed install is the orchestrator's own trusted fixtures and keeps its scripts.) */
     const install: Command =
       pm === "npm"
         ? { cmd: "npm", args: [deps.exists(at("package-lock.json")) ? "ci" : "install", "--ignore-scripts"] }
@@ -231,12 +235,13 @@ export function effectiveChangedFiles(
   return listWrites ? listWrites(repoDir) : [];
 }
 
-/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Best-effort — any git failure yields [] (→ whole-repo fallback), never throws. */
+/** Default writes probe: the working-tree changes in the mirror (the agent's generated tests are uncommitted there). Submodules are ignored: the sandbox controls their checkouts and nested git dirs, a submodule entry is never a test the agent wrote, and git must not enter them here. Best-effort — a git failure yields [] (→ whole-repo fallback). A git dir that is not the orchestrator's (UntrustedGitTreeError) is never a soft failure: it means untrusted code replaced the repository, so it throws. */
 export function gitWorkingChanges(repoDir: string): string[] {
   try {
-    const out = execFileSync("git", ["status", "--porcelain"], { cwd: repoDir, encoding: "utf8" });
+    const out = execFileSync("git", hardenGitArgs(["status", "--porcelain", "--ignore-submodules=all"], repoDir), { cwd: repoDir, encoding: "utf8" });
     return parsePorcelain(out);
-  } catch {
+  } catch (err) {
+    rethrowIfUntrusted(err);
     return [];
   }
 }
@@ -246,12 +251,16 @@ export interface CodeRunOutput {
   exitCode: number | null;
   logs: string;
   spawnError?: string;
+  /* True when the run's streamed output showed a test ran, seen before the kept output was bounded. Absent for a run that did not watch its stream; the kept logs are then all there is to read. */
+  sawTests?: boolean;
 }
 
 export interface CodeExecuteDeps {
   detect(repoDir: string): CodeProject;
   runTests(project: CodeProject, repoDir: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<CodeRunOutput>;
   listWrites?(repoDir: string): string[];
+  /* The clock for the overall timeout race; the real one when absent. */
+  timers?: CodeTimers;
   /* OPTIONAL diagnostic sink for a secret-redaction audit trail (src/orchestrator/sanitizer.ts's recordAudit/SECRET_AUDIT — a security-boundary concern this module does not import directly, to stay src/-free). Absent ⇒ no audit recorded (safe for every unit test that doesn't care about it). */
   recordAudit?(runId: string, detection: SecretDetection): void;
 }
@@ -267,13 +276,44 @@ export interface CodeExecuteOptions {
 
 export const DEFAULT_CODE_MODE_TIMEOUT_MS = 600_000;
 
+/* setTimeout treats a delay above 2^31-1 ms as 1 ms, so a timeout beyond that would fire at once. */
+export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/** The clock every code-mode timeout runs on. Production uses the real one; a test injects one that records the delays it is asked for, so no test waits on real time. */
+export interface CodeTimers {
+  setTimeout(callback: () => void, delayMs: number): ReturnType<typeof setTimeout>;
+  clearTimeout(handle: ReturnType<typeof setTimeout> | undefined): void;
+}
+
+export const realCodeTimers: CodeTimers = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => clearTimeout(handle),
+};
+
+/* An outer timeout that guards a run whose own timer should decide first waits this much longer than it, so the run's own timeout (which carries the child's output) is the one that fires. */
+export const TIMEOUT_BACKSTOP_GRACE_MS = 1000;
+
+/* The longest wait a code-mode timeout gets: the longest a timer holds, less the grace its backstop adds on top. */
+const MAX_CODE_TIMEOUT_MS = MAX_TIMER_DELAY_MS - TIMEOUT_BACKSTOP_GRACE_MS;
+
+/** The wait a code-mode timeout really gets: the requested one, held to what a timer can hold with room for its backstop. An absent, NaN, zero, negative or sub-millisecond request gets the default: a timer reads such a delay as 1 ms, which would end the run before it began. The reported "timeout after Nms" is this value, so it says how long the run really waited. */
+export function codeTimeoutMs(requestedMs: number | undefined): number {
+  const wanted = requestedMs !== undefined && requestedMs >= 1 ? requestedMs : DEFAULT_CODE_MODE_TIMEOUT_MS;
+  return Math.min(wanted, MAX_CODE_TIMEOUT_MS);
+}
+
+/* What is kept of each stream of a code test run: enough for any real suite's report and summary, bounded because the repo under test is untrusted and may write without limit. */
+export const CODE_TEST_OUTPUT_KEEP_CHARS = 500_000;
+
 export function ranZeroTests(project: CodeProject, out: CodeRunOutput): boolean {
   const log = out.logs;
   const cmd = `${project.test.cmd} ${project.test.args.join(" ")}`;
+  /* Evidence from the streamed output counts as well as the kept logs: the marker may sit in output the bound dropped. */
+  const testsRan = out.sawTests === true || outputShowsTestsRan(project.ecosystem, log);
 
   if (project.ecosystem === "python" && out.exitCode === 5) return true;
 
-  if (project.ecosystem === "go" && out.exitCode === 0 && /no test files/.test(log) && !/^ok\s/m.test(log)) return true;
+  if (project.ecosystem === "go" && out.exitCode === 0 && /no test files/.test(log) && !testsRan) return true;
 
   if (project.ecosystem === "node" && /(?:#|ℹ)\s*tests\s+0\b/.test(log)) return true;
 
@@ -281,9 +321,9 @@ export function ranZeroTests(project: CodeProject, out: CodeRunOutput): boolean 
 
   if (cmd.includes("npx mocha") && out.exitCode === 0 && /\b0 passing\b/.test(log)) return true;
 
-  if (project.ecosystem === "rust" && out.exitCode === 0 && /running 0 tests/.test(log) && !/running [1-9]\d* tests?/.test(log)) return true;
+  if (project.ecosystem === "rust" && out.exitCode === 0 && /running 0 tests/.test(log) && !testsRan) return true;
 
-  if (project.ecosystem === "maven" && out.exitCode === 0 && !/Tests run: [1-9]/.test(log)) return true;
+  if (project.ecosystem === "maven" && out.exitCode === 0 && !testsRan) return true;
 
   if (project.ecosystem === "gradle" && out.exitCode === 0 && /> Task :\S*[Tt]est\S*\s+(?:NO-SOURCE|SKIPPED)/.test(log)) return true;
 
@@ -324,23 +364,24 @@ export async function runCodeTests(
   }
 
   const runPromise = deps.runTests(project, repoDir, { signal: opts.signal, timeoutMs: opts.timeoutMs });
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
+  const timeoutMs = codeTimeoutMs(opts.timeoutMs);
   const timeoutResult: CodeRunOutput = {
     exitCode: null,
     logs: "",
     spawnError: `code-mode timeout after ${timeoutMs}ms`,
   };
 
+  const timers = deps.timers ?? realCodeTimers;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<CodeRunOutput>((resolve) => {
-    timer = setTimeout(() => resolve(timeoutResult), timeoutMs);
+    timer = timers.setTimeout(() => resolve(timeoutResult), timeoutMs);
   });
 
   let out: CodeRunOutput;
   try {
     out = await Promise.race([runPromise, timeoutPromise]);
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
 
 
@@ -404,42 +445,53 @@ function headTail(s: string, maxChars: number): string {
 export function createDefaultCodeExecuteDeps(
   sandbox: Sandbox | null,
   processKill: ProcessKillPort = new ProcessKillAdapter(),
+  timers: CodeTimers = realCodeTimers,
 ): CodeExecuteDeps {
   return {
+    timers,
     detect: (repoDir) => detectCodeProject(repoDir),
     listWrites: (repoDir) => gitWorkingChanges(repoDir),
     runTests: (project, repoDir, opts) =>
       new Promise((resolve) => {
         const { cmd, args } = project.test;
         const child = spawn(cmd, args, { cwd: repoDir, detached: true, ...sandboxSpawnOptions(scrubEnv(), sandbox) });
-        let stdout = "";
-        let stderr = "";
+        const stdout = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
+        const stderr = new BoundedOutputTail(CODE_TEST_OUTPUT_KEEP_CHARS);
+        const stdoutEvidence = new TestRunEvidence(project.ecosystem);
+        const stderrEvidence = new TestRunEvidence(project.ecosystem);
+        const sawTests = (): boolean => stdoutEvidence.sawTestsRan || stderrEvidence.sawTestsRan;
         let resolved = false;
 
         const finish = (result: CodeRunOutput) => {
           if (resolved) return;
           resolved = true;
-          clearTimeout(timer);
+          timers.clearTimeout(timer);
           resolve(result);
         };
 
-        const timeoutMs = opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS;
-        const timer = setTimeout(() => {
+        const timeoutMs = codeTimeoutMs(opts?.timeoutMs);
+        const timer = timers.setTimeout(() => {
           processKill.killTree(child);
-          finish({ exitCode: null, logs: `${stdout}\n${stderr}`, spawnError: `code-mode timeout after ${timeoutMs}ms` });
+          finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: `code-mode timeout after ${timeoutMs}ms`, sawTests: sawTests() });
         }, timeoutMs);
 
         if (opts?.signal) {
           opts.signal.addEventListener("abort", () => {
             processKill.killTree(child);
-            finish({ exitCode: null, logs: `${stdout}\n${stderr}`, spawnError: "aborted by operator cancel" });
+            finish({ exitCode: null, logs: `${stdout.text()}\n${stderr.text()}`, spawnError: "aborted by operator cancel", sawTests: sawTests() });
           }, { once: true });
         }
 
-        child.stdout.on("data", (d) => (stdout += d));
-        child.stderr.on("data", (d) => (stderr += d));
-        child.on("error", (err) => finish({ exitCode: null, logs: `${stderr}${stdout}`, spawnError: String(err) }));
-        child.on("close", (code) => finish({ exitCode: code, logs: `${stdout}\n${stderr}`.trim() }));
+        child.stdout.setEncoding("utf8");
+        child.stderr.setEncoding("utf8");
+        child.stdout.on("data", (d: string) => { stdout.append(d); stdoutEvidence.feed(d); });
+        child.stderr.on("data", (d: string) => { stderr.append(d); stderrEvidence.feed(d); });
+        child.on("error", (err) => finish({ exitCode: null, logs: `${stderr.text()}${stdout.text()}`, spawnError: String(err) }));
+        child.on("close", (code) => {
+          stdoutEvidence.end();
+          stderrEvidence.end();
+          finish({ exitCode: code, logs: `${stdout.text()}\n${stderr.text()}`.trim(), sawTests: sawTests() });
+        });
       }),
   };
 }
@@ -476,6 +528,7 @@ export async function runCodeCoverage(
   sandbox: Sandbox | null,
   opts?: { signal?: AbortSignal; timeoutMs?: number },
   processKill: ProcessKillPort = new ProcessKillAdapter(),
+  timers: CodeTimers = realCodeTimers,
 ): Promise<void> {
   if (opts?.signal?.aborted) return;
   const c8Bin = resolveC8Bin();
@@ -488,17 +541,20 @@ export async function runCodeCoverage(
     const finish = () => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(() => {
+    const timer = timers.setTimeout(() => {
       processKill.killTree(child);
       finish();
-    }, opts?.timeoutMs ?? DEFAULT_CODE_MODE_TIMEOUT_MS);
+    }, codeTimeoutMs(opts?.timeoutMs));
     opts?.signal?.addEventListener("abort", () => {
       processKill.killTree(child);
       finish();
     }, { once: true });
+    /* Nothing here reads the output, but an unread pipe blocks a suite that writes more than the OS pipe buffer until the timeout kills it, and the report is never written. Discarding it costs no memory. */
+    child.stdout?.resume();
+    child.stderr?.resume();
     child.on("error", finish);
     child.on("close", finish);
   });

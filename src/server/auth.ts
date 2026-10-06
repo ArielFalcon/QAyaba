@@ -84,7 +84,6 @@ export const MACHINE_PRINCIPAL = "machine";
 export const LOCAL_CONSOLE_PRINCIPAL = "local-console";
 
 export function isLoopbackAddress(addr: string | undefined): boolean {
-  if (!addr) return false;
   return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
@@ -94,10 +93,78 @@ export function isLoopbackAddress(addr: string | undefined): boolean {
  * published port, so the container sees a docker-bridge IP, not loopback), or
  * • the request is loopback (npm start on the host).
  * Docker-bridge / LAN IPs are NEVER trusted without the flag — that would make a
- * published :8080 an open control plane.
+ * published orchestrator port an open control plane.
  */
 export function allowLocalWebLogin(opts: { enabled: boolean; remoteAddress?: string }): boolean {
   return opts.enabled || isLoopbackAddress(opts.remoteAddress);
+}
+
+/*
+ * DNS rebinding resolves an attacker-controlled hostname (e.g. "evil.example") to 127.0.0.1, so
+ * the TCP peer genuinely IS loopback (allowLocalWebLogin's remoteAddress check passes) while the
+ * browser's Host header still names the attacker's domain. isLoopbackHost is the missing check:
+ * the request's Host header hostname must ALSO be loopback (localhost/127.0.0.1/::1) or an
+ * explicitly configured allowlist entry — never just any hostname that happens to resolve here.
+ */
+/*
+ * A Host header is exactly `host [":" port]`: an IPv6 literal in brackets, or a hostname / IPv4
+ * address of letters, digits, dots, hyphens and underscores (Docker Compose service names use
+ * them). The whole value must match — a lenient parse would read "[::1]evil.com" or
+ * "localhost:458, evil.example" as loopback. null = malformed.
+ */
+const HOST_HEADER_RE = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9._-]+))(?::[0-9]{1,5})?$/i;
+
+function hostnameFromHostHeader(host: string): string | null {
+  const m = HOST_HEADER_RE.exec(host);
+  if (!m) return null;
+  /* A match always captures exactly one of the two alternatives. */
+  return (m[1] ?? m[2])!.toLowerCase();
+}
+
+/* A malformed header (null hostname) equals no loopback name and no allowlist entry. */
+export function isLoopbackHost(host: string | undefined, allowlist?: readonly string[]): boolean {
+  if (!host) return false;
+  const hostname = hostnameFromHostHeader(host);
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") return true;
+  return allowlist?.some((h) => h.toLowerCase() === hostname) ?? false;
+}
+
+/*
+ * The whole local-console login policy (GET /api/auth/local): the caller gets in when
+ * QA_WEB_AUTO_LOGIN is exactly "true" or the TCP peer is loopback (allowLocalWebLogin), AND the
+ * request's Host header names a loopback host or a QA_WEB_LOGIN_HOST_ALLOWLIST entry
+ * (comma-separated) — the DNS-rebinding check.
+ */
+export function localWebLoginAllowed(
+  request: { remoteAddress?: string; host?: string },
+  env: { QA_WEB_AUTO_LOGIN?: string; QA_WEB_LOGIN_HOST_ALLOWLIST?: string },
+): boolean {
+  if (!allowLocalWebLogin({ enabled: env.QA_WEB_AUTO_LOGIN === "true", remoteAddress: request.remoteAddress })) return false;
+  /* An empty entry (",," or a trailing comma) never equals a parsed hostname, which is never empty. */
+  const allowlist = env.QA_WEB_LOGIN_HOST_ALLOWLIST?.split(",").map((h) => h.trim());
+  return isLoopbackHost(request.host, allowlist);
+}
+
+/*
+ * The same-origin web console's login (GET /api/auth/local): a short-lived session for
+ * LOCAL_CONSOLE_PRINCIPAL, never the machine token, minted only when localWebLoginAllowed accepts
+ * the TCP peer and the Host header; null otherwise. `env` is read on every request, so a live
+ * change to QA_WEB_AUTO_LOGIN or the allowlist applies to the next login.
+ */
+export function createLocalConsoleLogin(
+  env: { QA_WEB_AUTO_LOGIN?: string; QA_WEB_LOGIN_HOST_ALLOWLIST?: string },
+  signingSecret: string,
+  ttlSeconds: number,
+): (remoteAddress: string, host: string | undefined) => { token: string; username: string; expiresAt: string } | null {
+  return (remoteAddress, host) => {
+    if (!localWebLoginAllowed({ remoteAddress, host }, env)) return null;
+    const now = Date.now();
+    return {
+      token: issueSession(LOCAL_CONSOLE_PRINCIPAL, signingSecret, ttlSeconds, now),
+      username: LOCAL_CONSOLE_PRINCIPAL,
+      expiresAt: new Date(now + ttlSeconds * 1000).toISOString(),
+    };
+  };
 }
 
 /*

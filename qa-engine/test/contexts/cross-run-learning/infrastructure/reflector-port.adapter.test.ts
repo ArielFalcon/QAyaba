@@ -59,6 +59,44 @@ function fakeRepo(onSave?: (rule: LearningRule) => void): LearningRepositoryPort
   };
 }
 
+async function promptSentFor(input: ReflectionInput): Promise<string> {
+  let sent = "";
+  const adapter = new ReflectorPortAdapter({
+    runtime: fakeRuntime({ prompt: async (text) => { sent = text; return { output: validReflectionJson }; } }),
+    repo: fakeRepo(),
+    backfill: () => {},
+    cwd: "/mirror/app",
+    app: "app",
+  });
+  await adapter.reflect(input);
+  return sent;
+}
+
+test("a step-budget exhaustion is put to the reflector as the agent running out of steps, never as a static-gate failure", async () => {
+  const sent = await promptSentFor({
+    ...baseInput,
+    verdict: "infra-error",
+    errorClass: "E-STEP-BUDGET",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+  });
+  assert.match(sent, /step-budget exhaustion/i);
+  assert.doesNotMatch(sent, /static gate: FAIL/);
+  assert.doesNotMatch(sent, /static gate: PASS/);
+  assert.match(sent, /E-STEP-BUDGET/, "the class the gates already decided is still named");
+});
+
+test("a class with no facts of its own is still put to the reflector with the measured gate signals", async () => {
+  const sent = await promptSentFor({
+    ...baseInput,
+    verdict: "invalid",
+    errorClass: "E-STATIC",
+    gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 2 },
+  });
+  assert.match(sent, /static gate: FAIL/);
+  assert.match(sent, /retries: 2/);
+  assert.doesNotMatch(sent, /step-budget exhaustion/i);
+});
+
 test("reflect() opens a 'reflector' session, saves a candidate/low rule, and backfills on valid JSON", async () => {
   let openedRole: string | undefined;
   let openedCwd: string | undefined;
@@ -351,31 +389,52 @@ test("reflect() on a reviewer-rejection input derives errorClass deterministical
   );
 });
 
-test("reflect() with no reviewerCorrections trusts the reflection's own errorClass (unchanged behavior)", async () => {
+/* With no reviewerCorrections, the gate-computed `input.errorClass` — never the LLM's own
+   echoed `reflection.errorClass` — must persist. The prompt tells the model "do NOT change it",
+   but a disobedient/mangled echo must not silently corrupt the learning ledger; the deterministic
+   gate signal is the only trustworthy source here, exactly as it already is on the
+   reviewerCorrections branch above.
+ */
+test("reflect() with no reviewerCorrections persists the gate-computed input.errorClass, overriding a mangled LLM echo", async () => {
   let savedRule: LearningRule | undefined;
-  const runtime = fakeRuntime({});
+  const mangledEchoJson = JSON.stringify({
+    goal: "verify the login form",
+    decision: "used a css selector",
+    assumption: "the selector would stay stable",
+    errorClass: "E-FLAKY-SELECTOR", /* mangled — disobeys "do NOT change it"; must NOT reach the rule */
+    gateSignal: "static gate: FAIL",
+    evidence: "locator('.btn-submit') not found",
+    rootCause: "css class renamed by a refactor",
+    preventiveRule: { trigger: "Applies when a form submit button lacks a stable selector", action: "use getByRole('button', { name: ... })" },
+  });
+  const runtime = fakeRuntime({ prompt: async () => ({ output: mangledEchoJson }) });
   const repo = fakeRepo((rule) => { savedRule = rule; });
   const adapter = new ReflectorPortAdapter({ runtime, repo, backfill: () => {}, cwd: "/mirror/app", app: "app" });
 
   await adapter.reflect(baseInput); /* baseInput has no reviewerCorrections, errorClass: E-EXEC-FAIL */
 
-  assert.equal(savedRule?.errorClass, "E-EXEC-FAIL");
+  assert.equal(
+    savedRule?.errorClass,
+    "E-EXEC-FAIL",
+    "the deterministic gate-computed input.errorClass must win over the LLM's mangled echo",
+  );
 });
 
 /* advisory-only corrections reaches this adapter with reviewerCorrections ALREADY cleared to [] —
    the use-case's `gateApproves ? [] : corrections` guard strips an approval's advisory notes before
    they ever cross the port (they are notes, never a learning signal). This fixture pins the
    adapter-side half of that contract: with the cleared [], the corrections-distillation override
-   must NOT engage, and the reflection's own errorClass (here a coverage-gap pass — the realistic
-   way an approved run still qualifies for reflect) is what persists.
+   must NOT engage, and the gate-computed `input.errorClass` (here a coverage-gap pass — the
+   realistic way an approved run still qualifies for reflect) is what persists — even though the
+   reflection echoes a DIFFERENT class, proving this is not a coincidental match.
  */
-test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with reviewerCorrections [] — the corrections override stays dormant, the gate-derived errorClass persists", async () => {
+test("BOUNDARY: an approved-with-advisory run reaches reflect() with reviewerCorrections [] — the corrections override stays dormant, the gate-derived errorClass persists", async () => {
   let savedRule: LearningRule | undefined;
   const coverageGapReflection = JSON.stringify({
     goal: "verify the checkout change",
     decision: "wrote a happy-path spec",
     assumption: "the happy path exercises the changed lines",
-    errorClass: "E-COVERAGE-GAP",
+    errorClass: "E-FLAKY-SELECTOR", /* mangled echo — must NOT reach the rule */
     gateSignal: "coverage ratio: 40%",
     evidence: "changed lines in discount.ts never executed",
     rootCause: "the spec never triggers the discount branch",
@@ -410,7 +469,7 @@ test("WS1.5 BOUNDARY: an approved-with-advisory run reaches reflect() with revie
    oracleOutcomeCount. This test fails loudly if a future edit ever threads status/confidence/
    oracleOutcomeCount from the corrections channel instead of hardcoding them.
  */
-test("WS1.5 ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved as candidate/low with oracleOutcomeCount:0 — the corrections channel adds a signal, never a promotion bypass", async () => {
+test("ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved as candidate/low with oracleOutcomeCount:0 — the corrections channel adds a signal, never a promotion bypass", async () => {
   let savedRule: LearningRule | undefined;
   const runtime = fakeRuntime({});
   const repo = fakeRepo((rule) => { savedRule = rule; });
@@ -432,7 +491,7 @@ test("WS1.5 ANTI-GOODHART PIN: a reviewer-rejection-derived rule is STILL saved 
    */
   assert.equal(savedRule?.status, "candidate", "ANTI-GOODHART: a corrections-derived rule must start candidate, never active");
   assert.equal(savedRule?.confidence, "low", "ANTI-GOODHART: a corrections-derived rule must start low confidence");
-  assert.equal(savedRule?.oracleOutcomeCount, 0, "ANTI-GOODHART: zero oracle evidence at authorship time — promotion still requires WS1.4b's oracle-scored-outcome gate to fire on a LATER run, never at distillation time");
+  assert.equal(savedRule?.oracleOutcomeCount, 0, "ANTI-GOODHART: zero oracle evidence at authorship time — promotion still requires the oracle-scored-outcome gate to fire on a LATER run, never at distillation time");
   assert.equal(Object.prototype.hasOwnProperty.call(savedRule, "initialStatus"), false, "ANTI-GOODHART: no initialStatus-shaped field is threaded, exactly as ADR-3 requires for every reflector-authored rule");
 });
 

@@ -54,44 +54,26 @@ architecture map. Follow this procedure:
 
 ### All other modes
 
-### 1. Understand the change (orient, then go deep)
+### 1. Understand the change
 
-First ORIENT cheaply: skim the file tree and names (glob/grep — the diff's own paths,
-`*routes*`, `*client*`, `*.service.*`) to form the architecture hypothesis and locate the
-symbols worth reading (see AGENTS.md). Only THEN activate the project in `serena`
-(`activate_project`) and use `find_referencing_symbols` (blast radius) and
-`get_symbols_overview` / `find_symbol` to read only what you need. Query `engram` for the repo's memory —
-search by the project name from the prompt to scope results to this app. If the
-affected flow calls a backend endpoint, read the matching OpenAPI operation (see
-AGENTS.md) for contract-aware assertions.
+Orient first, as AGENTS.md describes, then activate the project in `serena` (`activate_project`)
+and use `find_referencing_symbols` (blast radius) and `get_symbols_overview` / `find_symbol` to
+read only what you need. Query `engram` for the repo's memory — search by the project name from
+the prompt to scope results to this app. If the affected flow calls a backend endpoint, read the
+matching OpenAPI operation (see AGENTS.md) for contract-aware assertions.
 
-### 2. Selectors — transcribe from injected grounding, or explore (conditional)
+### 2. Selectors — only from a DOM tree
 
-**This step is conditional on the grounding already in your prompt.** The orchestrator may
-inject authoritative DOM grounding — a **Context Pack** with a "Live DOM" section, or, on a
-re-generation turn, an injected a11y tree (a "GROUND TRUTH AT FAILURE" block or a "Live DEV
-accessibility tree" section). Check for it FIRST; the correct action depends on what is there.
+Selectors come only from a DOM tree, never from source code: the tree the prompt supplies for a
+route, or, for a route it does not cover, the live page. To explore an uncovered route,
+`browser_navigate` to the LIVE DEV URL from the task prompt (not `PW_BASE_URL` — it is only set in
+spec files at run time, not in your session), `browser_snapshot` it, interact with forms and
+navigation to verify the exact user flow, and check loading states, success messages and error
+displays on page transitions.
 
-**Case A — the prompt already grounds the route** (a Context Pack "Live DOM" section, or an
-injected a11y / "GROUND TRUTH AT FAILURE" tree, covers it):
-  - TRANSCRIBE selectors directly from the injected tree — it is the ground truth.
-  - Do NOT `browser_navigate` or `browser_snapshot` a route the injected grounding covers, and
-    do NOT re-activate serena / re-run `find_referencing_symbols` to re-derive the blast radius.
-  - Trust the injected "role: name" lines exactly; do not assume roles or names not listed.
+Selector priority: (1) `getByTestId` when the tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
 
-**Case B — no grounding covers the route** (no Context Pack, and no injected tree for it):
-  - **This step is mandatory.** Explore the live DEV page before writing any test.
-  - Use `browser_navigate` with the **LIVE DEV URL** from the task prompt ("LIVE DEV URL: ...");
-    do NOT rely on `PW_BASE_URL` (it is not set in your session — only in spec files at run time).
-  1. **Navigate** to the affected page(s) with `browser_navigate`.
-  2. **Take a snapshot** (`browser_snapshot`) to see the actual DOM structure, element roles,
-     labels, text content, and `data-testid` attributes.
-  3. **Interact** with forms and navigation to verify the exact user flow.
-  4. **Read runtime signals**: `browser_console_messages` (a JS error/warning on the changed flow
-     is a real bug) and `browser_network_requests` (assert the ACTUAL API status/shape).
-  5. **Document the real selectors** — selector priority: (1) `getByTestId` when the injected tree line's `-> [attr]` hint STARTS WITH the configured testIdAttribute name (e.g. `button: Submit  -> [data-cy=submit]` when the app's testIdAttribute is `data-cy`) — an `id=`/`name=`/href hint does NOT qualify; (2) `getByRole` with `{ name }` when no test-id hint is present; (3) `getByLabel`/`getByText`; (4) scoped locator. Never use CSS classes or XPath.
-  5a. **Dynamic-DOM awareness**: the injected tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic lists, multi-step form steps) are NOT in this tree. Assert them with auto-waiting (`await expect(locator).toBeVisible()`, `waitForURL`), never `waitForTimeout`.
-  6. **Verify page transitions**: loading states, success messages, error displays.
+The tree is a STATIC snapshot of initial load. Post-interaction elements (modals, dynamic lists, multi-step form steps) are NOT in it. Assert them with auto-waiting (`await expect(locator).toBeVisible()`, `waitForURL`), never `waitForTimeout`.
 
 **If you cannot reach DEV** (network error, auth): note this in your verdict and ground selectors ONLY
 from role/label/text you can still observe; **never construct a test-id from source code or a naming
@@ -108,25 +90,32 @@ cookies/cache, file upload. Each test must:
 - **Use only selectors verified in step 2** — never invent selectors.
 - **Import the repo's shared harness**: `import { test, expect, ns } from
   "../fixtures"` (NOT `@playwright/test` directly).
-- Fill in the app's login by overriding the `authenticate` fixture in
-  `e2e/fixtures.ts` (real steps, credentials from `process.env`, never literals).
+- Log in with the harness's `authenticate()`: the orchestrator creates the session by
+  running `e2e/auth.setup.ts` and loads it for the suite. When the seed login does not
+  fit this app, rewrite `e2e/auth.setup.ts` (see the `playwright-authoring` skill's auth
+  guide) — never the `authenticate` code in `e2e/fixtures.ts`. Credentials come from
+  `process.env`, never literals.
 - Exercise the **real** path against DEV (no mocks).
 - Have **at least one real assert** on the observable outcome.
 - Be **deterministic** and **clean up** what it creates via `cleanup()`.
 
-### 4. Verify the tests compile (bash)
+### 4. Verify the tests COMPILE — do NOT run them (bash)
 
-After writing, run:
+After writing, verify they are DISCOVERABLE (parse + typecheck) and nothing more:
 ```bash
 cd e2e && npx playwright test --list 2>&1
 ```
-to verify the tests are discoverable. Fix any errors immediately.
+Fix any errors immediately. Then STOP touching the suite. Do **NOT**:
+- run the suite itself (`npx playwright test` WITHOUT `--list`),
+- `npx playwright install` browsers,
+- run mobile/desktop/project variants or any second execution.
 
-**Code mode** (`target: code` — no `e2e/`, no Playwright, no DEV): the equivalent of `--list` is a
-COMPILE check of the generated TEST sources, without running them — `mvn -B test-compile` ·
-`gradle testClasses` · `go vet ./...` (it compiles `_test.go`, which `go build` skips) ·
-`cargo check --tests` · `npx tsc --noEmit`. Fix any errors before emitting your verdict. Do NOT run
-the suite; the orchestrator runs it (Filter C) by exit code.
+The ORCHESTRATOR executes the specs against live DEV (its deterministic Filter C) and then
+an independent reviewer judges them — running them yourself is wasted, duplicated work that
+can BLOCK your turn: a `playwright test` that waits on DEV (or a browser install) hangs your
+session, so you never emit the closing verdict and the whole run TIMES OUT and fails even
+though a correct spec is already on disk. Your deliverable is the written spec + a clean
+`--list`, nothing more.
 
 ### 5. Declare metadata in your verdict — do NOT edit manifest.json
 
@@ -151,9 +140,7 @@ spawning a subagent yourself.
 Save reusable OPERATIONAL lessons: app topology, routes, auth quirks, a flow that
 is fragile in practice, an environment gotcha. Use `mem_save` with `project` (the
 app name from the prompt) and `topic_key` to upsert so knowledge evolves across
-runs. **Always prefix topic_key with the test target** (e.g. `e2e/checkout`,
-`code/order-total`) so e2e and code-mode memory is isolated from each other. When
-searching, include the target in the query to avoid cross-mode contamination.
+runs.
 
 **Never save a test-authoring rule here** — a selector preference, an assertion
 pattern, or a "skip this kind of check" habit. Those belong exclusively to the
@@ -177,18 +164,28 @@ End with a single JSON block, with no text after it:
 
 ```json
 {
-  "specs": ["login.spec.ts"],
+  "specs": ["flows/login.spec.ts"],
   "specMetas": [
-    { "file": "login.spec.ts", "flow": "user-login", "objective": "given valid credentials, the dashboard is visible after login", "targets": ["AuthService.login"] }
+    { "file": "flows/login.spec.ts", "flow": "user-login", "objective": "given valid credentials, the dashboard is visible after login", "targets": ["AuthService.login"] }
   ],
   "note": ""
 }
 ```
 
+If nothing in this change is worth an E2E test, write no specs and end with this block instead —
+the reason is what makes an empty list a decision:
+
+```json
+{ "specs": [], "noop": { "reason": "the diff only renames an internal helper; no user-visible behavior changes" } }
+```
+
 - Do **NOT** report an `approved` field. You do not judge your own work: the orchestrator runs the
   separate, independent `qa-reviewer` (see step 6) and ITS verdict is authoritative. Self-approving
   here would be ignored, so don't spend effort (or a self-review subagent) trying to produce it.
-- `specs`: names of the files you wrote/updated in `e2e/`. An EMPTY list is a valid no-op (nothing
-  in this change is worth an E2E test) — never invent tests to fill it.
+- `specs`: the files you wrote/updated, each as its path relative to `e2e/` (`flows/login.spec.ts`
+  for `e2e/flows/login.spec.ts`) — the path the test runner reports, never a bare file name. Each
+  `specMetas[].file` uses the same path. An empty list is a decision only together with
+  `noop.reason` (why nothing is worth an E2E test) — never invent tests to fill it. An empty list
+  with no reason is not a decision, and `approved` never stands in for one.
 - `note`: any limitation worth surfacing (e.g. "DEV unreachable, wrote tests from code analysis
   only"), otherwise "".

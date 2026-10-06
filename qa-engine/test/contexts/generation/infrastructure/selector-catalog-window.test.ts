@@ -55,7 +55,7 @@ test("extractTestIdSelectorsWithIndex drops interpolated (computed) values", () 
   assert.deepEqual(extractTestIdSelectorsWithIndex(spec), []);
 });
 
-test("extractTestIdSelectorsWithIndex ignores a commented-out getByTestId (W5 parity)", () => {
+test("extractTestIdSelectorsWithIndex ignores a commented-out getByTestId", () => {
   const spec = `// await page.getByTestId("ghost").click();\nawait page.getByTestId("real").click();`;
   const found = extractTestIdSelectorsWithIndex(spec);
   assert.equal(found.length, 1);

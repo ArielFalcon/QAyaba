@@ -2,7 +2,10 @@
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from "./resilience/circuit-breaker.ts";
 import { createStallWatchdog, type StallWatchdog } from "./resilience/stall-watchdog.ts";
 import { AgentTimeoutError, AgentUnavailableError, StalledAgentError, isInfraError } from "@kernel/domain-error.ts";
+import type { AgentPromptOpts, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import { sanitizeText } from "./sanitize-text.ts";
+import { buildTurnStepBudget, type TurnCallMetrics, type TurnStepBudget } from "../domain/turn-efficiency-summary.ts";
+import { finalStepText } from "../domain/step-exhaustion.ts";
 
 /* Types declared locally — qa-engine never imports src/. */
 
@@ -34,14 +37,15 @@ export interface AgentTurnEvent {
   cost: number | null;
   ts: string;
   sectionSizes: Record<string, number> | null;
+  /** Step limit and whether the turn hit it (its `exhausted` is null while unknown). Null when the runtime has no step-budget concept (Codex) or the measurement failed. */
+  stepBudget: TurnStepBudget | null;
+  /** What the agent did this turn, measured from its tool calls. Null when unsupported, unobserved, or the measurement failed. */
+  callMetrics: TurnCallMetrics | null;
 }
 
 export interface AgentSession {
   id: string;
-  prompt(
-    text: string,
-    opts?: { textOnly?: boolean; round?: number; isRepair?: boolean; sectionSizes?: Record<string, number> | null },
-  ): Promise<string>;
+  prompt(text: string, opts?: AgentPromptOpts): Promise<string>;
   dispose(): Promise<void>;
   selfTimed?: boolean;
 }
@@ -50,6 +54,8 @@ export interface AgentOpenDescriptor {
   runId?: string;
   role?: string;
   objective?: string;
+  /** `false` keeps the session out of SSE/stall-watchdog registration while its turns still persist under `runId` (mirrors the kernel port's AgentOpenDescriptor). */
+  liveObservation?: boolean;
 }
 
 export interface AgentDeps {
@@ -189,12 +195,63 @@ export interface AgentDepsCollaborators {
   getFallbackModel(agent: string): string | undefined;
   /** Best-effort turn persistence (writes to the local run history). Invoked only when the caller supplied a run context (opts.descriptor.runId) and no caller-supplied onTurn overrides it. */
   persistTurn?(t: AgentTurnEvent): void;
+  /**
+   * Flushes the call-efficiency tracker for the session whose prompt just resolved and returns that turn's metrics
+   * (null when the session was not observed). Shell-injected: this module cannot import the SSE tracker (event-stream.ts already imports this one).
+   */
+  takeTurnCalls?(sessionId: string, promptText: string, providedPaths?: readonly string[]): TurnCallMetrics | null;
+  /**
+   * Opens attempt `attempt` (0 for the primary model, 1 for the fallback retry) of a prompt on the session, before it is sent:
+   * the tracker decides there whether that attempt's steps can be observed completely, waiting a bounded time for its event stream
+   * if need be. A failure is logged and leaves the attempt unobserved. Shell-injected like takeTurnCalls.
+   */
+  prepareAttempt?(sessionId: string, attempt: number): Promise<void> | void;
+  /** The agent's configured step limit (agents/opencode.json `agent.<id>.maxSteps`), or undefined when it has none. Shell-injected like getFallbackModel. */
+  maxStepsFor?(agent: string): number | undefined;
+}
+
+/* Measurement is best-effort and must never disturb the prompt path: a fault is logged loudly and yields null. */
+function measureOrNull<T>(label: string, measure: () => T): T | null {
+  try {
+    return measure();
+  } catch (err) {
+    console.error(`[qa] turn efficiency: ${label} failed, recording null: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/*
+ * Circuit breaking runs at two levels, with the same threshold and cooldown:
+ * - Provider level (TRANSPORT_BREAKER_KEY): fed by every raw transport rejection — session
+ *   creation or prompt — whatever role hit it, and reset only by a prompt the transport answers
+ *   (creating a session proves reachability, not that the server can do work). It gates session
+ *   creation and every role's prompts, so an unhealthy agent server fails fast after one threshold
+ *   of failures instead of one threshold per role.
+ * - Role level (descriptor.role ?? agent): fed by that role's prompt outcomes, including model or
+ *   agent faults embedded in an answered response (which never count against the provider), and
+ *   gates only that role's prompts — a run-away role never blocks a healthy one.
+ * The provider key is a sentinel no agent role uses.
+ */
+const TRANSPORT_BREAKER_KEY = "<agent-transport>";
+
+/* A prompt runs on the primary model first (attempt 0) and, when that faults transiently, once more on the fallback model (attempt 1). */
+const PRIMARY_ATTEMPT = 0;
+const FALLBACK_ATTEMPT = 1;
+
+async function countingTransportFailure<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    recordCircuitFailure(TRANSPORT_BREAKER_KEY);
+    throw err;
+  }
 }
 
 export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollaborators): AgentDeps {
   return {
     open: async (agent, cwd, opts) => {
-      const created = await raw.createSession(cwd);
+      checkCircuit(TRANSPORT_BREAKER_KEY);
+      const created = await countingTransportFailure(() => raw.createSession(cwd));
       const id = created.id;
       const entry: SessionEntry = { id, agent, cwd, openedAt: Date.now() };
       sessionRegistry.set(id, entry);
@@ -220,24 +277,48 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
         : undefined;
       const effectiveOnTurn = opts?.onTurn ?? defaultOnTurn;
 
+      /* Role-level breaker key: the same role identity AgentTurnEvent.role already uses (the
+         descriptor's role when given, else the raw agent id). */
+      const breakerRole = opts?.descriptor?.role ?? agent;
+
       let _round = 0;
+
+      /* Opens an attempt on the tracker; false when that failed, so the attempt's steps are known to be unobserved. */
+      const prepareAttempt = (sessionId: string, attempt: number): Promise<boolean> => {
+        if (!collab.prepareAttempt) return Promise.resolve(true);
+        return Promise.resolve()
+          .then(() => collab.prepareAttempt!(sessionId, attempt))
+          .then(
+            () => true,
+            (err: unknown) => {
+              console.error(`[qa] turn efficiency: preparing attempt ${attempt} failed, its steps are unobserved: ${err instanceof Error ? err.message : String(err)}`);
+              return false;
+            },
+          );
+      };
 
       return {
         id,
         prompt: (text, promptOpts) =>
           withTimeout(
             (() => {
-              checkCircuit();
+              checkCircuit(TRANSPORT_BREAKER_KEY);
+              checkCircuit(breakerRole);
               const thisRound = _round++;
-              const runPrompt = (modelOverride?: string) => {
+              const runPrompt = (attempt: number, modelOverride?: string) => {
                 const overrideModel = modelOverride ? parseModelRef(modelOverride) : undefined;
-                return raw
-                  .promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) })
-                  .then((res) => {
+                return prepareAttempt(id, attempt)
+                  .then((observed) =>
+                    countingTransportFailure(() =>
+                      raw.promptSession({ id, cwd, agent, text, ...(overrideModel ? { model: overrideModel } : {}) }),
+                    ).then((res) => ({ res, observed })),
+                  )
+                  .then(({ res, observed }) => {
+                    recordCircuitSuccess(TRANSPORT_BREAKER_KEY);
                     if (res.agentError) {
                       throw agentErrorToInfra(res.agentError);
                     }
-                    recordCircuitSuccess();
+                    recordCircuitSuccess(breakerRole);
                     if (res.tokens) {
                       const snapshot: UsageSnapshot = {
                         input: res.tokens.input ?? 0,
@@ -250,6 +331,21 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       opts?.onUsage?.(snapshot);
                     }
                     const outputRaw = extractText(res.parts, promptOpts);
+                    const finalText = finalStepText(res.parts);
+                    /* The tracker is flushed once per resolved prompt, whether or not a turn sink is listening, and the exhaustion state is decided once from that flush and the final step's text: every consumer (the persisted turn and the caller's stats) reads these same values. An attempt that could not be prepared was not observed completely, whatever the tracker says. */
+                    const flushed = collab.takeTurnCalls
+                      ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
+                      : null;
+                    const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
+                    const stepBudget = collab.maxStepsFor
+                      ? measureOrNull("step budget", () =>
+                          buildTurnStepBudget({
+                            maxSteps: collab.maxStepsFor!(agent) ?? null,
+                            stepsUsed: callMetrics?.stepsUsed ?? null,
+                            finalStepText: finalText,
+                          }),
+                        )
+                      : null;
                     /* Emit a per-turn event alongside onUsage. Sanitize output_text before emitting so any DEV-environment data in the agent reply is redacted at the earliest point (before storage or logging by callers). */
                     if (effectiveOnTurn) {
                       const sanitizedOutput = sanitizeText(outputRaw).text;
@@ -271,22 +367,38 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                         cost: res.cost ?? null,
                         ts: new Date().toISOString(),
                         sectionSizes: promptOpts?.sectionSizes ?? null,
+                        stepBudget,
+                        callMetrics,
                       };
                       effectiveOnTurn(turnEvent);
                     }
-                    return outputRaw;
+                    if (stepBudget && promptOpts?.onTurnStats) {
+                      const stats: AgentTurnStats = {
+                        maxSteps: stepBudget.maxSteps,
+                        stepsUsed: callMetrics?.stepsUsed ?? null,
+                        exhausted: stepBudget.exhausted,
+                        writeCount: callMetrics?.writeCount ?? null,
+                        observationComplete: callMetrics?.observationComplete ?? false,
+                      };
+                      try {
+                        promptOpts.onTurnStats(stats);
+                      } catch (err) {
+                        console.error(`[qa] turn stats callback failed: ${err instanceof Error ? err.message : String(err)}`);
+                      }
+                    }
+                    return promptOpts?.finalStepOnly ? finalText : outputRaw;
                   })
                   .catch((err) => {
-                    recordCircuitFailure();
+                    recordCircuitFailure(breakerRole);
                     throw err;
                   });
               };
-              return runPrompt(opts?.model).catch((err) => {
+              return runPrompt(PRIMARY_ATTEMPT, opts?.model).catch((err) => {
                 if (opts?.signal?.aborted || isInfraError(err)) throw err;
                 const fallback = collab.getFallbackModel(agent);
                 if (fallback) {
                   console.warn(`[qa] primary model failed for ${agent}, retrying with fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`);
-                  return runPrompt(fallback);
+                  return runPrompt(FALLBACK_ATTEMPT, fallback);
                 }
                 throw err;
               });
@@ -440,7 +552,10 @@ export function withSessionRegistration(
     ...baseDeps,
     open: async (agent, cwd, opts) => {
       const inner = await baseDeps.open(agent, cwd, opts);
-      const runId = opts?.descriptor?.runId;
+      /* A run context registers the session for live observation (SSE + stall watchdog) unless the
+         descriptor opts out: the explorer's turns persist under its runId, but registering it would
+         start feeding the stall watchdog and change its liveness window. */
+      const runId = opts?.descriptor?.liveObservation === false ? undefined : opts?.descriptor?.runId;
       if (runId) register(inner.id, runId, cwd);
 
       return {

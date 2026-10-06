@@ -4,13 +4,20 @@ import { spawn } from "node:child_process";
 import { existsSync, writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
-import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { BoundedWholeOutput } from "../../../shared-kernel/process-sandbox/bounded-whole-output.ts";
+import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, DEGRADE_REASON, gatedAppAdvisory, hasRuntimeErrorSignal, ROUTE_STATUS } from "./route-catalog.ts";
+import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
 import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-element.ts";
 import { E2E_AUTH_FILE } from "../../../shared-kernel/e2e-auth.ts";
+import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 
 const processKill = new ProcessKillAdapter();
+
+/* The most a DOM capture run may print (one JSON document of every route's snapshot). The page content it reports is not under the orchestrator's control; a run that passes this is killed rather than held in memory and parsed truncated. */
+export const MAX_CAPTURE_OUTPUT_CHARS = 32 * 1024 * 1024;
 
 export interface NodeAttr {
   key: string;
@@ -58,13 +65,16 @@ export interface CaptureDomDeps {
   render(e2eDir: string, baseUrl: string, routes: string[], testIdAttribute?: string): Promise<RouteSnapshot[]>;
 }
 
+/* How a route that structurally failed to render is stated in the snapshot: a plain state, no directive and no opinion about the app. */
+export const DEGRADED_ROUTE_LABEL = "route rendered empty or errored";
+
 export const MAX_ROUTES = 4;
-const MAX_NODES_PER_ROUTE = 60;
+export const MAX_NODES_PER_ROUTE = 60;
 const MAX_ROUTES_UNION = 12;
 
-/** Normalize an explicit route list the way capture does: trim, drop ${…}-interpolated and absolute URLs (not a stable app route), and dedupe. Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
+/** Normalize an explicit route list the way capture does: trim, dedupe, and keep only the routes a browser can open as written (a template, free text, an interpolation or another host names no single page of the app). Exported so the fan-out keys its per-objective lookups IDENTICALLY to captureDomByRoute's map keys (a mismatch would silently lose grounding). */
 export function normalizeRoutes(routes: string[]): string[] {
-  return [...new Set(routes.map((r) => r.trim()).filter((r) => r && !r.includes("${") && !/^https?:\/\//i.test(r)))];
+  return partitionRoutes(routes).capturable;
 }
 
 export function extractTargetRoutes(specContents: string[], max = MAX_ROUTES): string[] {
@@ -174,6 +184,41 @@ export function buildChangedMarker(
   return "";
 }
 
+/* The node lines of one route's tree: each node with its attribute hint, state and [CHANGED] mark, cut to the node bound with a count of what was left out. */
+function renderNodeLines(s: RouteSnapshot, changed?: ChangedElement[]): string[] {
+  const lines: string[] = [];
+  const all = s.nodes ?? [];
+  const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
+  const attrMap = s.attrs && s.attrs.length > 0
+    ? new Map(s.attrs.map((a) => [a.key, a]))
+    : null;
+  const testIdAttrName = s.testIdAttrName ?? "data-testid";
+  const useChanged = changed && changed.length > 0;
+  const stateMap = s.states && s.states.size > 0 ? s.states : null;
+  for (const n of nodes) {
+    /* State suffix: rendered only for non-marker lines. The attrMap lookup uses the bare key (normalizeKey strips state if nodes[] ever carries a suffix — defensive); the state is looked up by the bare node string (nodes[] is always bare per the Option A invariant). */
+    const stateSuffix = (!isMarkerLine(n) && stateMap?.get(normalizeKey(n)))
+      ? ` [${stateMap.get(normalizeKey(n))!.join("] [")}]`
+      : "";
+    if (attrMap && !isMarkerLine(n)) {
+      const attr = attrMap.get(normalizeKey(n)) ?? attrMap.get(n);
+      if (attr) {
+        const hint = buildAttrHint(attr, testIdAttrName);
+        if (hint) {
+          const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName) : "";
+          lines.push(`  ${n}  -> ${hint}${stateSuffix}${changedMarker}`);
+          continue;
+        }
+      }
+    }
+    const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName) : "";
+    lines.push(`  ${n}${stateSuffix}${changedMarker}`);
+  }
+  if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
+  return lines;
+}
+
+/* The grounded routes: each captured route with its tree and test-ids, and every other route as a plain state. A route that failed to capture, rendered empty or ended on another page renders NO tree here: the agent must not trust this route's grounding. The page a redirect reached is formatRedirectAdvisory's, never part of this text. */
 export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedElement[]): string {
   const lines: string[] = [];
   for (const s of snaps) {
@@ -181,44 +226,18 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
       lines.push(`route ${s.route}: (could not capture — ${s.error})`);
       continue;
     }
-    /* A route that STRUCTURALLY failed to render (empty nodes, capture error, or a redirect — the buildRouteCatalog degrade policy) gets a warning line instead of a silent bare header and its nodes are NOT rendered: the agent must not trust this route's grounding. */
-    if (buildRouteCatalog(s).status === ROUTE_STATUS.DEGRADED) {
-      lines.push(`route ${s.route}: (route rendered empty or errored — possibly broken app; verify live)`);
+    /* A route that STRUCTURALLY failed to render (empty nodes, or a redirect — the buildRouteCatalog degrade policy) gets a state line instead of a silent bare header and its nodes are NOT rendered. The state is a plain fact: it says which, and where a redirect went, with no directive and no opinion about the app. */
+    const catalog = buildRouteCatalog(s);
+    if (catalog.status === ROUTE_STATUS.DEGRADED) {
+      lines.push(`route ${s.route}: (${catalog.degradeReason === DEGRADE_REASON.REDIRECTED ? `redirected to ${catalog.redirectedTo}` : DEGRADED_ROUTE_LABEL})`);
       continue;
     }
-    /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it verifies live and does not blindly assert app-generated content. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
+    /* Live-probe fix: a route that DID render but whose app logged a runtime error (a missing icon, an uncaught handler, a framework error) stays a TRUSTED grounding source — its nodes ARE rendered below — but the agent still gets an advisory heads-up so it asserts only what this tree shows and does not blindly assert app-generated content. The note is data, not a directive: the prompt forbids re-navigating a route the tree covers, so it must never send the agent back to the page. This warning is DECOUPLED from grounding trust: the route is captured, the selectors are real, only the app's own health is in question. */
     const runtimeErrorAdvisory = hasRuntimeErrorSignal(s.runtimeErrors ?? [])
-      ? " (note: the app logged runtime errors — possibly a defect; verify live before asserting on app-generated content)"
+      ? " (note: the app logged runtime errors on this route — possibly a defect; assert only content this tree shows)"
       : "";
-    const all = s.nodes ?? [];
-    const { kept: nodes } = capDomLines(all, MAX_NODES_PER_ROUTE);
-    const attrMap = s.attrs && s.attrs.length > 0
-      ? new Map(s.attrs.map((a) => [a.key, a]))
-      : null;
-    const testIdAttrName = s.testIdAttrName ?? "data-testid";
-    const useChanged = changed && changed.length > 0;
-    const stateMap = s.states && s.states.size > 0 ? s.states : null;
     lines.push(`route ${s.route}:${runtimeErrorAdvisory}`);
-    for (const n of nodes) {
-      /* State suffix: rendered only for non-marker lines. The attrMap lookup uses the bare key (normalizeKey strips state if nodes[] ever carries a suffix — defensive); the state is looked up by the bare node string (nodes[] is always bare per the Option A invariant). */
-      const stateSuffix = (!isMarkerLine(n) && stateMap?.get(normalizeKey(n)))
-        ? ` [${stateMap.get(normalizeKey(n))!.join("] [")}]`
-        : "";
-      if (attrMap && !isMarkerLine(n)) {
-        const attr = attrMap.get(normalizeKey(n)) ?? attrMap.get(n);
-        if (attr) {
-          const hint = buildAttrHint(attr, testIdAttrName);
-          if (hint) {
-            const changedMarker = useChanged ? buildChangedMarker(n, attr, changed!, testIdAttrName) : "";
-            lines.push(`  ${n}  -> ${hint}${stateSuffix}${changedMarker}`);
-            continue;
-          }
-        }
-      }
-      const changedMarker = useChanged && !isMarkerLine(n) ? buildChangedMarker(n, attrMap?.get(normalizeKey(n)) ?? attrMap?.get(n), changed!, testIdAttrName) : "";
-      lines.push(`  ${n}${stateSuffix}${changedMarker}`);
-    }
-    if (all.length > nodes.length) lines.push(`  … (${all.length - nodes.length} more non-table elements omitted)`);
+    lines.push(...renderNodeLines(s, changed));
     if (s.testIds && s.testIds.size > 0) {
       const entries = [...s.testIds.entries()];
       const cap = MAX_NODES_PER_ROUTE;
@@ -230,6 +249,44 @@ export function formatDomSnapshot(snaps: RouteSnapshot[], changed?: ChangedEleme
     }
   }
   return lines.join("\n");
+}
+
+/* How the advisory block introduces itself: plain facts about what follows, in no trust vocabulary and with no directive. */
+const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. Each block below lists the page it reached, for orientation only: it is not the page of the route that was asked for.";
+
+/** The pages redirects reached, as a section of their own under a heading naming it advisory: for each distinct page (a path with its tree), the routes that led there and the tree once. A route that failed, rendered empty or did not redirect is not here. Empty when no redirect reached a page with a tree. Never part of the grounded text: its trees were not the routes asked for. */
+export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
+  const pages = new Map<string, { path: string; snap: RouteSnapshot; routes: string[] }>();
+  for (const s of snaps) {
+    if (s.error || s.nodes === undefined || s.nodes.length === 0) continue;
+    const path = buildRouteCatalog(s).redirectedTo;
+    if (path === undefined) continue;
+    const key = `${path}\n${s.nodes.join("\n")}`;
+    const page = pages.get(key);
+    if (page) page.routes.push(s.route);
+    else pages.set(key, { path, snap: s, routes: [s.route] });
+  }
+  if (pages.size === 0) return "";
+  const lines = [`### ${PACK_HEADINGS.redirected} (ADVISORY)`, REDIRECT_ADVISORY_INTRO];
+  for (const { path, snap, routes } of pages.values()) {
+    lines.push(`reached ${path}, asked for ${routes.join(", ")}:`, ...renderNodeLines(snap));
+  }
+  return lines.join("\n");
+}
+
+/** What a capture of routes reports: the grounded routes, then (after a blank line) the pages redirects reached as a section of their own. Undefined when there is nothing to report. */
+export function formatDomCapture(snaps: RouteSnapshot[], changed?: ChangedElement[]): string | undefined {
+  const text = [formatDomSnapshot(snaps, changed), formatRedirectAdvisory(snaps)].filter((part) => part !== "").join("\n\n");
+  return text === "" ? undefined : text;
+}
+
+/* Names the routes whose capture degraded, and, when the redirects look like a gated app, says so. Log only. */
+function warnOnDegradedRoutes(snaps: readonly RouteSnapshot[]): void {
+  const catalogs = snaps.map(buildRouteCatalog);
+  const degraded = degradedRouteWarning(catalogs);
+  if (degraded) console.warn(degraded);
+  const gated = gatedAppAdvisory(catalogs);
+  if (gated) console.warn(gated);
 }
 
 /** Capture the live DOM for the routes the spec targets. Returns undefined when there is nothing to capture or the render is unavailable — review then degrades to "defer on unverifiable UI facts" (the prompt's stay-in-your-lane rule), never blocked. Best-effort by design. */
@@ -259,17 +316,15 @@ export async function captureDomForRoutes(
   if (clean.length === 0 || !input.baseUrl) return undefined;
   try {
     const snaps = await deps.render(input.e2eDir, input.baseUrl, clean, input.testIdAttribute);
-    const w = degradedRouteWarning(snaps.map(buildRouteCatalog));
-    if (w) console.warn(w);
-    const text = formatDomSnapshot(snaps, changed);
-    return text.trim() ? text : undefined;
+    warnOnDegradedRoutes(snaps);
+    return formatDomCapture(snaps, changed);
   } catch (err) {
     console.warn(`[qa] WARNING: DOM capture FAILED for ${clean.length} route(s) [${clean.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — the worker grounds via its own exploration this run.`);
     return undefined;
   }
 }
 
-/** Capture the live a11y tree for explicit routes, returned PER ROUTE (route → formatted block) so the fan-out can ground EACH objective with ONLY its own routes' DOM, not one shared blob. The whole set is rendered ONCE (a route shared by two objectives is not re-rendered) and split by route. Routes are taken from each brief's code-derived `routes[]` — the real router paths — so this does NOT key on the planner's `verified` flag (the planner no longer navigates to set it; see the F1/F3 seam). Best-effort: no routes / no baseUrl / a failed render → empty map, and each objective then degrades independently (an objective whose routes are absent from the map routes to the strong agent). Soft-404 / SPA-shell guard: a hash-routed SPA (e.g. That is NOT route-specific grounding — injecting it would teach a worker shell selectors as if they were the route's. We drop a node set ONLY when it is shared by a MAJORITY of the rendered routes (the signature of a real shell served for every path): `count >= 2 AND count > routes/2`. This avoids the false-positive of dropping two genuinely-distinct pages that merely share interactive chrome (their pair is not a majority of a >=4-route set), and a single unique route is never dropped (count 1). */
+/** Capture the live a11y tree for explicit routes, returned PER ROUTE (route → formatted block) so the fan-out can ground EACH objective with ONLY its own routes' DOM, not one shared blob. The whole set is rendered ONCE (a route shared by two objectives is not re-rendered) and split by route. Routes are taken from each brief's code-derived `routes[]` — the real router paths — so this does NOT key on the planner's `verified` flag (the planner does not navigate, so it never sets it). Best-effort: no routes / no baseUrl / a failed render → empty map, and each objective then degrades independently (an objective whose routes are absent from the map routes to the strong agent). Soft-404 / SPA-shell guard: a hash-routed SPA (e.g. That is NOT route-specific grounding — injecting it would teach a worker shell selectors as if they were the route's. We drop a node set ONLY when it is shared by a MAJORITY of the rendered routes (the signature of a real shell served for every path): `count >= 2 AND count > routes/2`. This avoids the false-positive of dropping two genuinely-distinct pages that merely share interactive chrome (their pair is not a majority of a >=4-route set), and a single unique route is never dropped (count 1). */
 export async function captureDomByRoute(
   routes: string[],
   input: { e2eDir: string; baseUrl?: string; changedElements?: ChangedElement[]; testIdAttribute?: string },
@@ -290,8 +345,7 @@ export async function captureDomByRoute(
     return out;
   }
   /* Per-route degrade: surface errored routes loudly (same pattern as captureRouteTrees — CLAUDE.md: never swallow a capture failure) before filtering them out for grounding. */
-  const w = degradedRouteWarning(snaps.map(buildRouteCatalog));
-  if (w) console.warn(w);
+  warnOnDegradedRoutes(snaps);
   const sig = (s: RouteSnapshot): string => (s.nodes ?? []).join("\n");
   const rendered = snaps.filter((s) => !s.error && s.nodes?.length);
   const occurrences = new Map<string, number>();
@@ -320,8 +374,7 @@ export async function captureRouteTrees(input: CaptureDomInput, deps: CaptureDom
     console.warn(`[qa] WARNING: DOM capture FAILED for ${routes.length} route(s) [${routes.join(", ")}] (${err instanceof Error ? err.message : String(err)}) — no pre-execution selector grounding this run.`);
     return [];
   }
-  const warning = degradedRouteWarning(snaps.map(buildRouteCatalog));
-  if (warning) console.warn(warning);
+  warnOnDegradedRoutes(snaps);
   return snaps.filter((s) => !s.error && ((s.nodes?.length ?? 0) > 0 || (s.testIds?.size ?? 0) > 0));
 }
 
@@ -477,12 +530,23 @@ const DEFAULT_SUBMIT_SELECTOR = 'button[type="submit"], input[type="submit"]';
   let browser;
   try {
     browser = await chromium.launch();
-    /* Gated routes: httpCredentials from DEV_ENV_USER / DEV_ENV_PASS (password may be empty). Scoped to baseUrl's origin so creds never leak to a different-origin auth provider. Gate is DEV_ENV_USER alone. */
+    /* Gated routes: httpCredentials from DEV_ENV_USER / DEV_ENV_PASS (password may be empty). Scoped to baseUrl's origin so creds never leak to a different-origin auth provider. Gate is DEV_ENV_USER alone. App login arrives as PW_STORAGE_STATE; a software cert as PW_CLIENT_CERT_PATH. */
     const user = process.env.DEV_ENV_USER;
     const pass = process.env.DEV_ENV_PASS;
-    const context = await browser.newContext(user
-      ? { httpCredentials: { username: user, password: pass ?? "", origin: new URL(baseUrl).origin } }
-      : {});
+    const httpCredentials = user
+      ? { username: user, password: pass ?? "", origin: new URL(baseUrl).origin }
+      : undefined;
+    const contextOptions = {};
+    if (httpCredentials) contextOptions.httpCredentials = httpCredentials;
+    if (process.env.PW_STORAGE_STATE) contextOptions.storageState = process.env.PW_STORAGE_STATE;
+    if (process.env.PW_CLIENT_CERT_PATH) {
+      contextOptions.clientCertificates = [{
+        origin: new URL(baseUrl).origin,
+        pfxPath: process.env.PW_CLIENT_CERT_PATH,
+        passphrase: process.env.DEV_CLIENT_CERT_PASS ?? "",
+      }];
+    }
+    const context = await browser.newContext(contextOptions);
     const page = await context.newPage();
     let currentRouteErrors = [];
     page.on("pageerror", function(err) { currentRouteErrors.push({ type: "pageerror", text: String(err && err.message || err) }); });
@@ -603,52 +667,103 @@ async function centralLogin(page, cfg, user, pass) {
 }`;
 }
 
-export const defaultCaptureDomDeps: CaptureDomDeps = {
-  render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
-    new Promise<RouteSnapshot[]>((resolve) => {
-      const work = mkdtempSync(join(tmpdir(), "qa-dom-"));
-      const script = join(work, "capture.cjs");
-      /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
-      writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
-      let stdout = "";
-      /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
-      const child = spawn("node", [script], {
-        cwd: e2eDir,
-        env: { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) },
-        detached: true,
-      });
-      const loginBudget = existsSync(join(e2eDir, E2E_AUTH_FILE)) ? RENDER_LOGIN_BUDGET_MS : 0;
-      const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length) + loginBudget);
-      child.stdout.on("data", (d) => (stdout += d.toString()));
-      const done = (snaps: RouteSnapshot[]): void => { clearTimeout(timer); try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } resolve(snaps); };
-      child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
-      child.on("close", () => {
-        try {
-          const raw = JSON.parse(stdout) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; offOrigin?: boolean }>;
-          done(raw.map((r) => {
-            if (r.error) {
-              const errored: RouteSnapshot = { route: r.route, error: r.error };
-              if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
-              return errored;
-            }
-            const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
-            const attrs = r.rawAttrs && r.rawAttrs.length > 0 ? mergeAttrs(nodes, r.rawAttrs) : undefined;
-            const snap: RouteSnapshot = { route: r.route, nodes };
-            if (attrs && attrs.length > 0) snap.attrs = attrs;
-            if (states.size > 0) snap.states = states;
-            if (r.testIdAttr) snap.testIdAttrName = r.testIdAttr;
-            const testIds = buildTestIdIndex(r.testIdRawList ?? []);
-            if (testIds.size > 0) snap.testIds = testIds;
-            if (r.settled === true) snap.settled = true;
-            if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
-            if (r.finalUrl) snap.finalUrl = r.finalUrl;
-            if (r.offOrigin) snap.offOrigin = true;
-            return snap;
-          }));
-        } catch {
-          console.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
+/*
+ * authDir: the orchestrator-only directory (outside the watched-repo mirror) AuthSessionAdapter
+ * wrote auth material to — supplied by the composition-root shell. REQUIRED: a fallback to e2eDir (the
+ * agent-visible mirror) would silently put auth material where the (read-only) agent can read it
+ * whenever a composition seam omitted the override. There is no safe default, so a caller that forgets it is a TypeScript compile error, and — mirroring
+ * the same fail-closed constructor-guard pattern already established for PublicationPortAdapter
+ * (publication-port.adapter.test.ts) — a caller that bypasses the type system still gets an
+ * immediate, loud throw here, never a silent e2eDir default.
+ */
+export function createCaptureDomDeps(authDir: string, maxOutputChars: number = MAX_CAPTURE_OUTPUT_CHARS): CaptureDomDeps {
+  if (!authDir) {
+    throw new Error(
+      "[qa] createCaptureDomDeps requires authDir — there is no safe default (omitting it would silently read/write auth material under e2eDir, the agent-visible mirror).",
+    );
+  }
+  return {
+    render: (e2eDir, baseUrl, routes, testIdAttribute = "data-testid") =>
+      new Promise<RouteSnapshot[]>((resolve) => {
+        const work = mkdtempSync(join(tmpdir(), "qa-dom-"));
+        const script = join(work, "capture.cjs");
+        /* routes + baseUrl come from AGENT-AUTHORED specs (untrusted in this threat model). They are passed to the child via an ENV var and parsed there, NOT interpolated into the script source — JSON.stringify does not escape U+2028/U+2029, so interpolating untrusted strings into JS source could inject. The require() path is a derived LOCAL path (not agent input), so its interpolation is safe. */
+        writeFileSync(script, buildCaptureScript(join(e2eDir, "node_modules", "playwright")));
+        const stdout = new BoundedWholeOutput(maxOutputChars);
+        /* detached → own process group so the timeout kill reaps the chromium grandchildren too (a plain child.kill would orphan them). scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds so gated routes snapshot the real page, not the login screen (same env as execute.ts). */
+        const child = spawn("node", [script], {
+          cwd: e2eDir,
+          env: authSessionEnv(authDir, { ...scrubEnv({ extraAllowed: /^DEV_/ }), PW_BASE_URL: baseUrl, PW_TEST_ID_ATTRIBUTE: testIdAttribute, PW_CAPTURE_INPUT: JSON.stringify({ baseUrl, routes }) }),
+          detached: true,
+          /* The result is the JSON on stdout; stderr is never read, and left piped it would block the script once the OS pipe buffer fills. */
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        const loginBudget = existsSync(join(e2eDir, E2E_AUTH_FILE)) ? RENDER_LOGIN_BUDGET_MS : 0;
+        const timer = setTimeout(() => processKill.killTree(child), renderTimeoutFor(routes.length) + loginBudget);
+        let finished = false;
+        const done = (snaps: RouteSnapshot[]): void => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+          resolve(snaps);
+        };
+        child.stdout.setEncoding("utf8");
+        child.stdout.on("data", (d: string) => {
+          stdout.append(d);
+          if (!stdout.exceeded || finished) return;
+          processKill.killTree(child);
+          console.warn(`[qa] WARNING: DOM capture output exceeded ${maxOutputChars} chars — killed, no grounding this run.`);
           done([]);
-        }
-      });
-    }),
+        });
+        child.on("error", (err) => { console.warn(`[qa] WARNING: DOM capture script failed to spawn (${err instanceof Error ? err.message : String(err)}) — no grounding this run.`); done([]); });
+        child.on("close", () => {
+          if (finished) return;
+          try {
+            const raw = JSON.parse(stdout.text()) as Array<{ route: string; yaml?: string; rawAttrs?: RawAttr[]; testIdRawList?: string[]; testIdAttr?: string; settled?: boolean; error?: string; runtimeErrors?: { type: string; text: string }[]; finalUrl?: string; offOrigin?: boolean }>;
+            done(raw.map((r) => {
+              if (r.error) {
+                const errored: RouteSnapshot = { route: r.route, error: r.error };
+                if (r.runtimeErrors && r.runtimeErrors.length > 0) errored.runtimeErrors = r.runtimeErrors;
+                return errored;
+              }
+              const { nodes, states } = parseAriaSnapshotWithState(r.yaml ?? "");
+              const attrs = r.rawAttrs && r.rawAttrs.length > 0 ? mergeAttrs(nodes, r.rawAttrs) : undefined;
+              const snap: RouteSnapshot = { route: r.route, nodes };
+              if (attrs && attrs.length > 0) snap.attrs = attrs;
+              if (states.size > 0) snap.states = states;
+              if (r.testIdAttr) snap.testIdAttrName = r.testIdAttr;
+              const testIds = buildTestIdIndex(r.testIdRawList ?? []);
+              if (testIds.size > 0) snap.testIds = testIds;
+              if (r.settled === true) snap.settled = true;
+              if (r.runtimeErrors && r.runtimeErrors.length > 0) snap.runtimeErrors = r.runtimeErrors;
+              if (r.finalUrl) snap.finalUrl = r.finalUrl;
+              if (r.offOrigin) snap.offOrigin = true;
+              return snap;
+            }));
+          } catch {
+            console.warn(`[qa] WARNING: DOM capture script produced unparseable output — no grounding this run.`);
+            done([]);
+          }
+        });
+      }),
+  };
+}
+
+/**
+ * An INERT placeholder for the three composition seams (pre-exec/review-dom grounding bridges,
+ * the context-pack default deps) that fall back to this when no captureDomDeps collaborator is
+ * configured at all. It never touches the filesystem or spawns a process and never derives
+ * credential paths from e2eDir. If it is ever actually invoked
+ * (every real production wiring always overrides it with createCaptureDomDeps(authDir) instead — see
+ * rewritten-engine-factory.ts), it fails loudly (CLAUDE.md: never swallow — surface integration
+ * errors loudly) rather than silently degrading to an insecure default.
+ */
+export const defaultCaptureDomDeps: CaptureDomDeps = {
+  render: async () => {
+    throw new Error(
+      "[qa] defaultCaptureDomDeps.render was invoked without a real authDir-backed CaptureDomDeps. " +
+      "Wire createCaptureDomDeps(authDir) explicitly at this seam — there is no safe default.",
+    );
+  },
 };

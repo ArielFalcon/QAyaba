@@ -1,3 +1,4 @@
+import type { AcceptanceReportDefect, AcceptanceReportEntry } from "./acceptance-report.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 
 export const DELEGATION_STATUSES = [
@@ -28,6 +29,10 @@ export interface DelegationResult {
   readonly concerns: readonly string[];
   readonly unresolvedQuestions: readonly string[];
   readonly recommendation: DelegationRecommendation;
+  /** Per-criterion report, keyed by the brief's 1-based criterion numbers; only well-formed entries. */
+  readonly acceptance: readonly AcceptanceReportEntry[];
+  /** Set when the report is absent or malformed: every criterion without a kept entry is unverified. */
+  readonly acceptanceReportDefect?: AcceptanceReportDefect;
 }
 
 export function belongsToBrief(result: DelegationResult, delegationId: string, runId: string): boolean {

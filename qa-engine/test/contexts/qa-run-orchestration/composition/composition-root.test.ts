@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   buildProduction,
   buildShadow,
+  resolveSidekickTimeoutMs,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
@@ -22,6 +23,7 @@ import { join } from "node:path";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
 import type { IndexStatusPort } from "@kernel/ports/index-status.port.ts";
 
+import { GENERATION_END } from "@kernel/generation-end.ts";
 /* ── A minimal fake CompositionConfig — every collaborator is a lightweight stub, matching the
    SAME stub shapes rewritten-orchestrator.adapter.test.ts already uses for the 10-scenario parity
    (this test does not re-run that parity; it proves the composition root wires the RIGHT classes).
@@ -48,7 +50,7 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
       diff: async () => "diff --git a/src/x.ts b/src/x.ts",
     },
     generationUseCase: {
-      generate: async () => ({ specs: ["a.spec.ts"], approved: true, reviewed: false }),
+      generate: async () => ({ specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED }),
     },
     reviewRuntime: {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
@@ -221,6 +223,50 @@ test("buildProduction omits processAudit entirely when cfg.processAudit is absen
   assert.equal(outcome.verdict, "pass");
 });
 
+/* Root threads cfg.contextMapCapture through to RunQaUseCaseDeps.contextMapCapture — same
+   black-box style as reflectorPort/processAudit above. A clean context-mode pass (mode:"context",
+   verdict "pass") is the ONLY case that reaches RunQaUseCase's isContextCleanPass capture call. ──
+ */
+
+test("buildProduction wires cfg.contextMapCapture through to RunQaUseCase — a clean context-mode pass reaches contextMapCapture.capture()", async () => {
+  let captureCallCount = 0;
+  const cfg = fakeConfig({
+    mode: "context",
+    contextMapCapture: {
+      capture: async () => { captureCallCount++; },
+    },
+  });
+
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  const outcome = await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "context",
+    target: "e2e",
+    runId: "composition-root-contextmap-capture-smoke",
+  });
+
+  assert.equal(outcome.verdict, "pass");
+  assert.equal(captureCallCount, 1, "cfg.contextMapCapture must be wired through to RunQaUseCaseDeps.contextMapCapture — a clean context-mode pass must invoke capture() exactly once");
+});
+
+test("buildProduction omits contextMapCapture entirely when cfg.contextMapCapture is absent — no behavior change on a clean context-mode pass", async () => {
+  const cfg = fakeConfig({ mode: "context" });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  const outcome = await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "context",
+    target: "e2e",
+    runId: "composition-root-contextmap-capture-absent-smoke",
+  });
+
+  assert.equal(outcome.verdict, "pass");
+});
+
 /* ── buildShadow: always rewritten, shadow-log publication, no side effects ──────────────────── */
 
 test("buildShadow always returns a RewrittenOrchestratorAdapter regardless of PIPELINE_ENGINE", () => {
@@ -318,7 +364,7 @@ test("buildProduction(rewritten) selects the real DeployGatePortAdapter when ver
   assert.equal(outcome.verdict, "pass");
 });
 
-/* A3: testIdAttribute must flow from CompositionConfig into the ExecutionPortAdapter's static
+/* testIdAttribute must flow from CompositionConfig into the ExecutionPortAdapter's static
    context so PW_TEST_ID_ATTRIBUTE reaches the verdictual Playwright run. NO defaulting logic here —
    undefined flows through; the seed playwright.config.ts already defaults to data-testid.
  */
@@ -633,7 +679,7 @@ test("wireBridges hardcodes needsReview:false into the generation ctx even when 
     generationUseCase: {
       generate: async (input: { needsReview?: boolean }) => {
         seenNeedsReview.push(input.needsReview === true);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -676,7 +722,7 @@ test("buildProduction(rewritten) wires groundingCollaborators.buildContextPack i
     generationUseCase: {
       generate: async (input) => {
         seenContextPacks.push(input.contextPack);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -759,7 +805,7 @@ test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory co
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -786,7 +832,7 @@ test("buildProduction(rewritten) leaves structuralSignal undefined when codebase
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies codebaseMemory */
@@ -822,7 +868,7 @@ test("buildProduction(rewritten) degrades structuralSignal to no section when th
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -884,7 +930,7 @@ test("buildProduction(rewritten) wires serviceLinks when a serviceTopology colla
       generationUseCase: {
         generate: async (input) => {
           seenServiceLinks.push(input.serviceLinks);
-          return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+          return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
         },
       },
     });
@@ -915,7 +961,7 @@ test("buildProduction(rewritten) leaves serviceLinks undefined when serviceTopol
     generationUseCase: {
       generate: async (input) => {
         seenEnrichments.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies serviceTopology */
@@ -951,7 +997,7 @@ test("buildProduction(rewritten) threads cfg.triggerService into OpencodeRunInpu
     generationUseCase: {
       generate: async (input) => {
         seenServices.push(input.service);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -978,7 +1024,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.service entirely absent
     generationUseCase: {
       generate: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies triggerService */
@@ -1016,7 +1062,7 @@ test("buildProduction(rewritten) threads cfg.services into OpencodeRunInput.serv
     generationUseCase: {
       generate: async (input) => {
         seenServicesList.push(input.services);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   });
@@ -1046,7 +1092,7 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.services entirely absen
     generationUseCase: {
       generate: async (input) => {
         seenInputs.push(input as unknown as Record<string, unknown>);
-        return { specs: ["a.spec.ts"], approved: true, reviewed: false };
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
   }); /* fakeConfig()'s base never supplies services */
@@ -1120,7 +1166,7 @@ test("buildProduction(rewritten) wires preExecGrounding into the run when target
       runId: "composition-root-preexec-grounding-wired",
     });
 
-    assert.equal(captureCalled, true, "the injected captureRouteTrees collaborator must have run (W1's pre-exec grounding check)");
+    assert.equal(captureCalled, true, "the injected captureRouteTrees collaborator must have run (the pre-exec grounding check)");
     assert.equal(outcome.verdict, "pass");
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
@@ -1170,7 +1216,7 @@ test("buildProduction(rewritten) runs without preExecGroundingCollaborators (abs
 
 /* The gate must actually fire through composition, not just receive a call: a duplicate
    page-rooted selector must produce preExecAmbiguityCatches > 0. */
-test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in the captured route trips the W1 pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
+test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in the captured route trips the pre-exec ambiguity gate (preExecAmbiguityCatches > 0)", async () => {
   /* A REAL specDir (mirrorDir/e2eRelDir) — the adapter under test resolves its own paths off disk
      (the "adapter resolves its own paths" precedent SetupPort/ExecutionPort/ReviewDomGroundingPort
      already use), so this is exercised against real fs, not a readSpecSource passthrough.
@@ -1196,6 +1242,7 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
           specs: ["ambiguous.spec.ts"],
           approved: true,
           reviewed: false,
+          end: GENERATION_END.DELIVERED,
         }),
       },
       preExecGroundingCollaborators: {
@@ -1224,14 +1271,14 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
     const preExecAmbiguityCatches = outcome.gateSignals.preExecAmbiguityCatches ?? 0;
     assert.ok(
       preExecAmbiguityCatches > 0,
-      `expected the W1 pre-exec ambiguity gate to fire (preExecAmbiguityCatches > 0), got ${preExecAmbiguityCatches}`,
+      `expected the pre-exec ambiguity gate to fire (preExecAmbiguityCatches > 0), got ${preExecAmbiguityCatches}`,
     );
   } finally {
     rmSync(mirrorDir, { recursive: true, force: true });
   }
 });
 
-/* ── T2: per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ──────────────── */
+/* ── per-run IndexStatusPort + shared codeGraph (LazyProjectCodeGraphAdapter) ──────────────── */
 
 function memoryIndexStatus(): IndexStatusPort & { shas: Map<string, string> } {
   const shas = new Map<string, string>();
@@ -1336,4 +1383,20 @@ test("buildProduction(rewritten) omits indexing when codebaseMemory is absent ev
   });
 
   assert.equal(indexStatus.shas.size, 0, "without codebaseMemory there is no codeGraph, so lastIndexedSha must stay unset");
+});
+
+test("resolveSidekickTimeoutMs never reads process.env — only cfg.sidekickTimeoutMs, defaulting to 420000", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "999";
+  try {
+    assert.equal(
+      resolveSidekickTimeoutMs({}),
+      420_000,
+      "an env var set behind composition-root's back must NOT leak in — qa-engine never reads process.env (the shell resolves it into cfg.sidekickTimeoutMs)",
+    );
+    assert.equal(resolveSidekickTimeoutMs({ sidekickTimeoutMs: 12_345 }), 12_345, "an explicit cfg value must still win");
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
 });

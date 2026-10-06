@@ -97,28 +97,6 @@ window.QayabaFormat = (function () {
     return { text: String(opts.canned == null ? '' : opts.canned), kind: 'canned' };
   }
 
-  /* Overlay a real in-flight run onto the live-view shape. Identity always
-     comes from the real record so Ask hits POST /runs/:realId/ask, not the
-     mock r-1842 demo id. Missing live theatre fields (plan/currentTest) stay
-     from the mock so viewLiveDetail does not crash.
-   */
-  function mergeLiveRun(real, mock) {
-    if (!real) return null;
-    var out = {};
-    if (mock) for (var k in mock) out[k] = mock[k];
-    for (var r in real) {
-      var v = real[r];
-      if (v == null || v === '') continue;
-      if (Array.isArray(v) && v.length === 0) continue;
-      out[r] = v;
-    }
-    out.id = real.id;
-    out.sha = real.sha;
-    out.app = real.app;
-    if (Object.prototype.hasOwnProperty.call(real, 'message')) out.message = real.message;
-    return out;
-  }
-
   function triggerExtras(mode) {
     var m = String(mode == null ? '' : mode);
     return {
@@ -154,6 +132,31 @@ window.QayabaFormat = (function () {
     return body;
   }
 
+  /* Bounded exponential backoff for the run-events SSE reconnect loop: doubles the previous
+     delay, capped so a persistent outage never grows the wait unbounded. A non-positive or
+     missing current delay resets to the 1s base, so the first retry after a fresh subscribe
+     (or after a success resets the caller's counter) is always fast.
+   */
+  function nextSseRetryDelay(current, cap) {
+    var base = (typeof current === 'number' && current > 0) ? current : 1000;
+    var max = (typeof cap === 'number' && cap > 0) ? cap : 30000;
+    return Math.min(max, base * 2);
+  }
+
+  /* Value of the run's "delegations" workforce chip: the delegation count, then how many of
+     those were fix-loop repairs and how many failed. Each suffix appears only when nonzero —
+     a clean single delegation reads as just its count.
+   */
+  function delegationsLabel(wf) {
+    const w = wf || {};
+    const count = isNum(w.delegations) ? w.delegations : 0;
+    const repairs = isNum(w.repairs) ? w.repairs : 0;
+    const failures = isNum(w.failures) ? w.failures : 0;
+    return String(count) +
+      (repairs ? ' · ' + repairs + ' repair' + (repairs !== 1 ? 's' : '') : '') +
+      (failures ? ' · ' + failures + ' failed' : '');
+  }
+
   return {
     fixed: fixed,
     multiplierLabel: multiplierLabel,
@@ -161,9 +164,10 @@ window.QayabaFormat = (function () {
     shortRepo: shortRepo,
     renderMarkdown: renderMarkdown,
     pickChatAnswer: pickChatAnswer,
-    mergeLiveRun: mergeLiveRun,
     triggerExtras: triggerExtras,
     clampDiffCommits: clampDiffCommits,
     triggerPayload: triggerPayload,
+    nextSseRetryDelay: nextSseRetryDelay,
+    delegationsLabel: delegationsLabel,
   };
 })();

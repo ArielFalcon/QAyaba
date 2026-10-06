@@ -60,7 +60,7 @@ function turn(runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTur
   };
 }
 
-describe("Phase 8: computeTelemetryAnalysis — empty app returns zero-state", () => {
+describe("computeTelemetryAnalysis — empty app returns zero-state", () => {
   it("returns zero runCount and null aggregates when no turns exist for the app", () => {
     const app = uniqueApp("tel-empty");
     const analysis = computeTelemetryAnalysis(app);
@@ -75,7 +75,7 @@ describe("Phase 8: computeTelemetryAnalysis — empty app returns zero-state", (
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — per-role prompt size aggregates", () => {
+describe("computeTelemetryAnalysis — per-role prompt size aggregates", () => {
   it("computes medianPromptBytes and turnCount per role", () => {
     const app = uniqueApp("tel-role");
     const runId = `run-tel-role-${Date.now()}`;
@@ -98,7 +98,7 @@ describe("Phase 8: computeTelemetryAnalysis — per-role prompt size aggregates"
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — cache hit rate", () => {
+describe("computeTelemetryAnalysis — cache hit rate", () => {
   it("computes median cache hit rate (cacheRead/tokensInput) per role", () => {
     const app = uniqueApp("tel-cache");
     const runId = `run-tel-cache-${Date.now()}`;
@@ -126,7 +126,7 @@ describe("Phase 8: computeTelemetryAnalysis — cache hit rate", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
+describe("computeTelemetryAnalysis — grounding presence", () => {
   it("detects Context Pack presence in first-round generator turns", () => {
     const app = uniqueApp("tel-grnd");
     const runId = `run-tel-grnd-${Date.now()}`;
@@ -148,7 +148,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
   /* the PLANNER turn (role qa-generator, objective "(planner)") is a plan-only pass that never
      carries a Context Pack. Counting it deflated groundingPresence. It must be EXCLUDED.
    */
-  it("FIX 6: a planner turn does NOT count against grounding presence", () => {
+  it("a planner turn does NOT count against grounding presence", () => {
     const app = uniqueApp("tel-grnd-planner");
     const runId = `run-tel-grnd-planner-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
@@ -169,7 +169,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
     assert.equal(analysis.groundingPresence, 1, "planner turn must be excluded → 1/1 write turn grounded");
   });
 
-  it("FIX 6: a run that is ONLY a planner turn yields null grounding (no real write turns to measure)", () => {
+  it("a run that is ONLY a planner turn yields null grounding (no real write turns to measure)", () => {
     const app = uniqueApp("tel-grnd-planneronly");
     const runId = `run-tel-grnd-planneronly-${Date.now()}`;
     saveRunOutcome(outcome(runId, app));
@@ -182,7 +182,7 @@ describe("Phase 8: computeTelemetryAnalysis — grounding presence", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — repair fraction", () => {
+describe("computeTelemetryAnalysis — repair fraction", () => {
   it("repair fraction = (isRepair turns) / (all turns)", () => {
     const app = uniqueApp("tel-repair");
     const runId = `run-tel-repair-${Date.now()}`;
@@ -197,7 +197,7 @@ describe("Phase 8: computeTelemetryAnalysis — repair fraction", () => {
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — reviewer convergence approveRate", () => {
+describe("computeTelemetryAnalysis — reviewer convergence approveRate", () => {
   it("approveRate = fraction of runs with pass/skipped verdict", () => {
     const app = uniqueApp("tel-conv");
     const run1 = `run-conv-pass-${Date.now()}`;
@@ -211,7 +211,7 @@ describe("Phase 8: computeTelemetryAnalysis — reviewer convergence approveRate
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — turns per run and wall-clock", () => {
+describe("computeTelemetryAnalysis — turns per run and wall-clock", () => {
   it("median turns per run matches expected count", () => {
     const app = uniqueApp("tel-turns");
     const runId = `run-tel-turns-${Date.now()}`;
@@ -240,7 +240,85 @@ describe("Phase 8: computeTelemetryAnalysis — turns per run and wall-clock", (
   });
 });
 
-describe("Phase 8: computeTelemetryAnalysis — windowDays filtering", () => {
+/* The explorer's turns are persisted so the per-role and efficiency views can show them, but the
+   existing run-level figures keep the meaning they had before: they describe the roles that
+   were recorded then (generator, reviewer, worker ...), never the explorer. */
+describe("computeTelemetryAnalysis — the explorer is exposed only by role and efficiency views", () => {
+  const explorerTurn = (runId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord =>
+    turn(runId, { role: "qa-explorer", ...overrides });
+
+  it("leaves the turns-per-run and repair figures as they were without the explorer's turns", () => {
+    const app = uniqueApp("tel-explorer-legacy");
+    const runId = `run-explorer-legacy-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(turn(runId, { isRepair: true }));
+    saveAgentTurn(explorerTurn(runId));
+    saveAgentTurn(explorerTurn(runId));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.medianTurnsPerRun, 2, "the run's two generator turns, not its four turns");
+    assert.equal(analysis.repairFraction, 1 / 2, "one repair among the two generator turns");
+  });
+
+  it("does not stretch the wall-clock span to the explorer's turns, before or after the generator's", () => {
+    const app = uniqueApp("tel-explorer-wall");
+    const runId = `run-explorer-wall-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    const t0 = Date.now();
+    saveAgentTurn(explorerTurn(runId, { ts: new Date(t0 - 60_000).toISOString() }));
+    saveAgentTurn(turn(runId, { ts: new Date(t0).toISOString() }));
+    saveAgentTurn(turn(runId, { ts: new Date(t0 + 5_000).toISOString() }));
+    saveAgentTurn(explorerTurn(runId, { ts: new Date(t0 + 90_000).toISOString() }));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.medianWallClockSec, 5);
+    assert.equal(analysis.p95WallClockSec, 5);
+  });
+
+  it("does not count a run that only has explorer turns", () => {
+    const app = uniqueApp("tel-explorer-only");
+    const withGenerator = `run-explorer-gen-${Date.now()}`;
+    const explorerOnly = `run-explorer-only-${Date.now()}`;
+    saveRunOutcome(outcome(withGenerator, app));
+    saveRunOutcome(outcome(explorerOnly, app));
+    saveAgentTurn(turn(withGenerator));
+    saveAgentTurn(explorerTurn(explorerOnly));
+
+    const analysis = computeTelemetryAnalysis(app);
+
+    assert.equal(analysis.runCount, 1);
+    assert.equal(analysis.medianTurnsPerRun, 1);
+  });
+
+  it("still reports the explorer's turns in the per-role view", () => {
+    const app = uniqueApp("tel-explorer-byrole");
+    const runId = `run-explorer-byrole-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(explorerTurn(runId, { promptBytes: 900 }));
+
+    const explorer = computeTelemetryAnalysis(app).byRole.find((r) => r.role === "qa-explorer");
+
+    assert.ok(explorer, "the explorer appears in byRole");
+    assert.equal(explorer.turnCount, 1);
+    assert.equal(explorer.medianPromptBytes, 900);
+  });
+
+  it("counts an exhausted explorer turn in the exhausted rate", () => {
+    const app = uniqueApp("tel-explorer-exhausted");
+    const runId = `run-explorer-exhausted-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, { exhausted: false }));
+    saveAgentTurn(explorerTurn(runId, { exhausted: true }));
+
+    assert.equal(computeTelemetryAnalysis(app).efficiency.exhaustedRate, 1 / 2);
+  });
+});
+
+describe("computeTelemetryAnalysis — windowDays filtering", () => {
   it("windowDays=1 excludes turns older than 1 day", () => {
     const app = uniqueApp("tel-win");
     const oldRunId = `run-old-${Date.now()}`;
@@ -256,5 +334,72 @@ describe("Phase 8: computeTelemetryAnalysis — windowDays filtering", () => {
     const analysis = computeTelemetryAnalysis(app, 1);
     assert.equal(analysis.runCount, 1, "only the new run should be within the 1-day window");
     assert.equal(analysis.medianTurnsPerRun, 1, "only 1 turn in the window");
+  });
+});
+
+describe("computeTelemetryAnalysis — efficiency aggregates", () => {
+  const measured = (overrides: Partial<AgentTurnRecord>): Partial<AgentTurnRecord> => ({
+    totalCalls: 10,
+    callsBeforeFirstWrite: 5,
+    redundantReadCount: 0,
+    duplicateCallCount: 0,
+    exhausted: false,
+    ...overrides,
+  });
+
+  it("reports null aggregates when the app has no measured turns", () => {
+    const app = uniqueApp("tel-eff-empty");
+    const runId = `run-eff-empty-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 0);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, null);
+    assert.equal(efficiency.exhaustedRate, null);
+    assert.equal(efficiency.redundantReadRatio, null);
+    assert.equal(efficiency.duplicateRatio, null);
+  });
+
+  it("computes the aggregates from the persisted per-turn metrics", () => {
+    const app = uniqueApp("tel-eff");
+    const runId = `run-eff-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 8, redundantReadCount: 2, duplicateCallCount: 1, exhausted: true })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 4, redundantReadCount: 0, duplicateCallCount: 1, exhausted: false })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 20, callsBeforeFirstWrite: 20, redundantReadCount: 4, duplicateCallCount: 2, exhausted: false })));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 3);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 8);
+    assert.equal(efficiency.exhaustedRate, 1 / 3);
+    assert.equal(efficiency.redundantReadRatio, 6 / 40);
+    assert.equal(efficiency.duplicateRatio, 4 / 40);
+  });
+
+  it("leaves turns without measurements out of every aggregate and out of the exhausted rate's denominator", () => {
+    const app = uniqueApp("tel-eff-null");
+    const runId = `run-eff-null-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 1, duplicateCallCount: 0, exhausted: true })));
+    saveAgentTurn(turn(runId));
+    saveAgentTurn(turn(runId, { exhausted: null, totalCalls: null }));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.turnsMeasured, 1);
+    assert.equal(efficiency.exhaustedRate, 1);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 6);
+    assert.equal(efficiency.redundantReadRatio, 0.1);
+  });
+
+  it("ignores turns that made no calls when taking the median calls before the first write", () => {
+    const app = uniqueApp("tel-eff-zero");
+    const runId = `run-eff-zero-${Date.now()}`;
+    saveRunOutcome(outcome(runId, app));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 0, callsBeforeFirstWrite: 0 })));
+    saveAgentTurn(turn(runId, measured({ totalCalls: 12, callsBeforeFirstWrite: 9 })));
+
+    const { efficiency } = computeTelemetryAnalysis(app);
+    assert.equal(efficiency.medianCallsBeforeFirstWrite, 9);
   });
 });

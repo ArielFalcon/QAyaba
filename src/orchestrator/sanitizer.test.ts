@@ -51,7 +51,7 @@ test("issue mode (explicit): identical to default — aggressive public-surface 
    selectorContradiction line quoting a UI element's accessible name. Kept in lockstep with this
    file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
  */
-test("BUGFIX: a secret-shaped match immediately followed by a closing quote does not swallow that quote (Judge B's exact probe)", () => {
+test("a secret-shaped match immediately followed by a closing quote does not swallow that quote", () => {
   const input = "role:name 'button' with name \"Token: refresh\" is NOT in the captured tree";
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/, "the secret-shaped value must still be redacted");
@@ -62,21 +62,21 @@ test("BUGFIX: a secret-shaped match immediately followed by a closing quote does
   );
 });
 
-test("BUGFIX: generic-credential does not swallow a trailing closing quote either", () => {
+test("generic-credential does not swallow a trailing closing quote either", () => {
   const input = 'the log says "credential: abc123" was rejected';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
   assert.match(out, /"\[REDACTED\]" was rejected/, `got: ${JSON.stringify(out)}`);
 });
 
-test("BUGFIX: env-credential does not swallow a trailing closing quote either", () => {
+test("env-credential does not swallow a trailing closing quote either", () => {
   const input = 'the config had "GITHUB_TOKEN: abc123" set';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
   assert.match(out, /"\[REDACTED\]" set/, `got: ${JSON.stringify(out)}`);
 });
 
-test("BUGFIX: bearer-token does not swallow a trailing closing quote either", () => {
+test("bearer-token does not swallow a trailing closing quote either", () => {
   const input = 'header dump: "Authorization: Bearer abc123xyz" logged';
   const { text: out } = sanitizeText(input, "issue");
   assert.match(out, /\[REDACTED\]/);
@@ -87,21 +87,21 @@ test("BUGFIX: bearer-token does not swallow a trailing closing quote either", ()
    unredacted. A secret value with an embedded quote must not leak that tail. Keep in lockstep with
    this file's qa-engine twin (sanitize-text.ts) — see sanitize-text-parity.test.ts.
  */
-test("BUGFIX (round 4): a secret value with an embedded quote does not leak its tail", () => {
+test("a secret value with an embedded quote does not leak its tail", () => {
   const input = 'token=abc"def';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /def/, `the tail after the embedded quote must not leak — got: ${JSON.stringify(out)}`);
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("BUGFIX (round 4): GITHUB_TOKEN with an embedded quote does not leak its tail", () => {
+test("GITHUB_TOKEN with an embedded quote does not leak its tail", () => {
   const input = 'GITHUB_TOKEN=ghp_abc"XYZ123';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /XYZ123/, `the tail after the embedded quote must not leak — got: ${JSON.stringify(out)}`);
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("BUGFIX (round 4): a prose keyword false-match does not let a quoted secret with an escaped inner quote ship unredacted", () => {
+test("a prose keyword false-match does not let a quoted secret with an escaped inner quote ship unredacted", () => {
   const input = 'leaked secret: password="mySecretPass\\"WithQuote" end';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /mySecretPass/, `got: ${JSON.stringify(out)}`);
@@ -114,7 +114,7 @@ test("BUGFIX (round 4): a prose keyword false-match does not let a quoted secret
    branch can consume the full value past the escaped inner quotes. Reverting that branch to the
    naive `"[^"]*"` leaks `quoted\" value" end`; no other test reaches this code path.
  */
-test("BUGFIX (round 4): escape-aware quoted branch — a quoted value with internal spaces and escaped quotes is fully redacted", () => {
+test("escape-aware quoted branch — a quoted value with internal spaces and escaped quotes is fully redacted", () => {
   const input = 'password="my \\"quoted\\" value" end';
   const { text: out } = sanitizeText(input, "issue");
   assert.doesNotMatch(out, /quoted/, `the escaped-quote interior must not leak — got: ${JSON.stringify(out)}`);
@@ -285,7 +285,7 @@ test("detection metadata — no secrets", () => {
 });
 
 test("detection metadata — with secrets", () => {
-  const { text, detection } = sanitizeText("apiKey: sk-abc\ntoken: xyz");
+  const { detection } = sanitizeText("apiKey: sk-abc\ntoken: xyz");
   assert.ok(detection.redacted);
   assert.ok(detection.count >= 2);
   assert.ok(detection.patterns.includes("api-key-assignment"));
@@ -464,7 +464,7 @@ test("does NOT redact long Java identifiers or paths with >30-char segments (bot
 /* attacker-shaped 40+ char alpha blob (no digits, no slashes) escape redaction entirely. Tighten
    to a REAL identifier shape (camelCase/PascalCase with a case transition) capped at 64 chars.
  */
-test("JD-FIX2: a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
+test("a camelCase identifier (45 chars, no digits) still survives — escape stays intact", () => {
   const identifier = "populateCoursesDescriptionMultilingualUseCase";
   assert.equal(identifier.length, 45);
   const { text: out } = sanitizeText(`- \`${identifier}\``);
@@ -472,7 +472,7 @@ test("JD-FIX2: a camelCase identifier (45 chars, no digits) still survives — e
   assert.doesNotMatch(out, /\[REDACTED\]/);
 });
 
-test("JD-FIX2: a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacted, not code-shaped", () => {
+test("a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacted, not code-shaped", () => {
   const blob = "qwertyuiopasdfghjklzxcvbnmqwertyuiopasdfghjkl";
   assert.equal(blob.length, 45);
   const { text: out } = sanitizeText(`token blob: ${blob}`);
@@ -480,7 +480,7 @@ test("JD-FIX2: a 45-char ALL-LOWERCASE alpha run (no case transition) IS redacte
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length cap wins over shape", () => {
+test("a 70-char camelCase-shaped run (>64 chars) IS redacted — length cap wins over shape", () => {
   const blob = "aB".repeat(35); /* 70 chars, alternating case, no digits */
   assert.equal(blob.length, 70);
   const { text: out } = sanitizeText(`value=${blob}`);
@@ -488,7 +488,7 @@ test("JD-FIX2: a 70-char camelCase-shaped run (>64 chars) IS redacted — length
   assert.match(out, /\[REDACTED\]/);
 });
 
-test("JD-R2: a PERFECT 2-char case-alternation blob (the deterministic adversarial shape) IS redacted — the identifier escape requires at least one word-segment >= 3 chars", () => {
+test("a PERFECT 2-char case-alternation blob (the deterministic adversarial shape) IS redacted — the identifier escape requires at least one word-segment >= 3 chars", () => {
   const alternating = "AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOp"; /* 42 chars, every segment exactly 2 */
   const { text: out } = sanitizeText(alternating);
   assert.doesNotMatch(out, /AbCdEfGhIjKl/);

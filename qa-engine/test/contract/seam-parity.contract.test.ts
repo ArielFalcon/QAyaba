@@ -2,10 +2,14 @@
    qa-engine cannot import src/; this file is the drift gate (tsconfig.parity.json). A field added
    to the type without an allowlist entry fails typecheck; a field dropped by the adapter fails
    this test. */
-import { test, describe } from "node:test";
+import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
+import { wireBridges } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 
 import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
 import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from "../../../src/server/rewritten-engine-factory.ts";
@@ -26,12 +30,13 @@ const S = (field: string): string => `__SENTINEL__${field}__`;
 describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", () => {
   const ALL_TOP_FIELDS = {
     runId: true, app: true, sha: true, mode: true, target: true, verdict: true, errorClass: true,
-    gateSignals: true, rulesRetrieved: true, reflection: true, at: true, note: true, cases: true,
+    gateSignals: true, rulesRetrieved: true, diffArchetypes: true, reflection: true, at: true, note: true, cases: true,
     logs: true, adjudication: true,
   } satisfies Record<keyof KernelRunOutcome, true>;
 
   const ALL_GATE_SIGNAL_FIELDS = {
-    static: true, coverageRatio: true, valueScore: true, reviewerCorrections: true,
+    static: true, coverageRatio: true, valueScore: true, mutantCount: true, killedCount: true,
+    reviewerCorrections: true,
     reviewerRationale: true, reviewerApproved: true, flaky: true, retries: true, confinement: true,
     usage: true, phaseTimings: true, preExecAmbiguityCatches: true, deterministicSelectorBlocks: true,
     catalogGateInWindow: true, catalogGateAdvisory: true, catalogGateFailClosed: true,
@@ -45,10 +50,11 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
        reaches the run record through QaRunResult.note -> RunRecord.note, never through this
        mapping's run_outcomes row.
      */
-    note: "CORRECT BY DESIGN (not a drop): toLegacyRunOutcome never carries outcome.note through because LegacyRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own W3 F3 header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
-    cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaRewrittenEngine threads it into history.addCase() calls directly, per this file's own W3 F3 header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
+    note: "CORRECT BY DESIGN (not a drop): toLegacyRunOutcome never carries outcome.note through because LegacyRunOutcome (src/types.ts's RunOutcome interface) has NO note field to carry it TO — grep/read-confirmed against the full interface. The kernel RunOutcome.note reaches the run record through a SEPARATE seam (QaRunResult.note -> RunRecord.note, src/server/runner.ts's own header), never through this mapping fn's run_outcomes row. Diagnostic-only either way (never gates verdict/publish).",
+    cases: "DELIBERATELY not persisted via toLegacyRunOutcome — LegacyRunOutcome (src/types.ts) has NO cases field at all (grep-confirmed); this field exists on the kernel RunOutcome ONLY for a DIFFERENT driving-side consumer (src/server/runner.ts's runViaRewrittenEngine threads it into history.addCase() calls directly, per this file's own header comment), not for the run_outcomes row this adapter writes. Comparator-blind by the kernel type's own documented construction.",
     logs: "DELIBERATELY not persisted via toLegacyRunOutcome — same reason as cases above: LegacyRunOutcome has no logs field (grep-confirmed), and the kernel RunOutcome's own header says this is 'the same one-shot... string legacy's own QaRunResult.logs carries', a different sink than the run_outcomes row.",
-    adjudication: "CORRECT BY DESIGN (not a drop): post-cutover-remediation P3 — LegacyRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toLegacyRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the rewritten path; never reaches the legacy run_outcomes row.",
+    diffArchetypes: "CORRECT BY DESIGN (not a drop): a fold-only attribution input. The learning fold reads it in-process from the outcome it is handed (historyLearningStore.recordOutcome) to credit only the retrieved rules attributable to the diff's structural shapes; LearningPort.fold receives the kernel outcome directly, never a persisted row, and LegacyRunOutcome (src/types.ts) has no field for it.",
+    adjudication: "CORRECT BY DESIGN (not a drop): LegacyRunOutcome (src/types.ts) has NO adjudication field at all (the legacy pipeline never threaded FixLoop's lastAdjudicatorVerdict into a persisted RunOutcome). This is a REWRITTEN-ONLY field: the kernel type carries it (wide, optional — see run-outcome.ts's own header) so shouldDistillLearning's fold guard can read it in run-qa.use-case.ts, but toLegacyRunOutcome has no legacy counterpart shape to map it into. Diagnostic/gating-only within the rewritten path; never reaches the legacy run_outcomes row.",
   };
 
   test("kernel RunOutcome's own top-level field list matches the allowlist + the mapping fn's carried set exactly", () => {
@@ -60,7 +66,8 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
 
   test("gateSignals' own field list is fully mapped (no allowlist needed — every field carries through)", () => {
     const mapped = [
-      "static", "coverageRatio", "valueScore", "reviewerCorrections", "reviewerRationale",
+      "static", "coverageRatio", "valueScore", "mutantCount", "killedCount", "reviewerCorrections",
+      "reviewerRationale",
       "reviewerApproved", "flaky", "retries", "confinement", "usage", "phaseTimings",
       "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateInWindow",
       "catalogGateAdvisory", "catalogGateFailClosed",
@@ -142,7 +149,7 @@ describe("seam-parity: PERSISTENCE (kernel RunOutcome vs toLegacyRunOutcome)", (
     assert.equal(gs.contractDriftCount, 0, `gateSignals.contractDriftCount dropped at ${dyingLayer}`);
     assert.equal(gs.crossRepoImpactedCount, 2, `gateSignals.crossRepoImpactedCount dropped at ${dyingLayer}`);
 
-    assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN (re-classified, W5) — LegacyRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because LegacyRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
+    assert.equal("note" in out, false, `note IS in the allowlist as CORRECT BY DESIGN — LegacyRunOutcome genuinely has no note field, see the allowlist entry's own evidence trail; if this starts failing because LegacyRunOutcome gains a note field, update the allowlist entry above instead of patching the assertion`);
   });
 
   test("SqliteRunHistoryAdapter.save() forwards the mapped outcome to the injected saveOutcome (the seam a real caller uses)", async () => {
@@ -174,13 +181,13 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
-    readSpecSource: "FIXED (W5 quick win): IS supplied (a plain fs readFile) — asserted below as a present case. Wires the file-read collaborator FixLoop's Lever-2 selector-contradiction check needs (GenerationPortAdapter's optional collaborator, see that adapter's own header) so Lever-2 actually receives specSources on the real production path instead of [] forever.",
+    readSpecSource: "IS supplied (a plain fs readFile) — asserted below as a present case. Wires the file-read collaborator FixLoop's Lever-2 selector-contradiction check needs (GenerationPortAdapter's optional collaborator, see that adapter's own header) so Lever-2 actually receives specSources on the real production path instead of [] forever.",
     setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
     cleanupCollaborators: "IS supplied (e2e only, matching composition-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
     reviewDomGroundingCollaborators: "IS supplied ({}) — asserted below as a present case.",
     serviceTopology: "supplied ONLY when app.services?.length && app.boundaries?.length are both present (asserted below as a present-when-given case, ADR-6) — legitimately absent for single-repo apps or apps that never declared a cross-service boundary profile. Mirrors the 'observer' precedent immediately below: supplied only when the caller/config provides it.",
-    crossRepoImpact: "supplied ONLY under the SAME structuralSignalsOn && app.services?.length && app.boundaries?.length gate serviceTopology uses (Slice C, structural-signals-expansion design §3.8) — legitimately absent for single-repo apps, apps with no declared boundary profile, or when structuralSignals.mode is 'off'.",
+    crossRepoImpact: "supplied ONLY under the SAME structuralSignalsOn && app.services?.length && app.boundaries?.length gate serviceTopology uses — legitimately absent for single-repo apps, apps with no declared boundary profile, or when structuralSignals.mode is 'off'.",
     contextMap: "DELIBERATELY absent — see this fn's own header: no per-run mirrorDir/diff exists yet at composition-build time to read e2e/.qa/context.json from. Documented graceful degradation, not a drop.",
     prChangedFiles: "DELIBERATELY absent — same reason as contextMap (per-run intent.changedFiles doesn't exist yet at composition-build time).",
     versionUrl: "supplied ONLY when app.dev?.versionUrl is present — legitimately absent for code-mode/static apps (no deploy gate).",
@@ -196,7 +203,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     coverageBlocksForPublish: "IS supplied (false) — asserted below as a present case.",
     e2eChangedForPublish: "IS supplied (true) — asserted below as a present case.",
     reviewerApprovedForPublish: "IS supplied (true) — asserted below as a present case.",
-    sanitize: "IS supplied (the real sanitizeText, F4 CRITICAL security invariant) — asserted below as a present case.",
+    sanitize: "IS supplied (the real sanitizeText, a CRITICAL security invariant) — asserted below as a present case.",
     /* RedactionPortAdapter instance's containsSecret, wired alongside sanitize's own redact
        immediately above) — wired UNCONDITIONALLY, the SAME "IS supplied" precedent sanitize
        establishes. Asserted below as a present case.
@@ -286,33 +293,33 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.equal(cfg.coverageBlocksForPublish, false, `coverageBlocksForPublish dropped at ${dyingLayer}`);
     assert.equal(cfg.e2eChangedForPublish, true, `e2eChangedForPublish dropped at ${dyingLayer}`);
     assert.equal(cfg.reviewerApprovedForPublish, true, `reviewerApprovedForPublish dropped at ${dyingLayer}`);
-    assert.notEqual(cfg.sanitize, undefined, `sanitize (F4 CRITICAL security invariant) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.sanitize, undefined, `sanitize (CRITICAL security invariant) dropped at ${dyingLayer}`);
     /* containsSecret must be wired unconditionally alongside
        sanitize — the SAME "IS supplied" assertion pattern immediately above.
      */
-    assert.notEqual(cfg.containsSecret, undefined, `containsSecret (logs→Issue egress boundary, Slice 6b) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.containsSecret, undefined, `containsSecret (logs→Issue egress boundary) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.learningRepo, undefined, `learningRepo dropped at ${dyingLayer}`);
     /* confinement must be wired unconditionally (fail-open
        fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as sanitize/
        learningRepo immediately above.
      */
-    assert.notEqual(cfg.confinement, undefined, `confinement (write-confinement wiring, D-P0b) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.confinement, undefined, `confinement (write-confinement wiring) dropped at ${dyingLayer}`);
     /* processAudit must be wired unconditionally (fail-
        open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern as
        confinement immediately above.
      */
-    assert.notEqual(cfg.processAudit, undefined, `processAudit (process-audit reconnect, D-P1b) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.processAudit, undefined, `processAudit (process-audit wiring) dropped at ${dyingLayer}`);
     /* mirrorGc must be wired unconditionally
        (fail-open fault isolation, not app-config gated) — the SAME "IS supplied" assertion pattern
        as confinement/processAudit immediately above.
      */
-    assert.notEqual(cfg.mirrorGc, undefined, `mirrorGc (mirror-lifecycle wiring, D-B) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.mirrorGc, undefined, `mirrorGc (mirror-lifecycle wiring) dropped at ${dyingLayer}`);
     /* curriculumPort must be wired unconditionally — the SAME "IS supplied" assertion pattern as
        processAudit/mirrorGc immediately above. A dropped port here is silent by construction (the
        curriculum simply stays empty forever), which is why this present-case assertion is the gate
        rather than a runtime failure.
      */
-    assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring, D6) dropped at ${dyingLayer}`);
+    assert.notEqual(cfg.curriculumPort, undefined, `curriculumPort (curriculum wiring) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.indexStatus, undefined, `indexStatus (lastIndexedSha sidecar) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codebaseMemory, undefined, `codebaseMemory (structural-signal CLI client, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraphRepoDir, undefined, `codeGraphRepoDir (classify-source mirror) dropped at ${dyingLayer}`);
@@ -361,6 +368,35 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
      composition time (before any git clone/agent session/Playwright spawn is spent), not at
      E2eExecutionStrategy.run() deep inside the use-case.
    */
+  /* The harness facts the generator is told about its suite start at the app's own config: the test-id
+     attribute declared in AppConfig must survive the composition seam and reach the grounding adapter's
+     facts, with the fixtures read from the run's own spec directory. */
+  test("an app's declared testIdAttribute reaches the harness facts through the composition seam, and none is invented when the app declares none", async () => {
+    const specDir = mkdtempSync(join(tmpdir(), "qa-seam-facts-"));
+    writeFileSync(join(specDir, "fixtures.ts"), "export const test = 1;\nexport function authenticate() {}\n");
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const factsFor = async (app: AppConfig): Promise<unknown> => {
+        const cfg = buildRewrittenCompositionConfig(app, fakeFactoryDeps(), S("namespace"), { mode: "diff" });
+        const grounding = wireBridges(cfg).preGenerationGrounding;
+        assert.ok(grounding, "an e2e app is composed with a pre-generation grounding port");
+        return (await grounding.ground(specDir)).harnessFacts;
+      };
+
+      const declared = "data-seam-sentinel-attr";
+      assert.deepEqual(await factsFor(fakeAppConfig({ e2e: { testIdAttribute: declared } } as Partial<AppConfig>)), {
+        testIdAttribute: declared,
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+      });
+      assert.deepEqual(await factsFor(fakeAppConfig({ e2e: {} } as Partial<AppConfig>)), {
+        fixtures: { file: "fixtures.ts", exports: ["test", "authenticate"] },
+      });
+    } finally {
+      warn.mock.restore();
+      rmSync(specDir, { recursive: true, force: true });
+    }
+  });
+
   test("buildRewrittenCompositionConfig throws when an e2e-target app omits dev.baseUrl (composition-time guard)", () => {
     assert.throws(
       () => buildRewrittenCompositionConfig(

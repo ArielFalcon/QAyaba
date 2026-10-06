@@ -91,7 +91,7 @@ test("ensureCodexConfig: produces TOML with the three expected MCP server blocks
   );
 });
 
-test("ensureCodexConfig: second call is byte-identical (idempotent) and throws nothing (AC0.1.2)", () => {
+test("ensureCodexConfig: second call is byte-identical (idempotent) and throws nothing", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-idempotent-"));
   const env = { ENGRAM_DATA_DIR: "/data" };
 
@@ -105,7 +105,7 @@ test("ensureCodexConfig: second call is byte-identical (idempotent) and throws n
   assert.equal(first, second, "second call must produce byte-identical content (idempotent)");
 });
 
-test("ensureCodexConfig: preserves existing auth content in the file (AC0.1.2 — survives codex-data volume)", () => {
+test("ensureCodexConfig: preserves existing auth content in the file (survives codex-data volume)", () => {
   const codexHome = mkdtempSync(join(tmpdir(), "codex-auth-"));
   const env = { ENGRAM_DATA_DIR: "/data" };
 
@@ -126,7 +126,7 @@ test("ensureCodexConfig: preserves existing auth content in the file (AC0.1.2 �
 // T-P0-3: sandbox regression guard — read-only roles resolve to read-only, generator to workspace-write.
 // AC0.1.3 RELAXED: the per-role MCP exclusion is satisfied by the per-role sandbox boundary,
 // NOT by a per-role MCP config. This test pins the contract so it can never silently regress.
-test("T-P0-3: read-only roles resolve --sandbox read-only; write roles bypass codex's sandbox (AC0.1.3)", () => {
+test("read-only roles resolve --sandbox read-only; write roles bypass codex's sandbox", () => {
   // Read-only roles: reviewer, reflector — keep codex's read-only sandbox; they never write.
   const reviewer = buildCodexExecArgs({ cwd: "/repo", sandbox: "read-only" });
   const ri = reviewer.indexOf("--sandbox");

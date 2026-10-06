@@ -12,6 +12,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { Git } from "../integrations/repo-mirror";
 import { realGit } from "../integrations/repo-mirror";
+import { rethrowIfUntrusted } from "@kernel/domain-error";
 
 export interface StageServiceContextInput {
   workingCopyDir: string;  /* the FRONT repo's working copy (the agent session root) */
@@ -180,6 +181,7 @@ export async function stageServiceContext(
       const result = tryStageBuffer("CHANGE.patch", Buffer.from(patch, "utf8"));
       if (result !== true) omitted.push({ path: "CHANGE.patch", reason: result });
     } catch (e) {
+      rethrowIfUntrusted(e); /* a service mirror whose git dir is not the orchestrator's is a security refusal, not an omitted file */
       omitted.push({ path: "CHANGE.patch", reason: `git show --patch failed: ${e instanceof Error ? e.message : String(e)}` });
     }
 
@@ -191,6 +193,7 @@ export async function stageServiceContext(
         .map((l) => l.trim())
         .filter(Boolean);
     } catch (e) {
+      rethrowIfUntrusted(e);
       omitted.push({ path: "changed/*", reason: `git show --name-only failed: ${e instanceof Error ? e.message : String(e)}` });
     }
     for (const relPath of changedPaths) {

@@ -92,14 +92,14 @@ function renderSnippet(lines: readonly string[]): string {
 
 /** Runs the onboarding loop end to end and returns the process exit code. Every dependency is
  *  injected via `deps` — this function itself never imports a concrete adapter, so tests can
- *  drive it entirely with fakes (spec C's exit-code contract, design §D composition). */
+ *  drive it entirely with fakes (including the exit-code contract). */
 export async function runOnboarding(argv: string[], deps: OnboardingCliDeps): Promise<number> {
   const args = parseCliArgs(argv, deps);
   if (args === null) return EXIT.USAGE_ERROR;
 
   /** Resolves one repo's mirror, tagging any failure with the repo that actually failed — a
    *  Promise.all across front + every service repo would otherwise report the wrong name when a
-   *  service (not the primary) is the one missing on disk (spec C3: name the SPECIFIC repo). */
+   *  service (not the primary) is the one missing on disk (name the SPECIFIC repo). */
   async function resolveRepoRef(repo: string): Promise<RepoRef> {
     try {
       return { repo, mirrorDir: await deps.mirrorDir(repo) };

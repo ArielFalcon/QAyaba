@@ -19,10 +19,6 @@ function makeResolver(result: ResolveLinksResult): ServiceBoundaryResolverPort {
   return { resolveLinks: async () => result };
 }
 
-function emptyResult(): ResolveLinksResult {
-  return { links: [], drift: [], external: [], unresolved: [] };
-}
-
 test("StubServiceBoundaryResolver.resolveLinks returns empty result without throwing", async () => {
   const stub = new StubServiceBoundaryResolver();
   const result = await stub.resolveLinks([BACK], FRONT);
@@ -109,11 +105,11 @@ test("CompositeServiceBoundaryResolver deduplicates identical unresolved entries
    ==========================================
  */
 
-/* ---- L1.3: composite drift dedup must include from.file ----
+/* ---- composite drift dedup must include from.file ----
    When two resolvers independently surface drift from different files (same verb+path but different
    from.file), the composite must NOT collapse them to one entry (from.file distinguishes them).
  */
-test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two files, same endpoint → two drift entries)", async () => {
+test("CompositeServiceBoundaryResolver drift dedup includes from.file (two files, same endpoint → two drift entries)", async () => {
   const driftFile1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/alpha.api.ts", symbol: "createOrder" },
     verb: "POST",
@@ -141,7 +137,7 @@ test("L1.3: CompositeServiceBoundaryResolver drift dedup includes from.file (two
    two drift entries, not one. The current dedup key is `from.file|verb|path` — adding
    `from.symbol` ensures per-method granularity.
  */
-test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpoint → two drift entries)", async () => {
+test("drift dedup includes from.symbol (two methods same file, same endpoint → two drift entries)", async () => {
   const driftMethod1: ContractDrift = {
     from: { repo: "front/webapp", file: "src/api.ts", symbol: "createOrder" },
     verb: "POST",
@@ -164,13 +160,13 @@ test("R2-F6: drift dedup includes from.symbol (two methods same file, same endpo
   );
 });
 
-/* ---- L1.4: composite sync-throw — a resolver that throws synchronously must be isolated ----
+/* ---- composite sync-throw — a resolver that throws synchronously must be isolated ----
    resolveWithTimeout currently passes the Promise from resolver.resolveLinks(...) to .then().
    If resolver.resolveLinks throws SYNCHRONOUSLY (before returning a Promise), the .then() is
    never reached and the synchronous throw propagates through Promise.all, breaking all resolvers.
    The composite must guard against synchronous throws too.
  */
-test("L1.4: CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing resolver", async () => {
+test("CompositeServiceBoundaryResolver isolates a SYNCHRONOUSLY throwing resolver", async () => {
   const syncThrow: ServiceBoundaryResolverPort = {
     resolveLinks: () => {
       throw new Error("synchronous throw before returning Promise");

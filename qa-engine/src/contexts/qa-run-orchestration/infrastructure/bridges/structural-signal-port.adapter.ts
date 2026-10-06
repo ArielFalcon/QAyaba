@@ -56,7 +56,7 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     const impacted: ScoredSymbolRef[] = await safeImpacted(this.codeGraph, repoDir, changed);
     const coupled = await safeCoupled(this.codeGraph, repoDir, [...changed.changedFiles]);
 
-    /* callersOf is anchored per-symbol (the kernel port's own signature — no "callers of this whole changed set" method exists), so query it once per DISTINCT impacted anchor and union the results. Bounding this to the impacted set (rather than every changed file) keeps the query count proportional to what impactedSymbols already found interesting, matching the design's own "callersOf on the changed anchors" framing (§5.2). */
+    /* callersOf is anchored per-symbol (the kernel port's own signature — no "callers of this whole changed set" method exists), so query it once per DISTINCT impacted anchor and union the results. Bounding this to the impacted set (rather than every changed file) keeps the query count proportional to what impactedSymbols already found interesting, matching the design's own "callersOf on the changed anchors" framing. */
     const anchors = impacted.slice(0, MAX_CALLER_ANCHORS);
     const callerResults: LocalSymbolRef[][] = [];
     for (let i = 0; i < anchors.length; i += CALLER_CONCURRENCY) {

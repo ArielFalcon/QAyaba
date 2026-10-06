@@ -67,7 +67,7 @@ test("leak 6b fix: a spec with no first-goto route is checked against ALL captur
   assert.equal(result.preExecAmbiguityCatches, 1);
 });
 
-/* ── Catalog gate composition (Pillar 2, B1) ───────────────────────────────────────────────── */
+/* ── Catalog gate composition ───────────────────────────────────────────────── */
 test("catalog gate: a fabricated test-id inside the confident window on a captured&&settled route yields a correction", () => {
   const specSources = [`await page.goto("/owners"); await page.getByTestId("ghost-id").click();`];
   const routes: RouteTree[] = [

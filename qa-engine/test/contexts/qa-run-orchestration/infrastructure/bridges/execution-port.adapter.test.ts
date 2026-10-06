@@ -103,7 +103,7 @@ test("execute() forwards an AbortSignal into the code strategy's ExecutionReques
   assert.equal(capturedSignal, controller.signal, "the SAME AbortSignal instance passed to execute() must reach the code strategy's ExecutionRequest.signal, not be dropped at the bridge");
 });
 
-/* A3: testIdAttribute must reach the e2e strategy so PW_TEST_ID_ATTRIBUTE is set for the verdictual
+/* testIdAttribute must reach the e2e strategy so PW_TEST_ID_ATTRIBUTE is set for the verdictual
    Playwright run — otherwise getByTestId silently resolves the default data-testid on non-default apps.
  */
 test("execute() forwards testIdAttribute from static context into the e2e strategy's ExecutionRequest", async () => {

@@ -1,9 +1,9 @@
 # QAyaba
 <div align="center">
 
-[![Node.js 22+](https://img.shields.io/badge/node-22%2B-brightgreen)](https://nodejs.org)
+[![Node.js 24+](https://img.shields.io/badge/node-24%2B-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)](https://www.typescriptlang.org)
-[![Playwright](https://img.shields.io/badge/Playwright-1.50-45ba4b)](https://playwright.dev)
+[![Playwright](https://img.shields.io/badge/Playwright-1.60-45ba4b)](https://playwright.dev)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED)](https://www.docker.com)
 [![Agent Runtime](https://img.shields.io/badge/OpenCode%20%2F%20Codex-runtime-7b68ee)](https://opencode.ai)
 
@@ -152,7 +152,7 @@ Optional environment tuning (defaults are production-safe, no configuration requ
 |---|---|---|
 | `COORDINATION_TELEMETRY_PATH` | `data/coordination-events.jsonl` | Durable sink for coordination events (e.g. point to a mounted volume). |
 | `COORDINATION_SIDEKICK_TIMEOUT_MS` | `420000` | Wall-clock cap per delegation; exceeded delegations fall back to the lead. |
-| `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions. |
+| `COORDINATION_ESCALATED_MODEL` | same model as the standard sidekick | Optional stronger model for escalated sidekick sessions; it must be a model of the provider the primary role is assigned to. |
 
 ### What happens at the end
 
@@ -218,7 +218,7 @@ Four layers prevent low-quality tests from entering the suite:
 
 ### Prerequisites
 
-- **Node.js 22** or later
+- **Node.js 24** or later
 - **Docker** and Docker Compose (for production deployment)
 - An **OpenCode API key** or a **Codex/OpenAI API key**. Dual mode requires both.
 - A GitHub repo you want to watch, deployed to a DEV environment
@@ -318,6 +318,9 @@ GitHub login needs a **GitHub OAuth App** with the device flow enabled. The app'
    |---|---|---|
    | `AUTH_SIGNING_KEY` | reuses `QA_API_TOKEN` | HMAC secret that signs sessions. Set a dedicated value to rotate sessions independently of the machine token. |
    | `AUTH_SESSION_TTL_SECONDS` | `86400` (24 h) | How long a GitHub session lasts before the console asks the user to sign in again. |
+   | `BIND_ADDR` | `127.0.0.1` | Interface the orchestrator's published port (`docker-compose.yml`) binds to. Set to `0.0.0.0` only to expose the control plane beyond the host — put your own reverse proxy/auth in front when you do. |
+   | `LISTEN_HOST` | `127.0.0.1` | Interface the orchestrator process itself listens on. A bare `npm run start` stays loopback-only; the image sets `0.0.0.0` (and `docker-compose.yml` repeats it), so a port published with `docker run -p` or compose reaches the process, and exposure beyond the host is decided by the publish address (`-p`, or `BIND_ADDR` under compose). Set it on a bare run only to serve other machines, behind your own reverse proxy/auth. |
+   | `QA_WEB_LOGIN_HOST_ALLOWLIST` | *(none)* | Comma-separated hostnames, besides `localhost`/`127.0.0.1`/`::1`, that `GET /api/auth/local` accepts in the request's `Host` header (defense against DNS rebinding). Only needed if the console is reached through another loopback-bound hostname. |
 
 > [!IMPORTANT]
 > Expose the orchestrator over **HTTPS** in production. During login the user's GitHub token transits to the orchestrator (which uses it read-only and immediately discards it — it is never stored or logged); HTTP would expose it in transit. Note also that rotating `QA_API_TOKEN` invalidates all active GitHub sessions when `AUTH_SIGNING_KEY` is not set, since they share the same signing secret.
@@ -389,11 +392,37 @@ docker compose up --build
 ```
 
 <details>
+<summary>The control-plane port (<code>PORT</code>, default 458)</summary>
+
+The orchestrator listens on `PORT` (default `458`) on `LISTEN_HOST` (default `127.0.0.1`; `0.0.0.0` inside the container) and serves the web console there at `/app`; the terminal clients (the `qayaba` TUI and `bin/qa`) connect to `localhost:458` unless `QA_HOST` says otherwise. The boot log names the interface and port it actually bound (e.g. `qayaba listening on 127.0.0.1:458`).
+
+458 is a **privileged port** (below 1024):
+
+- The Docker image runs the orchestrator as root, so `docker compose up` binds it as-is.
+- Running `npm run start` as a non-root Linux user fails with `EACCES`: set `PORT` above 1023 (and `QA_HOST=localhost:<port>` for the clients), or grant node the `CAP_NET_BIND_SERVICE` capability.
+- Rootless Docker cannot publish a port below 1024: set `PORT` above 1023 before `docker compose up`.
+
+</details>
+
+<details>
+<summary>Where the orchestrator keeps its data</summary>
+
+The orchestrator writes under `<QAYABA_ROOT>/data/` (the `qa-data` volume in `docker-compose.yml`) unless a location is overridden:
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `QAYABA_ROOT` | the working directory | Root the orchestrator resolves `config/` and `data/` against. |
+| `HISTORY_DB_PATH` | `<QAYABA_ROOT>/data/qayaba.db` | SQLite run history and learning ledger. Its directory is created on first use. The daily backup still goes to `<QAYABA_ROOT>/data/backups/`. |
+| `QAYABA_LOG_DIR` | `<QAYABA_ROOT>/data/logs` | Structured JSON log files, rotated by size and pruned by count. |
+
+</details>
+
+<details>
 <summary>Trigger a run via webhook</summary>
 
 ```bash
 SHA=$(git ls-remote https://github.com/your-org/your-repo main | cut -f1)
-curl -X POST localhost:8080 \
+curl -X POST localhost:458 \
   -H 'content-type: application/json' \
   -d "{\"repo\":\"your-org/your-repo\",\"sha\":\"$SHA\"}"
 ```

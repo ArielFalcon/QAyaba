@@ -16,7 +16,6 @@ type Format = {
     apiError?: string | null;
     canned: string;
   }) => { text: string; kind: "assistant" | "error" | "canned" };
-  mergeLiveRun: (real: Record<string, unknown> | null, mock: Record<string, unknown>) => Record<string, unknown> | null;
   triggerExtras: (mode: unknown) => { sha: boolean; delta: boolean; guidance: boolean };
   clampDiffCommits: (n: unknown) => number;
   triggerPayload: (input: {
@@ -26,6 +25,8 @@ type Format = {
     commits?: number | string;
     guidance?: string;
   }) => Record<string, unknown>;
+  nextSseRetryDelay: (current: unknown, cap?: unknown) => number;
+  delegationsLabel: (wf: unknown) => string;
 };
 
 function loadFormat(): Format {
@@ -176,18 +177,33 @@ test("triggerPayload omits SHA/commits except in diff, and guidance except in ma
   });
 });
 
-test("mergeLiveRun keeps the real run id (never the mock r-1842)", () => {
+test("nextSseRetryDelay doubles and caps (bounded exponential backoff)", () => {
   const F = loadFormat();
-  const mock = { id: "r-1842", sha: "aa17c93", app: "web-app", plan: [{ t: "demo", s: "active" }], currentTest: { file: "debounce.spec.ts" } };
-  assert.equal(F.mergeLiveRun(null, mock), null);
-  const merged = F.mergeLiveRun({ id: "run_real", sha: "deadbeefcafebabe", app: "portfolio", message: "feat: x" }, mock);
-  assert.ok(merged);
-  assert.equal(merged.id, "run_real");
-  assert.equal(merged.sha, "deadbeefcafebabe");
-  assert.equal(merged.app, "portfolio");
-  assert.equal(merged.message, "feat: x");
-  assert.deepEqual(merged.plan, mock.plan);
-  assert.equal((merged.currentTest as { file: string }).file, "debounce.spec.ts");
-  const emptyMsg = F.mergeLiveRun({ id: "run_2", sha: "aaaaaaaa", app: "portfolio", message: "" }, mock);
-  assert.equal(emptyMsg && emptyMsg.message, "", "empty real message must not keep the mock commit subject");
+  assert.equal(F.nextSseRetryDelay(1000, 30000), 2000);
+  assert.equal(F.nextSseRetryDelay(2000, 30000), 4000);
+  assert.equal(F.nextSseRetryDelay(20000, 30000), 30000, "must not exceed the cap");
+  assert.equal(F.nextSseRetryDelay(30000, 30000), 30000, "stays capped once at the ceiling");
+});
+
+test("nextSseRetryDelay falls back to sane defaults for bad input", () => {
+  const F = loadFormat();
+  assert.equal(F.nextSseRetryDelay(0), 2000, "a non-positive current delay resets to the 1s base");
+  assert.equal(F.nextSseRetryDelay(null), 2000);
+  assert.equal(F.nextSseRetryDelay(undefined), 2000);
+});
+
+test("delegationsLabel keeps the count and surfaces repairs and failures only when present", () => {
+  const F = loadFormat();
+  assert.equal(F.delegationsLabel({ delegations: 1, repairs: 0, failures: 0 }), "1");
+  assert.equal(F.delegationsLabel({ delegations: 3, repairs: 1, failures: 0 }), "3 · 1 repair");
+  assert.equal(F.delegationsLabel({ delegations: 4, repairs: 2, failures: 0 }), "4 · 2 repairs");
+  assert.equal(F.delegationsLabel({ delegations: 2, repairs: 0, failures: 2 }), "2 · 2 failed");
+  assert.equal(F.delegationsLabel({ delegations: 5, repairs: 2, failures: 1 }), "5 · 2 repairs · 1 failed");
+});
+
+test("delegationsLabel tolerates a missing or partial workforce record", () => {
+  const F = loadFormat();
+  assert.equal(F.delegationsLabel({ delegations: 0 }), "0", "a sidekick outcome with no delegation samples");
+  assert.equal(F.delegationsLabel(null), "0");
+  assert.equal(F.delegationsLabel(undefined), "0");
 });

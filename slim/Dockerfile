@@ -164,7 +164,10 @@ RUN mkdir -p /root/.config \
 COPY --from=tui /out/qayaba /usr/local/bin/qayaba
 COPY --from=tui /out/qayaba-darwin-arm64 /out/qayaba-darwin-amd64 /opt/qayaba/tui/
 
+# LISTEN_HOST: inside the container the control plane listens on every interface so the published
+# port (slim/compose.yml binds it to 127.0.0.1 on the host) and the tui service can reach it.
 ENV QAYABA_PROFILE=slim \
+    LISTEN_HOST=0.0.0.0 \
     MIRROR_DIR=/app/.mirrors \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     OPENCODE_DISABLE_MODELS_FETCH=true \

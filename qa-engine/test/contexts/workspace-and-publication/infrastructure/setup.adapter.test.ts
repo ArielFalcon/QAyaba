@@ -2,7 +2,8 @@
    always-present class methods, not injectable no-ops. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,14 +12,13 @@ import {
   nodeFsDeps,
   FAILURE_CAPTURE_MARKER,
   FAILURE_CAPTURE_BLOCK,
-  PLAYWRIGHT_CONFIG_SEED_MARKER,
   type SetupAdapterFsDeps,
 } from "@contexts/workspace-and-publication/infrastructure/setup.adapter.ts";
 import type { SandboxedBinaryRunner, SandboxedRunRequest, SandboxedRunResult } from "../../../../src/shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 
 /* 5 levels up from this file to the repo root (qa-engine/test/contexts/workspace-and-publication/
    infrastructure/ -> qa-engine/test/contexts/ -> qa-engine/test/ -> qa-engine/ -> repo root) —
-   verified empirically against the real config/e2e/ tree before writing this file (rider 3).
+   verified empirically against the real config/e2e/ tree before writing this file.
  */
 const REAL_SEED_DIR = fileURLToPath(new URL("../../../../../config/e2e", import.meta.url));
 
@@ -176,6 +176,17 @@ test("signal and timeoutMs are passed through to the runner request", async () =
   assert.equal(seen?.timeoutMs, 5_000);
 });
 
+test("the install runs with a bounded output tail: its lifecycle scripts are untrusted and its output is never read", async () => {
+  let seen: SandboxedRunRequest | undefined;
+  const fs = orchestrationFs({ hasPackageJson: true });
+  const runner = fakeRunner(async (req) => {
+    seen = req;
+    return okResult();
+  });
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  assert.ok(typeof seen?.outputKeepChars === "number" && seen.outputKeepChars > 0, "the runner is asked to keep only a tail of the install output");
+});
+
 test("a failing install still propagates its own error (not a timeout)", async () => {
   const fs = orchestrationFs({ hasPackageJson: true });
   const runner = fakeRunner(async () => okResult({ exitCode: 1, timedOut: false }));
@@ -240,14 +251,14 @@ test("ensureFailureCapture: first injection appends the block; existing lines un
     assert.ok(after.startsWith(existingContent), "existing content was modified (not append-only)");
     assert.equal(after.slice(0, existingContent.length), existingContent);
     /* retry) and the new body fields — guarding that setup.adapter.ts's FAILURE_CAPTURE_BLOCK stays
-       in sync with the fixture. C1: the block must be ESM-safe — dynamic import(), never require().
+       in sync with the fixture. The block must be ESM-safe — dynamic import(), never require().
      */
     assert.match(after, /testInfo\.project\.name/, "the injected block must record the project name");
-    assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename (W1)");
+    assert.match(after, /basename\(testInfo\.file/, "the injected block must record the spec file basename");
     assert.match(after, /createHash\("sha1"\)\.update\(`\$\{file\}\/\$\{title\}`\)/, "the filename hash must fold in the file AND the full title (no 80-char truncation)");
     assert.match(after, /\$\{safeProject\}__\$\{hash\}__\$\{testInfo\.retry\}\.json/, "the filename must be project__hash__retry");
-    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors (Feature B)");
-    /* C1: ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
+    assert.match(after, /JSON\.stringify\(\{ project, file, title, retry: testInfo\.retry, yaml, finalUrl, httpStatus, runtimeErrors: dedupedRuntimeErrors \}\)/, "the body must carry project, file, title, retry, yaml, finalUrl, httpStatus, runtimeErrors");
+    /* ESM-safe — the appended block runs in a native-ESM fixtures.ts where require() is undefined. */
     assert.doesNotMatch(after, /require\(/, "the injected block must not use require() (ReferenceError in ESM — dead capture)");
     assert.match(after, /await import\("node:fs"\)/, "the injected block must pull node:fs via dynamic import()");
   } finally {
@@ -327,13 +338,9 @@ test("setup() calls ensureFailureCapture after ensureSpecDir", async () => {
   assert.ok(seq.includes("install"), "setup() must complete through install");
 });
 
-/* Repos onboarded before actionTimeout/testIdAttribute were added to the seed's playwright.config.ts
-   never receive them (bootstrap only runs once, on first onboard). This repairs already-onboarded
-   repos: if the repo's e2e/playwright.config.ts is a recognizable, unmodified copy of an OLDER seed
-   version (carries the seed's ownership marker) AND is missing the managed env-passthrough keys,
-   replace the whole file with the CURRENT seed (env-passthrough only — never bakes concrete values).
-   A customized config (marker absent) is left untouched with a loud warning naming the missing keys —
-   the repo owns its e2e/ after first PR.
+/* A repo's e2e/playwright.config.ts follows the current seed only while it is byte-for-byte a shipped
+   seed revision (stock). Any edit makes it the repo's own: it is never overwritten, and a missing
+   managed env-passthrough key is reported instead.
  */
 
 test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFailureCapture, before the install-current check", async () => {
@@ -358,76 +365,148 @@ test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFai
   assert.ok(seq.indexOf("ensurePlaywrightEnvKeys") < seq.indexOf("install"), "ensurePlaywrightEnvKeys must run before install");
 });
 
-test("ensurePlaywrightEnvKeys: seed-owned config missing the managed keys is repaired (replaced with current seed)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-"));
+const SEED_REVISIONS_DIR = fileURLToPath(new URL("./__fixtures__/seed-revisions", import.meta.url));
+
+/* The exact bytes of a seed file as an earlier revision shipped it into watched repos. */
+function shippedRevision(name: string): string {
+  return readFileSync(join(SEED_REVISIONS_DIR, name), "utf8");
+}
+
+/* Runs `ensure` on a temp e2e dir holding `name` with `body`; returns the file afterwards. */
+function afterEnsure(name: string, body: string, ensure: (adapter: SetupAdapter, dir: string) => void, seedDir = REAL_SEED_DIR): string {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-seed-owned-"));
   try {
-    const configPath = join(dir, "playwright.config.ts");
-    /* An older seed copy: carries the ownership marker but predates actionTimeout/testIdAttribute. */
-    const oldSeed = `// Base Playwright config — harness SEED (Filter A).\n// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig, devices } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL },\n  projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],\n});\n`;
-    writeFileSync(configPath, oldSeed);
-    assert.ok(!oldSeed.includes("actionTimeout"), "test precondition: old seed must lack actionTimeout");
-    assert.ok(!oldSeed.includes("testIdAttribute"), "test precondition: old seed must lack testIdAttribute");
-
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.match(after, /actionTimeout: Number\(process\.env\.PW_ACTION_TIMEOUT_MS/, "repaired config must gain actionTimeout (env-passthrough)");
-    assert.match(after, /testIdAttribute: process\.env\.PW_TEST_ID_ATTRIBUTE/, "repaired config must gain testIdAttribute (env-passthrough)");
-    /* Must be the byte-identical current seed (no baked concrete values — reads process.env at runtime). */
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
-    assert.equal(after, currentSeed, "repaired config must be byte-identical to the current seed");
+    writeFileSync(join(dir, name), body);
+    ensure(realAdapter(seedDir), dir);
+    return readFileSync(join(dir, name), "utf8");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}
 
-test("ensurePlaywrightEnvKeys: customized config (no ownership marker) is NOT touched, even if missing the keys", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-custom-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    const customConfig = `import { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL, timeout: 5000 },\n});\n`;
-    writeFileSync(configPath, customConfig);
+const ensureConfig = (adapter: SetupAdapter, dir: string): void => adapter.ensurePlaywrightEnvKeys(dir);
 
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.equal(after, customConfig, "a config without the ownership marker must be left byte-identical (repo owns its e2e/ after first PR)");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+test("ensurePlaywrightEnvKeys replaces every earlier shipped seed revision with the current seed", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  for (const revision of ["playwright.config.rev1.txt", "playwright.config.rev2.txt", "playwright.config.rev3.txt"]) {
+    assert.equal(afterEnsure("playwright.config.ts", shippedRevision(revision), ensureConfig), currentSeed, `${revision} is stock`);
   }
 });
 
-test("ensurePlaywrightEnvKeys: a config that already has both managed keys is left untouched (idempotent no-op), marker or not", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-current-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
-    writeFileSync(configPath, currentSeed);
+test("ensurePlaywrightEnvKeys never overwrites a shipped seed revision the repo customized", () => {
+  const customized = shippedRevision("playwright.config.rev2.txt").replace("  retries: 2,", "  retries: 2,\n  expect: { timeout: 15_000 },");
+  assert.notEqual(customized, shippedRevision("playwright.config.rev2.txt"), "test precondition: the customization applied");
 
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.equal(after, currentSeed, "a config that already has the managed keys must not be rewritten");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  assert.equal(afterEnsure("playwright.config.ts", customized, ensureConfig), customized);
 });
 
-test("ensurePlaywrightEnvKeys: idempotent — running twice on a repaired repo changes nothing the second time", () => {
+test("ensurePlaywrightEnvKeys: a config that is no seed revision is NOT touched, even if missing the keys", () => {
+  const customConfig = `import { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { baseURL: process.env.PW_BASE_URL, timeout: 5000 },\n});\n`;
+  assert.equal(afterEnsure("playwright.config.ts", customConfig, ensureConfig), customConfig);
+});
+
+test("ensurePlaywrightEnvKeys leaves the current seed as it is, and a replaced copy stays put on the next run", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  assert.equal(afterEnsure("playwright.config.ts", currentSeed, ensureConfig), currentSeed);
+
   const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-idem-"));
   try {
     const configPath = join(dir, "playwright.config.ts");
-    const oldSeed = `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig } from "@playwright/test";\nexport default defineConfig({ testDir: "." });\n`;
-    writeFileSync(configPath, oldSeed);
-
+    writeFileSync(configPath, shippedRevision("playwright.config.rev1.txt"));
     realAdapter().ensurePlaywrightEnvKeys(dir);
     const afterFirst = readFileSync(configPath, "utf8");
     realAdapter().ensurePlaywrightEnvKeys(dir);
-    const afterSecond = readFileSync(configPath, "utf8");
-
-    assert.equal(afterSecond, afterFirst, "second run must be a no-op (idempotent)");
+    assert.equal(readFileSync(configPath, "utf8"), afterFirst);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The seed that ships today is itself a revision repos hold once the seed changes again. */
+test("ensurePlaywrightEnvKeys moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "playwright.config.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-seed-"));
+  try {
+    const nextSeed = `${shipped}// the next seed revision\n`;
+    writeFileSync(join(nextSeedDir, "playwright.config.ts"), nextSeed);
+    assert.equal(afterEnsure("playwright.config.ts", shipped, ensureConfig, nextSeedDir), nextSeed);
+  } finally {
+    rmSync(nextSeedDir, { recursive: true, force: true });
+  }
+});
+
+/* auth.setup.ts follows the current seed only while it is byte-for-byte a shipped seed revision — an
+   earlier one saved the session under the agent-visible mirror. A login rewritten for the app is its
+   own, whether or not it kept the seed marker. */
+const ensureAuth = (adapter: SetupAdapter, dir: string): void => adapter.ensureAuthSetup(dir);
+
+test("ensureAuthSetup replaces a stock auth.setup.ts from an earlier seed revision with the current seed", () => {
+  const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  assert.equal(afterEnsure("auth.setup.ts", shippedRevision("auth.setup.rev1.txt"), ensureAuth), currentSeed);
+});
+
+test("ensureAuthSetup never overwrites a login rewritten for the app that kept the seed marker", () => {
+  const appLogin = `/* qa-auth-setup-seed */\nimport { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => {\n  await page.goto("/sso");\n  await page.getByRole("button", { name: "Continue with SSO" }).click();\n  await page.context().storageState({ path: process.env.PW_STORAGE_STATE ?? ".auth/user.json" });\n});\n`;
+  assert.equal(afterEnsure("auth.setup.ts", appLogin, ensureAuth), appLogin);
+});
+
+test("ensureAuthSetup moves a copy of the shipped seed on to the next seed revision", () => {
+  const shipped = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+  const nextSeedDir = mkdtempSync(join(tmpdir(), "qa-setup-next-auth-seed-"));
+  try {
+    const nextSeed = `${shipped}/* the next seed revision */\n`;
+    writeFileSync(join(nextSeedDir, "auth.setup.ts"), nextSeed);
+    assert.equal(afterEnsure("auth.setup.ts", shipped, ensureAuth, nextSeedDir), nextSeed);
+  } finally {
+    rmSync(nextSeedDir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup never overwrites an app-owned auth.setup.ts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-owned-"));
+  try {
+    const appOwned = `import { test as setup } from "@playwright/test";\nsetup("authenticate", async ({ page }) => { await page.goto("/sso"); });\n`;
+    writeFileSync(join(dir, "auth.setup.ts"), appOwned);
+
+    realAdapter().ensureAuthSetup(dir);
+
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), appOwned);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureAuthSetup gives a repo without auth.setup.ts the current seed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-missing-"));
+  try {
+    realAdapter().ensureAuthSetup(dir);
+
+    const currentSeed = readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8");
+    assert.equal(readFileSync(join(dir, "auth.setup.ts"), "utf8"), currentSeed);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureSessionGitignore appends .auth/ once and creates the file when it is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-"));
+  try {
+    const ignorePath = join(dir, ".gitignore");
+    writeFileSync(ignorePath, "node_modules/\n");
+    realAdapter().ensureSessionGitignore(dir);
+    const once = readFileSync(ignorePath, "utf8");
+    assert.match(once, /\.auth\//);
+    realAdapter().ensureSessionGitignore(dir);
+    assert.equal(readFileSync(ignorePath, "utf8"), once);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const empty = mkdtempSync(join(tmpdir(), "qa-setup-auth-ignore-new-"));
+  try {
+    realAdapter().ensureSessionGitignore(empty);
+    assert.equal(readFileSync(join(empty, ".gitignore"), "utf8"), ".auth/\n");
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
   }
 });
 
@@ -442,33 +521,14 @@ test("ensurePlaywrightEnvKeys: missing playwright.config.ts is a no-op (new onbo
   }
 });
 
-test("ensurePlaywrightEnvKeys: a config missing only one of the two managed keys (marker present) is still repaired", () => {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-pwconfig-partial-"));
-  try {
-    const configPath = join(dir, "playwright.config.ts");
-    /* Has testIdAttribute already (e.g. hand-added) but not actionTimeout — still repaired, since the
-       repair replaces the whole file wholesale once the marker recognizes it as seed-owned.
-     */
-    const partialSeed = `// ${PLAYWRIGHT_CONFIG_SEED_MARKER}\nimport { defineConfig } from "@playwright/test";\nexport default defineConfig({\n  testDir: ".",\n  use: { testIdAttribute: process.env.PW_TEST_ID_ATTRIBUTE ?? "data-testid" },\n});\n`;
-    writeFileSync(configPath, partialSeed);
-
-    realAdapter().ensurePlaywrightEnvKeys(dir);
-
-    const after = readFileSync(configPath, "utf8");
-    assert.match(after, /actionTimeout: Number\(process\.env\.PW_ACTION_TIMEOUT_MS/, "repaired config must gain actionTimeout");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-/* ── C1: the failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
+/* ── The failure-capture block is ESM-safe (dynamic import, never require()) ──────────────
    config/e2e/fixtures.ts is native ESM ("type":"module", uses import.meta.url). The qa-failure-capture
    afterEach previously called require("node:fs") etc. → ReferenceError in ESM → swallowed by the
    surrounding try/catch → NO dump file → Lever-1's primary grounding path was DEAD. These tests prove
    the block (a) contains no require( token and (b) actually writes a dump when run as a real ES module.
  */
 
-test("C1: FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
+test("FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
   assert.doesNotMatch(FAILURE_CAPTURE_BLOCK, /require\(/, "the injected block must not use require() — it runs in a native-ESM fixtures.ts");
   /* And it MUST pull its deps via dynamic import() instead. */
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:fs"\)/);
@@ -476,14 +536,14 @@ test("C1: FAILURE_CAPTURE_BLOCK contains no require( token (ESM-safe)", () => {
   assert.match(FAILURE_CAPTURE_BLOCK, /await import\("node:crypto"\)/);
 });
 
-test("C1: the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
+test("the afterEach body, run as a real ES module, writes a dump (no ReferenceError)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-esm-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeEach = fn; }, afterEach(fn) { globalThis.__qaCapture = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeEach;\nexport const afterEachFn = globalThis.__qaCapture;\n`;
-    const modPath = join(dir, "capture.mjs");
+    const modPath = join(dir, "capture.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     writeFileSync(join(dir, ".keep"), "");
@@ -535,7 +595,7 @@ test("C1: the afterEach body, run as a real ES module, writes a dump (no Referen
     assert.equal(dumps.length, 1, `exactly one dump must be written, got ${JSON.stringify(dumps)}`);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
     assert.equal(body.project, "desktop");
-    assert.equal(body.file, "owners.spec.ts", "W1: the dump body must carry the spec file basename");
+    assert.equal(body.file, "owners.spec.ts", "the dump body must carry the spec file basename");
     assert.equal(body.title, "owner registration › create owner", "title is titlePath without the leading project element");
     assert.equal(body.retry, 0);
     assert.match(body.yaml, /button "Submit"/, "the dump must carry the post-failure aria YAML");
@@ -547,14 +607,14 @@ test("C1: the afterEach body, run as a real ES module, writes a dump (no Referen
   }
 });
 
-test("C1/D2: httpStatus is absent when no ≥500 response was observed", async () => {
+test("httpStatus is absent when no ≥500 response was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-no5xx-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_no5xx = fn; }, afterEach(fn) { globalThis.__qaAfter_no5xx = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_no5xx;\nexport const afterEachFn = globalThis.__qaAfter_no5xx;\n`;
-    const modPath = join(dir, "no5xx.mjs");
+    const modPath = join(dir, "no5xx.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -590,14 +650,14 @@ test("C1/D2: httpStatus is absent when no ≥500 response was observed", async (
   }
 });
 
-test("C1/D2: httpStatus is absent when only a background ping/beacon 500 was observed", async () => {
+test("httpStatus is absent when only a background ping/beacon 500 was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-bgping-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_bgping = fn; }, afterEach(fn) { globalThis.__qaAfter_bgping = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_bgping;\nexport const afterEachFn = globalThis.__qaAfter_bgping;\n`;
-    const modPath = join(dir, "bgping.mjs");
+    const modPath = join(dir, "bgping.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -627,20 +687,20 @@ test("C1/D2: httpStatus is absent when only a background ping/beacon 500 was obs
 
     const dumps = readdirSync(captureDir);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
-    assert.equal(body.httpStatus, undefined, "background ping 500 must be excluded by D2 heuristic — httpStatus must be absent");
+    assert.equal(body.httpStatus, undefined, "background ping 500 must be excluded by the background-request heuristic — httpStatus must be absent");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("C1/D2: httpStatus is absent when only a cross-origin 500 was observed", async () => {
+test("httpStatus is absent when only a cross-origin 500 was observed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-xorigin-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_xorigin = fn; }, afterEach(fn) { globalThis.__qaAfter_xorigin = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_xorigin;\nexport const afterEachFn = globalThis.__qaAfter_xorigin;\n`;
-    const modPath = join(dir, "xorigin.mjs");
+    const modPath = join(dir, "xorigin.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -670,20 +730,20 @@ test("C1/D2: httpStatus is absent when only a cross-origin 500 was observed", as
 
     const dumps = readdirSync(captureDir);
     const body = JSON.parse(readFileSync(join(captureDir, dumps[0]!), "utf8"));
-    assert.equal(body.httpStatus, undefined, "cross-origin 500 must be excluded by D2 same-origin gate — httpStatus must be absent");
+    assert.equal(body.httpStatus, undefined, "cross-origin 500 must be excluded by the same-origin gate — httpStatus must be absent");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("C1/D2: errorResponses resets between tests — reused page does not cross-attribute", async () => {
+test("errorResponses resets between tests — reused page does not cross-attribute", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-reset-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_reset = fn; }, afterEach(fn) { globalThis.__qaAfter_reset = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_reset;\nexport const afterEachFn = globalThis.__qaAfter_reset;\n`;
-    const modPath = join(dir, "reset.mjs");
+    const modPath = join(dir, "reset.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -724,14 +784,14 @@ test("C1/D2: errorResponses resets between tests — reused page does not cross-
   }
 });
 
-test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dump, no throw)", async () => {
+test("the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no dump, no throw)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-noop-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureNoop = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeNoop;\nexport const afterEachFn = globalThis.__qaCaptureNoop;\n`;
-    const modPath = join(dir, "capture-noop.mjs");
+    const modPath = join(dir, "capture-noop.mts");
     writeFileSync(modPath, moduleSrc);
     const mod = await import(pathToFileURL(modPath).href);
     const fakePage = {
@@ -753,13 +813,13 @@ test("C1: the afterEach body is a no-op when QA_FAILURE_CAPTURE_DIR is unset (no
   }
 });
 
-/* ── FIX 4: byte-twin token guard for config/e2e/fixtures.ts ─────────────────
-   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above (C1 block). Nothing
+/* ── Byte-twin token guard for config/e2e/fixtures.ts ─────────────────
+   The setup.adapter.ts FAILURE_CAPTURE_BLOCK is asserted by the tests above. Nothing
    asserted that config/e2e/fixtures.ts's qa-failure-capture block stays in sync. These token-presence
    tests catch a future edit that updates one twin but not the other.
  */
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains test.beforeEach", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -770,7 +830,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains test.before
   assert.ok(block.includes("test.beforeEach"), "fixtures.ts qa-failure-capture block must contain test.beforeEach");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('response'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('response'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -779,7 +839,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('re
   assert.ok(block.includes("page.on('response'"), "fixtures.ts qa-failure-capture block must contain page.on('response'");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains errorResponses", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains errorResponses", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -788,7 +848,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains errorRespon
   assert.ok(block.includes("errorResponses"), "fixtures.ts qa-failure-capture block must contain errorResponses");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -797,7 +857,7 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains finalUrl", 
   assert.ok(block.includes("finalUrl"), "fixtures.ts qa-failure-capture block must contain finalUrl");
 });
 
-test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains httpStatus", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -806,12 +866,12 @@ test("FIX4: config/e2e/fixtures.ts qa-failure-capture block contains httpStatus"
   assert.ok(block.includes("httpStatus"), "fixtures.ts qa-failure-capture block must contain httpStatus");
 });
 
-/* ── Feature B: byte-twin token guard — runtimeErrors capture ──────────────────
+/* ── Byte-twin token guard — runtimeErrors capture ──────────────────
    Same FIX4 pattern: catches a future edit that updates the fixtures.ts seed but not the
    setup.adapter.ts FAILURE_CAPTURE_BLOCK twin (existing repos are only ever updated via the twin).
  */
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('console'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -820,7 +880,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains p
   assert.ok(block.includes("page.on('console'"), "fixtures.ts qa-failure-capture block must contain page.on('console'");
 });
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains page.on('pageerror'", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains page.on('pageerror'", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -829,7 +889,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains p
   assert.ok(block.includes("page.on('pageerror'"), "fixtures.ts qa-failure-capture block must contain page.on('pageerror'");
 });
 
-test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", () => {
+test("config/e2e/fixtures.ts qa-failure-capture block contains runtimeErrors", () => {
   const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
   const content = readFileSync(fixturesPath, "utf8");
   const start = content.indexOf(">>> qa-failure-capture");
@@ -838,7 +898,7 @@ test("Feature B/FIX4: config/e2e/fixtures.ts qa-failure-capture block contains r
   assert.ok(block.includes("runtimeErrors"), "fixtures.ts qa-failure-capture block must contain runtimeErrors");
 });
 
-test("Feature B: setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
+test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerror' and runtimeErrors (twin sync)", () => {
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('console'"), "FAILURE_CAPTURE_BLOCK must register a console listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("page.on('pageerror'"), "FAILURE_CAPTURE_BLOCK must register a pageerror listener");
   assert.ok(FAILURE_CAPTURE_BLOCK.includes("runtimeErrors"), "FAILURE_CAPTURE_BLOCK must carry runtimeErrors");
@@ -849,61 +909,166 @@ test("Feature B: setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('consol
   );
 });
 
-/* ── D2: byte-level twin guard for the shared capture region ────────────────
-   FIX4/Feature B above only assert individual tokens are present in both twins — they would NOT have
-   caught a literal NUL byte silently replacing the space in the runtimeErrors dedup key
-   (`${e.type}\0${text}` in the seed vs `${e.type} ${text}` in FAILURE_CAPTURE_BLOCK), because both
-   strings still contain the same tokens. This test compares the two blocks structurally:
-   config/e2e/fixtures.ts is real strict-mode TypeScript (config/e2e/tsconfig.json has `strict: true`),
-   so its capture block legitimately carries type annotations (`let x: T[] = []`, `new Set<string>()`,
-   the `!` non-null assertion) that FAILURE_CAPTURE_BLOCK — a plain-JS string appended into an
-   arbitrary existing repo's fixtures.ts — deliberately omits. Stripping ONLY those known TS-only
-   annotations from the seed's block must leave it byte-identical to FAILURE_CAPTURE_BLOCK; any other
-   divergence (like the NUL byte) is a real drift and must fail.
- */
-test("D2: config/e2e/fixtures.ts qa-failure-capture block matches FAILURE_CAPTURE_BLOCK byte-for-byte (modulo TS-only type annotations)", () => {
-  const fixturesPath = join(REAL_SEED_DIR, "fixtures.ts");
-  const content = readFileSync(fixturesPath, "utf8");
-  const start = content.indexOf(">>> qa-failure-capture");
-  const end = content.indexOf("<<< qa-failure-capture");
-  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
-  assert.ok(end !== -1, "fixtures.ts must contain the qa-failure-capture end marker");
+/* The capture block is appended into a repo's own fixtures.ts, which the static gate type-checks
+   with the repo's e2e tsconfig — the seed's is strict. A block that does not type-check there turns
+   every run of that repo invalid. Playwright is not installed in this template, so its types are a
+   hand-written stand-in covering exactly the API the block touches; @types/node is the real one. */
+const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string }
+export interface Response { status(): number; url(): string; request(): Request }
+export interface ConsoleMessage { type(): string; text(): string }
+export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
+export interface Page {
+  on(event: "response", listener: (response: Response) => unknown): this;
+  on(event: "console", listener: (message: ConsoleMessage) => unknown): this;
+  on(event: "pageerror", listener: (error: Error) => unknown): this;
+  url(): string;
+  locator(selector: string): Locator;
+}
+export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
+export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number }
+export interface TestType<Args> {
+  (title: string, body: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  beforeEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  afterEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
+  extend<T extends object>(fixtures: object): TestType<Args & T>;
+}
+export declare const test: TestType<{ page: Page }>;
+export declare const expect: (actual: unknown) => { toBe(expected: unknown): void };
+`;
 
-  const blockStart = content.lastIndexOf("\n", start); /* the newline just before "// >>>" */
-  const endMarkerLine = "// <<< qa-failure-capture <<<";
-  const endMarkerIdx = content.lastIndexOf(endMarkerLine, end);
-  assert.ok(endMarkerIdx !== -1, "fixtures.ts must contain the full end marker line");
-  const blockEnd = endMarkerIdx + endMarkerLine.length + 1; /* include the trailing newline */
-  const seedBlock = content.slice(blockStart, blockEnd);
+const REPO_FIXTURES = 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n';
 
-  const normalized = seedBlock
-    .replace("errorResponses: { url: string; status: number; resourceType: string }[] = []", "errorResponses = []")
-    .replace("runtimeErrors: { type: string; text: string }[] = []", "runtimeErrors = []")
-    .replace("let httpStatus: number | undefined;", "let httpStatus = undefined;")
-    .replace("survivors[survivors.length - 1]!.status", "survivors[survivors.length - 1].status")
-    .replace("dedupedRuntimeErrors: { type: string; text: string }[] = []", "dedupedRuntimeErrors = []")
-    .replace("new Set<string>()", "new Set()");
+/* Runs ensureFailureCapture on a repo whose fixtures.ts is `fixtures`, then type-checks it with the seed's tsconfig. */
+function typeCheckAfterCapture(fixtures: string): { exitCode: number; output: string; after: string } {
+  const dir = mkdtempSync(join(tmpdir(), "qa-setup-capture-tsc-"));
+  try {
+    const repoRoot = join(REAL_SEED_DIR, "..", "..");
+    copyFileSync(join(REAL_SEED_DIR, "tsconfig.json"), join(dir, "tsconfig.json"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
+    mkdirSync(join(dir, "node_modules", "@types"), { recursive: true });
+    symlinkSync(join(repoRoot, "node_modules", "@types", "node"), join(dir, "node_modules", "@types", "node"), "dir");
+    const playwright = join(dir, "node_modules", "@playwright", "test");
+    mkdirSync(playwright, { recursive: true });
+    writeFileSync(join(playwright, "package.json"), JSON.stringify({ name: "@playwright/test", types: "index.d.ts" }));
+    writeFileSync(join(playwright, "index.d.ts"), PLAYWRIGHT_TYPES_STAND_IN);
+    writeFileSync(join(dir, "fixtures.ts"), fixtures);
 
+    realAdapter().ensureFailureCapture(dir);
+    const after = readFileSync(join(dir, "fixtures.ts"), "utf8");
+
+    const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+    try {
+      return { exitCode: 0, output: execFileSync(process.execPath, [tsc, "-p", join(dir, "tsconfig.json")], { encoding: "utf8" }), after };
+    } catch (err) {
+      const e = err as { status?: number; stdout?: string; stderr?: string };
+      return { exitCode: e.status ?? 1, output: `${e.stdout ?? ""}${e.stderr ?? ""}`, after };
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a repo fixtures.ts with the capture block appended type-checks under the seed's strict tsconfig", () => {
+  const { exitCode, output, after } = typeCheckAfterCapture(REPO_FIXTURES);
+  assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "precondition: the block was appended");
+  assert.equal(exitCode, 0, `the appended fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+test("a repo that received an earlier, untyped capture block type-checks after setup", () => {
+  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"));
+  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+/* Every capture block a repo received, appended or in the seed's fixtures.ts, is recorded as a
+   failure-capture.revN.txt fixture; the newest is the block shipped today. Only a block that is still
+   byte-for-byte an earlier revision is upgraded, in place. Changing FAILURE_CAPTURE_BLOCK means
+   recording it as the next revision, which makes the outgoing block an earlier one that must upgrade. */
+const FAILURE_CAPTURE_REVISIONS = readdirSync(SEED_REVISIONS_DIR)
+  .filter((name) => /^failure-capture\.rev\d+\.txt$/.test(name))
+  .sort((a, b) => Number(/\d+/.exec(a)![0]) - Number(/\d+/.exec(b)![0]));
+
+test("the block shipped today is the newest recorded capture block revision", () => {
+  const newest = FAILURE_CAPTURE_REVISIONS.at(-1)!;
   assert.equal(
-    normalized,
+    shippedRevision(newest),
     FAILURE_CAPTURE_BLOCK,
-    "config/e2e/fixtures.ts's capture block has drifted from setup.adapter.ts's FAILURE_CAPTURE_BLOCK beyond the known TS-only annotations — the twins must stay in sync (existing repos are only ever updated via the FAILURE_CAPTURE_BLOCK twin, never the seed)",
+    `FAILURE_CAPTURE_BLOCK changed: record it as the next failure-capture.revN.txt after ${newest} and add the outgoing block's sha256 to the earlier revisions`,
   );
 });
 
-/* ── C1: the afterEach body, run as a real ES module, dumps runtimeErrors (Feature B) ─────────
-   Same harness as the D1/D2 C1 tests above: run the block's beforeEach/afterEach as genuine ESM
+test("ensureFailureCapture upgrades every earlier recorded block revision in place to the current block", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  const earlier = FAILURE_CAPTURE_REVISIONS.slice(0, -1);
+  assert.ok(earlier.length > 0, "precondition: earlier revisions are recorded");
+  for (const revision of earlier) {
+    const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision(revision) + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+    assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later, `${revision} is an earlier capture block`);
+  }
+});
+
+/* One revision was appended without its markers. A repo holding it byte-for-byte gets the current
+   block in its place; appending beside it would redeclare its variables and fail every run's
+   type-check. */
+test("ensureFailureCapture replaces in place the capture block appended without markers", () => {
+  const later = "export const helperAddedLater = 1;\n";
+  const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt") + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
+  assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later);
+});
+
+test("a repo that received the capture block without markers type-checks after setup", () => {
+  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt"));
+  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
+});
+
+test("ensureFailureCapture leaves an edited copy of the block appended without markers as it is, appending nothing", () => {
+  const unmarked = shippedRevision("failure-capture.unmarked.txt");
+  const edited = REPO_FIXTURES + unmarked.replace("runtimeErrors = [];\n  try {", "runtimeErrors = [];\n  console.log('edited');\n  try {");
+  assert.notEqual(edited, REPO_FIXTURES + unmarked, "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
+});
+
+test("ensureFailureCapture never touches an appended capture block someone edited", () => {
+  const edited = REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt").replace("let errorResponses = [];", "let errorResponses: unknown[] = [];");
+  assert.notEqual(edited, REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"), "test precondition: the edit applied");
+
+  assert.equal(afterEnsure("fixtures.ts", edited, (adapter, dir) => adapter.ensureFailureCapture(dir)), edited);
+});
+
+/* The seed's fixtures.ts (new onboards) and FAILURE_CAPTURE_BLOCK (appended into existing repos)
+   are the same capture code: a repo must get identical failure evidence whichever way it received the
+   block. Both are strict TypeScript, so they are compared as-is — a token-presence check would miss a
+   silent change such as a NUL byte in the runtimeErrors dedup key. */
+test("the seed fixtures.ts carries exactly the capture block that is appended into existing repos", () => {
+  const content = readFileSync(join(REAL_SEED_DIR, "fixtures.ts"), "utf8");
+  const start = content.indexOf(">>> qa-failure-capture");
+  assert.ok(start !== -1, "fixtures.ts must contain the qa-failure-capture start marker");
+  const blockStart = content.lastIndexOf("\n", start); /* the newline just before "// >>>" */
+  const endMarkerLine = "// <<< qa-failure-capture <<<";
+  const endMarkerIdx = content.indexOf(endMarkerLine, start);
+  assert.ok(endMarkerIdx !== -1, "fixtures.ts must contain the full end marker line");
+  const seedBlock = content.slice(blockStart, endMarkerIdx + endMarkerLine.length + 1); /* include the trailing newline */
+
+  assert.equal(
+    seedBlock,
+    FAILURE_CAPTURE_BLOCK,
+    "config/e2e/fixtures.ts's capture block has drifted from setup.adapter.ts's FAILURE_CAPTURE_BLOCK — existing repos only ever receive FAILURE_CAPTURE_BLOCK, so the two must stay identical",
+  );
+});
+
+/* ── The afterEach body, run as a real ES module, dumps runtimeErrors ─────────
+   Same harness as the ESM tests above: run the block's beforeEach/afterEach as genuine ESM
    callbacks against a fake page that emits console/pageerror events, and assert the dump.
  */
 
-test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
+test("dump carries deduped+capped runtimeErrors from console('error')+pageerror events", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rt = fn; }, afterEach(fn) { globalThis.__qaAfter_rt = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rt;\nexport const afterEachFn = globalThis.__qaAfter_rt;\n`;
-    const modPath = join(dir, "runtime.mjs");
+    const modPath = join(dir, "runtime.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -956,14 +1121,14 @@ test("C1/Feature B: dump carries deduped+capped runtimeErrors from console('erro
   }
 });
 
-test("C1/Feature B: runtimeErrors is reset between tests — reused page does not cross-attribute", async () => {
+test("runtimeErrors is reset between tests — reused page does not cross-attribute", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-reset-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBefore_rtreset = fn; }, afterEach(fn) { globalThis.__qaAfter_rtreset = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBefore_rtreset;\nexport const afterEachFn = globalThis.__qaAfter_rtreset;\n`;
-    const modPath = join(dir, "runtime-reset.mjs");
+    const modPath = join(dir, "runtime-reset.mts");
     writeFileSync(modPath, moduleSrc);
     const captureDir = join(dir, "dumps");
     const { mkdirSync } = await import("node:fs");
@@ -1004,14 +1169,14 @@ test("C1/Feature B: runtimeErrors is reset between tests — reused page does no
   }
 });
 
-test("C1/Feature B: the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, even with console/pageerror listeners active", async () => {
+test("the afterEach body remains a no-op when QA_FAILURE_CAPTURE_DIR is unset, even with console/pageerror listeners active", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-c1-runtime-noop-"));
   try {
     const moduleSrc =
       `const test = { beforeEach(fn) { globalThis.__qaBeforeRtNoop = fn; }, afterEach(fn) { globalThis.__qaCaptureRtNoop = fn; } };\n` +
       FAILURE_CAPTURE_BLOCK +
       `\nexport const beforeEachFn = globalThis.__qaBeforeRtNoop;\nexport const afterEachFn = globalThis.__qaCaptureRtNoop;\n`;
-    const modPath = join(dir, "capture-rt-noop.mjs");
+    const modPath = join(dir, "capture-rt-noop.mts");
     writeFileSync(modPath, moduleSrc);
     const mod = await import(pathToFileURL(modPath).href);
     const fakePage = {

@@ -4,17 +4,24 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync 
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import Database from "better-sqlite3";
-import { createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, consumeContextStale, saveAgentTurn, getAgentTurns } from "./history";
+import { AGENT_TURN_EFFICIENCY_COLUMNS, saveAgentTurnEvent, createRecord, getRecord, listRecords, currentRun, updateRecord, addCase, continuationDepth, clearDatabase, appendActivity, upsertLearningRule, listLearningRules, listLearningRulesForGovernance, LEARNING_RULE_LEDGER_LIMIT, recordRuleOutcome, saveScorecardEntry, loadScorecard, deleteAppHistory, interruptedRecords, backupDatabase, saveRunOutcome, getRunOutcome, listRunOutcomes, updateRunOutcomeReflection, markContextStale, isContextStale, clearContextStale, saveAgentTurn, getAgentTurns, loadCurriculum, saveCurriculum, saveContextMap, loadContextMap } from "./history";
 import { SpecRecordSchema } from "../contract/commands";
 import type { RunOutcome, StructuredReflection, } from "../types";
 import type { AgentTurnRecord } from "./history";
+import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
+import { initCurriculum } from "@contexts/cross-run-learning/domain/curriculum";
+import type { RuleStatus } from "../qa/learning/learning-rule";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 
-test("markContextStale then consumeContextStale is one-shot: first consume true, second false", () => {
+test("a marked context-stale flag stays armed across reads until it is cleared", () => {
   const app = "hist-ctx-stale";
-  assert.equal(consumeContextStale(app), false);
+  assert.equal(isContextStale(app), false);
   markContextStale(app);
-  assert.equal(consumeContextStale(app), true);
-  assert.equal(consumeContextStale(app), false); /* …and cleared (survives only until consumed once) */
+  assert.equal(isContextStale(app), true);
+  assert.equal(isContextStale(app), true, "reading the flag must not disarm it");
+  clearContextStale(app);
+  assert.equal(isContextStale(app), false);
 });
 
 test("createRecord stores an enqueued record findable by id", () => {
@@ -91,7 +98,9 @@ test("a spec with no objective/flow round-trips as undefined (not null) — wire
 test("currentRun prefers running over enqueued when both exist (queue FIFO)", () => {
   clearDatabase();
   const olderRunning = createRecord({ target: "e2e", app: "hist-e-fifo", sha: "5555555", mode: "diff" });
-  const newerEnqueued = createRecord({ target: "e2e", app: "hist-e-fifo", sha: "6666666", mode: "diff" });
+  /* A second, newer enqueued record — the test's own point is that currentRun() must still prefer
+     the running one, so this row's own id is never asserted, only its presence in the DB. */
+  createRecord({ target: "e2e", app: "hist-e-fifo", sha: "6666666", mode: "diff" });
   updateRecord(olderRunning.id, { status: "running" });
   const cur = currentRun();
   assert.ok(cur);
@@ -170,7 +179,7 @@ test("recordRuleOutcome accumulates a running mean and earns promotion (never ov
   assert.equal(r!.status, "active"); /* promotion earned from objective outcomes */
 });
 
-test("recordRuleOutcome does NOT promote on good outcomes alone when none are oracle-scored (WS1.4(b))", () => {
+test("recordRuleOutcome does NOT promote on good outcomes alone when none are oracle-scored", () => {
   const app = "hist-learn-no-oracle";
   upsertLearningRule({ id: "lr-no-oracle", app, trigger: "t", action: "a", errorClass: "E-FALSE-POSITIVE", source: "run-x" });
   recordRuleOutcome("lr-no-oracle", 0.8);
@@ -180,7 +189,103 @@ test("recordRuleOutcome does NOT promote on good outcomes alone when none are or
   assert.ok(r, "rule should still exist");
   assert.equal(r!.outcomeCount, 3);
   assert.equal(r!.oracleOutcomeCount, 0, "isOracleScore was never passed — defaults to false");
-  assert.equal(r!.status, "candidate", "WS1.4(b): zero objective evidence — must not promote regardless of successRate");
+  assert.equal(r!.status, "candidate", "zero objective evidence — must not promote regardless of successRate");
+});
+
+/* A row an older build wrote can still carry the retired "pending" status (nothing inserts it
+   anymore — upsertLearningRule always writes "candidate"). rowToRule normalizes it to "candidate"
+   at the persistence boundary, so the fold never sees a status outside its own RuleStatus union. */
+test("recordRuleOutcome: a legacy 'pending' row is normalized to 'candidate' at the persistence boundary before folding", () => {
+  const app = "hist-learn-pending-legacy";
+  upsertLearningRule({
+    id: "lr-pending",
+    app,
+    trigger: "t",
+    action: "a",
+    errorClass: "E-FALSE-POSITIVE",
+    source: "run-x",
+    /* Simulates a row an older build wrote directly — the current type no longer allows this value. */
+    initialStatus: "pending" as unknown as RuleStatus,
+  });
+  recordRuleOutcome("lr-pending", 0.8);
+  const r = listLearningRules(app, 10).find((x) => x.id === "lr-pending");
+  assert.ok(r, "rule should still exist");
+  assert.equal(r!.status, "candidate", "a single outcome on a normalized (not yet MIN_OUTCOMES) rule stays candidate — real governance, not the old always-candidate pending override");
+});
+
+/*
+ * A row an older build wrote can ALSO already carry outcome/oracle evidence accumulated before the
+ * "pending" status ever normalized (a genuinely stuck legacy row — not something any current path
+ * produces). If normalization happened only inside the fold's own defensive nextStatus check (as
+ * before this fix), the unconditional `status === "pending" -> "candidate"` branch would fire
+ * FIRST and mask that evidence on every single call, never promoting no matter how much evidence
+ * had already accumulated. Normalizing at rowToRule instead means the fold sees "candidate" from
+ * the start and applies its REAL governance — this row must promote to "active" in ONE call.
+ */
+test("recordRuleOutcome: a legacy 'pending' row that already carries promotion-worthy evidence promotes in ONE call once normalized (never masked by the old blanket override)", () => {
+  const app = "hist-learn-pending-stuck";
+  upsertLearningRule({
+    id: "lr-pending-stuck",
+    app,
+    trigger: "t",
+    action: "a",
+    errorClass: "E-FALSE-POSITIVE",
+    source: "run-x",
+    initialStatus: "pending" as unknown as RuleStatus,
+  });
+
+  /* Directly backfill outcome/oracle evidence onto the still-"pending" row — a second connection
+     to the SAME on-disk db (WAL mode allows this), same pattern as the curriculum-corruption test
+     above. No current path writes a row into this shape; it simulates data an older build left. */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE learning_rules SET outcome_count = ?, oracle_outcome_count = ?, success_rate = ? WHERE id = ?").run(2, 2, 0.8, "lr-pending-stuck");
+  } finally {
+    raw.close();
+  }
+
+  recordRuleOutcome("lr-pending-stuck", 0.8, null, true);
+
+  const r = listLearningRules(app, 10).find((x) => x.id === "lr-pending-stuck");
+  assert.ok(r, "rule should still exist");
+  assert.equal(r!.outcomeCount, 3, "the backfilled 2 plus this call's 1");
+  assert.equal(r!.status, "active", "normalized-then-folded 'pending' row earns promotion through the SAME governance a 'candidate' row would — never masked by the old unconditional pending->candidate override");
+});
+
+/* The governance read feeds RuleGovernanceService (the single ranking truth) and must hand it the
+   whole retrievable ledger: a large active set must neither crowd candidates out nor be truncated
+   itself before governance ranks anything. */
+test("listLearningRulesForGovernance: returns every active and candidate row however large the ledger", () => {
+  const app = "hist-governance-no-starve";
+  const activeTotal = LEARNING_RULE_LEDGER_LIMIT + 3;
+  for (let i = 0; i < activeTotal; i++) {
+    upsertLearningRule({
+      id: `active-${i}`, app, trigger: `t${i}`, action: `a${i}`,
+      errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active",
+    });
+  }
+  upsertLearningRule({ id: "candidate-fresh-1", app, trigger: "fresh1", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+  upsertLearningRule({ id: "candidate-fresh-2", app, trigger: "fresh2", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+
+  const rows = listLearningRulesForGovernance(app);
+
+  const candidateIds = rows.filter((r) => r.status === "candidate").map((r) => r.id);
+  assert.deepEqual(new Set(candidateIds), new Set(["candidate-fresh-1", "candidate-fresh-2"]));
+  assert.equal(rows.filter((r) => r.status === "active").length, activeTotal);
+});
+
+test("listLearningRulesForGovernance: excludes deprecated/superseded rows, same retrievable set as listLearningRules", () => {
+  const app = "hist-governance-status-filter";
+  upsertLearningRule({ id: "gov-active", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "active" });
+  upsertLearningRule({ id: "gov-candidate", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run" });
+  upsertLearningRule({ id: "gov-deprecated", app, trigger: "t", action: "a", errorClass: "E-EXEC-FAIL", source: "run", initialStatus: "deprecated" });
+
+  const ids = listLearningRulesForGovernance(app).map((r) => r.id);
+
+  assert.ok(ids.includes("gov-active"));
+  assert.ok(ids.includes("gov-candidate"));
+  assert.ok(!ids.includes("gov-deprecated"), "deprecated rows must never reach governance retrieval");
 });
 
 test("createRecord persists triggerRepo and getRecord returns it", () => {
@@ -208,6 +313,35 @@ test("scorecard persists oracle outcomes and aggregates valueScore across runs",
   assert.equal(sc!.summary.lastValueScore, 0.7);
 });
 
+test("loadCurriculum: a corrupt row is logged loudly and reported as a distinct fault, never silently treated as absent/fresh", () => {
+  const app = `hist-curriculum-corrupt-${Date.now().toString(36)}`;
+  saveCurriculum(initCurriculum(app));
+  assert.ok(loadCurriculum(app), "sanity: the valid row round-trips before corruption");
+
+  /* Corrupt the row directly (bypassing saveCurriculum, which only ever writes valid JSON) —
+     a second connection to the SAME on-disk db (WAL mode allows this). */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE curriculum SET data = ? WHERE app = ?").run("{not valid json", app);
+  } finally {
+    raw.close();
+  }
+
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const result = loadCurriculum(app);
+    assert.equal(result, CURRICULUM_CORRUPT, "a corrupt row must be reported as a distinct fault, never treated as null/absent (which a fold() would silently overwrite with a fresh curriculum)");
+    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt-curriculum fault");
+    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test("deleteAppHistory removes the app's runs (cascading cases/specs) but not other apps'", () => {
   const doomed = `hist-del-${Date.now().toString(36)}`;
   const alive = `hist-keep-${Date.now().toString(36)}`;
@@ -218,6 +352,60 @@ test("deleteAppHistory removes the app's runs (cascading cases/specs) but not ot
   assert.ok(removed >= 1);
   assert.equal(getRecord(mine.id), undefined);
   assert.ok(getRecord(other.id));
+});
+
+/* ── context_maps (the persisted FE<->BE architecture map from mode:context runs) ────────── */
+
+test("saveContextMap/loadContextMap round-trip per app; latest save wins; a corrupt row is logged loudly and treated as absent, never crashes", () => {
+  const app = `hist-ctxmap-${Date.now().toString(36)}`;
+  assert.equal(loadContextMap(app), undefined, "no row yet");
+
+  const map1: ArchitectureContext = { builtAtSha: "sha1", routes: [{ path: "/a" }], api: [], feBe: [] };
+  saveContextMap(app, "sha1", map1);
+  const stored1 = loadContextMap(app);
+  assert.ok(stored1, "sanity: the valid row round-trips");
+  assert.equal(stored1!.builtAtSha, "sha1");
+  assert.deepEqual(stored1!.data, map1);
+  assert.equal(typeof stored1!.updatedAt, "string");
+
+  /* Latest save wins (per-app row, not append-only). */
+  const map2: ArchitectureContext = { builtAtSha: "sha2", routes: [], api: [], feBe: [] };
+  saveContextMap(app, "sha2", map2);
+  const stored2 = loadContextMap(app);
+  assert.equal(stored2!.builtAtSha, "sha2");
+  assert.deepEqual(stored2!.data, map2);
+
+  /* Corrupt the row directly (bypassing saveContextMap, which only ever writes valid JSON) — a
+     second connection to the SAME on-disk db (WAL mode allows this), same technique loadCurriculum's
+     own corrupt-row test above uses. */
+  const dbPath = process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE context_maps SET data = ? WHERE app = ?").run("{not valid json", app);
+  } finally {
+    raw.close();
+  }
+
+  const originalWarn = console.warn;
+  const logged: string[] = [];
+  console.warn = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+  try {
+    const result = loadContextMap(app);
+    assert.equal(result, undefined, "a corrupt row must degrade to 'no stored map' — never crash a run");
+    assert.equal(logged.length, 1, "the corrupt row must be logged exactly once, not swallowed silently");
+    assert.match(logged[0] ?? "", /corrupt/i, "the log line must be identifiable as a corrupt context-map fault");
+    assert.match(logged[0] ?? "", new RegExp(app), "the log line must identify which app's row is corrupt");
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("deleteAppHistory also clears the app's stored context map", () => {
+  const app = `hist-ctxmap-del-${Date.now().toString(36)}`;
+  saveContextMap(app, "sha1", { builtAtSha: "sha1", routes: [], api: [], feBe: [] });
+  assert.ok(loadContextMap(app), "sanity: stored before delete");
+  deleteAppHistory(app);
+  assert.equal(loadContextMap(app), undefined, "purge must clear the app's context_maps row too");
 });
 
 /* ── backupDatabase (WAL-safe online backup) ──────────────────────────────────
@@ -342,7 +530,7 @@ function makeTurn(overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord {
   };
 }
 
-test("Phase 0 A.1/A.2: saveAgentTurn round-trips to getAgentTurns with all fields", () => {
+test("saveAgentTurn round-trips to getAgentTurns with all fields", () => {
   const turn = makeTurn();
   saveAgentTurn(turn);
   const rows = getAgentTurns(turn.runId!);
@@ -364,13 +552,102 @@ test("Phase 0 A.1/A.2: saveAgentTurn round-trips to getAgentTurns with all field
   assert.equal(saved!.objective, "test the login flow");
 });
 
-test("Phase 0 A.2: saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
+function makeTurnEvent(overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent {
+  return {
+    runId: "run-event-001",
+    sessionId: "sess-event",
+    role: "qa-generator",
+    objective: undefined,
+    round: 0,
+    isRepair: false,
+    promptText: "Write a test.",
+    promptBytes: 13,
+    outputText: "Done.",
+    tokensInput: 10,
+    tokensOutput: 5,
+    tokensReasoning: null,
+    tokensCacheRead: null,
+    tokensCacheWrite: null,
+    cost: null,
+    ts: new Date().toISOString(),
+    sectionSizes: null,
+    stepBudget: null,
+    callMetrics: null,
+    ...overrides,
+  };
+}
+
+test("saveAgentTurnEvent persists the step budget and the call metrics of a turn", () => {
+  const runId = "run-event-metrics-" + Date.now();
+  saveAgentTurnEvent(
+    makeTurnEvent({
+      runId,
+      stepBudget: { maxSteps: 50, exhausted: true },
+      callMetrics: {
+        totalCalls: 31,
+        stepsUsed: 50,
+        observationComplete: true,
+        callsBeforeFirstWrite: 27,
+        writeCount: 2,
+        redundantReadCount: 6,
+        duplicateCallCount: 4,
+        promptProvidedReadCount: 3,
+        pathProvidedReadCount: 2,
+        buckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+      },
+    }),
+  );
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, 50);
+  assert.equal(saved!.exhausted, true);
+  assert.equal(saved!.totalCalls, 31);
+  assert.equal(saved!.stepsUsed, 50);
+  assert.equal(saved!.callsBeforeFirstWrite, 27);
+  assert.equal(saved!.writeCount, 2);
+  assert.equal(saved!.redundantReadCount, 6);
+  assert.equal(saved!.duplicateCallCount, 4);
+  assert.equal(saved!.promptProvidedReadCount, 3);
+  assert.equal(saved!.pathProvidedReadCount, 2, "the path-provided count is stored apart from the content-provided one");
+  assert.deepEqual(saved!.callBuckets, { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 });
+});
+
+test("saveAgentTurnEvent stores nulls, never zero or false, when a runtime reports no step budget or call metrics", () => {
+  const runId = "run-event-null-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, stepBudget: null, callMetrics: null }));
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, null);
+  assert.equal(saved!.exhausted, null);
+  assert.equal(saved!.totalCalls, null);
+  assert.equal(saved!.stepsUsed, null);
+  assert.equal(saved!.callBuckets, null);
+});
+
+test("saveAgentTurnEvent keeps an unknown step limit (null) apart from a known exhaustion flag and an unknown steps-used", () => {
+  const runId = "run-event-partial-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, stepBudget: { maxSteps: null, exhausted: false } }));
+  const [saved] = getAgentTurns(runId);
+  assert.equal(saved!.maxSteps, null);
+  assert.equal(saved!.exhausted, false);
+  assert.equal(saved!.stepsUsed, null);
+});
+
+test("saveAgentTurnEvent keeps a turn whose exhaustion is unknown apart from one known not exhausted, and reads it back as unknown", () => {
+  const runId = "run-event-unknown-exhaustion-" + Date.now();
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-unknown", stepBudget: { maxSteps: 50, exhausted: null } }));
+  saveAgentTurnEvent(makeTurnEvent({ runId, sessionId: "s-known", stepBudget: { maxSteps: 50, exhausted: false } }));
+  const turns = getAgentTurns(runId);
+  assert.equal(turns.find((t) => t.sessionId === "s-unknown")!.exhausted, null);
+  assert.equal(turns.find((t) => t.sessionId === "s-known")!.exhausted, false);
+  assert.equal(turns.find((t) => t.sessionId === "s-unknown")!.maxSteps, 50);
+});
+
+test("saveAgentTurn stores null-runId turns (sessions with no parent run)", () => {
   const turn = makeTurn({ runId: null, sessionId: "sess-no-run" });
   /* Should not throw — null runId is explicitly valid (e.g. maintainer, chat sessions). */
   assert.doesNotThrow(() => saveAgentTurn(turn));
 });
 
-test("Phase 0 A.2: getAgentTurns returns multiple turns in chronological order", () => {
+test("getAgentTurns returns multiple turns in chronological order", () => {
   const runId = "run-order-test-" + Date.now();
   saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 0, role: "qa-generator", promptText: "first" }));
   saveAgentTurn(makeTurn({ runId, sessionId: "s1", round: 1, role: "qa-generator", promptText: "second" }));
@@ -382,7 +659,7 @@ test("Phase 0 A.2: getAgentTurns returns multiple turns in chronological order",
   assert.equal(rows[2]!.role, "qa-reviewer");
 });
 
-test("Phase 0 A.2: saveAgentTurn accepts null token fields (Codex path)", () => {
+test("saveAgentTurn accepts null token fields (Codex path)", () => {
   const runId = "run-codex-null-" + Date.now();
   const turn = makeTurn({
     runId,
@@ -402,7 +679,7 @@ test("Phase 0 A.2: saveAgentTurn accepts null token fields (Codex path)", () => 
   assert.equal(rows[0]!.cost, null);
 });
 
-test("Phase 0 A.2: saveAgentTurn stores sanitized output — caller must pre-sanitize (contract)", () => {
+test("saveAgentTurn stores sanitized output — caller must pre-sanitize (contract)", () => {
   /* The store accepts whatever it receives; the DI contract requires the caller (defaultAgentDeps
      funnel) to sanitize before calling saveAgentTurn. We test that round-trip is faithful.
    */
@@ -413,7 +690,7 @@ test("Phase 0 A.2: saveAgentTurn stores sanitized output — caller must pre-san
   assert.equal(rows[0]!.outputText, sanitizedText);
 });
 
-test("Phase 0 A.1: agent_turns table migrates idempotently on an existing DB (columnExists guard)", () => {
+test("agent_turns table migrates idempotently on an existing DB (columnExists guard)", () => {
   /* Calling saveAgentTurn twice with different sessions for the same run must work without errors,
      proving the schema was created exactly once (the IF NOT EXISTS guards prevent duplicate tables).
    */
@@ -433,7 +710,7 @@ test("Phase 0 A.1: agent_turns table migrates idempotently on an existing DB (co
    ts in datetime() so both operands are SQLite's canonical form. This self-contained test pins the
    cutoff to a known instant and reproduces the boundary skew + proves the fixed predicate is correct.
  */
-test("FIX 3: agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts, unlike a raw compare", () => {
+test("agent_turns prune predicate (datetime(ts)) is boundary-correct for ISO ts, unlike a raw compare", () => {
   const db = new Database(":memory:");
   db.exec("CREATE TABLE agent_turns (id INTEGER PRIMARY KEY, ts TEXT NOT NULL)");
 
@@ -461,4 +738,66 @@ test("FIX 3: agent_turns prune predicate (datetime(ts)) is boundary-correct for 
   assert.equal(survivors.length, 1, "exactly the newer row must survive");
   assert.equal(survivors[0]!.ts, newerSameDay, "the surviving row must be the newer-same-day one");
   db.close();
+});
+
+/* A DB created before the efficiency columns existed: opening it must add every efficiency column
+   exactly once (however many times it is opened), leave the pre-existing row valid, and read NULL for
+   each new column — never a fabricated zero. Each open uses a fresh module instance (the store keeps
+   its handle in module state) pointed at the legacy file through HISTORY_DB_PATH. */
+test("opening a pre-existing agent_turns table twice adds each efficiency column once and old rows read NULL", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "history-legacy-agent-turns-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const legacyPath = join(dir, "legacy.db");
+
+  const legacy = new Database(legacyPath);
+  legacy.exec(`
+    CREATE TABLE agent_turns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      round INTEGER NOT NULL DEFAULT 0,
+      is_repair INTEGER NOT NULL DEFAULT 0,
+      ts TEXT NOT NULL,
+      objective TEXT,
+      prompt_text TEXT NOT NULL,
+      output_text TEXT NOT NULL,
+      prompt_bytes INTEGER NOT NULL DEFAULT 0,
+      tokens_input INTEGER,
+      tokens_output INTEGER,
+      tokens_reasoning INTEGER,
+      tokens_cache_read INTEGER,
+      tokens_cache_write INTEGER,
+      cost REAL
+    );
+  `);
+  /* Recent enough to survive the retention prune whatever day the suite runs. */
+  const recentTs = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  legacy
+    .prepare("INSERT INTO agent_turns (run_id, session_id, role, ts, prompt_text, output_text) VALUES (?, ?, ?, ?, ?, ?)")
+    .run("run-legacy", "sess-legacy", "qa-generator", recentTs, "old prompt", "old output");
+  legacy.close();
+
+  const previousPath = process.env.HISTORY_DB_PATH;
+  process.env.HISTORY_DB_PATH = legacyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.HISTORY_DB_PATH;
+    else process.env.HISTORY_DB_PATH = previousPath;
+  });
+
+  for (const open of ["first", "second"]) {
+    const store = (await import(new URL(`./history.ts?open=${open}`, import.meta.url).href)) as typeof import("./history");
+    const turns = store.getAgentTurns("run-legacy");
+    assert.equal(turns.length, 1, `the pre-existing row is still readable on the ${open} open`);
+    assert.equal(turns[0]!.outputText, "old output");
+  }
+
+  const inspect = new Database(legacyPath, { readonly: true });
+  t.after(() => inspect.close());
+  const columns = (inspect.prepare("PRAGMA table_info(agent_turns)").all() as Array<{ name: string }>).map((c) => c.name);
+  const row = inspect.prepare("SELECT * FROM agent_turns WHERE run_id = 'run-legacy'").get() as Record<string, unknown>;
+  for (const { name } of AGENT_TURN_EFFICIENCY_COLUMNS) {
+    assert.equal(columns.filter((c) => c === name).length, 1, `${name} is present exactly once`);
+    assert.equal(row[name], null, `${name} reads NULL on a row written before the column existed`);
+  }
 });

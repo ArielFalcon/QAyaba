@@ -14,6 +14,10 @@ export class GitHubIssueAdapter implements GitHubIssuePort {
     const data = (await res.json()) as { html_url: string };
     const url = data.html_url;
     const match = url.match(/\/issues\/(\d+)/);
+    /* Never return a sentinel 0 (or any other made-up) issue number on a parse miss — a
+       fabricated number would be silently wrong in every caller that logs or links it back
+       to GitHub. Throw instead: a genuine API response we can't parse is a bug worth surfacing
+       loudly, not papering over with a fake identifier. */
     if (!match) throw new Error(`GitHubIssueAdapter: cannot parse issue number from URL: ${url}`);
     return { url, number: Number(match[1]) };
   }

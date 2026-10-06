@@ -4,18 +4,20 @@ The QA control panel for the Qayaba / **ai-pipeline** engine: a Fleet mission-co
 overview, the runs feed, run detail + the **live run**, per-app **App Value**, integrity,
 the learning ledger, and reports.
 
-This is a **self-contained, framework-agnostic build** — plain `index.html` + CSS + vanilla JS,
-no bundler, no runtime framework. It runs standalone on mock data and is built to drop into
-**`ai-pipeline/web/`**, where it connects to the orchestrator's `/api/v1/*` API for real data.
+This is a **self-contained, framework-agnostic console** — plain `index.html` + CSS + vanilla JS,
+no bundler, no build step, no runtime framework. The orchestrator serves this directory as-is,
+same-origin, at **`/app`** (`src/server/static.ts`), where it talks to the `/api/v1/*` API for real
+data. It can also run standalone on mock data.
 
 ```
-qayaba-console/
+web/public/
 ├── index.html          # the shell (loads everything; carries the optional config)
 ├── styles/
 │   └── console.css      # self-contained: design tokens + base + the whole console UI
 ├── js/
 │   ├── data.mock.js     # window.QayabaMockData — the offline dataset
-│   ├── api.js           # the ONE data seam: mock + live adapters (mirrors @ai-pipeline/sdk)
+│   ├── format.js        # window.QayabaFormat — pure formatting helpers
+│   ├── api.js           # the ONE data seam: mock + live adapters (mirrors @qayaba/sdk)
 │   └── console.js       # the app (rendering, routing, interactions) — never fetches directly
 ├── assets/              # brand marks + favicon
 ├── API.md               # ← endpoint requirements + field mapping + gaps (read this)
@@ -24,26 +26,15 @@ qayaba-console/
 
 Fonts (Archivo + JetBrains Mono) and Lucide icons load from CDN — see *Offline* below to vendor them.
 
-## Run it standalone (mock)
+## Configuration
 
-No build step. Serve the folder with any static server:
-
-```bash
-python3 -m http.server 4330 --directory qayaba-console
-# → http://localhost:4330
-```
-
-Defaults to `mode: 'mock'`: everything (incl. the live-run stream and Ask-Qayaba chat) is
-simulated locally from `js/data.mock.js`.
-
-## Connect to a server (live)
-
-Set the config **before** the scripts run — uncomment the block in `index.html`:
+`js/api.js` defaults to **`mode: 'live'`**. Override it by setting the config **before** the
+scripts run (a `<script>` block in `index.html`, above `js/data.mock.js`):
 
 ```html
 <script>
   window.QAYABA_CONSOLE_CONFIG = {
-    mode: 'live',      // 'mock' | 'live'
+    mode: 'live',      // 'live' (default) | 'mock'
     baseUrl: '',       // '' = same-origin (recommended); the browser carries the operator's creds
     token: null,       // optional Bearer token if the host isn't cookie-authed
     landingUrl: '/',   // where the sidebar brand links (your marketing site)
@@ -56,22 +47,24 @@ mapping the contract onto the dashboard's view model. **The server side is not 1
 `API.md` lists exactly which endpoints exist, which need extending, and which are new, and
 `js/api.js#mapModel` has matching `TODO(server)` markers.
 
-## Integrate into ai-pipeline (`web/`)
+In `mock` mode everything (incl. the live-run stream and Ask-Qayaba chat) is simulated locally
+from `js/data.mock.js` — no server needed.
 
-`ai-pipeline/web/` is the prepared slot: it builds to `web/dist` and is served same-origin at
-`/app` by `src/server/static.ts`. Two ways to wire this in:
+## How the orchestrator serves it
 
-**A. Drop-in static (fastest).** Copy these files to `ai-pipeline/web/dist/` (so `web/dist/index.html`
-exists). The orchestrator serves them at `/app` immediately. Set `mode:'live'` in `index.html`.
-Asset/script paths are all relative, so they resolve correctly under `/app/`.
+`src/server/static.ts` serves `web/public/` at `/app` (with the `/app/*` → `index.html` fallback for
+client routes). There is nothing to build: edit a file and reload. `docker-compose.override.yml`
+bind-mounts `web/` into the orchestrator for local work; without it the image's copy is served.
 
-**B. Through the workspace build (contract-true).** Move this into `ai-pipeline/web/` and have the
-web build emit it into `web/dist`. Optionally replace `js/api.js`'s live adapter with the real
-`@ai-pipeline/sdk` (`createClient({ baseUrl: '' })`) — the adapter is intentionally a 1:1 mirror
-of the SDK methods, so this is mechanical. The SDK keeps you type-safe against the contract.
+## Run it standalone (mock)
 
-Either way: implement/extend the endpoints in **API.md**, then the dashboard is live. No CORS
-(same origin); the API stays Bearer-protected, only the static shell is public.
+`index.html` loads its scripts from `/app/js/…`, so serve the directory under `/app` — for example:
+
+```bash
+mkdir -p /tmp/qayaba-console && ln -sfn "$PWD/web/public" /tmp/qayaba-console/app
+python3 -m http.server 4330 --directory /tmp/qayaba-console
+# → http://localhost:4330/app/  (set mode: 'mock' as above)
+```
 
 ## Notes
 

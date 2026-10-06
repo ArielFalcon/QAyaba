@@ -1,5 +1,5 @@
 /* test/contexts/qa-run-orchestration/infrastructure/bridges/change-analysis-port.adapter.test.ts
-   RED-first (Task E.0): ChangeAnalysisPortAdapter must DELEGATE to the REAL sibling collaborator —
+   ChangeAnalysisPortAdapter must DELEGATE to the REAL sibling collaborator —
    the domain classifyCommit(message, diff) function (for classify(), sourcing message/diff from
    the SAME VcsReadPort). NO new policy — this is a shape/delegation test, not a re-test of
    classifyCommit's own classification table (that lives in commit-classification.test.ts /

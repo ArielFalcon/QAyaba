@@ -5,7 +5,7 @@
   "type": "module",
   "description": "App-agnostic AI-assisted E2E QA engine. Template: a watched app is onboarded via config/ + .env only.",
   "engines": {
-    "node": ">=22.19"
+    "node": ">=24"
   },
   "workspaces": [
     "packages/*",
@@ -15,12 +15,15 @@
     "qa": "tsx src/cli.ts",
     "onboard": "tsx scripts/onboard-app.ts",
     "contract:gen": "tsx scripts/gen-openapi.ts",
+    "contract:check": "tsx scripts/check-contract-fresh.ts",
     "sdk:gen": "openapi-typescript contract/openapi.json -o packages/sdk/src/types.gen.ts",
     "sdk:typecheck": "tsc -p packages/sdk",
     "start": "node boot-guard.mjs && tsx src/index.ts",
     "test": "node --import ./test-setup.mjs --import tsx --test \"src/**/*.test.ts\" \"qa-engine/test/**/*.test.ts\" \"packages/sdk/**/*.test.ts\" \"agents/**/*.test.mjs\" \"scripts/**/*.test.ts\" \"slim/**/*.test.mjs\"",
     "typecheck": "tsc -b qa-engine/tsconfig.json && tsc --noEmit -p tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.json && tsc --noEmit -p qa-engine/tsconfig.parity.json && tsc --noEmit -p scripts/tsconfig.json",
-    "mutate:keystone": "stryker run qa-engine/stryker.conf.json",
+    "mutate": "tsx scripts/mutate.ts",
+    "mutate:keystone": "tsx scripts/mutate.ts keystone",
+    "efficiency-benchmark": "tsx scripts/efficiency-benchmark.ts",
     "arch:check": "depcruise --config qa-engine/.dependency-cruiser.cjs qa-engine/src"
   },
   "dependencies": {

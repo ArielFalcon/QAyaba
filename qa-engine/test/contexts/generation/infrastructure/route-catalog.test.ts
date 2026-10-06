@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildRouteCatalog, buildTestIdIndex, degradedRouteWarning } from "@contexts/generation/infrastructure/route-catalog.ts";
+import { DEGRADE_REASON, REDIRECT_PATH_MAX_CHARS, buildRouteCatalog, buildTestIdIndex, degradedRouteWarning, gatedAppAdvisory } from "@contexts/generation/infrastructure/route-catalog.ts";
 
 /* The per-route Selector Catalog exposes a test-id index the verification gate can check
    getByTestId against — the family that was NON_EXTRACTABLE and so caught only by a 30s timeout.
@@ -147,4 +147,130 @@ test("buildRouteCatalog is byte-identical to today's behavior when runtimeErrors
   const cat = buildRouteCatalog({ route: "/login", nodes: ["button: Save"], settled: true, testIds: new Map([["save", 1]]) });
   assert.equal(cat.status, "captured");
   assert.equal(cat.settled, true);
+});
+
+/* ── Why a route degraded, and where a redirect led ── */
+
+const LOGIN_FINAL_URL = "http://dev.example.com/login";
+const PASSWORD_ATTR = { key: "textbox: Password", inputType: "password" };
+
+test("a route whose capture failed is degraded for that reason and names no redirect", () => {
+  const cat = buildRouteCatalog({ route: "/x", error: "net::ERR" });
+  assert.equal(cat.degradeReason, DEGRADE_REASON.CAPTURE_FAILED);
+  assert.equal(cat.redirectedTo, undefined);
+});
+
+test("a route that rendered no nodes is degraded as empty", () => {
+  assert.equal(buildRouteCatalog({ route: "/blank", nodes: [] }).degradeReason, DEGRADE_REASON.EMPTY_RENDER);
+  assert.equal(buildRouteCatalog({ route: "/blank" }).degradeReason, DEGRADE_REASON.EMPTY_RENDER);
+});
+
+test("a route that captured has no degrade reason and names no redirect", () => {
+  const cat = buildRouteCatalog({ route: "/ok", nodes: ["button: Save"], settled: true });
+  assert.equal(cat.degradeReason, undefined);
+  assert.equal(cat.redirectedTo, undefined);
+});
+
+test("a redirected route is degraded as redirected, names the path it reached, and keeps no test-ids of its own", () => {
+  const cat = buildRouteCatalog({ route: "/owners/new", nodes: ["button: Login"], settled: true, finalUrl: `${LOGIN_FINAL_URL}?next=%2Fowners%2Fnew#top`, testIds: new Map([["go", 1]]) });
+  assert.equal(cat.status, "degraded");
+  assert.equal(cat.degradeReason, DEGRADE_REASON.REDIRECTED);
+  assert.equal(cat.redirectedTo, "/login", "the path alone: no query and no fragment");
+  assert.equal(cat.testIds.size, 0, "the reached page's test-ids never grounded the selector gate");
+});
+
+test("a redirect names the path it reached without the trailing slash a server may add", () => {
+  assert.equal(buildRouteCatalog({ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/login/" }).redirectedTo, "/login");
+  assert.equal(buildRouteCatalog({ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/" }).redirectedTo, "/");
+});
+
+test("a redirect names the path it reached up to a bound, and a path of exactly the bound whole", () => {
+  const at = (path: string) => buildRouteCatalog({ route: "/x", nodes: ["x: y"], finalUrl: `http://dev.example.com${path}` }).redirectedTo;
+  const atBound = `/${"a".repeat(REDIRECT_PATH_MAX_CHARS - 1)}`;
+  assert.equal(at(atBound), atBound);
+  assert.equal(at(`${atBound}bbb`), atBound);
+});
+
+test("a redirect to a page that rendered nothing is still named as a redirect", () => {
+  const cat = buildRouteCatalog({ route: "/a", nodes: [], finalUrl: LOGIN_FINAL_URL });
+  assert.equal(cat.degradeReason, DEGRADE_REASON.REDIRECTED);
+  assert.equal(cat.redirectedTo, "/login");
+});
+
+test("a redirect that failed to capture is a capture failure, not a redirect", () => {
+  const cat = buildRouteCatalog({ route: "/a", error: "timeout", finalUrl: LOGIN_FINAL_URL });
+  assert.equal(cat.degradeReason, DEGRADE_REASON.CAPTURE_FAILED);
+  assert.equal(cat.redirectedTo, undefined);
+});
+
+test("a redirect names the path it reached without every trailing slash a server may add", () => {
+  assert.equal(buildRouteCatalog({ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/login//" }).redirectedTo, "/login");
+});
+
+test("a redirect says a page has a password field when any of its fields is one, whatever else it holds", () => {
+  const cat = buildRouteCatalog({ route: "/a", nodes: ["textbox: Email", "textbox: Password"], attrs: [{ key: "textbox: Email", inputType: "email" }, PASSWORD_ATTR, { key: "button: Go" }], finalUrl: LOGIN_FINAL_URL });
+  assert.equal(cat.reachedPasswordField, true);
+});
+
+test("a redirect says whether the page it reached has a password field", () => {
+  const login = buildRouteCatalog({ route: "/a", nodes: ["textbox: Password"], attrs: [PASSWORD_ATTR], finalUrl: LOGIN_FINAL_URL });
+  const home = buildRouteCatalog({ route: "/a", nodes: ["textbox: Search"], attrs: [{ key: "textbox: Search", inputType: "search" }], finalUrl: "http://dev.example.com/home" });
+  assert.equal(login.reachedPasswordField, true);
+  assert.equal(home.reachedPasswordField, false);
+  assert.equal(buildRouteCatalog({ route: "/ok", nodes: ["x: y"], attrs: [PASSWORD_ATTR] }).reachedPasswordField, undefined, "a route that did not redirect reached nothing");
+});
+
+test("degradedRouteWarning names why each route degraded and where a redirect led", () => {
+  const warning = degradedRouteWarning([
+    buildRouteCatalog({ route: "/broken", error: "net::ERR" }),
+    buildRouteCatalog({ route: "/blank", nodes: [] }),
+    buildRouteCatalog({ route: "/orders", nodes: ["x: y"], finalUrl: LOGIN_FINAL_URL }),
+  ]) ?? "";
+  for (const needle of ["/broken", DEGRADE_REASON.CAPTURE_FAILED, "/blank", DEGRADE_REASON.EMPTY_RENDER, "/orders", DEGRADE_REASON.REDIRECTED, "/login"]) {
+    assert.ok(warning.includes(needle), `the warning carries ${needle}`);
+  }
+  assert.equal(warning.includes("undefined"), false, "a route with no redirect names no path");
+  assert.ok(warning.includes(`/broken (${DEGRADE_REASON.CAPTURE_FAILED})`), "a route is followed by its reason alone when nothing was reached");
+});
+
+/* A login page behind several routes is the sign of a gated app that declared no login. */
+const redirected = (route: string, to: string, withPassword = false) =>
+  buildRouteCatalog({ route, nodes: ["x: y"], finalUrl: `http://dev.example.com${to}`, ...(withPassword ? { attrs: [PASSWORD_ATTR] } : {}) });
+
+test("the gated-app advisory is given when two routes reach one page, and names the page and the routes", () => {
+  const advisory = gatedAppAdvisory([redirected("/a", "/portal"), redirected("/b", "/portal")]);
+  assert.ok(advisory, "two routes reaching one page is the sign");
+  for (const needle of ["/portal", "/a", "/b"]) assert.ok(advisory.includes(needle), `the advisory carries ${needle}`);
+});
+
+test("the gated-app advisory names every page that looks gated and leaves out one that does not", () => {
+  const advisory = gatedAppAdvisory([redirected("/a", "/portal"), redirected("/b", "/portal"), redirected("/c", "/login", true), redirected("/d", "/other")]) ?? "";
+  assert.ok(advisory.includes("/portal") && advisory.includes("/login"));
+  assert.equal(advisory.includes("/other") || advisory.includes("/d"), false);
+});
+
+test("the gated-app advisory is given when one of the routes that reached a page saw a password field", () => {
+  assert.ok(gatedAppAdvisory([redirected("/a", "/login", true), redirected("/b", "/login")]));
+  assert.ok(gatedAppAdvisory([redirected("/a", "/login"), redirected("/b", "/login", true)]));
+});
+
+test("the gated-app advisory is given when one route reaches a page with a password field", () => {
+  const advisory = gatedAppAdvisory([redirected("/a", "/login", true)]);
+  assert.ok(advisory?.includes("/login"));
+});
+
+test("no gated-app advisory for a single redirect to a page with no password field", () => {
+  assert.equal(gatedAppAdvisory([redirected("/a", "/home")]), undefined);
+});
+
+test("no gated-app advisory when the routes that redirected went to different pages and none has a password field", () => {
+  assert.equal(gatedAppAdvisory([redirected("/a", "/one"), redirected("/b", "/two")]), undefined);
+});
+
+test("two routes that only rendered empty are not a gated app", () => {
+  assert.equal(gatedAppAdvisory([buildRouteCatalog({ route: "/a", nodes: [] }), buildRouteCatalog({ route: "/b", nodes: [] })]), undefined);
+});
+
+test("no gated-app advisory when every route captured", () => {
+  assert.equal(gatedAppAdvisory([buildRouteCatalog({ route: "/a", nodes: ["x: y"] })]), undefined);
 });

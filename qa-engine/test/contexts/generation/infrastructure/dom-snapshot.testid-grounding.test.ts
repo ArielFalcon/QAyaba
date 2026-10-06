@@ -64,7 +64,7 @@ for (const convention of NON_DEFAULT_CONVENTIONS) {
   });
 }
 
-/* Pillar 1 — the [CHANGED:] marker must name the CONFIGURED test-id attribute, not a hardcoded one.
+/* The [CHANGED:] marker must name the CONFIGURED test-id attribute, not a hardcoded one.
    A marker that says "data-cy=" on a data-testid app misleads the agent about which attribute is live.
  */
 test("buildChangedMarker names the configured testIdAttribute (not a hardcoded one)", () => {

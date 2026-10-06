@@ -21,6 +21,7 @@ export type AskResponse = S["AskResponse"];
 export type ChatEntry = S["ChatEntry"];
 export type ContinueRequest = S["ContinueRequest"];
 export type ContinueResult = S["ContinueResult"];
+export type AppAuthInput = S["AppAuthInput"];
 export type CreateAppInput = S["CreateAppInput"];
 export type CreateAppResult = S["CreateAppResult"];
 export type UpdateAppInput = S["UpdateAppInput"];

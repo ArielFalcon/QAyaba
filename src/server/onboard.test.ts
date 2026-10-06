@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, unlinkSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildYaml, suggestName, configExists, writeConfig, OnboardInput } from "./onboard";
 
@@ -50,16 +51,16 @@ test("buildYaml includes code: true for code mode and skips versionUrl", () => {
   assert.doesNotMatch(yaml, /versionUrl/);
 });
 
-test("writeConfig creates the file and configExists detects it", () => {
-  mkdirSync(join(process.cwd(), "config", "apps"), { recursive: true });
+test("writeConfig creates the app config under the root and configExists detects it", () => {
+  const root = mkdtempSync(join(tmpdir(), "onboard-"));
   const yaml = 'name: "tmp-test"\nrepo: "x/y"\n';
   try {
-    const path = writeConfig("__test_tmp__", yaml);
-    assert.ok(existsSync(path));
-    assert.ok(configExists("__test_tmp__"));
-    assert.equal(configExists("__nonexistent__"), false);
+    const path = writeConfig("tmp-test", yaml, root);
+    assert.equal(readFileSync(path, "utf8"), yaml);
+    assert.ok(configExists("tmp-test", root));
+    assert.equal(configExists("never-written", root), false);
   } finally {
-    try { unlinkSync(join(process.cwd(), "config", "apps", "__test_tmp__.yaml")); } catch {}
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -98,6 +99,34 @@ test("buildYaml renders services[] for e2e apps", () => {
   assert.match(yaml, /openapi: "api\/\*\.yaml"/);
   assert.match(yaml, /versionUrl: "https:\/\/svc\/version"/);
   assert.match(yaml, /- repo: "org\/payments-svc"/);
+});
+
+test("buildYaml renders auth for form and omits it in code mode", () => {
+  const yaml = buildYaml({
+    name: "shop", repo: "org/shop-front", baseBranch: "main",
+    baseUrl: "https://dev.shop.io", target: "e2e", needsReview: true, shadow: true,
+    testDataPrefix: "qa-shop",
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.match(yaml, /auth:/);
+  assert.match(yaml, /kind: form/);
+  assert.match(yaml, /usernameEnv: "QA_SHOP_TEST_USER"/);
+  const code = buildYaml({
+    name: "b", repo: "o/b", baseBranch: "main", baseUrl: "https://x", target: "code",
+    needsReview: true, shadow: true, testDataPrefix: "qa",
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.doesNotMatch(code, /auth:/);
+});
+
+test("buildYaml renders a form login's path override, and never for a client-certificate login", () => {
+  const base = { name: "shop", repo: "org/shop-front", baseBranch: "main", baseUrl: "https://dev.shop.io", target: "e2e", needsReview: true, shadow: true, testDataPrefix: "qa-shop" } as const;
+  const form = buildYaml({ ...base, auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS", loginPath: "/signin" } });
+  assert.match(form, /loginPath: "\/signin"/);
+  const mtls = buildYaml({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" } });
+  assert.doesNotMatch(mtls, /loginPath/);
+  const none = buildYaml({ ...base, auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" } });
+  assert.doesNotMatch(none, /loginPath/);
 });
 
 test("buildYaml omits services when absent or in code mode", () => {

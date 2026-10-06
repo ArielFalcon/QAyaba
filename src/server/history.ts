@@ -9,16 +9,24 @@
  */
 
 import Database from "better-sqlite3";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { qayabaDataDir } from "../paths";
 import { mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { RunRecord, RunMode, TestTarget, QaCase, RunVerdict, SpecRecord, RunOutcome, AgentActivity, PLANNER_OBJECTIVE } from "../types";
 import { applyOutcome as foldApplyOutcome } from "@contexts/cross-run-learning/domain/rule-fold";
-import type { LearningRule as FoldLearningRule } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { type LearningRule, type RuleUpsert, type Confidence, type RuleStatus } from "../qa/learning/learning-rule";
 import type { ErrorClass } from "../qa/learning/taxonomy";
 import type { Curriculum } from "../qa/learning/curriculum";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { updateScorecard, type Scorecard, type ScorecardEntry } from "../qa/learning/oracle-types";
+import { logJson } from "../integrations/logger";
+import { RedactionPortAdapter } from "../orchestrator/sanitizer";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
+import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
+import type { AgentTurnEvent } from "@contexts/generation/infrastructure/agent-transport-policy";
+
+const redactionPort = new RedactionPortAdapter();
 
 
 export interface AgentTurnRecord {
@@ -38,7 +46,43 @@ export interface AgentTurnRecord {
   tokensCacheRead: number | null;
   tokensCacheWrite: number | null;
   cost: number | null;
+  /*
+   * Per-turn efficiency measurements. Each is null when the runtime or the row
+   * cannot supply it — never a fabricated zero/false. Omitted on write means null.
+   */
+  totalCalls?: number | null;
+  stepsUsed?: number | null;
+  maxSteps?: number | null;
+  callsBeforeFirstWrite?: number | null;
+  writeCount?: number | null;
+  redundantReadCount?: number | null;
+  duplicateCallCount?: number | null;
+  promptProvidedReadCount?: number | null;
+  /* Content reads of a file the prompt listed by path as rendered; apart from the content-based promptProvidedReadCount. */
+  pathProvidedReadCount?: number | null;
+  exhausted?: boolean | null;
+  callBuckets?: Record<string, number> | null;
 }
+
+/*
+ * The nullable per-turn efficiency columns: call counts, step budget,
+ * redundancy and prompt-provided read counts, and call_buckets (a JSON-encoded
+ * Record<CallBucket, number> TEXT blob, like run_outcomes.gate_signals).
+ * `exhausted` is a nullable 0/1: NULL means "unknown", never false.
+ */
+export const AGENT_TURN_EFFICIENCY_COLUMNS: ReadonlyArray<{ name: string; type: "INTEGER" | "TEXT" }> = [
+  { name: "total_calls", type: "INTEGER" },
+  { name: "steps_used", type: "INTEGER" },
+  { name: "max_steps", type: "INTEGER" },
+  { name: "calls_before_first_write", type: "INTEGER" },
+  { name: "write_count", type: "INTEGER" },
+  { name: "redundant_read_count", type: "INTEGER" },
+  { name: "duplicate_call_count", type: "INTEGER" },
+  { name: "prompt_provided_read_count", type: "INTEGER" },
+  { name: "exhausted", type: "INTEGER" },
+  { name: "call_buckets", type: "TEXT" },
+  { name: "path_provided_read_count", type: "INTEGER" },
+];
 
 const DELETE_MAX_AGE_DAYS = 30;
 
@@ -62,12 +106,17 @@ let listOutcomesStmt!: Database.Statement;
 let getOutcomeStmt!: Database.Statement;
 let upsertRuleStmt!: Database.Statement;
 let listRulesStmt!: Database.Statement;
+let listRetrievableRulesStmt!: Database.Statement;
+let getRuleStmt!: Database.Statement;
+let getAppRuleStmt!: Database.Statement;
 let listAllRulesStmt!: Database.Statement;
 let incrementRuleUsageStmt!: Database.Statement;
 let loadCurriculumStmt!: Database.Statement;
 let saveCurriculumStmt!: Database.Statement;
 let loadScorecardStmt!: Database.Statement;
 let saveScorecardStmt!: Database.Statement;
+let loadContextMapStmt!: Database.Statement;
+let saveContextMapStmt!: Database.Statement;
 let insertAgentTurnStmt!: Database.Statement;
 let getAgentTurnsStmt!: Database.Statement;
 let initialized = false;
@@ -76,8 +125,9 @@ function ensureDb(): void {
   if (initialized) return;
 
   const dbPath =
-    process.env.HISTORY_DB_PATH ?? join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "qayaba.db");
-  mkdirSync(join(process.env.QAYABA_ROOT ?? process.cwd(), "data"), { recursive: true });
+    process.env.HISTORY_DB_PATH ?? join(qayabaDataDir(), "qayaba.db");
+  /* Only the directory the database lives in: a HISTORY_DB_PATH elsewhere leaves the root's data dir alone. */
+  mkdirSync(dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
@@ -160,7 +210,7 @@ function ensureDb(): void {
     CREATE INDEX IF NOT EXISTS idx_outcomes_app ON run_outcomes(app);
     CREATE INDEX IF NOT EXISTS idx_outcomes_error_class ON run_outcomes(error_class);
 
-    -- Durable backing for the live RunEvent (SSE) stream (OBS-01). The in-memory store keeps a
+    -- Durable backing for the live RunEvent (SSE) stream. The in-memory store keeps a
     -- bounded replay buffer; persisting here lets replay survive a restart (e.g. the maintainer
     -- hot-swap's process.exit) and eviction of an old run from the 200-run ring.
     CREATE TABLE IF NOT EXISTS run_events (
@@ -214,7 +264,20 @@ function ensureDb(): void {
       at TEXT NOT NULL
     );
 
-    -- Per-turn telemetry for every agent prompt/response cycle (Phase 0 foundation).
+    -- The FE<->BE architecture map (e2e/.qa/context.json) produced by a successful mode:context
+    -- run, per app (latest wins — not append-only, same as curriculum/scorecard). DB-backed for the
+    -- same reason context_stale is: the mirror's e2e/.qa/context.json is wiped/restored by git
+    -- checkout -f + git clean -fd every run, so a shadow app (which never opens the context.json PR)
+    -- would otherwise lose the map after every run. This table is the engine's source of truth for
+    -- the map regardless of shadow; the repo file (when a non-shadow PR has landed) is only a fallback.
+    CREATE TABLE IF NOT EXISTS context_maps (
+      app TEXT PRIMARY KEY,
+      built_at_sha TEXT NOT NULL,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Per-turn telemetry for every agent prompt/response cycle.
     -- Mirrors the run_events 30-day retention. Token columns are nullable because Codex
     -- runs return no token info. output_text is sanitized before persist (sanitizer.ts).
     CREATE TABLE IF NOT EXISTS agent_turns (
@@ -257,6 +320,25 @@ function ensureDb(): void {
   if (!columnExists("runs", "trigger_repo")) {
     db.exec("ALTER TABLE runs ADD COLUMN trigger_repo TEXT");
   }
+  /*
+   * Every agent_turns efficiency column
+   * is added by this guarded ALTER (fresh and pre-existing DBs alike), so the
+   * column list has a single source of truth. All are nullable: they stay NULL
+   * for a pre-existing row and for any runtime that cannot supply them (Codex
+   * leaves steps_used/max_steps/exhausted NULL) — never a fabricated value.
+   */
+  for (const { name, type } of AGENT_TURN_EFFICIENCY_COLUMNS) {
+    if (!columnExists("agent_turns", name)) {
+      db.exec(`ALTER TABLE agent_turns ADD COLUMN ${name} ${type}`);
+    }
+  }
+  /*
+   * "pending" is a retired rule status an older build could have written. Every retrieval and
+   * ledger read filters on status IN ('active', 'candidate'), so a stored 'pending' row would never
+   * be retrieved, never earn an outcome and stay stuck forever. Rewrite it once, at open, to the
+   * status it always meant. Idempotent: a no-op once no such row remains.
+   */
+  db.exec("UPDATE learning_rules SET status = 'candidate' WHERE status = 'pending'");
 
   insertRun = db.prepare(`
     INSERT INTO runs (id, app, sha, ref, target, mode, status, step, step_detail, verdict, passed, failed, note, retrying, parent_run_id, trigger_repo, at, logs)
@@ -286,7 +368,7 @@ function ensureDb(): void {
   listOutcomesStmt = db.prepare("SELECT * FROM run_outcomes WHERE app = ? ORDER BY at DESC, rowid DESC LIMIT ?");
   getOutcomeStmt = db.prepare("SELECT * FROM run_outcomes WHERE id = ?");
 
-  
+
   upsertRuleStmt = db.prepare(`
     INSERT INTO learning_rules (id, app, trigger_text, action_text, error_class, archetype, confidence, usage_count, outcome_count, oracle_outcome_count, success_rate, last_verified, source, status, at)
     VALUES (@id, @app, @trigger, @action, @errorClass, @archetype, @confidence, @usageCount, @outcomeCount, @oracleOutcomeCount, @successRate, @lastVerified, @source, @status, @at)
@@ -303,23 +385,44 @@ function ensureDb(): void {
       -- fires on an explicit stable-ID re-upsert (tests), where preserving the original is correct.
   `);
   listRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate') ORDER BY (status = 'active') DESC, COALESCE(success_rate, 0) DESC, at DESC LIMIT ?");
+  /*
+   * Governance-path fetch (backs listLearningRulesForGovernance, below): every retrievable row, no
+   * ORDER BY and no LIMIT — ranking is RuleGovernanceService's job alone (see that service's own
+   * header). Any SQL-side cap would have to pre-rank to decide what to keep, and no SQL order can
+   * match governance's ranking (success rate plus the per-run relevance bias, plus the newest-
+   * candidate exploration slots), so a cap always hides rules governance would pick.
+   */
+  listRetrievableRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND status IN ('active', 'candidate')");
+  getRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE id = ?");
+  getAppRuleStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? AND id = ?");
   listAllRulesStmt = db.prepare("SELECT * FROM learning_rules WHERE app = ? ORDER BY at DESC LIMIT ?");
   incrementRuleUsageStmt = db.prepare("UPDATE learning_rules SET usage_count = usage_count + 1 WHERE id = ?");
   loadCurriculumStmt = db.prepare("SELECT data, updated_at FROM curriculum WHERE app = ?");
   saveCurriculumStmt = db.prepare("INSERT INTO curriculum (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
   loadScorecardStmt = db.prepare("SELECT data FROM scorecard WHERE app = ?");
   saveScorecardStmt = db.prepare("INSERT INTO scorecard (app, data, updated_at) VALUES (?, ?, ?) ON CONFLICT(app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at");
+  loadContextMapStmt = db.prepare("SELECT built_at_sha, data, updated_at FROM context_maps WHERE app = ?");
+  saveContextMapStmt = db.prepare(
+    "INSERT INTO context_maps (app, built_at_sha, data, updated_at) VALUES (?, ?, ?, ?) " +
+      "ON CONFLICT(app) DO UPDATE SET built_at_sha = excluded.built_at_sha, data = excluded.data, updated_at = excluded.updated_at",
+  );
 
   /* agent_turns: insert a turn record; retrieve all turns for a run ordered by id. */
   insertAgentTurnStmt = db.prepare(`
     INSERT INTO agent_turns
       (run_id, session_id, role, round, is_repair, ts, objective,
        prompt_text, output_text, prompt_bytes,
-       tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost)
+       tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, cost,
+       total_calls, steps_used, max_steps, calls_before_first_write, write_count,
+       redundant_read_count, duplicate_call_count, prompt_provided_read_count, exhausted, call_buckets,
+       path_provided_read_count)
     VALUES
       (@runId, @sessionId, @role, @round, @isRepair, @ts, @objective,
        @promptText, @outputText, @promptBytes,
-       @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost)
+       @tokensInput, @tokensOutput, @tokensReasoning, @tokensCacheRead, @tokensCacheWrite, @cost,
+       @totalCalls, @stepsUsed, @maxSteps, @callsBeforeFirstWrite, @writeCount,
+       @redundantReadCount, @duplicateCallCount, @promptProvidedReadCount, @exhausted, @callBuckets,
+       @pathProvidedReadCount)
   `);
   getAgentTurnsStmt = db.prepare("SELECT * FROM agent_turns WHERE run_id = ? ORDER BY id ASC");
 
@@ -483,7 +586,7 @@ export function updateRecord(id: string, patch: Partial<RunRecord>): void {
   if (patch.status !== undefined) add("status", patch.status);
   if (patch.step !== undefined) {
     add("step", patch.step);
-    
+
     const cur = (db.prepare("SELECT step FROM runs WHERE id = ?").get(id) as { step?: string } | undefined)?.step;
     if (cur !== patch.step) add("step_started_at", new Date().toISOString());
   }
@@ -571,6 +674,7 @@ export function deleteAppHistory(app: string): number {
   db.prepare("DELETE FROM learning_rules WHERE app = ?").run(app);
   db.prepare("DELETE FROM curriculum WHERE app = ?").run(app);
   db.prepare("DELETE FROM scorecard WHERE app = ?").run(app);
+  db.prepare("DELETE FROM context_maps WHERE app = ?").run(app);
   return info.changes;
 }
 
@@ -666,6 +770,16 @@ export function upsertLearningRule(rule: RuleUpsert & { app: string; id: string;
   });
 }
 
+/*
+ * "pending" is a retired status an older build could have written; no path inserts it anymore
+ * and RuleStatus no longer carries it. Normalize at this persistence boundary — the one place a
+ * raw DB value becomes a typed LearningRule — so every consumer (including the fold) only ever
+ * sees the current, narrower RuleStatus union.
+ */
+function normalizeRuleStatus(raw: unknown): RuleStatus {
+  return raw === "pending" ? "candidate" : (raw as RuleStatus);
+}
+
 function rowToRule(row: Record<string, unknown>): LearningRule {
   return {
     id: row.id as string,
@@ -680,14 +794,54 @@ function rowToRule(row: Record<string, unknown>): LearningRule {
     successRate: row.success_rate as number | null,
     lastVerified: row.last_verified as string | null,
     source: row.source as string,
-    status: row.status as RuleStatus,
+    status: normalizeRuleStatus(row.status),
     at: row.at as string,
   };
 }
 
+/*
+ * The shared "give me the live ledger, not a truncated preview" cap for operator-facing ledger
+ * views (TUI/API intelligence view, CLI `qayaba intel`): listLearningRules(app,
+ * LEARNING_RULE_LEDGER_LIMIT) below — a single shared-limit, status-ranked read. Neither
+ * generation's retrieve path (listLearningRulesForGovernance, which feeds governance the whole
+ * retrievable ledger) nor the fold (getLearningRule, a direct by-id lookup) reads through this cap,
+ * so ledger size can never hide a rule from ranking or drop a fold. Not used by chat.ts's learning
+ * context, which is a deliberately small bounded prompt preview, not a ledger view.
+ */
+export const LEARNING_RULE_LEDGER_LIMIT = 200;
+
 export function listLearningRules(app: string, limit = 20): LearningRule[] {
   ensureDb();
   const rows = listRulesStmt.all(app, limit) as Array<Record<string, unknown>>;
+  return rows.map(rowToRule);
+}
+
+/*
+ * Direct by-id read of one app's rule, uncapped and unordered — the correct lookup for a fold that
+ * already knows the exact rule id (e.g. recordOutcome folding rulesRetrieved). Unlike
+ * listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT), a rule ranked outside that shared window
+ * still resolves here. Undefined when the row does not exist (deleted, never upserted) or belongs
+ * to another app.
+ */
+export function getLearningRule(app: string, id: string): LearningRule | undefined {
+  ensureDb();
+  const row = getAppRuleStmt.get(app, id) as Record<string, unknown> | undefined;
+  return row ? rowToRule(row) : undefined;
+}
+
+/*
+ * Governance-only read: backs historyLearningStore(appName).selectRules, the ONLY caller
+ * SqliteLearningRepository.topRules() feeds into RuleGovernanceService.topRules (the single
+ * ranking truth — see that service's own header, and rule-governance.service.ts's EXPLORATION_SLOTS
+ * doc). Returns EVERY active and candidate row for the app, unordered and uncapped: pre-ranking or
+ * truncating here would be a less-informed copy of governance's own ranking (it cannot see the
+ * per-run relevance bias), and an unordered cap silently keeps the OLDEST rows — so the newest
+ * candidates and the best-proven actives of a large ledger would never be ranked at all.
+ * listLearningRules() above stays the read for operator ledger views and chat's bounded preview.
+ */
+export function listLearningRulesForGovernance(app: string): LearningRule[] {
+  ensureDb();
+  const rows = listRetrievableRulesStmt.all(app) as Array<Record<string, unknown>>;
   return rows.map(rowToRule);
 }
 
@@ -711,17 +865,29 @@ export function incrementRuleUsage(ruleIds: string[]): void {
 }
 
 
+/*
+ * Folds one run outcome onto a rule. Only a retrievable rule (active/candidate) folds: a
+ * deprecated or superseded rule is never retrieved, so an outcome can reach one only when a
+ * governance decision retired it after the run retrieved it — a human veto or the process audit.
+ * Folding that outcome would let the outcome loop undo the decision (a clean run's prevention
+ * credit alone re-promotes a deprecated rule), so a retired rule accrues nothing and keeps its
+ * status until a human restores it.
+ */
 export function recordRuleOutcome(ruleId: string, score: number, coverageCreditConfirmed: boolean | null = null, isOracleScore = false): void {
   ensureDb();
-  const row = db.prepare("SELECT * FROM learning_rules WHERE id = ?").get(ruleId) as Record<string, unknown> | undefined;
+  const row = getRuleStmt.get(ruleId) as Record<string, unknown> | undefined;
   if (!row) return;
+  const current = rowToRule(row);
+  if (current.status !== "active" && current.status !== "candidate") return;
   /*
-   * Shell LearningRule still includes retired "pending"; the fold's RuleStatus does not.
-   * nextStatus already self-heals pending → candidate via a string check — this is a boundary
-   * cast, not a second fold.
+   * rowToRule already normalized a retired "pending" status to "candidate" (RuleStatus no longer
+   * carries it), so the shell LearningRule is structurally assignable to the fold's own
+   * LearningRule with no cast on the way in. The cast on the way OUT is real, not incidental: the
+   * fold's errorClass is the wider `string` (@contexts/cross-run-learning stays kernel-decoupled),
+   * narrower than this shell's own ErrorClass literal union.
    */
   const updated = foldApplyOutcome(
-    rowToRule(row) as FoldLearningRule,
+    current,
     score,
     coverageCreditConfirmed,
     isOracleScore,
@@ -737,8 +903,9 @@ export function recordRuleOutcome(ruleId: string, score: number, coverageCreditC
  * than the oracle — and the ONLY write to learning_rules that originates outside the deterministic
  * distiller. It is reached by an operator via the ledger CLI, never by the agent (the read-only
  * boundary holds). A veto STICKS: 'deprecated' rules are excluded from retrieval, so a vetoed rule
- * is never injected, never accrues outcomes, and therefore never auto-resurrects through the
- * outcome loop. Returns false when the rule id is unknown (no silent success).
+ * is never injected, and recordRuleOutcome refuses to fold onto it even for a run that retrieved
+ * it before the veto, so it never accrues outcomes and never auto-resurrects through the outcome
+ * loop. Returns false when the rule id is unknown (no silent success).
  */
 export function setRuleStatusByHuman(ruleId: string, status: "deprecated" | "active"): boolean {
   ensureDb();
@@ -758,16 +925,16 @@ export function markContextStale(app: string): void {
   db.prepare("INSERT OR REPLACE INTO context_stale (app, at) VALUES (?, ?)").run(app, new Date().toISOString());
 }
 
-/*
- * Consume the staleness flag: returns true (and CLEARS the flag) when the app was marked stale,
- * false otherwise. One-shot by design — the next generating run reads it once to force a rebuild.
- */
-export function consumeContextStale(app: string): boolean {
+/* Whether the app's architecture map is marked stale. Read-only: the flag stays armed. */
+export function isContextStale(app: string): boolean {
   ensureDb();
-  const row = db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) as { app: string } | undefined;
-  if (!row) return false;
+  return db.prepare("SELECT app FROM context_stale WHERE app = ?").get(app) !== undefined;
+}
+
+/* Disarm the staleness flag: a rebuild was accepted by the queue, or a context run stored a fresh map. */
+export function clearContextStale(app: string): void {
+  ensureDb();
   db.prepare("DELETE FROM context_stale WHERE app = ?").run(app);
-  return true;
 }
 
 /*
@@ -783,7 +950,7 @@ export function updateRunOutcomeReflection(runId: string, reflection: import("..
 
 /*
  * Completed-run counts grouped by verdict — the backing data for the Prometheus runs_total
- * counter (OBS-05). Lets an operator alert on a fail/invalid/infra-error rate shift, which the
+ * counter. Lets an operator alert on a fail/invalid/infra-error rate shift, which the
  * two instantaneous gauges (queue depth, open sessions) cannot express.
  */
 export function runVerdictCounts(): Record<string, number> {
@@ -797,7 +964,7 @@ export function runVerdictCounts(): Record<string, number> {
 }
 
 /*
- * Durable RunEvent persistence (OBS-01). INSERT OR IGNORE keeps it idempotent if the in-memory
+ * Durable RunEvent persistence. INSERT OR IGNORE keeps it idempotent if the in-memory
  * store and a re-publish ever collide on (run_id, seq).
  */
 export function saveRunEvent(event: { runId: string; seq: number; ts: number; body: unknown }): void {
@@ -841,6 +1008,55 @@ export function saveAgentTurn(turn: AgentTurnRecord): void {
     tokensCacheRead: turn.tokensCacheRead ?? null,
     tokensCacheWrite: turn.tokensCacheWrite ?? null,
     cost: turn.cost ?? null,
+    totalCalls: turn.totalCalls ?? null,
+    stepsUsed: turn.stepsUsed ?? null,
+    maxSteps: turn.maxSteps ?? null,
+    callsBeforeFirstWrite: turn.callsBeforeFirstWrite ?? null,
+    writeCount: turn.writeCount ?? null,
+    redundantReadCount: turn.redundantReadCount ?? null,
+    duplicateCallCount: turn.duplicateCallCount ?? null,
+    promptProvidedReadCount: turn.promptProvidedReadCount ?? null,
+    pathProvidedReadCount: turn.pathProvidedReadCount ?? null,
+    /* exhausted is tri-state: NULL = unknown, 0 = known not exhausted, 1 = exhausted. */
+    exhausted: turn.exhausted == null ? null : turn.exhausted ? 1 : 0,
+    callBuckets: turn.callBuckets ? JSON.stringify(turn.callBuckets) : null,
+  });
+}
+
+/*
+ * The one place a transport's AgentTurnEvent becomes an agent_turns row, shared by every runtime
+ * so a new column can never drift between OpenCode and Codex. `output_text` is already sanitized
+ * by the transport that emitted the event.
+ */
+export function saveAgentTurnEvent(t: AgentTurnEvent): void {
+  saveAgentTurn({
+    runId: t.runId,
+    sessionId: t.sessionId,
+    role: t.role,
+    round: t.round,
+    isRepair: t.isRepair,
+    ts: t.ts,
+    objective: t.objective ?? null,
+    promptText: t.promptText,
+    outputText: t.outputText,
+    promptBytes: t.promptBytes,
+    tokensInput: t.tokensInput,
+    tokensOutput: t.tokensOutput,
+    tokensReasoning: t.tokensReasoning,
+    tokensCacheRead: t.tokensCacheRead,
+    tokensCacheWrite: t.tokensCacheWrite,
+    cost: t.cost,
+    maxSteps: t.stepBudget?.maxSteps ?? null,
+    exhausted: t.stepBudget ? t.stepBudget.exhausted : null,
+    totalCalls: t.callMetrics?.totalCalls ?? null,
+    stepsUsed: t.callMetrics?.stepsUsed ?? null,
+    callsBeforeFirstWrite: t.callMetrics?.callsBeforeFirstWrite ?? null,
+    writeCount: t.callMetrics?.writeCount ?? null,
+    redundantReadCount: t.callMetrics?.redundantReadCount ?? null,
+    duplicateCallCount: t.callMetrics?.duplicateCallCount ?? null,
+    promptProvidedReadCount: t.callMetrics?.promptProvidedReadCount ?? null,
+    pathProvidedReadCount: t.callMetrics?.pathProvidedReadCount ?? null,
+    callBuckets: t.callMetrics?.buckets ?? null,
   });
 }
 
@@ -865,17 +1081,40 @@ export function getAgentTurns(runId: string): AgentTurnRecord[] {
     tokensCacheRead: (r.tokens_cache_read as number | null) ?? null,
     tokensCacheWrite: (r.tokens_cache_write as number | null) ?? null,
     cost: (r.cost as number | null) ?? null,
+    totalCalls: (r.total_calls as number | null) ?? null,
+    stepsUsed: (r.steps_used as number | null) ?? null,
+    maxSteps: (r.max_steps as number | null) ?? null,
+    callsBeforeFirstWrite: (r.calls_before_first_write as number | null) ?? null,
+    writeCount: (r.write_count as number | null) ?? null,
+    redundantReadCount: (r.redundant_read_count as number | null) ?? null,
+    duplicateCallCount: (r.duplicate_call_count as number | null) ?? null,
+    promptProvidedReadCount: (r.prompt_provided_read_count as number | null) ?? null,
+    pathProvidedReadCount: (r.path_provided_read_count as number | null) ?? null,
+    exhausted: r.exhausted == null ? null : Boolean(r.exhausted),
+    callBuckets: typeof r.call_buckets === "string" ? safeJsonParse<Record<string, number> | null>(r.call_buckets, null) : null,
   }));
 }
 
-export function loadCurriculum(app: string): Curriculum | null {
+/*
+ * A corrupt row (exists but fails to parse) is a DISTINCT outcome from "no row yet" — returning
+ * null for both let CurriculumPortAdapter.read() silently `initCurriculum` a corrupt app's
+ * history, and the next successful fold() would persist that fresh curriculum right over the
+ * corrupt row, permanently discarding whatever evidence it held with nothing logged anywhere.
+ * CURRICULUM_CORRUPT routes the adapter's read() to throw instead, which its existing
+ * try/catch (onError, no save) already fault-isolates — see curriculum-port.adapter.ts.
+ */
+export function loadCurriculum(app: string): Curriculum | null | typeof CURRICULUM_CORRUPT {
   ensureDb();
   const row = loadCurriculumStmt.get(app) as { data: string; updated_at: string } | undefined;
   if (!row) return null;
   try {
     return JSON.parse(row.data) as Curriculum;
-  } catch {
-    return null;
+  } catch (err) {
+    logJson("warn", `corrupt curriculum row for app '${app}' — refusing to silently reset it with a fresh curriculum`, {
+      app,
+      error: redactionPort.redactError(err),
+    });
+    return CURRICULUM_CORRUPT;
   }
 }
 
@@ -903,6 +1142,45 @@ export function saveScorecardEntry(entry: ScorecardEntry): void {
   ensureDb();
   const sc = updateScorecard(loadScorecard(entry.app), entry);
   saveScorecardStmt.run(sc.app, JSON.stringify(sc), sc.updatedAt);
+}
+
+export interface StoredContextMap {
+  builtAtSha: string;
+  data: ArchitectureContext;
+  updatedAt: string;
+}
+
+/*
+ * Persist the app's FE<->BE architecture map (per-app row; latest wins — not append-only, same as
+ * curriculum/scorecard above). `builtAtSha` is the deterministic run sha the orchestrator captured
+ * this map at, not necessarily identical to `data.builtAtSha` (the agent's own self-reported field
+ * inside the JSON, left untouched) — see ContextMapCapturePortAdapter's caller.
+ */
+export function saveContextMap(app: string, builtAtSha: string, data: ArchitectureContext): void {
+  ensureDb();
+  saveContextMapStmt.run(app, builtAtSha, JSON.stringify(data), new Date().toISOString());
+}
+
+/*
+ * A corrupt row (exists but fails to parse) is logged loudly and treated as "no stored map" —
+ * never crashes a run. Same fault-isolation shape as loadCurriculum, except a context map is
+ * advisory grounding, not a fold input: there is nothing here for a caller to distinguish from
+ * "no row yet" (unlike CURRICULUM_CORRUPT, which guards a fold from clobbering real evidence), so
+ * undefined is the correct, single "no usable stored map" signal for both cases.
+ */
+export function loadContextMap(app: string): StoredContextMap | undefined {
+  ensureDb();
+  const row = loadContextMapStmt.get(app) as { built_at_sha: string; data: string; updated_at: string } | undefined;
+  if (!row) return undefined;
+  try {
+    return { builtAtSha: row.built_at_sha, data: JSON.parse(row.data) as ArchitectureContext, updatedAt: row.updated_at };
+  } catch (err) {
+    logJson("warn", `corrupt context-map row for app '${app}' — treating as no stored map`, {
+      app,
+      error: redactionPort.redactError(err),
+    });
+    return undefined;
+  }
 }
 
 process.on("exit", () => {
@@ -934,6 +1212,34 @@ export interface TelemetryAnalysis {
   medianTurnsPerRun: number | null;
   medianWallClockSec: number | null;
   p95WallClockSec: number | null;
+  efficiency: TelemetryEfficiency;
+}
+
+/* Aggregates over the turns' persisted efficiency measurements. Turns a runtime could not measure (null) are left out of every figure, never counted as zero. */
+export interface TelemetryEfficiency {
+  turnsMeasured: number;                       /* turns with call metrics */
+  medianCallsBeforeFirstWrite: number | null;  /* over measured turns that made at least one call */
+  exhaustedRate: number | null;                /* exhausted turns / turns whose exhaustion is known (0–1) */
+  redundantReadRatio: number | null;           /* redundant reads / calls, over measured turns (0–1) */
+  duplicateRatio: number | null;               /* duplicate calls / calls, over measured turns (0–1) */
+}
+
+function efficiencyOf(turnRows: Array<Record<string, unknown>>): TelemetryEfficiency {
+  const measured = turnRows.filter((r) => r.total_calls != null);
+  const totalCalls = measured.reduce((sum, r) => sum + (r.total_calls as number), 0);
+  const sumOf = (column: string) => measured.reduce((sum, r) => sum + ((r[column] as number | null) ?? 0), 0);
+  const known = turnRows.filter((r) => r.exhausted != null);
+  return {
+    turnsMeasured: measured.length,
+    medianCallsBeforeFirstWrite: median(
+      measured
+        .filter((r) => (r.total_calls as number) > 0 && r.calls_before_first_write != null)
+        .map((r) => r.calls_before_first_write as number),
+    ),
+    exhaustedRate: known.length > 0 ? known.filter((r) => r.exhausted === 1).length / known.length : null,
+    redundantReadRatio: totalCalls > 0 ? sumOf("redundant_read_count") / totalCalls : null,
+    duplicateRatio: totalCalls > 0 ? sumOf("duplicate_call_count") / totalCalls : null,
+  };
 }
 
 function median(values: number[]): number | null {
@@ -974,7 +1280,10 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     : `SELECT * FROM run_outcomes WHERE app = ? ORDER BY at ASC`;
   const outcomeRows = db.prepare(outcomesQuery).all(...(cutoff ? [app, cutoff] : [app])) as Array<Record<string, unknown>>;
 
-  const runCount = new Set(turnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
+  /* The run-level figures below (turn counts, wall-clock, repair fraction) cover the generation and review turns; the explorer appears only in byRole and the efficiency view. */
+  const runTurnRows = turnRows.filter((r) => r.role !== EXPLORER_AGENT_NAME);
+
+  const runCount = new Set(runTurnRows.map((r) => r.run_id as string | null).filter(Boolean)).size;
 
   /* Group turns by role for per-role stats. */
   const byRoleMap = new Map<string, { promptBytes: number[]; cacheRatios: number[]; turnCount: number }>();
@@ -999,7 +1308,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     turnCount: s.turnCount,
   }));
 
-  
+
   const generatorFirstRounds = turnRows.filter(
     (r) =>
       (r.role as string).includes("generator") &&
@@ -1013,12 +1322,12 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
   const groundingPresence = generatorFirstRounds.length > 0 ? groundedCount / generatorFirstRounds.length : null;
 
   /* Repair fraction: in-session repair turns / total turns. */
-  const repairCount = turnRows.filter((r) => r.is_repair).length;
-  const repairFraction = turnRows.length > 0 ? repairCount / turnRows.length : null;
+  const repairCount = runTurnRows.filter((r) => r.is_repair).length;
+  const repairFraction = runTurnRows.length > 0 ? repairCount / runTurnRows.length : null;
 
   /* Turns per run: group by run_id, count turns. */
   const turnsByRun = new Map<string, number>();
-  for (const row of turnRows) {
+  for (const row of runTurnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
     turnsByRun.set(rid, (turnsByRun.get(rid) ?? 0) + 1);
   }
@@ -1026,7 +1335,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
   /* Wall-clock per run: first/last ts per run_id → span in seconds. */
   const wallClocksByRun = new Map<string, { first: number; last: number }>();
-  for (const row of turnRows) {
+  for (const row of runTurnRows) {
     const rid = (row.run_id as string | null) ?? "__unknown__";
     const ts = new Date(row.ts as string).getTime();
     if (!Number.isFinite(ts)) continue;
@@ -1072,6 +1381,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
     medianTurnsPerRun,
     medianWallClockSec,
     p95WallClockSec,
+    efficiency: efficiencyOf(turnRows),
   };
 }
 
@@ -1085,7 +1395,7 @@ export function computeTelemetryAnalysis(app: string, windowDays?: number): Tele
 
 export async function backupDatabase(): Promise<{ backedUp: boolean; path?: string; error?: string }> {
   if (!initialized) return { backedUp: false, error: "db not initialized" };
-  const backupDir = join(process.env.QAYABA_ROOT ?? process.cwd(), "data", "backups");
+  const backupDir = join(qayabaDataDir(), "backups");
   try {
     mkdirSync(backupDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");

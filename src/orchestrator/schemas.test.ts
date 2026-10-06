@@ -10,6 +10,59 @@ const base = {
   report: { onFailure: "github-issue" },
 };
 
+test("auth.kind form accepts env-var names", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+  });
+  assert.equal(cfg.auth?.kind, "form");
+  assert.equal(cfg.auth?.usernameEnv, "QA_SHOP_TEST_USER");
+});
+
+const FORM_LOGIN = { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" } as const;
+
+test("auth.loginPath accepts a path on the app's own origin", () => {
+  for (const loginPath of ["/signin", "/", "/auth/login", "/#/login", "/login?next=/home"]) {
+    const cfg = AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } });
+    assert.equal(cfg.auth?.loginPath, loginPath);
+    assert.equal(new URL(loginPath, "https://app.example").origin, "https://app.example", "an accepted path resolves on the app's own origin");
+  }
+});
+
+test("auth.loginPath rejects anything that could leave the app's origin or is not one plain path", () => {
+  const tooLong = "/" + "a".repeat(200);
+  const leavesTheOrigin = ["/\\evil.example", "/\\/evil.example", "/sign\\in"];
+  const holdsAControlCharacter = ["/sign\u0000in", "/sign\u001fin", "/sign\u007fin", "/sign\nin", "/\t/evil.example"];
+  for (const loginPath of ["//evil.example", "//evil.example/login", "https://evil.example/login", "signin", "", " /signin", "/sign in", "/sign\tin", tooLong, ...leavesTheOrigin, ...holdsAControlCharacter]) {
+    assert.throws(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath } }), JSON.stringify(loginPath));
+  }
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, auth: { ...FORM_LOGIN, loginPath: "/" + "a".repeat(199) } }), "200 characters is allowed");
+});
+
+test("auth.loginPath is only for a form login", () => {
+  assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls", certEnv: "QA_CERT", certPassEnv: "QA_CERT_PASS", loginPath: "/signin" } }));
+});
+
+test("auth is optional and code-mode stays valid without it", () => {
+  const cfg = AppConfigSchema.parse({ ...base, code: true, dev: undefined });
+  assert.equal(cfg.auth, undefined);
+});
+
+test("auth.kind mtls requires certEnv", () => {
+  assert.throws(() => AppConfigSchema.parse({ ...base, auth: { kind: "mtls" } }));
+});
+
+test("auth is rejected on a code-mode app", () => {
+  assert.throws(() =>
+    AppConfigSchema.parse({
+      ...base,
+      code: true,
+      dev: undefined,
+      auth: { kind: "form", usernameEnv: "QA_SHOP_TEST_USER", passwordEnv: "QA_SHOP_TEST_PASS" },
+    }),
+  );
+});
+
 test("accepts an app with services[] (repo + optional openapi/versionUrl/baseBranch)", () => {
   const cfg = AppConfigSchema.parse({
     ...base,
@@ -54,13 +107,6 @@ test("rejects duplicate service repos", () => {
   );
 });
 
-test("qa.parallelDiff parses and defaults to undefined", () => {
-  const on = AppConfigSchema.parse({ ...base, qa: { ...base.qa, parallelDiff: true } });
-  assert.equal(on.qa.parallelDiff, true);
-  const off = AppConfigSchema.parse(base);
-  assert.equal(off.qa.parallelDiff, undefined);
-});
-
 test("qa.structuralSignals absent leaves the field undefined (factory defaults to 'signal')", () => {
   const cfg = AppConfigSchema.parse(base);
   assert.equal(cfg.qa.structuralSignals, undefined);
@@ -100,6 +146,23 @@ test("qa.structuralSignals rejects any mode outside off|signal", () => {
   );
 });
 
+/*
+ * parallelDiff/sessionContinuity/specTriage were removed from the schema (never implemented —
+ * see the removed SCHEMA-ONLY comments). AppConfigSchema's qa object has no .strict()/.passthrough(),
+ * so Zod's default behavior applies: an unrecognized key is silently STRIPPED, not rejected. A
+ * config/apps/*.yaml written before this change (still setting one of these) must therefore keep
+ * parsing without error — it just no longer round-trips the dead field.
+ */
+test("qa: an unknown key (e.g. a since-removed schema-only flag) is silently stripped, never rejected", () => {
+  const cfg = AppConfigSchema.parse({
+    ...base,
+    qa: { ...base.qa, parallelDiff: true, sessionContinuity: true, specTriage: true },
+  });
+  assert.equal("parallelDiff" in cfg.qa, false);
+  assert.equal("sessionContinuity" in cfg.qa, false);
+  assert.equal("specTriage" in cfg.qa, false);
+});
+
 const manifestEntry = {
   id: "login",
   objective: "valid credentials reach the dashboard",
@@ -112,7 +175,7 @@ test("ManifestEntrySchema accepts a well-formed entry", () => {
   assert.equal(ManifestEntrySchema.safeParse(manifestEntry).success, true);
 });
 
-test("ManifestEntrySchema rejects empty targets / empty objective — write uses the read invariant (Phase 3.1)", () => {
+test("ManifestEntrySchema rejects empty targets / empty objective — write uses the read invariant", () => {
   /* Write uses the same schema as read — a bad entry is dropped rather than corrupting the manifest. */
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, targets: [] }).success, false);
   assert.equal(ManifestEntrySchema.safeParse({ ...manifestEntry, objective: "" }).success, false);
@@ -135,21 +198,6 @@ test("AppConfigSchema accepts no e2e block at all (block optional)", () => {
 
 test("AppConfigSchema rejects testIdAttribute: empty string", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { testIdAttribute: "" } }));
-});
-
-test("qa.specTriage: true parses without error", () => {
-  const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, specTriage: true } });
-  assert.equal(cfg.qa.specTriage, true);
-});
-
-test("qa.specTriage: absent defaults to undefined (falsy, feature is default-OFF)", () => {
-  const cfg = AppConfigSchema.parse(base);
-  assert.equal(cfg.qa.specTriage, undefined);
-});
-
-test("qa.specTriage: false parses without error", () => {
-  const cfg = AppConfigSchema.parse({ ...base, qa: { ...base.qa, specTriage: false } });
-  assert.equal(cfg.qa.specTriage, false);
 });
 
 /* boundaries[] config. Shallow/pass-through validation: field names match
@@ -245,7 +293,7 @@ test("boundaries[]: code:true app with NO boundaries[] still parses (empty/absen
   assert.equal(cfg.boundaries, undefined);
 });
 
-/* P0-2: YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
+/* YAML `qa.valueOracle` plus the shadow-aware default the CLI already reports. */
 test("resolveValueOraclePolicy: an explicit valueOracle wins over shadow", () => {
   assert.equal(resolveValueOraclePolicy({ valueOracle: "signal", shadow: true }), "signal");
   assert.equal(resolveValueOraclePolicy({ valueOracle: "off", shadow: false }), "off");

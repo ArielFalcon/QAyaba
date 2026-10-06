@@ -1,5 +1,6 @@
 
 import { z } from "zod";
+import { LoginPathSchema } from "../login-path";
 import { TestTargetSchema, RunModeSchema, RunVerdictSchema, RunEngineStatusSchema } from "./events";
 
 export const CaseStatusSchema = z.enum(["pass", "fail", "flaky"]);
@@ -74,6 +75,8 @@ export const AppViewSchema = z.object({
   needsReview: z.boolean(),
   testDataPrefix: z.string(),
   services: z.array(AppServiceViewSchema),
+  /** App login kind. Absent when the app is public. Secrets are not on this view. */
+  authKind: z.enum(["form", "mtls"]).optional(),
 });
 
 export const QueueStatusSchema = z.object({
@@ -110,6 +113,8 @@ export const CreateRunInputSchema = z.object({
   target: TestTargetSchema,
   mode: RunModeSchema,
   sha: z.string().optional(),
+  /* diff mode: the range start — the run's diff spans baseSha..sha instead of the single commit at sha. Must be 7–40 hex characters. */
+  baseSha: z.string().optional(),
   ref: z.string().optional(),
   guidance: z.string().optional(),
   shadow: z.boolean().optional(),
@@ -157,6 +162,21 @@ export const RepoInfoSchema = z.object({
   description: z.string().nullable(),
 });
 
+export const AppAuthInputSchema = z
+  .object({
+    kind: z.enum(["form", "mtls"]),
+    usernameEnv: z.string().optional(),
+    passwordEnv: z.string().optional(),
+    certEnv: z.string().optional(),
+    certPassEnv: z.string().optional(),
+    /** A path on the app's own origin, for a form login whose page is not reachable by its links. */
+    loginPath: LoginPathSchema.optional(),
+  })
+  .refine((auth) => auth.kind === "form" || auth.loginPath === undefined, {
+    error: "loginPath is only valid for kind form",
+    path: ["loginPath"],
+  });
+
 export const CreateAppInputSchema = z.object({
   repo: z.string(),
   name: z.string().optional(),
@@ -168,6 +188,7 @@ export const CreateAppInputSchema = z.object({
   testDataPrefix: z.string().optional(),
   services: z.array(OnboardServiceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  auth: AppAuthInputSchema.optional(),
   dryRun: z.boolean().optional(),
   validateOnly: z.boolean().optional(),
 });
@@ -182,6 +203,9 @@ export const UpdateAppInputSchema = z.object({
   testDataPrefix: z.string().optional(),
   services: z.array(OnboardServiceInputSchema).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  auth: AppAuthInputSchema.optional(),
+  /** true drops the YAML auth block. Absent preserves it. */
+  clearAuth: z.boolean().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -456,8 +480,10 @@ export const ScorecardViewSchema = z.object({
   entries: z.array(
     z.object({
       valueScore: z.number().nullable(),
-      mutantCount: z.number().int().nonnegative(),
-      killedCount: z.number().int().nonnegative(),
+      /* null means "not measured" (the value-oracle never ran or reported no count) — distinct
+       * from a genuine measured zero. Never a fabricated 0. */
+      mutantCount: z.number().int().nonnegative().nullable(),
+      killedCount: z.number().int().nonnegative().nullable(),
       target: z.string(),
       at: z.string(),
     }),
@@ -483,7 +509,10 @@ export const IntelligenceViewSchema = z.object({
   app: z.string(),
   rules: z.array(LearningRuleViewSchema),
   scorecard: ScorecardViewSchema.nullable(),
+  /* null when the app has no curriculum yet OR its stored row is corrupt; curriculumCorrupt tells the two apart. */
   curriculum: CurriculumViewSchema.nullable(),
+  /* true when a curriculum row exists but cannot be parsed. Renderers must show it as corrupt (the row is kept for repair, never silently reset), never as "no curriculum yet". */
+  curriculumCorrupt: z.boolean(),
 });
 
 export type IntelligenceView = z.infer<typeof IntelligenceViewSchema>;
@@ -662,4 +691,126 @@ export const RunReportViewSchema = z.object({
   evolution: ReportViewSchema.nullable(),
 });
 
+/** ── Architecture map (`e2e/.qa/context.json`) — the FE<->BE map a mode:context run produces,
+ * persisted in the context_maps SQLite store and exposed read-only. Wire mirror of qa-engine's
+ * port-local ArchitectureContext (generation-ports.ts / qa-run-orchestration ports/index.ts) —
+ * same no-cross-context-import precedent as those two, now also mirrored at the contract boundary. */
+export const ArchitectureRouteSchema = z.object({
+  path: z.string(),
+  name: z.string().optional(),
+  component: z.string().optional(),
+  source: z.string().optional(),
+});
+
+export const ArchitectureApiOperationSchema = z.object({
+  operationId: z.string(),
+  method: z.string(),
+  path: z.string(),
+  service: z.string().optional(),
+  spec: z.string().optional(),
+});
+
+export const ArchitectureFeBeLinkSchema = z.object({
+  route: z.string(),
+  operationId: z.string(),
+  via: z.string().optional(),
+});
+
+export const ArchitectureFlowSchema = z.object({
+  id: z.string(),
+  routes: z.array(z.string()),
+  operations: z.array(z.string()).optional(),
+});
+
+export const ArchitectureContextSchema = z.object({
+  builtAtSha: z.string(),
+  routes: z.array(ArchitectureRouteSchema),
+  api: z.array(ArchitectureApiOperationSchema),
+  feBe: z.array(ArchitectureFeBeLinkSchema),
+  flows: z.array(ArchitectureFlowSchema).optional(),
+});
+
+export const ContextMapViewSchema = z.object({
+  app: z.string(),
+  map: ArchitectureContextSchema,
+  builtAtSha: z.string(),
+  updatedAt: z.string(),
+});
+
+export type ContextMapView = z.infer<typeof ContextMapViewSchema>;
+
 export type RunReportView = z.infer<typeof RunReportViewSchema>;
+
+const nullableCount = z.number().int().nonnegative().nullable();
+
+/** ── Agent turns (GET /runs/:id/turns) ─────────────────────────────────────────────── One prompt/response cycle of one agent role. The efficiency fields (from totalCalls down) are measurements of what the agent did that turn; every one is null when the runtime cannot supply it or the turn was recorded before they existed — never a fabricated zero/false. exhausted null means unknown, false means known not exhausted. callBuckets counts calls per fine bucket (code_read, browser, write, validate_run, memory, subagent, other); counts only, never paths or targets. */
+export const AgentTurnViewSchema = z.object({
+  runId: z.string().nullable(),
+  sessionId: z.string(),
+  role: z.string(),
+  round: z.number().int().nonnegative(),
+  isRepair: z.boolean(),
+  ts: z.string(),
+  objective: z.string().nullable(),
+  promptText: z.string(),
+  outputText: z.string(),
+  promptBytes: z.number().int().nonnegative(),
+  tokensInput: z.number().nullable(),
+  tokensOutput: z.number().nullable(),
+  tokensReasoning: z.number().nullable(),
+  tokensCacheRead: z.number().nullable(),
+  tokensCacheWrite: z.number().nullable(),
+  cost: z.number().nullable(),
+  totalCalls: nullableCount,
+  stepsUsed: nullableCount,
+  maxSteps: nullableCount,
+  callsBeforeFirstWrite: nullableCount,
+  writeCount: nullableCount,
+  redundantReadCount: nullableCount,
+  duplicateCallCount: nullableCount,
+  promptProvidedReadCount: nullableCount,
+  pathProvidedReadCount: nullableCount,
+  exhausted: z.boolean().nullable(),
+  callBuckets: z.record(z.string(), z.number()).nullable(),
+});
+
+export type AgentTurnView = z.infer<typeof AgentTurnViewSchema>;
+
+export const TelemetryRoleStatSchema = z.object({
+  role: z.string(),
+  medianPromptBytes: z.number().nullable(),
+  p95PromptBytes: z.number().nullable(),
+  medianCacheHitRate: z.number().nullable(),
+  turnCount: z.number().int().nonnegative(),
+});
+
+/** Aggregates over the turns' persisted efficiency measurements; turns a runtime could not measure are left out of every figure, never counted as zero. */
+export const TelemetryEfficiencySchema = z.object({
+  turnsMeasured: z.number().int().nonnegative(),
+  medianCallsBeforeFirstWrite: z.number().nullable(),
+  exhaustedRate: z.number().nullable(),
+  redundantReadRatio: z.number().nullable(),
+  duplicateRatio: z.number().nullable(),
+});
+
+/** ── App telemetry (GET /apps/:name/telemetry) ─────────────────────────────────────── Prompt-size, grounding, repair and wall-clock aggregates over the app's agent turns, plus the agent-efficiency aggregates. */
+export const AppTelemetryViewSchema = z.object({
+  app: z.string(),
+  generatedAt: z.string(),
+  windowDays: z.number().int().nullable(),
+  runCount: z.number().int().nonnegative(),
+  byRole: z.array(TelemetryRoleStatSchema),
+  reviewerConvergence: z.object({
+    avgCorrectionsRound0: z.number().nullable(),
+    avgCorrectionsRound1: z.number().nullable(),
+    approveRate: z.number().nullable(),
+  }),
+  groundingPresence: z.number().nullable(),
+  repairFraction: z.number().nullable(),
+  medianTurnsPerRun: z.number().nullable(),
+  medianWallClockSec: z.number().nullable(),
+  p95WallClockSec: z.number().nullable(),
+  efficiency: TelemetryEfficiencySchema,
+});
+
+export type AppTelemetryView = z.infer<typeof AppTelemetryViewSchema>;

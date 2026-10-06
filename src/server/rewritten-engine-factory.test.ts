@@ -1,15 +1,29 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish } from "./rewritten-engine-factory";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createRewrittenEngineFactory, buildRewrittenCompositionConfig, buildVcsPublish, resolveCodeSandbox, resolveSidekickTimeoutMsFromEnv, type ContextHealRunRequest } from "./rewritten-engine-factory";
 import { AppConfig } from "../orchestrator/config-loader";
 import { JobQueue } from "./queue";
 import { enqueueTrackedRun } from "./runner";
-import { getRecord } from "./history";
+import { getRecord, saveContextMap, markContextStale, isContextStale, loadContextMap as loadStoredContextMap } from "./history";
+import type { ArchitectureContext } from "@contexts/generation/application/ports/generation-ports";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { defaultMirrorDeps, type MirrorDeps } from "../integrations/repo-mirror";
+import { assertTrustedGitTree, defaultMirrorDeps, hardenGitArgs, UntrustedGitTreeError, type MirrorDeps } from "../integrations/repo-mirror";
+import { closeGitDir, GIT_ENV, makeGitlinkRepo, plantNestedRepo, ranPlantedCommand, writeMarkerCommand } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
 import { SqliteRunHistoryAdapter } from "./run-history-sqlite-adapter";
+import { defaultCaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot";
+import { AUTH_SETUP_ENV } from "@contexts/qa-run-orchestration/infrastructure/auth-session.adapter";
+import { AuthPreconditionError, PRECONDITION_KIND } from "@contexts/qa-run-orchestration/domain/auth-precondition";
+import { SUBMITTED_MARKER } from "@contexts/qa-run-orchestration/infrastructure/login-discovery/login-discovery.script";
+import { scriptedLoginEvidence } from "../../qa-engine/test/support/login-evidence";
+import { createAgentDeps } from "@contexts/generation/infrastructure/agent-transport-policy";
 import { SqliteLearningRepository } from "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter";
+import { EXPLORATION_SLOTS } from "@contexts/cross-run-learning/domain/rule-governance.service";
 import { Sha } from "@kernel/sha";
+import { BlastRadius } from "@kernel/blast-radius";
 import {
   REVIEWER_TIMEOUT_MS,
   agentTimeout,
@@ -58,22 +72,205 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
   assert.ok(config.vcs, "vcs collaborator must be wired");
   assert.ok(config.generationUseCase, "generationUseCase collaborator must be wired");
   assert.ok(config.validationStrategies.e2e, "e2e validation (static gate) collaborator must be wired");
-  assert.ok(config.validationStrategies.code, "code validation (compile gate, WS2.2 full-flow remediation) collaborator must be wired");
+  assert.ok(config.validationStrategies.code, "code validation (compile gate) collaborator must be wired");
   assert.ok(config.executionStrategies.e2e, "e2e execution strategy must be wired");
   assert.ok(config.executionStrategies.code, "code execution strategy must be wired");
   assert.ok(config.setupCollaborators?.e2e, "SetupPort e2e collaborator must be wired (CLAUDE.md run-flow step 3 — missing before this fix)");
   assert.ok(config.setupCollaborators?.code, "SetupPort code collaborator must be wired");
-  assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired (W4 follow-up, a9e7dfb) for an e2e app");
-  assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired (W4 follow-up, a9e7dfb) for an e2e app");
+  assert.ok(config.groundingCollaborators, "PreGenerationGroundingPort collaborators must be wired for an e2e app");
+  assert.ok(config.reviewDomGroundingCollaborators, "ReviewDomGroundingPort collaborators must be wired for an e2e app");
   assert.ok(config.objectiveSignal.collector, "coverage collector must be wired");
   assert.ok(config.objectiveSignal.oracle, "value oracle must be wired");
   assert.ok(config.githubPr, "githubPr collaborator must be wired (production path, not buildShadow)");
   assert.ok(config.githubIssue, "githubIssue collaborator must be wired");
   assert.ok(config.vcsWrite, "PROD-BLOCKER fix: vcsWrite collaborator must be wired — without it the 'pr' route throws at publish() time instead of silently opening a PR against an unpushed branch");
   assert.equal(typeof config.checkout, "function");
-  assert.ok(config.confinement, "sdd/migration-remediation Slice 3: ConfinementPort collaborator must be wired");
+  assert.ok(config.confinement, "ConfinementPort collaborator must be wired");
   assert.ok(config.reflectorPort, "reflector-rewire: ReflectorPort collaborator must be wired");
-  assert.ok(config.processAudit, "sdd/migration-remediation Slice 5: ProcessAuditPort collaborator must be wired");
+  assert.ok(config.processAudit, "ProcessAuditPort collaborator must be wired");
+});
+
+/* The login seed (config/e2e/auth.setup.ts) matters only when a form login has to tell a stock
+   auth.setup.ts from an app-owned one; composing an app must not depend on it being readable. */
+test("composing an e2e app does not read the auth setup seed, whether or not the app declares a login", () => {
+  const rootWithoutSeed = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const previousRoot = process.env.QAYABA_ROOT;
+  process.env.QAYABA_ROOT = rootWithoutSeed;
+  try {
+    const publicApp = cfg("public-app");
+    const formApp: AppConfig = { ...cfg("form-app"), auth: { kind: "form", usernameEnv: "QA_FORM_USER", passwordEnv: "QA_FORM_PASS" } };
+    for (const app of [publicApp, formApp]) {
+      assert.doesNotThrow(() => buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" }), `${app.name} must compose without the seed`);
+    }
+  } finally {
+    if (previousRoot === undefined) delete process.env.QAYABA_ROOT;
+    else process.env.QAYABA_ROOT = previousRoot;
+    rmSync(rootWithoutSeed, { recursive: true, force: true });
+  }
+});
+
+/* The login setup runs the seed playwright.config.ts like the suite does, so the composed auth
+   session hands its spawn the app's test-id attribute and the configured action timeout. The `npx`
+   on PATH is the process-boundary double: it records the two names it was started with. */
+async function authSetupSpawnEnv(app: AppConfig, actionTimeoutMs: string | undefined): Promise<{ testIdAttribute: string; actionTimeoutMs: string }> {
+  const root = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
+  const specDir = mkdtempSync(join(tmpdir(), "factory-spec-"));
+  const saved = new Map(["QAYABA_ROOT", "PATH", AUTH_SETUP_ENV.actionTimeoutMs, "QA_FORM_USER", "QA_FORM_PASS"].map((k) => [k, process.env[k]]));
+  try {
+    const npx = join(binDir, "npx");
+    writeFileSync(npx, `#!/bin/sh\nprintf '%s\\n%s\\n' "\${${AUTH_SETUP_ENV.testIdAttribute}-unset}" "\${${AUTH_SETUP_ENV.actionTimeoutMs}-unset}" > setup-env.txt\nexit 1\n`);
+    chmodSync(npx, 0o755);
+    process.env.QAYABA_ROOT = root;
+    process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
+    process.env.QA_FORM_USER = "synthetic-user";
+    process.env.QA_FORM_PASS = "synthetic-pass";
+    if (actionTimeoutMs === undefined) delete process.env[AUTH_SETUP_ENV.actionTimeoutMs];
+    else process.env[AUTH_SETUP_ENV.actionTimeoutMs] = actionTimeoutMs;
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
+    await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(app.auth ? { auth: app.auth } : {}) });
+    const [testIdAttribute = "", timeout = ""] = readFileSync(join(specDir, "setup-env.txt"), "utf8").split("\n");
+    return { testIdAttribute, actionTimeoutMs: timeout };
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    for (const dir of [root, binDir, specDir]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const formAuth: AppConfig["auth"] = { kind: "form", usernameEnv: "QA_FORM_USER", passwordEnv: "QA_FORM_PASS" };
+
+test("the composed auth session gives its setup spawn the app's test-id attribute and the configured action timeout", async () => {
+  const app: AppConfig = { ...cfg("auth-env-configured"), auth: formAuth, e2e: { testIdAttribute: "data-cy" } };
+  const seen = await authSetupSpawnEnv(app, "15000");
+  assert.equal(seen.testIdAttribute, "data-cy");
+  assert.equal(seen.actionTimeoutMs, "15000");
+});
+
+test("the composed auth session passes neither name to its setup spawn when the app configures neither", async () => {
+  const seen = await authSetupSpawnEnv({ ...cfg("auth-env-unconfigured"), auth: formAuth }, undefined);
+  assert.equal(seen.testIdAttribute, "unset");
+  assert.equal(seen.actionTimeoutMs, "unset");
+});
+
+/* Structural login discovery is the production activation switch: an e2e app with a form login composes
+   its auth session with the discovery child ahead of the stock seed. The `node` and `npx` on PATH are the
+   process-boundary doubles: the fake `node` records the input it was given and prints a rejected login
+   (with a secret of the orchestrator's own in the page text); the fake `npx` records that the seed ran. */
+const ORCHESTRATOR_TOKEN = "tok-abcdef123456";
+
+async function composedDiscovery(app: AppConfig, contextMap?: object): Promise<{ result: unknown; input: string | undefined; seeded: boolean; authorized: AppConfig["auth"] }> {
+  const root = mkdtempSync(join(tmpdir(), "factory-root-"));
+  const binDir = mkdtempSync(join(tmpdir(), "factory-bin-"));
+  const specDir = mkdtempSync(join(tmpdir(), "factory-spec-"));
+  const saved = new Map(["QAYABA_ROOT", "PATH", "QA_FORM_USER", "QA_FORM_PASS", "EXTERNAL_API_TOKEN"].map((k) => [k, process.env[k]]));
+  try {
+    const evidence = JSON.stringify({ evidence: scriptedLoginEvidence({ firstAlert: `the page said ${ORCHESTRATOR_TOKEN} to the user` }) });
+    writeFileSync(join(binDir, "node"), `#!/bin/sh\nprintf '%s' "$PW_LOGIN_INPUT" > login-input.txt\ncat <<'EOF'\n${JSON.stringify({ marker: SUBMITTED_MARKER })}\n${evidence}\nEOF\n`);
+    writeFileSync(join(binDir, "npx"), "#!/bin/sh\ntouch seeded.txt\nexit 1\n");
+    chmodSync(join(binDir, "node"), 0o755);
+    chmodSync(join(binDir, "npx"), 0o755);
+    if (contextMap) {
+      mkdirSync(join(specDir, ".qa"));
+      writeFileSync(join(specDir, ".qa", "context.json"), JSON.stringify(contextMap));
+    }
+    process.env.QAYABA_ROOT = root;
+    process.env.PATH = `${binDir}:${saved.get("PATH") ?? ""}`;
+    process.env.QA_FORM_USER = "synthetic-user";
+    process.env.QA_FORM_PASS = "synthetic-pass";
+    process.env.EXTERNAL_API_TOKEN = ORCHESTRATOR_TOKEN;
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.ok(config.authSession, "an e2e app with a live DEV url composes an auth session");
+    const result = await config.authSession.prepare({ specDir, baseUrl: "https://dev", phase: "pre-generate", ...(config.auth ? { auth: config.auth } : {}) }).catch((error: unknown) => error);
+    const inputFile = join(specDir, "login-input.txt");
+    return { result, input: existsSync(inputFile) ? readFileSync(inputFile, "utf8") : undefined, seeded: existsSync(join(specDir, "seeded.txt")), authorized: config.auth };
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    for (const dir of [root, binDir, specDir]) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("an e2e app with a form login tries structural discovery before the stock seed, and a rejected login ends before the seed runs", async () => {
+  const { result, input, seeded } = await composedDiscovery({ ...cfg("discovery-wired"), auth: formAuth });
+  assert.ok(result instanceof AuthPreconditionError, `expected a precondition, got ${String(result)}`);
+  assert.equal(result.kind, PRECONDITION_KIND.CREDENTIALS_REJECTED);
+  assert.notEqual(input, undefined, "the discovery child ran");
+  assert.equal(seeded, false, "the stock seed did not run after a positively evidenced failure");
+});
+
+test("the note of a failed login goes through the factory's own redaction of the orchestrator's secrets", async () => {
+  const { result } = await composedDiscovery({ ...cfg("discovery-redaction"), auth: formAuth });
+  assert.ok(result instanceof AuthPreconditionError);
+  assert.ok(result.note.includes("the page said"), "the page text is in the note");
+  assert.equal(result.note.includes(ORCHESTRATOR_TOKEN), false, "an env secret the exact-value scrub never heard of is removed by the shell's redaction");
+});
+
+test("the declared login path and the app's context-map routes reach discovery; routes a browser cannot open do not", async () => {
+  const app: AppConfig = { ...cfg("discovery-inputs"), auth: { ...formAuth, loginPath: "/signin" } };
+  const map = { builtAtSha: "abc1234", routes: [{ path: "/reports" }, { path: "/orders/:id" }], api: [], feBe: [] };
+  const { authorized, input } = await composedDiscovery(app, map);
+  assert.equal(authorized?.loginPath, "/signin");
+  const sent = JSON.parse(input ?? "{}") as { loginPath?: string; routes?: string[]; baseUrl?: string };
+  assert.equal(sent.loginPath, "/signin");
+  assert.deepEqual(sent.routes, ["/reports"]);
+  assert.equal(sent.baseUrl, "https://dev");
+});
+
+test("an e2e app with no login declared never starts discovery", async () => {
+  const { result, input, seeded } = await composedDiscovery(cfg("discovery-public"));
+  assert.deepEqual(result, { unauthored: false });
+  assert.equal(input, undefined);
+  assert.equal(seeded, false);
+});
+
+test("a code-mode app composes no auth session at all", () => {
+  const config = buildRewrittenCompositionConfig({ name: "discovery-code", repo: "org/demo", code: true, qa: { needsReview: true, testDataPrefix: "qa-bot", shadow: true }, report: { onFailure: "github-issue" } }, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.equal(config.authSession, undefined);
+});
+
+test("resolveSidekickTimeoutMsFromEnv reads COORDINATION_SIDEKICK_TIMEOUT_MS, undefined when absent/invalid", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "not-a-number";
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), undefined);
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "90000";
+    assert.equal(resolveSidekickTimeoutMsFromEnv(), 90_000);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
+});
+
+test("buildRewrittenCompositionConfig threads COORDINATION_SIDEKICK_TIMEOUT_MS into config.sidekickTimeoutMs", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = "77000";
+    const config = buildRewrittenCompositionConfig(cfg("timeout-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.equal(config.sidekickTimeoutMs, 77_000);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
+});
+
+test("buildRewrittenCompositionConfig omits config.sidekickTimeoutMs when the env var is absent (composition-root applies its own default)", () => {
+  const prior = process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+  try {
+    delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    const config = buildRewrittenCompositionConfig(cfg("timeout-app-absent"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+    assert.equal(config.sidekickTimeoutMs, undefined);
+  } finally {
+    if (prior === undefined) delete process.env.COORDINATION_SIDEKICK_TIMEOUT_MS;
+    else process.env.COORDINATION_SIDEKICK_TIMEOUT_MS = prior;
+  }
 });
 
 /* ── Curriculum wiring: the per-app scenario-archetype prior, backed by history.ts's store ────────
@@ -85,6 +282,281 @@ test("buildRewrittenCompositionConfig maps an e2e AppConfig into a complete Comp
 test("buildRewrittenCompositionConfig wires a CurriculumPort backed by the history store", () => {
   const config = buildRewrittenCompositionConfig(cfg("curriculum-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.ok(config.curriculumPort, "curriculumPort must be wired unconditionally");
+});
+
+/* ── context-map capture + DB-first grounding — wired UNCONDITIONALLY, same rationale as
+   curriculumPort above: contextMapCapture is off-path (never gates a verdict/publish/coverage
+   decision), and groundingCollaborators.loadContextMap only ever WIDENS today's disk-only fallback
+   (it still calls loadContextMapFromDisk when no stored map exists), so there is no risk surface a
+   config flag would protect.
+ */
+test("buildRewrittenCompositionConfig wires a ContextMapCapturePort backed by the history store", () => {
+  const config = buildRewrittenCompositionConfig(cfg("contextmap-capture-app"), { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.ok(config.contextMapCapture, "contextMapCapture must be wired unconditionally");
+});
+
+test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: the stored map wins over the repo file when present", () => {
+  const app = cfg("factory-contextmap-db-wins");
+  const map: ArchitectureContext = { builtAtSha: "sha-db", routes: [{ path: "/db" }], api: [], feBe: [] };
+  saveContextMap(app.name, "sha-db", map);
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.deepEqual(result, map, "the DB is the engine's source of truth — it must win even when the repo file is absent (and would win even if present)");
+});
+
+test("buildRewrittenCompositionConfig wires groundingCollaborators.loadContextMap: falls back to the repo file (undefined here) when no stored map exists", () => {
+  const app = cfg(`factory-contextmap-fallback-${Date.now().toString(36)}`);
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.equal(result, undefined, "no stored map and no real file on disk -> undefined, never throws");
+});
+
+/*
+ * Process-audit context heal. A stale-flagged map never grounds the run that sees the flag, and
+ * that run asks for a `mode: context` rebuild at its OWN sha (the sha DEV serves once a gated run
+ * got this far — the mirror's HEAD at composition time is the previous run's sha). The flag stays
+ * armed until the queue actually accepts the rebuild or a context run stores a fresh map, so a
+ * refused, failed or unwired enqueue is retried by the next qualifying run instead of being lost.
+ */
+const flushMicrotasks = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+test("buildRewrittenCompositionConfig — a stale-marked context map is NOT used for grounding (stored map skipped even though present)", () => {
+  const app = cfg(`factory-contextmap-stale-${Date.now().toString(36)}`);
+  const map: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
+  saveContextMap(app.name, "sha-old", map);
+  markContextStale(app.name);
+
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff", sha: "abc1234" });
+  const result = config.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk");
+  assert.equal(result, undefined, "a stale-flagged map must never ground generation, even though a stored map exists");
+});
+
+/*
+ * The heal handoff end to end: a queued run reaches the real factory, which requests the rebuild. The
+ * mirror seam fails the checkout at once, so the run ends right after composition with no git or
+ * network work.
+ */
+async function queueRunThroughRealFactory(app: AppConfig, sha: string): Promise<ContextHealRunRequest[]> {
+  const requests: ContextHealRunRequest[] = [];
+  const mirrorRoot = mkdtempSync(join(tmpdir(), "qayaba-heal-funnel-"));
+  const noCheckout = async (): Promise<never> => {
+    throw new Error("no mirror in this test");
+  };
+  try {
+    const queue = new JobQueue();
+    enqueueTrackedRun(
+      queue,
+      { app: app.name, sha, target: "e2e", mode: "diff", source: "manual" },
+      {
+        loadApp: () => app,
+        engineFactory: createRewrittenEngineFactory({
+          getAgentDeps: stubAgentDeps,
+          mirrorRoot,
+          mirror: { ensureMirror: noCheckout, ensureMirrorAtBranch: noCheckout },
+          enqueueContextRun: (input) => {
+            requests.push(input);
+            return "run-heal-1";
+          },
+        }),
+      },
+    );
+    await queue.drain();
+    await flushMicrotasks();
+  } finally {
+    rmSync(mirrorRoot, { recursive: true, force: true });
+  }
+  return requests;
+}
+
+test("a queued run requests its context heal at that run's own sha", async () => {
+  const app = cfg(`factory-contextmap-heal-funnel-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+
+  const requests = await queueRunThroughRealFactory(app, "def5678");
+
+  assert.deepEqual(requests.map(({ app: name, sha }) => ({ app: name, sha })), [{ app: app.name, sha: "def5678" }]);
+  assert.equal(isContextStale(app.name), false, "the accepted rebuild disarms the flag");
+});
+
+test("a queued run with no sha never requests a context heal and keeps the stale flag armed", async () => {
+  const app = cfg(`factory-contextmap-heal-funnel-nosha-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+
+  const requests = await queueRunThroughRealFactory(app, "");
+
+  assert.deepEqual(requests, []);
+  assert.equal(isContextStale(app.name), true, "the next run that has a sha must retry the heal");
+});
+
+test("buildRewrittenCompositionConfig — an accepted heal disarms the stale flag", async () => {
+  const app = cfg(`factory-contextmap-heal-accepted-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, enqueueContextRun: async () => "run-heal-1" },
+    "qa-bot-abc1234-run1",
+    { mode: "diff", sha: "abc1234" },
+  );
+  await flushMicrotasks();
+  assert.equal(isContextStale(app.name), false);
+});
+
+for (const [label, enqueueContextRun] of [
+  ["refused by the queue (empty run id)", () => ""],
+  ["rejected", async () => { throw new Error("queue exploded"); }],
+  ["thrown synchronously", () => { throw new Error("queue exploded"); }],
+  ["not wired", undefined],
+] as const) {
+  test(`buildRewrittenCompositionConfig — a heal enqueue ${label} keeps the stale flag armed and never blocks the run`, async () => {
+    const app = cfg(`factory-contextmap-heal-kept-${Math.random().toString(36).slice(2)}`);
+    markContextStale(app.name);
+
+    const config = buildRewrittenCompositionConfig(
+      app,
+      { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) },
+      "qa-bot-abc1234-run1",
+      { mode: "diff", sha: "abc1234" },
+    );
+    await flushMicrotasks();
+    assert.ok(config.groundingCollaborators, "composition completes whatever the heal enqueue does");
+    assert.equal(isContextStale(app.name), true, "the next qualifying run must retry the heal");
+  });
+}
+
+test("buildRewrittenCompositionConfig — a code-mode app never requests a heal (context maps are e2e-only)", () => {
+  const app: AppConfig = { ...cfg(`factory-contextmap-stale-code-${Date.now().toString(36)}`), code: true, dev: undefined };
+  markContextStale(app.name);
+
+  let requested = 0;
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", target: "code", sha: "abc1234" });
+  assert.equal(requested, 0);
+  assert.equal(isContextStale(app.name), true, "the flag stays armed for the next real e2e generating run");
+});
+
+test("buildRewrittenCompositionConfig — a mode:context run never requests its own heal (it is the rebuild)", () => {
+  const app = cfg(`factory-contextmap-stale-context-mode-${Date.now().toString(36)}`);
+  markContextStale(app.name);
+
+  let requested = 0;
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "context", sha: "abc1234" });
+  assert.equal(requested, 0);
+});
+
+/* A spec dir in its own git repository under the OS temp dir: `committed` is the `.qa/context.json`
+   the run's base commit holds, `written` the body the run leaves in the working copy (none when
+   absent, so a committed map stays untouched). */
+function specDirWithContextMap(written: string | undefined, committed?: string): string {
+  const specDir = mkdtempSync(join(tmpdir(), "qayaba-context-capture-"));
+  const git = (...args: string[]): void => {
+    execFileSync("git", ["-C", specDir, "-c", "user.email=qa@example.invalid", "-c", "user.name=qa", "-c", "commit.gpgsign=false", ...args], { stdio: "ignore" });
+  };
+  git("init", "-q");
+  closeGitDir(specDir);
+  mkdirSync(join(specDir, ".qa"), { recursive: true });
+  writeFileSync(join(specDir, "README.md"), "e2e\n");
+  if (committed !== undefined) writeFileSync(join(specDir, ".qa", "context.json"), committed);
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  if (written !== undefined) writeFileSync(join(specDir, ".qa", "context.json"), written);
+  return specDir;
+}
+
+const CONDEMNED_MAP: ArchitectureContext = { builtAtSha: "sha-old", routes: [{ path: "/old" }], api: [], feBe: [] };
+
+for (const [label, enqueueContextRun] of [
+  ["a wired rebuild trigger", () => "run-heal-1"],
+  ["no rebuild trigger (the CLI)", undefined],
+] as const) {
+  for (const [written, committedBefore] of [
+    ["a new map", undefined],
+    ["a rewrite of the committed map", JSON.stringify(CONDEMNED_MAP)],
+  ] as const) {
+    test(`a context run that stores ${written} disarms the stale flag and grounds the next run, with ${label}`, async () => {
+      const app = cfg(`factory-contextmap-fresh-capture-${Math.random().toString(36).slice(2)}`);
+      const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
+      saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
+      markContextStale(app.name);
+      const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
+      const specDir = specDirWithContextMap(JSON.stringify(fresh), committedBefore);
+      try {
+        const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+        await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+      } finally {
+        rmSync(specDir, { recursive: true, force: true });
+      }
+
+      assert.equal(isContextStale(app.name), false);
+      const nextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-0a1b2c3-run2", { mode: "diff", sha: "0a1b2c3" });
+      assert.deepEqual(nextRun.groundingCollaborators!.loadContextMap!("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/fresh" }]);
+    });
+  }
+
+  /* A context run that did not write the map leaves the condemned, committed one in the working copy:
+     storing it would re-key the known-bad map at the new sha and disarm the flag that condemned it. */
+  test(`a context run that leaves the committed, condemned map untouched stores nothing and keeps the stale flag armed, with ${label}`, async () => {
+    const app = cfg(`factory-contextmap-untouched-${Math.random().toString(36).slice(2)}`);
+    saveContextMap(app.name, "sha-old", CONDEMNED_MAP);
+    markContextStale(app.name);
+    const deps = { getAgentDeps: stubAgentDeps, ...(enqueueContextRun ? { enqueueContextRun } : {}) };
+    const specDir = specDirWithContextMap(undefined, JSON.stringify(CONDEMNED_MAP));
+    try {
+      const contextRun = buildRewrittenCompositionConfig(app, deps, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+      await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+    } finally {
+      rmSync(specDir, { recursive: true, force: true });
+    }
+
+    assert.equal(isContextStale(app.name), true);
+    assert.equal(loadStoredContextMap(app.name)?.builtAtSha, "sha-old", "the condemned map is not stored again at the new sha");
+  });
+}
+
+/* After a code-mode run the working copy belongs to the unprivileged sandbox user, so git run as the
+   orchestrator judges it owned by someone else ("dubious ownership"). GIT_TEST_ASSUME_DIFFERENT_OWNER
+   makes git apply that same check to a copy this test's own user created. */
+test("a context run that stores a new map is captured even when git judges the working copy owned by another user", async () => {
+  const app = cfg(`factory-contextmap-other-owner-${Math.random().toString(36).slice(2)}`);
+  const fresh: ArchitectureContext = { builtAtSha: "sha-new", routes: [{ path: "/fresh" }], api: [], feBe: [] };
+  markContextStale(app.name);
+  const specDir = specDirWithContextMap(JSON.stringify(fresh));
+  const previous = process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+  process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = "1";
+  try {
+    const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+    await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+  } finally {
+    if (previous === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+    else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = previous;
+    rmSync(specDir, { recursive: true, force: true });
+  }
+  assert.equal(isContextStale(app.name), false, "the map was stored, so the flag that condemned the old one is disarmed");
+  assert.deepEqual(loadStoredContextMap(app.name)?.data.routes, [{ path: "/fresh" }]);
+});
+
+test("a context run that stores no map (missing or invalid) keeps the stale flag armed", async () => {
+  const app = cfg(`factory-contextmap-no-capture-${Math.random().toString(36).slice(2)}`);
+  markContextStale(app.name);
+  const contextRun = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run1", { mode: "context", sha: "def5678" });
+  for (const body of [undefined, JSON.stringify({ builtAtSha: "", routes: [], api: [], feBe: [] })]) {
+    const specDir = specDirWithContextMap(body);
+    try {
+      await contextRun.contextMapCapture!.capture(specDir, app.name, "def5678");
+    } finally {
+      rmSync(specDir, { recursive: true, force: true });
+    }
+  }
+  assert.equal(isContextStale(app.name), true);
+});
+
+test("buildRewrittenCompositionConfig — a cross-repo (service-triggered) run never requests a primary-app heal", () => {
+  const app: AppConfig = { ...cfg(`factory-contextmap-stale-crossrepo-${Date.now().toString(36)}`), services: [{ repo: "org/service" }] };
+  markContextStale(app.name);
+
+  let requested = 0;
+  buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps, enqueueContextRun: () => { requested += 1; return "run-heal-1"; } }, "qa-bot-abc1234-run1", { mode: "diff", triggerRepo: "org/service", sha: "abc1234" });
+  assert.equal(requested, 0, "a service sha is not a primary-repo sha");
+  assert.equal(isContextStale(app.name), true);
 });
 
 /* GenerateTestsUseCase.GenerationPorts.repair must be wired so a malformed verdict gets one
@@ -192,7 +664,7 @@ test("buildRewrittenCompositionConfig sets reviewTimeoutMs to the exported REVIE
   assert.equal(config.reviewTimeoutMs, REVIEWER_TIMEOUT_MS, "the reviewer must get its OWN purpose-built budget, not the dispatcher's coarse ceiling");
 });
 
-test("P0-5: factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs", () => {
+test("factory threads agentTimeout(mode) into CompositionConfig.agentTimeoutMs", () => {
   const app = cfg("factory-agent-timeout");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.agentTimeoutMs, agentTimeout("diff"));
@@ -206,16 +678,37 @@ test("P0-5: factory threads agentTimeout(mode) into CompositionConfig.agentTimeo
    that wiring EXPLICITLY (matching setupCollaborators' own visible-wiring precedent) rather than
    relying on an implicit fallback three files away, and that contextMap/prChangedFiles stay honestly
    absent (no static per-run source exists at composition-build time).
+
+   groundingCollaborators.contextPackDeps and reviewDomGroundingCollaborators/
+   preExecGroundingCollaborators.captureDomDeps are ALWAYS overridden (authDir-aware), so DOM
+   capture reads auth material from the orchestrator-only authDir, never the mirror — the qa-engine
+   default is an inert placeholder that throws when used. This is why the tests below assert these
+   fields are PRESENT rather than `{}`.
  */
 
-test("buildRewrittenCompositionConfig wires empty (real-default-resolving) groundingCollaborators for an e2e app", () => {
+test("buildRewrittenCompositionConfig wires authDir-aware (not empty) groundingCollaborators for an e2e app", () => {
   const app = cfg("factory-grounding-e2e");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.deepEqual(config.groundingCollaborators, {}, "an empty object lets PreGenerationGroundingPortAdapter fall back to the real buildContextPack/defaultContextPackDeps");
-  assert.deepEqual(config.reviewDomGroundingCollaborators, {}, "an empty object lets ReviewDomGroundingPortAdapter fall back to the real captureDom/defaultCaptureDomDeps");
+  assert.ok(config.groundingCollaborators?.contextPackDeps, "contextPackDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
+  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so DOM capture reads auth material from authDir, not the mirror");
+  assert.ok(config.preExecGroundingCollaborators?.captureDomDeps, "captureDomDeps must be wired so pre-exec DOM capture reads auth material from authDir, not the mirror");
 });
 
-test("P0-3: explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
+test("every DOM capture seam of an e2e app is the authDir-backed capture, never the inert default", () => {
+  const app = cfg("factory-dom-capture-seams");
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  const seams = {
+    "pre-generation Context Pack": config.groundingCollaborators?.contextPackDeps?.domDeps,
+    "review DOM grounding": config.reviewDomGroundingCollaborators?.captureDomDeps,
+    "pre-exec grounding": config.preExecGroundingCollaborators?.captureDomDeps,
+  };
+  for (const [seam, deps] of Object.entries(seams)) {
+    assert.ok(deps, `${seam}: a DOM capture must be wired`);
+    assert.notEqual(deps, defaultCaptureDomDeps, `${seam}: the inert default throws on use and knows no authDir`);
+  }
+});
+
+test("explorer:true wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer"), qa: { ...cfg("factory-explorer").qa, explorer: true } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
@@ -257,31 +750,51 @@ test("explorer prompt uses the commit sha, intent, and triggerService — not th
   assert.equal(captured.includes("Explore the blast radius of commit qa-bot-abc1234-run1"), false, "the run namespace must not be passed as the commit sha");
 });
 
-test("multi-repo: explorer:false + services.length>0 wires groundingCollaborators.exploreBrief for an e2e app", () => {
+test("multi-repo: explorer:undefined (not configured) + services.length>0 auto-wires groundingCollaborators.exploreBrief for an e2e app", () => {
   const app: AppConfig = { ...cfg("factory-explorer-services-auto"), services: [{ repo: "org/ms-orders" }] };
+  assert.equal(app.qa.explorer, undefined, "precondition: explorer is genuinely unconfigured, not explicitly false");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.groundingCollaborators?.exploreBrief, "function");
 });
 
-test("multi-repo: explorer:false + empty services[] stays opt-in (no exploreBrief)", () => {
+/* With the explorer off, the rest of pre-generation grounding stays in place: the authDir-backed DOM
+   capture and the DB-first context map. */
+function assertRestOfGroundingWired(app: AppConfig, config: ReturnType<typeof buildRewrittenCompositionConfig>): void {
+  const domDeps = config.groundingCollaborators?.contextPackDeps?.domDeps;
+  assert.ok(domDeps, "a DOM capture is wired");
+  assert.notEqual(domDeps, defaultCaptureDomDeps, "the DOM capture is the authDir-backed one");
+  saveContextMap(app.name, "abc1234", { builtAtSha: "abc1234", routes: [{ path: "/stored" }], api: [], feBe: [] });
+  assert.deepEqual(config.groundingCollaborators?.loadContextMap?.("/definitely/does/not/exist/on/disk")?.routes, [{ path: "/stored" }], "the stored context map still grounds");
+}
+
+test("multi-repo: explorer:undefined (not configured) + empty services[] stays opt-in (no exploreBrief)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-empty-services"), services: [] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(config.groundingCollaborators, {});
+  assertRestOfGroundingWired(app, config);
 });
 
-test("multi-repo: explorer:false + undefined services stays opt-in", () => {
+test("multi-repo: explorer:undefined (not configured) + undefined services stays opt-in", () => {
   const app = cfg("factory-explorer-undefined-services");
   assert.equal(app.services, undefined);
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
-  assert.deepEqual(config.groundingCollaborators, {});
+  assertRestOfGroundingWired(app, config);
+});
+
+test("explorer:false explicitly wins over services.length>0 — an explicit false must NEVER be treated the same as unconfigured (never wire exploreBrief)", () => {
+  const base = cfg("factory-explorer-explicit-false");
+  const app: AppConfig = { ...base, qa: { ...base.qa, explorer: false }, services: [{ repo: "org/ms-orders" }] };
+  const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function", "explorer:false must suppress exploreBrief even when services[] would otherwise auto-enable it");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("code-mode: services[] does NOT wire exploreBrief (still gated by !isCode)", () => {
   const app: AppConfig = { ...cfg("factory-explorer-code-services"), code: true, dev: undefined, services: [{ repo: "org/ms-orders" }] };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
-  assert.deepEqual(config.groundingCollaborators, {});
+  assert.notEqual(typeof config.groundingCollaborators?.exploreBrief, "function");
+  assertRestOfGroundingWired(app, config);
 });
 
 test("buildRewrittenCompositionConfig still wires groundingCollaborators for a code-mode app (composition-root.ts's own isCode guard is the actual skip point, not the factory)", () => {
@@ -292,8 +805,8 @@ test("buildRewrittenCompositionConfig still wires groundingCollaborators for a c
      asserting the factory's OWN output stays the same shape whether or not isCode is true is the
      faithful way to pin "the factory does not need its own target check — it already exists downstream".
    */
-  assert.deepEqual(config.groundingCollaborators, {});
-  assert.deepEqual(config.reviewDomGroundingCollaborators, {});
+  assert.ok(config.groundingCollaborators?.contextPackDeps);
+  assert.ok(config.reviewDomGroundingCollaborators?.captureDomDeps);
   assert.equal(config.isCode, true, "isCode is what composition-root.ts's wireBridges() reads to skip both grounding ports on this target");
 });
 
@@ -629,35 +1142,84 @@ test("buildRewrittenCompositionConfig selects the code target + Stryker oracle f
   assert.equal(config.versionPoll, undefined);
 });
 
-/* P0-2: AppConfig.qa.valueOracle was schema-only — the factory always constructed
+/*
+ * The value oracle re-runs the suite with responses corrupted. The repo owns its
+ * playwright.config.ts, so that re-run must not name a project the repo may not define. A fake
+ * `playwright` binary stands in for the runner at the process boundary: it behaves like a config
+ * whose only project is "chromium" (an unknown --project fails), marks one intercepted response as
+ * corrupted, and reports the single baseline spec failing under corruption.
+ */
+const FAKE_PLAYWRIGHT = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const project = process.argv.slice(2).find((a) => a.startsWith("--project"));
+if (project && project !== "--project=chromium") {
+  process.stderr.write("Error: Project(s) not found. Available projects: \\"chromium\\"\\n");
+  process.exit(1);
+}
+const marks = path.join(process.cwd(), ".qa", "fault-injection", process.env.PW_NAMESPACE);
+fs.mkdirSync(marks, { recursive: true });
+fs.writeFileSync(path.join(marks, "worker-0.json"), JSON.stringify({ corrupted: 1 }));
+fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME, JSON.stringify({
+  suites: [{ title: "login.spec.ts", specs: [{ title: "shows the dashboard", tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "dashboard heading missing" } }] }] }] }],
+  stats: { expected: 0, unexpected: 1 },
+}));
+process.exit(1);
+`;
+
+test("the value oracle scores a suite whose Playwright config has no desktop project", async () => {
+  const app: AppConfig = { ...cfg("factory-oracle-no-desktop"), qa: { ...cfg("factory-oracle-no-desktop").qa, valueOracle: "signal" } };
+  const e2eDir = mkdtempSync(join(tmpdir(), "qayaba-oracle-projects-"));
+  try {
+    mkdirSync(join(e2eDir, "node_modules", ".bin"), { recursive: true });
+    const bin = join(e2eDir, "node_modules", ".bin", "playwright");
+    writeFileSync(bin, FAKE_PLAYWRIGHT);
+    chmodSync(bin, 0o755);
+    const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
+
+    const result = await config.objectiveSignal.oracle.measure(
+      BlastRadius.of(Sha.of("abc1234"), ["src/login.ts"]),
+      e2eDir,
+      "qa-bot-abc1234-run1",
+      ["login.spec.ts › shows the dashboard"],
+    );
+
+    assert.notEqual(result.valueScore, null, `the corrupted re-run must be conclusive, got: ${result.details}`);
+    assert.equal(result.killedCount, 1);
+  } finally {
+    rmSync(e2eDir, { recursive: true, force: true });
+  }
+});
+
+/* AppConfig.qa.valueOracle was schema-only — the factory always constructed
    FaultInjectionOracleAdapter (e2e) / StrykerMutationOracleAdapter (code), so portfolio's
    valueOracle:"off" still fault-injected on every green run.
  */
-test("P0-2: e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
+test("e2e + valueOracle off wires NullValueOracleAdapter (no fault-injection)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-off"), qa: { ...cfg("factory-oracle-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
+test("e2e shadow with omitted valueOracle wires NullValueOracleAdapter (shadow-aware default)", () => {
   const app = cfg("factory-oracle-shadow-default");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
+test("e2e + valueOracle signal wires FaultInjectionOracleAdapter even in shadow", () => {
   const app: AppConfig = { ...cfg("factory-oracle-signal"), qa: { ...cfg("factory-oracle-signal").qa, shadow: true, valueOracle: "signal" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "FaultInjectionOracleAdapter");
 });
 
-test("P0-2: code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
+test("code + valueOracle off wires NullValueOracleAdapter (no Stryker)", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-off"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-off").qa, valueOracle: "off" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "NullValueOracleAdapter");
 });
 
-test("P0-2: code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
+test("code + valueOracle signal wires StrykerMutationOracleAdapter", () => {
   const app: AppConfig = { ...cfg("factory-oracle-code-signal"), code: true, dev: undefined, qa: { ...cfg("factory-oracle-code-signal").qa, shadow: false, valueOracle: "signal" } };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-def5678-run2", { mode: "diff" });
   assert.equal(config.objectiveSignal.oracle.constructor.name, "StrykerMutationOracleAdapter");
@@ -712,7 +1274,7 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
   assert.equal(configRun2.branch, "qa-bot-abc1234-runB");
 });
 
-/* ── F5 (HIGH) — GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
+/* ── GitHubPrAdapter's own `base` param defaults to "main" when the caller omits it
    (github-pr.adapter.ts); this factory previously never passed app.baseBranch at all, so every
    app with a non-"main" default branch silently targeted the wrong PR base branch. Verified via
    structural introspection of the constructed GitHubPrAdapter's own private `base` field — the
@@ -721,14 +1283,14 @@ test("two calls to buildRewrittenCompositionConfig with DIFFERENT namespaces pro
    constructor-injected value is the faithful, side-effect-free way to assert this wiring.
  */
 
-test("F5: buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
+test("buildRewrittenCompositionConfig wires githubPr with app.baseBranch as the PR base", () => {
   const app: AppConfig = { ...cfg("factory-basebranch"), baseBranch: "develop" };
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
   assert.equal(base, "develop", "githubPr must be constructed with app.baseBranch, not silently defaulting to GitHubPrAdapter's own 'main' fallback");
 });
 
-test("F5: buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
+test("buildRewrittenCompositionConfig falls back to 'main' when app.baseBranch is absent (matches legacy's app.baseBranch ?? \"main\")", () => {
   const app = cfg("factory-basebranch-default");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   const base = (config.githubPr as unknown as { base?: string }).base;
@@ -805,7 +1367,7 @@ test("buildVcsPublish (e2e target): changes under e2e/ -> checkout -B, add, comm
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
   /* commit() always diffs tracked denylist paths before committing, including on e2e. */
   assert.deepEqual(calls.map(subcommandOf), ["status", "checkout", "add", "diff", "commit", "push"], "git write must follow the legacy contract's exact ordering: status-check -> checkout -B -> add -> [tracked-denylist diff] -> commit -> push");
-  assert.deepEqual(calls[1], ["checkout", "-B", "qa-bot/abc1234"], "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
+  assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)), "checkout must target the SAME branch the PR will be opened against (ctx.branch, threaded through the vcsWrite.publish() call)");
   assert.deepEqual(calls[2], ["add", "--", "e2e"], "e2e target stages ONLY the e2e/ pathspec, never the whole repo");
   assert.ok(calls[5]?.includes("--force-with-lease"), "push must force-with-lease (safe concurrent-push guard)");
 });
@@ -915,8 +1477,11 @@ test("CRITICAL decorations are scoped: status/checkout/add stay UNDECORATED (no 
 
     await vcsWrite.publish({ mirrorDir: "/mirrors/org/app", branch: "qa-bot/abc1234", sha: "abc1234" });
 
-    assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "status must stay bare — legacy never decorated the change check");
-    assert.deepEqual(calls[1], ["checkout", "-B", "qa-bot/abc1234"], "checkout must stay bare — a local branch op needs neither auth nor identity");
+    const carriesAuthOrIdentity = (args: string[]): boolean => args.some((arg) => arg.startsWith("url.") || arg.startsWith("user."));
+    assert.deepEqual(calls[0]?.slice(-2), ["--", "e2e"], "status scopes to the e2e pathspec");
+    assert.equal(carriesAuthOrIdentity(calls[0] ?? []), false, "status must stay undecorated — legacy never decorated the change check");
+    assert.ok(["-B", "qa-bot/abc1234"].every((word) => calls[1]?.includes(word)));
+    assert.equal(carriesAuthOrIdentity(calls[1] ?? []), false, "checkout must stay undecorated — a local branch op needs neither auth nor identity");
     assert.deepEqual(calls[2], ["add", "--", "e2e"], "add must stay bare — legacy's add carried no -c flags (publish.ts:119)");
   });
 });
@@ -928,7 +1493,7 @@ test("buildVcsPublish (code target): changes anywhere -> stages the whole tree p
   const result = await vcsWrite.publish({ mirrorDir: "/mirrors/org/qayaba", branch: "qa-bot/def5678", sha: "def5678" });
 
   assert.deepEqual(result, { changed: true, revertedDenylisted: [], revertedDangerous: [] });
-  assert.deepEqual(calls[0], ["status", "--porcelain", "--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
+  assert.deepEqual(calls[0]?.slice(-2), ["--", "."], "code target's status check scopes to '.', not 'e2e' (the whole tree, per publishCode's own CODE_ADD)");
   assert.deepEqual(calls[2], ["add", "--", "."], "code target stages the whole tree, matching legacy's publishCode(mirrorDir, ...) — never just e2e/");
 });
 
@@ -942,12 +1507,69 @@ test("buildVcsPublish writes gitignore-style excludes BEFORE checking for change
   assert.equal(excludesWritten.length, 1);
   assert.equal(excludesWritten[0]?.dir, "/mirrors/org/app");
   assert.ok(excludesWritten[0]?.patterns.includes("node_modules/"), "e2e excludes must include node_modules/ (the documented `git add` failure this ordering fixes)");
-  assert.deepEqual(calls[0], ["status", "--porcelain", "--", "e2e"], "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
+  assert.equal(subcommandOf(calls[0] ?? []), "status", "writeExcludes must run BEFORE the status check (same ordering as publish.ts's publishChanges)");
+});
+
+test("buildVcsPublish never writes its local excludes through a git dir the sandbox replaced with a symlink", async () => {
+  const root = mkdtempSync(join(tmpdir(), "publish-swapped-git-"));
+  try {
+    const mirror = join(root, "mirror");
+    const sandboxGit = join(root, "sandbox-controlled-git");
+    mkdirSync(mirror);
+    mkdirSync(sandboxGit);
+    symlinkSync(sandboxGit, join(mirror, ".git"));
+    const { git, calls } = fakeGit(" M e2e/login.spec.ts");
+    const vcsWrite = buildVcsPublish(false, "diff", git);
+
+    await assert.rejects(vcsWrite.publish({ mirrorDir: mirror, branch: "qa-bot/abc1234", sha: "abc1234" }), UntrustedGitTreeError);
+
+    assert.equal(existsSync(join(sandboxGit, "info", "exclude")), false, "nothing was written through the link");
+    assert.equal(calls.length, 0, "no git command ran against the swapped git dir");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildVcsPublish (code target) refuses to stage the whole tree when the sandbox populated a committed gitlink, and no git command runs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "publish-gitlink-"));
+  try {
+    const { marker, command } = writeMarkerCommand(root);
+    const fixture = makeGitlinkRepo(root);
+    plantNestedRepo(fixture, command);
+    writeFileSync(join(fixture.repo, "orders.test.ts"), "test('x', () => {});\n");
+    const git = async (args: string[], cwd?: string): Promise<string> => {
+      const dir = cwd ?? fixture.repo;
+      return execFileSync("git", hardenGitArgs(args, dir), { cwd: dir, env: GIT_ENV, encoding: "utf8" });
+    };
+    const vcsWrite = buildVcsPublish(true, "diff", git);
+
+    await assert.rejects(vcsWrite.publish({ mirrorDir: fixture.repo, branch: "qa-bot/def5678", sha: "def5678" }), UntrustedGitTreeError);
+
+    assert.equal(ranPlantedCommand(marker), false, "git entered the planted submodule");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolving the code sandbox registers its group with the git hardening, so a git dir that group can write is not trusted", () => {
+  const repo = mkdtempSync(join(tmpdir(), "sandbox-group-"));
+  try {
+    execFileSync("git", ["init", "-q", repo]);
+    chmodSync(join(repo, ".git"), 0o775); /* writable by the orchestrator's own group */
+    resolveCodeSandbox({}, () => ({ uid: 1002, gid: process.getegid!(), home: "/home/sandbox" }));
+    assert.throws(() => assertTrustedGitTree(repo), UntrustedGitTreeError);
+
+    resolveCodeSandbox({}, () => null);
+    assert.doesNotThrow(() => assertTrustedGitTree(repo), "no sandbox: the orchestrator's own group is trusted again");
+  } finally {
+    resolveCodeSandbox({}, () => null);
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 /* config.sanitize must be the real sanitizeText, not an identity fallback. */
 
-test("F4: buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
+test("buildRewrittenCompositionConfig wires config.sanitize to the REAL sanitizeText (redacts a secret-shaped input)", () => {
   const app = cfg("factory-sanitize");
   const config = buildRewrittenCompositionConfig(app, { getAgentDeps: stubAgentDeps }, "qa-bot-abc1234-run1", { mode: "diff" });
   assert.equal(typeof config.sanitize, "function", "config.sanitize must be wired — its absence silently falls back to PublicationPortAdapter's identity default, defeating the CLAUDE.md sanitize invariant");
@@ -1043,6 +1665,119 @@ test("createRewrittenEngineFactory wraps deps.getAgentDeps() so a session opened
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
   }
+});
+
+/*
+ * The stats seam end to end: a real transport (createAgentDeps over a fake raw transport) under the
+ * same wrapper chain the factory composes, driven by the composed generation use case. The tracker is
+ * a destructive fake — only the first flush sees the turn — so the callback's stats and the persisted
+ * turn can agree only if the transport flushed once and handed the same values to both.
+ */
+async function generateThroughTransport(
+  parts: Array<{ type: string; text?: string }>,
+  tracker: { take: () => import("@contexts/generation/domain/turn-efficiency-summary").TurnCallMetrics | null },
+  maxSteps: number,
+): Promise<{ result: Awaited<ReturnType<ReturnType<typeof buildRewrittenCompositionConfig>["generationUseCase"]["generate"]>>; persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] }> {
+  const persisted: import("@contexts/generation/infrastructure/agent-transport-policy").AgentTurnEvent[] = [];
+  const base = createAgentDeps(
+    {
+      createSession: async () => ({ id: `factory-stats-session-${Math.random().toString(36).slice(2)}` }),
+      promptSession: async () => ({ parts }),
+      abortSession: async () => {},
+      deleteSession: async () => {},
+    },
+    {
+      defaultPromptTimeoutMs: 5_000,
+      getFallbackModel: () => undefined,
+      persistTurn: (turn) => persisted.push(turn),
+      takeTurnCalls: () => tracker.take(),
+      maxStepsFor: () => maxSteps,
+    },
+  );
+  const config = buildRewrittenCompositionConfig(
+    cfg("factory-turn-stats"),
+    {
+      getAgentDeps: () =>
+        withUsageSink(
+          withStallWatchdog(withSessionRegistration(base, { register: registerRunSession, unregister: unregisterRunSession }), { stallMs: 180_000 }),
+        ),
+    },
+    "qa-bot-abc1234-runStats",
+    { mode: "diff" },
+  );
+  const result = await config.generationUseCase.generate({
+    repo: "org/demo",
+    sha: "abc1234",
+    diff: "d",
+    mirrorDir: "/mirrors/org/app",
+    e2eRelDir: "e2e",
+    namespace: "ns",
+    needsReview: false,
+    target: "e2e",
+    mode: "diff",
+    appName: "factory-turn-stats",
+    runId: "run-factory-stats",
+  });
+  return { result, persisted };
+}
+
+const CALL_METRICS = {
+  totalCalls: 9,
+  stepsUsed: 30,
+  observationComplete: true,
+  callsBeforeFirstWrite: 9,
+  writeCount: 0,
+  redundantReadCount: 1,
+  duplicateCallCount: 0,
+  promptProvidedReadCount: 0,
+  pathProvidedReadCount: 0,
+  buckets: { code_read: 9, browser: 0, write: 0, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+};
+
+test("a generation's stats and the turn persisted for it carry the same values, through the whole wrapper chain and a tracker that can be flushed once", async () => {
+  let flushes = 0;
+  const { result, persisted } = await generateThroughTransport(
+    [{ type: "step-start" }, { type: "text", text: "Maximum steps for this agent have been reached." }],
+    { take: () => (flushes++ === 0 ? CALL_METRICS : null) },
+    30,
+  );
+  const row = persisted.find((t) => !t.isRepair)!;
+  assert.ok(result.turn, "the stats reached the use case's result");
+  assert.equal(result.turn.maxSteps, row.stepBudget?.maxSteps);
+  assert.equal(result.turn.stepsUsed, row.callMetrics?.stepsUsed);
+  assert.equal(result.turn.exhausted, row.stepBudget?.exhausted);
+  assert.equal(result.turn.writeCount, row.callMetrics?.writeCount);
+  assert.equal(result.turn.observationComplete, row.callMetrics?.observationComplete);
+  assert.equal(result.turn.stepsUsed, CALL_METRICS.stepsUsed, "the values are the flushed ones, not defaults");
+  assert.equal(result.turn.exhausted, true);
+});
+
+test("a generation that ran out of steps ends exhausted and is never sent a repair, through the whole wrapper chain", async () => {
+  const { result, persisted } = await generateThroughTransport(
+    [{ type: "step-start" }, { type: "text", text: "Maximum steps for this agent have been reached." }],
+    { take: () => CALL_METRICS },
+    30,
+  );
+  assert.equal(result.end, "exhausted");
+  assert.equal(persisted.filter((t) => t.isRepair).length, 0, "the exhausted session was not asked to re-emit its verdict");
+  assert.match(result.note ?? "", /30\/30/);
+});
+
+test("only the final step's text is read as the generator's verdict, through the whole wrapper chain", async () => {
+  const { result } = await generateThroughTransport(
+    [
+      { type: "step-start" },
+      { type: "text", text: '{"specs":["flows/earlier.spec.ts"]}' },
+      { type: "step-start" },
+      { type: "reasoning", text: "the previous turn hit max steps" },
+      { type: "text", text: '{"specs":["flows/final.spec.ts"]}' },
+    ],
+    { take: () => ({ ...CALL_METRICS, stepsUsed: 2 }) },
+    30,
+  );
+  assert.deepEqual(result.specs, ["flows/final.spec.ts"]);
+  assert.equal(result.end, "delivered");
+  assert.equal(result.turn?.exhausted, false, "the reasoning that recalls hitting max steps is not the turn's ending");
 });
 
 test("createRewrittenEngineFactory's engineFactory (not just buildRewrittenCompositionConfig directly) composes the SAME wrap chain end-to-end", () => {
@@ -1323,10 +2058,49 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
   const r2 = rows.find((r) => r.id === ruleId2);
   assert.equal(r1?.outcomeCount, 1, "rule 1 must fold exactly once");
   assert.equal(r1?.successRate, 0.8, "rule 1's successRate must equal the folded valueScore (first outcome)");
-  assert.equal(r1?.oracleOutcomeCount, 1, "WS1.4(b): the oracle path (valueScore !== null) must advance oracleOutcomeCount");
+  assert.equal(r1?.oracleOutcomeCount, 1, "the oracle path (valueScore !== null) must advance oracleOutcomeCount");
   assert.equal(r2?.outcomeCount, 1, "rule 2 must fold independently of rule 1");
   assert.equal(r2?.successRate, 0.8);
   assert.equal(r2?.oracleOutcomeCount, 1);
+});
+
+/* A step-budget exhaustion is folded like any learning outcome, through the same store the production fold uses. It says
+   nothing about rules of other classes and can only ever count against a rule of its own class, so it can neither promote
+   a candidate nor disturb a proven rule. */
+test("historyLearningStore(appName).recordOutcome() — folding a step-budget outcome mints no active rule and leaves other classes' rules untouched", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { listLearningRules, setRuleStatusByHuman } = await import("./history");
+  const app = `factory-learning-step-budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const own = `rule-step-own-${app}`;
+  const other = `rule-step-other-${app}`;
+  const proven = `rule-step-proven-${app}`;
+
+  const store = historyLearningStore(app);
+  const base = { trigger: "t", action: "a", archetype: null, confidence: "low" as const, usageCount: 0, outcomeCount: 0, oracleOutcomeCount: 0, successRate: null, lastVerified: null, source: "test", at: new Date().toISOString() };
+  store.upsert({ ...base, id: own, errorClass: "E-STEP-BUDGET", status: "candidate" });
+  store.upsert({ ...base, id: other, errorClass: "E-EXEC-FAIL", status: "candidate" });
+  store.upsert({ ...base, id: proven, errorClass: "E-EXEC-FAIL", status: "candidate" });
+  assert.equal(setRuleStatusByHuman(proven, "active"), true, "the proven rule is active before the fold");
+  const before = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+
+  assert.doesNotThrow(() =>
+    store.recordOutcome({
+      runId: "run-step-budget", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "infra-error",
+      errorClass: "E-STEP-BUDGET",
+      gateSignals: { static: false, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [own, other, proven],
+      at: new Date().toISOString(),
+    } as never),
+  );
+
+  const after = new Map(listLearningRules(app, 10).map((r) => [r.id, r]));
+  assert.deepEqual([...after.values()].filter((r) => r.status === "active").map((r) => r.id), [proven], "no rule became active");
+  assert.equal(after.get(other)?.outcomeCount, before.get(other)?.outcomeCount, "a rule of another class carries no signal from this run");
+  assert.equal(after.get(proven)?.outcomeCount, before.get(proven)?.outcomeCount);
+  assert.equal(after.get(proven)?.successRate, before.get(proven)?.successRate);
+  assert.equal(after.get(own)?.outcomeCount, 1, "a rule of the run's own class counts the run");
+  assert.equal(after.get(own)?.successRate, 0, "and counts it against itself");
+  assert.equal(after.get(own)?.status, "candidate");
 });
 
 /* above this one hand-builds `rulesRetrieved: [ruleId1, ruleId2]` directly with the real ids already
@@ -1339,7 +2113,7 @@ test("historyLearningStore(appName).recordOutcome() — oracle path folds valueS
    frozen at 0 forever — no promotion/demotion ever engaged, with zero errors anywhere. This test
    pins the full chain green.
  */
-test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
+test("integration: upsert -> retrieve (real LearningPortAdapter) -> derive rulesRetrieved by id -> fold (real recordOutcome) advances outcome_count (was frozen at 0 pre-fix)", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { listLearningRules } = await import("./history");
   const { SqliteLearningRepository } = await import(
@@ -1354,7 +2128,7 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
      before the fix, and outcome_count would stay 0 (the assertion below would fail loudly).
    */
   const ruleId = `rule-ws1-1-${app}`;
-  const ruleTrigger = "selector absent — WS1.1 trigger text, NEVER the fold key";
+  const ruleTrigger = "selector absent — trigger text, NEVER the fold key";
 
   const store = historyLearningStore(app);
   store.upsert({
@@ -1372,7 +2146,7 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
   const retrievedRules = await adapter.retrieve(Sha.of("abc1234567"));
 
   assert.equal(retrievedRules.length, 1, "the upserted rule must be retrievable");
-  assert.equal(retrievedRules[0]?.id, ruleId, "retrieve() must surface the real row id (the WS1.1 fix)");
+  assert.equal(retrievedRules[0]?.id, ruleId, "retrieve() must surface the real row id");
   assert.equal(retrievedRules[0]?.trigger, ruleTrigger, "retrieve() must ALSO still surface the prompt-facing trigger text (untouched by this fix)");
 
   /* Derive rulesRetrieved the SAME way run-qa.use-case.ts does post-fix: `retrievedRules.map(r => r.id)`
@@ -1382,7 +2156,7 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
   assert.deepEqual(rulesRetrieved, [ruleId], "the derived rulesRetrieved must carry ids, not trigger text");
 
   const outcome = {
-    runId: "run-ws1-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    runId: "run-rule-fold-advances", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
     errorClass: null,
     gateSignals: { static: true, coverageRatio: 0.9, valueScore: 0.75, reviewerCorrections: [], flaky: false, retries: 0 },
     rulesRetrieved,
@@ -1397,9 +2171,9 @@ test("WS1.1 integration: upsert -> retrieve (real LearningPortAdapter) -> derive
 
   const rows = listLearningRules(app, 10);
   const folded = rows.find((r) => r.id === ruleId);
-  assert.equal(folded?.outcomeCount, 1, "outcome_count must ADVANCE from 0 to 1 — this is the exact governance-fold edge WS1.1 fixes; before the fix this stayed frozen at 0 with no error");
+  assert.equal(folded?.outcomeCount, 1, "outcome_count must ADVANCE from 0 to 1 — this is the governance-fold edge that would otherwise stay frozen at 0 with no error");
   assert.equal(folded?.successRate, 0.75, "successRate must equal the folded valueScore (first outcome)");
-  assert.equal(folded?.oracleOutcomeCount, 1, "WS1.4(b): the oracle path (gateSignals.valueScore !== null) must advance oracle_outcome_count");
+  assert.equal(folded?.oracleOutcomeCount, 1, "the oracle path (gateSignals.valueScore !== null) must advance oracle_outcome_count");
 });
 
 test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is a safe no-op", async () => {
@@ -1428,7 +2202,7 @@ test("historyLearningStore(appName).recordOutcome() — empty rulesRetrieved is 
   assert.equal(r?.outcomeCount, 0, "no rulesRetrieved means no recordRuleOutcome call at all — ledger untouched");
 });
 
-test("Ola 2: recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
+test("recordOutcome persists a scorecard entry even when rulesRetrieved is empty", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { loadScorecard } = await import("./history");
   const app = `factory-scorecard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1447,6 +2221,44 @@ test("Ola 2: recordOutcome persists a scorecard entry even when rulesRetrieved i
   assert.equal(sc?.summary.measuredRuns, 1);
   assert.equal(sc?.summary.lastValueScore, 0.75);
   assert.equal(sc?.entries[0]?.runId, "run-scorecard-1");
+});
+
+test("recordOutcome persists the REAL mutantCount/killedCount from gateSignals, not a hardcoded 0", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { loadScorecard } = await import("./history");
+  const app = `factory-scorecard-mutant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  store.recordOutcome({
+    runId: "run-scorecard-mutant-1", app, sha: "abc1234567", mode: "diff", target: "code", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: 0.85, mutantCount: 20, killedCount: 17, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: "2026-09-04T12:00:00.000Z",
+  } as never);
+
+  const sc = loadScorecard(app);
+  assert.equal(sc?.entries[0]?.mutantCount, 20, "a real measured mutantCount must be persisted, not hardcoded to 0");
+  assert.equal(sc?.entries[0]?.killedCount, 17, "a real measured killedCount must be persisted, not hardcoded to 0");
+});
+
+test("recordOutcome persists mutantCount/killedCount as null ('not measured') when gateSignals omits them, never a fabricated 0", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { loadScorecard } = await import("./history");
+  const app = `factory-scorecard-unmeasured-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  store.recordOutcome({
+    runId: "run-scorecard-unmeasured-1", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [],
+    at: "2026-09-04T12:00:00.000Z",
+  } as never);
+
+  const sc = loadScorecard(app);
+  assert.equal(sc?.entries[0]?.mutantCount, null, "an unmeasured mutantCount must persist as null, never a fabricated 0");
+  assert.equal(sc?.entries[0]?.killedCount, null, "an unmeasured killedCount must persist as null, never a fabricated 0");
 });
 
 test("historyLearningStore(appName).recordOutcome() — prevention path scores via preventionOutcome(rule.errorClass, outcome.errorClass) when valueScore is null", async () => {
@@ -1492,10 +2304,204 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
   const noisy = rows.find((r) => r.id === noisyRuleId);
   assert.equal(held?.outcomeCount, 1, "held rule must fold via the prevention path (weak positive)");
   assert.equal(held?.successRate, 0.6, "PREVENTION_HELD_SCORE for a clean run");
-  assert.equal(held?.oracleOutcomeCount, 0, "WS1.4(b): the prevention path must NEVER advance oracle_outcome_count");
+  assert.equal(held?.oracleOutcomeCount, 0, "the prevention path must NEVER advance oracle_outcome_count");
   assert.equal(failed?.outcomeCount, 1, "unrelated rule on a clean run also holds (weak positive)");
-  assert.equal(failed?.oracleOutcomeCount, 0, "WS1.4(b): prevention path — no oracle evidence");
+  assert.equal(failed?.oracleOutcomeCount, 0, "prevention path — no oracle evidence");
   assert.equal(noisy?.outcomeCount, 0, "a rule NOT in rulesRetrieved must never fold");
+});
+
+/*
+ * The prevention-path fold used to look up retrieved rules via
+ * listLearningRules(appName, LEARNING_RULE_LEDGER_LIMIT) — the SAME shared-limit, status-ranked,
+ * actives-first read the selectRules test below pins as starvation-prone. A rule retrieved earlier in the run but
+ * ranked outside that bulk window at fold time was silently treated as "deprecated between
+ * retrieval and fold" (the old comment's own words) even though it still exists — no signal, no
+ * error, just a dropped fold. This walks the REAL production wiring (historyLearningStore ->
+ * recordOutcome) with a CANDIDATE target rule pushed genuinely outside the window by
+ * LEARNING_RULE_LEDGER_LIMIT ACTIVE filler rows (the query's primary sort key alone guarantees
+ * this — no timing dependency), proving the fold now looks the rule up directly by id instead of
+ * filtering a capped bulk list.
+ */
+test("recordOutcome prevention path folds a retrieved rule even when the bulk LEARNING_RULE_LEDGER_LIMIT read would exclude it", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, listLearningRules, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-r6-window-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const targetId = `rule-r6-target-${app}`;
+
+  /* The target is a CANDIDATE; every filler row is ACTIVE, so "(status = 'active') DESC" alone
+     (listRulesStmt's primary ORDER BY key) guarantees all LEARNING_RULE_LEDGER_LIMIT filler rows
+     outrank it — deterministically excluding it from a bulk listLearningRules(app,
+     LEARNING_RULE_LEDGER_LIMIT) read regardless of success_rate/at ties.
+   */
+  upsertLearningRule({ id: targetId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
+    upsertLearningRule({ id: `rule-r6-filler-${i}-${app}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+
+  const bulk = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
+  assert.ok(!bulk.some((r) => r.id === targetId), "setup check: the target rule must genuinely sit outside the bulk LEDGER_LIMIT window");
+
+  const store = historyLearningStore(app);
+  store.recordOutcome({
+    runId: "run-r6", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: null, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: [targetId],
+    at: new Date().toISOString(),
+  } as never);
+
+  const row = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT + 5).find((r) => r.id === targetId);
+  assert.equal(row?.outcomeCount, 1, "a rule outside the bulk-list window must still fold via a direct by-id lookup — never silently skipped as if deprecated/missing");
+});
+
+/* A human veto is the highest-authority governance signal: a rule an operator deprecates while a
+   run that already retrieved it is in flight must stay deprecated when that run's outcome folds —
+   on the prevention path and on the oracle path alike. Walks the real production store
+   (historyLearningStore -> recordOutcome) against the real SQLite ledger. */
+async function vetoedRuleAfterFold(gateSignals: { valueScore: number | null }) {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, setRuleStatusByHuman, getLearningRule } = await import("./history");
+  const app = `factory-learning-veto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ruleId = `rule-veto-${app}`;
+  const store = historyLearningStore(app);
+  const fold = (runId: string, valueScore: number | null) =>
+    store.recordOutcome({
+      runId, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+  upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+  for (let i = 0; i < 3; i++) fold(`run-earn-${i}`, 0.9);
+  assert.equal(getLearningRule(app, ruleId)?.status, "active", "setup check: the rule earned active through oracle outcomes");
+
+  setRuleStatusByHuman(ruleId, "deprecated");
+  const before = getLearningRule(app, ruleId)!;
+  fold("run-in-flight", gateSignals.valueScore);
+  return { before, after: getLearningRule(app, ruleId)!, app, ruleId, fold, setRuleStatusByHuman, getLearningRule };
+}
+
+test("a human veto survives the prevention-path fold of a run that retrieved the rule before the veto", async () => {
+  const { before, after } = await vetoedRuleAfterFold({ valueScore: null });
+
+  assert.equal(after.status, "deprecated");
+  assert.equal(after.outcomeCount, before.outcomeCount, "a vetoed rule must not accrue the in-flight run's outcome");
+});
+
+test("a human veto survives the oracle-path fold of a run that retrieved the rule before the veto", async () => {
+  const { before, after } = await vetoedRuleAfterFold({ valueScore: 0.9 });
+
+  assert.equal(after.status, "deprecated");
+  assert.equal(after.outcomeCount, before.outcomeCount, "a vetoed rule must not accrue the in-flight run's outcome");
+});
+
+test("a rule a human restores after a veto folds outcomes again", async () => {
+  const { app, ruleId, fold, setRuleStatusByHuman, getLearningRule } = await vetoedRuleAfterFold({ valueScore: 0.9 });
+
+  setRuleStatusByHuman(ruleId, "active");
+  const restored = getLearningRule(app, ruleId)!;
+  fold("run-after-restore", 0.9);
+
+  assert.equal(getLearningRule(app, ruleId)?.outcomeCount, restored.outcomeCount + 1);
+});
+
+/* A superseded rule is retired like a vetoed one: a run that retrieved it before it was replaced
+   must not fold onto it, on either path. */
+for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
+  test(`a superseded rule keeps its status and accrues nothing on the ${path}-path fold of a run that retrieved it`, async () => {
+    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { upsertLearningRule, getLearningRule } = await import("./history");
+    const app = `factory-learning-superseded-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ruleId = `rule-superseded-${app}`;
+    upsertLearningRule({ id: ruleId, app, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test", initialStatus: "superseded" });
+    const before = getLearningRule(app, ruleId)!;
+
+    historyLearningStore(app).recordOutcome({
+      runId: `run-in-flight-${path}`, app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+    const after = getLearningRule(app, ruleId)!;
+    assert.equal(after.status, "superseded");
+    assert.equal(after.outcomeCount, before.outcomeCount);
+  });
+}
+
+/* A store folds only its own app's rules: an outcome naming another app's rule id credits nothing. */
+for (const [path, valueScore] of [["prevention", null], ["oracle", 0.9]] as const) {
+  test(`an outcome never folds onto another app's rule on the ${path} path`, async () => {
+    const { historyLearningStore } = await import("./rewritten-engine-factory");
+    const { upsertLearningRule, listLearningRules } = await import("./history");
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const owner = `factory-learning-owner-${suffix}`;
+    const other = `factory-learning-other-${suffix}`;
+    const ruleId = `rule-owned-${suffix}`;
+    upsertLearningRule({ id: ruleId, app: owner, trigger: "selector absent", action: "use role+name", errorClass: "E-FRAGILE-SELECTOR", source: "test" });
+
+    historyLearningStore(other).recordOutcome({
+      runId: `run-other-${path}`, app: other, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+      errorClass: null,
+      gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+      rulesRetrieved: [ruleId],
+      at: new Date().toISOString(),
+    } as never);
+
+    const owned = listLearningRules(owner, 10).find((r) => r.id === ruleId);
+    assert.equal(owned?.outcomeCount, 0, "another app's run says nothing about this app's rule");
+  });
+}
+
+/* Attribution: a run's outcome only says something about the rules that could have shaped it. The
+   fold credits a retrieved rule only when its archetype matches one of the run diff's structural
+   shapes; an untagged rule always qualifies, and a run with no diff shapes credits every retrieved
+   rule. Walks the real production store against the real SQLite ledger. */
+async function creditedAfterFold(valueScore: number | null, diffArchetypes: string[] | undefined) {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, getLearningRule } = await import("./history");
+  const app = `factory-learning-attribution-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const ids = { matching: `rule-form-${app}`, unrelated: `rule-list-${app}`, untagged: `rule-untagged-${app}` };
+  upsertLearningRule({ id: ids.matching, app, trigger: "form submit", action: "assert the saved row", errorClass: "E-FRAGILE-SELECTOR", archetype: "form", source: "test" });
+  upsertLearningRule({ id: ids.unrelated, app, trigger: "list paging", action: "assert the next page", errorClass: "E-FRAGILE-SELECTOR", archetype: "data-list", source: "test" });
+  upsertLearningRule({ id: ids.untagged, app, trigger: "any change", action: "scope to a test id", errorClass: "E-FRAGILE-SELECTOR", archetype: null, source: "test" });
+
+  historyLearningStore(app).recordOutcome({
+    runId: "run-attribution", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: Object.values(ids),
+    ...(diffArchetypes ? { diffArchetypes } : {}),
+    at: new Date().toISOString(),
+  } as never);
+
+  const credited = (id: string) => (getLearningRule(app, id)?.outcomeCount ?? 0) > 0;
+  return { matching: credited(ids.matching), unrelated: credited(ids.unrelated), untagged: credited(ids.untagged) };
+}
+
+test("the oracle fold credits rules attributable to the diff's shapes and never a rule tagged with an unrelated archetype", async () => {
+  const credited = await creditedAfterFold(0.8, ["form"]);
+
+  assert.equal(credited.matching, true);
+  assert.equal(credited.untagged, true);
+  assert.equal(credited.unrelated, false);
+});
+
+test("the prevention fold credits rules attributable to the diff's shapes and never a rule tagged with an unrelated archetype", async () => {
+  const credited = await creditedAfterFold(null, ["form"]);
+
+  assert.equal(credited.matching, true);
+  assert.equal(credited.untagged, true);
+  assert.equal(credited.unrelated, false);
+});
+
+test("a run whose diff shapes are unknown credits every retrieved rule", async () => {
+  const credited = await creditedAfterFold(0.8, undefined);
+
+  assert.deepEqual(credited, { matching: true, unrelated: true, untagged: true });
 });
 
 /* Before this fix, historyLearningStore(appName) never implemented LearningStore.selectAllRules,
@@ -1508,7 +2514,7 @@ test("historyLearningStore(appName).recordOutcome() — prevention path scores v
    uses (decideDistill against SqliteLearningRepository.listAll(app, ...)'s real output) and assert
    the duplicate is skipped — proving listAll surfaces real rows, not [].
  */
-test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate (WS1.3 dedup goes live)", async () => {
+test("historyLearningStore(appName).selectAllRules wiring — SqliteLearningRepository.listAll surfaces a DEPRECATED rule so decideDistill skips a normalized duplicate", async () => {
   const { historyLearningStore } = await import("./rewritten-engine-factory");
   const { SqliteLearningRepository } = await import(
     "@contexts/cross-run-learning/infrastructure/sqlite-learning-repository.adapter"
@@ -1550,7 +2556,7 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
   const repo = new SqliteLearningRepository(store);
 
   const existing = await repo.listAll(app, 200);
-  assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the exact seam Task 2 wires live");
+  assert.ok(existing.some((r) => r.id === deprecatedRuleId), "listAll() must surface the deprecated row — this is the seam the dedup check reads");
   assert.equal(existing.find((r) => r.id === deprecatedRuleId)?.status, "deprecated", "the row's real status must survive the round-trip");
 
   /* Run the SAME distill decision the reflector's save path runs (reflector-port.adapter.ts's
@@ -1563,8 +2569,102 @@ test("Task 2: historyLearningStore(appName).selectAllRules wiring — SqliteLear
   });
   const decision = decideDistill(capped, existing);
 
-  assert.equal(decision.decision, "skip-duplicate", "WS1.3 anti-respawn dedup: a normalized duplicate of a DEPRECATED rule must be skipped, not saved as a fresh candidate");
+  assert.equal(decision.decision, "skip-duplicate", "anti-respawn dedup: a normalized duplicate of a DEPRECATED rule must be skipped, not saved as a fresh candidate");
   assert.equal((decision as { match: { id: string } }).match.id, deprecatedRuleId, "the match must be the SAME deprecated row, proving listAll (not an empty fallback) drove the decision");
+});
+
+/*
+ * historyLearningStore(appName).selectRules used to back onto listLearningRules(app,
+ * LEARNING_RULE_LEDGER_LIMIT) — a single shared-limit, status-ranked SQL read. With more ACTIVE
+ * rows than that limit, the actives-first ORDER BY could exhaust the limit before a single
+ * CANDIDATE row was even fetched into memory, so RuleGovernanceService.topRules (the single
+ * ranking truth) never got a chance to rank a candidate it never saw — silently defeating its own
+ * EXPLORATION_SLOTS (rule-governance.service.ts) no matter how governance itself ranked things.
+ * This walks the REAL production wiring end to end (the SAME SqliteLearningRepository
+ * buildRewrittenCompositionConfig composes, ~line 644) and proves fresh candidates still reach
+ * topRules' exploration slots even with more than LEARNING_RULE_LEDGER_LIMIT active rows seeded.
+ */
+test("historyLearningStore(app).selectRules feeds fresh candidates through even with MORE than LEARNING_RULE_LEDGER_LIMIT active rows — topRules' exploration slots are never SQL-starved", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-no-starve-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
+    upsertLearningRule({
+      id: `active-${app}-${i}`, app, trigger: `trigger ${i}`, action: `action ${i}`,
+      errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active",
+    });
+  }
+  const freshCandidateIds = [`fresh-${app}-1`, `fresh-${app}-2`];
+  for (const id of freshCandidateIds) {
+    upsertLearningRule({ id, app, trigger: id, action: "do the fresh thing", errorClass: "E-EXEC-FAIL", source: "test" });
+  }
+
+  const store = historyLearningStore(app);
+  const repo = new SqliteLearningRepository(store);
+
+  const top = await repo.topRules(app, Sha.of("abc1234"), 20);
+
+  const returnedCandidateIds = top.filter((r) => r.status === "candidate").map((r) => r.id);
+  assert.ok(
+    freshCandidateIds.some((id) => returnedCandidateIds.includes(id)),
+    `expected at least one fresh candidate in topRules' exploration slots, got candidates: ${JSON.stringify(returnedCandidateIds)}`,
+  );
+  assert.equal(top.length, 20, "the caller's own limit must still be respected");
+});
+
+/* Retrieval through the production store must rank the WHOLE retrievable ledger: however many rows
+   an app accumulates, the newest candidates still reach the exploration slots and the best-proven
+   actives still reach the top. The clock is mocked so every row gets a distinct, ordered `at`. */
+test("retrieval: the newest candidates reach the exploration slots when the ledger holds more candidates than the ledger window", async (t) => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-newest-candidates-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const limit = 10;
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-01-01T00:00:00.000Z") });
+
+  for (let i = 0; i < limit; i++) {
+    upsertLearningRule({ id: `active-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  const candidateIds: string[] = [];
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT + 5; i++) {
+    t.mock.timers.tick(1000);
+    const id = `candidate-${app}-${String(i).padStart(4, "0")}`;
+    candidateIds.push(id);
+    upsertLearningRule({ id, app, trigger: `c${i}`, action: "a", errorClass: "E-EXEC-FAIL", source: "test" });
+  }
+  const newestCandidates = candidateIds.slice(-EXPLORATION_SLOTS);
+
+  const top = await new SqliteLearningRepository(historyLearningStore(app)).topRules(app, Sha.of("abc1234"), limit);
+
+  const topIds = top.map((r) => r.id);
+  for (const id of newestCandidates) assert.ok(topIds.includes(id), `the newest candidate ${id} must be retrievable, got ${JSON.stringify(topIds)}`);
+});
+
+test("retrieval: the best-proven active rules are retrieved when the ledger holds more actives than the ledger window", async () => {
+  const { historyLearningStore } = await import("./rewritten-engine-factory");
+  const { upsertLearningRule, LEARNING_RULE_LEDGER_LIMIT } = await import("./history");
+  const app = `factory-learning-best-actives-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const store = historyLearningStore(app);
+
+  for (let i = 0; i < LEARNING_RULE_LEDGER_LIMIT; i++) {
+    upsertLearningRule({ id: `unproven-${app}-${i}`, app, trigger: `t${i}`, action: `a${i}`, errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  const provenIds = Array.from({ length: 5 }, (_, i) => `proven-${app}-${i}`);
+  for (const id of provenIds) {
+    upsertLearningRule({ id, app, trigger: id, action: "a", errorClass: "E-EXEC-FAIL", source: "test", initialStatus: "active" });
+  }
+  store.recordOutcome({
+    runId: "run-proof", app, sha: "abc1234567", mode: "diff", target: "e2e", verdict: "pass",
+    errorClass: null,
+    gateSignals: { static: true, coverageRatio: null, valueScore: 1, reviewerCorrections: [], flaky: false, retries: 0 },
+    rulesRetrieved: provenIds,
+    at: new Date().toISOString(),
+  } as never);
+
+  const top = await new SqliteLearningRepository(store).topRules(app, Sha.of("abc1234"), provenIds.length);
+
+  assert.deepEqual(new Set(top.map((r) => r.id)), new Set(provenIds));
 });
 
 test("createRewrittenEngineFactory's produced CompositionConfig carries the SAME real runHistory/learningRepo wiring", () => {
@@ -1864,7 +2964,7 @@ test("cross-repo: an UNDECLARED triggerRepo throws (defense in depth, matches ru
   );
 });
 
-test("cross-repo: mode 'context' triggered by a declared service throws (legacy pipeline.ts:1017-1020 sibling guard)", () => {
+test("cross-repo: mode 'context' triggered by a declared service throws", () => {
   const app: AppConfig = { ...cfg("factory-crossrepo-context-service"), services: [{ repo: "org/orders-svc" }] };
   assert.throws(
     () =>
@@ -2089,4 +3189,56 @@ test("cross-repo: checkout(sha) stages sibling services at branch HEAD without r
     { workingCopyDir: dir, repo: "org/orders-svc", sha: "def5678901" },
     { workingCopyDir: dir, repo: "org/payments-svc" },
   ], "trigger is staged with the event sha; siblings are contracts-only");
+});
+
+/* ── Service staging as a qa-engine workspace adapter (MultiRepoCheckoutAdapter) ─────────────── */
+
+test("code target: checkout(sha) never stages declared services (no e2e dir concept for target=code)", async () => {
+  const app: AppConfig = { ...cfg("factory-code-skip-staging"), code: true, dev: undefined, services: [{ repo: "org/orders-svc" }] };
+  const { mirror, ensureMirrorAtBranchCalls } = spyMirrorDeps();
+  const { stageServiceContext, calls } = spyStageServiceContext();
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirror, stageServiceContext },
+    "qa-bot-abc1234-run1",
+    { mode: "diff" },
+  );
+  await config.checkout(Sha.of("abc1234567"));
+  assert.deepEqual(ensureMirrorAtBranchCalls, [], "a code-target run must never mirror declared services");
+  assert.deepEqual(calls, [], "a code-target run must never stage declared services");
+});
+
+test("service staging: declared services are mirrored CONCURRENTLY (Promise.all), not one-at-a-time", async () => {
+  const app: AppConfig = { ...cfg("factory-service-staging-parallel"), services: [{ repo: "org/svc-a" }, { repo: "org/svc-b" }] };
+  const { mirror } = spyMirrorDeps();
+  let bStarted = false;
+  let releaseA: () => void = () => {};
+  const aGate = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+  const patchedMirror = {
+    ...mirror,
+    ensureMirrorAtBranch: async (repo: string, branch: string, deps: MirrorDeps) => {
+      if (repo === "org/svc-a") {
+        await aGate; // only resolves once svc-b's call has started — impossible under a sequential await-per-item loop
+      } else if (repo === "org/svc-b") {
+        bStarted = true;
+        releaseA();
+      }
+      return mirror.ensureMirrorAtBranch(repo, branch, deps);
+    },
+  };
+  const { stageServiceContext } = spyStageServiceContext();
+  const config = buildRewrittenCompositionConfig(
+    app,
+    { getAgentDeps: stubAgentDeps, mirror: patchedMirror, stageServiceContext },
+    "qa-bot-abc1234-run1",
+    { mode: "diff" },
+  );
+  const outcome = await Promise.race([
+    config.checkout(Sha.of("abc1234567")).then(() => "done" as const),
+    new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 300)),
+  ]);
+  assert.equal(bStarted, true, "svc-b's mirror call must have started");
+  assert.equal(outcome, "done", "checkout must complete promptly — a sequential loop would never reach svc-b while svc-a is still pending, deadlocking this test");
 });

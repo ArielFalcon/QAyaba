@@ -4,7 +4,6 @@ import type {
   ExecutionResult,
 } from "../application/ports/index.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-import { AdjudicateService } from "../domain/adjudicate.service.ts";
 import { InfraError } from "@kernel/domain-error.ts";
 
 interface LegacyRunResult { verdict: string; cases: QaCase[]; logs: string; }
@@ -26,7 +25,6 @@ type RunE2eFn = (
 ) => Promise<LegacyRunResult>;
 
 export class E2eExecutionStrategy implements ExecutionStrategyPort {
-  private readonly adjudicator = new AdjudicateService();
   constructor(private readonly runE2E: RunE2eFn) {}
 
   async run(req: ExecutionRequest): Promise<ExecutionResult> {
@@ -44,8 +42,12 @@ export class E2eExecutionStrategy implements ExecutionStrategyPort {
       ...(req.onRunning ? { onRunning: req.onRunning } : {}),
       ...(req.onDiscovered ? { onDiscovered: req.onDiscovered } : {}),
     });
-    const cases = result.cases;
-    const adjudged = this.adjudicator.adjudicate(result.verdict as ExecutionResult["verdict"], cases);
-    return { verdict: adjudged.verdict, cases, logs: result.logs };
+    /*
+     * Runner-infra reclassification has ONE owner: e2e-execution.runner.ts's own
+     * allFailuresAreRunnerInfra, which runs inside runE2E before this point — both of runE2E's
+     * production callers (this strategy AND the fault-injection oracle's own re-run) depend on
+     * that SAME upstream check, so this strategy does not re-derive it.
+     */
+    return { verdict: result.verdict as ExecutionResult["verdict"], cases: result.cases, logs: result.logs };
   }
 }

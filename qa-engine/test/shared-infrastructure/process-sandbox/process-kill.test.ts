@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { ProcessKillAdapter } from "../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 /* Import depth: from qa-engine/test/shared-infrastructure/process-sandbox/ → qa-engine/src/ is 3 levels up
    (../../../). 4 levels would reach the repo root (qayaba/src/), which is wrong.
@@ -55,4 +56,37 @@ test("the DEFAULT kill function (no constructor arg) actually invokes process.ki
   adapter.killTree(fakeChild(1234, []));
 
   assert.deepEqual(calls, [[-1234, "SIGKILL"]]); /* negative pid ⇒ process group */
+});
+
+/* A descendant that escaped the killed group (its own session) still holds the pipe the parent reads. If the parent
+   keeps reading, that descendant keeps feeding it output for as long as it lives. */
+test("killTree closes the parent's read side of the child's pipes, so an escaped descendant cannot keep feeding it", { timeout: 20_000 }, async () => {
+  const escapee = [
+    "const { spawn } = require('node:child_process');",
+    "const g = spawn(process.execPath, ['-e', \"process.stdout.write('GRANDCHILD-PID:' + process.pid + '\\\\n'); setInterval(() => process.stdout.write('flood\\\\n'.repeat(2000)), 1);\"], { detached: true, stdio: ['ignore', 1, 2] });",
+    "setInterval(() => {}, 1000);",
+  ].join(" ");
+  const child = spawn(process.execPath, ["-e", escapee], { detached: true });
+  let escapedPid: number | undefined;
+  let received = 0;
+  let killed = false;
+  let receivedAfterKill = 0;
+  child.stdout!.setEncoding("utf8");
+  child.stdout!.on("data", (chunk: string) => {
+    received += chunk.length;
+    if (killed) receivedAfterKill += chunk.length;
+    const m = /GRANDCHILD-PID:(\d+)/.exec(chunk);
+    if (m) escapedPid = Number(m[1]);
+  });
+  try {
+    while (received < 10_000) await once(child.stdout!, "data");
+    new ProcessKillAdapter().killTree(child);
+    killed = true;
+    assert.equal(child.stdout!.destroyed, true, "stdout is closed on the parent's side");
+    assert.equal(child.stderr!.destroyed, true, "stderr is closed on the parent's side");
+    await once(child, "close");
+    assert.equal(receivedAfterKill, 0, "nothing more arrives from the escaped descendant once the tree is killed");
+  } finally {
+    if (escapedPid) { try { process.kill(escapedPid, "SIGKILL"); } catch { /* already gone */ } }
+  }
 });

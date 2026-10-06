@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OpenCodeRuntimeStrategy, ROLE_TO_OPENCODE_AGENT } from "./opencode-strategy";
+import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
 import { CodexExecTransport, CodexRuntimeStrategy, SupervisorExecTransport, codexExecArgs, codexExecEnv, defaultCodexTransport } from "./codex-strategy";
-import { capabilitiesForRole, roleForLegacyAgent } from "./types";
+import { AGENT_NAME_FOR_ROLE, capabilitiesForRole, roleForLegacyAgent } from "./types";
+import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port";
 import { getAgentTurns } from "../server/history";
 import type { AgentDeps, AgentTurnEvent } from "../integrations/opencode-client";
 
@@ -46,6 +48,16 @@ test("SupervisorExecTransport forwards the per-role sandbox so the supervisor ca
 test("roleForLegacyAgent maps qa-reflector to the read-only reflector role", () => {
   assert.equal(roleForLegacyAgent("qa-reflector"), "reflector");
   assert.equal(capabilitiesForRole("reflector").canWrite, false);
+});
+
+test("roleForLegacyAgent resolves every role's agent name back to that role", () => {
+  for (const [role, agent] of Object.entries(AGENT_NAME_FOR_ROLE)) {
+    assert.equal(roleForLegacyAgent(agent), role, `agent ${agent} must resolve back to role ${role}`);
+  }
+});
+
+test("roleForLegacyAgent rejects an agent name no role maps to instead of falling back to the primary author", () => {
+  assert.throws(() => roleForLegacyAgent("qa-unmapped"), /qa-unmapped/);
 });
 
 /* Explorer is read-only: it distills the blast radius, never writes. */
@@ -93,8 +105,8 @@ test("codexExecArgs sandboxes the proposer read-only on Codex", () => {
   assert.ok(!args.includes("workspace-write"), "proposer must NOT get workspace-write");
 });
 
-test("ROLE_TO_OPENCODE_AGENT maps proposer to the qa-proposer agent", () => {
-  assert.equal(ROLE_TO_OPENCODE_AGENT.proposer, "qa-proposer");
+test("the role-to-agent table maps proposer to the qa-proposer agent", () => {
+  assert.equal(AGENT_NAME_FOR_ROLE.proposer, "qa-proposer");
 });
 
 test("OpenCodeRuntimeStrategy maps the proposer role to the qa-proposer agent", async () => {
@@ -305,4 +317,22 @@ test("codexExecEnv passes only Codex/runtime-safe env vars to the headless agent
   assert.equal(env.WEBHOOK_SECRET, undefined);
   assert.equal(env.QA_API_TOKEN, undefined);
   assert.equal(env.OPENCODE_API_KEY, undefined);
+});
+
+test("the explorer session the engine opens is recorded under the agent name the role table gives the explorer", async () => {
+  const recordedAs: Array<string | undefined> = [];
+  const runtime: AgentRuntimePort = {
+    openSession: async (_role, _cwd, opts) => {
+      recordedAs.push(opts?.descriptor?.role);
+      return { prompt: async () => ({ output: "" }), dispose: async () => {} };
+    },
+  };
+  const adapter = new ExplorerBriefSessionAdapter(
+    { repo: "org/demo", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", appName: "demo", timeoutMs: 1_000 },
+    { runtime, parseBrief: () => null },
+  );
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "abc1234" });
+
+  assert.deepEqual(recordedAs, [AGENT_NAME_FOR_ROLE.explorer]);
 });

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, ApiDeps } from "./api";
+import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
 import { RunRecord, RunOutcome } from "../types";
@@ -20,12 +21,13 @@ import {
 } from "../contract/commands";
 import { RunEventSchema, RunEvent } from "../contract/events";
 import { createRunEventStore, RunEventStore } from "./run-events";
+import type { AgentTurnRecord, TelemetryAnalysis } from "./history";
 
-function mkReq(method: string, url: string, body?: string): any {
+function mkReq(method: string, url: string, body?: string, headers?: Record<string, string>): any {
   const r: any = Readable.from(body != null ? [body] : []);
   r.method = method;
   r.url = url;
-  r.headers = { host: "localhost" };
+  r.headers = { host: "localhost", ...headers };
   return r;
 }
 
@@ -138,6 +140,28 @@ test("GET /api/signals returns the fleet integrity view, or 501 when not wired",
   assert.equal(view.coverage.measured, false);
 });
 
+test("GET /api/signals returns 500 (not a hang or a fabricated empty view) when the ledger read throws a real I/O error", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/signals"), res, deps({
+    signals: () => {
+      throw new Error("EACCES: permission denied, open 'data/coordination-events.jsonl'");
+    },
+  }));
+  assert.equal(res.status, 500);
+  assert.match(JSON.parse(res.body).error, /permission denied/);
+});
+
+test("GET /api/coordination-events returns 500 when the ledger read throws a real I/O error", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("GET", "/api/coordination-events"), res, deps({
+    coordinationEvents: () => {
+      throw new Error("EACCES: permission denied");
+    },
+  }));
+  assert.equal(res.status, 500);
+  assert.match(JSON.parse(res.body).error, /permission denied/);
+});
+
 test("GET /api/apps/:name/trends and /api/apps/:name/report return 501 when not wired", async () => {
   const t = mkRes();
   await handleApi(mkReq("GET", "/api/v1/apps/demo/trends"), t, deps());
@@ -228,6 +252,115 @@ test("GET /runs/:id/report returns {current, evolution}; CSV exports current; 40
   assert.equal(missing.status, 404);
 });
 
+test("GET /api/apps/:name/context-map returns 501 when not wired", async () => {
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps());
+  assert.equal(r.status, 501);
+});
+
+test("GET /api/apps/:name/context-map returns 404 for an unconfigured app, even when contextMap is wired", async () => {
+  let called = false;
+  const r = mkRes();
+  await handleApi(
+    mkReq("GET", "/api/v1/apps/ghost/context-map"),
+    r,
+    deps({ contextMap: () => { called = true; return null; } }),
+  );
+  assert.equal(r.status, 404);
+  assert.match(JSON.parse(r.body).error, /app not found/);
+  assert.equal(called, false, "the app-existence check must short-circuit before the contextMap dep is ever called");
+});
+
+test("GET /api/apps/:name/context-map returns 404 when the app is configured but has no stored map yet", async () => {
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => null }));
+  assert.equal(r.status, 404);
+  assert.match(JSON.parse(r.body).error, /no stored architecture map/);
+});
+
+test("GET /api/apps/:name/context-map returns 200 with the stored map and passes contractJson egress validation", async () => {
+  const view = {
+    app: "demo",
+    map: {
+      builtAtSha: "abc1234",
+      routes: [{ path: "/owners" }],
+      api: [{ operationId: "getOwners", method: "GET", path: "/api/owners" }],
+      feBe: [{ route: "/owners", operationId: "getOwners" }],
+    },
+    builtAtSha: "abc1234",
+    updatedAt: "2026-09-20T10:15:00Z",
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/context-map"), r, deps({ contextMap: () => view }));
+  assert.equal(r.status, 200);
+  const body = JSON.parse(r.body);
+  assert.equal(body.app, "demo");
+  assert.equal(body.builtAtSha, "abc1234");
+  assert.equal(body.map.routes[0].path, "/owners");
+});
+
+const measuredTurn: AgentTurnRecord = {
+  runId: "p1", sessionId: "sess-1", role: "qa-generator", round: 0, isRepair: false,
+  ts: "2026-09-28T10:00:00.000Z", objective: null, promptText: "the prompt", outputText: "the output", promptBytes: 10,
+  tokensInput: 100, tokensOutput: 50, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: 0.01,
+  totalCalls: 31, stepsUsed: 50, maxSteps: 50, callsBeforeFirstWrite: 27, writeCount: 2, redundantReadCount: 6,
+  duplicateCallCount: 4, promptProvidedReadCount: 3, pathProvidedReadCount: 2, exhausted: true,
+  callBuckets: { code_read: 20, browser: 6, write: 2, validate_run: 1, memory: 0, subagent: 0, other: 2 },
+};
+
+test("GET /api/v1/runs/:id/turns returns each turn with its efficiency fields, null where unmeasured", async () => {
+  const unmeasured: AgentTurnRecord = {
+    ...measuredTurn, sessionId: "sess-2", totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null,
+    writeCount: null, redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
+  };
+  const r = mkRes();
+  await handleApi(
+    mkReq("GET", "/api/v1/runs/p1/turns"),
+    r,
+    deps({ getRecord: () => parentRec, getAgentTurns: () => [measuredTurn, unmeasured] }),
+  );
+  assert.equal(r.status, 200);
+  const [first, second] = JSON.parse(r.body);
+  assert.equal(first.totalCalls, 31);
+  assert.equal(first.exhausted, true);
+  assert.equal(first.callBuckets.code_read, 20);
+  assert.equal(first.promptText, "the prompt", "existing fields are unchanged");
+  assert.equal(second.totalCalls, null);
+  assert.equal(second.exhausted, null);
+  assert.equal(second.callBuckets, null);
+});
+
+test("GET /api/v1/apps/:name/telemetry returns the efficiency aggregates alongside the existing analysis", async () => {
+  const analysis: TelemetryAnalysis = {
+    app: "demo", generatedAt: "2026-09-28T10:00:00.000Z", windowDays: null, runCount: 2,
+    byRole: [{ role: "qa-generator", medianPromptBytes: 200, p95PromptBytes: 300, medianCacheHitRate: null, turnCount: 4 }],
+    reviewerConvergence: { avgCorrectionsRound0: null, avgCorrectionsRound1: null, approveRate: 0.5 },
+    groundingPresence: 1, repairFraction: 0, medianTurnsPerRun: 2, medianWallClockSec: 30, p95WallClockSec: 40,
+    efficiency: { turnsMeasured: 3, medianCallsBeforeFirstWrite: 8, exhaustedRate: 1 / 3, redundantReadRatio: 0.15, duplicateRatio: 0.1 },
+  };
+  const r = mkRes();
+  await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => analysis }));
+  assert.equal(r.status, 200);
+  const body = JSON.parse(r.body);
+  assert.equal(body.efficiency.medianCallsBeforeFirstWrite, 8);
+  assert.equal(body.efficiency.exhaustedRate, 1 / 3);
+  assert.equal(body.byRole[0].turnCount, 4, "existing fields are unchanged");
+  assert.equal(body.runCount, 2);
+});
+
+test("GET /api/v1/apps/:name/telemetry answers 500, never a partial body, when the analysis drifts from the contract", async () => {
+  const drifted = { app: "demo", generatedAt: "now", windowDays: null, runCount: 0, byRole: [] } as unknown as TelemetryAnalysis;
+  const r = mkRes();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    await handleApi(mkReq("GET", "/api/v1/apps/demo/telemetry"), r, deps({ telemetryAnalysis: () => drifted }));
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(r.status, 500);
+});
+
 test("GET /trends?format=csv returns a flat CSV", async () => {
   const trends = (app: string) => toTrendsView({ app, outcomes: [], now: "2026-06-14T00:00:00Z" });
   const r = mkRes();
@@ -279,6 +412,43 @@ test("POST /api/v1/runs is served and its response validates against the contrac
   assert.equal(ok, true);
   assert.equal(res.status, 202);
   CreateRunResultSchema.parse(JSON.parse(res.body));
+});
+
+test("POST /api/v1/runs forwards a baseSha to the enqueue so the run's diff spans baseSha..sha", async () => {
+  let seenBaseSha: string | undefined;
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "def5678", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-range"; } }),
+  );
+  assert.equal(res.status, 202);
+  assert.equal(seenBaseSha, "def5678");
+});
+
+test("POST /api/v1/runs without a baseSha enqueues a plain single-commit run", async () => {
+  let seenBaseSha: string | undefined = "sentinel";
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: (_app, _sha, _target, _mode, _guidance, _shadow, _commits, _triggerRepo, baseSha) => { seenBaseSha = baseSha; return "run-plain"; } }),
+  );
+  assert.equal(res.status, 202);
+  assert.equal(seenBaseSha, undefined);
+});
+
+test("POST /api/v1/runs rejects a baseSha that is not 7-40 hex characters (nothing is enqueued)", async () => {
+  let enqueued = false;
+  const res = mkRes();
+  await handleApi(
+    mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", baseSha: "--upload-pack=evil", mode: "diff", target: "e2e" })),
+    res,
+    deps({ enqueue: () => { enqueued = true; return "run-bad"; } }),
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.body, /baseSha/);
+  assert.equal(enqueued, false);
 });
 
 test("POST /api/runs accepts context mode", async () => {
@@ -963,6 +1133,33 @@ test("GET /api/auth/local returns 404 when the dep refuses (not trusted)", async
   assert.equal(res.status, 404);
 });
 
+/* The local console login through the API with the production login policy: a loopback TCP peer
+   is trusted only when the request's Host header also names a loopback host. A DNS-rebinding page
+   reaches the orchestrator from 127.0.0.1 while its Host still names the attacker's domain. */
+const LOCAL_LOGIN_SECRET = "local-login-test-secret";
+
+async function localLoginFromLoopbackPeer(host: string): Promise<{ status: number; body: string }> {
+  const req = mkReq("GET", "/api/v1/auth/local", undefined, { host });
+  req.socket = { remoteAddress: "127.0.0.1" };
+  const res = mkRes();
+  await handleApi(req, res, deps({ localLogin: createLocalConsoleLogin({}, LOCAL_LOGIN_SECRET, 3600) }));
+  return { status: res.status, body: res.body };
+}
+
+test("GET /api/auth/local mints a console session for a loopback peer asking with a loopback Host", async () => {
+  const { status, body } = await localLoginFromLoopbackPeer("localhost:458");
+
+  assert.equal(status, 200);
+  assert.equal(validateSession(JSON.parse(body).token, LOCAL_LOGIN_SECRET), LOCAL_CONSOLE_PRINCIPAL);
+});
+
+test("GET /api/auth/local refuses a loopback peer asking with a foreign Host (DNS rebinding)", async () => {
+  const { status, body } = await localLoginFromLoopbackPeer("evil.example:458");
+
+  assert.equal(status, 404);
+  assert.equal(body.includes("token"), false);
+});
+
 test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
   const res = mkRes();
   await handleApi(mkReq("GET", "/api/v1/auth/local"), res, deps({}));
@@ -973,12 +1170,27 @@ test("GET /api/auth/local returns 404 when the dep is not wired", async () => {
    produced by ANOTHER process whose publishes never reach this server's in-process bus. ──
  */
 
-async function waitUntil(cond: () => boolean, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  while (!cond()) {
-    if (Date.now() - start > timeoutMs) throw new Error("condition not met within " + timeoutMs + "ms");
-    await new Promise((r) => setTimeout(r, 4));
-  }
+/* Resolves once the response is ended — awaited, never raced against a wall-clock window. */
+function endOf(res: { end: (b?: string) => void; writableEnded?: boolean }): Promise<void> {
+  return new Promise((resolve) => {
+    const end = res.end.bind(res);
+    res.end = (b?: string) => {
+      res.writableEnded = true;
+      end(b);
+      resolve();
+    };
+  });
+}
+
+/* Resolves once the response has written text containing `text`. */
+function writeOf(res: { write: (chunk: string) => void; writes: string[] }, text: string): Promise<void> {
+  return new Promise((resolve) => {
+    const write = res.write.bind(res);
+    res.write = (chunk: string) => {
+      write(chunk);
+      if (res.writes.join("").includes(text)) resolve();
+    };
+  });
 }
 
 /* A store whose live subscription NEVER fires — models a run executing in a different
@@ -992,34 +1204,37 @@ function outOfProcessStore(persisted: RunEvent[]): RunEventStore {
   };
 }
 
-test("the SSE stream ends when the run goes terminal even without a run.verdict event (out-of-process)", async () => {
+/* The poll timer keeps the process alive, so a stream that never ends would hang the suite: the
+   test timeout only bounds that hang, the assertions await the event itself. */
+const SSE_HANG_GUARD = { timeout: 30_000 };
+
+test("the SSE stream ends when the run goes terminal even without a run.verdict event (out-of-process)", SSE_HANG_GUARD, async () => {
   let status: "running" | "done" = "running";
   const record = (): RunRecord => ({ id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status, cases: [], logs: [], at: "t" });
   const req = mkReq("GET", "/api/v1/runs/r1/events");
   const res = mkRes();
-  let ended = false;
-  const origEnd = res.end.bind(res);
-  res.end = (b?: string) => { ended = true; res.writableEnded = true; origEnd(b); };
+  const ended = endOf(res);
 
   await handleApi(req, res, deps({ getRecord: () => record(), runEvents: outOfProcessStore([]), ssePollMs: 5 }));
-  assert.equal(ended, false); /* still running → the stream stays open */
+  assert.notEqual(res.writableEnded, true); /* still running → the stream stays open */
 
   status = "done"; /* the run is finalized by the other process in the shared record store */
-  await waitUntil(() => ended, 400);
-  assert.equal(ended, true);
+  await ended;
+  assert.equal(res.writableEnded, true);
 });
 
-test("the SSE poll flushes events persisted by another process (the in-process bus never fired)", async () => {
+test("the SSE poll flushes events persisted by another process (the in-process bus never fired)", SSE_HANG_GUARD, async () => {
   const persisted: RunEvent[] = [];
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" };
   const req = mkReq("GET", "/api/v1/runs/r1/events");
   const res = mkRes();
+  const flushed = writeOf(res, "step.changed");
 
   await handleApi(req, res, deps({ getRecord: () => record, runEvents: outOfProcessStore(persisted), ssePollMs: 5 }));
 
   /* Another process persists an event AFTER we connected; only the durable poll can surface it. */
   persisted.push({ seq: 0, runId: "r1", ts: 1, body: { type: "step.changed", step: "execute" } } as RunEvent);
-  await waitUntil(() => res.writes.join("").includes("step.changed"), 400);
+  await flushed;
   assert.match(res.writes.join(""), /event: step.changed/);
   req.emit("close");
 });
@@ -1043,6 +1258,12 @@ test("phase-0b: GET /api/runs/:id/turns returns 404 when the run is not found", 
   assert.match(res.body, /not found/i);
 });
 
+/* The efficiency fields a stored turn carries when nothing measured them (what getAgentTurns returns for an unmeasured turn). */
+const UNMEASURED_TURN_FIELDS = {
+  totalCalls: null, stepsUsed: null, maxSteps: null, callsBeforeFirstWrite: null, writeCount: null,
+  redundantReadCount: null, duplicateCallCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, exhausted: null, callBuckets: null,
+};
+
 test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a JSON array", async () => {
   const record: RunRecord = { id: "r1", app: "demo", sha: "abc", target: "e2e", mode: "diff", status: "done", cases: [], logs: [], at: "t" };
   const stubTurns = [
@@ -1052,6 +1273,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
       promptText: "generate tests", outputText: "tests done",
       promptBytes: 14, tokensInput: 100, tokensOutput: 50,
       tokensReasoning: 0, tokensCacheRead: 20, tokensCacheWrite: 5, cost: 0.001,
+      ...UNMEASURED_TURN_FIELDS,
     },
     {
       runId: "r1", sessionId: "s2", role: "qa-reviewer", round: 0, isRepair: false,
@@ -1059,6 +1281,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
       promptText: "review tests", outputText: '{"approved":true,"corrections":[],"rationale":"ok"}',
       promptBytes: 12, tokensInput: 80, tokensOutput: 30,
       tokensReasoning: null, tokensCacheRead: 10, tokensCacheWrite: 3, cost: 0.0008,
+      ...UNMEASURED_TURN_FIELDS,
     },
   ];
   const res = mkRes();
@@ -1073,7 +1296,7 @@ test("phase-0b: GET /api/runs/:id/turns returns the saved turns for the run as a
   assert.equal(body.length, 2, "both turns must be returned");
   assert.equal(body[0].role, "qa-generator");
   assert.equal(body[1].role, "qa-reviewer");
-  /* Phase 0b keystone: the reviewer turn must carry a non-null run_id */
+  /* The reviewer turn must carry a non-null run_id */
   assert.equal(body[1].runId, "r1", "reviewer turn must have the parent run's runId");
 });
 
@@ -1093,6 +1316,7 @@ test("phase-0b: GET /api/runs/:id/turns sanitizes prompt_text and output_text be
       outputText: `done — leaked ${secret}`,
       promptBytes: 50, tokensInput: 100, tokensOutput: 50,
       tokensReasoning: 0, tokensCacheRead: 20, tokensCacheWrite: 5, cost: 0.001,
+      ...UNMEASURED_TURN_FIELDS,
     },
   ];
   const res = mkRes();

@@ -21,6 +21,8 @@ test("returns valueScore null when baselineCases is missing (guard short-circuit
   );
   const r = await adapter.measure(br, "/m/repo", "qa-bot-abc");
   assert.equal(r.valueScore, null);
+  assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+  assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
   assert.match(r.details, /needs e2eDir \+ baseUrl \+ baseline-passing specs/);
 });
 
@@ -54,6 +56,8 @@ test("returns null when the corrupted re-run is inconclusive (infra-error)", asy
   const adapter = new FaultInjectionOracleAdapter(async () => ({ verdict: "infra-error", cases: [] }), () => 0, BASE_URL);
   const r = await adapter.measure(br, "/m/repo", "qa-bot-abc", ["a"]);
   assert.equal(r.valueScore, null);
+  assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+  assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
   assert.match(r.details, /inconclusive \(infra\)/);
 });
 
@@ -65,8 +69,8 @@ test("returns null when no JSON responses were intercepted (not applicable — n
   );
   const r = await adapter.measure(br, "/m/repo", "qa-bot-abc", ["a"]);
   assert.equal(r.valueScore, null);
-  assert.equal(r.mutantCount, 0);
-  assert.equal(r.killedCount, 0);
+  assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+  assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
   assert.match(r.details, /not applicable to this app's flows/);
 });
 
@@ -78,5 +82,7 @@ test("returns null when the corrupted re-run executed none of the baseline-passi
   );
   const r = await adapter.measure(br, "/m/repo", "qa-bot-abc", ["a"]);
   assert.equal(r.valueScore, null);
+  assert.equal(r.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+  assert.equal(r.killedCount, null, "not measured must be null, never a fabricated zero killed count");
   assert.match(r.details, /executed none of the baseline-passing specs/);
 });

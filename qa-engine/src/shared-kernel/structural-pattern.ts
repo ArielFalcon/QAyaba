@@ -1,4 +1,4 @@
-/* Deterministic diff → StructuralPattern detection (regex/extension heuristics, no LLM). Generation and the curriculum share this detector so offered archetypes cannot silently diverge from what the generator was shown. */
+/* Deterministic diff → StructuralPattern detection (regex/extension heuristics, no LLM). Generation, the curriculum and learning (a rule's stored archetype, the retrieval bias, fold attribution) share this detector so none of them can silently diverge from what the generator was shown. */
 import type { StructuralPattern } from "./scenario-catalog.ts";
 
 export function detectStructuralPatterns(diff: string, changedFiles: string[]): StructuralPattern[] {

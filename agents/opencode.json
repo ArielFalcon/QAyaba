@@ -9,7 +9,7 @@
   },
   "agent": {
     "qa-generator": {
-      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has full serena+engram+playwright MCP access by design (test author).",
+      "description": "Generates Playwright E2E tests for a commit's blast radius and writes them in e2e/. Has serena+engram+playwright MCP access by design (test author), except the memory-conflict tools (judge, compare): resolving a conflict between memories is not the generator's job.",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-generator.md}",
@@ -18,7 +18,11 @@
         "edit": true,
         "read": true,
         "bash": true,
-        "webfetch": false
+        "webfetch": false,
+        "engram_mem_judge": false,
+        "engram_mem_compare": false,
+        "mem_judge": false,
+        "mem_compare": false
       },
       "maxSteps": 50,
       "temperature": 0.2
@@ -514,7 +518,7 @@
       "temperature": 0.2
     },
     "qa-sidekick": {
-      "description": "Parallel worker for per-flow test generation in complete/exhaustive mode. Writes ONE spec file per session, scoped to a single flow. Q2 brute work: transcribes the injected a11y tree into a spec — no browser navigation, minimal judgment. A cheap (flash) tier suffices because the deterministic gates (tsc/eslint static gate + Lever-2 selector check) catch transcription errors; the worker only assembles REAL selectors from the injected tree. Has serena MCP access by design (no engram, no playwright).",
+      "description": "Coordination sidekick — a bounded delegation executor, invoked by the deterministic router for larger blast radii instead of the lead. Receives a self-contained delegation brief (objective, acceptance criteria, writable/readable scope, known facts, validation plan) and, unlike the single-spec-per-session parallel worker, may edit multiple EXISTING specs within its writable scope across follow-up feedback turns in the SAME session. Frozen authority: cannot change acceptance criteria/architecture, cannot write outside writablePaths, never performs git writes; a claimed result is externally validated against what actually exists on disk. Has serena + playwright MCP access by design (no engram — operational context only, never test-authoring rules).",
       "mode": "primary",
       "model": "opencode-go/glm-5.3-flash",
       "prompt": "{file:./agent/qa-sidekick.md}",

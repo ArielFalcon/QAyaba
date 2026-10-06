@@ -80,7 +80,7 @@ export function createUsageAccumulator(): UsageAccumulator {
        * "no usage data available" (e.g. a Codex-only run before the usage hook is activated).
        * When attribution IS provided (provider names from the runtime config), always return a
        * record — with zero tokens when none were accumulated — so the run is attributable even
-       * when the provider emits no token counts. This keeps AC2.5.2 honest: complete=false,
+       * when the provider emits no token counts. This keeps the record honest: complete=false,
        * tokens are genuinely zero (not fabricated), and the provider fields name the runtime.
        */
       if (count === 0 && !attribution?.primaryProvider && !attribution?.reviewerProvider) {

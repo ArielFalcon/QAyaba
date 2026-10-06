@@ -49,6 +49,9 @@ services:
     environment:
       QAYABA_PROFILE: slim
       PORT: "8080"
+      # A bare `npm run start` listens on loopback only; in the container it must listen on every
+      # interface. The published port above is what stays loopback-only on the host.
+      LISTEN_HOST: 0.0.0.0
       OPENCODE_SERVE_URL: http://agents:4096
       AGENT_SUPERVISOR_URL: http://agents:4097
       AGENT_RUNTIME_MODE: single

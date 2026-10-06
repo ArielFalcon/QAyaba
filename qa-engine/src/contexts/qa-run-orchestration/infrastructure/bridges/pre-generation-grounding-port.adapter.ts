@@ -1,12 +1,14 @@
 /* PreGenerationGroundingPort: fail-open explorer + context.json + context pack. Never throws. */
 
-import type { PreGenerationGroundingPort, GroundingResult } from "../../application/ports/index.ts";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
+import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 
@@ -25,13 +27,21 @@ export interface PreGenerationGroundingCollaborators {
   buildContextPack?: typeof buildContextPack;
   contextPackDeps?: ContextPackDeps;
   loadContextMap?: (specDir: string) => ArchitectureContext | undefined;
-  /* Optional explorer pass. Called fail-open before buildContextPack. Absent → brief stays undefined. */
+  /*
+   * Optional explorer pass. Called fail-open before buildContextPack. Absent collaborator, or a
+   * ground() call with no sha, → brief stays undefined (see ground()'s own guard below).
+   * `sha` is REQUIRED, not optional: every real caller of ground() (run-qa.use-case.ts) always
+   * threads a genuine RunQaInput.sha, so an optional sha here only invited a silent fallback to
+   * something else entirely (e.g. the run namespace) instead of a real commit sha.
+   */
   exploreBrief?: (args: {
     specDir: string;
     diff?: string;
     signal?: AbortSignal;
-    sha?: string;
+    sha: string;
     intent?: CommitIntent;
+    /** Threaded from ground()'s own opts.runId — absent when the caller has none. */
+    runId?: string;
   }) => Promise<ExplorationBrief | undefined>;
 }
 
@@ -92,6 +102,8 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   }
 }
 
+/* Every *.spec.ts under `dir`, relative to it. Installed packages and dot-directories are skipped, as
+   Playwright skips them: they are not the suite's specs. */
 export function enumerateExistingSpecFiles(dir: string): string[] {
   let results: string[] = [];
   try {
@@ -99,6 +111,7 @@ export function enumerateExistingSpecFiles(dir: string): string[] {
       const full = join(dir, entry);
       try {
         if (statSync(full).isDirectory()) {
+          if (entry === "node_modules" || entry.startsWith(".")) continue;
           results = results.concat(
             enumerateExistingSpecFiles(full).map((rel) => join(entry, rel)),
           );
@@ -114,13 +127,64 @@ export function enumerateExistingSpecFiles(dir: string): string[] {
   return results;
 }
 
+/* The fixtures file is repo content of unknown shape: it is scanned only when it is a small regular file. */
+export const MAX_FIXTURES_FILE_BYTES = 256 * 1024;
+const FIXTURES_FILE = "fixtures.ts";
+
+function skipFixtures(path: string, reason: string): undefined {
+  console.warn(`[qa] WARNING: harness facts: fixtures file ${path} not scanned (${reason}) — no fixture facts this run (non-blocking).`);
+  return undefined;
+}
+
+/* A regular file within the size cap, read through a descriptor that does not follow a symlink, and never more than the cap. Any failure omits the fixtures facts with a warning; nothing is thrown and nothing replaces them. */
+function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
+  const path = join(specDir, FIXTURES_FILE);
+  try {
+    /* Judged by what it is before it is opened: opening a named pipe for reading waits for a writer that never comes. */
+    if (!lstatSync(path).isFile()) return skipFixtures(path, "not a regular file");
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let source: string;
+    try {
+      const { size } = fstatSync(fd);
+      if (size > MAX_FIXTURES_FILE_BYTES) return skipFixtures(path, `larger than ${MAX_FIXTURES_FILE_BYTES} bytes`);
+      const buffer = Buffer.alloc(size);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      source = buffer.toString("utf8", 0, bytesRead);
+    } finally {
+      closeSync(fd);
+    }
+    /* A name that needed redaction is not a plain identifier worth stating: it is dropped, never passed on redacted. */
+    const exports = extractExportedNames(source).filter((name) => sanitizeText(name).text === name);
+    if (exports.length === 0) return skipFixtures(path, "no exports found");
+    return { file: FIXTURES_FILE, exports };
+  } catch (err) {
+    return skipFixtures(path, err instanceof Error ? err.message : String(err));
+  }
+}
+
+function readAttributeFact(testIdAttribute: string | undefined): string | undefined {
+  if (testIdAttribute === undefined) return undefined;
+  /* A plain attribute name that redaction would still change is secret-shaped: it is left out, never passed on redacted. */
+  if (isSafeAttributeName(testIdAttribute) && sanitizeText(testIdAttribute).text === testIdAttribute) return testIdAttribute;
+  console.warn("[qa] WARNING: harness facts: the configured test-id attribute is not a plain attribute name — left out this run (non-blocking).");
+  return undefined;
+}
+
+/* The configured test-id attribute and what the suite's fixtures file exports, or undefined when there is nothing to state. */
+export function readHarnessFacts(input: { specDir: string; testIdAttribute?: string }): HarnessFacts | undefined {
+  const testIdAttribute = readAttributeFact(input.testIdAttribute);
+  const fixtures = readFixtureFacts(input.specDir);
+  if (testIdAttribute === undefined && fixtures === undefined) return undefined;
+  return { ...(testIdAttribute !== undefined ? { testIdAttribute } : {}), ...(fixtures ? { fixtures } : {}) };
+}
+
 export class PreGenerationGroundingPortAdapter implements PreGenerationGroundingPort {
   constructor(
     private readonly ctx: PreGenerationGroundingStaticContext,
     private readonly collaborators: PreGenerationGroundingCollaborators = {},
   ) {}
 
-  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha?: string; intent?: CommitIntent }): Promise<GroundingResult> {
+  async ground(specDir: string, signal?: AbortSignal, diff?: string, opts?: { sha: string; intent?: CommitIntent; runId?: string }): Promise<GroundingResult> {
     if (signal?.aborted) return {};
 
     const result: GroundingResult = {};
@@ -159,16 +223,24 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
       console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    /* Explorer pass is optional and fail-open. Throw or absent collaborator → brief undefined; pack degrades to DOM+contracts. */
+    const harnessFacts = readHarnessFacts({ specDir, ...(this.ctx.testIdAttribute ? { testIdAttribute: this.ctx.testIdAttribute } : {}) });
+    if (harnessFacts) result.harnessFacts = harnessFacts;
+
+    /*
+     * Explorer pass is optional and fail-open. Throw, absent collaborator, or no sha (opts.sha is
+     * required on the collaborator's own contract — never fabricated) → brief stays undefined;
+     * pack degrades to DOM+contracts.
+     */
     let brief: ExplorationBrief | undefined;
-    if (this.collaborators.exploreBrief) {
+    if (this.collaborators.exploreBrief && opts?.sha) {
       try {
         brief = await this.collaborators.exploreBrief({
           specDir,
+          sha: opts.sha,
           ...(diff !== undefined ? { diff } : {}),
           ...(signal ? { signal } : {}),
-          ...(opts?.sha ? { sha: opts.sha } : {}),
           ...(opts?.intent ? { intent: opts.intent } : {}),
+          ...(opts?.runId ? { runId: opts.runId } : {}),
         });
       } catch (err) {
         console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

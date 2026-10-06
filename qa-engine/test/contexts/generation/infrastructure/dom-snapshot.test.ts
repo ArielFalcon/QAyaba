@@ -1,11 +1,17 @@
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   extractTargetRoutes, formatDomSnapshot, parseAriaSnapshot, captureDom, captureDomByRoute, captureDomForRoutes,
   captureRouteTrees, normalizeRoutes, capDomLines, isPriorityNode, mergeAttrs, normalizeKey, parseAriaSnapshotWithState,
-  buildCaptureScript,
+  buildCaptureScript, createCaptureDomDeps, defaultCaptureDomDeps, DEGRADED_ROUTE_LABEL, MAX_NODES_PER_ROUTE,
+  formatDomCapture, formatRedirectAdvisory,
   type CaptureDomDeps, type NodeAttr, type RouteSnapshot,
 } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { countDirectives, hasTrustLanguage } from "@contexts/generation/domain/prompt-contract-lint.ts";
 
 test("RouteSnapshot accepts attrs?: NodeAttr[] without TS error and NodeAttr has the expected shape", () => {
   /* Compile-time shape validation: constructing these values must not produce type errors. */
@@ -113,7 +119,7 @@ test("parseAriaSnapshot: quoted-name node emits role: name", () => {
   assert.ok(!lines.some((l) => l.startsWith("generic:")), "generic is not in keep-set");
 });
 
-/* T1: an accessible name containing an escaped double-quote (PW renders `say "hi"` as
+/* An accessible name containing an escaped double-quote (PW renders `say "hi"` as
    `button "say \"hi\""`) must be captured WHOLE and unescaped — the old `"([^"]*)"` matcher
    truncated at the first `\"`, losing the rest of the name (and breaking the selector check).
  */
@@ -144,7 +150,7 @@ test("parseAriaSnapshot: content-role inline value (listitem, text) is the name"
   assert.ok(lines.includes("text: Some inline text"), "text inline value");
 });
 
-/* S2: a NON-content kept role with a bare `: value` (e.g. `- heading: Some Text`) used to fall
+/* A NON-content kept role with a bare `: value` (e.g. `- heading: Some Text`) used to fall
    through every branch and emit nothing (→ []). Any kept role's inline value IS its name now.
  */
 test("parseAriaSnapshot: a non-content role with a bare ': value' uses the value as the name", () => {
@@ -428,14 +434,17 @@ test("formatDomSnapshot surfaces a per-route capture failure instead of hiding i
   assert.match(out, /route \/x: \(could not capture — timeout\)/);
 });
 
-/* Fix 2 (audit leak 5) sub-case 5: a degraded-but-not-`error` route (empty nodes, classified
+/* A degraded-but-not-`error` route (empty nodes, classified
    runtimeErrors, or a redirect) must ALSO surface a warning line instead of a silent bare header —
    same spirit as the `error` case above, extended to the new degrade reasons from buildRouteCatalog.
  */
-test("formatDomSnapshot warns on a route that rendered empty (zero nodes, no capture error)", () => {
+test("formatDomSnapshot states a route that rendered empty as degraded instead of a silent bare header, in neutral words", () => {
   const out = formatDomSnapshot([{ route: "/blank", nodes: [] }]);
-  assert.match(out, /route \/blank:/);
-  assert.match(out, /possibly broken app/, "an empty route must warn, not render a silent bare header");
+  const line = out.split("\n").find((l) => l.startsWith("route /blank:")) ?? "";
+  assert.ok(line.includes(DEGRADED_ROUTE_LABEL), "an empty route must say so, not render a silent bare header");
+  assert.equal(out.split("\n").length, 1, "a degraded route renders no nodes");
+  assert.equal(countDirectives(line), 0);
+  assert.equal(hasTrustLanguage(line), false);
 });
 
 test("formatDomSnapshot gives a runtimeErrors route an ADVISORY warning but STILL renders its nodes (grounding trusted, app-health flagged)", () => {
@@ -450,20 +459,167 @@ test("formatDomSnapshot gives a runtimeErrors route an ADVISORY warning but STIL
   assert.match(out, /button: Submit/, "its nodes MUST still be rendered — the route is a trusted grounding source, only app-health is advisory");
 });
 
-test("formatDomSnapshot warns on a route degraded via a redirect (finalUrl mismatch)", () => {
+test("the advisory on a route whose app logged runtime errors carries no directive, so it cannot send the agent back to a route the tree already covers", () => {
+  const out = formatDomSnapshot([{
+    route: "/owners/new",
+    nodes: ["button: Submit"],
+    settled: true,
+    runtimeErrors: [{ type: "pageerror", text: "TypeError: undefined is not a function" }],
+  }]);
+  assert.equal(countDirectives(out), 0);
+});
+
+test("formatDomSnapshot states a redirected route as redirected, names the page it reached, and renders none of that page's tree", () => {
   const out = formatDomSnapshot([{
     route: "/owners/new",
     nodes: ["button: Login"],
     settled: true,
-    finalUrl: "http://dev.example.com/login",
+    finalUrl: "http://dev.example.com/login?next=%2Fowners%2Fnew",
   }]);
-  assert.match(out, /route \/owners\/new:/);
-  assert.match(out, /possibly broken app/, "a redirect-degraded route must warn");
+  const lines = out.split("\n");
+  assert.equal(lines.length, 1, "a redirected route renders no nodes");
+  assert.ok(lines[0]!.startsWith("route /owners/new:"));
+  assert.ok(lines[0]!.includes("/login"), "the line names the path the browser reached");
+  assert.equal(lines[0]!.includes("next="), false, "and only the path");
+  assert.equal(lines[0]!.includes(DEGRADED_ROUTE_LABEL), false, "a redirect is not stated as an empty or errored route");
+  assert.equal(countDirectives(lines[0]!), 0);
+  assert.equal(hasTrustLanguage(lines[0]!), false);
+});
+
+test("formatDomSnapshot states a redirected route by the path it reached, whatever that path is", () => {
+  const line = formatDomSnapshot([{ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/sso/start" }]);
+  assert.ok(line.includes("/sso/start"));
+  assert.equal(line.includes("/login"), false);
+});
+
+/* ── The pages reached by a redirect: an advisory block of their own, never part of the grounded tree ── */
+
+const loginPage = (route: string, over: Partial<RouteSnapshot> = {}): RouteSnapshot => ({
+  route,
+  nodes: ["textbox: Email", "textbox: Password", "button: Sign in"],
+  attrs: [{ key: "textbox: Password", inputType: "password" }],
+  settled: true,
+  finalUrl: "http://dev.example.com/login",
+  ...over,
+});
+const healthyPage: RouteSnapshot = { route: "/cart", nodes: ["button: Apply coupon"], settled: true };
+
+test("formatRedirectAdvisory is empty when no route was redirected", () => {
+  assert.equal(formatRedirectAdvisory([healthyPage]), "");
+  assert.equal(formatRedirectAdvisory([]), "");
+});
+
+test("formatRedirectAdvisory renders the tree of the page a redirect reached, under a heading of its own, naming that page and the route that led there", () => {
+  const block = formatRedirectAdvisory([healthyPage, loginPage("/orders")]);
+  const lines = block.split("\n");
+  assert.ok(lines[0]!.startsWith(`### ${PACK_HEADINGS.redirected}`));
+  assert.match(lines[0]!, /advisory/i, "the heading labels the block advisory");
+  assert.ok(lines[1]!.length > 0 && !lines[1]!.startsWith("reached"), "the block says what it is before it lists a page");
+  assert.ok(block.includes("/login") && block.includes("/orders"));
+  for (const node of ["textbox: Email", "textbox: Password", "button: Sign in"]) assert.ok(block.includes(`  ${node}`), `the reached page's ${node} is listed`);
+  assert.equal(block.includes("Apply coupon"), false, "a route that was not redirected is not in the block");
+});
+
+test("formatRedirectAdvisory renders identical trees reached from several routes once, naming every route", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders"), loginPage("/reports"), loginPage("/profile")]);
+  assert.equal(block.match(/textbox: Email/g)?.length, 1, "the tree is rendered once");
+  for (const route of ["/orders", "/reports", "/profile"]) assert.ok(block.includes(route), `${route} is named`);
+});
+
+test("formatRedirectAdvisory renders each distinct page reached, with its own routes", () => {
+  const sso = loginPage("/billing", { finalUrl: "http://dev.example.com/sso", nodes: ["button: Continue with SSO"], attrs: [] });
+  const block = formatRedirectAdvisory([loginPage("/orders"), sso]);
+  assert.ok(block.includes("textbox: Email") && block.includes("Continue with SSO"));
+  assert.ok(block.indexOf("/billing") > block.indexOf("textbox: Email"), "the second page's block follows the first's");
+});
+
+test("formatRedirectAdvisory renders the same path reached with a different tree as two pages", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders"), loginPage("/reports", { nodes: ["button: Another"], attrs: [] })]);
+  assert.ok(block.includes("textbox: Email") && block.includes("button: Another"));
+});
+
+test("formatRedirectAdvisory renders a public redirect too: the page a root route moved to", () => {
+  const block = formatRedirectAdvisory([{ route: "/", nodes: ["heading: Welcome home"], settled: true, finalUrl: "http://dev.example.com/home" }]);
+  assert.ok(block.includes("heading: Welcome home") && block.includes("/home"));
+});
+
+test("formatRedirectAdvisory shows no tree for a route that failed to capture or rendered empty", () => {
+  const block = formatRedirectAdvisory([
+    { route: "/broken", error: "timeout", finalUrl: "http://dev.example.com/login" },
+    { route: "/blank", nodes: [], finalUrl: "http://dev.example.com/login" },
+    { route: "/empty", nodes: [] },
+  ]);
+  assert.equal(block, "");
+});
+
+test("formatRedirectAdvisory ignores the test-id summary and the changed-element marks of the page it reached: they belong to no route asked for", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders", { testIds: new Map([["email-field", 1]]) })]);
+  assert.equal(block.includes("test-ids on this route"), false);
+  assert.equal(block.includes("CHANGED"), false);
+});
+
+test("formatRedirectAdvisory keeps the attribute hint of a node, as the grounded tree does", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders", { attrs: [{ key: "textbox: Email", testId: "email-field" }] })]);
+  assert.ok(block.includes("textbox: Email  -> [data-testid=email-field]"));
+});
+
+test("formatRedirectAdvisory cuts a long reached tree to the number of nodes a route gets, and says how many it left out", () => {
+  const nodes = Array.from({ length: MAX_NODES_PER_ROUTE + 15 }, (_, i) => `link: nav-${i}`);
+  const block = formatRedirectAdvisory([loginPage("/orders", { nodes, attrs: [] })]);
+  assert.equal(block.split("\n").filter((line) => line.startsWith("  link: ")).length, MAX_NODES_PER_ROUTE);
+  assert.match(block, /15 more/);
+});
+
+test("the redirect advisory carries no directive and no trust language, so it cannot be read as an instruction or as established grounding", () => {
+  const block = formatRedirectAdvisory([loginPage("/orders")]);
+  const scaffold = block.split("\n").filter((line) => !line.startsWith("  ")).join("\n");
+  assert.equal(countDirectives(scaffold), 0);
+  assert.equal(hasTrustLanguage(scaffold), false);
+});
+
+test("formatDomCapture is the grounded routes alone when nothing redirected, and the advisory block after them when something did", () => {
+  assert.equal(formatDomCapture([healthyPage]), formatDomSnapshot([healthyPage]));
+  const text = formatDomCapture([healthyPage, loginPage("/orders")]) ?? "";
+  assert.ok(text.startsWith(formatDomSnapshot([healthyPage, loginPage("/orders")])));
+  assert.ok(text.endsWith(formatRedirectAdvisory([healthyPage, loginPage("/orders")])));
+  assert.ok(text.includes(`\n\n### ${PACK_HEADINGS.redirected}`), "set apart from the grounded routes by a blank line");
+});
+
+test("formatDomCapture is undefined when there is nothing to say", () => {
+  assert.equal(formatDomCapture([]), undefined);
+});
+
+test("captureDomForRoutes returns the advisory block of the pages redirects reached, after the grounded routes", async () => {
+  const warn = mock.method(console, "warn", () => {});
+  try {
+    const deps: CaptureDomDeps = { render: async () => [healthyPage, loginPage("/orders")] };
+    const text = (await captureDomForRoutes(["/cart", "/orders"], { e2eDir: "/m", baseUrl: "http://dev" }, deps)) ?? "";
+    assert.ok(text.includes("route /cart:"));
+    assert.ok(text.includes(`### ${PACK_HEADINGS.redirected}`) && text.includes("textbox: Password"));
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("captureDomForRoutes logs the gated-app advisory when two routes reach one page, and does not when they do not", async () => {
+  const warnings: string[] = [];
+  const warn = mock.method(console, "warn", (message: string) => { warnings.push(String(message)); });
+  try {
+    const gated: CaptureDomDeps = { render: async () => [loginPage("/a"), loginPage("/b")] };
+    await captureDomForRoutes(["/a", "/b"], { e2eDir: "/m", baseUrl: "http://dev" }, gated);
+    assert.ok(warnings.some((w) => w.includes("/login") && w.includes("/a") && w.includes("/b") && /auth/i.test(w)), "the advisory names the page and says where to declare a login");
+    warnings.length = 0;
+    const plain: CaptureDomDeps = { render: async () => [healthyPage] };
+    await captureDomForRoutes(["/cart"], { e2eDir: "/m", baseUrl: "http://dev" }, plain);
+    assert.deepEqual(warnings, []);
+  } finally {
+    warn.mock.restore();
+  }
 });
 
 test("formatDomSnapshot does NOT warn on a healthy captured route (nodes present, no runtimeErrors/redirect)", () => {
   const out = formatDomSnapshot([{ route: "/home", nodes: ["button: Submit"], settled: true }]);
-  assert.doesNotMatch(out, /possibly broken app/, "a healthy route must not carry the degrade warning");
+  assert.equal(out.includes(DEGRADED_ROUTE_LABEL), false, "a healthy route must not carry the degrade state");
 });
 
 /* The node cap MUST NOT drop the table that drives selectors. A real page sorts nav/header/links
@@ -480,12 +636,12 @@ test("formatDomSnapshot keeps table/list roles past the node cap (a present tabl
   assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the table */
 });
 
-/* S1: a Bootstrap role="presentation" table COLLAPSES to `- text:` nodes with NO columnheader — that
+/* A Bootstrap role="presentation" table COLLAPSES to `- text:` nodes with NO columnheader — that
    `text:` line IS the collapse signal the feature surfaces (it tells the author "no columnheader
    here"). `text` was in the parse keep-set but NOT in PRIORITY_ROLES, so capDomLines could truncate it
    away behind a wall of nav links — destroying the very signal. `text` is now a priority role.
  */
-test("S1: text is a priority node (the Bootstrap-collapse signal survives the cap)", () => {
+test("text is a priority node (the Bootstrap-collapse signal survives the cap)", () => {
   assert.ok(isPriorityNode("text: layout cell only"), "a text: node must be treated as priority");
   /* Direct capDomLines: 80 links + 2 collapse text nodes, cap 60 → both text nodes must survive. */
   const links = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`);
@@ -494,7 +650,7 @@ test("S1: text is a priority node (the Bootstrap-collapse signal survives the ca
   for (const t of textNodes) assert.ok(kept.includes(t), `text collapse node dropped by the cap: ${t}`);
 });
 
-test("S1: formatDomSnapshot keeps text: collapse nodes past the node cap (they sort after the nav)", () => {
+test("formatDomSnapshot keeps text: collapse nodes past the node cap (they sort after the nav)", () => {
   const nav = Array.from({ length: 80 }, (_, i) => `link: nav-${i}`); /* 80 links — over the 60 cap */
   const collapse = ["text: First Last City", "text: George Franklin 110 W. Liberty"];
   const out = formatDomSnapshot([{ route: "/vets", nodes: [...nav, ...collapse] }]);
@@ -502,12 +658,31 @@ test("S1: formatDomSnapshot keeps text: collapse nodes past the node cap (they s
   assert.match(out, /more non-table elements omitted/); /* the dropped ones are nav links, not the text signal */
 });
 
-/* ── captureDomByRoute: per-objective grounding split + soft-404 guard (F1) ───── */
+/* ── captureDomByRoute: per-objective grounding split + soft-404 guard ───── */
 test("normalizeRoutes trims, drops absolute/interpolated URLs, and dedupes", () => {
   assert.deepEqual(
     normalizeRoutes([" /a ", "/a", "https://x.com/y", "/p/${id}", "/b"]),
     ["/a", "/b"],
   );
+});
+
+test("normalizeRoutes never passes on a route template, free text or another host", () => {
+  assert.deepEqual(
+    normalizeRoutes(["/product/:id/view", "/users/{id}", "/blog/[slug]", "/files/*", "the cart page", "//evil.example/x", "/a", "/files/report:2024"]),
+    ["/a", "/files/report:2024"],
+  );
+});
+
+test("captureDomForRoutes spends its capture slots only on routes a browser can open", async () => {
+  const rendered: string[][] = [];
+  const deps: CaptureDomDeps = {
+    render: async (_e2eDir, _baseUrl, routes) => {
+      rendered.push(routes);
+      return routes.map((r) => ({ route: r, nodes: [`button: on ${r}`] }));
+    },
+  };
+  await captureDomForRoutes(["/product/:id/view", "/a", "/b", "/c", "/d", "/e"], { e2eDir: "/m", baseUrl: "http://dev" }, deps);
+  assert.deepEqual(rendered[0], ["/a", "/b", "/c", "/d"]);
 });
 
 test("captureDomByRoute returns a per-route map keyed by the requested route", async () => {
@@ -598,7 +773,7 @@ test("captureRouteTrees is best-effort: no routes / no baseUrl / render throws /
   assert.deepEqual(await captureRouteTrees({ e2eDir: "/m", baseUrl: "http://dev", specContents: [`page.goto("/a"); page.goto("/b")`] }, errored), [], "errored + empty-nodes(-and-no-testIds) excluded");
 });
 
-/* JD fix: a page built entirely from role-less test-id elements (<div data-cy=x> with no ARIA role) has
+/* A page built entirely from role-less test-id elements (<div data-cy=x> with no ARIA role) has
    EMPTY nodes[] but a populated testIds index — exactly what the role-independent capture exists to add
    value on. It must NOT be dropped by the nodes-only filter, or the catalog gate goes blind to it.
  */
@@ -736,12 +911,12 @@ test("formatDomSnapshot: unmatched node → line unchanged even when changed is 
   assert.equal(aboutWith, aboutWithout, "unmatched node line is byte-identical");
 });
 
-/* RED tests: the text fallback MUST NOT fire on substring-of-word matches.
+/* The text fallback MUST NOT fire on substring-of-word matches.
    These fail against the current impl ("test" matches "test-submission" via .includes).
    The stable-attr path (testId/id/name/href) is UNCHANGED and must still work as before.
  */
 
-test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text is a substring-of-word in nodeName", () => {
+test("buildChangedMarker: text fallback must NOT fire when changed.text is a substring-of-word in nodeName", () => {
   /* "test" appears as the PREFIX of "test-submission", not as a whole word.
      The marker must NOT fire — substring match would mislead the agent.
    */
@@ -750,7 +925,7 @@ test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text i
   assert.equal(marker, "", "'test' must not match 'test-submission' via substring — word boundary required");
 });
 
-test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text is 'form' matching 'Contact form submit'", () => {
+test("buildChangedMarker: text fallback must NOT fire when changed.text is 'form' matching 'Contact form submit'", () => {
   /* The manual-mode guidance "test the contact form" emits c.text="form".
      Node name "Contact form submit" DOES contain "form" as a whole word.
      After the fix this SHOULD match (it's a whole word in the name).
@@ -762,19 +937,19 @@ test("buildChangedMarker FIX-1b: text fallback must NOT fire when changed.text i
   assert.equal(marker, "", "'sub' must not match 'test-submission' as a non-word-boundary token");
 });
 
-test("buildChangedMarker FIX-1b: text fallback DOES fire when changed.text is an EXACT whole-word match in nodeName", () => {
+test("buildChangedMarker: text fallback DOES fire when changed.text is an EXACT whole-word match in nodeName", () => {
   const changed: ChangedElement[] = [{ file: "", line: 0, text: "form", raw: "form" }];
   const marker = buildChangedMarker("button: Contact form submit", undefined, changed);
   assert.ok(marker.startsWith(" [CHANGED:"), "whole-word 'form' in 'Contact form submit' must match");
 });
 
-test("buildChangedMarker FIX-1b: text fallback DOES fire when node name equals changed.text exactly", () => {
+test("buildChangedMarker: text fallback DOES fire when node name equals changed.text exactly", () => {
   const changed: ChangedElement[] = [{ file: "", line: 0, text: "Submit", raw: "Submit" }];
   const marker = buildChangedMarker("button: Submit", undefined, changed);
   assert.ok(marker.startsWith(" [CHANGED:"), "exact-equality match must still produce a marker");
 });
 
-test("buildChangedMarker FIX-1b: DIFF-mode stable-attr path (testId/id/name/href) is UNAFFECTED by word-boundary fix", () => {
+test("buildChangedMarker: DIFF-mode stable-attr path (testId/id/name/href) is UNAFFECTED by word-boundary fix", () => {
   /* Stable-attr matches never used the text fallback — they must be byte-identical after the fix */
   const attrTestId: NodeAttr = { key: "button: Submit", testId: "submit-btn" };
   const changedById: ChangedElement[] = [{ file: "f.html", line: 1, testId: "submit-btn", raw: "raw" }];
@@ -793,7 +968,7 @@ test("buildChangedMarker FIX-1b: DIFF-mode stable-attr path (testId/id/name/href
    text entries MUST NOT produce markers on unrelated nodes when stopwords are filtered
    and the text fallback uses word boundaries.
  */
-test("FIX-1 end-to-end: guidance 'test the contact form' must NOT mark test-submission or form-details nodes", async () => {
+test("end-to-end: guidance 'test the contact form' must NOT mark test-submission or form-details nodes", async () => {
   const { DiffParserService } = await import("@kernel/diff-parser/diff-parser.service.ts");
   const changed = new DiffParserService().changedElementsFromGuidance("test the contact form");
   const nodes = ["button: test-submission", "button: Contact form submit", "link: form-details"];
@@ -1127,7 +1302,7 @@ test("4.9 parseAriaSnapshotWithState companion: state IS captured in parallel ma
   assert.deepEqual(states.get("option: Dog"), ["selected"], "selected captured");
 });
 
-test("5.1 Slice 1 marker-absent-when-no-change: node with no state/inputType/nameFallback formats byte-identically", () => {
+test("no state marker when nothing changed: a node with no state/inputType/nameFallback formats byte-identically", () => {
   /* A node from the original keep-set with no new data must format identically */
   const nodes = ["button: Submit", "link: Home", "table: (present)"];
   const snap1: RouteSnapshot[] = [{ route: "/form", nodes }];
@@ -1138,7 +1313,7 @@ test("5.1 Slice 1 marker-absent-when-no-change: node with no state/inputType/nam
   assert.ok(!out1.includes("[CHANGED:"), "no CHANGED marker when changed is not provided");
 });
 
-test("5.2 Byte-identical no-op: original-keep-set role with no new data formats identically before/after Slice 3", () => {
+test("byte-identical no-op: an original-keep-set role with no new data formats identically", () => {
   const nodes = ["heading: Owners", "listitem: Item one"];
   const snap: RouteSnapshot[] = [{ route: "/", nodes }];
   const out = formatDomSnapshot(snap);
@@ -1153,7 +1328,7 @@ test("5.2 Byte-identical no-op: original-keep-set role with no new data formats 
    "test-ids on this route:" block so the agent can DISCOVER every value the gate will accept.
  */
 
-test("FIX-B-1: formatDomSnapshot appends 'test-ids on this route:' line when testIds is non-empty", () => {
+test("formatDomSnapshot appends 'test-ids on this route:' line when testIds is non-empty", () => {
   const snap: RouteSnapshot[] = [{
     route: "/form",
     nodes: ["button: Submit"],
@@ -1165,7 +1340,7 @@ test("FIX-B-1: formatDomSnapshot appends 'test-ids on this route:' line when tes
   assert.ok(out.includes("header-logo"), "second test-id listed");
 });
 
-test("FIX-B-2: formatDomSnapshot renders count>1 with ambiguity marker (×N)", () => {
+test("formatDomSnapshot renders count>1 with ambiguity marker (×N)", () => {
   const snap: RouteSnapshot[] = [{
     route: "/form",
     nodes: ["button: Submit"],
@@ -1176,7 +1351,7 @@ test("FIX-B-2: formatDomSnapshot renders count>1 with ambiguity marker (×N)", (
   assert.ok(out.includes("unique-id") && !out.includes("unique-id (×"), "count=1 renders bare");
 });
 
-test("FIX-B-3 byte-identical guarantee: testIds absent/empty → output unchanged (existing no-op tests still pass)", () => {
+test("byte-identical guarantee: testIds absent/empty → output unchanged (existing no-op tests still pass)", () => {
   const nodes = ["button: Submit", "link: Home", "table: (present)"];
   const withAbsent = formatDomSnapshot([{ route: "/x", nodes }]);
   const withEmptyMap = formatDomSnapshot([{ route: "/x", nodes, testIds: new Map() }]);
@@ -1190,7 +1365,7 @@ test("FIX-B-3 byte-identical guarantee: testIds absent/empty → output unchange
    degradedRouteWarning is tested, not the wiring into the real console).
  */
 
-test("FIX-D: captureRouteTrees calls console.warn when a render returns an errored route", async () => {
+test("captureRouteTrees calls console.warn when a render returns an errored route", async () => {
   const spec = `await page.goto("/owners");`;
   const deps: CaptureDomDeps = {
     render: async () => [{ route: "/owners", error: "Timeout 15000ms exceeded" }],
@@ -1231,7 +1406,7 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
   assert.ok(msg.includes("DEGRADED") || msg.includes("WARNING"), "attributed as a degraded-capture event");
 });
 
-/* ── Fix 1 (audit leak 4): authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
+/* ── Authenticated DOM capture — DEV_ENV_* httpCredentials in the render child ──
    The render child spawns a separate Node process that does chromium.launch() + newContext(). A
    comment claimed scrubEnv(/^DEV_/) passes DEV_ENV_USER/PASS through to the child so gated routes
    render authenticated — but the child script never read those env vars into newContext(). Auth-gated
@@ -1239,6 +1414,14 @@ test("captureDomForRoutes warns when a render returns an errored route (4th path
    httpCredentials idiom, scoped to baseUrl's origin so creds never leak to a different-origin auth
    provider (e.g. Keycloak).
  */
+
+test("buildCaptureScript applies PW_STORAGE_STATE and PW_CLIENT_CERT_PATH on newContext()", () => {
+  const script = buildCaptureScript();
+  assert.match(script, /process\.env\.PW_STORAGE_STATE/);
+  assert.match(script, /storageState/);
+  assert.match(script, /process\.env\.PW_CLIENT_CERT_PATH/);
+  assert.match(script, /clientCertificates/);
+});
 
 test("buildCaptureScript wires DEV_ENV_USER/DEV_ENV_PASS into httpCredentials on newContext()", () => {
   const script = buildCaptureScript();
@@ -1296,3 +1479,78 @@ test("RouteSnapshot accepts runtimeErrors and finalUrl fields", () => {
   assert.equal(withoutFields.finalUrl, undefined);
 });
 
+/* ── authDir is REQUIRED — no silent fallback to e2eDir ──────────────────────────────────────
+   createCaptureDomDeps(authDir) used to accept an OPTIONAL authDir and fall back to e2eDir when
+   omitted — an omitted override at any of the three composition seams (pre-exec/review-dom
+   grounding bridges, the context-pack default deps) would silently put auth material back into the
+   agent-visible mirror. authDir is now a required parameter: a real (TypeScript) caller that forgets
+   it gets a compile error, and — mirroring the same fail-closed constructor-guard pattern already
+   established for PublicationPortAdapter (publication-port.adapter.test.ts) — a
+   caller that bypasses the type system also gets an immediate, loud throw, never a silent e2eDir
+   default. The exported "no captureDomDeps configured at all" placeholder (defaultCaptureDomDeps,
+   consumed by the three seams above) is likewise inert: it never touches e2eDir, and fails loudly
+   instead of silently degrading if it is ever actually invoked.
+ */
+
+test("createCaptureDomDeps requires authDir — omitting it throws immediately (fail-closed, no silent e2eDir fallback)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createCaptureDomDeps(),
+    /authDir/i,
+    "createCaptureDomDeps must throw naming the missing authDir, never silently fall back to e2eDir",
+  );
+});
+
+test("defaultCaptureDomDeps is an inert placeholder — it must never silently capture using e2eDir, it must reject loudly if actually invoked", async () => {
+  await assert.rejects(
+    () => defaultCaptureDomDeps.render("/some/e2e/dir", "https://dev.example.com", ["/home"]),
+    /authDir/i,
+    "the placeholder must name authDir in its error, never silently fall back to e2eDir",
+  );
+});
+
+
+/* The capture script drives a browser against the app under test and prints one JSON document; the page content it
+   reports is not under the orchestrator's control, so the document can be arbitrarily large. A stand-in `node` first
+   on PATH plays the capture script so the process boundary (pipes, kill) is real while no browser is needed. */
+async function withStandInNode<T>(script: string, body: (root: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "stand-in-node-"));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(root, "capture.cjs"), script);
+  writeFileSync(join(bin, "node"), `#!/bin/sh\nexec "${process.execPath}" "${join(root, "capture.cjs")}" "$@"\n`, { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    return await body(root);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a DOM capture whose output passes the bound is killed and yields no snapshots, instead of being held and parsed", { timeout: 30_000 }, async () => {
+  const flood = "const line = 'x'.repeat(1000); (function go() { process.stdout.write(line, go); })();";
+  await withStandInNode(flood, async (root) => {
+    const warned = mock.method(console, "warn", () => {});
+    try {
+      const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+      const snaps = await deps.render(root, "http://localhost", ["/"]);
+      assert.deepEqual(snaps, [], "no grounding rather than a snapshot parsed from a truncated document");
+      assert.ok(warned.mock.calls.some((c) => /exceed/i.test(String(c.arguments[0]))), "the run says why there is no grounding");
+    } finally {
+      warned.mock.restore();
+    }
+  });
+});
+
+test("a DOM capture within the output bound still yields its snapshots", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write(JSON.stringify([{ route: '/home', yaml: '- button \\\"Save\\\"' }]));";
+  await withStandInNode(script, async (root) => {
+    const deps = createCaptureDomDeps(join(root, "auth"), 20_000);
+    const snaps = await deps.render(root, "http://localhost", ["/home"]);
+    assert.equal(snaps.length, 1);
+    assert.equal(snaps[0]?.route, "/home");
+  });
+});

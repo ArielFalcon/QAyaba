@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   performSwap,
   confirmSwapHealthy,
-  bootGuardDecision,
   rollback,
   SwapFs,
   SwapMarker,
@@ -16,7 +16,7 @@ import {
   clearPendingPromote,
 } from "./self-update";
 
-test("pending-promote survives the swap marker being cleared, and is cleared on terminal outcome (SELF-03)", () => {
+test("pending-promote survives the swap marker being cleared, and is cleared on terminal outcome", () => {
   const dir = mkdtempSync(join(tmpdir(), "promote-"));
   try {
     assert.equal(readPendingPromote(dir), null);
@@ -85,14 +85,18 @@ test("performSwap records promote + fix info for the canary-before-merge flow", 
   });
 });
 
-test("bootGuardDecision: none/increment/rollback by attempt count", () => {
-  assert.deepEqual(bootGuardDecision(null), { action: "none" });
-  assert.deepEqual(bootGuardDecision({ at: "t", attempt: 0 }), { action: "increment", next: { at: "t", attempt: 1 } });
-  assert.deepEqual(bootGuardDecision({ at: "t", attempt: MAX_BOOT_ATTEMPTS - 1 }), {
-    action: "increment",
-    next: { at: "t", attempt: MAX_BOOT_ATTEMPTS },
-  });
-  assert.deepEqual(bootGuardDecision({ at: "t", attempt: MAX_BOOT_ATTEMPTS }), { action: "rollback" });
+/*
+ * boot-guard.mjs runs before src/ is loaded (it must survive a bad swap intact — see its own
+ * header) and keeps its own literal MAX_BOOT_ATTEMPTS copy rather than importing this one. Reading
+ * its source (never importing it — the script performs real fs/process side effects and calls
+ * process.exit(0) at the top level) keeps the two constants from silently drifting apart.
+ */
+test("boot-guard.mjs's MAX_BOOT_ATTEMPTS stays in sync with self-update.ts's own constant", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const bootGuardSrc = readFileSync(join(here, "..", "..", "boot-guard.mjs"), "utf8");
+  const m = /const MAX_BOOT_ATTEMPTS = (\d+);/.exec(bootGuardSrc);
+  assert.ok(m, "boot-guard.mjs must declare a numeric MAX_BOOT_ATTEMPTS constant in this exact shape");
+  assert.equal(Number(m![1]), MAX_BOOT_ATTEMPTS, "boot-guard.mjs's hardcoded attempt threshold must match self-update.ts's MAX_BOOT_ATTEMPTS — the two are not wired together and can only be kept honest by this assertion");
 });
 
 test("a healthy swap is confirmed: marker + backups removed", () => {

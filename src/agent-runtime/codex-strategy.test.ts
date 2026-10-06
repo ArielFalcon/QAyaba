@@ -5,12 +5,15 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AgentUnavailableError } from "../errors";
+import { getAgentTurns } from "../server/history";
 import {
   codexErrorToInfra,
   extractCodexLastMessage,
   rolePromptName,
+  codexPreambleParts,
   CodexRuntimeStrategy,
   CodexExecTransport,
   CODEX_USAGE_AVAILABLE,
@@ -95,8 +98,8 @@ function makeSuccessSpawnFn(jsonlOutput: string): SpawnFn {
   return (() => makeSuccessChild(jsonlOutput)) as unknown as SpawnFn;
 }
 
-describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
-  it("auth / out-of-credits stderr → AgentUnavailableError INCONCLUSIVE (AC1.2.1)", () => {
+describe("codexErrorToInfra", () => {
+  it("auth / out-of-credits stderr → AgentUnavailableError INCONCLUSIVE", () => {
     const cases: string[] = [
       "Error: 401 Unauthorized",
       "Error: 403 Forbidden",
@@ -115,7 +118,7 @@ describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
     }
   });
 
-  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE (AC1.2.2)", () => {
+  it("timeout / SIGTERM → AgentUnavailableError INCONCLUSIVE", () => {
     const cases: string[] = [
       "Codex prompt: timed out after 30000ms",
       "timed out after 60000ms",
@@ -127,26 +130,26 @@ describe("codexErrorToInfra (T-P1-2 / AC1.2.1-4)", () => {
     }
   });
 
-  it("non-zero exit with non-infra stderr is NOT coerced to infra-error (AC1.2.4)", () => {
+  it("non-zero exit with non-infra stderr is NOT coerced to infra-error", () => {
     /* A test legitimately fails — this must not be swallowed into infra-error. */
     const err = codexErrorToInfra(new Error("codex exec exited 1: Test assertion failed: expected 200 got 404"));
     assert.ok(!(err instanceof AgentUnavailableError), "Non-infra failure must not become AgentUnavailableError");
     assert.equal(err, null, "codexErrorToInfra must return null for non-infra errors");
   });
 
-  it("rate-limited (429) stderr → AgentUnavailableError (infra) (AC1.2.1)", () => {
+  it("rate-limited (429) stderr → AgentUnavailableError (infra)", () => {
     const err = codexErrorToInfra(new Error("codex exec exited 1: 429 Too Many Requests"));
     assert.ok(err instanceof AgentUnavailableError);
     assert.ok(err.message.includes("INCONCLUSIVE (infrastructure)"));
   });
 
-  it("non-Error / null input returns null (AC1.2.4 guard)", () => {
+  it("non-Error / null input returns null", () => {
     const err = codexErrorToInfra(null as unknown as Error);
     assert.equal(err, null);
   });
 });
 
-describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1-2)", () => {
+describe("CodexRuntimeStrategy.openSession textOnly forwarding", () => {
   function makeCapturingTransport(): { transport: CodexHeadlessTransport; captures: Array<{ text: string }> } {
     const captures: Array<{ text: string }> = [];
     const transport: CodexHeadlessTransport = {
@@ -170,7 +173,7 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
     return { transport, captures };
   }
 
-  it("textOnly: true → reasoning wrappers stripped from output (AC1.3.1)", async () => {
+  it("textOnly: true → reasoning wrappers stripped from output", async () => {
     const { transport } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -192,7 +195,7 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
     await session.dispose();
   });
 
-  it("textOnly omitted → output returned as-is, no stripping (AC1.3.2)", async () => {
+  it("textOnly omitted → output returned as-is, no stripping", async () => {
     const { transport } = makeCapturingTransport();
     const strategy = new CodexRuntimeStrategy({
       transport,
@@ -209,9 +212,45 @@ describe("CodexRuntimeStrategy.openSession textOnly forwarding (T-P1-3 / AC1.3.1
     );
     await session.dispose();
   });
+
+  it("finalStepOnly: true → the returned text drops reasoning wrappers, while the persisted turn keeps the whole output", async () => {
+    const { transport } = makeCapturingTransport();
+    const strategy = new CodexRuntimeStrategy({
+      transport,
+      promptRoot: "/nonexistent/prompts",
+      env: { CODEX_API_KEY: "test-key" },
+    });
+    const persisted: string[] = [];
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-final-step", role: "primary" as const },
+      onTurn: (t) => { persisted.push(t.outputText); },
+    });
+
+    const result = await session.prompt("say hello", { finalStepOnly: true });
+
+    assert.ok(!result.includes("<think>"), `finalStepOnly must strip <think>…</think> wrappers. Got: ${result}`);
+    assert.ok(result.includes("final answer text"), `finalStepOnly must keep the answer. Got: ${result}`);
+    assert.equal(persisted.length, 1);
+    assert.ok(persisted[0]!.includes("internal reasoning step"), "the persisted output is unchanged by finalStepOnly");
+    await session.dispose();
+  });
+
+  it("a Codex turn never calls the stats callback: it has no step concept", async () => {
+    const { transport } = makeCapturingTransport();
+    const strategy = new CodexRuntimeStrategy({
+      transport,
+      promptRoot: "/nonexistent/prompts",
+      env: { CODEX_API_KEY: "test-key" },
+    });
+    let called = false;
+    const session = await strategy.openSession("primary", "/tmp", {});
+    await session.prompt("say hello", { finalStepOnly: true, onTurnStats: () => { called = true; } });
+    assert.equal(called, false);
+    await session.dispose();
+  });
 });
 
-describe("CodexRuntimeStrategy.startEventStream (T-P1-4 / AC1.4.3)", () => {
+describe("CodexRuntimeStrategy.startEventStream", () => {
   it("startEventStream is defined on CodexRuntimeStrategy", () => {
     const strategy = new CodexRuntimeStrategy({
       env: {},
@@ -229,8 +268,8 @@ describe("CodexRuntimeStrategy.startEventStream (T-P1-4 / AC1.4.3)", () => {
    classified by codexErrorToInfra as infra-error.
  */
 
-describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
-  it("SIGTERM is sent and a timeout error is rejected when the deadline elapses (AC2.3.1)", async () => {
+describe("CodexExecTransport timeout/SIGTERM path", () => {
+  it("SIGTERM is sent and a timeout error is rejected when the deadline elapses", async () => {
     const { spawnFn, killSpy } = makeHangingSpawnFn();
     const transport = new CodexExecTransport(
       { CODEX_API_KEY: "test" },
@@ -278,7 +317,7 @@ describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
     );
   });
 
-  it("resolves normally when the process completes before the deadline (AC2.3.2)", async () => {
+  it("resolves normally when the process completes before the deadline", async () => {
     const jsonl = JSON.stringify({ msg: "all tests passed" });
     const spawnFn = makeSuccessSpawnFn(jsonl);
     const transport = new CodexExecTransport(
@@ -322,7 +361,7 @@ describe("CodexExecTransport timeout/SIGTERM path (T-P2-3 / AC2.3.1-2)", () => {
    agentTimeout("diff")), imported directly to avoid the two providers drifting apart.
    ---------------------------------------------------------------------------
  */
-describe("CodexRuntimeStrategy — default per-role deadline (WS9.3)", () => {
+describe("CodexRuntimeStrategy — default per-role deadline", () => {
   /* Tiny env-overridden budgets so these tests exercise the REAL default-selection code path
      (env override, same as OpenCode's OPENCODE_REVIEWER_TIMEOUT_MS pattern) without waiting out
      the real 5-6 minute production defaults.
@@ -454,7 +493,7 @@ describe("CodexRuntimeStrategy — default per-role deadline (WS9.3)", () => {
    branch, not the "qa-maintainer" fallthrough.
  */
 
-describe("rolePromptName (Slice 1 — proposer role)", () => {
+describe("rolePromptName (proposer role)", () => {
   it("routes proposer to qa-proposer via an explicit branch, not the qa-maintainer fallthrough", () => {
     assert.equal(rolePromptName("proposer"), "qa-proposer");
     assert.notEqual(
@@ -465,8 +504,8 @@ describe("rolePromptName (Slice 1 — proposer role)", () => {
   });
 });
 
-describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
-  it("returns the LAST message from multi-line JSONL (AC2.1.1)", () => {
+describe("extractCodexLastMessage", () => {
+  it("returns the LAST message from multi-line JSONL", () => {
     const jsonl = [
       JSON.stringify({ msg: "first message" }),
       JSON.stringify({ msg: "second message" }),
@@ -476,7 +515,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "last message", "Must return the LAST non-empty message, not the first");
   });
 
-  it("tolerates interleaved non-JSON/stderr lines and still returns trailing message (AC2.1.2)", () => {
+  it("tolerates interleaved non-JSON/stderr lines and still returns trailing message", () => {
     const jsonl = [
       "Spawning codex exec...",
       JSON.stringify({ msg: "setup done" }),
@@ -488,7 +527,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "test result: all passed");
   });
 
-  it("returns empty string for empty/whitespace-only input (AC2.1.3)", () => {
+  it("returns empty string for empty/whitespace-only input", () => {
     assert.equal(extractCodexLastMessage(""), "");
     assert.equal(extractCodexLastMessage("   \n  \n  "), "");
   });
@@ -530,7 +569,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
      fall back to the true last message (preserving all plain-text/chat behavior above).
    */
 
-  it("WS9.4(a): a generator verdict block followed by a trailing remark is still recovered", () => {
+  it("a generator verdict block followed by a trailing remark is still recovered", () => {
     const verdictJson = JSON.stringify({ specs: ["login.spec.ts"], note: "covers the new login flow" });
     const jsonl = [
       JSON.stringify({ msg: verdictJson }),
@@ -543,7 +582,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     );
   });
 
-  it("WS9.4(a): a reviewer verdict block followed by a trailing remark is still recovered", () => {
+  it("a reviewer verdict block followed by a trailing remark is still recovered", () => {
     const verdictJson = JSON.stringify({ approved: true, rationale: "looks good", corrections: [] });
     const jsonl = [
       JSON.stringify({ msg: verdictJson }),
@@ -556,7 +595,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     );
   });
 
-  it("WS9.4(a): when NO message contains a verdict, falls back to the true last message (unchanged behavior)", () => {
+  it("when NO message contains a verdict, falls back to the true last message (unchanged behavior)", () => {
     const jsonl = [
       JSON.stringify({ msg: "exploring the codebase" }),
       JSON.stringify({ msg: "still no verdict, just chatting" }),
@@ -565,7 +604,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.equal(result, "still no verdict, just chatting");
   });
 
-  it("WS9.4(a): a verdict embedded mid-message (not the whole message) is still detected", () => {
+  it("a verdict embedded mid-message (not the whole message) is still detected", () => {
     /* The agent's closing message is prose THEN a JSON block, not a bare JSON string — the
        detection must find the verdict block WITHIN the message text, not require the whole
        message to be pure JSON.
@@ -579,7 +618,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.ok(result.includes("checkout.spec.ts"), `must recover the message embedding the verdict. Got: ${result}`);
   });
 
-  it("WS9.4(a): TWO verdict-bearing messages (draft then final) — the LAST one wins", () => {
+  it("TWO verdict-bearing messages (draft then final) — the LAST one wins", () => {
     /* An agent may emit a draft verdict, keep working, and emit a corrected final verdict.
        The reverse scan must return the LAST verdict-bearing message, never resurrect the draft.
      */
@@ -595,7 +634,7 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
     assert.ok(!result.includes("draft.spec.ts"), `the draft verdict must not be resurrected. Got: ${result}`);
   });
 
-  it.skip("[REAL-BOUNDARY] validates against real codex --json fixture (requires T-P1-0 image run)", () => {
+  it.skip("[REAL-BOUNDARY] validates against real codex --json fixture (requires the image-gated capture-codex-jsonl smoke run)", () => {
     /* Validates extractCodexLastMessage against the REAL `codex exec --json` JSONL output
        shape captured by agents/smoke/capture-codex-jsonl.smoke.mjs. IMAGE-GATED: the fixture at
        src/agent-runtime/__fixtures__/codex-exec-json.jsonl is produced in the built agents image
@@ -616,21 +655,21 @@ describe("extractCodexLastMessage (T-P2-1 / AC2.1.1-3)", () => {
    and update this test to assert the real usage fields. The false assertion going red is
    intentional — it forces the wiring, not just flipping the flag.
  */
-describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
-  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated (AC3.3.1)", () => {
+describe("onUsage honesty", () => {
+  it("CODEX_USAGE_AVAILABLE is false — pending hook is NOT yet activated", () => {
     /* Honest assertion: codex exec does not yet expose token usage. When a captured fixture
        proves usage is available, this test goes red until onUsage is wired.
      */
     assert.equal(
       CODEX_USAGE_AVAILABLE,
       false,
-      "CODEX_USAGE_AVAILABLE must be false until the T-P1-0 image-gated fixture confirms " +
+      "CODEX_USAGE_AVAILABLE must be false until an image-gated fixture confirms " +
         "codex exec --json exposes token usage fields. Do NOT set this to true without wiring " +
         "the actual usage parsing and onUsage callback in openSession.",
     );
   });
 
-  it("AgentTurnEvent token fields are null — no fabricated data emitted (AC3.3.1)", async () => {
+  it("AgentTurnEvent token fields are null — no fabricated data emitted", async () => {
     /* Assert that token fields in the turn event are null (not fabricated) when using the codex path. */
     const capturedTurns: Array<{ tokensInput: unknown; tokensOutput: unknown; cost: unknown }> = [];
 
@@ -675,7 +714,45 @@ describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
     );
   });
 
-  it("openSession does not silently drop an onUsage callback when it is passed — asymmetry is explicit (AC3.3.1)", async () => {
+  it("a Codex turn reports no step budget and no call metrics: both null, never fabricated", async () => {
+    const capturedTurns: Array<{ stepBudget: unknown; callMetrics: unknown }> = [];
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({ id: "t-eff-session", prompt: async () => "codex output", dispose: async () => {} }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", {
+      descriptor: { runId: "run-codex-eff", role: "primary" as const },
+      onTurn: (t) => { capturedTurns.push({ stepBudget: t.stepBudget, callMetrics: t.callMetrics }); },
+    });
+
+    await session.prompt("a prompt");
+
+    assert.deepEqual(capturedTurns, [{ stepBudget: null, callMetrics: null }]);
+  });
+
+  it("the default turn sink persists a Codex turn with its efficiency columns NULL", async () => {
+    const runId = `run-codex-persist-${Date.now()}`;
+    const fakeTransport: CodexHeadlessTransport = {
+      start: async () => ({ id: "t-persist-session", prompt: async () => "codex output", dispose: async () => {} }),
+      health: async () => ({ provider: "codex" as const, status: "healthy" as const, configured: true }),
+      listModels: async () => [],
+    };
+    const strategy = new CodexRuntimeStrategy({ env: { CODEX_API_KEY: "test-key" }, transport: fakeTransport });
+    const session = await strategy.openSession("primary", "/tmp", { descriptor: { runId, role: "primary" as const } });
+
+    await session.prompt("a prompt");
+
+    const [saved] = getAgentTurns(runId);
+    assert.equal(saved!.outputText, "codex output");
+    assert.equal(saved!.maxSteps, null);
+    assert.equal(saved!.exhausted, null);
+    assert.equal(saved!.totalCalls, null);
+    assert.equal(saved!.stepsUsed, null);
+  });
+
+  it("openSession does not silently drop an onUsage callback when it is passed — asymmetry is explicit", async () => {
     /* OpenCodeRuntimeStrategy accepts onUsage and forwards it to deps.open.
        CodexRuntimeStrategy does NOT accept onUsage in its openSession signature — this is the
        declared asymmetry. This test documents that:
@@ -713,7 +790,7 @@ describe("T-P3-3 — onUsage honesty (C3.3 / AC3.3.1)", () => {
    dangling reference on Codex (nothing ships agent/skills/ into a codex turn).
    ---------------------------------------------------------------------------
  */
-describe("CodexRuntimeStrategy — skill inlining into the role preamble (WS9.2)", () => {
+describe("CodexRuntimeStrategy — skill inlining into the role preamble", () => {
   /* Real repo promptRoot (this test file lives at src/agent-runtime/ → two levels up to repo root,
      then into agent/ — the same provider-neutral tree withCodexRolePreamble reads from).
    */
@@ -880,5 +957,64 @@ describe("CodexRuntimeStrategy — skill inlining into the role preamble (WS9.2)
     } finally {
       warnMock.mock.restore();
     }
+  });
+});
+
+describe("codexPreambleParts — the static layer a Codex turn ships with", () => {
+  const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
+  const REAL_PROMPT_ROOT = join(REPO_ROOT, "agent");
+
+  it("exposes the shared prompt, the role prompt and the role's skills as read from the prompt tree", () => {
+    const parts = codexPreambleParts("primary", REAL_PROMPT_ROOT);
+    assert.equal(parts.shared, readFileSync(join(REAL_PROMPT_ROOT, "AGENTS.md"), "utf8"));
+    assert.equal(parts.rolePrompt, readFileSync(join(REAL_PROMPT_ROOT, "roles", "qa-generator.md"), "utf8"));
+    assert.deepEqual(
+      parts.skills.map((s) => s.name),
+      ["architecture-mapping", "playwright-authoring", "test-value-review"],
+    );
+    for (const skill of parts.skills) {
+      assert.equal(skill.body, readFileSync(join(REAL_PROMPT_ROOT, "skills", skill.name, "SKILL.md"), "utf8"));
+    }
+  });
+
+  it("the preamble a turn ships is composed from exactly those parts, in order, ahead of the task", async () => {
+    const captured: string[] = [];
+    const transport: CodexHeadlessTransport = {
+      async start(): Promise<CodexTransportSession> {
+        return {
+          id: "parts-session",
+          prompt: async (text: string) => {
+            captured.push(text);
+            return '{"specs":[]}';
+          },
+          dispose: async () => {},
+        };
+      },
+      async health(): Promise<AgentProviderHealth> {
+        return { provider: "codex", status: "healthy", configured: true };
+      },
+      async listModels(): Promise<AgentModelInfo[]> {
+        return [{ id: "gpt-5.4", label: "GPT-5.4" }];
+      },
+    };
+    const strategy = new CodexRuntimeStrategy({ transport, promptRoot: REAL_PROMPT_ROOT, env: { CODEX_API_KEY: "test-key" } });
+    const session = await strategy.openSession("primary", "/tmp", {});
+    await session.prompt("THE-TASK");
+    await session.dispose();
+
+    const parts = codexPreambleParts("primary", REAL_PROMPT_ROOT);
+    const text = captured[0] ?? "";
+    const ordered = [parts.shared, parts.rolePrompt, ...parts.skills.map((s) => s.body), "THE-TASK"];
+    let cursor = -1;
+    for (const piece of ordered) {
+      const at = text.indexOf(piece, cursor + 1);
+      assert.ok(at > cursor, "every part appears after the previous one");
+      cursor = at;
+    }
+  });
+
+  it("parts that do not resolve are omitted", () => {
+    const parts = codexPreambleParts("primary", "/nonexistent/prompts");
+    assert.deepEqual(parts, { shared: "", rolePrompt: "", skills: [] });
   });
 });

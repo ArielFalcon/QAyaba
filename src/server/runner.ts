@@ -4,12 +4,12 @@
  * API-addressable entity per run. This is what makes "the control API is the single
  * contract" actually true: nothing may start a pipeline that bypasses the sequential
  * queue (which would run concurrent QA against DEV) or the run history (which would be
- * invisible to the TUI/continue/chat). See docs/interactive-layer.md §3.1.
+ * invisible to the TUI/continue/chat).
  */
 
 import { JobQueue } from "./queue";
 import { loadAppConfig, AppConfig } from "../orchestrator/config-loader";
-import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords } from "./history";
+import { createRecord, updateRecord, addCase, getRecord, appendActivity, listRecords, interruptedRecords } from "./history";
 import { recordIncident } from "./maintainer";
 import { testDataNamespace } from "../qa/test-data";
 import { RunMode, TestTarget, TriggerSource, QaCase, QaRunResult, engineStatus } from "../types";
@@ -19,6 +19,7 @@ import { isInfraError } from "../errors";
 import type { RunEventStore } from "./run-events";
 import type { RunEventBody } from "../contract/events";
 import { Sha } from "@kernel/sha";
+import { isUntrustedGitTreeError } from "@kernel/domain-error";
 import { selectEngine } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag";
 import type { RunPipelinePort, RunInput, ObserverPort } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 
@@ -58,16 +59,16 @@ export interface RunRequest {
 export interface RunnerDeps {
   loadApp?: (name: string) => AppConfig;  /* defaults to the real config loader */
   runEvents?: RunEventStore;
-  
+
   engineFactory?: (
     appConfig: AppConfig,
     namespace: string,
-    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string },
+    run: { mode: RunMode; target?: TestTarget; guidance?: string; triggerRepo?: string; sha?: string },
     observer?: ObserverPort,
     previousNamespace?: string,
   ) => RunPipelinePort;
 
-  
+
   isOnboardingActive?: () => boolean;
   /*
    * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
@@ -153,7 +154,7 @@ async function runViaRewrittenEngine(
   appConfig: AppConfig,
   runEvents: RunEventStore | undefined,
   liveAnnounced?: Map<string, LiveAnnouncedStatus>,
-  
+
   previousNamespace?: string,
 ): Promise<QaRunResult> {
   assertTriggerRepoDeclared(appConfig, req.triggerRepo);
@@ -168,16 +169,16 @@ async function runViaRewrittenEngine(
     ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}),
     ...(previousNamespace ? { previousNamespace } : {}),
     ...(req.baseSha ? { baseSha: Sha.of(req.baseSha) } : {}),
-    
+
     ...(req.parentRunId ? { parentRunId: req.parentRunId } : {}),
   };
   const outcome = await port.run(input, signal);
-  
+
   const cases = outcome.cases ?? [];
   for (const c of cases) {
     recordCase(runId, c, runEvents, liveAnnounced);
   }
-  
+
   if (outcome.gateSignals.reviewerApproved !== undefined) {
     runEvents?.publish(runId, {
       type: "reviewer.verdict",
@@ -193,6 +194,15 @@ async function runViaRewrittenEngine(
     logs: outcome.logs ?? "",
     ...(outcome.note !== undefined ? { note: outcome.note } : {}),
   };
+}
+
+/*
+ * A context-map run (the FE<->BE architecture map rebuild): an e2e run in context mode at an
+ * explicit sha, from a manual source, under the app's own qa.shadow. Never given a triggerRepo —
+ * context mode cannot be driven from a service repo.
+ */
+export function enqueueContextMapRun(queue: JobQueue, app: string, sha: string, deps: RunnerDeps): string {
+  return enqueueTrackedRun(queue, { app, sha, target: "e2e", mode: "context", source: "manual" }, deps);
 }
 
 /*
@@ -243,7 +253,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       updateRecord(record.id, { status: "running" });
 
-      
+
       const isOnboardingActive = deps.isOnboardingActive ?? (() => false);
       const onboardingPollMs = deps.onboardingPollMs ?? ONBOARDING_POLL_MS;
       const onboardingWaitMaxMs = deps.onboardingWaitMaxMs ?? ONBOARDING_WAIT_MAX_MS;
@@ -283,7 +293,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       if (req.shadow !== undefined) {
         appConfig.qa.shadow = req.shadow;
       }
-      
+
       selectEngine(process.env);
       if (!deps.engineFactory) {
         throw new Error(
@@ -291,7 +301,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
             "Wire src/server/rewritten-engine-factory.ts's createRewrittenEngineFactory(...) at the caller.",
         );
       }
-      
+
       const runNamespace = testDataNamespace(appConfig.qa.testDataPrefix, req.sha, record.id);
       /*
        * Per-run observer so RunQaUseCase.onStep() reaches the same updateRecord + RunEvents.publish
@@ -301,11 +311,11 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       const liveAnnounced = new Map<string, LiveAnnouncedStatus>();
       const observer = buildRewrittenObserver(record.id, deps.runEvents, liveAnnounced);
       const run: QaRunResult = await runViaRewrittenEngine(
-        
+
         deps.engineFactory(
           appConfig,
           runNamespace,
-          { mode: req.mode, target: req.target, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}) },
+          { mode: req.mode, target: req.target, sha: req.sha, ...(req.guidance ? { guidance: req.guidance } : {}), ...(req.triggerRepo ? { triggerRepo: req.triggerRepo } : {}) },
           observer,
           previousNamespace,
         ),
@@ -321,7 +331,7 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
          */
         previousNamespace,
       );
-      
+
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding stale late resolution for ${req.app}@${req.sha} — record already finalized (cancelled)`);
         return;
@@ -346,14 +356,14 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
         note: run.note || undefined,
         /*
          * passed/failed are NOT written here: addCase() is the single source of truth — it dedups
-         * by name and recomputes both columns from the cases table on every streamed case (A18).
+         * by name and recomputes both columns from the cases table on every streamed case.
          * Writing them again from the in-memory run.cases gave two writers for one derived value
          * that could silently disagree with the table they are supposed to summarize.
          */
       });
       console.log(`[qa] run finished ${req.app}@${req.sha}: verdict=${run.verdict}`);
     } catch (err) {
-      
+
       if (getRecord(record.id)?.status === "done") {
         console.log(`[qa] discarding post-cancel crash for ${req.app}@${req.sha} — record already finalized`);
         return;
@@ -364,25 +374,37 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
        */
       const msg = redactionPort.redactError(err);
       /*
-       * Classify by TYPE, not by substring. Genuine INFRASTRUCTURE (DeployTimeout, operator
-       * cancel, anything wrapped in InfraError) is a transient, non-code condition. Anything else
-       * thrown out of the pipeline (an OpenCode 500, a rejected git push, a JSON.parse that threw,
-       * an open circuit breaker) is an UNEXPECTED INTERNAL ERROR — still inconclusive, but a defect
-       * to surface, NOT silently laundered into a benign "infrastructure, ignore".
+       * Classify by TYPE, not by substring. Genuine INFRASTRUCTURE (an InfraError or one of its
+       * subclasses — deploy-gate timeout, agent unavailable or stalled — or an operator cancel) is
+       * a transient, non-code condition. Anything else thrown out of the engine (a rejected git
+       * push, a JSON.parse that threw, an open circuit breaker) is an UNEXPECTED INTERNAL ERROR —
+       * still inconclusive, but a defect to surface, NOT silently laundered into a benign
+       * "infrastructure, ignore".
        */
       const infra = isInfraError(err);
-      const note = infra ? msg : `unexpected internal error (not infrastructure — investigate): ${msg}`;
+      /*
+       * A working copy whose git dir is not the orchestrator's own is a SECURITY REFUSAL: nothing ran, so the
+       * verdict is inconclusive, but it is neither a transient infrastructure fault nor a code defect. It is loud
+       * and has its own note. It opens NO maintainer incident: the incident summary is fed to the maintainer's
+       * model prompt, and the refusal names paths the sandboxed repository controls.
+       */
+      const refusal = isUntrustedGitTreeError(err);
+      const note = refusal
+        ? `security refusal — the working copy's git dir is not the orchestrator's own, so no git ran: ${msg}`
+        : infra
+          ? msg
+          : `unexpected internal error (not infrastructure — investigate): ${msg}`;
       updateRecord(record.id, { status: "done", step: "done", verdict: "infra-error", note });
       deps.runEvents?.publish(record.id, { type: "agent.error", detail: note });
       deps.runEvents?.publish(record.id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error") });
-      console.error(`[qa] run ${infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
+      console.error(`[qa] run ${refusal ? "REFUSED (security refusal: untrusted git tree)" : infra ? "infra-error" : "CRASHED (internal error)"} ${req.app}@${req.sha}: ${msg}`);
 
       /*
-       * Only a genuine infrastructure condition is exempt from a maintainer-eligible incident
+       * Only a genuine infrastructure condition or a security refusal is exempt from a maintainer-eligible incident
        * (it must not trigger an autonomous self-modification for a non-code fault). An unexpected
        * internal error DOES record an incident so the failure is visible and not swallowed.
        */
-      if (!infra) {
+      if (!infra && !refusal) {
         recordIncident({ source: "qa-generator", severity: "error", summary: `pipeline crash for ${req.app}: ${msg}` });
       }
     }
@@ -396,9 +418,9 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * ONLY when a LIVE run was aborted (its in-flight turn interrupted via the queue's AbortSignal).
  * The subtle case this exists for: a record can read "running"/"enqueued" while the in-memory
  * queue does NOT actually hold it — a zombie left by a process restart or crash race, or an
- * operator view that lagged a queue advance. The old path returned without finalizing such a
- * record, so the cancel endpoint answered 409 and the stuck run never cleared (it sat at "0%"
- * forever, deaf to every stop press). Here we ALWAYS finalize a cancellable record:
+ * operator view that lagged a queue advance. Left unfinalized, such a record would make the
+ * cancel endpoint answer 409 and the stuck run would never clear, so a cancellable record is
+ * ALWAYS finalized:
  * - live run we hold        → abort its turn + finalize, return true
  * - enqueued (not started)  → finalize so the queued job skips itself,       return false
  * - stale "running" zombie  → finalize so the operator's stop clears it,      return false
@@ -407,14 +429,14 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
  * actually executing against DEV. The boolean return + the now-terminal record together let
  * handleCancelRun answer 200 vs 409 accurately.
  */
-export function cancelTrackedRun(queue: JobQueue, id: string): boolean {
+export function cancelTrackedRun(queue: JobQueue, id: string, deps: Pick<RunnerDeps, "runEvents"> = {}): boolean {
   const record = getRecord(id);
   if (!record) return false;
   if (record.status !== "running" && record.status !== "enqueued") return false;
 
   /* Abort the live job first — succeeds only when this id is the one holding the queue. */
   if (record.status === "running" && queue.cancel(id)) {
-    updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note: "cancelled by operator" });
+    finalizeUnfinished(id, "cancelled by operator", deps.runEvents);
     return true;
   }
 
@@ -425,6 +447,42 @@ export function cancelTrackedRun(queue: JobQueue, id: string): boolean {
   const note = record.status === "enqueued"
     ? "cancelled by operator"
     : "cancelled by operator (run was no longer active)";
-  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note });
+  finalizeUnfinished(id, note, deps.runEvents);
   return false;
+}
+
+/*
+ * Finalizes a run that will never reach its own verdict — cancelled, or interrupted by a restart —
+ * as infra-error, and ends its event stream with that verdict. The job of a cancelled run discards
+ * its late resolution once the record is done, so this is the run's only run.verdict; without it
+ * a watching client only learns the run is over by reading the record.
+ */
+function finalizeUnfinished(id: string, note: string, runEvents: RunEventStore | undefined): void {
+  updateRecord(id, { status: "done", step: "done", verdict: "infra-error", note });
+  runEvents?.publish(id, { type: "run.verdict", verdict: "infra-error", engineStatus: engineStatus("infra-error"), outcome: note });
+}
+
+/*
+ * Finalizes the runs a previous process left enqueued or running. Called at boot BEFORE traffic is
+ * accepted: a webhook landing during boot creates a legitimate enqueued record that a late sweep
+ * would wrongly finalize.
+ */
+export function finalizeInterruptedRuns(deps: Pick<RunnerDeps, "runEvents"> = {}): void {
+  const zombies = interruptedRecords();
+  if (zombies.length === 0) {
+    console.log("[qa] no interrupted runs from previous process — queue is clean");
+    return;
+  }
+  console.log(`[qa] recovering ${zombies.length} interrupted run(s) from previous process...`);
+  for (const r of zombies) {
+    finalizeUnfinished(r.id, "process restarted — run was interrupted", deps.runEvents);
+    recordIncident({
+      source: "health-check",
+      severity: "warn",
+      summary: `run ${r.id} (${r.app}@${r.sha.slice(0, 7)}) was interrupted by process restart`,
+      detail: `Previous status: ${r.status}, step: ${r.step ?? "unknown"}`,
+    });
+    console.log(`[qa]   finalized ${r.id} (${r.app}@${r.sha.slice(0, 7)}) as infra-error`);
+  }
+  console.log(`[qa] recovery complete — ${zombies.length} run(s) marked as infra-error`);
 }

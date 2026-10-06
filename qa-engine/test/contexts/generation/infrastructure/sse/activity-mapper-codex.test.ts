@@ -7,8 +7,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mapCodexExecEvent } from "@contexts/generation/infrastructure/sse/activity-mapper.ts";
 
-describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
-  it("tool_use event maps to agent.activity (AC1.4.1)", () => {
+describe("mapCodexExecEvent", () => {
+  it("tool_use event maps to agent.activity", () => {
     const line = JSON.stringify({ type: "tool_use", name: "read", input: { filePath: "/src/foo.ts" } });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);
@@ -21,7 +21,17 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     }
   });
 
-  it("write tool maps to writing kind (AC1.4.1)", () => {
+  it("a Serena tool's relative_path names the target", () => {
+    const line = JSON.stringify({ type: "tool_use", name: "create_text_file", input: { relative_path: "e2e/flows/bar.spec.ts" } });
+    const ev = mapCodexExecEvent(line)[0]!;
+    assert.equal(ev.type, "agent.activity");
+    if (ev.type === "agent.activity") {
+      assert.equal(ev.kind, "writing");
+      assert.equal(ev.target, "bar.spec.ts");
+    }
+  });
+
+  it("write tool maps to writing kind", () => {
     const line = JSON.stringify({ type: "tool_use", name: "write", input: { filePath: "/src/bar.spec.ts" } });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);
@@ -31,7 +41,7 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     }
   });
 
-  it("bash/shell tool maps to command kind (AC1.4.1)", () => {
+  it("bash/shell tool maps to command kind", () => {
     const line = JSON.stringify({ type: "tool_use", name: "bash", input: { command: "npm test" } });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);
@@ -41,14 +51,14 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     }
   });
 
-  it("error event maps to agent.error (AC1.4.1)", () => {
+  it("error event maps to agent.error", () => {
     const line = JSON.stringify({ type: "error", message: "out of context window" });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);
     assert.equal(events[0]?.type, "agent.error");
   });
 
-  it("error event uses error field fallback (AC1.4.1)", () => {
+  it("error event uses error field fallback", () => {
     const line = JSON.stringify({ type: "error", error: "rate limited" });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);
@@ -58,13 +68,13 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     }
   });
 
-  it("message/assistant event is skipped — prose only (AC1.4.1)", () => {
+  it("message/assistant event is skipped — prose only", () => {
     const line = JSON.stringify({ type: "message", message: "I have written the tests." });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 0, "prose message events must be dropped");
   });
 
-  it("malformed / non-JSON line is skipped without throwing (AC1.4.2)", () => {
+  it("malformed / non-JSON line is skipped without throwing", () => {
     const lines = [
       "not json at all",
       "{broken json",
@@ -81,20 +91,20 @@ describe("mapCodexExecEvent (T-P1-4 / AC1.4.1-2)", () => {
     }
   });
 
-  it("interleaved stderr-like non-JSON lines do not discard valid tool event (AC1.4.2)", () => {
+  it("interleaved stderr-like non-JSON lines do not discard valid tool event", () => {
     const toolLine = JSON.stringify({ type: "tool_use", name: "read", input: {} });
     assert.equal(mapCodexExecEvent("stderr: warn: something").length, 0);
     const events = mapCodexExecEvent(toolLine);
     assert.equal(events.length, 1);
   });
 
-  it("unknown event type is silently skipped (forward-compatible) (AC1.4.2)", () => {
+  it("unknown event type is silently skipped (forward-compatible)", () => {
     const line = JSON.stringify({ type: "thinking", text: "deliberating..." });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 0);
   });
 
-  it("defensive field probe: msg field is recognized (AC1.4.1)", () => {
+  it("defensive field probe: msg field is recognized", () => {
     const line = JSON.stringify({ type: "error", msg: "something went wrong" });
     const events = mapCodexExecEvent(line);
     assert.equal(events.length, 1);

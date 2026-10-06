@@ -5,8 +5,6 @@ export interface PwCase {
   name: string;
   status: CaseStatus;
   detail?: string;
-  /* Playwright 1.60 attaches the aria snapshot of the receiver on expect() failures. Absent on older reports. */
-  errorContext?: string;
   file?: string;
 }
 
@@ -20,7 +18,6 @@ export interface ParsedReport {
 interface PwResult {
   status?: string;
   error?: { message?: string };
-  errors?: Array<{ message?: string; errorContext?: string }>;
 }
 interface PwTest {
   results?: PwResult[];
@@ -55,7 +52,6 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
       for (const spec of suite.specs ?? []) {
         const outcome = specOutcome(spec);
         if (outcome === "skipped") continue;
-        const ec = firstErrorContext(spec);
         const c: PwCase & Pick<QaCase, "file"> = {
           name: [title, spec.title].filter(Boolean).join(" › "),
           status: outcome,
@@ -65,7 +61,6 @@ export function parsePlaywrightReport(json: unknown): ParsedReport {
               : outcome === "flaky"
                 ? `flaky — passed only after a retry; first-attempt failure: ${firstError(spec) ?? "(no error captured in the report)"}`
                 : firstError(spec),
-          ...(ec !== undefined ? { errorContext: ec } : {}),
           ...(file ? { file } : {}),
         };
         cases.push(c);
@@ -123,16 +118,6 @@ function firstError(spec: PwSpec): string | undefined {
   for (const t of spec.tests ?? []) {
     for (const r of t.results ?? []) {
       if (r.error?.message) return r.error.message;
-    }
-  }
-  return undefined;
-}
-
-export function firstErrorContext(spec: PwSpec): string | undefined {
-  for (const t of spec.tests ?? []) {
-    for (const r of t.results ?? []) {
-      const ctx = r?.errors?.[0]?.errorContext;
-      if (typeof ctx === "string" && ctx.length > 0) return ctx;
     }
   }
   return undefined;

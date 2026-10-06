@@ -23,12 +23,13 @@ import type {
 } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import {
   createCoordinationPort,
-  InMemoryCoordinationTelemetry,
+  CoordinationTelemetryRecorder,
   SidekickExecutor,
   type DelegationResult,
 } from "@contexts/qa-run-orchestration/application/coordination/index.ts";
 import type { AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 
+import { scriptedGeneration } from "../../../support/generation-output.ts";
 const MIRROR = "/tmp/qa-active";
 const SPEC_DIR = `${MIRROR}/e2e`;
 
@@ -116,9 +117,9 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
-  const tel = new InMemoryCoordinationTelemetry();
+  const tel = new CoordinationTelemetryRecorder();
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async () =>
@@ -134,6 +135,7 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         }),
     },
   });
@@ -148,13 +150,60 @@ test("active pre-generate uses sidekick specs and skips GenerationPort on succes
   assert.equal(generateCalls, 0);
   assert.equal(out.decision.verdict, "pass");
   assert.ok(tel.events.some((e) => e.kind === "delegation"));
+  assert.ok(tel.events.length > 0 && tel.events.every((e) => e.app === "demo"), "every recorded event must carry the run's own app, not be left blank");
+});
+
+test("app login keeps generation on the lead and does not open a sidekick session", async () => {
+  ensureSidekickFile();
+  let generateCalls = 0;
+  let opened = 0;
+  const ports = basePorts(async () => {
+    generateCalls++;
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
+  });
+  const sidekick = new SidekickExecutor({
+    runtime: {
+      openSession: async () => {
+        opened++;
+        return sessionReturning({
+          delegationId: "coord-auth-lead-pre-generate",
+          runId: "coord-auth-lead",
+          status: "completed",
+          summary: "should not run",
+          filesChanged: [{ path: "e2e/sidekick.spec.ts" }],
+          evidence: [],
+          validation: [],
+          assumptions: [],
+          concerns: [],
+          unresolvedQuestions: [],
+          recommendation: "accept",
+          acceptance: [],
+        });
+      },
+    },
+  });
+  const useCase = new RunQaUseCase({
+    ...ports,
+    coordination: createCoordinationPort(),
+    coordinationEnabledPoints: ["pre-generate"],
+    sidekick,
+    authSession: { prepare: async () => ({ unauthored: false }) },
+    authContext: {
+      baseUrl: "https://dev.example",
+      auth: { kind: "form", usernameEnv: "QA_USER", passwordEnv: "QA_PASS" },
+    },
+  });
+  const out = await useCase.run({ ...input, runId: "coord-auth-lead" });
+  assert.equal(opened, 0);
+  assert.equal(generateCalls, 1);
+  assert.equal(out.decision.verdict, "pass");
 });
 
 test("active pre-generate falls back when sidekick JSON claims files missing on disk", async () => {
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -171,25 +220,34 @@ test("active pre-generate falls back when sidekick JSON claims files missing on 
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         }),
     },
   });
+  const tel = new CoordinationTelemetryRecorder();
   const useCase = new RunQaUseCase({
     ...ports,
     coordination: createCoordinationPort(),
     coordinationEnabledPoints: ["pre-generate"],
+    coordinationTelemetry: tel,
     sidekick,
   });
   const out = await useCase.run(input);
   assert.equal(generateCalls, 1, "fail-open to lead when claimed files are absent");
   assert.equal(out.decision.verdict, "pass");
+  const delegationEvent = tel.events.find((e) => e.kind === "delegation");
+  assert.equal(
+    delegationEvent?.failureClass,
+    "claimed-files-missing",
+    "a completed status whose claimed files never verify on disk must carry a typed failureClass, not just a status=completed reason string that HIDES the disk mismatch",
+  );
 });
 
 test("active pre-generate falls back to lead GenerationPort when sidekick needs-lead", async () => {
   let generateCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -206,6 +264,7 @@ test("active pre-generate falls back to lead GenerationPort when sidekick needs-
           concerns: [],
           unresolvedQuestions: ["which layout?"],
           recommendation: "escalate",
+          acceptance: [],
         }),
     },
   });
@@ -225,7 +284,7 @@ test("active without enabled points never calls sidekick", async () => {
   let sidekickCalls = 0;
   const ports = basePorts(async () => {
     generateCalls++;
-    return { specs: ["lead.spec.ts"], approved: true };
+    return scriptedGeneration({ specs: ["lead.spec.ts"], approved: true });
   });
   const sidekick = new SidekickExecutor({
     runtime: {
@@ -243,6 +302,7 @@ test("active without enabled points never calls sidekick", async () => {
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "accept",
+          acceptance: [],
         });
       },
     },
@@ -261,7 +321,7 @@ test("active without enabled points never calls sidekick", async () => {
 test("active pre-generate passes escalated model into sidekick execute", async () => {
   ensureSidekickFile();
   let seenModel: string | undefined;
-  const ports = basePorts(async () => ({ specs: ["lead.spec.ts"], approved: true }));
+  const ports = basePorts(async () => (scriptedGeneration({ specs: ["lead.spec.ts"], approved: true })));
   const sidekick = new SidekickExecutor({
     runtime: {
       openSession: async (_role, _cwd, opts) => {
@@ -278,6 +338,7 @@ test("active pre-generate passes escalated model into sidekick execute", async (
           concerns: [],
           unresolvedQuestions: [],
           recommendation: "escalate",
+          acceptance: [],
         });
       },
     },

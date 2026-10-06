@@ -16,3 +16,5 @@ blob-report/
 .qa/measured.json
 # Operator-declared login flow, rewritten from the app config every run (system-owned, never committed).
 .qa/auth.local.json
+# Login session (cookies, localStorage, IndexedDB). Never commit.
+.auth/

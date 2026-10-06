@@ -1,8 +1,9 @@
 /* buildContextPack itself — prompt-assembly wiring lives in prompts.test.ts. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContextPack, type ContextPackInput, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
-import type { CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
+import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { MAX_ROUTES, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 
@@ -43,23 +44,37 @@ const MINIMAL_CONTEXT_MAP: ArchitectureContext = {
 test("buildContextPack returns undefined text when all components are absent", async () => {
   const result = await buildContextPack({}, stubContextPackDeps(undefined));
   assert.equal(result.text, undefined);
-  assert.equal(result.blastRadiusBytes, 0);
   assert.equal(result.domBytes, 0);
   assert.equal(result.contractBytes, 0);
 });
 
-test("buildContextPack includes blast-radius section when brief is provided", async () => {
-  const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
-  assert.ok(result.text !== undefined, "text should be set when brief is provided");
-  assert.ok(result.text!.includes("CheckoutService.pay"), "blast-radius symbol must appear in pack text");
-  assert.ok(result.text!.includes("Context Pack"), "pack header must appear");
-  assert.ok(result.blastRadiusBytes > 0, "blast-radius byte count must be positive");
+/* The brief owns the distilled blast radius, FE-BE links and risks; the pack carries only what the orchestrator captured or read itself (the live DOM and the API contracts). */
+test("buildContextPack never carries the blast radius, FE-BE links or risks the brief owns", async () => {
+  const result = await buildContextPack(
+    { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  assert.ok(result.text !== undefined);
+  assert.equal(result.text!.includes("CheckoutService.pay"), false, "no blast-radius symbol");
+  assert.equal(result.text!.includes("OrderClient.create"), false, "no FE-BE link");
+  assert.equal(result.text!.includes("assert the discounted total"), false, "no risk");
+  assert.ok(result.text!.includes(PACK_HEADINGS.liveDom), "the captured DOM stays");
 });
 
-test("buildContextPack includes FeBe links from the brief", async () => {
+test("buildContextPack with a brief and nothing captured or read has no pack at all", async () => {
   const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
-  assert.ok(result.text?.includes("createOrder"), "FeBe operationId must appear in pack text");
-  assert.ok(result.text?.includes("/checkout"), "FeBe route must appear in pack text");
+  assert.equal(result.text, undefined);
+});
+
+test("buildContextPack's header is neutral: it names the pack and what it holds, and directs nothing", async () => {
+  const result = await buildContextPack(
+    { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  const header = (result.text ?? "").split("### ")[0] ?? "";
+  assert.ok(header.includes(PACK_HEADINGS.pack));
+  assert.equal(countDirectives(header), 0);
+  assert.equal(hasTrustLanguage(header), false);
 });
 
 test("buildContextPack includes DOM section when capture succeeds", async () => {
@@ -68,7 +83,7 @@ test("buildContextPack includes DOM section when capture succeeds", async () => 
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text?.includes("Live DOM"), "DOM section header must appear");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section header must appear");
   assert.ok(result.domBytes > 0, "DOM byte count must be positive when DOM was captured");
 });
 
@@ -90,8 +105,8 @@ test("buildContextPack omits DOM section when capture returns undefined", async 
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(undefined),
   );
-  assert.ok(result.text !== undefined, "text should be set from blast-radius even when DOM fails");
   assert.equal(result.domBytes, 0);
+  assert.equal(result.text?.includes(PACK_HEADINGS.liveDom) ?? false, false);
 });
 
 test("buildContextPack includes contracts from contextMap when brief references them", async () => {
@@ -99,7 +114,7 @@ test("buildContextPack includes contracts from contextMap when brief references 
     { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP },
     stubContextPackDeps(undefined),
   );
-  assert.ok(result.text?.includes("Relevant API contracts"), "contracts section header must appear");
+  assert.ok(result.text?.includes(PACK_HEADINGS.contracts), "contracts section header must appear");
   assert.ok(result.text?.includes("POST /orders"), "contract path must appear");
   assert.ok(result.contractBytes > 0, "contract byte count must be positive");
 });
@@ -107,7 +122,7 @@ test("buildContextPack includes contracts from contextMap when brief references 
 test("buildContextPack omits contracts when contextMap is absent", async () => {
   const result = await buildContextPack({ brief: MINIMAL_BRIEF }, stubContextPackDeps(undefined));
   assert.equal(result.contractBytes, 0);
-  assert.ok(!result.text?.includes("Relevant API contracts"), "contracts section must be absent when no contextMap");
+  assert.ok(!result.text?.includes(PACK_HEADINGS.contracts), "contracts section must be absent when no contextMap");
 });
 
 test("buildContextPack filters contracts using prChangedFiles", async () => {
@@ -134,7 +149,7 @@ test("buildContextPack: the `routes` input populates DOM candidates with NO brie
     { routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text?.includes("Live DOM"), "DOM section must be populated from the routes input alone, no brief needed");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section must be populated from the routes input alone, no brief needed");
   assert.ok(result.domBytes > 0, "DOM byte count must be positive from the routes-only path");
 });
 
@@ -154,19 +169,200 @@ test("buildContextPack: `routes` input is merged with brief routes when BOTH are
   assert.ok(captured[0]!.indexOf("/checkout") < captured[0]!.indexOf("/admin"), "brief routes (higher precision) come first");
 });
 
-test("buildContextPack: `routes` input respects the DOM_ROUTE_CAP (6) alongside brief/contextMap routes", async () => {
+test("buildContextPack: candidates are cut to the number of routes the capture itself takes", async () => {
   const captured: string[][] = [];
   const deps: ContextPackDeps = {
     captureDomForRoutes: async (routes) => { captured.push(routes); return "button: Submit"; },
     domDeps: stubDomDeps("button: Submit"),
     log: () => {},
   };
-  const manyRoutes = Array.from({ length: 10 }, (_, i) => `/route${i}`);
+  const manyRoutes = Array.from({ length: MAX_ROUTES + 6 }, (_, i) => `/route${i}`);
   await buildContextPack(
     { routes: manyRoutes, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     deps,
   );
-  assert.equal(captured[0]?.length, 6, "the routes input must respect the same DOM_ROUTE_CAP as brief/contextMap routes");
+  assert.deepEqual(captured[0], manyRoutes.slice(0, MAX_ROUTES));
+});
+
+/* A route that names no single page (a template, free text, another host) is not a candidate: it is dropped before the cut, so it never takes the place of a route behind it. */
+function capturingDeps(captured: string[][], log: (message: string) => void = () => {}): ContextPackDeps {
+  return {
+    captureDomForRoutes: async (routes) => { captured.push(routes); return "button: Submit"; },
+    domDeps: stubDomDeps("button: Submit"),
+    log,
+  };
+}
+const PACK_INPUT = { baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" };
+const plainRoutes = (count: number): string[] => Array.from({ length: count }, (_, i) => `/r${i}`);
+
+test("buildContextPack: a route template does not take a capture slot from the routes behind it", async () => {
+  const captured: string[][] = [];
+  await buildContextPack({ routes: ["/product/:id/view", ...plainRoutes(MAX_ROUTES + 1)], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: several templates in front still leave every slot to the plain routes", async () => {
+  const captured: string[][] = [];
+  const templates = ["/a/:x", "/b/{y}", "/c/[z]", "/files/*", "the cart page", "//evil.example/x"];
+  await buildContextPack({ routes: [...templates, ...plainRoutes(MAX_ROUTES)], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: a route that the brief and the routes input both name takes one slot, not two", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: [{ path: "/r0", verified: false }] };
+  await buildContextPack({ brief, routes: plainRoutes(MAX_ROUTES + 1), ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+});
+
+test("buildContextPack: the brief's and the context map's templates are dropped as well, and the order of the sources is kept", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: [{ path: "/orders/:id", verified: false }, { path: "/checkout", verified: true }] };
+  await buildContextPack({ brief, routes: ["/admin"], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], ["/checkout", "/admin"]);
+});
+
+function sectionOf(text: string | undefined, heading: string): string {
+  const parts = (text ?? "").split(/^### /m).slice(1);
+  return parts.find((part) => part.startsWith(heading)) ?? "";
+}
+
+test("buildContextPack: a route that cannot be captured is listed apart from the live DOM, so it is not read as a broken page", async () => {
+  const captured: string[][] = [];
+  const logs: string[] = [];
+  const result = await buildContextPack({ routes: ["/product/:id/view", "/a"], ...PACK_INPUT }, capturingDeps(captured, (message) => logs.push(message)));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/product/:id/view"), "the template is listed under its own heading");
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("/product/:id/view"), false, "and not under the live DOM");
+  assert.ok(logs.some((message) => message.includes("/product/:id/view")), "the log names it too");
+});
+
+test("buildContextPack: with every candidate uncapturable nothing is captured, no pack is made, and the log names them", async () => {
+  const captured: string[][] = [];
+  const logs: string[] = [];
+  const result = await buildContextPack({ routes: ["/product/:id", "/users/{id}"], ...PACK_INPUT }, capturingDeps(captured, (message) => logs.push(message)));
+  assert.equal(captured.length, 0);
+  assert.equal(result.text, undefined);
+  for (const route of ["/product/:id", "/users/{id}"]) assert.ok(logs.some((message) => message.includes(route)), `the log names ${route}`);
+});
+
+test("buildContextPack: nothing is logged as not capturable when every candidate can be captured", async () => {
+  const logs: string[] = [];
+  await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, capturingDeps([], (message) => logs.push(message)));
+  assert.equal(logs.some((message) => /not capturable/i.test(message)), false);
+});
+
+test("buildContextPack: the list of routes not captured stops at its bound and says how many more there are", async () => {
+  const extra = 3;
+  const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE + extra }, (_, i) => `/t${i}/:id`);
+  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  const section = sectionOf(result.text, PACK_HEADINGS.notCapturable);
+  const lines = section.trimEnd().split("\n");
+  assert.equal(lines.length, 1 + MAX_LISTED_UNCAPTURABLE + 1, "the heading, one line per listed route, and the count of the rest");
+  assert.deepEqual(templates.slice(0, MAX_LISTED_UNCAPTURABLE).map((route) => lines.findIndex((line) => line.includes(route))), Array.from({ length: MAX_LISTED_UNCAPTURABLE }, (_, i) => i + 1));
+  assert.ok(lines[lines.length - 1]!.includes(String(extra)));
+});
+
+test("buildContextPack: a list of exactly its bound is the heading and one line per route, nothing more", async () => {
+  const templates = Array.from({ length: MAX_LISTED_UNCAPTURABLE }, (_, i) => `/t${i}/:id`);
+  const result = await buildContextPack({ routes: [...templates, "/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable).trimEnd().split("\n").length, 1 + MAX_LISTED_UNCAPTURABLE);
+});
+
+test("buildContextPack: with nothing left out the pack ends with its last section, with no blank section after it", async () => {
+  const result = await buildContextPack({ routes: ["/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(result.text, result.text?.trimEnd());
+});
+
+test("buildContextPack: the header names the live DOM, the contracts and the routes not capturable, each once, when the pack holds all three", async () => {
+  const result = await buildContextPack(
+    { contextMap: MINIMAL_CONTEXT_MAP, brief: MINIMAL_BRIEF, routes: ["/product/:id"], ...PACK_INPUT },
+    capturingDeps([]),
+  );
+  const header = packHeader(result.text);
+  for (const named of [new RegExp(PACK_HEADINGS.liveDom, "gi"), /API contracts/gi, new RegExp(PACK_HEADINGS.notCapturable, "gi")]) {
+    assert.equal(header.match(named)?.length, 1, `${named} is named once`);
+  }
+});
+
+test("buildContextPack: a route's text is cleaned of secrets before it is listed", async () => {
+  const result = await buildContextPack({ routes: ["/reset/:token?key=sk_live_abcdefghijklmnop1234", "/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(result.text?.includes("sk_live_abcdefghijklmnop1234"), false);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/reset/"));
+});
+
+/* ── The pages a redirect reached: a section of their own, outside the live DOM ── */
+
+/* What a capture reports when a route redirected: the grounded routes, then, after a blank line, the page reached under a heading of its own. */
+const advisoryOf = (...extra: string[]): string => [`### ${PACK_HEADINGS.redirected} (x)`, "reached /login, asked for /orders:", "  textbox: Email", "  button: Sign in", ...extra].join("\n");
+const CAPTURE_WITH_REDIRECT = ["route /cart:", "  button: Apply coupon", "route /orders: (redirected to /login)", "", advisoryOf()].join("\n");
+const capturing = (captured: string): ContextPackDeps => ({
+  captureDomForRoutes: async () => captured,
+  domDeps: stubDomDeps(undefined),
+  log: () => {},
+});
+
+test("buildContextPack: the page a redirect reached is its own section, outside the live DOM that is declared ground truth", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const live = sectionOf(result.text, PACK_HEADINGS.liveDom);
+  const advisory = sectionOf(result.text, PACK_HEADINGS.redirected);
+  assert.ok(live.includes("button: Apply coupon") && live.includes("route /orders:"), "the live DOM holds the captured route and says the other was redirected");
+  assert.equal(live.includes("textbox: Email"), false, "the reached page's tree is not under the live DOM");
+  assert.ok(advisory.includes("textbox: Email") && advisory.includes("/login"), "it is in the section of its own, with the page it reached");
+});
+
+test("buildContextPack: blank lines at the end of the capture leave no gap after the redirect section", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(`${CAPTURE_WITH_REDIRECT}\n\n\n`));
+  assert.equal(result.text, result.text?.trimEnd());
+});
+
+test("buildContextPack: the live DOM's line cap counts only the live DOM's own lines", async () => {
+  const many = Array.from({ length: 400 }, (_, i) => `  link: nav-${i}`);
+  const captured = ["route /cart:", ...many, "", advisoryOf()].join("\n");
+  const result = await buildContextPack({ routes: ["/cart"], ...PACK_INPUT }, capturing(captured));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("button: Sign in"), "the cap that trims the live DOM does not reach the other section");
+});
+
+test("buildContextPack: the redirect section is not counted in the live DOM's bytes", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const live = `### ${sectionOf(result.text, PACK_HEADINGS.liveDom)}`.trimEnd();
+  assert.equal(result.domBytes, Buffer.byteLength(live, "utf8"));
+});
+
+test("buildContextPack: when every route redirected the pack still holds the pages they reached", async () => {
+  const captured = ["route /a: (redirected to /login)", "route /b: (redirected to /login)", "", advisoryOf()].join("\n");
+  const result = await buildContextPack({ routes: ["/a", "/b"], ...PACK_INPUT }, capturing(captured));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("textbox: Email"));
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.liveDom).includes("textbox: Email"), false);
+});
+
+test("buildContextPack: with no redirect there is no such section, and the header names it only when it is there", async () => {
+  const plain = await buildContextPack({ routes: ["/cart"], ...PACK_INPUT }, capturing("route /cart:\n  button: Apply coupon"));
+  assert.equal(plain.text?.includes(PACK_HEADINGS.redirected), false);
+  assert.doesNotMatch(packHeader(plain.text), new RegExp(PACK_HEADINGS.redirected, "i"));
+  const redirected = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  assert.match(packHeader(redirected.text), new RegExp(PACK_HEADINGS.redirected, "i"));
+});
+
+test("buildContextPack: the text of a page a redirect reached is cleaned of secrets like the rest of the capture", async () => {
+  const captured = ["route /orders: (redirected to /login)", "", advisoryOf("  text: key sk_live_abcdefghijklmnop1234")].join("\n");
+  const result = await buildContextPack({ routes: ["/orders"], ...PACK_INPUT }, capturing(captured));
+  assert.equal(result.text?.includes("sk_live_abcdefghijklmnop1234"), false);
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.redirected).includes("textbox: Email"));
+});
+
+test("buildContextPack: the pack's claims are the live DOM's alone: the redirect section declares no fact of its own", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(CAPTURE_WITH_REDIRECT));
+  const claims = deriveClaimsFromPackText(result.text ?? "");
+  assert.deepEqual(claims.filter((c) => c.kind === "provides").map((c) => (c as { fact: FactId }).fact), ["dom-live"]);
+  assert.equal(claims.filter((c) => c.kind === "frames").length, 1, "only the live DOM is framed");
+});
+
+test("buildContextPack: a pack with no route that cannot be captured carries no such section, and its header names it only when it does", async () => {
+  const plain = await buildContextPack({ routes: ["/a"], ...PACK_INPUT }, capturingDeps([]));
+  assert.equal(plain.text?.includes(PACK_HEADINGS.notCapturable), false);
+  assert.doesNotMatch(packHeader(plain.text), new RegExp(PACK_HEADINGS.notCapturable, "i"));
+  const withTemplate = await buildContextPack({ routes: ["/a", "/product/:id"], ...PACK_INPUT }, capturingDeps([]));
+  assert.match(packHeader(withTemplate.text), new RegExp(PACK_HEADINGS.notCapturable, "i"));
 });
 
 test("buildContextPack: absent `routes` input is byte-identical to today (regression guard)", async () => {
@@ -174,7 +370,7 @@ test("buildContextPack: absent `routes` input is byte-identical to today (regres
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     stubContextPackDeps("button: Submit"),
   );
-  assert.ok(result.text?.includes("Live DOM"), "unaffected behavior when routes is absent");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "unaffected behavior when routes is absent");
 });
 
 test("buildContextPack degrades gracefully when DOM capture throws", async () => {
@@ -187,11 +383,11 @@ test("buildContextPack degrades gracefully when DOM capture throws", async () =>
     { brief: MINIMAL_BRIEF, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
     deps,
   );
-  assert.ok(result.text !== undefined, "text still set from blast-radius");
   assert.equal(result.domBytes, 0, "DOM bytes must be 0 when capture throws");
+  assert.equal(result.text, undefined, "the run continues with no pack: the brief's facts are not the pack's to carry");
 });
 
-test("FIX 7: buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
+test("buildContextPack DOM section respects the FIXED 30KB budget (large DOM is truncated)", async () => {
   const largeLines = Array.from({ length: 2000 }, (_, i) => `button: Button ${i}`);
   const largeDom = largeLines.join("\n");
   const result = await buildContextPack(
@@ -203,12 +399,12 @@ test("FIX 7: buildContextPack DOM section respects the FIXED 30KB budget (large 
     stubContextPackDeps(largeDom),
   );
   assert.ok(result.domBytes > 0, "DOM section is present");
-  const domSection = result.text?.split("### Live DOM")[1] ?? "";
+  const domSection = result.text?.split(`### ${PACK_HEADINGS.liveDom}`)[1] ?? "";
   assert.ok(!domSection.includes("Button 1999"), "last button must be omitted (truncated by the fixed 30KB cap)");
   assert.ok(result.text?.includes("omitted"), "truncation marker must appear");
 });
 
-test("brief wired to buildContextPack produces blast-radius + DOM (unverified routes)", async () => {
+test("brief wired to buildContextPack produces the DOM of the brief's candidate routes", async () => {
   const domContent = "button: Submit\nheading: Checkout";
   const result = await buildContextPack(
     {
@@ -218,11 +414,9 @@ test("brief wired to buildContextPack produces blast-radius + DOM (unverified ro
     },
     stubContextPackDeps(domContent),
   );
-  assert.ok(result.text !== undefined, "pack text must be set when brief is provided");
-  assert.ok(result.blastRadiusBytes > 0, "blast-radius section must be non-empty when brief is wired");
+  assert.ok(result.text !== undefined, "pack text must be set when the DOM was captured");
   assert.ok(result.domBytes > 0, "DOM section must be captured from brief's candidate routes when wired");
-  assert.ok(result.text!.includes("CheckoutService.pay"), "brief blast-radius symbol must appear in pack");
-  assert.ok(result.text!.includes("Live DOM"), "DOM section header must appear in pack");
+  assert.ok(result.text!.includes(PACK_HEADINGS.liveDom), "DOM section header must appear in pack");
 });
 
 test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)", async () => {
@@ -254,10 +448,10 @@ test("GAP 2 fix: DOM captured from unverified candidate routes (verified=false)"
   assert.ok(capturedRoutes.length > 0, "DOM capture must be called even for unverified routes");
   assert.ok(capturedRoutes.includes("/"), "root route must be a candidate for DOM capture");
   assert.ok(result.domBytes > 0, "DOM section must be populated from unverified candidate routes");
-  assert.ok(result.text?.includes("Live DOM"), "DOM section header must appear in pack");
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "DOM section header must appear in pack");
 });
 
-test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {
+test("route cap: a brief that names more routes than the capture takes is cut to the number the capture takes", async () => {
   const manyRoutesBrief: ExplorationBrief = {
     builtForSha: "abc1234",
     objective: "test many flows",
@@ -279,8 +473,7 @@ test("route cap: DOM capture capped at DOM_ROUTE_CAP (6) routes", async () => {
     countingDeps,
   );
 
-  assert.ok(capturedRouteCount <= 6, `DOM capture must be capped at 6 routes, but captured ${capturedRouteCount}`);
-  assert.ok(capturedRouteCount > 0, "DOM capture must have been called with at least 1 route");
+  assert.equal(capturedRouteCount, MAX_ROUTES);
 });
 
 test("changedElements on ContextPackInput reaches DOM section via captureDomForRoutes (4th arg)", async () => {
@@ -334,4 +527,108 @@ test("testIdAttribute on ContextPackInput is forwarded to captureDomForRoutes in
   );
 
   assert.equal(receivedTestIdAttribute, "data-cy", "testIdAttribute must be forwarded to captureDomForRoutes' input arg");
+});
+
+/* The pack is assembled elsewhere and reaches the prompt as a string, so its claims are derived from what it actually rendered. */
+const providedFacts = (claims: readonly PromptClaim[]): FactId[] =>
+  claims.flatMap((c) => (c.kind === "provides" ? [c.fact] : [])).sort();
+const framedFacts = (claims: readonly PromptClaim[]): FactId[] =>
+  claims.flatMap((c) => (c.kind === "frames" ? [c.fact] : [])).sort();
+
+test("deriveClaimsFromPackText: a pack with only a live DOM provides and frames only the live DOM", async () => {
+  const { text } = await buildContextPack(
+    { brief: { ...MINIMAL_BRIEF, blastRadius: [], feBe: undefined, risks: undefined }, baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e" },
+    stubContextPackDeps("button: Submit"),
+  );
+  const claims = deriveClaimsFromPackText(text ?? "");
+  assert.deepEqual(providedFacts(claims), ["dom-live"]);
+  assert.ok(framedFacts(claims).includes("dom-live"), "the live DOM is labeled ground truth by its own heading");
+  assert.deepEqual(framedFacts(claims).filter((f) => f !== "dom-live"), [], "no other fact is framed");
+});
+
+test("deriveClaimsFromPackText: the pack provides its live DOM and its API contracts, and only those", async () => {
+  const { text } = await buildContextPack(
+    {
+      brief: MINIMAL_BRIEF,
+      contextMap: MINIMAL_CONTEXT_MAP,
+      baseUrl: "http://localhost:3000",
+      e2eDir: "/fake/e2e",
+    },
+    stubContextPackDeps("button: Submit"),
+  );
+  const claims = deriveClaimsFromPackText(text ?? "");
+  assert.deepEqual(providedFacts(claims), ["api-operations", "dom-live"]);
+});
+
+test("deriveClaimsFromPackText: claims follow the rendered content, not a fixed pack shape", async () => {
+  const domOnly = await buildContextPack({ baseUrl: "http://localhost:3000", e2eDir: "/fake/e2e", routes: ["/checkout"] }, stubContextPackDeps("button: Submit"));
+  const contractsOnly = await buildContextPack({ brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP }, stubContextPackDeps(undefined));
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(domOnly.text ?? "")), ["dom-live"]);
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(contractsOnly.text ?? "")), ["api-operations"]);
+});
+
+test("deriveClaimsFromPackText: a pack section that should not exist is still recognized by its heading", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.blastRadius} (x)\n- a\n### ${PACK_HEADINGS.feBe}\n- b\n### ${PACK_HEADINGS.risks}\n- c`;
+  assert.deepEqual(providedFacts(deriveClaimsFromPackText(text)), ["blast-radius", "fe-be-links", "risks"]);
+});
+
+test("deriveClaimsFromPackText: text without any pack section yields no claims", () => {
+  assert.deepEqual(deriveClaimsFromPackText(""), []);
+  assert.deepEqual(deriveClaimsFromPackText("some unrelated text"), []);
+});
+
+test("withoutPackSection removes exactly the named section and keeps the header and the other sections", () => {
+  const text = [
+    `## ${PACK_HEADINGS.pack} (pushed)`,
+    "",
+    "header line",
+    "",
+    `### ${PACK_HEADINGS.liveDom} (a11y tree)`,
+    "  heading: Cart",
+    "  button: Apply",
+    "",
+    `### ${PACK_HEADINGS.contracts} (from context.json)`,
+    "- `applyCoupon`: POST /cart/coupon",
+  ].join("\n");
+  const out = withoutPackSection(text, PACK_HEADINGS.liveDom) ?? "";
+  assert.ok(out.includes("header line"));
+  assert.ok(out.includes(PACK_HEADINGS.contracts) && out.includes("applyCoupon"));
+  assert.equal(out.includes(PACK_HEADINGS.liveDom), false);
+  assert.equal(out.includes("button: Apply"), false);
+});
+
+test("withoutPackSection leaves a pack that does not carry the section untouched", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.contracts} (x)\n- a`;
+  assert.equal(withoutPackSection(text, PACK_HEADINGS.liveDom), text);
+});
+
+test("withoutPackSection reports no pack at all when the removed section was the only one", () => {
+  const text = `## ${PACK_HEADINGS.pack}\n\nheader\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
+  assert.equal(withoutPackSection(text, PACK_HEADINGS.liveDom), undefined);
+});
+
+/* The text above the first section: what the pack says about itself. */
+const packHeader = (text: string | undefined): string => (text ?? "").split(/^### /m)[0] ?? "";
+
+test("the pack's header names only the sections it holds", async () => {
+  const contractsOnly = await buildContextPack({ brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP }, stubContextPackDeps(undefined));
+  assert.ok(contractsOnly.text?.includes(`### ${PACK_HEADINGS.contracts}`), "the fixture holds contracts and no DOM");
+  assert.equal(contractsOnly.text?.includes(`### ${PACK_HEADINGS.liveDom}`), false);
+  assert.doesNotMatch(packHeader(contractsOnly.text), new RegExp(PACK_HEADINGS.liveDom, "i"), "a pack with no DOM does not describe a live DOM");
+  assert.match(packHeader(contractsOnly.text), /contracts/i);
+
+  const domOnly = await buildContextPack(
+    { routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/mirrors/e2e" },
+    stubContextPackDeps("button: Pay"),
+  );
+  assert.ok(domOnly.text?.includes(`### ${PACK_HEADINGS.liveDom}`), "the fixture holds a DOM and no contracts");
+  assert.doesNotMatch(packHeader(domOnly.text), /contracts/i, "a pack with no contracts does not describe any");
+  assert.match(packHeader(domOnly.text), new RegExp(PACK_HEADINGS.liveDom, "i"));
+
+  const both = await buildContextPack(
+    { brief: MINIMAL_BRIEF, contextMap: MINIMAL_CONTEXT_MAP, routes: ["/checkout"], baseUrl: "http://localhost:3000", e2eDir: "/mirrors/e2e" },
+    stubContextPackDeps("button: Pay"),
+  );
+  assert.match(packHeader(both.text), new RegExp(PACK_HEADINGS.liveDom, "i"));
+  assert.match(packHeader(both.text), /contracts/i);
 });

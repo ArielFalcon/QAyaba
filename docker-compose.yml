@@ -45,8 +45,19 @@ services:
       agents:
         condition: service_healthy
     ports:
-      - "${PORT:-8080}:8080" # receives the post-deploy webhooks
+      # Host and container share PORT. The process listens on PORT (env_file + the
+      # environment entry below); a fixed :8080 on the right would publish a port
+      # nothing inside the container is bound to. BIND_ADDR defaults the published port to
+      # loopback-only (127.0.0.1) — set it to 0.0.0.0 only behind your own reverse proxy/auth,
+      # never to expose the control plane directly (see README.md).
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-458}:${PORT:-458}"
     environment:
+      # Wins over env_file so the listen port cannot drift from the published port.
+      PORT: ${PORT:-458}
+      # A bare `npm run start` listens on loopback only. Inside the container the process must
+      # listen on every interface for the published port (and the other services) to reach it;
+      # BIND_ADDR above decides whether that port is exposed beyond the host.
+      LISTEN_HOST: 0.0.0.0
       OPENCODE_SERVE_URL: http://agents:4096
       AGENT_SUPERVISOR_URL: http://agents:4097
       MIRROR_DIR: /app/.mirrors
@@ -69,7 +80,7 @@ services:
       # silently starting every boot blind. Orchestrator-only: agents/ has no codebase-memory CLI.
       - codebase-memory:/app/.codebase-memory
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-458}/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

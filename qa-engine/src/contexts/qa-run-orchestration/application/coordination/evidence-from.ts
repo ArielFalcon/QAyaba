@@ -1,4 +1,5 @@
-/* Map live port outputs to EvidenceRef. Never copy OpencodeRunInput; point at the canonical artifact (source + optional dataRef) with a short summary. */
+/* Map live port outputs to EvidenceRef. Never copy OpencodeRunInput; point at the canonical artifact (source + optional dataRef) with a short summary. Summaries are scrubbed here so lead context, briefs, and telemetry inherit clean text. */
+import { scrub } from "./scrub.ts";
 import type { EvidenceRef } from "./evidence-ref.ts";
 
 export function evidenceFromChangeAnalysis(input: {
@@ -11,7 +12,7 @@ export function evidenceFromChangeAnalysis(input: {
     id: "change-analysis",
     kind: "change-analysis",
     source: "ChangeAnalysisPort",
-    summary: `${input.action}; files=${input.fileCount}${input.contradiction ? "; contradiction" : ""}: ${input.reason}`,
+    summary: scrub(`${input.action}; files=${input.fileCount}${input.contradiction ? "; contradiction" : ""}: ${input.reason}`),
     confidence: "deterministic",
     dataRef: "ChangeAnalysisPort.classify",
   };
@@ -26,7 +27,7 @@ export function evidenceFromGeneration(input: {
     id: "generation",
     kind: "generation",
     source: "GenerationPort",
-    summary: `specs=${input.specs}; approved=${input.approved}; parsed=${input.parsed !== false}`,
+    summary: scrub(`specs=${input.specs}; approved=${input.approved}; parsed=${input.parsed !== false}`),
     confidence: "observed",
     dataRef: "GenerationPort.generate",
   };
@@ -37,7 +38,7 @@ export function evidenceFromValidation(input: { ok: boolean; errors: number; inf
     id: "validation",
     kind: "validation",
     source: "ValidationPort",
-    summary: input.ok ? "ok" : `fail; errors=${input.errors}${input.infra ? "; infra" : ""}`,
+    summary: scrub(input.ok ? "ok" : `fail; errors=${input.errors}${input.infra ? "; infra" : ""}`),
     confidence: "deterministic",
     dataRef: "ValidationPort.validate",
   };
@@ -48,7 +49,7 @@ export function evidenceFromExecution(input: { verdict: string; failing: number 
     id: "execution",
     kind: "execution",
     source: "ExecutionPort",
-    summary: `verdict=${input.verdict}; failing=${input.failing}`,
+    summary: scrub(`verdict=${input.verdict}; failing=${input.failing}`),
     confidence: "deterministic",
     dataRef: "ExecutionPort.execute",
   };
@@ -59,7 +60,7 @@ export function evidenceFromFixLoop(input: { retries: number; adjudicator?: stri
     id: "fix-loop",
     kind: "execution",
     source: "FixLoop",
-    summary: `retries=${input.retries}${input.adjudicator ? `; adjudicator=${input.adjudicator}` : ""}`,
+    summary: scrub(`retries=${input.retries}${input.adjudicator ? `; adjudicator=${input.adjudicator}` : ""}`),
     confidence: "deterministic",
     dataRef: "FixLoopResult",
   };
@@ -70,7 +71,7 @@ export function evidenceFromCoverage(input: { status: string; ratio: number | nu
     id: "coverage",
     kind: "coverage",
     source: "ObjectiveSignalPort",
-    summary: `status=${input.status}; ratio=${input.ratio ?? "null"}`,
+    summary: scrub(`status=${input.status}; ratio=${input.ratio ?? "null"}`),
     confidence: "deterministic",
     dataRef: "ObjectiveSignalPort.measure",
   };
@@ -81,7 +82,7 @@ export function evidenceFromReview(input: { approved: boolean; blocking: number;
     id: "review",
     kind: "review",
     source: "ReviewPort",
-    summary: `approved=${input.approved}; blocking=${input.blocking}; parsed=${input.parsed !== false}`,
+    summary: scrub(`approved=${input.approved}; blocking=${input.blocking}; parsed=${input.parsed !== false}`),
     confidence: "reviewed",
     dataRef: "ReviewPort.review",
   };
@@ -92,18 +93,18 @@ export function evidenceFromSelectors(input: { contradictions: number }): Eviden
     id: "selector",
     kind: "selector",
     source: "selector-check",
-    summary: `contradictions=${input.contradictions}`,
+    summary: scrub(`contradictions=${input.contradictions}`),
     confidence: "deterministic",
     dataRef: "checkSpecSelectors",
   };
 }
 
-export function evidenceFromBudget(input: { cycleCeiling: number; cycleCount: number; wallClockMs: number }): EvidenceRef {
+export function evidenceFromBudget(input: { cycleCeiling: number; wallClockMs: number }): EvidenceRef {
   return {
     id: "budget",
     kind: "generation",
     source: "CoordinationBudget",
-    summary: `cycle=${input.cycleCount}/${input.cycleCeiling}; wallClockMs=${input.wallClockMs}`,
+    summary: scrub(`cycleCeiling=${input.cycleCeiling}; wallClockMs=${input.wallClockMs}`),
     confidence: "deterministic",
     dataRef: "CycleBudget+WallClockBudget",
   };
@@ -114,7 +115,7 @@ export function evidenceFromFailureClass(errorClass: string): EvidenceRef {
     id: "failure-class",
     kind: "execution",
     source: "error-class",
-    summary: errorClass,
+    summary: scrub(errorClass),
     confidence: "deterministic",
     dataRef: "resolveErrorClass",
   };

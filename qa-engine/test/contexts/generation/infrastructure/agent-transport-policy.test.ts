@@ -19,7 +19,7 @@ import {
   type AgentTurnEvent,
 } from "@contexts/generation/infrastructure/agent-transport-policy.ts";
 import { createStallWatchdog } from "@contexts/generation/infrastructure/resilience/stall-watchdog.ts";
-import { recordCircuitFailure, resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
+import { CIRCUIT_THRESHOLD, recordCircuitFailure, resetCircuit } from "@contexts/generation/infrastructure/resilience/circuit-breaker.ts";
 
 /* Build a minimal fake AgentDeps whose prompt() resolves after a delay we control. */
 function makeDelayDeps(opts: {
@@ -171,7 +171,7 @@ test("withStallWatchdog: dispose() stops the watchdog (no leak after session end
   assert.equal(stopCalled, true, "dispose() must stop the watchdog to prevent leaks");
 });
 
-test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog entirely (CP-01)", async () => {
+test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog entirely", async () => {
   let watchdogCreated = false;
   const base: AgentDeps = {
     open: async () => ({
@@ -193,7 +193,7 @@ test("withStallWatchdog: a self-timed session (Codex exec) skips the watchdog en
   await session.dispose();
 });
 
-test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped (CP-01 complement)", async () => {
+test("withStallWatchdog: a normal (non-self-timed) session IS still wrapped", async () => {
   let watchdogCreated = false;
   const base: AgentDeps = {
     open: async () => ({ id: "opencode-session", prompt: async () => "ok", dispose: async () => {} }),
@@ -266,6 +266,39 @@ test("withSessionRegistration does NOT register when descriptor.runId is absent 
   await wrapped.open("qa-generator", "/mirrors/org/app", { descriptor: { role: "qa-generator" } });
 
   assert.equal(registerCalls, 0, "no descriptor.runId means no run context — must not register a session under a fabricated identity");
+});
+
+test("withSessionRegistration does NOT register or unregister a session whose descriptor sets liveObservation false, even with a runId", async () => {
+  const { deps: base } = fakeBaseDeps("sess-explorer");
+  const registered: string[] = [];
+  const unregistered: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (sessionId) => registered.push(sessionId),
+    unregister: (sessionId) => unregistered.push(sessionId),
+  });
+
+  const session = await wrapped.open("qa-explorer", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-explorer", liveObservation: false },
+  });
+  await session.dispose();
+
+  assert.deepEqual(registered, [], "a liveObservation:false session must stay out of SSE/watchdog registration");
+  assert.deepEqual(unregistered, []);
+});
+
+test("withSessionRegistration still registers when liveObservation is explicitly true", async () => {
+  const { deps: base } = fakeBaseDeps("sess-live");
+  const registered: string[] = [];
+  const wrapped = withSessionRegistration(base, {
+    register: (sessionId) => registered.push(sessionId),
+    unregister: () => {},
+  });
+
+  await wrapped.open("qa-generator", "/mirrors/org/app", {
+    descriptor: { runId: "run-42", role: "qa-generator", liveObservation: true },
+  });
+
+  assert.deepEqual(registered, ["sess-live"]);
 });
 
 test("withSessionRegistration unregisters the session on dispose", async () => {
@@ -458,43 +491,230 @@ test("createAgentDeps: an infra-class provider fault skips the fallback retry (s
 
 test("createAgentDeps: circuit-breaker gating — an OPEN circuit rejects prompt() before the raw transport is ever called, and resetCircuit() restores normal operation", async () => {
   resetCircuit();
-  let promptCalls = 0;
-  const raw = makeRawTransport({
-    createSession: async () => ({ id: "sess-5" }),
-    promptSession: async () => {
-      promptCalls++;
-      return { parts: [{ type: "text", text: "ok" }] };
-    },
-  });
-  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
-
-  /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures). */
-  for (let i = 0; i < 5; i++) recordCircuitFailure();
-
-  const openSession = await deps.open("qa-generator", "/tmp");
-  /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
-     every other failure path in createAgentDeps (which fails through an async raw.promptSession call
-     and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
-     synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
-     only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
-     session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
-     a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
-   */
-  let openCircuitError: unknown;
   try {
-    await openSession.prompt("do the thing");
-  } catch (err) {
-    openCircuitError = err;
-  }
-  assert.ok(openCircuitError instanceof Error, "the OPEN circuit must reject the prompt");
-  assert.match((openCircuitError as Error).message, /circuit breaker is OPEN/);
-  assert.equal(promptCalls, 0, "checkCircuit() must reject BEFORE the raw transport's promptSession is ever invoked");
+    let promptCalls = 0;
+    const raw = makeRawTransport({
+      createSession: async () => ({ id: "sess-5" }),
+      promptSession: async () => {
+        promptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
 
+    /* Force the circuit OPEN via the module's own threshold (5 consecutive recorded failures),
+       keyed to the SAME role createAgentDeps derives internally (descriptor.role ?? agent — here
+       just the bare "qa-generator" agent id, since no descriptor is passed below). */
+    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-generator");
+
+    const openSession = await deps.open("qa-generator", "/tmp");
+    /* NOTE: checkCircuit() rejects SYNCHRONOUSLY (it throws before any Promise is constructed), unlike
+       every other failure path in createAgentDeps (which fails through an async raw.promptSession call
+       and so settles as a genuine Promise rejection). node:assert's assert.rejects does NOT convert a
+       synchronous throw from its callback into a caught rejection (verified: it re-throws uncaught) —
+       only `await`/try-catch handles both cases uniformly. Every real production caller already awaits
+       session.prompt() inside an async function or a `new Promise` executor, both of which DO normalize
+       a synchronous throw into a rejection, so this is a test-authoring gotcha, not a production bug.
+     */
+    let openCircuitError: unknown;
+    try {
+      await openSession.prompt("do the thing");
+    } catch (err) {
+      openCircuitError = err;
+    }
+    assert.ok(openCircuitError instanceof Error, "the OPEN circuit must reject the prompt");
+    assert.match((openCircuitError as Error).message, /circuit breaker is OPEN/);
+    assert.equal(promptCalls, 0, "checkCircuit() must reject BEFORE the raw transport's promptSession is ever invoked");
+
+    resetCircuit();
+    const closedSession = await deps.open("qa-generator", "/tmp");
+    const out = await closedSession.prompt("do the thing");
+    assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
+    assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
+  } finally {
+    resetCircuit();
+  }
+});
+
+/* createAgentDeps derives its circuit-breaker key from descriptor.role ?? agent — a run-away
+   qa-reviewer (or any other role) must never trip the breaker for a healthy, unrelated qa-generator
+   session, since both funnel through the SAME createAgentDeps/circuit-breaker module.
+ */
+test("createAgentDeps: an OPEN circuit for one agent role does not block a different role", async () => {
   resetCircuit();
-  const closedSession = await deps.open("qa-generator", "/tmp");
-  const out = await closedSession.prompt("do the thing");
-  assert.equal(out, "ok", "after resetCircuit() a normal prompt succeeds again");
-  assert.equal(promptCalls, 1, "the raw transport is only reached once the circuit is closed");
+  try {
+    let generatorPromptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async (args) => {
+        if (args.agent === "qa-generator") generatorPromptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    /* Trip ONLY qa-reviewer's circuit. */
+    for (let i = 0; i < 5; i++) recordCircuitFailure("qa-reviewer");
+
+    const reviewerSession = await deps.open("qa-reviewer", "/tmp");
+    let reviewerError: unknown;
+    try {
+      await reviewerSession.prompt("review this");
+    } catch (err) {
+      reviewerError = err;
+    }
+    assert.match((reviewerError as Error).message, /circuit breaker is OPEN/, "qa-reviewer's own circuit is open");
+
+    const generatorSession = await deps.open("qa-generator", "/tmp");
+    const out = await generatorSession.prompt("do the thing");
+    assert.equal(out, "ok", "a DIFFERENT role's circuit must stay closed and reach the raw transport");
+    assert.equal(generatorPromptCalls, 1);
+  } finally {
+    resetCircuit();
+  }
+});
+
+/* Two breaker levels. The provider level is fed by every raw transport failure (the agent server
+   itself is unreachable or erroring) whatever role hit it, and gates session creation and prompts
+   for every role. The role level is fed by that role's prompt outcomes, including model/agent
+   faults embedded in a successful response, and gates only that role's prompts. */
+async function rejectionOf(fn: () => Promise<unknown>): Promise<Error | undefined> {
+  try {
+    await fn();
+    return undefined;
+  } catch (err) {
+    return err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+test("createAgentDeps: session-creation failures spread across roles open the provider breaker for every role", async () => {
+  resetCircuit();
+  try {
+    let createCalls = 0;
+    const raw = makeRawTransport({
+      createSession: async () => {
+        createCalls++;
+        throw new Error("connect ECONNREFUSED agents:4096");
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const err = await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+      assert.match(err?.message ?? "", /ECONNREFUSED/);
+    }
+    const callsBeforeFastFail = createCalls;
+    const fastFail = await rejectionOf(() => deps.open("qa-generator", "/tmp"));
+    assert.match(fastFail?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(createCalls, callsBeforeFastFail, "an open provider breaker must not reach the transport");
+  } finally {
+    resetCircuit();
+  }
+});
+
+test("createAgentDeps: prompt transport failures spread across roles fail every role's next prompt fast", async () => {
+  resetCircuit();
+  try {
+    let promptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async () => {
+        promptCalls++;
+        throw new Error("socket hang up");
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open(`role-${i}`, "/tmp");
+      await rejectionOf(() => session.prompt("do the thing"));
+    }
+    const callsBeforeFastFail = promptCalls;
+    const fresh = await rejectionOf(async () => {
+      const session = await deps.open("qa-reviewer", "/tmp");
+      return session.prompt("review this");
+    });
+    assert.match(fresh?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(promptCalls, callsBeforeFastFail, "no role may reach the transport while the provider breaker is open");
+  } finally {
+    resetCircuit();
+  }
+});
+
+test("createAgentDeps: a session opened before the provider breaker trips fails its next prompt fast", async () => {
+  resetCircuit();
+  try {
+    let reviewerPromptCalls = 0;
+    const raw = makeRawTransport({
+      promptSession: async (args) => {
+        if (args.agent !== "qa-reviewer") throw new Error("socket hang up");
+        reviewerPromptCalls++;
+        return { parts: [{ type: "text", text: "ok" }] };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    const reviewer = await deps.open("qa-reviewer", "/tmp");
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open(`role-${i}`, "/tmp");
+      await rejectionOf(() => session.prompt("do the thing"));
+    }
+
+    const err = await rejectionOf(() => reviewer.prompt("review this"));
+    assert.match(err?.message ?? "", /circuit breaker is OPEN/);
+    assert.equal(reviewerPromptCalls, 0, "an already-open session must not reach the transport while the provider breaker is open");
+  } finally {
+    resetCircuit();
+  }
+});
+
+test("createAgentDeps: an answered prompt resets the provider failure streak", async () => {
+  resetCircuit();
+  try {
+    let serverDown = true;
+    const raw = makeRawTransport({
+      createSession: async () => {
+        if (serverDown) throw new Error("connect ECONNREFUSED agents:4096");
+        return { id: "sess-ok" };
+      },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+    serverDown = false;
+    await (await deps.open("qa-generator", "/tmp")).prompt("do the thing");
+    serverDown = true;
+    for (let i = 0; i < CIRCUIT_THRESHOLD - 1; i++) await rejectionOf(() => deps.open(`role-${i}`, "/tmp"));
+    serverDown = false;
+
+    const session = await deps.open("qa-generator", "/tmp");
+    assert.equal(session.id, "sess-ok", "the streak restarted after the answered prompt, so the breaker is still closed");
+  } finally {
+    resetCircuit();
+  }
+});
+
+test("createAgentDeps: model faults embedded in a response trip only that role, never the provider breaker", async () => {
+  resetCircuit();
+  try {
+    const raw = makeRawTransport({
+      promptSession: async (args) =>
+        args.agent === "qa-reviewer"
+          ? { agentError: { name: "APIError", data: { message: "Too Many Requests", statusCode: 429 } }, parts: [] }
+          : { parts: [{ type: "text", text: "ok" }] },
+    });
+    const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined });
+
+    for (let i = 0; i < CIRCUIT_THRESHOLD; i++) {
+      const session = await deps.open("qa-reviewer", "/tmp");
+      await rejectionOf(() => session.prompt("review this"));
+    }
+    const reviewer = await deps.open("qa-reviewer", "/tmp");
+    assert.match((await rejectionOf(() => reviewer.prompt("review this")))?.message ?? "", /circuit breaker is OPEN/);
+
+    const generator = await deps.open("qa-generator", "/tmp");
+    assert.equal(await generator.prompt("do the thing"), "ok");
+  } finally {
+    resetCircuit();
+  }
 });
 
 test("createAgentDeps: telemetry assembly — onTurn receives a fully-populated AgentTurnEvent for a run with a runId", async () => {
@@ -571,6 +791,208 @@ test("createAgentDeps: the default turn sink calls collab.persistTurn when a run
   assert.equal(persisted[0]!.outputText, "persisted output");
 });
 
+test("an explorer-style session (runId, liveObservation false) persists its turn under the run without being registered for live observation", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-explorer" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "brief" }] }),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const registered: string[] = [];
+  const deps = withSessionRegistration(
+    createAgentDeps(raw, {
+      defaultPromptTimeoutMs: 5000,
+      getFallbackModel: () => undefined,
+      persistTurn: (t) => persisted.push(t),
+    }),
+    { register: (sessionId) => registered.push(sessionId), unregister: () => {} },
+  );
+  const session = await deps.open("qa-explorer", "/tmp", {
+    descriptor: { runId: "run-7", role: "qa-explorer", liveObservation: false },
+  });
+  await session.prompt("map the change");
+  await session.dispose();
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.runId, "run-7");
+  assert.equal(persisted[0]!.role, "qa-explorer");
+  assert.deepEqual(registered, []);
+});
+
+const SAMPLE_CALL_METRICS = {
+  totalCalls: 7,
+  stepsUsed: 3,
+  observationComplete: true,
+  callsBeforeFirstWrite: 5,
+  writeCount: 1,
+  redundantReadCount: 2,
+  duplicateCallCount: 1,
+  promptProvidedReadCount: 0,
+  pathProvidedReadCount: 0,
+  buckets: { code_read: 4, browser: 2, write: 1, validate_run: 0, memory: 0, subagent: 0, other: 0 },
+};
+
+async function promptWithCollaborators(
+  output: string | Array<{ type: string; text?: string }>,
+  collaborators: Partial<Parameters<typeof createAgentDeps>[1]>,
+): Promise<AgentTurnEvent> {
+  resetCircuit();
+  const parts = typeof output === "string" ? [{ type: "text", text: output }] : output;
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-efficiency" }),
+    promptSession: async () => ({ parts }),
+  });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    ...collaborators,
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-eff" } });
+  const returned = await session.prompt("the turn prompt");
+  const expectedOutput = parts.map((p) => p.text ?? "").join("");
+  assert.equal(returned, expectedOutput, "efficiency measurement must never alter the agent's output");
+  assert.equal(persisted.length, 1);
+  return persisted[0]!;
+}
+
+test("createAgentDeps: the turn event carries the tracker's call metrics for that session and prompt", async () => {
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const turn = await promptWithCollaborators("done", {
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return SAMPLE_CALL_METRICS;
+    },
+  });
+  assert.deepEqual(flushes, [{ sessionId: "sess-efficiency", promptText: "the turn prompt" }]);
+  assert.deepEqual(turn.callMetrics, SAMPLE_CALL_METRICS);
+});
+
+const NOTICE_TEXT = "CRITICAL - MAXIMUM STEPS REACHED. The maximum number of steps allowed for this task has been reached.";
+
+test("createAgentDeps: the step budget resolves maxSteps from the acting agent and detects exhaustion in the final step's text", async () => {
+  const asked: string[] = [];
+  const exhausted = await promptWithCollaborators(NOTICE_TEXT, {
+    maxStepsFor: (agent) => {
+      asked.push(agent);
+      return 50;
+    },
+  });
+  assert.deepEqual(asked, ["qa-generator"]);
+  assert.equal(exhausted.stepBudget?.maxSteps, 50);
+  assert.equal(exhausted.stepBudget?.exhausted, true);
+});
+
+test("createAgentDeps: a complete step count below the limit and no notice is known not exhausted", async () => {
+  const finished = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 12 }),
+  });
+  assert.equal(finished.stepBudget?.maxSteps, 50);
+  assert.equal(finished.stepBudget?.exhausted, false);
+});
+
+test("createAgentDeps: a step count that reached the limit is exhausted even without the notice", async () => {
+  const turn = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }),
+  });
+  assert.equal(turn.stepBudget?.exhausted, true);
+});
+
+test("createAgentDeps: an unknown step count and no notice leaves exhaustion unknown, never false", async () => {
+  const noTracker = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50 });
+  assert.equal(noTracker.stepBudget?.exhausted, null);
+
+  const unobserved = await promptWithCollaborators("all specs written", { maxStepsFor: () => 50, takeTurnCalls: () => null });
+  assert.equal(unobserved.stepBudget?.exhausted, null);
+});
+
+test("createAgentDeps: the notice quoted in an earlier step's reasoning does not exhaust a turn that finished", async () => {
+  const turn = await promptWithCollaborators(
+    [
+      { type: "step-start" },
+      { type: "reasoning", text: "The prior turn hit max steps during exploration." },
+      { type: "text", text: '{"specs":["e2e/flows/a.spec.ts"]}' },
+    ],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 4 }) },
+  );
+  assert.equal(turn.stepBudget?.exhausted, false);
+  assert.match(turn.outputText, /hit max steps/, "the persisted output still carries the reasoning");
+});
+
+test("createAgentDeps: an agent without a configured step limit still reports exhaustion by the notice, with a null maxSteps", async () => {
+  const turn = await promptWithCollaborators("The maximum number of steps allowed for this task has been reached.", {
+    maxStepsFor: () => undefined,
+  });
+  assert.equal(turn.stepBudget?.maxSteps, null);
+  assert.equal(turn.stepBudget?.exhausted, true);
+
+  const quiet = await promptWithCollaborators("all specs written", { maxStepsFor: () => undefined });
+  assert.equal(quiet.stepBudget?.exhausted, null);
+});
+
+test("createAgentDeps: the tracker is flushed once per resolved prompt even when no turn sink is listening", async () => {
+  resetCircuit();
+  const flushes: Array<{ sessionId: string; promptText: string }> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-silent" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }),
+  });
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: (sessionId, promptText) => {
+      flushes.push({ sessionId, promptText });
+      return SAMPLE_CALL_METRICS;
+    },
+    maxStepsFor: () => 50,
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt");
+  assert.deepEqual(flushes, [{ sessionId: "sess-silent", promptText: "the turn prompt" }]);
+});
+
+test("createAgentDeps: the tracker is told which files the turn's prompt already renders, and nothing when the caller listed none", async () => {
+  resetCircuit();
+  const seen: Array<readonly string[] | undefined> = [];
+  const raw = makeRawTransport({
+    createSession: async () => ({ id: "sess-paths" }),
+    promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }),
+  });
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    takeTurnCalls: (_sessionId, _promptText, providedPaths) => {
+      seen.push(providedPaths);
+      return SAMPLE_CALL_METRICS;
+    },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt", { providedPaths: ["e2e/.qa/context.json", "e2e/fixtures.ts"] });
+  await session.prompt("a prompt with no listed files");
+  assert.deepEqual(seen, [["e2e/.qa/context.json", "e2e/fixtures.ts"], undefined]);
+});
+
+test("createAgentDeps: without efficiency collaborators the turn's step budget and call metrics are null, never fabricated", async () => {
+  const turn = await promptWithCollaborators("plain output", {});
+  assert.equal(turn.stepBudget, null);
+  assert.equal(turn.callMetrics, null);
+});
+
+test("createAgentDeps: a failing efficiency collaborator yields nulls and leaves the prompt result untouched", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const turn = await promptWithCollaborators("still fine", {
+    takeTurnCalls: () => { throw new Error("tracker exploded"); },
+    maxStepsFor: () => { throw new Error("config unreadable"); },
+  });
+  assert.equal(turn.callMetrics, null);
+  assert.equal(turn.stepBudget, null);
+  assert.equal(errors.length, 2, "each fault is logged loudly, never swallowed silently");
+});
+
 test("createAgentDeps: no turn sink fires when the caller supplies neither a runId nor an onTurn override (no fabricated telemetry)", async () => {
   resetCircuit();
   const raw = makeRawTransport({
@@ -587,4 +1009,216 @@ test("createAgentDeps: no turn sink fires when the caller supplies neither a run
   const out = await session.prompt("do the thing");
   assert.equal(out, "no telemetry");
   assert.equal(persistCalls, 0, "no runId and no onTurn override means no telemetry sink fires at all");
+});
+
+/* An agent turn as the raw transport returns it: what each attempt sent, in order, beside the collaborators' calls. */
+interface AttemptLog {
+  events: string[];
+}
+
+function attemptLoggingTransport(log: AttemptLog, promptResults: Array<() => Promise<{ parts: Array<{ type: string; text?: string }> }>>): RawAgentTransport {
+  let call = 0;
+  return makeRawTransport({
+    createSession: async () => ({ id: "sess-attempts" }),
+    promptSession: async (args) => {
+      log.events.push(args.model ? `prompt:${args.model.modelID}` : "prompt");
+      const next = promptResults[Math.min(call++, promptResults.length - 1)]!;
+      return next();
+    },
+  });
+}
+
+const okParts = (text = "done") => async () => ({ parts: [{ type: "text", text }] });
+
+test("createAgentDeps: each attempt is prepared before its prompt is sent, and a fallback retry is prepared as the next attempt", async (t) => {
+  t.mock.method(console, "warn", () => {});
+  resetCircuit();
+  const log: AttemptLog = { events: [] };
+  const raw = attemptLoggingTransport(log, [async () => { throw new Error("transient"); }, okParts()]);
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => "opencode-go/fallback-model",
+    prepareAttempt: async (sessionId, attempt) => { log.events.push(`prepare:${sessionId}:${attempt}`); },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  await session.prompt("the turn prompt");
+  assert.deepEqual(log.events, ["prepare:sess-attempts:0", "prompt", "prepare:sess-attempts:1", "prompt:fallback-model"]);
+});
+
+test("createAgentDeps: the prompt waits for the attempt to be prepared", async () => {
+  resetCircuit();
+  const log: AttemptLog = { events: [] };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const raw = attemptLoggingTransport(log, [okParts()]);
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    prepareAttempt: async () => { log.events.push("prepare-started"); await gate; log.events.push("prepare-done"); },
+  });
+  const session = await deps.open("qa-generator", "/tmp");
+  const prompting = session.prompt("the turn prompt");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(log.events, ["prepare-started"], "nothing is sent while the attempt is still being prepared");
+  release();
+  await prompting;
+  assert.deepEqual(log.events, ["prepare-started", "prepare-done", "prompt"]);
+});
+
+test("createAgentDeps: a failing preparation is logged, the prompt still runs, and the turn's steps are unobserved", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const turn = await promptWithCollaborators("all specs written", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50 }),
+    prepareAttempt: async () => { throw new Error("tracker unreachable"); },
+  });
+  assert.equal(turn.callMetrics?.stepsUsed, null, "the count cannot be trusted when the attempt was not prepared");
+  assert.equal(turn.callMetrics?.observationComplete, false);
+  assert.equal(turn.stepBudget?.exhausted, null, "and so neither can a step-count exhaustion");
+  assert.equal(turn.callMetrics?.totalCalls, SAMPLE_CALL_METRICS.totalCalls, "the calls the tracker did see are still reported");
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, /tracker unreachable/);
+});
+
+test("createAgentDeps: a failing preparation still lets the notice in the final step mark the turn exhausted", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const turn = await promptWithCollaborators("The maximum number of steps allowed for this task has been reached.", {
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }),
+    prepareAttempt: async () => { throw new Error("tracker unreachable"); },
+  });
+  assert.equal(turn.stepBudget?.exhausted, true);
+});
+
+type PromptOpts = NonNullable<Parameters<Awaited<ReturnType<AgentDeps["open"]>>["prompt"]>[1]>;
+type TurnStats = Parameters<NonNullable<PromptOpts["onTurnStats"]>>[0];
+
+async function promptWithStats(
+  parts: Array<{ type: string; text?: string }>,
+  collaborators: Partial<Parameters<typeof createAgentDeps>[1]>,
+  promptOpts: PromptOpts | undefined,
+  open: { descriptor?: { runId: string } } = { descriptor: { runId: "run-stats" } },
+): Promise<{ returned: string; persisted: AgentTurnEvent[] }> {
+  resetCircuit();
+  const raw = makeRawTransport({ createSession: async () => ({ id: "sess-stats" }), promptSession: async () => ({ parts }) });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, { defaultPromptTimeoutMs: 5000, getFallbackModel: () => undefined, persistTurn: (t) => persisted.push(t), ...collaborators });
+  const session = await deps.open("qa-generator", "/tmp", open);
+  const returned = await session.prompt("the turn prompt", promptOpts);
+  return { returned, persisted };
+}
+
+test("createAgentDeps: the stats handed to the caller equal the values persisted for the turn, field by field", async () => {
+  const seen: TurnStats[] = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "all specs written" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 50, writeCount: 4 }) },
+    { onTurnStats: (stats) => seen.push(stats) },
+  );
+  const row = persisted[0]!;
+  const stats = seen[0]!;
+  assert.equal(seen.length, 1);
+  assert.equal(stats.maxSteps, row.stepBudget?.maxSteps);
+  assert.equal(stats.exhausted, row.stepBudget?.exhausted);
+  assert.equal(stats.stepsUsed, row.callMetrics?.stepsUsed);
+  assert.equal(stats.writeCount, row.callMetrics?.writeCount);
+  assert.equal(stats.observationComplete, row.callMetrics?.observationComplete);
+  assert.equal(stats.exhausted, true, "the values are the real ones, not a matching pair of defaults");
+  assert.equal(stats.writeCount, 4);
+});
+
+test("createAgentDeps: the tracker is flushed once and the same flush feeds the persisted turn and the caller", async () => {
+  let flushes = 0;
+  const seen: number[] = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "done" }],
+    {
+      maxStepsFor: () => 50,
+      /* A flush is destructive: only the first one sees the turn. */
+      takeTurnCalls: () => (flushes++ === 0 ? { ...SAMPLE_CALL_METRICS, stepsUsed: 9 } : null),
+    },
+    { onTurnStats: (stats) => { if (stats.stepsUsed !== null) seen.push(stats.stepsUsed); } },
+  );
+  assert.equal(persisted[0]!.callMetrics?.stepsUsed, 9);
+  assert.deepEqual(seen, [9]);
+});
+
+test("createAgentDeps: the caller gets stats even when no turn sink is listening", async () => {
+  const seen: Array<{ exhausted: boolean | null; maxSteps: number | null }> = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "done" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) },
+    { onTurnStats: (stats) => seen.push({ exhausted: stats.exhausted, maxSteps: stats.maxSteps }) },
+    {},
+  );
+  assert.equal(persisted.length, 0);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]!.maxSteps, 50);
+  assert.equal(seen[0]!.exhausted, false);
+});
+
+test("createAgentDeps: an unobserved turn hands the caller unknown stats, never zeros", async () => {
+  const seen: TurnStats[] = [];
+  await promptWithStats(
+    [{ type: "text", text: "done" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => null },
+    { onTurnStats: (stats) => seen.push(stats) },
+  );
+  const stats = seen[0]!;
+  assert.equal(stats.stepsUsed, null);
+  assert.equal(stats.writeCount, null);
+  assert.equal(stats.exhausted, null);
+  assert.equal(stats.observationComplete, false);
+  assert.equal(stats.maxSteps, 50);
+});
+
+test("createAgentDeps: no stats are handed out by a transport that has no step budget concept", async () => {
+  let called = false;
+  await promptWithStats([{ type: "text", text: "done" }], {}, { onTurnStats: () => { called = true; } });
+  assert.equal(called, false);
+});
+
+test("createAgentDeps: a failing stats callback is logged and leaves the prompt result and the persisted turn intact", async (t) => {
+  const errors: string[] = [];
+  t.mock.method(console, "error", (message: string) => { errors.push(message); });
+  const { returned, persisted } = await promptWithStats(
+    [{ type: "text", text: "the answer" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 3 }) },
+    { onTurnStats: () => { throw new Error("callback exploded"); } },
+  );
+  assert.equal(returned, "the answer");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, false);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, /callback exploded/);
+});
+
+const STEPPED_PARTS = [
+  { type: "step-start" },
+  { type: "reasoning", text: "thinking about hit max steps. " },
+  { type: "text", text: "first step text. " },
+  { type: "step-start" },
+  { type: "text", text: '{"specs":[]}' },
+];
+
+test("createAgentDeps: finalStepOnly returns the text of the last step alone, and the persisted output is unchanged", async () => {
+  const { returned, persisted } = await promptWithStats(STEPPED_PARTS, {}, { finalStepOnly: true });
+  assert.equal(returned, '{"specs":[]}');
+  assert.equal(persisted[0]!.outputText, "thinking about hit max steps. first step text. {\"specs\":[]}");
+});
+
+test("createAgentDeps: without finalStepOnly the whole turn's text is returned", async () => {
+  const { returned } = await promptWithStats(STEPPED_PARTS, {}, undefined);
+  assert.equal(returned, "thinking about hit max steps. first step text. {\"specs\":[]}");
+});
+
+test("createAgentDeps: finalStepOnly on a turn whose final step wrote no text returns nothing, not an earlier step's text", async () => {
+  const { returned, persisted } = await promptWithStats(
+    [{ type: "step-start" }, { type: "text", text: '{"specs":["a.spec.ts"]}' }, { type: "step-start" }, { type: "tool" }],
+    {},
+    { finalStepOnly: true },
+  );
+  assert.equal(returned, "");
+  assert.match(persisted[0]!.outputText, /a\.spec\.ts/, "the persisted output still holds the whole turn");
 });

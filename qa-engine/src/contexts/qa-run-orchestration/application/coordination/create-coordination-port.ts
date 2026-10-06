@@ -17,6 +17,12 @@ export interface CreateCoordinationPortOpts {
   readonly policy?: AdaptiveRoutingPolicy;
   /** Minimum telemetry samples before adaptive thresholds apply (default 5). */
   readonly adaptiveMinSamples?: number;
+  /**
+   * Scopes adaptive signal derivation to THIS app's own recent events. Absent falls back to
+   * fleet-wide (all apps mixed) — kept for backward compatibility, but per-app is preferred so one
+   * app's escalation trend never silently raises another app's delegation threshold.
+   */
+  readonly app?: string;
 }
 
 /* Coordination is always on. Adaptive policy only raises the file threshold — it never bypasses budgets, gates, reviewer, FixLoop, or authority. Fail-open paths inside RunQaUseCase remain the safety net. There is no kill-switch. */
@@ -29,7 +35,7 @@ export function createCoordinationPort(
   return new ProposingCoordinationAdapter({
     policy,
     signals: telemetry
-      ? () => deriveAdaptiveSignals(telemetry.events, minSamples)
+      ? () => deriveAdaptiveSignals(telemetry.events, minSamples, { app: opts.app })
       : undefined,
   });
 }

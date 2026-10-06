@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
  */
 import { resolveSandbox, sandboxSpawnOptions } from "../../../src/shared-infrastructure/process-sandbox/sandbox.ts";
 
-/* §21 sandbox identity resolver — privilege-drop applies ONLY in the root-on-Linux container with
+/* Sandbox identity resolver — privilege-drop applies ONLY in the root-on-Linux container with
    the baked-in user; everywhere else it must degrade to "no sandbox" so local runs are unaffected.
  */
 test("resolveSandbox applies only as root on Linux with an existing home; degrades safely otherwise", () => {
@@ -40,4 +40,55 @@ test("sandboxSpawnOptions: passthrough env when no sandbox; uid/gid + redirected
   assert.equal(opts.env.HOME, "/home/sandbox"); /* toolchain caches stay out of root's home */
   assert.equal(opts.env.USER, "sandbox");
   assert.equal(opts.env.PATH, "/usr/bin");
+});
+
+/* A sandboxed install must not write into root's own directories: `npm run start` injects
+   npm_config_cache=/root/.npm (and siblings) into every child process, and a child that kept them
+   would try to write to a cache directory it cannot own (EACCES, `npm ci` exit 243). The rule is
+   general: ANY inherited package-manager config var (npm_config_*, PNPM_, YARN_, COREPACK_,
+   CARGO_, GRADLE_, MAVEN_, PIP_, ...) whose value sits under the parent's HOME is rebased onto the
+   sandbox's own (writable) home, not just npm's cache var specifically. */
+test("sandboxSpawnOptions rebases root-home package-manager config paths onto the sandbox home", () => {
+  const env = {
+    HOME: "/root",
+    npm_config_cache: "/root/.npm",
+    npm_config_userconfig: "/root/.npmrc",
+    CARGO_HOME: "/root/.cargo",
+    GRADLE_USER_HOME: "/root/.gradle",
+    PIP_CACHE_DIR: "/root/.cache/pip",
+  };
+  const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
+  assert.equal(opts.env.npm_config_cache, "/home/sandbox/.npm");
+  assert.equal(opts.env.npm_config_userconfig, "/home/sandbox/.npmrc");
+  assert.equal(opts.env.CARGO_HOME, "/home/sandbox/.cargo");
+  assert.equal(opts.env.GRADLE_USER_HOME, "/home/sandbox/.gradle");
+  assert.equal(opts.env.PIP_CACHE_DIR, "/home/sandbox/.cache/pip");
+});
+
+test("sandboxSpawnOptions leaves a package-manager config value untouched when it is not under the parent home (e.g. a private registry URL)", () => {
+  const env = { HOME: "/root", npm_config_registry: "https://registry.local/npm" };
+  const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
+  assert.equal(opts.env.npm_config_registry, "https://registry.local/npm");
+});
+
+test("sandboxSpawnOptions does not rebase unrelated vars that happen to start with the parent home (PATH must keep pointing at real, readable binaries)", () => {
+  const env = { HOME: "/root", PATH: "/root/.nvm/versions/node/v24.11.0/bin:/usr/bin" };
+  const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
+  assert.equal(opts.env.PATH, "/root/.nvm/versions/node/v24.11.0/bin:/usr/bin");
+});
+
+test("sandboxSpawnOptions drops npm lifecycle/invocation vars that describe the PARENT process rather than user configuration", () => {
+  const env = {
+    HOME: "/root",
+    npm_config_local_prefix: "/app", /* the parent's own project root — wrong for a child install in a different repoDir */
+    npm_config_user_agent: "npm/10.0.0 node/v24.11.0 linux x64",
+    npm_config_npm_version: "10.0.0",
+    npm_config_node_gyp: "/root/.nvm/versions/node/v24.11.0/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+    npm_config_init_module: "/root/.npm-init.js",
+  };
+  const opts = sandboxSpawnOptions(env, { uid: 1001, gid: 1001, home: "/home/sandbox" });
+  for (const key of Object.keys(env)) {
+    if (key === "HOME") continue;
+    assert.equal(key in opts.env, false, `${key} must not leak into the sandboxed child`);
+  }
 });

@@ -2,14 +2,14 @@
 buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
 
 import { join } from "node:path";
-import type { Sha } from "@kernel/sha.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort } from "../application/ports/index.ts";
+import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
+import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
 import { RewrittenOrchestratorAdapter, type RewrittenOrchestratorAdapterDeps } from "../infrastructure/rewritten-orchestrator.adapter.ts";
 import { selectEngine } from "./pipeline-engine-flag.ts";
 import { createCoordinationPort } from "../application/coordination/create-coordination-port.ts";
 import { SidekickExecutor } from "../application/coordination/sidekick-executor.ts";
-import { getSharedCoordinationTelemetry } from "../application/coordination/shared-telemetry.ts";
+import { getSharedCoordinationTelemetry } from "../infrastructure/bridges/coordination-telemetry-port.adapter.ts";
 
 import { ChangeAnalysisPortAdapter } from "../infrastructure/bridges/change-analysis-port.adapter.ts";
 import { GenerationPortAdapter, type GenerationPortCollaborators } from "../infrastructure/bridges/generation-port.adapter.ts";
@@ -79,6 +79,9 @@ export interface CompositionConfig {
   diff?: string;
   baseUrl?: string;
   openapi?: string | string[];
+  /** Wired for e2e apps that have a DEV url. Absent in code mode. */
+  authSession?: AuthSessionPort;
+  auth?: AuthDeclaration;
   testIdAttribute?: string;
 
   /* ChangeAnalysisPort collaborator. */
@@ -183,6 +186,11 @@ export interface CompositionConfig {
 
   curriculumPort?: CurriculumPort;
 
+  /* Write side of the FE<->BE architecture map (context_maps SQLite store). Optional, no stub:
+     absent omits RunQaUseCaseDeps.contextMapCapture (no capture, same as today). The shell factory
+     constructs ContextMapCapturePortAdapter backed by history.ts's saveContextMap. */
+  contextMapCapture?: ContextMapCapturePort;
+
   /* Resolves a Sha to its working-copy mirrorDir. Cross-repo routing stays opaque inside this fn. */
   checkout: CheckoutFn;
 
@@ -211,14 +219,20 @@ export interface CompositionConfig {
 const DEFAULT_DEPLOY_GATE_INTERVAL_MS = 2000;
 const DEFAULT_DEPLOY_GATE_TIMEOUT_MS = 60000;
 
-/* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
-function sidekickTimeoutFromEnv(): number {
-  const raw = Number(process.env.COORDINATION_SIDEKICK_TIMEOUT_MS);
-  if (Number.isFinite(raw) && raw > 0) return raw;
-  return 420_000;
+/* Default per-delegation wall-clock cap (ms) when cfg.sidekickTimeoutMs is absent. Documented as
+   COORDINATION_SIDEKICK_TIMEOUT_MS in README.md — the shell (rewritten-engine-factory.ts) is the
+   ONLY place that reads that env var; qa-engine never reads process.env (CLAUDE.md invariant). */
+const DEFAULT_SIDEKICK_TIMEOUT_MS = 420_000;
+
+/* Pure — deliberately takes no env/process access, so a stray process.env read can never sneak
+   back in here. cfg.sidekickTimeoutMs is populated by the shell from COORDINATION_SIDEKICK_TIMEOUT_MS. */
+export function resolveSidekickTimeoutMs(cfg: Pick<CompositionConfig, "sidekickTimeoutMs">): number {
+  return cfg.sidekickTimeoutMs ?? DEFAULT_SIDEKICK_TIMEOUT_MS;
 }
 
-function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
+/* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
+
+export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
   publication: RewrittenOrchestratorAdapterDeps["publication"];
   runHistory: RewrittenOrchestratorAdapterDeps["runHistory"];
 } {
@@ -427,6 +441,15 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     deployGate,
     runHistory,
     ...(setup ? { setup } : {}),
+    ...(cfg.authSession && cfg.baseUrl
+      ? {
+          authSession: cfg.authSession,
+          authContext: {
+            baseUrl: cfg.baseUrl,
+            ...(cfg.auth ? { auth: cfg.auth } : {}),
+          },
+        }
+      : {}),
     ...(cleanup ? { cleanup } : {}),
     ...(preGenerationGrounding ? { preGenerationGrounding } : {}),
     ...(reviewDomGrounding ? { reviewDomGrounding } : {}),
@@ -447,6 +470,8 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
     ...(cfg.processAudit ? { processAudit: cfg.processAudit } : {}),
     /* Absent curriculumPort is omitted entirely — never a fabricated no-op stub (select() returns nothing; the fold never fires). */
     ...(cfg.curriculumPort ? { curriculum: cfg.curriculumPort } : {}),
+    /* Absent contextMapCapture is omitted entirely — never a fabricated no-op stub. */
+    ...(cfg.contextMapCapture ? { contextMapCapture: cfg.contextMapCapture } : {}),
     /* Coordination is always wired (no kill-switch). Governing points are listed independently below; the sidekick shares the reviewer's runtime with its own session lifecycle. */
     ...(() => {
       /* Process-lifetime store so adaptive thresholds see prior runs (not a fresh empty bag per composition). */
@@ -456,11 +481,12 @@ function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterD
       return {
         coordination: createCoordinationPort({
           telemetry: coordinationTelemetry,
+          app: cfg.appName,
         }),
         coordinationTelemetry,
         ...(cfg.baseUrl ? { sidekickDevBaseUrl: cfg.baseUrl } : {}),
         /* Bounded delegation wall-clock: hung/slow sidekick sessions fire fail-open instead of eating the run's full agentTimeout. Env-tunable; 420s default covers sensible Playwright MCP bootstrap + navigation. */
-        sidekickTimeoutMs: cfg.sidekickTimeoutMs ?? sidekickTimeoutFromEnv(),
+        sidekickTimeoutMs: resolveSidekickTimeoutMs(cfg),
         ...(cfg.sidekickEscalatedModel
           ? { sidekickEscalatedModel: cfg.sidekickEscalatedModel }
           : {}),

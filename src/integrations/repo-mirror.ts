@@ -10,6 +10,13 @@ import { join } from "node:path";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { InfraError } from "../errors";
 import { MirrorProvisionAdapter, type MirrorProvisionDeps } from "../../qa-engine/src/contexts/workspace-and-publication/infrastructure/mirror-provision.adapter";
+import { hardenGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+import { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
+
+/* The orchestrator's git hardening has one definition, in the engine (which cannot import src/); every git caller on a working copy goes through it. */
+export { hardenGitArgs, assertTrustedGitTree, UntrustedGitTreeError } from "../../qa-engine/src/shared-infrastructure/process-sandbox/git-hardening";
+/* The one variant with no working copy to verify (a clone, an ls-remote): the shell owns such calls, the engine may not import it. */
+export { hardenDetachedGitArgs } from "../../qa-engine/src/shared-infrastructure/process-sandbox/detached-git-hardening";
 
 
 const redactionPort = new RedactionPortAdapter();
@@ -20,6 +27,8 @@ export interface MirrorDeps {
   git: Git;
   exists(path: string): boolean;
   removeFile(path: string): void;
+  /** Deletes a directory tree without following a link inside it: how a mirror the git hardening refuses is recovered. */
+  removeTree?(path: string): void;
   root?: string;
 }
 
@@ -94,6 +103,7 @@ function toProvisionDeps(deps: MirrorDeps): MirrorProvisionDeps {
     root: deps.root ?? workdirRoot(),
     exists: deps.exists,
     removeFile: deps.removeFile,
+    ...(deps.removeTree ? { removeTree: deps.removeTree } : {}),
     remoteUrl: tokenlessUrl,
     git: (args, cwd) => (args[0] === "clone" || args[0] === "fetch" ? deps.git([...authHeaderArgs(), ...args], cwd) : deps.git(args, cwd)),
   };
@@ -147,7 +157,7 @@ export async function getCommitDiff(dir: string, sha: string, deps: MirrorDeps, 
  * directories and lists each file, so the specs are seen on the first run too.
  */
 export async function listChangedSpecs(dir: string, e2eRelDir: string, deps: MirrorDeps): Promise<string[]> {
-  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--", e2eRelDir], dir);
+  const out = await deps.git(["status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty", "--", e2eRelDir], dir);
   return out
     .split("\n")
     .filter((l) => l.length > 3)  /* "XY path" — 2 status chars + a space + the path */
@@ -167,26 +177,15 @@ export async function getCommitMessage(dir: string, sha: string, deps: MirrorDep
 }
 
 /*
- * Prepend the orchestrator's git hardening as COMMAND-LINE `-c` overrides (which a repo's own
- * .git/config cannot override) before the caller's subcommand. Two concerns, both stemming from
- * operating on UNTRUSTED, sandbox-touched working copies:
- * - core.hooksPath=/dev/null — a commit/checkout would otherwise run the repo's hooks AS THE
- * ORCHESTRATOR (root); a sandbox-planted `.git/hooks/pre-commit` is a root-RCE escape. The
- * orchestrator never relies on a repo's hooks, so disabling them is uniformly safe.
- * - safe.directory=* — after an e2e/code run the orchestrator chowns the working copy to the
- * unprivileged sandbox uid (to execute untrusted specs). git-as-root then aborts the NEXT
- * run's ops with "detected dubious ownership" (CVE-2022-24765 guard). These are the
- * orchestrator's own mirror dirs and hooks are already disabled above, so opting out of the
- * ownership check is safe and keeps the mirror reusable across privilege-dropped runs.
- * SCOPE CAVEAT: `*` is intentionally broad (this pure helper has no path context) and ALL git
- * callers go through here. That is acceptable because every current caller operates only on the
- * orchestrator's own mirror dirs under MIRROR_DIR with hooks disabled; a future caller for a
- * DIFFERENT context should scope this to a specific path (`safe.directory=<dir>`) instead.
+ * The mirror's checked-out HEAD sha, through the injected git dependency — never a direct
+ * execFileSync shell-out. Going through `deps.git` gets every caller the same hardening
+ * (hardenGitArgs, GIT_TERMINAL_PROMPT=0) and the same InfraError classification + credential
+ * scrubbing every other git op in this module gets (see realGit above); a raw execFileSync
+ * bypasses all three and reports a raw error to whatever calls it.
  */
-export function hardenGitArgs(args: readonly string[]): string[] {
-  return ["-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*", ...args];
+export async function getHeadSha(dir: string, deps: MirrorDeps): Promise<string> {
+  return (await deps.git(["rev-parse", "HEAD"], dir)).trim();
 }
-
 
 function scrubGitError(err: Error & { cmd?: string }): Error {
   err.message = redactionPort.redactText(err.message);
@@ -194,9 +193,27 @@ function scrubGitError(err: Error & { cmd?: string }): Error {
   return err;
 }
 
+/*
+ * The git commands with no working copy to run in yet: the clone that creates one and the ls-remote that asks a remote.
+ * Any other command called without a working copy would silently get the hardening that verifies nothing and run in the
+ * process's own directory, so it is refused instead.
+ */
+const WORKING_COPY_FREE_COMMANDS: ReadonlySet<string> = new Set(["clone", "ls-remote"]);
+
+function hardenedArgsFor(args: string[], cwd: string | undefined): string[] {
+  if (cwd !== undefined) return hardenGitArgs(args, cwd);
+  let i = 0;
+  while (args[i] === "-c") i += 2; /* leading `-c key=value` pairs (auth, protocol) precede the command */
+  const command = args[i];
+  if (command === undefined || !WORKING_COPY_FREE_COMMANDS.has(command)) {
+    throw new TypeError(`git ${command ?? "(no command)"} runs in a working copy: name it instead of running it unverified`);
+  }
+  return hardenDetachedGitArgs(args);
+}
+
 export const realGit: Git = (args, cwd) =>
   new Promise((resolve, reject) => {
-    execFile("git", hardenGitArgs(args), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
+    execFile("git", hardenedArgsFor(args, cwd), { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (err, stdout) => {
       if (!err) {
         resolve(stdout.toString());
         return;
@@ -217,6 +234,8 @@ export const defaultMirrorDeps: MirrorDeps = {
   git: realGit,
   exists: existsSync,
   removeFile: (path) => rmSync(path, { force: true }),
+  /* rmSync deletes a link inside the tree (or the tree's own path being one) as the link, never what it points to. */
+  removeTree: (path) => rmSync(path, { recursive: true, force: true }),
 };
 
 /*

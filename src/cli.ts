@@ -3,23 +3,27 @@
  * manual run is queued, recorded in history and addressable. It then drains the queue and
  * exits with the run's verdict.
  * npm run qa -- --app <app> --sha <sha> [--mode diff|complete|exhaustive|manual|context]
- * [--target e2e|code] [--guidance "..."] [--allow-concurrent]
+ * [--target e2e|code] [--guidance "..."]
  * npm run qa -- --app <app> --learning   → show learning state (outcomes, rules, curriculum)
  * IMPORTANT: this CLI uses its OWN in-process queue. If the long-lived service is also
  * running on this host it has a SEPARATE queue, so a CLI run could execute QA against DEV
  * concurrently with a service run — breaking the "one run at a time against DEV" invariant.
- * We therefore refuse to start when the local service answers its health probe, unless the
- * operator explicitly accepts the risk with --allow-concurrent.
+ * We therefore always refuse the standalone path when the local service answers its health
+ * probe, with no override, and delegate the run to that service instead (runViaService) — it
+ * then executes inside the server process, so the service is the single writer of the
+ * coordination telemetry ledger both processes resolve to (resolveCoordinationTelemetryPath).
  */
 
 import { fileURLToPath } from "node:url";
 import { JobQueue } from "./server/queue";
+import { qayabaRoot } from "./paths";
 import { enqueueTrackedRun } from "./server/runner";
 import { createDurableRunEventStore } from "./server/durable-run-events";
-import { delegateRun, type DelegateRunResult } from "./server/run-delegate";
+import { delegateRun, type DelegateRunInput, type DelegateRunResult } from "./server/run-delegate";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, loadCurriculum } from "./server/history";
+import { getRecord, getRunOutcome, listRunOutcomes, listLearningRules, LEARNING_RULE_LEDGER_LIMIT, loadCurriculum } from "./server/history";
+import { CURRICULUM_CORRUPT } from "@contexts/cross-run-learning/infrastructure/curriculum-port.adapter";
 import { loadAppConfig } from "./orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "./orchestrator/schemas";
 import { RUN_MODES, RunMode, TestTarget } from "./types";
@@ -30,6 +34,7 @@ import { defaultEnvStoreFs } from "./server/env-store";
 import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
+import { resolvePort } from "./server/port";
 
 
 const cliAgentRuntime = createAgentRuntimeManager({
@@ -48,7 +53,7 @@ const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliA
  * orchestrator owns the queue on this host and a second queue here would race it against DEV.
  */
 async function localServiceIsRunning(): Promise<boolean> {
-  const port = Number(process.env.PORT ?? 8080);
+  const port = resolvePort(process.env);
   try {
     const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
     return res.ok;
@@ -64,7 +69,7 @@ async function localServiceIsRunning(): Promise<boolean> {
 function discoverApiToken(): string | undefined {
   if (process.env.QA_API_TOKEN) return process.env.QA_API_TOKEN;
   try {
-    const root = process.env.QAYABA_ROOT ?? process.cwd();
+    const root = qayabaRoot();
     const token = readFileSync(join(root, "config", ".api_token"), "utf8").trim();
     return token || undefined;
   } catch {
@@ -77,8 +82,23 @@ function discoverApiToken(): string | undefined {
  * standalone CLI's contract (wait, report, exit with the verdict's code). The run executes IN the
  * server process, so the TUI streams it live and the single-queue invariant holds.
  */
-async function runViaService(args: { app: string; sha: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
-  const port = Number(process.env.PORT ?? 8080);
+/** The run handed to the service. Carries --base-sha so the delegated run's diff spans the same range the standalone CLI and the webhook use. */
+export function delegateRunInput(
+  args: { app: string; sha: string; baseSha?: string; mode: RunMode; guidance?: string },
+  target: TestTarget,
+): DelegateRunInput {
+  return {
+    app: args.app,
+    sha: args.sha,
+    ...(args.baseSha ? { baseSha: args.baseSha } : {}),
+    target,
+    mode: args.mode,
+    guidance: args.guidance,
+  };
+}
+
+async function runViaService(args: { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string }): Promise<void> {
+  const port = resolvePort(process.env);
   const baseUrl = `http://localhost:${port}`;
   const appCfg = loadAppConfig(args.app);
   const target = args.target ?? (appCfg.code ? "code" : "e2e");
@@ -90,7 +110,7 @@ async function runViaService(args: { app: string; sha: string; mode: RunMode; ta
   let result: DelegateRunResult;
   try {
     result = await delegateRun(
-      { app: args.app, sha: args.sha, target, mode: args.mode, guidance: args.guidance },
+      delegateRunInput(args, target),
       {
         fetch,
         baseUrl,
@@ -123,12 +143,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!args.allowConcurrent && (await localServiceIsRunning())) {
+  if (await localServiceIsRunning()) {
     /*
      * The service owns the only queue against DEV. Rather than refuse (or race it with a second
      * queue), hand the run to it: it then executes IN the server process, so a TUI attached to
-     * that server streams it live, and the sequential-queue invariant is preserved.
-     * --allow-concurrent forces the standalone path below.
+     * that server streams it live, and the sequential-queue invariant is preserved. There is no
+     * override for this — a standalone run against DEV while the service also owns the queue is
+     * exactly the concurrency this check exists to prevent.
      */
     await runViaService(args);
     return;  /* runViaService always exits the process with the verdict's code */
@@ -214,20 +235,18 @@ function printRunReport(record: ReturnType<typeof getRecord> & {}, appCfg: Retur
 
 const TARGETS: TestTarget[] = ["e2e", "code"];
 
-export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean; allowConcurrent: boolean } {
+export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?: string; mode: RunMode; target?: TestTarget; guidance?: string; learning: boolean } {
   const out: Record<string, string> = {};
   let learning = false;
-  let allowConcurrent = false;
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]?.replace(/^--/, "");
     if (key === "learning") { learning = true; continue; }
-    if (key === "allow-concurrent") { allowConcurrent = true; continue; }
     if (key) out[key] = argv[i + 1] ?? "";
     if (key) i++;  /* skip value */
   }
   if (!learning && (!out.app || !out.sha)) {
     console.error(
-      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."] [--allow-concurrent]`,
+      `Usage: npm run qa -- --app <app> --sha <sha> [--base-sha <sha>] [--mode ${RUN_MODES.join("|")}] [--target e2e|code] [--guidance "..."]`,
     );
     console.error('       npm run qa -- --app <app> --learning');
     process.exit(2);
@@ -239,7 +258,7 @@ export function parseArgs(argv: string[]): { app: string; sha: string; baseSha?:
   const mode = (RUN_MODES as readonly string[]).includes(out.mode ?? "") ? (out.mode as RunMode) : "diff";
   /* Undefined when not passed → the caller derives it from the app config (code vs e2e). */
   const target = (TARGETS as string[]).includes(out.target ?? "") ? (out.target as TestTarget) : undefined;
-  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning, allowConcurrent };
+  return { app: out.app ?? "", sha: out.sha ?? "", baseSha: out["base-sha"] || undefined, mode, target, guidance: out.guidance, learning };
 }
 
 function showLearning(app: string): void {
@@ -259,7 +278,9 @@ function showLearning(app: string): void {
     console.log("");
   }
 
-  const rules = listLearningRules(app, 20);
+  /* Same LEARNING_RULE_LEDGER_LIMIT the TUI/API intelligence view reads — the live ledger, not a
+   * truncated preview that silently drops rules beyond a smaller cap. */
+  const rules = listLearningRules(app, LEARNING_RULE_LEDGER_LIMIT);
   console.log(`── Learning Rules (${rules.length} active/candidate) ──`);
   if (rules.length === 0) {
     console.log("  (none — failures will create rules via reflection)\n");
@@ -273,9 +294,13 @@ function showLearning(app: string): void {
     console.log("");
   }
 
-  const curriculum = loadCurriculum(app);
+  const curriculumRaw = loadCurriculum(app);
+  const curriculumCorrupt = curriculumRaw === CURRICULUM_CORRUPT;
+  const curriculum = curriculumCorrupt ? null : curriculumRaw;
   console.log(`── Curriculum ──`);
-  if (!curriculum) {
+  if (curriculumCorrupt) {
+    console.log("  (corrupt row on disk — see server logs; refusing to display or silently reset it)\n");
+  } else if (!curriculum) {
     console.log("  (none — will be created on first run)\n");
   } else {
     const proven = curriculum.archetypes.filter((a) => a.caughtRealBug);

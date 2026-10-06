@@ -6,9 +6,9 @@
    sandbox.ts's resolveSandbox(env, ...)) instead of mutating process.env — no global env
    mutation / try-finally needed.
  */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -23,24 +23,16 @@ import {
   DEFAULT_E2E_TIMEOUT_MS,
   matchFailureDumps,
   segmentsAreTail,
-  titleSegments,
   readFailureDumps,
+  createDefaultE2eCleanupDeps,
+  createDefaultE2eExecuteDeps,
+  E2E_STDERR_KEEP_CHARS,
+  MAX_STREAM_EVENT_LINE_CHARS,
+  type StreamEvent,
   type FailureDump,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
+import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
-/* selectorPresent — same function, verified in selector-check-parity.test.ts.
- */
-import { selectorPresent } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
-import { parseAriaSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-
-/* buildFailureDomLines — splits a case's captured failure-point a11y tree into non-empty lines. Pure,
-   dependency-free. The production copy now lives in qa-engine's
-   only needs the same shape to assert the runner's DOM-harvest output is consumable by it.
- */
-function buildFailureDomLines(failureDom: string | undefined): string[] {
-  if (!failureDom) return [];
-  return failureDom.split("\n").filter((l) => l.trim());
-}
 
 test("allFailuresAreRunnerInfra: a browser-launch failure is infra (runner fault), not a test failure", () => {
   const launchFail: QaCase[] = [
@@ -253,74 +245,13 @@ test("runE2E handles a null report by returning infra-error", async () => {
   assert.equal(run.passed, false);
 });
 
-/* The errorContext fallback (PW 1.60 expect() failures, no fixture dump) is RAW ariaSnapshot YAML
-   (`- role "name"`). It MUST be flattened through parseAriaSnapshot to "role: name" — the EXACT
-   shape every consumer expects — or Lever-2, the absent/unique checks and the real-bug branch are
-   all inert for expect() failures. This walks the full seam: report errorContext (raw YAML) →
-   runE2E harvest → QaCase.failureDom → buildFailureDomLines → selectorPresent finds the role.
+/* The per-case harvest's loud "no grounding" WARNING must fire even when failureCaptureDir is
+   UNDEFINED (mkdtempSync failed, e.g. no /tmp space) — the fixture dump is the ONLY source of
+   failureDom (Playwright's JSON reporter carries no per-error DOM snapshot), so a failed case with
+   no capture dir at all has nothing to fall back to and must warn rather than swallow the gap.
+   Force mkdtempSync to throw by pointing TMPDIR at a non-existent path.
  */
-test("runE2E flattens a RAW errorContext aria YAML so the Lever-2 seam can read role:name", async () => {
-  const rawAriaYaml = [
-    "- banner:",
-    "  - link \"Home\"",
-    "- main:",
-    "  - heading \"Find Owners\" [level=1]",
-    "  - button \"Add Owner\"",
-    "  - table:",
-    "    - row \"Name City\"",
-  ].join("\n");
-
-  const deps: E2eExecuteDeps = {
-    runSuite: async () => ({
-      report: {
-        suites: [
-          {
-            title: "owners.spec.ts",
-            specs: [
-              {
-                title: "lists owners",
-                ok: false,
-                tests: [
-                  {
-                    status: "unexpected",
-                    results: [{ status: "failed", error: { message: "expect(received).toHaveText(expected) failed" }, errors: [{ errorContext: rawAriaYaml }] }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      logs: "ok",
-      ran: true,
-    }),
-  };
-
-  const run = await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-ec" }, deps);
-  assert.equal(run.verdict, "fail");
-  const failed = run.cases.find((c) => c.name.endsWith("lists owners"));
-  assert.ok(failed, "the failing case should be present");
-
-  /* The stored failureDom must be the FLATTENED "role: name" form, never the raw "- role \"name\"" YAML. */
-  assert.ok(failed!.failureDom, "errorContext must have been harvested into failureDom");
-  assert.doesNotMatch(failed!.failureDom!, /- button "Add Owner"/, "must NOT store the raw YAML form");
-  assert.deepEqual(failed!.failureDom!.split("\n"), parseAriaSnapshot(rawAriaYaml), "failureDom must equal parseAriaSnapshot of the errorContext");
-
-  /* The downstream consumers must now find a known role:name (they were inert on raw YAML). */
-  const lines = buildFailureDomLines(failed!.failureDom);
-  assert.ok(lines.includes("button: Add Owner"), `expected flattened 'button: Add Owner' in ${JSON.stringify(lines)}`);
-  const present = selectorPresent({ kind: "role", role: "button", name: "Add Owner" }, lines);
-  assert.equal(present.present, true, "selectorPresent must locate the button against the flattened tree");
-  assert.equal(present.verifiable, true);
-});
-
-/* The per-case harvest — the errorContext fallback AND the loud "no grounding" WARNING — must run
-   even when failureCaptureDir is UNDEFINED (mkdtempSync failed, e.g. no /tmp space). Force
-   mkdtempSync to throw by pointing TMPDIR at a non-existent path, then assert: (1) the errorContext
-   case still gets failureDom, and (2) the no-dump/no-errorContext case still emits the WARNING.
- */
-test("W2: errorContext fallback + the no-grounding WARNING still fire when the capture dir can't be minted", async () => {
-  const rawAriaYaml = "- main:\n  - button \"Add Owner\"";
+test("the no-grounding WARNING still fires when the capture dir can't be minted", async () => {
   const deps: E2eExecuteDeps = {
     runSuite: async (args) => {
       /* The dir could not be minted, so the runner is handed no capture dir at all. */
@@ -331,11 +262,6 @@ test("W2: errorContext fallback + the no-grounding WARNING still fire when the c
             {
               title: "owners.spec.ts",
               specs: [
-                {
-                  title: "has errorContext",
-                  ok: false,
-                  tests: [{ status: "unexpected", results: [{ status: "failed", error: { message: "expect(received).toHaveText(expected) failed" }, errors: [{ errorContext: rawAriaYaml }] }] }],
-                },
                 {
                   title: "has nothing",
                   ok: false,
@@ -366,11 +292,10 @@ test("W2: errorContext fallback + the no-grounding WARNING still fire when the c
   }
 
   assert.equal(run.verdict, "fail");
-  /* (1) The errorContext fallback still populated failureDom for the first case (needs no temp dir). */
-  const ec = run.cases.find((c) => c.name.endsWith("has errorContext"));
-  assert.ok(ec?.failureDom, "errorContext must still be harvested into failureDom with no capture dir");
-  assert.ok(buildFailureDomLines(ec!.failureDom).includes("button: Add Owner"));
-  /* (2) The case with neither dump nor errorContext still triggers the loud WARNING (never swallowed). */
+  const failed = run.cases.find((c) => c.name.endsWith("has nothing"));
+  assert.ok(failed, "the failing case should be present");
+  assert.equal(failed!.failureDom, undefined, "no dump and no capture dir -> no failureDom, never fabricated");
+  /* The case with no dump still triggers the loud WARNING (never swallowed). */
   assert.ok(
     warnings.some((w) => /no failure-point DOM captured/i.test(w) && /has nothing/.test(w)),
     `expected a 'no failure-point DOM captured' WARNING for the empty case; warnings: ${JSON.stringify(warnings)}`,
@@ -427,7 +352,7 @@ test("runE2E passes project, signal and timeoutMs through to the runner deps", a
   assert.equal(seen.timeoutMs, 5_000);
 });
 
-/* A3: testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
+/* testIdAttribute must reach deps.runSuite — apps declare their test-id convention in config
    (e.g. data-cy for jhipster) and the DOM capture / selector catalog / authoring contract all
    validate against it, but the VERDICTUAL Playwright run never received it, so PW_TEST_ID_ATTRIBUTE
    was never set and getByTestId silently resolved the default data-testid on non-default apps.
@@ -458,6 +383,31 @@ test("runE2E rejects a project name outside the allowlist (arg-injection surface
     /invalid Playwright project name/,
   );
   assert.equal(started, false);
+});
+
+/* The repo owns its playwright.config.ts: its projects may be named anything and a suite run must
+   execute all of them unless the caller explicitly configures one. The argv is the one the real
+   runner spawns, built from what runE2E hands to runSuite. */
+async function suiteArgv(opts: { project?: string }): Promise<string[]> {
+  let argv: string[] = [];
+  const deps: E2eExecuteDeps = {
+    runSuite: async (args) => {
+      argv = playwrightArgs("/tmp/rep.cjs", args.project, args.specFiles);
+      return { report: { stats: { expected: 1 } }, logs: "ok", ran: true };
+    },
+  };
+  await runE2E("/dir", { baseUrl: "https://dev", namespace: "qa-bot-projects", ...opts }, deps);
+  return argv;
+}
+
+test("a suite run with no configured project selects no Playwright project, so every project in the repo config runs", async () => {
+  const argv = await suiteArgv({});
+  assert.equal(argv.some((a) => a.startsWith("--project")), false, `no --project flag expected, got ${JSON.stringify(argv)}`);
+});
+
+test("a suite run with a configured project selects exactly that project", async () => {
+  const argv = await suiteArgv({ project: "chromium-tablet" });
+  assert.deepEqual(argv.filter((a) => a.startsWith("--project")), ["--project=chromium-tablet"]);
 });
 
 test("playwrightArgs appends --project only when set, and validates it", () => {
@@ -674,7 +624,7 @@ test("matchFailureDumps: a dump with no file still matches a file-prefixed case 
    Match the dump's file against ANY case segment. The dump's title may be the bare describe›test
    (fixture form) OR include the file — both are a contiguous tail, both must match.
  */
-test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) matches the file dump (C1)", () => {
+test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) matches the file dump", () => {
   const projectFirst = "desktop › owners.spec.ts › Owners › add owner"; /* project is caseSegs[0], file is caseSegs[1] */
   const bareTitle: FailureDump[] = [{ project: "desktop", file: "owners.spec.ts", title: "Owners › add owner", retry: 0, yaml: "- button \"Submit\"" }];
   const m1 = matchFailureDumps(projectFirst, bareTitle);
@@ -688,7 +638,7 @@ test("matchFailureDumps: PROJECT-FIRST case name (two-project default config) ma
   assert.equal(matchFailureDumps(projectFirst, wrongFile), null, "a dump for a different file must not match");
 });
 
-/* C1 single-project: the SAME helper must keep working when the suite IS run with --project (file leads,
+/* Single project: the SAME helper must keep working when the suite IS run with --project (file leads,
    no project segment) — the case name is `owners.spec.ts › Owners › add owner`. file === caseSegs[0] here.
  */
 test("matchFailureDumps: single-project case name (file leads) still matches the file dump", () => {
@@ -742,13 +692,13 @@ test("playwrightArgs: accepts spec files with subdirectory paths (flows/login.sp
   assert.ok(args.includes("flows/login.spec.ts"), `subdirectory spec should be allowed: ${args.join(" ")}`);
 });
 
-/* ── T5: Harvest fold — finalUrl + httpStatus onto QaCase (D1) ─────────────────
-   RED test (T5): the harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
+/* ── Harvest fold — finalUrl + httpStatus onto QaCase ─────────────────
+   The harvest must fold dump.finalUrl and dump.httpStatus onto the SAME QaCase
    object that today receives failureDom. Asserts the carry-through, the absent-warned path being
    unchanged (failureDom's WARNING is still the only loud one), and best-effort absence.
  */
 
-test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", async () => {
+test("harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase", async () => {
   /* Write a real capture dump (with finalUrl + httpStatus) into the captureDir that runE2E
      mints and passes to runSuite. The runSuite intercepts the dir, writes the dump into it,
      and returns a report with the matching case. Assert the QaCase carries both fields.
@@ -784,12 +734,12 @@ test("T5: harvest folds dump.finalUrl and dump.httpStatus onto the failed QaCase
   const run = await runE2E("/e2e", { baseUrl: "https://dev", namespace: "desktop" }, deps);
   const failed = run.cases.find((c) => c.status === "fail");
   assert.ok(failed, "the failing case must be present");
-  /* T5 assertion: the harvest must carry finalUrl and httpStatus on the SAME object. */
+  /* The harvest must carry finalUrl and httpStatus on the SAME object. */
   assert.equal((failed as QaCase).httpStatus, 500, "harvest must fold dump.httpStatus onto the QaCase");
   assert.equal((failed as QaCase).finalUrl, "http://localhost:3000/owners/new", "harvest must fold dump.finalUrl onto the QaCase");
 });
 
-test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absent-warned path unchanged)", async () => {
+test("harvest leaves httpStatus/finalUrl absent when dump has neither (absent-warned path unchanged)", async () => {
   /* A dump with only yaml (no finalUrl, no httpStatus) — QaCase must not have them, and the
      only loud WARNING is still the existing failureDom one (no new WARNING introduced).
    */
@@ -830,12 +780,12 @@ test("T5: harvest leaves httpStatus/finalUrl absent when dump has neither (absen
   assert.equal(newWarnings.length, 0, `must NOT emit new warnings for absent httpStatus/finalUrl: ${JSON.stringify(newWarnings)}`);
 });
 
-/* ── Feature B: Harvest fold — runtimeErrors onto QaCase ───────────────────────
-   RED test: the harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
-   receives failureDom/httpStatus/finalUrl (D1/D2 precedent). Mirrors T5 exactly.
+/* ── Harvest fold — runtimeErrors onto QaCase ───────────────────────
+   The harvest must fold dump.runtimeErrors onto the SAME QaCase object that today
+   receives failureDom/httpStatus/finalUrl. Mirrors the finalUrl/httpStatus harvest test exactly.
  */
 
-test("Feature B: harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
+test("harvest folds dump.runtimeErrors onto the failed QaCase", async () => {
   const title = "owner registration › create owner";
   const file = "owners.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
@@ -881,7 +831,7 @@ test("Feature B: harvest folds dump.runtimeErrors onto the failed QaCase", async
   );
 });
 
-test("Feature B: harvest leaves runtimeErrors absent when dump has none (best-effort, no new warning)", async () => {
+test("harvest leaves runtimeErrors absent when dump has none (best-effort, no new warning)", async () => {
   const title = "form › submit";
   const file = "form.spec.ts";
   const hash = createHash("sha1").update(`${file}/${title}`).digest("hex").slice(0, 12);
@@ -917,7 +867,7 @@ test("Feature B: harvest leaves runtimeErrors absent when dump has none (best-ef
   assert.equal(newWarnings.length, 0, `must NOT emit new warnings for absent runtimeErrors: ${JSON.stringify(newWarnings)}`);
 });
 
-test("Feature B: readFailureDumps parses runtimeErrors defensively (garbage/malformed entries dropped, never throws)", () => {
+test("readFailureDumps parses runtimeErrors defensively (garbage/malformed entries dropped, never throws)", () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-fail-dump-"));
   try {
     writeFileSync(
@@ -930,4 +880,92 @@ test("Feature B: readFailureDumps parses runtimeErrors defensively (garbage/malf
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ── authDir is REQUIRED in the execute/cleanup deps builders — no silent fallback to `dir` ──
+   Both createDefaultE2eCleanupDeps and createDefaultE2eExecuteDeps used to accept an OPTIONAL
+   authDir and fall back to `dir` (the watched-repo mirror, agent-visible) when omitted — the same
+   vulnerability dom-snapshot.ts's createCaptureDomDeps no longer has. authDir is now required: a
+   real TypeScript caller that forgets it gets a compile error, and — mirroring the same fail-closed
+   guard idiom used in createCaptureDomDeps/PublicationPortAdapter — a caller that bypasses the type system still gets
+   an immediate, loud throw instead of a silent fallback to `dir`.
+ */
+
+test("createDefaultE2eCleanupDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createDefaultE2eCleanupDeps(),
+    /authDir/i,
+    "createDefaultE2eCleanupDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+  );
+});
+
+test("createDefaultE2eExecuteDeps requires authDir — omitting it throws immediately (fail-closed, no silent fallback to the e2e dir)", () => {
+  assert.throws(
+    () =>
+      // @ts-expect-error authDir is required; omitting it must be a compile error for a real (TypeScript) caller too.
+      createDefaultE2eExecuteDeps(),
+    /authDir/i,
+    "createDefaultE2eExecuteDeps must throw naming the missing authDir, never silently fall back to the e2e dir",
+  );
+});
+
+/* The real runners spawn `npx playwright ...`. A stand-in `npx` first on PATH plays Playwright, so the process boundary
+   (pipes, exit, kill) is real while no browser is needed. */
+async function withStandInPlaywright<T>(script: string, body: (root: string) => Promise<T>): Promise<T> {
+  const root = mkdtempSync(join(tmpdir(), "stand-in-npx-"));
+  const bin = join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(root, "playwright.cjs"), script);
+  writeFileSync(join(bin, "npx"), `#!/bin/sh\nexec "${process.execPath}" "${join(root, "playwright.cjs")}" "$@"\n`, { mode: 0o755 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath ?? ""}`;
+  try {
+    return await body(root);
+  } finally {
+    process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a Playwright run that writes megabytes to stderr reports only the newest of it", { timeout: 30_000 }, async () => {
+  const script = "const l = 'browser log line that repeats\\n'.repeat(1000); let n = 0; (function go() { if (n++ < 300) return process.stderr.write(l, go); process.stderr.write('THE-END\\n'); })();";
+  await withStandInPlaywright(script, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    const out = await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns" });
+    assert.match(out.logs, /THE-END/, "the newest stderr is kept");
+    assert.ok(out.logs.length < E2E_STDERR_KEEP_CHARS + 500, `the kept stderr stays bounded (was ${out.logs.length} chars)`);
+  });
+});
+
+test("a stream event line longer than any real event is skipped and the events around it still arrive", { timeout: 30_000 }, async () => {
+  const script = [
+    "const w = (o) => process.stdout.write(JSON.stringify(o) + '\\n');",
+    "w({ e: 'begin', total: 2 });",
+    `process.stdout.write(JSON.stringify({ e: 'testend', title: 'x'.repeat(${MAX_STREAM_EVENT_LINE_CHARS} * 3), status: 'passed' }) + '\\n');`,
+    "w({ e: 'testend', title: 'after the long line', status: 'passed', d: 5 });",
+  ].join("");
+  await withStandInPlaywright(script, async (root) => {
+    const events: StreamEvent[] = [];
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 20_000, join(root, "auth"));
+    await deps.runSuite({ dir: root, baseUrl: "http://localhost", namespace: "ns", onEvent: (ev) => events.push(ev) });
+    assert.deepEqual(events.map((e) => e.phase), ["begin", "testend"]);
+    const last = events[1];
+    assert.ok(last?.phase === "testend" && last.title === "after the long line", "the event after the overlong line is read normally");
+  });
+});
+
+test("orphan-data cleanup whose child writes more than a pipe buffer finishes instead of blocking until the timeout", { timeout: 30_000 }, async () => {
+  const script = "process.stdout.write('cleanup output\\n'.repeat(30000)); process.stderr.write('cleanup noise\\n'.repeat(30000));";
+  await withStandInPlaywright(script, async (root) => {
+    const warned = mock.method(console, "warn", () => {});
+    try {
+      const deps = createDefaultE2eCleanupDeps(new ProcessKillAdapter(), join(root, "auth"));
+      await deps.runCleanup({ dir: root, baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 });
+      assert.equal(warned.mock.calls.some((c) => /timed out/.test(String(c.arguments[0]))), false, "the cleanup ended on its own, not by the timeout kill");
+    } finally {
+      warned.mock.restore();
+    }
+  });
 });

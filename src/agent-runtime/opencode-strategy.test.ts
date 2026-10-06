@@ -17,7 +17,7 @@ import { OpenCodeRuntimeStrategy } from "./opencode-strategy";
  */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
 
-describe("OpenCodeRuntimeStrategy.listModels fallback roster (WS9.4(b))", () => {
+describe("OpenCodeRuntimeStrategy.listModels fallback roster", () => {
   it("the fallback roster includes the LIVE default primary model (from agents/opencode.json), not a stale one", async () => {
     /* Point at a config path that does not exist, forcing the FALLBACK_MODELS path. */
     const strategy = new OpenCodeRuntimeStrategy({

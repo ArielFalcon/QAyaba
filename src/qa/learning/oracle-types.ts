@@ -7,8 +7,10 @@ export interface ScorecardEntry {
   sha: string;
   target: TestTarget;
   valueScore: number | null;
-  mutantCount: number;
-  killedCount: number;
+  /* null means "not measured" (the value-oracle never ran or reported no count) — distinct from a
+   * genuine measured zero. Never a fabricated 0. */
+  mutantCount: number | null;
+  killedCount: number | null;
   at: string;
 }
 

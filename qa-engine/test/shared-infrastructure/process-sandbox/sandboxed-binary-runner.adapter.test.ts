@@ -11,8 +11,8 @@ import type { ProcessKillPort } from "../../../src/shared-kernel/process-sandbox
    up (../../../), matching process-kill.test.ts and scrub-env.test.ts in this same directory.
  */
 
-function makeAdapter(processKill: ProcessKillPort = new ProcessKillAdapter()): SandboxedBinaryRunnerAdapter {
-  return new SandboxedBinaryRunnerAdapter({ processKill });
+function makeAdapter(processKill: ProcessKillPort = new ProcessKillAdapter(), maxOutputChars?: number): SandboxedBinaryRunnerAdapter {
+  return new SandboxedBinaryRunnerAdapter({ processKill, ...(maxOutputChars === undefined ? {} : { maxOutputChars }) });
 }
 
 test("run() spawns a real command and captures exitCode + stdout", async () => {
@@ -115,4 +115,39 @@ test("run() resolves normally when an already-fired signal has no listener race 
   assert.equal(result.exitCode, 0);
   assert.equal(result.stdout, "fast");
   assert.equal(result.timedOut, false);
+});
+
+/* A child that runs untrusted code can write without limit; the orchestrator's memory must not follow it. */
+const FLOODING_CHILD = "const line = 'flooding output line with some text in it\\n'.repeat(500); (function go() { process.stdout.write(line, go); })();";
+
+test("run() kills a child whose output passes the bound and rejects, instead of holding it all in memory", { timeout: 20_000 }, async () => {
+  const adapter = makeAdapter(new ProcessKillAdapter(), 50_000);
+  await assert.rejects(
+    () => adapter.run({ command: process.execPath, args: ["-e", FLOODING_CHILD], cwd: process.cwd(), env: { PATH: process.env.PATH ?? "" }, timeoutMs: 15_000 }),
+    (err: unknown) => err instanceof Error && /50000/.test(err.message) && err.message.includes(process.execPath),
+    "the failure names the command and the bound",
+  );
+});
+
+test("run() returns output within the bound whole", async () => {
+  const adapter = makeAdapter(new ProcessKillAdapter(), 50_000);
+  const result = await adapter.run({ command: process.execPath, args: ["-e", "process.stdout.write('x'.repeat(40000))"], cwd: process.cwd(), env: { PATH: process.env.PATH ?? "" } });
+  assert.equal(result.stdout.length, 40_000);
+});
+
+test("run() with outputKeepChars keeps only the newest output of a flooding child and still reports how it ended", { timeout: 20_000 }, async () => {
+  const adapter = makeAdapter();
+  const script = "const line = 'flooding output line with some text in it\\n'.repeat(500); let n = 0; (function go() { if (n++ < 400) return process.stdout.write(line, go); process.stderr.write('THE-END\\n'); process.exitCode = 3; })();";
+  const result = await adapter.run({ command: process.execPath, args: ["-e", script], cwd: process.cwd(), env: { PATH: process.env.PATH ?? "" }, outputKeepChars: 2_000 });
+  assert.equal(result.exitCode, 3);
+  assert.ok(result.stdout.length < 2_000 + 200, `stdout stays within the bound plus its omission note (was ${result.stdout.length})`);
+  assert.ok(result.stdout.includes("flooding output line"), "the newest stdout is kept");
+  assert.equal(result.stderr, "THE-END\n");
+});
+
+test("run() with outputKeepChars still reports a timeout for a child that floods until killed", { timeout: 20_000 }, async () => {
+  const adapter = makeAdapter();
+  const result = await adapter.run({ command: process.execPath, args: ["-e", FLOODING_CHILD], cwd: process.cwd(), env: { PATH: process.env.PATH ?? "" }, outputKeepChars: 2_000, timeoutMs: 1_500 });
+  assert.equal(result.timedOut, true);
+  assert.ok(result.stdout.length < 2_000 + 200);
 });

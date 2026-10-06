@@ -19,6 +19,9 @@ import {
   type DetectDeps,
   type CodeProject,
   type CodeExecuteDeps,
+  type CodeTimers,
+  MAX_TIMER_DELAY_MS,
+  DEFAULT_CODE_MODE_TIMEOUT_MS,
 } from "@contexts/test-execution/infrastructure/code-execution.runner.ts";
 
 function existsFrom(paths: string[]): (p: string) => boolean {
@@ -144,7 +147,7 @@ test("scopeForChangedFiles: node is NOT mislabeled as scoped — per-module RUN 
   assert.match(r.note, /not yet supported|whole repo/i);
 });
 
-/* ── G1: scope by the agent's git writes when there is no input diff (manual/complete) ───────────── */
+/* ── Scope by the agent's git writes when there is no input diff (manual/complete) ───────────── */
 test("parsePorcelain: extracts modified, added and untracked paths (rename → new path)", () => {
   const out = [
     " M src/foo.ts",
@@ -287,6 +290,45 @@ test("exit code 0 => pass with one synthetic case", async () => {
   assert.deepEqual(cases, ["pass"]);
 });
 
+/* A clock that records the delays it is asked for and never fires: nothing here waits on real time. */
+function recordingTimers(): { timers: CodeTimers; delays: number[] } {
+  const delays: number[] = [];
+  const timers: CodeTimers = {
+    setTimeout: (_callback, delayMs) => {
+      delays.push(delayMs);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: () => {},
+  };
+  return { timers, delays };
+}
+
+test("a test-run timeout beyond what a timer can hold never asks the clock for more than it can hold", async () => {
+  const { timers, delays } = recordingTimers();
+  const deps: CodeExecuteDeps = {
+    detect: () => nodeProject,
+    runTests: async () => ({ exitCode: 0, logs: "12 passing" }),
+    timers,
+  };
+  await runCodeTests("/r", { namespace: "qa-bot-x", timeoutMs: MAX_TIMER_DELAY_MS + 1_000 }, deps);
+  assert.ok(delays.length > 0, "the timeout race armed the clock");
+  assert.ok(delays.every((ms) => ms > 0 && ms <= MAX_TIMER_DELAY_MS), `a delay above the limit would fire at once (asked for ${JSON.stringify(delays)})`);
+});
+
+/* setTimeout reads NaN, zero, a negative delay and a fraction of a millisecond as 1 ms, so such a timeout would end the run before it began. */
+for (const requested of [Number.NaN, 0, -1_000, 0.5]) {
+  test(`a test-run timeout of ${requested} is not taken literally: the default applies instead of firing at once`, async () => {
+    const { timers, delays } = recordingTimers();
+    const deps: CodeExecuteDeps = {
+      detect: () => nodeProject,
+      runTests: async () => ({ exitCode: 0, logs: "12 passing" }),
+      timers,
+    };
+    await runCodeTests("/r", { namespace: "qa-bot-x", timeoutMs: requested }, deps);
+    assert.deepEqual(delays, [DEFAULT_CODE_MODE_TIMEOUT_MS]);
+  });
+}
+
 test("non-zero exit => fail with the output tail as detail", async () => {
   const deps: CodeExecuteDeps = {
     detect: () => nodeProject,
@@ -361,6 +403,15 @@ test("go test that actually ran tests stays a pass (not over-flagged)", async ()
   const deps: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs: "ok   example/gt   0.42s\n?   example/util   [no test files]" }) };
   const run = await runCodeTests("/r", { namespace: "qa-bot-gok" }, deps);
   assert.equal(run.verdict, "pass");
+});
+
+test("go test whose streamed output showed a passing package is a pass even when the kept logs show only packages without tests", async () => {
+  const project: CodeProject = { ecosystem: "go", install: null, test: { cmd: "go", args: ["test", "./..."] } };
+  const logs = "?   example/util   [no test files]";
+  const ran: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs, sawTests: true }) };
+  assert.equal((await runCodeTests("/r", { namespace: "qa-bot-gostream" }, ran)).verdict, "pass");
+  const didNot: CodeExecuteDeps = { detect: () => project, runTests: async () => ({ exitCode: 0, logs, sawTests: false }) };
+  assert.equal((await runCodeTests("/r", { namespace: "qa-bot-gonone" }, didNot)).verdict, "infra-error", "with no evidence anywhere the run really executed zero tests");
 });
 
 test("detects a Maven project with -B (not -q, so surefire summary stays visible)", () => {

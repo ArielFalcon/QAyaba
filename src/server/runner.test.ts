@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { JobQueue } from "./queue";
 import {
   enqueueTrackedRun,
+  enqueueContextMapRun,
   cancelTrackedRun,
   ONBOARDING_WAIT_MAX_MS,
   ONBOARDING_MIRROR_CEILING_MS,
@@ -15,6 +16,8 @@ import { AppConfig } from "../orchestrator/config-loader";
 import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
+import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
+import { getIncidents } from "./maintainer";
 
 const cfg = (name: string): AppConfig => ({
   name,
@@ -84,6 +87,77 @@ test("engineFactory supplied — routes to port.run", async () => {
   assert.equal(calls[0]?.mode, "diff");
   assert.equal(calls[0]?.target, "e2e");
   assert.equal(calls[0]?.source, "manual");
+});
+
+/* The engine's agent transport throws qa-engine's AgentTimeoutError when an agent call exceeds its
+   hard deadline, and nothing between RunQaUseCase and the runner wraps it. */
+test("an agent call that exceeded its deadline finalizes as infrastructure, not as an internal crash", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new AgentTimeoutError("generate: timed out after 900000ms");
+    },
+  };
+  const incidentsBefore = getIncidents().length;
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-agent-timeout", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
+    { loadApp: cfg, engineFactory: () => port },
+  );
+  await queue.drain();
+  const r = getRecord(id)!;
+  assert.equal(r.verdict, "infra-error");
+  assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
+  assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
+});
+
+/* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note, and
+   never a maintainer trigger (the incident summary is fed to the maintainer's model prompt, and the refusal names
+   paths the repository controls). */
+test("a run refused because the working copy's git dir is untrusted is finalized as a security refusal, not an internal crash, and opens no maintainer incident", async () => {
+  const queue = new JobQueue();
+  const port: RunPipelinePort = {
+    async run() {
+      throw new UntrustedGitTreeError("refusing to run git on /mirrors/org__app/sub/.git: it sits inside the submodule directory sub");
+    },
+  };
+  const incidentsBefore = getIncidents().length;
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
+  try {
+    const id = enqueueTrackedRun(
+      queue,
+      { app: "runner-untrusted-git-tree", sha: "abc1234", target: "code", mode: "diff", source: "webhook" },
+      { loadApp: cfg, engineFactory: () => port },
+    );
+    await queue.drain();
+    const r = getRecord(id)!;
+    assert.equal(r.status, "done");
+    assert.equal(r.verdict, "infra-error", "the run is inconclusive: no test ran");
+    assert.match(r.note ?? "", /security refusal/i);
+    assert.match(r.note ?? "", /org__app\/sub\/\.git/, "the operator is told which path was refused");
+    assert.doesNotMatch(r.note ?? "", /unexpected internal error|investigate/i);
+    assert.equal(getIncidents().length, incidentsBefore, "a refusal names repository-controlled paths and must never reach the maintainer's prompt");
+    assert.ok(errors.some((line) => /security refusal/i.test(line)), "the refusal is logged loudly");
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a context-map run is an e2e context-mode run at the given sha, from a manual source, never tied to a service repo", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort({ verdict: "pass" });
+  const id = enqueueContextMapRun(queue, "runner-context-map", "c0ffee1", { loadApp: cfg, engineFactory: () => port });
+  await queue.drain();
+  const [run] = calls;
+  assert.equal(getRecord(id)?.status, "done");
+  assert.equal(run?.app, "runner-context-map");
+  assert.equal(run?.sha.value, "c0ffee1");
+  assert.equal(run?.mode, "context");
+  assert.equal(run?.target, "e2e");
+  assert.equal(run?.source, "manual");
+  assert.equal(run?.triggerRepo, undefined, "context mode cannot be driven from a service repo");
 });
 
 test("PIPELINE_ENGINE=legacy (stale operator setting) — still routes through the rewritten engineFactory (accepted-but-ignored)", async () => {
@@ -459,7 +533,7 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.baseSha into port.run
     await queue.drain();
     assert.equal(getRecord(id)!.verdict, "pass");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run — this is the exact seam WS7.1 restores");
+    assert.equal(calls[0]!.baseSha?.value, "abc1234", "RunInput.baseSha must carry req.baseSha through to port.run");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
@@ -506,7 +580,7 @@ test("PIPELINE_ENGINE=rewritten — the runner threads req.parentRunId into port
     await queue.drain();
     assert.equal(getRecord(id)!.verdict, "pass");
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run — this is the exact seam Slice 5 restores");
+    assert.equal(calls[0]!.parentRunId, "prior-run-abc123", "RunInput.parentRunId must carry req.parentRunId through to port.run");
   } finally {
     if (prev === undefined) delete process.env.PIPELINE_ENGINE;
     else process.env.PIPELINE_ENGINE = prev;
@@ -1145,6 +1219,41 @@ test("cancelTrackedRun is a no-op on an already-terminal record", () => {
   updateRecord(rec.id, { status: "done", verdict: "pass" });
   assert.equal(cancelTrackedRun(queue, rec.id), false);
   assert.equal(getRecord(rec.id)?.verdict, "pass"); /* untouched, not overwritten to infra-error */
+});
+
+/* A cancelled run must END its live event stream: without a terminal event, a watching console
+   only learns the run is over by polling, and the stream of a run cancelled while enqueued has
+   nothing to replay at all. */
+for (const [branch, label] of [["live", "live run"], ["enqueued", "run still enqueued"], ["stale running", "stale running record"]] as const) {
+  test(`cancelling a ${label} ends its event stream with exactly one infra-error verdict`, async () => {
+    const queue = new JobQueue();
+    const runEvents = createRunEventStore();
+    const rec = createRecord({ app: `cancel-event-${branch.replace(" ", "-")}`, sha: "fff6666", target: "e2e", mode: "diff" });
+    if (branch !== "enqueued") updateRecord(rec.id, { status: "running" });
+    if (branch === "live") {
+      queue.enqueue(async (signal) => {
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      }, rec.id);
+      await new Promise((r) => setImmediate(r));
+    }
+    const seen: string[] = [];
+    runEvents.subscribe(rec.id, (e) => { if (e.body.type === "run.verdict") seen.push(e.body.verdict); });
+
+    cancelTrackedRun(queue, rec.id, { runEvents });
+    await queue.drain();
+
+    assert.deepEqual(seen, ["infra-error"], "a watcher already on the stream receives the terminal verdict");
+    const verdicts = runEvents.replay(rec.id).filter((e) => e.body.type === "run.verdict");
+    assert.equal(verdicts.length, 1, "a client connecting later replays exactly one verdict");
+  });
+}
+
+test("cancelling an already-finished run publishes nothing", () => {
+  const runEvents = createRunEventStore();
+  const rec = createRecord({ app: "cancel-event-done", sha: "fff7777", target: "e2e", mode: "diff" });
+  updateRecord(rec.id, { status: "done", verdict: "pass" });
+  cancelTrackedRun(new JobQueue(), rec.id, { runEvents });
+  assert.deepEqual(runEvents.replay(rec.id), []);
 });
 
 test("cancelTrackedRun returns false for an unknown run id", () => {

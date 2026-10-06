@@ -1,4 +1,4 @@
-/* FixLoop aggregate: selector check → adjudicate → regen → re-execute, with absentKeys short-circuit and a fewest-failures regression guard. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them; the generation adapter enforces them. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
+/* FixLoop aggregate: selector check → adjudicate → regen → re-execute, with absentKeys short-circuit and a fewest-failures regression guard. CycleBudget/WallClockBudget are forwarded unread into every generate() call — this aggregate neither ticks nor inspects them, and neither does the generation adapter: CycleBudget.ceiling is telemetry-only, and WallClockBudget.exhausted() is checked directly by run-qa.use-case.ts before each regen round, not by this aggregate or the generator. break-needs-human exits without setting realBugDetected; the caller labels the Issue. Filtered-retry scopes to failing specs only when change-coverage will not measure this run. */
 
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunMode } from "@kernel/run-mode.ts";
@@ -7,7 +7,7 @@ import type { CycleBudget } from "./cycle-budget.ts";
 import type { WallClockBudget } from "./wall-clock-budget.ts";
 import { adjudicate, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION } from "./adjudicate.service.ts";
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
-import { checkSpecSelectors, type SpecSelectorFindings } from "./helpers/selector-check.ts";
+import type { SpecSelectorFindings } from "./helpers/selector-check.ts";
 
 
 export interface FixLoopRun {
@@ -19,7 +19,7 @@ export interface FixLoopGenerateInput {
   fixCases: QaCase[];
   selectorContradictions?: string[];
   domSnapshot?: string;
-  /* CycleBudget/WallClockBudget are forwarded unread into generate() — this aggregate never ticks or inspects them; the generation adapter enforces them. */
+  /* CycleBudget/WallClockBudget are forwarded unread into generate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
   wallClockBudget: WallClockBudget;
 }
@@ -87,6 +87,13 @@ export interface FixLoopResult {
 
 const failCount = (r: FixLoopRun): number => r.cases.filter((c) => c.status === "fail").length;
 
+/* Suite-relative spec path in one canonical form: forward slashes, no leading "./". */
+function normalizeSpecPath(path: string): string {
+  let normalized = path.replace(/\\/g, "/");
+  while (normalized.startsWith("./")) normalized = normalized.slice(2);
+  return normalized;
+}
+
 function buildFailureDomLines(failureDom: string | undefined): string[] {
   if (!failureDom) return [];
   return failureDom.split("\n").filter((l) => l.trim());
@@ -103,9 +110,9 @@ export class FixLoop {
     let realBugDetected = false;
     let adjVerdict: AdjudicatorVerdict | undefined;
     let coverageNs = input.namespace;
-    let lastRegenResult: FixLoopGenerateResult | undefined = input.initialSpecSources?.length
-      ? { specs: [], approved: true, specSources: input.initialSpecSources }
-      : undefined;
+    /* Only what a later round reads from the previous regeneration. */
+    let lastRegenResult: Pick<FixLoopGenerateResult, "specSources" | "reexploreNavigations" | "specMetas"> | undefined =
+      input.initialSpecSources?.length ? { specSources: input.initialSpecSources } : undefined;
 
     const maxRetries = input.maxRetries;
 
@@ -124,10 +131,7 @@ export class FixLoop {
       const anyNonExtractableLocator = lever2.anyNonExtractable;
       const anyUnverifiableSelector = lever2.anyUnverifiable;
 
-      const lever2Flips =
-        prevRound && prevRound.absentSelectors.size > 0
-          ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length
-          : 0;
+      const lever2Flips = prevRound ? [...prevRound.absentSelectors].filter((k) => !absentKeys.has(k)).length : 0;
 
       const curRound: RoundResult = {
         failingNames: new Set(failed.map((c) => c.name)),
@@ -147,11 +151,13 @@ export class FixLoop {
 
       /* Fresh devHealthy() at this snapshot; a separate fresh call happens before retry-execute — never shared or memoized. */
       const devHealthyNow = input.isCode ? true : await input.devHealthy();
+      /* A missing detail reads as "" — any placeholder text would classify the same ("other", not infra). */
+      const failureDetails = failed.map((c) => c.detail ?? "");
       const evidence: AdjudicatorEvidence = {
         isCode: input.isCode,
         allUnique,
-        failureDetails: failed.map((c) => c.detail ?? ""),
-        failureClasses: failed.map((c) => classifyFailure(c.detail ?? "")),
+        failureDetails,
+        failureClasses: failureDetails.map((detail) => classifyFailure(detail)),
         absentKeysCount: absentKeys.size,
         gateSpend: gate.spend,
         gateReason: gate.reason,
@@ -165,25 +171,19 @@ export class FixLoop {
       const verdict = adjudicate(evidence);
       adjVerdict = verdict;
 
-      switch (verdict.action) {
-        case ADJ_ACTION.BREAK_ISSUE:
-          if (verdict.class === ADJ_CLASS.RUNNER_INFRA || verdict.class === ADJ_CLASS.DEV_INFRA) {
-            run = { verdict: "infra-error", cases: [] };
-          } else {
-            realBugDetected = true;
-          }
-          break;
-        case ADJ_ACTION.BREAK_NEEDS_HUMAN:
-          /* Exits via the guard below; adjVerdict is already set — the caller labels the Issue. */
-          break;
-        case ADJ_ACTION.CONTINUE:
-          break;
+      if (verdict.action === ADJ_ACTION.BREAK_ISSUE) {
+        if (verdict.class === ADJ_CLASS.RUNNER_INFRA || verdict.class === ADJ_CLASS.DEV_INFRA) {
+          run = { verdict: "infra-error", cases: [] };
+        } else {
+          realBugDetected = true;
+        }
       }
-      if (verdict.action !== ADJ_ACTION.CONTINUE) break; /* any break-* action */
+      /* Any break-* action ends the loop; for BREAK_NEEDS_HUMAN adjVerdict is already set — the caller labels the Issue. */
+      if (verdict.action !== ADJ_ACTION.CONTINUE) break;
 
       prevRound = curRound;
 
-      /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread — generation enforces them. */
+      /* Regeneration with review:skip. Cycle/wall-clock budgets are forwarded unread (see the header). */
       const result = await this.deps.generation.generate({
         fixCases: failed,
         ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),
@@ -223,14 +223,15 @@ export class FixLoop {
           ...new Set(run.cases.filter((c) => c.status === "fail" && c.file).map((c) => c.file as string)),
         ];
         const allFailedHaveFile = run.cases.filter((c) => c.status === "fail").every((c) => !!c.file);
-        const regenSpecBasenames = result.specs.map((s) => s.replace(/.*\//, "").replace(/.*\\/, ""));
-        const regenHasOverlap = regenSpecBasenames.some((b) =>
-          failedSpecFiles.some((f) => f === b || f.endsWith(`/${b}`) || f.endsWith(`\\${b}`)),
-        );
-        const regenHasOutsiders = regenSpecBasenames.some(
-          (b) => !failedSpecFiles.some((f) => f === b || f.endsWith(`/${b}`) || f.endsWith(`\\${b}`)),
-        );
-        const regenStayedInFailedSet = !(regenHasOverlap && regenHasOutsiders);
+        const failedSpecPaths = new Set(failedSpecFiles.map(normalizeSpecPath));
+        const regenHasOutsiders = result.specs.some((spec) => !failedSpecPaths.has(normalizeSpecPath(spec)));
+        /* Any regen spec outside the failing set means filtering execute() to the stale failing
+           set would never run the file the regen actually wrote — even when some regen specs
+           also overlap the failing set. Only "regen touched nothing but already-failing files"
+           is safe to filter. Paths are compared whole (suite-relative), never by file name: a
+           same-named spec in another folder is a different file, and any path that does not
+           name a failing file exactly re-runs everything (running more is always safe). */
+        const regenStayedInFailedSet = !regenHasOutsiders;
         const canFilter =
           allFailedHaveFile &&
           failedSpecFiles.length > 0 &&
@@ -247,16 +248,23 @@ export class FixLoop {
           break;
         }
 
-        if (canFilter) {
-          /* Carry forward cases from files not re-run; splice in the re-run's results. */
-          const rerunFileSet = new Set(failedSpecFiles);
-          const carriedForward = run.cases.filter((c) => !(c.file && rerunFileSet.has(c.file)));
+        /* A retry the runner could not complete (infra-error) is never merged: the run ends
+           inconclusive exactly as an unfiltered retry would, so a spec that never re-ran cannot
+           ride on the carried-forward passes into a green verdict. */
+        if (canFilter && retryRun.verdict !== "infra-error") {
+          /* Every file the retry reported (file-less cases count as one group) replaces its earlier
+             cases; every other file keeps its last result — including a re-run failing spec the
+             retry reported nothing for, whose last observed result is still its failure. */
+          const reportedFiles = new Set(retryRun.cases.map((c) => c.file));
+          const carriedForward = run.cases.filter((c) => !reportedFiles.has(c.file));
           const mergedCases = [...carriedForward, ...retryRun.cases];
-          const mergedVerdict: RunVerdict = mergedCases.some((c) => c.status === "fail")
-            ? "fail"
-            : mergedCases.some((c) => c.status === "flaky")
-              ? "flaky"
-              : "pass";
+          /* The merge is never greener than the runner's own verdict for the retry. */
+          const mergedVerdict: RunVerdict =
+            retryRun.verdict === "fail" || mergedCases.some((c) => c.status === "fail")
+              ? "fail"
+              : retryRun.verdict === "flaky" || mergedCases.some((c) => c.status === "flaky")
+                ? "flaky"
+                : "pass";
           run = { verdict: mergedVerdict, cases: mergedCases };
         } else {
           run = retryRun;
@@ -274,7 +282,11 @@ export class FixLoop {
     }
 
     /* Restore bestRunSoFar after the loop — skipped when the real-bug branch fired or the loop ended on infra-error. */
-    if (!realBugDetected && run.verdict !== "infra-error" && failCount(bestRunSoFar) < failCount(run)) {
+    if (
+      !realBugDetected &&
+      run.verdict !== "infra-error" &&
+      failCount(bestRunSoFar) < failCount(run)
+    ) {
       run = bestRunSoFar;
     }
 

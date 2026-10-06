@@ -159,8 +159,8 @@ test("assemble: an overflow='summarize' section over budget is truncated with a 
 });
 
 test("assemble: scaffold and verbatim sections coexist without modification", () => {
-  /* The assembler itself does NOT translate content (P4 is about the assembler tagging
-     sections, not transforming them). The test asserts the language tag is respected:
+  /* The assembler itself does NOT translate content (the assembler tags
+     sections, it does not transform them). The test asserts the language tag is respected:
      verbatim sections reach the output byte-for-byte (beyond cap), scaffold sections do too.
    */
   const verbatimContent = "Contenido de usuario: comprobar el formulario de registro";
@@ -249,7 +249,7 @@ test("section() helper accepts explicit overrides", () => {
   assert.equal(s.language, "verbatim");
 });
 
-test("assemble: a realistic multi-section prompt has canonical structure (P3 spec)", () => {
+test("assemble: a realistic multi-section prompt has canonical structure", () => {
   const sections: Section[] = [
     section("engram-rule", "stable-prefix", "engram: scoped per app", { priority: 10 }),
     section("playwright-rules", "stable-prefix", "## Working rules\nPrefer getByRole.", { priority: 5 }),
@@ -266,7 +266,6 @@ test("assemble: a realistic multi-section prompt has canonical structure (P3 spe
 
   const stableIdx = text.indexOf("Working rules");
   const archIdx = text.indexOf("Architecture context");
-  const diffIdx = text.indexOf("```diff");
   const domIdx = text.indexOf("Live DEV DOM");
   const correctionsIdx = text.indexOf("Reviewer corrections");
   const objectiveIdx = text.indexOf("## Objective");
@@ -345,7 +344,7 @@ test("assemble: overflow budget sheds the lowest-priority volatile section first
   assert.ok(!("low-pri-vol" in sectionSizes), "shed section must be absent from sectionSizes");
 
   /* The surviving sections + task + rules keep the total within budget.
-     D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion.
+     A shed-notice is appended after the budget check and is excluded from the budget assertion.
    */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
@@ -383,12 +382,12 @@ test("assemble: budget enforcement sheds volatile before semi-stable before task
   assert.ok(!("dom"  in sectionSizes), "shed volatile must be absent from sectionSizes");
   assert.ok(!("arch" in sectionSizes), "shed semi-stable must be absent from sectionSizes");
 
-  /* D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion. */
+  /* A shed-notice is appended after the budget check and is excluded from the budget assertion. */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
 });
 
-test("FIX 5: under a tight budget the Context Pack survives and the diff (TASK band) is shed FIRST", () => {
+test("under a tight budget the Context Pack survives and the diff (TASK band) is shed FIRST", () => {
   /* Mirrors buildPromptAssembled's real section setup: the pack is in the VOLATILE band for READING
      (near the task) but declares shedAs:"critical-recap" so it is least-shedable. The raw diff lives
      (unrecoverable DOM ground-truth) died while the recoverable diff survived. This asserts the EFFECT.
@@ -411,7 +410,7 @@ test("FIX 5: under a tight budget the Context Pack survives and the diff (TASK b
   assert.ok("context-pack" in sectionSizes, "pack must remain in sectionSizes");
   assert.ok(!text.includes(diffContent), "the diff (TASK band, recoverable via git show) must be shed FIRST");
   assert.ok(!("task" in sectionSizes), "the shed diff/task must be absent from sectionSizes");
-  /* D1+D2: a shed-notice is appended after the budget check and is excluded from the budget assertion. */
+  /* A shed-notice is appended after the budget check and is excluded from the budget assertion. */
   const textWithoutNotice = text.split("\n⚠ Budget:")[0]!;
   assert.ok(byteLen(textWithoutNotice) <= budgetBytes, `total without notice (${byteLen(textWithoutNotice)}) must be ≤ budget (${budgetBytes})`);
 });
@@ -421,7 +420,7 @@ test("FIX 5: under a tight budget the Context Pack survives and the diff (TASK b
    to be least-shedable — must still render in its VOLATILE position (after semi-stable, before task),
    NOT down in the critical-recap slot. This pins the invariant that shedAs is purely a shed-band hint.
  */
-test("FIX D: a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE position under a large budget", () => {
+test("a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE position under a large budget", () => {
   const sections: Section[] = [
     section("rules", "stable-prefix", "STABLE_SENTINEL"),
     section("arch", "semi-stable", "SEMI_SENTINEL"),
@@ -447,7 +446,7 @@ test("FIX D: a shedAs:'critical-recap' VOLATILE section renders in its VOLATILE 
   assert.ok(packIdx < recapIdx, "shedAs:'critical-recap' must not push the pack into the recap slot");
 });
 
-test("FIX 5: WITHOUT shedAs, a volatile section is still shed before the task (the old, unwanted behavior — control)", () => {
+test("WITHOUT shedAs, a volatile section is still shed before the task (the old, unwanted behavior — control)", () => {
   /* Control proving shedAs is what changes the outcome: an ordinary volatile section (no shedAs) sheds
      before the task, exactly the path that killed the pack before the fix.
    */
@@ -560,14 +559,14 @@ test("assemble: global budget shedding does not affect sectionSizes for survivin
   assert.ok(!("shed" in sectionSizes), "shed section must be absent from sectionSizes");
 });
 
-/* ── D1+D2: budget-shed notice injected into assembled output ─────────────────
+/* ── budget-shed notice injected into assembled output ─────────────────
    When the global budget enforcement drops one or more sections, a small notice is appended to
    the assembled text naming the dropped section ids so the agent knows to explore them directly.
    Regression contract: when NOTHING is dropped, output is unchanged (no notice, no empty header).
  */
 
-/* D1+D2-1: a forced over-budget drop produces the notice naming the dropped section id. */
-test("D1+D2: a forced budget-drop injects a notice naming the dropped section id", () => {
+/* A forced over-budget drop produces the notice naming the dropped section id. */
+test("a forced budget-drop injects a notice naming the dropped section id", () => {
   const SURVIVE = "SURVIVE_MARKER";
   const sections = [
     section("survive", "stable-prefix", SURVIVE, { priority: 1 }),
@@ -588,10 +587,10 @@ test("D1+D2: a forced budget-drop injects a notice naming the dropped section id
   assert.ok(text.includes(SURVIVE), "surviving content must still be present");
 });
 
-/* D1+D2-2: the notice must always survive — it must remain even when the budget is very tight.
+/* The notice must always survive — it must remain even when the budget is very tight.
    We verify it is present alongside the stable-prefix (which is the last to shed).
  */
-test("D1+D2: the shed notice survives even under extreme budget pressure", () => {
+test("the shed notice survives even under extreme budget pressure", () => {
   const stableContent = "R".repeat(50);
   const sections = [
     section("rules", "stable-prefix", stableContent, { priority: 1 }),
@@ -609,8 +608,8 @@ test("D1+D2: the shed notice survives even under extreme budget pressure", () =>
   assert.ok(hasNotice, "shed notice must be present under extreme budget pressure");
 });
 
-/* D1+D2-3 (regression): when NOTHING is dropped, the output is unchanged — no notice, no empty header. */
-test("D1+D2: no shed notice when nothing is dropped (regression: output unchanged)", () => {
+/* When NOTHING is dropped, the output is unchanged — no notice, no empty header. */
+test("no shed notice when nothing is dropped (regression: output unchanged)", () => {
   const content = "A".repeat(50);
   const sections = [
     section("task",  "task",          content),
@@ -627,8 +626,8 @@ test("D1+D2: no shed notice when nothing is dropped (regression: output unchange
   assert.ok(text.includes(content), "non-shed content must appear");
 });
 
-/* D1+D2-4 (regression): without a budgetBytes option (Phase-1 behaviour), the notice must never appear. */
-test("D1+D2: no shed notice without budgetBytes option (phase-1 behaviour unchanged)", () => {
+/* Without a budgetBytes option, the notice must never appear. */
+test("no shed notice without budgetBytes option (phase-1 behaviour unchanged)", () => {
   const sections = [
     section("task", "task", "TASK_CONTENT"),
     section("huge", "volatile", "H".repeat(1_000_000), { overflow: "drop" }),
@@ -640,4 +639,39 @@ test("D1+D2: no shed notice without budgetBytes option (phase-1 behaviour unchan
     /Budget.*omitted|omitted.*Budget/i,
     "no shed notice must appear when budgetBytes is not provided",
   );
+});
+
+/* Claims: builders declare what a section provides, frames or directs; the assembler reports only what survived. */
+test("assemble: claims of the surviving sections are reported by section id", () => {
+  const rulesClaims = [{ kind: "directs", action: "state-outcome" }] as const;
+  const domClaims = [{ kind: "provides", fact: "dom-live" }] as const;
+  const { claims } = assemble([
+    section("rules", "stable-prefix", "RULES", { claims: rulesClaims }),
+    section("dom", "volatile", "DOM", { claims: domClaims }),
+    section("plain", "task", "PLAIN"),
+  ]);
+  assert.deepEqual(claims, { rules: rulesClaims, dom: domClaims });
+});
+
+test("assemble: a section shed by the byte budget contributes no claims", () => {
+  const rulesClaims = [{ kind: "directs", action: "state-outcome" }] as const;
+  const domClaims = [{ kind: "provides", fact: "dom-live" }] as const;
+  const sections = [
+    section("rules", "stable-prefix", "RULES", { claims: rulesClaims }),
+    section("dom", "volatile", "D".repeat(400), { claims: domClaims }),
+  ];
+  const { claims, sectionSizes } = assemble(sections, { budgetBytes: 40 });
+  assert.equal(sectionSizes["dom"], undefined, "the volatile section was shed");
+  assert.deepEqual(claims, { rules: rulesClaims });
+});
+
+test("assemble: a section dropped for exceeding its own cap contributes no claims", () => {
+  const { claims } = assemble([
+    section("huge", "volatile", "H".repeat(500), {
+      maxBytes: 100,
+      overflow: "drop",
+      claims: [{ kind: "provides", fact: "dom-live" }],
+    }),
+  ]);
+  assert.deepEqual(claims, {});
 });

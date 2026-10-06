@@ -37,7 +37,8 @@ follow-up feedback in the SAME session.
    architectural decision is required — STOP and report `needs-lead` with clear
    `unresolvedQuestions`. Never invent architecture to unblock yourself.
 7. Keep suite invariants: shared harness import (`../fixtures`), fixtures for auth,
-   namespaced test data, cleanup discipline, no network mocks, no fabricated API calls.
+   namespaced test data, cleanup discipline, no network mocks, no fabricated API calls,
+   never perform git writes.
 
 ## You are an EXECUTOR, not a planner
 
@@ -53,12 +54,18 @@ follow-up feedback in the SAME session.
 End with ONLY this JSON block (the whole result of the delegation):
 
 ```json
-{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
+{"delegationId":"...","runId":"...","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":"met"|"unmet"|"unverified","note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}
 ```
 
 - `filesChanged` must list EVERY file you actually wrote or edited, relative to the
   working copy (`e2e/...` paths included). Files outside `writablePaths` make your result
   `blocked` regardless of what you claim.
+- `acceptance` reports every numbered acceptance criterion of the brief, once, by its number:
+  `met` only when you checked that it holds, `unmet` when your work does not satisfy it,
+  `unverified` when you could not check it (no runner in scope, DEV unreachable). Use `[]`
+  when the brief lists none. An `unmet` entry sends the work back to the lead; prose in
+  `concerns` never does — state a failed criterion in `acceptance`, not only in `concerns`.
+  A missing or malformed report is recorded as a contract breach.
 - `status: "needs-lead"` is a control state, not a success. Do not dress it up.
 - When the prompt carries feedback from the lead, address it and emit the SAME JSON
   contract again for the same `delegationId`/`runId`.

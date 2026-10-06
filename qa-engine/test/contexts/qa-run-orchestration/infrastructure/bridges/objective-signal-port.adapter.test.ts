@@ -68,7 +68,7 @@ test("measure() returns unknown+null when an assembler IS injected but diff is a
   assert.equal(result.ratio, null);
 });
 
-test("measure() short-circuits the collector's IO entirely when no assembly will happen (judgment-day: legacy keeps collection INSIDE the gated block, src/pipeline.ts:2912)", async () => {
+test("measure() short-circuits the collector's IO entirely when no assembly will happen (legacy keeps collection INSIDE the gated block)", async () => {
   let collectCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
   const decide = new DecideCoverageService();
@@ -162,6 +162,21 @@ test("measure() surfaces valueScore from the injected ValueOraclePort (the mutat
   const result = await adapter.measure(br, "/mirrors/org/app/e2e");
 
   assert.equal(result.valueScore, 0.85);
+  assert.equal(result.mutantCount, 20, "the oracle's real mutantCount must reach the caller, not be dropped on the floor");
+  assert.equal(result.killedCount, 17, "the oracle's real killedCount must reach the caller, not be dropped on the floor");
+});
+
+test("measure() surfaces a null mutantCount/killedCount from the injected ValueOraclePort as-is (distinct from 'ran and found zero')", async () => {
+  const collector = fakeCollector({ covered: [] });
+  const decide = new DecideCoverageService();
+  const oracle = fakeOracle({ valueScore: null, mutantCount: null, killedCount: null, details: "valueOracle is off" });
+  const adapter = new ObjectiveSignalPortAdapter({ collector, decide, oracle }, { policy: { mode: "signal", minRatio: 0.7 }, repoDir: "/mirrors/org/app" });
+
+  const br = BlastRadius.of(Sha.of("abc1234"), ["src/checkout.ts"]);
+  const result = await adapter.measure(br, "/mirrors/org/app/e2e");
+
+  assert.equal(result.mutantCount, null);
+  assert.equal(result.killedCount, null);
 });
 
 /* ── NAMESPACE FIX ────────────────────────────────────────────────────────────────────────────── */
@@ -364,8 +379,8 @@ test("blocks(): enforce+pass -> false", () => {
   assert.equal(adapter.blocks("pass"), false, "a pass status must never block");
 });
 
-/* P0-5: coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
-test("P0-5: measure() with policy.mode off skips collector and oracle", async () => {
+/* coveragePolicy.mode "off" must skip BOTH collector IO and the value oracle (YAML honesty). */
+test("measure() with policy.mode off skips collector and oracle", async () => {
   let collectCalls = 0;
   let oracleCalls = 0;
   const collector = fakeCollector({ covered: [{ file: "src/checkout.ts", lines: [1, 2] }] }, () => { collectCalls++; });
@@ -388,4 +403,6 @@ test("P0-5: measure() with policy.mode off skips collector and oracle", async ()
   assert.equal(result.status, "unknown");
   assert.equal(result.ratio, null);
   assert.equal(result.valueScore, undefined);
+  assert.equal(result.mutantCount, undefined, "the oracle never ran — mutantCount must be absent, never a fabricated 0 or null");
+  assert.equal(result.killedCount, undefined, "the oracle never ran — killedCount must be absent, never a fabricated 0 or null");
 });

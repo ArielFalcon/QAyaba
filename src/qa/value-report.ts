@@ -1,7 +1,7 @@
 
 
 import type { RunVerdict } from "../types";
-import type { ErrorClass } from "./learning/taxonomy";
+import { infraErrorGloss, type ErrorClass } from "./learning/taxonomy";
 
 /*
  * The deterministic gate signals a run produced — the raw material for both the compact
@@ -111,7 +111,8 @@ const verdictGloss: Record<RunVerdict, string> = {
   fail: "a real bug was found (engine succeeded → Issue)",
   flaky: "a case only passed on retry (quarantined)",
   invalid: "specs failed the static gate (never executed)",
-  "infra-error": "inconclusive — infrastructure fault, not a code bug",
+  /* An infra-error is worded by the class that closed it (see infraErrorGloss); this is only its fallback. */
+  "infra-error": infraErrorGloss(null),
   skipped: "no test-worthy change",
 };
 
@@ -146,7 +147,8 @@ export function renderRunReport(i: RunReportInput, opts: ReportOptions = {}): st
   const badge = vs.color(`${vs.glyph} ${i.verdict.toUpperCase()}`, on);
   const counts = `${i.passed} passed · ${i.failed} failed`;
   const shadowTag = i.shadow ? "  " + amber("SHADOW", on) + dim(" (preview — no PR/Issue)", on) : "";
-  L.push(`  ${bold(badge, on)}   ${dim(verdictGloss[i.verdict] + " · " + counts, on)}${shadowTag}`);
+  const gloss = i.verdict === "infra-error" ? infraErrorGloss(i.errorClass) : verdictGloss[i.verdict];
+  L.push(`  ${bold(badge, on)}   ${dim(gloss + " · " + counts, on)}${shadowTag}`);
 
   /* What it produced + the action it took / would take. */
   if (i.specCount > 0) {

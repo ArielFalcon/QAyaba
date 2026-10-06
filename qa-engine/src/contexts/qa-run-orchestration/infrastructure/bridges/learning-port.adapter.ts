@@ -2,7 +2,7 @@
 
 import type { Sha } from "@kernel/sha.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
-import type { LearningPort, RetrievedRule } from "../../application/ports/index.ts";
+import type { LearningPort, RetrievedRule, RelevanceBias } from "../../application/ports/index.ts";
 import type { LearningRepositoryPort, RuleStatus } from "@contexts/cross-run-learning/application/ports/index.ts";
 import { renderLearnedRules } from "./generation-port.adapter.ts";
 
@@ -10,15 +10,6 @@ const DEFAULT_RETRIEVE_LIMIT = 20;
 
 /* Char budget for the rendered learned-rules section that reaches the generator prompt. */
 export const DEFAULT_RULES_CHAR_BUDGET = 5000;
-
-/* Drop lowest-ranked (tail) rules until renderLearnedRules(...) fits maxChars. Whole-rule cuts only; measured against this render so usage matches what the generator will see. */
-function fitRulesToBudget(rules: readonly RetrievedRule[], maxChars: number): RetrievedRule[] {
-  let included = [...rules];
-  while (included.length > 0 && renderLearnedRules(included).length > maxChars) {
-    included = included.slice(0, -1); /* drop the lowest-ranked (last) rule and re-render */
-  }
-  return included;
-}
 
 /* RetrievedRule.status is narrowed to "active" | "candidate" (the only two statuses RuleGovernanceService.topRules ever returns — deprecated/superseded are filtered out before this point). A defensive fallback to "candidate" for any other value keeps this a total function without widening the port's own narrow union. */
 function toRetrievedStatus(status: RuleStatus): "active" | "candidate" {
@@ -45,18 +36,8 @@ export class LearningPortAdapter implements LearningPort {
     }
   }
 
-  async retrieve(sha: Sha): Promise<RetrievedRule[]> {
-    const rules = await this.repo.topRules(this.app, sha, this.limit);
-    const projected: RetrievedRule[] = rules.map((r) => ({
-      id: r.id,
-      trigger: r.trigger,
-      action: r.action,
-      errorClass: r.errorClass,
-      status: toRetrievedStatus(r.status),
-      confidence: r.confidence,
-    }));
-    /* Budget-fit BEFORE recording usage so usageCount reflects exactly what the generator will see. */
-    const fitted = fitRulesToBudget(projected, this.maxChars);
+  async retrieve(sha: Sha, relevance?: RelevanceBias): Promise<RetrievedRule[]> {
+    const fitted = await this.retrieveWithinBudget(sha, relevance);
     /* Increment usage on the budget-fitted set only. Isolated try/catch: a telemetry-write failure must never discard the already-successful retrieval (same off-path contract as fold()). */
     if (fitted.length > 0) {
       try {
@@ -66,5 +47,31 @@ export class LearningPortAdapter implements LearningPort {
       }
     }
     return fitted;
+  }
+
+  /*
+   * The largest retrieval whose rendered section fits maxChars, re-asked from governance at a
+   * smaller count until it fits. Trimming the tail of one oversized retrieval instead would cut the
+   * exploration slots governance reserves at the END for the freshest candidates, so a budget
+   * overflow by proven rules would silently stop candidate turnover. Re-asking keeps governance the
+   * single ranking truth: the result is exactly what it picks at the count that fits, reservation
+   * included. The slice guards the count even against a repository that returns more than asked.
+   */
+  private async retrieveWithinBudget(sha: Sha, relevance?: RelevanceBias): Promise<RetrievedRule[]> {
+    let limit = this.limit;
+    while (limit > 0) {
+      const rules = (await this.repo.topRules(this.app, sha, limit, relevance)).slice(0, limit);
+      const projected: RetrievedRule[] = rules.map((r) => ({
+        id: r.id,
+        trigger: r.trigger,
+        action: r.action,
+        errorClass: r.errorClass,
+        status: toRetrievedStatus(r.status),
+        confidence: r.confidence,
+      }));
+      if (renderLearnedRules(projected).length <= this.maxChars) return projected;
+      limit = projected.length - 1;
+    }
+    return [];
   }
 }

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createMaintainerRuntime, type MaintainerSideEffects, type MaintainerConfig } from "./maintainer-runtime";
 import { recordIncident, getIncident, getIncidents, getMaintainerStatus } from "./maintainer";
 import type { AgentDeps } from "../integrations/opencode-client";
+import { DEFAULT_CHANGE_LIMITS, PROTECTED_PATHS } from "./merge-guard";
 
 /* These are the FIRST tests of the self-deploy path — ARCH-01 extracted it from index.ts behind a DI
    factory precisely so the safety-layer SEQUENCING (open PR → justify → kill-switch → scope → rate →
@@ -34,9 +35,16 @@ function fixReply(): string {
   return `done.\n<!--MAINTAINER_SUMMARY ${JSON.stringify(j)} END_MAINTAINER_SUMMARY-->`;
 }
 
-function agentDeps(promptReturn: string): AgentDeps {
+function agentDeps(promptReturn: string, onPrompt?: (prompt: string) => void): AgentDeps {
   return {
-    open: async () => ({ id: "s1", prompt: async () => promptReturn, dispose: async () => {} }),
+    open: async () => ({
+      id: "s1",
+      prompt: async (prompt: string) => {
+        onPrompt?.(prompt);
+        return promptReturn;
+      },
+      dispose: async () => {},
+    }),
   };
 }
 
@@ -47,9 +55,10 @@ interface Spies {
   gateCmds: string[];
 }
 
-function harness(opts: { root: string; autonomous: boolean; promptReturn: string }) {
+function harness(opts: { root: string; autonomous: boolean; promptReturn: string; onPrompt?: (prompt: string) => void; gitCalls?: string[][] }) {
   const calls: Spies = { createPR: 0, performSwap: 0, exit: [], gateCmds: [] };
   const git = async (args: string[]): Promise<string> => {
+    opts.gitCalls?.push(args);
     if (args[0] === "status" && args[1] === "--porcelain") return " M src/foo.ts\n";
     if (args[0] === "diff" && args[1] === "--numstat") return "1\t0\tsrc/foo.ts\n"; /* 1 file/1 line, unprotected */
     return "";
@@ -81,7 +90,7 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
   };
   const cfg: MaintainerConfig = {
     queue: { drain: async () => {} },
-    getAgentDeps: () => agentDeps(opts.promptReturn),
+    getAgentDeps: () => agentDeps(opts.promptReturn, opts.onPrompt),
     setShuttingDown: () => {},
     root: opts.root,
     selfRepo: "Org/qayaba",
@@ -90,6 +99,65 @@ function harness(opts: { root: string; autonomous: boolean; promptReturn: string
   };
   return { runtime: createMaintainerRuntime(cfg, fx), calls };
 }
+
+/* The gate blocks a fix that touches any protected path, so the agent must be told every one of them
+   up front — a hand-maintained subset in the prompt lets it spend a whole fix on a file the gate will
+   refuse. */
+test("the maintainer agent is told every protected path before it writes a fix", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "protected-path prompt case" });
+  let prompt = "";
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), onPrompt: (p) => { prompt = p; } });
+
+  await runtime.triggerMaintainer();
+
+  for (const path of PROTECTED_PATHS) {
+    assert.ok(prompt.includes(path), `the maintainer prompt must name protected path ${path}`);
+  }
+});
+
+/* The working copy of this repository is written by the maintainer agent; a fetch that recursed into submodules would
+   enter checkouts the agent controls. */
+test("refreshing the existing working copy never fetches into submodules", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "fetch recursion case" });
+  const gitCalls: string[][] = [];
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), gitCalls });
+
+  await runtime.triggerMaintainer();
+
+  const fetches = gitCalls.filter((args) => args.includes("fetch"));
+  assert.ok(fetches.length > 0, "the existing working copy is refreshed with a fetch");
+  for (const fetch of fetches) assert.ok(fetch.includes("--no-recurse-submodules"), `git ${fetch.join(" ")} may recurse into submodules`);
+});
+
+/* The maintainer agent writes this repository's working copy in place, so the branch is created the way the engine
+   creates a publish branch: through the one adapter that keeps git from walking into a submodule the agent populated. */
+test("the fix branch is created with checkout -B through the publish adapter's quiet switch", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "branch creation case" });
+  const gitCalls: string[][] = [];
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), gitCalls });
+
+  await runtime.triggerMaintainer();
+
+  const branchCall = gitCalls.find((args) => args.includes("checkout") && args.includes("-B"));
+  assert.ok(branchCall, "the working copy is put on a fix branch");
+  assert.ok(branchCall.includes("-q"), `a switch that reports local changes walks into submodules: git ${branchCall.join(" ")}`);
+});
+
+/* The gate blocks a fix over the change-size limits, so the agent must be told the same limits. */
+test("the maintainer agent is told the change-size limits the gate enforces", async () => {
+  const root = freshRoot();
+  recordIncident({ source: "health-check", severity: "critical", summary: "change-limit prompt case" });
+  let prompt = "";
+  const { runtime } = harness({ root, autonomous: false, promptReturn: fixReply(), onPrompt: (p) => { prompt = p; } });
+
+  await runtime.triggerMaintainer();
+
+  assert.ok(prompt.includes(`${DEFAULT_CHANGE_LIMITS.maxFiles} files`), "the prompt must state the gate's file limit");
+  assert.ok(prompt.includes(`${DEFAULT_CHANGE_LIMITS.maxLines} changed lines`), "the prompt must state the gate's line limit");
+});
 
 /* THE kill-switch invariant: with SELF_MAINTAINER_AUTOMERGE off, a perfectly fixable incident still
    stops at an OPEN PR — it is never swapped into the running service and never exits to restart.

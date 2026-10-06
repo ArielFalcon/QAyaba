@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { QaCase } from "@kernel/qa-case.ts";
 
-/* G1 (addendum §2, HIGH): src/types.ts's QaCase carries `runtimeErrors` (feature B — app-defect
+/* src/types.ts's QaCase carries `runtimeErrors` (app-defect
    detection via browser console/page-error capture); the kernel QaCase did not, before this task.
    Any characterization scenario exercising Rule 2.6 (runtime-error -> app_defect) could not
    reproduce through the port -- a false-green surface INSIDE the safety net. This test asserts the

@@ -26,39 +26,46 @@ services:
       # entry beats the env_file (.env) value, so the host env controls the provider per boot;
       # empty/unset falls back to the key-based default (OPENCODE_API_KEY present -> opencode).
       AGENT_SINGLE_PROVIDER: ${AGENT_SINGLE_PROVIDER:-}
-      # Opt-in clone base for the local jhipster-store target. Defaults to github.com, so other
-      # apps clone normally UNLESS you boot with GIT_REMOTE_BASE=/app/local-repos set in the host
-      # env — then the orchestrator clones the bind-mounted jhipster-store for this probe session.
+      # Opt-in clone base for a local probe target (any onboarded app in config/apps/, mounted
+      # below). Defaults to github.com, so other apps clone normally UNLESS you boot with
+      # GIT_REMOTE_BASE=/app/local-repos set in the host env — then the orchestrator clones the
+      # bind-mounted local repo for this probe session.
       GIT_REMOTE_BASE: ${GIT_REMOTE_BASE:-https://github.com}
       # Test-login credentials forwarded to the e2e Playwright run (scrubEnv keeps /^DEV_/). An app
-      # that requires auth (jhipster-store) needs these, or the authenticate() fixture skips login
-      # and every entity-page test times out. Set per-probe in the host env, e.g.
-      # DEV_TEST_USER=admin DEV_TEST_PASS=admin (the JHipster default admin user).
+      # that requires auth needs these, or the authenticate() fixture skips login and every
+      # entity-page test times out. Set per-probe in the host env, e.g.
+      # DEV_TEST_USER=admin DEV_TEST_PASS=admin (adjust to the target app's own test credentials).
       DEV_TEST_USER: ${DEV_TEST_USER:-}
       DEV_TEST_PASS: ${DEV_TEST_PASS:-}
       # Planner (agent repo/live-app exploration) deadline. Default 240s (4min) is tight for a large
-      # SPA monorepo like jhipster-store where the agent explores the live app via Playwright-MCP;
-      # raised to 600s (10min) here so a slow-but-progressing exploration is not killed mid-flight.
+      # SPA monorepo where the agent explores the live app via Playwright-MCP; raised to 600s
+      # (10min) here so a slow-but-progressing exploration is not killed mid-flight.
       OPENCODE_PLANNER_TIMEOUT_MS: ${OPENCODE_PLANNER_TIMEOUT_MS:-600000}
       # Same-origin web console: mint a short-lived session so the operator does not paste
-      # QA_API_TOKEN. Off in production compose (published :8080 would otherwise be an open
-      # control plane). Override here for local `docker compose up`. Set false to force login.
+      # QA_API_TOKEN. Left unset (off) in production compose — layered with BIND_ADDR (the
+      # published port defaults to loopback-only, docker-compose.yml) and the /api/auth/local
+      # Host-header check (rejects DNS rebinding even when this flag is left on): no single layer
+      # is what keeps a published port from being an open control plane. Override here for local
+      # `docker compose up`. Set false to force login.
       QA_WEB_AUTO_LOGIN: ${QA_WEB_AUTO_LOGIN:-true}
     volumes:
       - ./src:/app/src
+      # Live src imports qa-engine via tsconfig paths. The image copy goes stale
+      # the moment src/ changes, and a recreate then fails to resolve @contexts/*.
+      - ./qa-engine:/app/qa-engine
+      - ./tsconfig.json:/app/tsconfig.json
       - ./package.json:/app/package.json
       - ./package-lock.json:/app/package-lock.json
-      # Local test target (config/apps/jhipster-store.yaml): the orchestrator clones this read-only
-      # from the in-container path. Only the orchestrator clones — the agents read the working copy
-      # from the shared `mirrors` volume, so they do NOT need this mount. Activate per-run with
-      # GIT_REMOTE_BASE=/app/local-repos so the clone source is /app/local-repos/jhipster-store
-      # (matches `repo: "jhipster-store"`). The webhook service keeps the default github.com base,
-      # so portfolio/petclinic cloning is untouched.
-      # Mount target ends in .git because repo-mirror clones ${GIT_REMOTE_BASE}/${repo}.git — so for
-      # repo "jhipster-store" the clone source resolves to /app/local-repos/jhipster-store.git.
-      - ../jhipster-store:/app/local-repos/jhipster-store.git:ro
-      # Live-serve the vanilla console from web/public (resolveDashboardDir falls back here when
-      # web/dist has no index.html). Without this mount, only the image's COPY of web/ is served.
+      # Local test target (config/apps/<app>.yaml): uncomment and set <app> to the app you're
+      # probing to bind-mount its sibling clone read-only into the in-container path. Only the
+      # orchestrator clones — the agents read the working copy from the shared `mirrors` volume,
+      # so they do NOT need this mount. Activate per-run with GIT_REMOTE_BASE=/app/local-repos so
+      # the clone source is /app/local-repos/<app> (matches that app's `repo:` value). The webhook
+      # service keeps the default github.com base, so other apps' cloning is untouched. Mount
+      # target ends in .git because repo-mirror clones ${GIT_REMOTE_BASE}/${repo}.git.
+      # - ../<app>:/app/local-repos/<app>.git:ro
+      # Live-serve the vanilla console from web/public (served as-is at /app, no build step), so
+      # edits show on reload. Without this mount, only the image's COPY of web/ is served.
       - ./web:/app/web
 
   # The agent navigates the DEV site through its Playwright MCP during generation, so it ALSO

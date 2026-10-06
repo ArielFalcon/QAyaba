@@ -4,6 +4,7 @@
 
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { qayabaRoot } from "../paths";
 
 const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
 
@@ -12,7 +13,7 @@ export interface EnvStoreFs {
   write(content: string): void;
 }
 
-export function defaultEnvStoreFs(envPath = join(process.env.QAYABA_ROOT ?? process.cwd(), ".env")): EnvStoreFs {
+export function defaultEnvStoreFs(envPath = join(qayabaRoot(), ".env")): EnvStoreFs {
   return {
     read: () => (existsSync(envPath) ? readFileSync(envPath, "utf8") : null),
     write: (c) => {

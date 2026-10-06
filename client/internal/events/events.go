@@ -88,9 +88,13 @@ type CoverageComputed struct {
 
 type RunVerdict struct {
 	Verdict string `json:"verdict"`
-	Passed  int    `json:"passed"`
-	Failed  int    `json:"failed"`
-	Outcome string `json:"outcome"` /* what the run produced — "suite PR merged · <url>", "Issue filed · <url>" */
+	/* success = the engine produced a trustworthy result and acted; error = it could not run or
+	   could not produce runnable tests. Distinct from Verdict — a fail (real bug) is
+	   engineStatus=success (src/contract/events.ts). Required on the wire. */
+	EngineStatus string `json:"engineStatus"`
+	Passed       int    `json:"passed"`
+	Failed       int    `json:"failed"`
+	Outcome      string `json:"outcome"` /* what the run produced — "suite PR merged · <url>", "Issue filed · <url>" */
 }
 
 type AgentError struct {

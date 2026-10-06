@@ -1,3 +1,4 @@
+import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent";
 import type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent } from "../integrations/opencode-client";
 import type { LiveActivity } from "../integrations/opencode-client";
 import type { UsageSnapshot } from "../qa/usage";
@@ -94,20 +95,35 @@ export interface AgentFacade {
   ): Promise<void>;
 }
 
-const LEGACY_AGENT_TO_ROLE: Record<string, AgentRole> = {
-  "qa-generator": "primary",
-  "qa-reviewer": "reviewer",
-  "qa-assistant": "chat",
-  "qa-worker": "worker",
-  "qa-worker-code": "workerCode",
-  "qa-maintainer": "maintainer",
-  "qa-reflector": "reflector",
-  "qa-explorer": "explorer",
-  "qa-proposer": "proposer",
+/*
+ * The one role -> agent-name table. An agent name is the key of `agent` in agents/opencode.json and
+ * the stem of agent/roles/<name>.md. Every forward lookup and the reverse lookup read from here, so
+ * a role cannot compile without a name and a name always resolves back to its own role.
+ */
+export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
+  primary: "qa-generator",
+  reviewer: "qa-reviewer",
+  chat: "qa-assistant",
+  worker: "qa-worker",
+  workerCode: "qa-worker-code",
+  sidekick: "qa-sidekick",
+  maintainer: "qa-maintainer",
+  reflector: "qa-reflector",
+  explorer: EXPLORER_AGENT_NAME,
+  proposer: "qa-proposer",
 };
 
+const ROLE_FOR_AGENT_NAME: ReadonlyMap<string, AgentRole> = new Map(
+  (Object.entries(AGENT_NAME_FOR_ROLE) as Array<[AgentRole, string]>).map(([role, name]) => [name, role]),
+);
+
+/* An agent name no role maps to is a wiring error; running it under another role would hand it that role's tools and prompt. */
 export function roleForLegacyAgent(agent: string): AgentRole {
-  return LEGACY_AGENT_TO_ROLE[agent] ?? "primary";
+  const role = ROLE_FOR_AGENT_NAME.get(agent);
+  if (role === undefined) {
+    throw new Error(`Unknown agent "${agent}": no role maps to it (known agents: ${[...ROLE_FOR_AGENT_NAME.keys()].join(", ")})`);
+  }
+  return role;
 }
 
 export function assignmentForRole(config: AgentRuntimeConfig, role: AgentRole): RoleAssignment {

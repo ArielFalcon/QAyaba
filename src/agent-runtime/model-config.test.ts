@@ -98,7 +98,7 @@ test("reviewer differs from primary for EVERY provider (independent judgment gua
    that removes or renames a model automatically breaks this test — hardcoded IDs would silently
    miss drift.
  */
-test("codex reviewer model id is present in the CODEX_MODELS catalog (AC0.2.2)", () => {
+test("codex reviewer model id is present in the CODEX_MODELS catalog", () => {
   const catalogIds = new Set(CODEX_MODELS.map((m) => m.id));
   const cfg = singleProviderConfig("codex", {});
   assert.ok(

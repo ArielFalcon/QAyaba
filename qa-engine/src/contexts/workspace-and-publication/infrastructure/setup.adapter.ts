@@ -3,19 +3,66 @@ import { createHash } from "node:crypto";
 import { existsSync, cpSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { E2E_AUTH_FILE, type E2eAuthConfig } from "../../../shared-kernel/e2e-auth.ts";
+import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 
 export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
 
+/* The install runs the repo's own lifecycle scripts, which can write without limit; nothing reads its output beyond the exit status, so only a small newest tail is kept. */
+const E2E_INSTALL_OUTPUT_KEEP_CHARS = 16_000;
+
 export const FAILURE_CAPTURE_MARKER = ">>> qa-failure-capture (system-owned: do not edit) >>>";
 
-export const PLAYWRIGHT_CONFIG_SEED_MARKER = "qa-playwright-config-seed";
+const FAILURE_CAPTURE_END_MARKER = "// <<< qa-failure-capture <<<\n";
 
-const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute"] as const;
+/*
+ * sha256 of every earlier capture block a repo's fixtures.ts received — appended by setup or carried
+ * by the seed's fixtures.ts (the whole block, from the newline before its opening marker through its
+ * closing marker line). A block that still byte-matches one is upgraded in place; an edited block is
+ * left as-is. Add the outgoing block's hash whenever FAILURE_CAPTURE_BLOCK changes.
+ */
+const EARLIER_FAILURE_CAPTURE_BLOCKS: ReadonlySet<string> = new Set([
+  "0665bc90120cf1f2da387182d638f279cafb27d3c36850523a26164b69e57569",
+  "4bc9fb09d3b999d50291acce880217b2aeb00cbe45cfdccf4b24598b999458a4",
+  "3ebe14ac5cdf1b445c37db2acf6cbf53f1f02057b3e58f0076a46c7bd6a32a3c",
+  "aaaec869a29d0d5066cb7cb9ab89c829bae7b04797a9e0e5372fef24de034550",
+  "607112cee45f4edf134ecefa660e815f6e40dfce2b9a0f19184f4e5372d935b1",
+  "9490d34eb64c08551d6c9ac3dee476d21d5f227c5631e5b7af0155d4d4241569",
+]);
+
+/*
+ * The one capture block revision appended without its markers, known by its first line, its length
+ * and its sha256. A repo holding it byte-for-byte gets the current block in its place; appending
+ * beside any copy of it would redeclare its variables, so an edited copy is left as it is and nothing
+ * is appended.
+ */
+const UNMARKED_FAILURE_CAPTURE_BLOCK = {
+  firstLine: "\nlet errorResponses = [];\n",
+  length: 3473,
+  sha256: "65d0916709e4b89b743a151d4b001bfdabdef20d8f0180b0ea3af3e52ac5e85a",
+} as const;
+
+/*
+ * sha256 of every playwright.config.ts seed revision shipped into watched repos, the current one
+ * included. A repo copy that byte-matches one is stock and follows the current seed; any other copy
+ * is the repo's own. Add the new hash whenever config/e2e/playwright.config.ts changes.
+ */
+const PLAYWRIGHT_CONFIG_SEED_REVISIONS: ReadonlySet<string> = new Set([
+  "c59f2f5ca105b676c11538ee7a70bd624ca34c5a56d025cbcbe16e3b6d0ab8f6",
+  "6ee7f15fd63364d4626877075c3782a425f1e29e22fa14a1709ca87aaaeb64be",
+  "d665eb1d95e06d917b9ffbce2486f07b1ee12f5f73dc98400393cf6ca621d7ca",
+  "35254a3ed113dd097aec01997cd864545fd2c222227f0841a3264c9978ae779a",
+]);
+
+const PLAYWRIGHT_CONFIG_MANAGED_KEYS = ["actionTimeout", "testIdAttribute", "storageState", "PW_AUTH_SETUP"] as const;
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
 
 export const FAILURE_CAPTURE_BLOCK = `
-// ${FAILURE_CAPTURE_MARKER}
+// >>> qa-failure-capture (system-owned: do not edit) >>>
 // Captures the aria snapshot of the page at the failure point, the page's final URL, and the HTTP
 // status of the most-recent correlated 5xx server error, writing them to QA_FAILURE_CAPTURE_DIR so
 // the orchestrator can ground the fix-loop regeneration and surface runtime evidence to the adjudicator
@@ -27,17 +74,17 @@ export const FAILURE_CAPTURE_BLOCK = `
 // node:fs/path/crypto are pulled in via dynamic import() INSIDE the async afterEach —
 // a CommonJS-style synchronous load is not defined in this native-ESM module
 // ("type":"module") and would throw a ReferenceError that the catch would swallow.
-let errorResponses = [];
-// Feature B (app-defect detection): browser console \`error\`-level entries and uncaught \`pageerror\`
+let errorResponses: { url: string; status: number; resourceType: string }[] = [];
+// App-defect detection: browser console \`error\`-level entries and uncaught \`pageerror\`
 // exceptions observed during the current test. Reset per-test (mirrors errorResponses) so a reused
 // page never cross-attributes a PRIOR test's runtime errors to the current one. Best-effort: the
-// orchestrator's classifyRuntimeErrors (src/qa/failure-adjudicator.ts) turns this into a diagnostic
-// signal ONLY — it never blocks or masks a real generated-test defect (see that module's doc).
-let runtimeErrors = [];
+// orchestrator's runtime-error classifier turns this into a diagnostic signal ONLY — it never
+// blocks or masks a real generated-test defect.
+let runtimeErrors: { type: string; text: string }[] = [];
 test.beforeEach(async ({ page }) => {
   if (!process.env.QA_FAILURE_CAPTURE_DIR) return; // no-op when capture is disabled (zero overhead)
   errorResponses = [];                               // reset unconditionally so reused pages never cross-attribute
-  runtimeErrors = [];                                 // Feature B: same per-test reset discipline
+  runtimeErrors = [];                                 // same per-test reset discipline
   try {
     page.on('response', (r) => {
       try { const s = r.status(); if (s >= 400) errorResponses.push({ url: r.url(), status: s, resourceType: r.request().resourceType() }); } catch {}
@@ -82,13 +129,13 @@ test.afterEach(async ({ page }, testInfo) => {
     // title); the filename only guarantees uniqueness + retry.
     const hash = createHash("sha1").update(\`\${file}/\${title}\`).digest("hex").slice(0, 12);
     const safeProject = project.replace(/[^a-z0-9]+/gi, "-").slice(0, 40);
-    // D1/D2: compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
-    // via the D2 heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
+    // Compute finalUrl (sync, always available in afterEach) and the attributed httpStatus
+    // via the attribution heuristic (5xx-only, resource-type-gated, same-origin correlated, last).
     // (Path-family intentionally omitted: in a SPA the finalUrl is the UI route (e.g. /orders) while
     // the causing 5xx is the API call (e.g. /api/orders) — different path segments — so path-family
     // would drop legitimate API 5xxs; same-origin is the correct, not-too-tight correlation.)
     const finalUrl = page.url();
-    let httpStatus = undefined;
+    let httpStatus: number | undefined;
     try {
       let finalUrlOrigin = '';
       try { finalUrlOrigin = new URL(finalUrl).origin; } catch {}
@@ -103,19 +150,19 @@ test.afterEach(async ({ page }, testInfo) => {
           return eOrigin === finalUrlOrigin;                  // same-origin correlation
         } catch { return false; }
       });
-      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1].status; // last survivor
+      if (survivors.length > 0) httpStatus = survivors[survivors.length - 1]!.status; // last survivor
     } catch {}
-    // Feature B: dedupe (same type+text pair collapses to one entry — a repeated framework error
+    // Runtime errors: dedupe (same type+text pair collapses to one entry — a repeated framework error
     // firing on every change-detection cycle would otherwise flood the dump), cap at ~15 entries
     // (the orchestrator only needs enough to classify, not an exhaustive log), and truncate each
     // entry's text to ~200 chars (the classifier only needs the first line/signature, not a full
     // stack). Best-effort: any failure here still lets the rest of the dump (yaml/finalUrl/httpStatus)
     // write normally.
-    let dedupedRuntimeErrors = [];
+    let dedupedRuntimeErrors: { type: string; text: string }[] = [];
     try {
       const RUNTIME_ERRORS_CAP = 15;
       const RUNTIME_ERROR_TEXT_CAP = 200;
-      const seen = new Set();
+      const seen = new Set<string>();
       for (const e of runtimeErrors) {
         const text = e.text.length > RUNTIME_ERROR_TEXT_CAP ? e.text.slice(0, RUNTIME_ERROR_TEXT_CAP) : e.text;
         const key = \`\${e.type} \${text}\`;
@@ -176,6 +223,8 @@ export class SetupAdapter {
     if (!this.hasProject(e2eDir)) this.bootstrap(e2eDir);
     this.ensureSpecDir(e2eDir);
     this.ensureFailureCapture(e2eDir);
+    this.ensureAuthSetup(e2eDir);
+    this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
     this.ensureAuthConfig(e2eDir);
     if (this.isInstallCurrent(e2eDir)) {
@@ -213,30 +262,95 @@ export class SetupAdapter {
     this.deps.fs.mkdir(join(e2eDir, "flows"));
   }
 
+  /**
+   * Appends the failure-capture block to a repo's fixtures.ts that has none, and upgrades in place a
+   * block that is still byte-for-byte an earlier appended revision. Every other line — and a block
+   * someone edited — is left as-is.
+   */
   ensureFailureCapture(e2eDir: string): void {
     const path = join(e2eDir, "fixtures.ts");
     if (!this.deps.fs.exists(path)) return;
     const src = this.deps.fs.read(path);
-    if (src.includes(FAILURE_CAPTURE_MARKER)) return;
-    this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+    const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
+    if (start === -1) {
+      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.addCaptureBlock(path, src);
+      return;
+    }
+    const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
+    if (endMarker === -1) return;
+    const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
+    if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return;
+    this.deps.fs.write(path, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
   }
 
+  /* Appends the block to a fixtures.ts that has none, or puts it in place of the block appended without markers. */
+  private addCaptureBlock(path: string, src: string): void {
+    const { firstLine, length, sha256: unmarkedHash } = UNMARKED_FAILURE_CAPTURE_BLOCK;
+    const at = src.indexOf(firstLine);
+    if (at === -1) {
+      this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+      return;
+    }
+    if (sha256(src.slice(at, at + length)) !== unmarkedHash) return;
+    this.deps.fs.write(path, src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length));
+  }
+
+  /** Keeps the Playwright session directory out of the suite PR. Idempotent. */
+  ensureSessionGitignore(e2eDir: string): void {
+    const path = join(e2eDir, ".gitignore");
+    const line = ".auth/";
+    if (!this.deps.fs.exists(path)) {
+      this.deps.fs.write(path, `${line}\n`);
+      return;
+    }
+    const src = this.deps.fs.read(path);
+    if (src.split("\n").some((entry) => entry.trim() === line)) return;
+    this.deps.fs.append(path, src.endsWith("\n") || src.length === 0 ? `${line}\n` : `\n${line}\n`);
+  }
+
+  /**
+   * Copies the current login seed when the repo has none, and replaces a stock copy (byte-for-byte a
+   * shipped seed revision). A login rewritten for the app is the repo's own and is left as-is.
+   */
+  ensureAuthSetup(e2eDir: string): void {
+    const src = join(this.deps.seedDir, "auth.setup.ts");
+    if (!this.deps.fs.exists(src)) return;
+    const dest = join(e2eDir, "auth.setup.ts");
+    if (!this.deps.fs.exists(dest)) {
+      this.deps.fs.cp(src, dest);
+      return;
+    }
+    const existing = this.deps.fs.read(dest);
+    if (isStockAuthSetup(existing)) this.followSeed("auth.setup.ts", dest, existing);
+  }
+
+  /**
+   * Replaces a stock e2e/playwright.config.ts (byte-for-byte a shipped seed revision) with the
+   * current seed. Any other config is the repo's own and is never overwritten; one that lacks a
+   * managed env-passthrough key gets a warning naming it.
+   */
   ensurePlaywrightEnvKeys(e2eDir: string): void {
     const path = join(e2eDir, "playwright.config.ts");
     if (!this.deps.fs.exists(path)) return;
     const src = this.deps.fs.read(path);
-    const hasAllManagedKeys = PLAYWRIGHT_CONFIG_MANAGED_KEYS.every((key) => src.includes(key));
-    if (hasAllManagedKeys) return;
-    if (!src.includes(PLAYWRIGHT_CONFIG_SEED_MARKER)) {
-      const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
-      console.warn(
-        `[qa] ${path} is missing managed env-passthrough key(s) [${missing.join(", ")}] but carries no ` +
-          `seed ownership marker — the config has been customized (or predates the marker), so it will ` +
-          `NOT be overwritten. Add the missing key(s) manually if this repo wants them.`,
-      );
+    if (PLAYWRIGHT_CONFIG_SEED_REVISIONS.has(sha256(src))) {
+      this.followSeed("playwright.config.ts", path, src);
       return;
     }
-    this.deps.fs.cp(join(this.deps.seedDir, "playwright.config.ts"), path);
+    const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
+    if (missing.length === 0) return;
+    console.warn(
+      `[qa] ${path} is missing managed env-passthrough key(s) [${missing.join(", ")}] and is not a ` +
+        `shipped seed revision — the repo owns it, so it will NOT be overwritten. Add the missing ` +
+        `key(s) manually if this repo wants them.`,
+    );
+  }
+
+  /* Copies the current seed `name` over the stock copy at `dest` unless it already is the current seed. */
+  private followSeed(name: string, dest: string, stockCopy: string): void {
+    const seed = join(this.deps.seedDir, name);
+    if (!this.deps.fs.exists(seed) || this.deps.fs.read(seed) === stockCopy) return;
+    this.deps.fs.cp(seed, dest);
   }
 
   /* Written every run from the app config, so the working copy never carries a stale login declaration; the file is gitignored by the seed and excluded from publication. */
@@ -286,6 +400,7 @@ export class SetupAdapter {
       cwd: e2eDir,
       env: scrubEnv({ extraAllowed: /^DEV_/ }),
       timeoutMs,
+      outputKeepChars: E2E_INSTALL_OUTPUT_KEEP_CHARS,
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
     if (result.timedOut) {

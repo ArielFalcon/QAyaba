@@ -30,6 +30,28 @@ test("enumerateExistingSpecFiles: finds *.spec.ts files recursively, relative to
   }
 });
 
+test("enumerateExistingSpecFiles: installed packages and dot-directories are not the suite's specs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-skip-"));
+  try {
+    mkdirSync(join(dir, "node_modules", "pkg"), { recursive: true });
+    mkdirSync(join(dir, "flows", "node_modules", "nested"), { recursive: true });
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    mkdirSync(join(dir, ".auth"), { recursive: true });
+    writeFileSync(join(dir, "node_modules", "pkg", "vendored.spec.ts"), "// vendored");
+    writeFileSync(join(dir, "flows", "node_modules", "nested", "deep.spec.ts"), "// vendored");
+    writeFileSync(join(dir, ".qa", "hidden.spec.ts"), "// hidden");
+    writeFileSync(join(dir, ".auth", "session.spec.ts"), "// hidden");
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(dir, ".root-dotfile.spec.ts"), "// a file, not a directory");
+
+    const found = enumerateExistingSpecFiles(dir).sort();
+
+    assert.deepEqual(found, [".root-dotfile.spec.ts", "flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("enumerateExistingSpecFiles: a missing directory yields [] (graceful, never throws)", () => {
   const found = enumerateExistingSpecFiles("/nonexistent/path/for/sure/qa-grounding-test");
   assert.deepEqual(found, []);
@@ -52,7 +74,7 @@ test("ground(): existingSpecFiles is populated from the real filesystem enumerat
     writeFileSync(join(dir, "existing.spec.ts"), "// spec");
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -83,7 +105,7 @@ test("ground(): existingSpecFiles is enriched with flow/objective from e2e/.qa/m
     );
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -107,7 +129,7 @@ test("ground(): existingSpecFiles stays a PLAIN filename when no manifest entry 
     );
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -123,7 +145,7 @@ test("ground(): an empty e2eDir omits existingSpecFiles entirely (never a fabric
   try {
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -141,7 +163,7 @@ test("ground(): contextPack is populated from the injected buildContextPack resu
     {
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: "## Context Pack\n\nsome content", blastRadiusBytes: 0, domBytes: 10, contractBytes: 0 };
+        return { text: "## Context Pack\n\nsome content", domBytes: 10, contractBytes: 0 };
       },
     },
   );
@@ -176,7 +198,7 @@ test("ground(): routes input is populated deterministically from contextMap.rout
     {
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: "## Context Pack\n\nsome content", blastRadiusBytes: 0, domBytes: 10, contractBytes: 0 };
+        return { text: "## Context Pack\n\nsome content", domBytes: 10, contractBytes: 0 };
       },
     },
   );
@@ -194,7 +216,7 @@ test("ground(): routes input is absent when contextMap has no routes (never fabr
     {
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
       },
     },
   );
@@ -231,7 +253,7 @@ test("ground(): a committed valid e2e/.qa/context.json on the mirror populates c
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -257,7 +279,7 @@ test("ground(): a per-run contextMap read overrides a stale static ctx.contextMa
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -280,7 +302,7 @@ test("ground(): a missing e2e/.qa/context.json degrades to contextMap absent —
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -314,7 +336,7 @@ test("ground(): an invalid e2e/.qa/context.json (dangling feBe link) degrades to
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -339,7 +361,7 @@ test("ground(): malformed JSON in e2e/.qa/context.json degrades to contextMap ab
       {
         buildContextPack: async (input) => {
           capturedInputs.push(input);
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -362,7 +384,7 @@ test("ground(): an injected loadContextMap collaborator overrides the real disk-
       loadContextMap: () => injected,
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
       },
     },
   );
@@ -381,7 +403,7 @@ test("ground(): a throwing loadContextMap collaborator is non-fatal — degrades
       loadContextMap: () => { throw new Error("disk read exploded"); },
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
       },
     },
   );
@@ -393,7 +415,7 @@ test("ground(): a throwing loadContextMap collaborator is non-fatal — degrades
   assert.equal(result.contextPack, undefined);
 });
 
-/* T4: GroundingResult must carry the per-run contextMap object (not only feed it to
+/* GroundingResult must carry the per-run contextMap object (not only feed it to
    buildContextPack) so RunQaUseCase can thread it onto GenerationEnrichment → OpencodeRunInput.
  */
 test("ground(): returned GroundingResult includes contextMap when a valid context.json exists", async () => {
@@ -403,7 +425,7 @@ test("ground(): returned GroundingResult includes contextMap when a valid contex
     writeFileSync(join(dir, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground(dir);
@@ -421,7 +443,7 @@ test("ground(): returned GroundingResult omits contextMap when context.json is m
   try {
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: dir },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground(dir);
@@ -448,7 +470,7 @@ test("ground(): returned GroundingResult omits contextMap for malformed JSON and
         feBe: [{ route: "/owners", operationId: "ghost-op-not-declared-in-api" }],
       }),
     );
-    const noopPack = { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) };
+    const noopPack = { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) };
 
     const malformed = await new PreGenerationGroundingPortAdapter({ e2eDir: malformedDir }, noopPack).ground(malformedDir);
     const invalid = await new PreGenerationGroundingPortAdapter({ e2eDir: invalidDir }, noopPack).ground(invalidDir);
@@ -469,7 +491,7 @@ test("ground(): sequential calls with different specDirs do not leak contextMap"
     writeFileSync(join(withMap, ".qa", "context.json"), JSON.stringify(VALID_CONTEXT_JSON));
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: withMap },
-      { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
     );
 
     const first = await adapter.ground(withMap);
@@ -497,7 +519,7 @@ test("ground(): a diff arg derives changedElements and forwards them to buildCon
     {
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
       },
     },
   );
@@ -522,7 +544,7 @@ test("ground(): an absent diff arg leaves changedElements absent (byte-identical
     {
       buildContextPack: async (input) => {
         capturedInputs.push(input);
-        return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
       },
     },
   );
@@ -536,7 +558,7 @@ test("ground(): an absent diff arg leaves changedElements absent (byte-identical
 test("ground(): buildContextPack returning an empty pack (text: undefined) omits contextPack", async () => {
   const adapter = new PreGenerationGroundingPortAdapter(
     { e2eDir: "/mirrors/org/app/e2e" },
-    { buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+    { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
   );
 
   const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -565,7 +587,7 @@ test("ground(): existingSpecFiles enumeration failure is non-fatal — contextPa
   try {
     const adapter = new PreGenerationGroundingPortAdapter(
       { e2eDir: filePath },
-      { buildContextPack: async () => ({ text: "## Context Pack\n\nok", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }) },
+      { buildContextPack: async () => ({ text: "## Context Pack\n\nok", domBytes: 0, contractBytes: 0 }) },
     );
 
     const result = await adapter.ground("/tmp/qa-golden/e2e");
@@ -592,7 +614,7 @@ test("ground(): an already-aborted signal skips capture entirely — resolves {}
   let called = false;
   const adapter = new PreGenerationGroundingPortAdapter(
     { e2eDir: "/mirrors/org/app/e2e" },
-    { buildContextPack: async () => { called = true; return { text: "should not be reached", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }; } },
+    { buildContextPack: async () => { called = true; return { text: "should not be reached", domBytes: 0, contractBytes: 0 }; } },
   );
   const controller = new AbortController();
   controller.abort();
@@ -620,7 +642,7 @@ test("ground(): an in-flight abort unblocks the caller promptly, even when build
   assert.equal(result.contextPack, undefined);
 });
 
-test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as brief", async () => {
+test("exploreBrief collaborator result is forwarded to buildContextPack as brief", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-"));
   try {
     const brief = { builtForSha: "abc1234", objective: "checkout", blastRadius: [{ symbol: "Pay", file: "pay.ts", role: "charges" }] };
@@ -635,7 +657,7 @@ test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as
         },
       },
     );
-    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n");
+    const result = await adapter.ground(dir, undefined, "diff --git a/pay.ts b/pay.ts\n", { sha: "abc1234" });
     assert.equal(seenBrief, brief);
     assert.deepEqual(result.contextBrief, brief, "explorer brief must also reach GroundingResult.contextBrief for generate()");
   } finally {
@@ -643,7 +665,7 @@ test("P0-3: exploreBrief collaborator result is forwarded to buildContextPack as
   }
 });
 
-test("P0-3: exploreBrief throw is fail-open — pack still builds without a brief", async () => {
+test("exploreBrief throw is fail-open — pack still builds without a brief", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-fail-"));
   try {
     let seenBrief: unknown = "unset";
@@ -653,13 +675,31 @@ test("P0-3: exploreBrief throw is fail-open — pack still builds without a brie
         exploreBrief: async () => { throw new Error("explorer timed out"); },
         buildContextPack: async (input) => {
           seenBrief = input.brief;
-          return { text: "## pack", blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: "## pack", domBytes: 0, contractBytes: 0 };
         },
       },
     );
-    const result = await adapter.ground(dir);
+    const result = await adapter.ground(dir, undefined, undefined, { sha: "abc1234" });
     assert.equal(result.contextPack, "## pack");
     assert.equal(seenBrief, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground() never calls exploreBrief when opts (and therefore sha) is absent — never fabricates a sha (e.g. by falling back to a run namespace downstream)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-explorer-no-sha-"));
+  try {
+    let exploreBriefCalls = 0;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async () => { exploreBriefCalls++; return undefined; },
+        buildContextPack: async () => ({ text: "## pack", domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir); /* no opts at all — no sha */
+    assert.equal(exploreBriefCalls, 0, "exploreBrief must never be invoked without a real sha — the collaborator's own contract requires one, never a fabricated fallback");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -674,7 +714,7 @@ test("ground(): prChangedFiles is derived from the threaded diff when static ctx
       {
         buildContextPack: async (input) => {
           seen = input.prChangedFiles;
-          return { text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 };
+          return { text: undefined, domBytes: 0, contractBytes: 0 };
         },
       },
     );
@@ -696,7 +736,7 @@ test("ground(): exploreBrief receives sha and intent from the optional opts bag"
           seen = { sha: args.sha, intent: args.intent };
           return undefined;
         },
-        buildContextPack: async () => ({ text: undefined, blastRadiusBytes: 0, domBytes: 0, contractBytes: 0 }),
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
       },
     );
     await adapter.ground(dir, undefined, "the-diff", {
@@ -705,6 +745,48 @@ test("ground(): exploreBrief receives sha and intent from the optional opts bag"
     });
     assert.equal(seen.sha, "abc1234");
     assert.equal(seen.intent?.message, "add checkout");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): forwards runId from opts to exploreBrief, so the explorer's turns can be tagged with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-runid-"));
+  try {
+    let seenRunId: string | undefined;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async (args) => {
+          seenRunId = args.runId;
+          return undefined;
+        },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234", runId: "run-xyz789" });
+    assert.equal(seenRunId, "run-xyz789");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ground(): with no runId in opts, exploreBrief receives no runId (never fabricated)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-norunid-"));
+  try {
+    let sawRunId = true;
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      {
+        exploreBrief: async (args) => {
+          sawRunId = "runId" in args;
+          return undefined;
+        },
+        buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }),
+      },
+    );
+    await adapter.ground(dir, undefined, "the-diff", { sha: "abc1234" });
+    assert.equal(sawRunId, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

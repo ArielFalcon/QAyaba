@@ -1,11 +1,8 @@
 /* Sidekick prompt assembly lives here so generation does not import DelegationBrief. Injected into SidekickExecutor; PromptRenderingPort.renderWorker stays intact for the unused ParallelWorker path.
 Free-form brief fields are scrubbed with sanitizeText at this egress — the same twin the lead/worker prompt builders use — so secrets never reach the provider. */
-import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
+import { scrub } from "./scrub.ts";
 import type { DelegationBrief } from "./delegation-brief.ts";
-
-function scrub(text: string): string {
-  return sanitizeText(text).text;
-}
+import { ACCEPTANCE_STATUSES } from "./acceptance-report.ts";
 
 export function renderSidekickBrief(brief: DelegationBrief): {
   text: string;
@@ -29,7 +26,7 @@ export function renderSidekickBrief(brief: DelegationBrief): {
   const acceptance =
     brief.acceptanceCriteria.length === 0
       ? "## Acceptance criteria\n(none)"
-      : ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c) => `- ${scrub(c)}`)].join("\n");
+      : ["## Acceptance criteria", ...brief.acceptanceCriteria.map((c, i) => `${i + 1}. ${scrub(c)}`)].join("\n");
 
   const facts =
     brief.knownFacts.length === 0
@@ -70,7 +67,8 @@ export function renderSidekickBrief(brief: DelegationBrief): {
   const contract = [
     "## Output contract",
     "End with ONLY JSON:",
-    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
+    `{"delegationId":"${brief.delegationId}","runId":"${brief.runId}","status":"completed"|"completed-with-concerns"|"blocked"|"needs-lead"|"failed","summary":"...","filesChanged":[{"path":"..."}],"evidence":[],"validation":[{"id":"...","ok":true}],"acceptance":[{"criterion":1,"status":${ACCEPTANCE_STATUSES.map((st) => JSON.stringify(st)).join("|")},"note":"..."}],"assumptions":[],"concerns":[],"unresolvedQuestions":[],"recommendation":"accept"|"review"|"retry"|"escalate"}`,
+    "acceptance: one entry for every numbered acceptance criterion, by its number: met only when you checked it holds, unmet when your work does not satisfy it, unverified when you could not check it; [] when there are none. Only an unmet entry reports a failure — concerns are notes.",
     "Do NOT write outside writablePaths. Do NOT change acceptance criteria. Prefer needs-lead over inventing architecture.",
   ].join("\n");
 
