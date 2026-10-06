@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig } from "./agent-supervisor.mjs";
+import { resolveSandbox, buildCodexExecArgs, ensureCodexConfig, keyFingerprint } from "./agent-supervisor.mjs";
 
 // Importing agent-supervisor.mjs must NOT start the HTTP server (it is main-guarded). If it did, the
 // listening socket would keep this process alive and node:test would hang instead of exiting — so
@@ -143,4 +143,14 @@ test("read-only roles resolve --sandbox read-only; write roles bypass codex's sa
   // Default (no sandbox) is write-capable → same bypass — backward compat for an older orchestrator.
   const defaultArgs = buildCodexExecArgs({ cwd: "/repo" });
   assert.ok(defaultArgs.includes("--dangerously-bypass-approvals-and-sandbox"), "default (no sandbox) bypasses codex's sandbox");
+});
+
+// The orchestrator recomputes this fingerprint from its own key (src/agent-runtime/opencode-strategy.ts)
+// to tell whether both processes hold the same key; the known answer below is pinned on both sides.
+test("keyFingerprint is the first 12 hex characters of the key's SHA-256, and says nothing when there is no key", () => {
+  assert.equal(keyFingerprint("abc"), "ba7816bf8f01");
+  assert.equal(keyFingerprint("abc"), keyFingerprint("abc"));
+  assert.notEqual(keyFingerprint("abc"), keyFingerprint("abd"));
+  assert.equal(keyFingerprint(""), undefined);
+  assert.equal(keyFingerprint(undefined), undefined);
 });

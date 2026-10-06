@@ -38,3 +38,8 @@ test("slim offers only the opencode provider (its image ships no codex binary); 
   assert.deepEqual(profileCapabilities("slim").agentProviders, ["opencode"]);
   assert.deepEqual([...profileCapabilities("full").agentProviders].sort(), ["codex", "opencode"]);
 });
+
+test("slim refuses to start a run while the agent runtime needs configuration; full leaves that to the run", () => {
+  assert.equal(profileCapabilities("slim").gateRunsOnAgentReadiness, true);
+  assert.equal(profileCapabilities("full").gateRunsOnAgentReadiness, false);
+});

@@ -200,7 +200,7 @@ origen (ver §8, punto 4).
 
 | Secreto | Cómo llega | Dónde vive | Protecciones |
 |---|---|---|---|
-| Clave de la pasarela de LLM (caduca a diario) | Se pega en la consola web o en la TUI; opcionalmente `OPENCODE_API_KEY` en `slim/.env` | Memoria y entorno de los procesos de `orchestrator` y `agents`; el perfil slim no escribe ningún fichero (ni `/app/.env`). Ningún volumen la conserva | No se guarda en el navegador ni en URL; se enmascara en errores de transporte y en las salidas registradas; el filtrado de entorno la quita de los procesos del repositorio vigilado |
+| Clave de la pasarela de LLM (caduca a diario) | Se pega en la consola web o en la TUI; opcionalmente `OPENCODE_API_KEY` en `slim/.env` | Memoria y entorno de los procesos de `orchestrator` y `agents`; el perfil slim no escribe ningún fichero (ni `/app/.env`). Ningún volumen la conserva | No se guarda en el navegador ni en URL; se enmascara en errores de transporte y en las salidas registradas; el filtrado de entorno la quita de los procesos del repositorio vigilado. El servicio de agentes publica en `/providers` (puerto 4097, §8 punto 3) solo una huella de 12 caracteres del SHA-256 de la clave que tiene, y el orquestador la compara con la suya: si difieren o falta alguna, no se ejecuta nada hasta pegarla otra vez |
 | Token de git | `GIT_TOKEN` (solo lectura) en `slim/.env` | Entorno de `orchestrator` | `agents` no lo recibe; se aplica con `-c url.<…>.insteadOf` solo en `clone`/`fetch` y no queda en `.git/config`; se oculta en logs y se bloquea en el entorno de procesos no confiables |
 | Token de la API local | `config/.api_token` (generado) o `QA_API_TOKEN` | Anfitrión (`config/`, no versionado) | La consola pide este token (sin login automático) y lo guarda solo en `sessionStorage`; `./slim/qayaba.sh console` lo copia al portapapeles sin imprimirlo |
 | `WEBHOOK_SECRET` | `slim/.env` | Entorno de `orchestrator` | Firma HMAC del webhook |
@@ -225,7 +225,8 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
 2. **El servicio `agents` corre entero como root**, sin `no-new-privileges` ni retirada de capacidades; solo el
    orquestador tiene `no-new-privileges`.
 3. **Los puertos 4096 y 4097 no tienen autenticación propia.** No se publican, pero cualquier contenedor de la red
-   de compose (incluido `tui`) puede alcanzarlos.
+   de compose (incluido `tui`) puede alcanzarlos. El 4097 devuelve el estado de cada proveedor, con una huella
+   corta (12 caracteres del SHA-256) de la clave del LLM que sostiene; no la clave.
 4. **La consola web no carga recursos de terceros.** Iconos y tipografías están en `web/public/vendor/` (con su
    licencia y sus sumas SHA-256 en `web/public/vendor/README.md`) y cada respuesta de `/app` lleva
    `Content-Security-Policy` (`default-src`, `script-src` y `connect-src` solo `'self'`; sin script en línea;

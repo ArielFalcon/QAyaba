@@ -168,6 +168,9 @@ function currentAgentDeps(): AgentDeps {
   return agentRuntime.facade().deps();
 }
 
+/* Where the profile asks for it (slim), a run starts only while every assigned agent provider is configured: refused at the API, and again when a queued run starts. */
+const agentReadinessGate = CAPABILITIES.gateRunsOnAgentReadiness ? { assertAgentReady: () => agentRuntime.assertRunnable() } : {};
+
 
 /*
  * Forward-declared so enqueueContextHealRun (below) can close over it — the same pattern
@@ -182,7 +185,7 @@ let engineFactory: ReturnType<typeof createRewrittenEngineFactory>;
  * Built at call time: engineFactory and onboardingJob are assigned later in this module.
  */
 function runnerDeps(): RunnerDeps {
-  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive() };
+  return { runEvents, engineFactory, isOnboardingActive: () => onboardingJob.isActive(), ...agentReadinessGate };
 }
 
 /*
@@ -658,6 +661,7 @@ const apiDeps: ApiDeps = {
   /* Same-origin web console: a short-lived session only for a trusted peer AND Host (see auth.ts). */
   localLogin: createLocalConsoleLogin(process.env, signingSecret, AUTH_SESSION_TTL_SECONDS),
   agentRuntime,
+  ...agentReadinessGate,
   /*
    * Cancel through the single funnel (runner.ts): aborts a live run we hold, and ALSO finalizes
    * an enqueued or stale "running" record so the operator's stop always clears the run — never

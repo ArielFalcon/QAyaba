@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -48,8 +49,25 @@ const RUNTIME_STATUSES: ReadonlySet<string> = new Set(["stopped", "starting", "h
  * Why a supervisor that holds a key still reads as unconfigured: this process masks the key in logs
  * and error output, and guards the onboarding proposer, from its OWN environment.
  */
-const KEY_LOST_HERE =
+export const KEY_LOST_HERE =
   "The agent service holds an LLM gateway key that this process does not have (the orchestrator restarted): paste the key again. This process needs it to mask the key in logs and error output.";
+
+/*
+ * Why a supervisor and an orchestrator that both hold a key still read as unconfigured: they hold
+ * different ones (an orchestrator-only restart re-reads the stack's environment file, which can carry
+ * an older key), so the key this process masks is not the one the agent runs with.
+ */
+export const KEY_MISMATCH_HERE =
+  "The agent service and this process hold different LLM gateway keys (the orchestrator restarted with an older one): paste the key again. This process needs the key in use to mask it in logs and error output.";
+
+/*
+ * A short, non-reversible mark of a key: the first 12 hex characters of its SHA-256. The agent
+ * supervisor reports the same mark for the key it holds (agents/agent-supervisor.mjs keyFingerprint),
+ * so the two processes are compared without either one sending the key.
+ */
+export function keyFingerprint(key: string): string {
+  return createHash("sha256").update(key).digest("hex").slice(0, 12);
+}
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
@@ -81,24 +99,28 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
 
   /*
    * The supervisor owns the OpenCode process and the key it was started with, so its state is the
-   * truth about the process — with one exception: a key only the supervisor holds still reads as
-   * needs_config, because this process needs the key itself (KEY_LOST_HERE). A supervisor that
-   * cannot be read is a failure with its cause, never a missing key: the operator must not be told
-   * to paste a key that is not the problem. The local key decides only when no supervisor is
-   * configured or it does not list the provider.
+   * truth about the process — with two exceptions, both because this process needs the key in use
+   * itself: a key only the supervisor holds (KEY_LOST_HERE), and a key that differs from the
+   * supervisor's, known by its fingerprint (KEY_MISMATCH_HERE), still read as needs_config. A
+   * supervisor that cannot be read is a failure with its cause, never a missing key: the operator
+   * must not be told to paste a key that is not the problem. The local key decides only when no
+   * supervisor is configured or it does not list the provider.
    */
   async health(): Promise<AgentProviderHealth> {
-    const hasKey = Boolean(this.env.OPENCODE_API_KEY);
-    let supervised: AgentProviderHealth | undefined;
+    const localKey = this.env.OPENCODE_API_KEY;
+    const hasKey = Boolean(localKey);
+    let supervised: SupervisedState | undefined;
     try {
       supervised = await supervisorHealth(this.fetchImpl, this.env, this.provider, this.timeoutSignal(SUPERVISOR_HEALTH_TIMEOUT_MS));
     } catch (err) {
       return { provider: this.provider, status: "failed", configured: hasKey, error: err instanceof Error ? err.message : String(err) };
     }
     if (supervised) {
-      return supervised.configured && !hasKey
-        ? { provider: this.provider, status: "needs_config", configured: false, error: KEY_LOST_HERE }
-        : supervised;
+      if (supervised.health.configured && !localKey) return { provider: this.provider, status: "needs_config", configured: false, error: KEY_LOST_HERE };
+      if (supervised.health.configured && localKey && supervised.keyFingerprint !== undefined && supervised.keyFingerprint !== keyFingerprint(localKey)) {
+        return { provider: this.provider, status: "needs_config", configured: false, error: KEY_MISMATCH_HERE };
+      }
+      return supervised.health;
     }
     return hasKey
       ? { provider: this.provider, status: "healthy", configured: true }
@@ -158,6 +180,12 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   }
 }
 
+/* What the supervisor reports for a provider: its health, and a fingerprint of the key it holds when it says so. */
+interface SupervisedState {
+  health: AgentProviderHealth;
+  keyFingerprint?: string;
+}
+
 /*
  * Throws when the supervisor cannot be reached, answers an error, outlasts `deadline` or answers
  * something that is not a provider state; undefined when none is configured or it does not list the provider.
@@ -167,7 +195,7 @@ async function supervisorHealth(
   env: Record<string, string | undefined>,
   provider: "opencode",
   deadline: AbortSignal,
-): Promise<AgentProviderHealth | undefined> {
+): Promise<SupervisedState | undefined> {
   const base = env.AGENT_SUPERVISOR_URL;
   if (!base) return undefined;
   return untilAborted(deadline, (async () => {
@@ -177,18 +205,24 @@ async function supervisorHealth(
   })());
 }
 
-function providerStateFrom(body: unknown, provider: "opencode"): AgentProviderHealth | undefined {
+function providerStateFrom(body: unknown, provider: "opencode"): SupervisedState | undefined {
   const providers = (body as { providers?: unknown } | null)?.providers;
   if (typeof providers !== "object" || providers === null || Array.isArray(providers)) {
     throw new Error("supervisor answered something that is not a provider list");
   }
   const entry = (providers as Record<string, unknown>)[provider];
   if (entry === undefined) return undefined;
-  const state = entry as { status?: unknown; configured?: unknown; error?: unknown } | null;
+  const state = entry as { status?: unknown; configured?: unknown; error?: unknown; keyFingerprint?: unknown } | null;
   if (typeof state !== "object" || state === null || typeof state.configured !== "boolean" || typeof state.status !== "string" || !RUNTIME_STATUSES.has(state.status)) {
     throw new Error(`supervisor reported an unreadable state for ${provider}`);
   }
-  return { provider, status: state.status as AgentProviderHealth["status"], configured: state.configured, ...(typeof state.error === "string" ? { error: state.error } : {}) };
+  if (state.keyFingerprint !== undefined && typeof state.keyFingerprint !== "string") {
+    throw new Error(`supervisor reported an unreadable key fingerprint for ${provider}`);
+  }
+  return {
+    health: { provider, status: state.status as AgentProviderHealth["status"], configured: state.configured, ...(typeof state.error === "string" ? { error: state.error } : {}) },
+    ...(state.keyFingerprint !== undefined ? { keyFingerprint: state.keyFingerprint } : {}),
+  };
 }
 
 /* Settles with `work`, or rejects as soon as `signal` aborts, even when `work` ignores it. */
@@ -217,8 +251,11 @@ async function supervisorRestart(
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`supervisor restart failed (${res.status})`);
-  const body = await res.json() as { health?: AgentProviderHealth };
-  return body.health;
+  const body = await res.json() as { health?: AgentProviderHealth & { keyFingerprint?: unknown } };
+  if (!body.health) return undefined;
+  /* The supervisor's key fingerprint is for the comparison in health(); it never travels on to the operator. */
+  const { keyFingerprint: _fingerprint, ...health } = body.health;
+  return health;
 }
 
 function modelsFromOpenCodeConfig(path: string): AgentModelInfo[] {

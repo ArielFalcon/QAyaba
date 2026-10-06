@@ -71,6 +71,12 @@ export interface RunnerDeps {
 
   isOnboardingActive?: () => boolean;
   /*
+   * Admission check run when a queued run starts, before any engine work: it throws (an
+   * AgentUnavailableError, so the run finalizes as infrastructure, never as a code verdict) when the
+   * deployment must not run an agent yet. Absent → every run starts.
+   */
+  assertAgentReady?: () => Promise<void>;
+  /*
    * Test/ops seam: override the poll granularity and defensive upper bound (module defaults
    * ONBOARDING_POLL_MS / ONBOARDING_WAIT_MAX_MS above). Production never overrides these.
    */
@@ -293,6 +299,8 @@ export function enqueueTrackedRun(queue: JobQueue, req: RunRequest, deps: Runner
       if (req.shadow !== undefined) {
         appConfig.qa.shadow = req.shadow;
       }
+
+      await deps.assertAgentReady?.();
 
       selectEngine(process.env);
       if (!deps.engineFactory) {

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAgentRuntimeManager } from "./agent-runtime";
+import { AGENT_NOT_READY, createAgentRuntimeManager } from "./agent-runtime";
+import { AgentUnavailableError } from "../errors";
 import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
 import { CodexRuntimeStrategy } from "../agent-runtime/codex-strategy";
@@ -442,4 +443,55 @@ test("a deployment without codex still takes the opencode key", async () => {
   assert.equal(env.OPENCODE_API_KEY, "todays-key");
   assert.deepEqual(result.restarted, ["opencode"]);
   assert.deepEqual(restarts, ["opencode"]);
+});
+
+// A run is only worth starting while every provider a role is assigned to is configured: a provider
+// that needs configuration holds no key this process can mask, or not the key the agent runs with.
+function managerWith(env: Record<string, string | undefined>, opencode: Partial<AgentProviderHealth>, codex: Partial<AgentProviderHealth> = { status: "healthy" }) {
+  return createAgentRuntimeManager({ env, fs: memoryFs(), strategies: { opencode: reporting("opencode", opencode), codex: reporting("codex", codex) } });
+}
+
+test("a run is refused, as agent unavailability, while an assigned provider needs configuration", async () => {
+  const manager = managerWith({}, { status: "needs_config", configured: false, error: "paste the key again" });
+
+  await assert.rejects(manager.assertRunnable(), (err: unknown) => {
+    assert.ok(err instanceof AgentUnavailableError, "the existing infrastructure refusal, not a new verdict");
+    assert.ok((err as Error).message.startsWith(AGENT_NOT_READY));
+    assert.ok((err as Error).message.includes("opencode"), "names the provider");
+    assert.ok((err as Error).message.includes("paste the key again"), "carries the provider's own reason");
+    return true;
+  });
+});
+
+test("a refused run says what to do even when the provider gave no reason", async () => {
+  const manager = managerWith({}, { status: "needs_config", configured: false });
+
+  await assert.rejects(manager.assertRunnable(), (err: unknown) => (err as Error).message.length > AGENT_NOT_READY.length);
+});
+
+test("a provider in any other state does not stop a run: only a missing or mismatched key does", async () => {
+  for (const status of ["healthy", "starting", "degraded", "failed", "stopped"] as const) {
+    await managerWith({}, { status, configured: true }).assertRunnable();
+  }
+});
+
+test("a provider that no role is assigned to never stops a run", async () => {
+  const manager = managerWith({}, { status: "healthy" }, { status: "needs_config", configured: false });
+
+  await manager.assertRunnable();
+});
+
+test("the provider the single-mode assignment names is the one that is checked", async () => {
+  const codexRuns = managerWith({ AGENT_SINGLE_PROVIDER: "codex" }, { status: "needs_config", configured: false }, { status: "healthy" });
+  const codexNeedsKey = managerWith({ AGENT_SINGLE_PROVIDER: "codex" }, { status: "healthy" }, { status: "needs_config", configured: false });
+
+  await codexRuns.assertRunnable();
+  await assert.rejects(codexNeedsKey.assertRunnable(), (err: unknown) => (err as Error).message.includes("codex"));
+});
+
+test("a provider whose health cannot be read is not mistaken for one that needs a key", async () => {
+  const throwing: AgentRuntimeStrategy = { ...strategy("opencode", []), health: async () => { throw new Error("supervisor down"); } };
+  const manager = createAgentRuntimeManager({ env: {}, fs: memoryFs(), strategies: { opencode: throwing, codex: strategy("codex", []) } });
+
+  await manager.assertRunnable();
 });

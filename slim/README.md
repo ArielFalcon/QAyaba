@@ -174,7 +174,15 @@ Qué conviene tener presente:
   suya, pero el orquestador también la necesita (para enmascararla en los registros y en los mensajes de
   error): la consola muestra «needs configuration» con el motivo y hay que pegarla otra vez. Si el
   orquestador no puede leer el estado del servicio de agentes, la consola lo muestra como «failed» con la
-  causa, no como falta de clave.
+  causa, no como falta de clave. Lo mismo ocurre si el orquestador arranca con una clave distinta de la del
+  servicio de agentes (p. ej. una clave antigua de `slim/.env` tras reiniciar solo el orquestador): ambos
+  comparan una huella corta de la clave (12 caracteres del SHA-256), nunca la clave, y si no coinciden la
+  consola pide pegarla otra vez.
+- **Sin clave no se ejecuta.** Mientras un proveedor asignado esté en «needs configuration», `POST /api/runs`
+  (y por tanto `./slim/qayaba.sh run`) responde 503 con el motivo y no encola nada; una ejecución ya encolada,
+  o disparada por un webhook o una continuación, termina como `infra-error` (no es un fallo del código) con el
+  mismo motivo antes de tocar el agente. Así ninguna ejecución corre con una clave que el orquestador no pueda
+  enmascarar en los registros y en las incidencias.
 - **Dónde queda la clave.** Solo en la memoria y en el entorno de los procesos del orquestador y del servicio
   de agentes: ningún fichero la conserva (el perfil slim no escribe `/app/.env`) y ningún volumen tampoco, así
   que se pierde al reiniciar. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de

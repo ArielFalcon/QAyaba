@@ -17,6 +17,7 @@ import { createRunEventStore } from "./run-events";
 import type { RunPipelinePort, RunInput } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import { AgentTimeoutError, UntrustedGitTreeError } from "@kernel/domain-error";
+import { AgentUnavailableError } from "../errors";
 import { getIncidents } from "./maintainer";
 
 const cfg = (name: string): AppConfig => ({
@@ -109,6 +110,53 @@ test("an agent call that exceeded its deadline finalizes as infrastructure, not 
   assert.equal(r.verdict, "infra-error");
   assert.doesNotMatch(r.note ?? "", /unexpected internal error/);
   assert.equal(getIncidents().length, incidentsBefore, "an agent timeout must not open a maintainer incident");
+});
+
+/* A deployment can refuse to start a run while the agent runtime is not ready (a key this process cannot mask). The refusal is the existing agent-unavailable infra-error, raised before any engine work. */
+test("a run the agent-readiness check refuses never reaches the engine, and finalizes as infrastructure with the check's reason", async () => {
+  const queue = new JobQueue();
+  const { port, calls } = fakePort();
+  const incidentsBefore = getIncidents().length;
+  const runEvents = createRunEventStore({ now: () => 1 });
+  const id = enqueueTrackedRun(
+    queue,
+    { app: "runner-agent-not-ready", sha: "abc1234", target: "e2e", mode: "diff", source: "webhook" },
+    {
+      loadApp: cfg,
+      runEvents,
+      engineFactory: () => port,
+      assertAgentReady: async () => {
+        throw new AgentUnavailableError("agent runtime is not ready (opencode needs configuration)");
+      },
+    },
+  );
+  await queue.drain();
+
+  const r = getRecord(id)!;
+  assert.equal(r.status, "done");
+  assert.equal(r.verdict, "infra-error");
+  assert.equal(r.note, "agent runtime is not ready (opencode needs configuration)");
+  assert.equal(calls.length, 0, "the engine was never invoked");
+  assert.equal(getIncidents().length, incidentsBefore, "a refusal for configuration opens no maintainer incident");
+  const types = runEvents.replay(id).map((e) => e.body.type);
+  assert.equal(types[0], "run.started", "the run is announced before it is refused");
+  assert.equal(types.at(-1), "run.verdict");
+});
+
+test("a run the agent-readiness check lets through, or no check at all, runs as usual", async () => {
+  for (const deps of [{ assertAgentReady: async () => {} }, {}]) {
+    const queue = new JobQueue();
+    const { port, calls } = fakePort({ verdict: "pass" });
+    const id = enqueueTrackedRun(
+      queue,
+      { app: "runner-agent-ready", sha: "abc1234", target: "e2e", mode: "diff", source: "manual" },
+      { loadApp: cfg, engineFactory: () => port, ...deps },
+    );
+    await queue.drain();
+
+    assert.equal(getRecord(id)!.verdict, "pass");
+    assert.equal(calls.length, 1);
+  }
 });
 
 /* A working copy whose git dir is not the orchestrator's own is a security refusal: loud, with its own note, and

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OpenCodeRuntimeStrategy, type SupervisorFetch } from "./opencode-strategy";
+import { KEY_MISMATCH_HERE, OpenCodeRuntimeStrategy, keyFingerprint, type SupervisorFetch } from "./opencode-strategy";
 import type { AgentProviderHealth } from "./types";
 
 const SUPERVISOR = "http://agents:4097";
@@ -13,7 +13,7 @@ interface Recorded {
 
 // A supervisor reached through the injected HTTP call: answers /providers with the given state and
 // records what it was sent.
-function supervisorReporting(state: Partial<AgentProviderHealth> | undefined, sent: Recorded[] = []) {
+function supervisorReporting(state: (Partial<AgentProviderHealth> & { keyFingerprint?: string }) | undefined, sent: Recorded[] = []) {
   return async (url: string, init?: { method?: string; body?: string }) => {
     sent.push({ url, method: init?.method, body: init?.body });
     return {
@@ -55,6 +55,55 @@ test("a supervisor holding a key this process lacks reports needs_config and ask
     assert.equal(health.configured, false);
     assert.ok(health.error && health.error.length > 0, "the operator is told why");
   }
+});
+
+// The agent service reports a fingerprint of the key it holds (agents/agent-supervisor.mjs keyFingerprint;
+// the same known answer is pinned there). A key left over in this process's environment (an
+// orchestrator-only restart reads slim/.env again) is not the key the agent runs with, so the key this
+// process masks in logs would not be the one in use.
+test("the key fingerprint is the first 12 hex characters of the key's SHA-256", () => {
+  assert.equal(keyFingerprint("abc"), "ba7816bf8f01");
+});
+
+test("a process that holds the same key as the supervisor reports the supervisor's state, without any fingerprint", async () => {
+  const health = await strategy(
+    { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "todays-key" },
+    supervisorReporting({ status: "healthy", configured: true, keyFingerprint: keyFingerprint("todays-key") }),
+  ).health();
+
+  assert.deepEqual(health, { provider: "opencode", status: "healthy", configured: true });
+});
+
+test("a process that holds another key than the supervisor asks for the key again, and names neither", async () => {
+  for (const state of [{ status: "healthy" }, { status: "starting" }, { status: "degraded", error: "unverified" }] as const) {
+    const health = await strategy(
+      { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "yesterdays-key" },
+      supervisorReporting({ ...state, configured: true, keyFingerprint: keyFingerprint("todays-key") }),
+    ).health();
+
+    assert.equal(health.status, "needs_config", state.status);
+    assert.equal(health.configured, false);
+    assert.equal(health.error, KEY_MISMATCH_HERE);
+    assert.ok(!JSON.stringify(health).includes("yesterdays-key") && !JSON.stringify(health).includes("todays-key"));
+  }
+});
+
+test("a supervisor that reports no fingerprint leaves the comparison out", async () => {
+  const health = await strategy(
+    { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "any-key" },
+    supervisorReporting({ status: "healthy", configured: true }),
+  ).health();
+
+  assert.equal(health.status, "healthy");
+});
+
+test("a supervisor fingerprint that is not a string is an unusable state, never a match", async () => {
+  const health = await strategy(
+    { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" },
+    async () => ({ ok: true, status: 200, json: async () => ({ providers: { opencode: { provider: "opencode", status: "healthy", configured: true, keyFingerprint: 12 } } }) }),
+  ).health();
+
+  assert.equal(health.status, "failed");
 });
 
 test("a supervisor waiting for a key reports needs_config even when this process still holds a stale key", async () => {
@@ -180,6 +229,15 @@ test("without a supervisor the local key decides and nothing is requested", asyn
   assert.equal(withKey.status, "healthy");
   assert.equal(withoutKey.status, "needs_config");
   assert.deepEqual(sent, []);
+});
+
+test("a restart reports the supervisor's state without its key fingerprint", async () => {
+  const env: Record<string, string | undefined> = { AGENT_SUPERVISOR_URL: SUPERVISOR };
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ health: { provider: "opencode", status: "starting", configured: true, keyFingerprint: keyFingerprint("todays-key") } }) });
+
+  const health = await new OpenCodeRuntimeStrategy({ env, fetchImpl, dispose: () => {} }).restart({ apiKey: "todays-key" });
+
+  assert.deepEqual(health, { provider: "opencode", status: "starting", configured: true });
 });
 
 test("restarting with a key hands it to the supervisor and reports the state it answers with", async () => {

@@ -23,6 +23,7 @@ import type {
 } from "../agent-runtime/types";
 import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
 import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
+import { AgentUnavailableError } from "../errors";
 
 export interface AgentRuntimeManager {
   getConfig(): Promise<PublicAgentConfig>;
@@ -31,7 +32,13 @@ export interface AgentRuntimeManager {
   restart(provider: AgentProvider): Promise<AgentProviderHealth>;
   facade(): AgentFacade;
   hasOpenSessions(): boolean;
+  /* Resolves when every provider a role is assigned to is configured; throws AgentUnavailableError (an infrastructure refusal) naming those that need configuration. */
+  assertRunnable(): Promise<void>;
 }
+
+/* Starts every message that refuses a run because an assigned provider needs configuration. */
+export const AGENT_NOT_READY = "agent runtime is not ready";
+const PASTE_THE_KEY = "paste the LLM gateway key in the console (agent runtime) or the terminal console, then run again";
 
 export interface CreateAgentRuntimeManagerOptions {
   env?: Record<string, string | undefined>;
@@ -161,6 +168,20 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
 
     hasOpenSessions() {
       return opts.hasOpenSessions?.() ?? false;
+    },
+
+    /*
+     * A provider that needs configuration holds no key this process can mask in logs and error
+     * output, or not the key the agent runs with: a run on it would put output the redaction cannot
+     * cover into Issues and exports. Only that state refuses a run; an unreadable or failing provider
+     * is reported by its own health and by the run's own error.
+     */
+    async assertRunnable() {
+      const providers = await health();
+      const blocked = PROVIDERS.filter((provider) => usedProvider(config, provider) && providers[provider].status === "needs_config");
+      if (blocked.length === 0) return;
+      const reasons = blocked.map((provider) => `${provider} needs configuration: ${providers[provider].error ?? PASTE_THE_KEY}`);
+      throw new AgentUnavailableError(redactionPort.redact(`${AGENT_NOT_READY} (${reasons.join("; ")})`));
     },
   };
 }

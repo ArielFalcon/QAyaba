@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import nodeHttp, { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,10 +241,27 @@ const state = new Map(PROVIDERS.map((provider) => [provider, {
   provider,
   status: "stopped",
   configured: hasKey(provider),
+  keyFingerprint: heldKeyFingerprint(provider),
 }]));
 
+function heldKey(provider) {
+  return provider === "opencode" ? process.env.OPENCODE_API_KEY : process.env.CODEX_API_KEY;
+}
+
 function hasKey(provider) {
-  return provider === "opencode" ? Boolean(process.env.OPENCODE_API_KEY) : Boolean(process.env.CODEX_API_KEY);
+  return Boolean(heldKey(provider));
+}
+
+// A short, non-reversible mark of a key: the first 12 hex characters of its SHA-256. The orchestrator
+// recomputes it from its own key (src/agent-runtime/opencode-strategy.ts) to tell whether both
+// processes hold the same one, so a stale key left in the environment is noticed without either side
+// ever sending the key. Undefined when there is no key.
+export function keyFingerprint(key) {
+  return key ? createHash("sha256").update(key).digest("hex").slice(0, 12) : undefined;
+}
+
+function heldKeyFingerprint(provider) {
+  return keyFingerprint(heldKey(provider));
 }
 
 function selectedProviders() {
@@ -274,7 +292,7 @@ function commandFor(provider) {
 }
 
 function setState(provider, patch) {
-  state.set(provider, { ...state.get(provider), provider, configured: hasKey(provider), ...patch });
+  state.set(provider, { ...state.get(provider), provider, configured: hasKey(provider), keyFingerprint: heldKeyFingerprint(provider), ...patch });
 }
 
 function startProvider(provider) {

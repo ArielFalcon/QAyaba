@@ -7,7 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GATEWAY_REASON } from "./agent-supervisor.mjs";
+import { GATEWAY_REASON, keyFingerprint } from "./agent-supervisor.mjs";
 
 // Boots the real supervisor entrypoint as a child process with a stub `opencode` executable on
 // PATH, so the key hand-off is exercised end to end: a keyless boot waits for configuration, and a
@@ -151,6 +151,26 @@ test("a key delivered through /restart starts opencode serve with that key", asy
     const state = (await providers(base)).opencode;
     assert.equal(state.configured, true);
     assert.notEqual(state.status, "needs_config");
+  });
+});
+
+// The orchestrator compares its own key with the supervisor's by this fingerprint (never by the key).
+test("/providers carries a fingerprint of the key the supervisor holds, never the key, and follows a key delivered later", async () => {
+  await withSupervisor({ OPENCODE_API_KEY: "" }, async ({ base }) => {
+    const before = (await providers(base)).opencode;
+    assert.equal(before.keyFingerprint, undefined, "no key, no fingerprint");
+
+    await fetch(`${base}/restart`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "opencode", apiKey: SECRET }) });
+    const after = await providers(base);
+
+    assert.equal(after.opencode.keyFingerprint, keyFingerprint(SECRET));
+    assert.ok(!JSON.stringify(after).includes(SECRET));
+  });
+});
+
+test("a supervisor booted with a key reports its fingerprint from the start", async () => {
+  await withSupervisor({ OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+    assert.equal((await providers(base)).opencode.keyFingerprint, keyFingerprint(SECRET));
   });
 });
 

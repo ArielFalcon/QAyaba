@@ -91,6 +91,8 @@ export interface ApiDeps {
   getRecord(id: string): RunRecord | undefined;
   listRecords(app: string, limit: number): RunRecord[];
   currentRun(): RunRecord | undefined;
+  /* Throws when the deployment must not start a run yet (the agent needs configuration): the request is refused with 503 and the reason, instead of enqueueing a run that would end as infrastructure. Absent → every run is accepted. */
+  assertAgentReady?: () => Promise<void>;
   /*
    * Read-only intelligence projection (learning ledger + oracle scorecard + curriculum)
    * for an app. Absent ⇒ the /intelligence route returns 501.
@@ -443,6 +445,13 @@ async function handleCreateRun(req: IncomingMessage, res: ServerResponse, deps: 
       return true;
     }
     baseSha = body.baseSha;
+  }
+
+  try {
+    await deps.assertAgentReady?.();
+  } catch (err) {
+    json(res, 503, { error: redactionPort.redactError(err) });
+    return true;
   }
 
   let id: string;

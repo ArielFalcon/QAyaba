@@ -407,6 +407,33 @@ test("POST /api/runs with a sha enqueues and returns 202", async () => {
   assert.match(res.body, /run-xyz/);
 });
 
+test("POST /api/runs is refused with the reason, and nothing is enqueued, while the agent-readiness check refuses", async () => {
+  let enqueued = 0;
+  const res = mkRes();
+  const ok = await handleApi(
+    mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff" })),
+    res,
+    deps({
+      enqueue: () => (enqueued++, "run-xyz"),
+      assertAgentReady: async () => {
+        throw new Error("agent runtime is not ready (opencode needs configuration)");
+      },
+    }),
+  );
+
+  assert.equal(ok, true);
+  assert.equal(res.status, 503);
+  assert.match(JSON.parse(res.body).error, /agent runtime is not ready \(opencode needs configuration\)/);
+  assert.equal(enqueued, 0);
+});
+
+test("POST /api/runs enqueues when the agent-readiness check passes", async () => {
+  const res = mkRes();
+  await handleApi(mkReq("POST", "/api/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff" })), res, deps({ assertAgentReady: async () => {} }));
+
+  assert.equal(res.status, 202);
+});
+
 test("POST /api/v1/runs is served and its response validates against the contract", async () => {
   const res = mkRes();
   const ok = await handleApi(mkReq("POST", "/api/v1/runs", JSON.stringify({ app: "demo", sha: "abc1234", mode: "diff", target: "e2e" })), res, deps());
