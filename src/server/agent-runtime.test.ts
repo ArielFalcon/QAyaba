@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
+import { CodexRuntimeStrategy } from "../agent-runtime/codex-strategy";
 import type { EnvStoreFs } from "./env-store";
-import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
+import type { AgentProvider, AgentProviderHealth, AgentRuntimeStrategy } from "../agent-runtime/types";
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import {
   modelWindowBytes,
@@ -53,11 +54,11 @@ function strategy(
 }
 
 test("agent runtime manager boots single/opencode and reports missing key as needs_config", async () => {
-  const restarts: AgentProvider[] = [];
+  const env: Record<string, string | undefined> = {};
   const manager = createAgentRuntimeManager({
-    env: {},
+    env,
     fs: memoryFs(),
-    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+    strategies: { opencode: new OpenCodeRuntimeStrategy({ env }), codex: new CodexRuntimeStrategy({ env }) },
   });
 
   const cfg = await manager.getConfig();
@@ -67,6 +68,54 @@ test("agent runtime manager boots single/opencode and reports missing key as nee
   assert.equal(cfg.keys.opencode, false);
   assert.equal(cfg.validation.ok, false);
   assert.equal(cfg.health?.opencode?.status, "needs_config");
+});
+
+function reporting(provider: AgentProvider, health: Partial<AgentProviderHealth>): AgentRuntimeStrategy {
+  return { ...strategy(provider, []), health: async () => ({ provider, status: "healthy", configured: true, ...health }) };
+}
+
+test("agent runtime manager reports a provider as ready when its supervisor holds the key this process lacks", async () => {
+  const manager = createAgentRuntimeManager({
+    env: {},
+    fs: memoryFs(),
+    strategies: { opencode: reporting("opencode", { status: "healthy", configured: true }), codex: reporting("codex", { status: "needs_config", configured: false }) },
+  });
+
+  const cfg = await manager.getConfig();
+
+  assert.equal(cfg.health?.opencode?.status, "healthy");
+  assert.equal(cfg.health?.opencode?.configured, true);
+  assert.equal(cfg.keys.opencode, true);
+  assert.equal(cfg.validation.ok, true);
+});
+
+test("agent runtime manager reports needs_config when the supervisor lost the key this process still holds", async () => {
+  const manager = createAgentRuntimeManager({
+    env: { OPENCODE_API_KEY: "yesterdays-key" },
+    fs: memoryFs(),
+    strategies: { opencode: reporting("opencode", { status: "needs_config", configured: false }), codex: reporting("codex", { status: "needs_config", configured: false }) },
+  });
+
+  const cfg = await manager.getConfig();
+
+  assert.equal(cfg.health?.opencode?.status, "needs_config");
+  assert.equal(cfg.health?.opencode?.configured, false);
+  assert.equal(cfg.keys.opencode, false);
+  assert.equal(cfg.validation.ok, false);
+});
+
+test("agent runtime manager restarts a provider through its strategy even when this process holds no key", async () => {
+  const restarts: AgentProvider[] = [];
+  const manager = createAgentRuntimeManager({
+    env: {},
+    fs: memoryFs(),
+    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+  });
+
+  const health = await manager.restart("opencode");
+
+  assert.deepEqual(restarts, ["opencode"]);
+  assert.equal(health.status, "healthy");
 });
 
 test("an empty key, as the slim stack passes it when none is set, reads as needing configuration", async () => {

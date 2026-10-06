@@ -49,24 +49,27 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
   const fs = opts.fs ?? defaultEnvStoreFs();
   let config = configFromEnv(env);
 
+  /*
+   * Each strategy reports its own provider's state: it knows where the key actually lives (the
+   * supervisor that runs the agent, not necessarily this process's env), so a provider is never
+   * declared unconfigured from the local env alone.
+   */
   async function health(): Promise<Record<AgentProvider, AgentProviderHealth>> {
-    const keys = keyPresence(env);
     const entries = await Promise.all(PROVIDERS.map(async (provider) => {
-      if (!keys[provider]) {
-        return [provider, { provider, status: "needs_config", configured: false }] as const;
-      }
       try {
         const h = await opts.strategies[provider].health();
-        return [provider, { ...h, provider, configured: true }] as const;
+        return [provider, { ...h, provider }] as const;
       } catch (err) {
-        return [provider, { provider, status: "failed", configured: true, error: redactionPort.redactError(err) }] as const;
+        return [provider, { provider, status: "failed", configured: keyPresence(env)[provider], error: redactionPort.redactError(err) }] as const;
       }
     }));
     return Object.fromEntries(entries) as Record<AgentProvider, AgentProviderHealth>;
   }
 
   async function currentPublicConfig(): Promise<PublicAgentConfig> {
-    return publicAgentConfig(config, keyPresence(env), await health());
+    const providers = await health();
+    const keys = { opencode: providers.opencode.configured, codex: providers.codex.configured };
+    return publicAgentConfig(config, keys, providers);
   }
 
   async function restartProvider(
@@ -74,7 +77,6 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
     apiKey?: string,
     runtimeEnv = configEnvVars(config),
   ): Promise<AgentProviderHealth> {
-    if (!keyPresence(env)[provider]) return { provider, status: "needs_config", configured: false };
     if (opts.strategies[provider].restart) {
       return opts.strategies[provider].restart({ apiKey, reason: "runtime config changed", env: runtimeEnv });
     }

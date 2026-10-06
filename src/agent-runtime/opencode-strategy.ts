@@ -20,8 +20,15 @@ import {
   type AgentRuntimeStrategy,
 } from "./types";
 
+/* The HTTP call the strategy makes to the agent supervisor, injectable so its answers can be scripted. */
+export type SupervisorFetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
 interface OpenCodeRuntimeStrategyOptions {
   env?: Record<string, string | undefined>;
+  fetchImpl?: SupervisorFetch;
   depsFactory?: () => Promise<AgentDeps>;
   startEvents?: (
     onActivity: (a: LiveActivity) => void,
@@ -47,20 +54,33 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly startEvents: NonNullable<OpenCodeRuntimeStrategyOptions["startEvents"]>;
   private readonly disposeClient: () => void;
   private readonly configPath: string;
+  private readonly fetchImpl: SupervisorFetch;
 
   constructor(opts: OpenCodeRuntimeStrategyOptions = {}) {
     this.env = opts.env ?? process.env;
+    this.fetchImpl = opts.fetchImpl ?? (fetch as unknown as SupervisorFetch);
     this.depsFactory = opts.depsFactory ?? defaultAgentDeps;
     this.startEvents = opts.startEvents ?? startActivitySink;
     this.disposeClient = opts.dispose ?? disposeSharedClient;
     this.configPath = opts.configPath ?? join(process.cwd(), "agents", "opencode.json");
   }
 
+  /*
+   * The supervisor owns the OpenCode process and the key it was started with, so its state is the
+   * truth whenever it answers: this process may have restarted without the key the supervisor still
+   * holds (or kept one the supervisor lost). The local key decides only when no supervisor answers.
+   */
   async health(): Promise<AgentProviderHealth> {
-    if (!this.env.OPENCODE_API_KEY) return { provider: this.provider, status: "needs_config", configured: false };
-    const supervised = await supervisorHealth(this.env, this.provider);
-    if (supervised) return supervised;
-    return { provider: this.provider, status: "healthy", configured: true };
+    const hasKey = Boolean(this.env.OPENCODE_API_KEY);
+    try {
+      const supervised = await supervisorHealth(this.fetchImpl, this.env, this.provider);
+      if (supervised) return supervised;
+    } catch (err) {
+      if (hasKey) return { provider: this.provider, status: "failed", configured: true, error: err instanceof Error ? err.message : String(err) };
+    }
+    return hasKey
+      ? { provider: this.provider, status: "healthy", configured: true }
+      : { provider: this.provider, status: "needs_config", configured: false };
   }
 
   async listModels(): Promise<AgentModelInfo[]> {
@@ -100,7 +120,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     if (opts?.apiKey) this.env.OPENCODE_API_KEY = opts.apiKey;
     this.depsPromise = undefined;
     this.disposeClient();
-    const supervised = await supervisorRestart(this.env, this.provider, opts?.apiKey, opts?.env);
+    const supervised = await supervisorRestart(this.fetchImpl, this.env, this.provider, opts?.apiKey, opts?.env);
     if (supervised) return supervised;
     return this.health();
   }
@@ -116,20 +136,22 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   }
 }
 
-async function supervisorHealth(env: Record<string, string | undefined>, provider: "opencode"): Promise<AgentProviderHealth | undefined> {
+/* Throws when the supervisor cannot be reached or refuses; undefined when none is configured or it does not list the provider. */
+async function supervisorHealth(
+  fetchImpl: SupervisorFetch,
+  env: Record<string, string | undefined>,
+  provider: "opencode",
+): Promise<AgentProviderHealth | undefined> {
   const base = env.AGENT_SUPERVISOR_URL;
   if (!base) return undefined;
-  try {
-    const res = await fetch(`${base}/providers`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) throw new Error(`supervisor returned ${res.status}`);
-    const body = await res.json() as { providers?: Record<string, AgentProviderHealth> };
-    return body.providers?.[provider];
-  } catch (err) {
-    return { provider, status: "failed", configured: true, error: err instanceof Error ? err.message : String(err) };
-  }
+  const res = await fetchImpl(`${base}/providers`, { signal: AbortSignal.timeout(1500) });
+  if (!res.ok) throw new Error(`supervisor returned ${res.status}`);
+  const body = await res.json() as { providers?: Record<string, AgentProviderHealth> };
+  return body.providers?.[provider];
 }
 
 async function supervisorRestart(
+  fetchImpl: SupervisorFetch,
   env: Record<string, string | undefined>,
   provider: "opencode",
   apiKey?: string,
@@ -137,7 +159,7 @@ async function supervisorRestart(
 ): Promise<AgentProviderHealth | undefined> {
   const base = env.AGENT_SUPERVISOR_URL;
   if (!base) return undefined;
-  const res = await fetch(`${base}/restart`, {
+  const res = await fetchImpl(`${base}/restart`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ provider, ...(apiKey ? { apiKey } : {}), ...(runtimeEnv ? { env: runtimeEnv } : {}) }),
