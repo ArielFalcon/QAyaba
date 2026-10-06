@@ -203,6 +203,15 @@ test("a redirect that failed to capture is a capture failure, not a redirect", (
   assert.equal(cat.redirectedTo, undefined);
 });
 
+test("a redirect names the path it reached without every trailing slash a server may add", () => {
+  assert.equal(buildRouteCatalog({ route: "/a", nodes: ["x: y"], finalUrl: "http://dev.example.com/login//" }).redirectedTo, "/login");
+});
+
+test("a redirect says a page has a password field when any of its fields is one, whatever else it holds", () => {
+  const cat = buildRouteCatalog({ route: "/a", nodes: ["textbox: Email", "textbox: Password"], attrs: [{ key: "textbox: Email", inputType: "email" }, PASSWORD_ATTR, { key: "button: Go" }], finalUrl: LOGIN_FINAL_URL });
+  assert.equal(cat.reachedPasswordField, true);
+});
+
 test("a redirect says whether the page it reached has a password field", () => {
   const login = buildRouteCatalog({ route: "/a", nodes: ["textbox: Password"], attrs: [PASSWORD_ATTR], finalUrl: LOGIN_FINAL_URL });
   const home = buildRouteCatalog({ route: "/a", nodes: ["textbox: Search"], attrs: [{ key: "textbox: Search", inputType: "search" }], finalUrl: "http://dev.example.com/home" });
@@ -220,6 +229,8 @@ test("degradedRouteWarning names why each route degraded and where a redirect le
   for (const needle of ["/broken", DEGRADE_REASON.CAPTURE_FAILED, "/blank", DEGRADE_REASON.EMPTY_RENDER, "/orders", DEGRADE_REASON.REDIRECTED, "/login"]) {
     assert.ok(warning.includes(needle), `the warning carries ${needle}`);
   }
+  assert.equal(warning.includes("undefined"), false, "a route with no redirect names no path");
+  assert.ok(warning.includes(`/broken (${DEGRADE_REASON.CAPTURE_FAILED})`), "a route is followed by its reason alone when nothing was reached");
 });
 
 /* A login page behind several routes is the sign of a gated app that declared no login. */
@@ -230,6 +241,17 @@ test("the gated-app advisory is given when two routes reach one page, and names 
   const advisory = gatedAppAdvisory([redirected("/a", "/portal"), redirected("/b", "/portal")]);
   assert.ok(advisory, "two routes reaching one page is the sign");
   for (const needle of ["/portal", "/a", "/b"]) assert.ok(advisory.includes(needle), `the advisory carries ${needle}`);
+});
+
+test("the gated-app advisory names every page that looks gated and leaves out one that does not", () => {
+  const advisory = gatedAppAdvisory([redirected("/a", "/portal"), redirected("/b", "/portal"), redirected("/c", "/login", true), redirected("/d", "/other")]) ?? "";
+  assert.ok(advisory.includes("/portal") && advisory.includes("/login"));
+  assert.equal(advisory.includes("/other") || advisory.includes("/d"), false);
+});
+
+test("the gated-app advisory is given when one of the routes that reached a page saw a password field", () => {
+  assert.ok(gatedAppAdvisory([redirected("/a", "/login", true), redirected("/b", "/login")]));
+  assert.ok(gatedAppAdvisory([redirected("/a", "/login"), redirected("/b", "/login", true)]));
 });
 
 test("the gated-app advisory is given when one route reaches a page with a password field", () => {

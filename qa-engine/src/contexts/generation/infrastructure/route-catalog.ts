@@ -73,10 +73,8 @@ function redirectTarget(route: string, finalUrl: string | undefined): string | u
   } catch {
     return undefined;
   }
-  const normalize = (p: string): string => {
-    const withSlash = p.startsWith("/") ? p : `/${p}`;
-    return withSlash.length > 1 ? withSlash.replace(/\/+$/, "") : withSlash;
-  };
+  /* A URL's pathname always starts with a slash; a server may add trailing ones. */
+  const normalize = (p: string): string => (p.length > 1 ? p.replace(/\/+$/, "") : p);
   const reached = normalize(finalPath);
   return reached === normalize(requestedPath) ? undefined : reached.slice(0, REDIRECT_PATH_MAX_CHARS);
 }
@@ -109,19 +107,22 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
 export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string | undefined {
   const degraded = catalogs.filter((c) => c.status === ROUTE_STATUS.DEGRADED);
   if (degraded.length === 0) return undefined;
-  const named = degraded.map((c) => `${c.route} (${c.degradeReason}${c.redirectedTo === undefined ? "" : ` to ${c.redirectedTo}`})`);
+  const named = degraded.map((c) => `${c.route} (${[c.degradeReason, c.redirectedTo].filter(Boolean).join(" ")})`);
   return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
 }
 
 /** A note, for the log only, when redirects look like a gated app: two or more routes reached one page, or the page reached has a password field. The app may need a login declared in its config. Undefined when nothing looks gated. */
 export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | undefined {
-  const reached = new Map<string, RouteCatalog[]>();
+  const reached = new Map<string, { routes: string[]; hasPasswordField: boolean }>();
   for (const c of catalogs) {
-    if (c.degradeReason !== DEGRADE_REASON.REDIRECTED || c.redirectedTo === undefined) continue;
-    reached.set(c.redirectedTo, [...(reached.get(c.redirectedTo) ?? []), c]);
+    if (c.redirectedTo === undefined) continue;
+    const page = reached.get(c.redirectedTo) ?? { routes: [], hasPasswordField: false };
+    page.routes.push(c.route);
+    page.hasPasswordField ||= c.reachedPasswordField === true;
+    reached.set(c.redirectedTo, page);
   }
-  const gated = [...reached].filter(([, routes]) => routes.length >= 2 || routes.some((c) => c.reachedPasswordField));
+  const gated = [...reached].filter(([, page]) => page.routes.length > 1 || page.hasPasswordField);
   if (gated.length === 0) return undefined;
-  const named = gated.map(([path, routes]) => `${path} (reached from ${routes.map((c) => c.route).join(", ")})`);
+  const named = gated.map(([path, page]) => `${path} (reached from ${page.routes.join(", ")})`);
   return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare auth: in its config.`;
 }

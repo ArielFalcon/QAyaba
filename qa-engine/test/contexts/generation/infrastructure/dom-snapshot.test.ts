@@ -513,6 +513,8 @@ test("formatRedirectAdvisory renders the tree of the page a redirect reached, un
   const block = formatRedirectAdvisory([healthyPage, loginPage("/orders")]);
   const lines = block.split("\n");
   assert.ok(lines[0]!.startsWith(`### ${PACK_HEADINGS.redirected}`));
+  assert.match(lines[0]!, /advisory/i, "the heading labels the block advisory");
+  assert.ok(lines[1]!.length > 0 && !lines[1]!.startsWith("reached"), "the block says what it is before it lists a page");
   assert.ok(block.includes("/login") && block.includes("/orders"));
   for (const node of ["textbox: Email", "textbox: Password", "button: Sign in"]) assert.ok(block.includes(`  ${node}`), `the reached page's ${node} is listed`);
   assert.equal(block.includes("Apply coupon"), false, "a route that was not redirected is not in the block");

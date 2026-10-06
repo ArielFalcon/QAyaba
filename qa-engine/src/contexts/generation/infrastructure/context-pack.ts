@@ -169,8 +169,8 @@ const hasText = (section: PackSection): boolean => section.text.length > 0;
 
 /* The capture reports the grounded routes and, after them, the pages redirects reached under a heading of their own; the live DOM section takes the first and the pack keeps the second as a section apart. */
 function splitRedirectSection(captured: string): { grounded: string; advisory: string } {
-  const at = captured.search(new RegExp(`^### ${escapeRegExp(PACK_HEADINGS.redirected)}`, "m"));
-  return at < 0 ? { grounded: captured, advisory: "" } : { grounded: captured.slice(0, at).trimEnd(), advisory: captured.slice(at).trimEnd() };
+  const [grounded = "", ...advisory] = captured.split(new RegExp(`^(?=### ${escapeRegExp(PACK_HEADINGS.redirected)})`, "m"));
+  return { grounded: grounded.trimEnd(), advisory: advisory.join("").trimEnd() };
 }
 
 export async function buildContextPack(

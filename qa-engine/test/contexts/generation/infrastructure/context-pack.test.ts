@@ -310,6 +310,11 @@ test("buildContextPack: the page a redirect reached is its own section, outside 
   assert.ok(advisory.includes("textbox: Email") && advisory.includes("/login"), "it is in the section of its own, with the page it reached");
 });
 
+test("buildContextPack: blank lines at the end of the capture leave no gap after the redirect section", async () => {
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(`${CAPTURE_WITH_REDIRECT}\n\n\n`));
+  assert.equal(result.text, result.text?.trimEnd());
+});
+
 test("buildContextPack: the live DOM's line cap counts only the live DOM's own lines", async () => {
   const many = Array.from({ length: 400 }, (_, i) => `  link: nav-${i}`);
   const captured = ["route /cart:", ...many, "", advisoryOf()].join("\n");

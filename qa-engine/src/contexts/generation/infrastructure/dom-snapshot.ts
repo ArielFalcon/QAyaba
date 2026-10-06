@@ -255,10 +255,10 @@ const REDIRECT_ADVISORY_INTRO = "These routes sent the browser to another page. 
 export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
   const pages = new Map<string, { path: string; snap: RouteSnapshot; routes: string[] }>();
   for (const s of snaps) {
-    if (s.error || (s.nodes?.length ?? 0) === 0) continue;
+    if (s.error || s.nodes === undefined || s.nodes.length === 0) continue;
     const path = buildRouteCatalog(s).redirectedTo;
     if (path === undefined) continue;
-    const key = `${path}\n${(s.nodes ?? []).join("\n")}`;
+    const key = `${path}\n${s.nodes.join("\n")}`;
     const page = pages.get(key);
     if (page) page.routes.push(s.route);
     else pages.set(key, { path, snap: s, routes: [s.route] });
@@ -274,7 +274,7 @@ export function formatRedirectAdvisory(snaps: RouteSnapshot[]): string {
 /** What a capture of routes reports: the grounded routes, then (after a blank line) the pages redirects reached as a section of their own. Undefined when there is nothing to report. */
 export function formatDomCapture(snaps: RouteSnapshot[], changed?: ChangedElement[]): string | undefined {
   const text = [formatDomSnapshot(snaps, changed), formatRedirectAdvisory(snaps)].filter((part) => part !== "").join("\n\n");
-  return text.trim() ? text : undefined;
+  return text === "" ? undefined : text;
 }
 
 /* Names the routes whose capture degraded, and, when the redirects look like a gated app, says so. Log only. */

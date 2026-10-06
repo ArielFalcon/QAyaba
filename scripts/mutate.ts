@@ -218,6 +218,24 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "redirect-advisory": {
+    description: "redirect advisory: why a route degraded and where a redirect led, the state line and the advisory block that render it, and the split that keeps the block out of the live DOM section",
+    mutate: [
+      `${GEN}/infrastructure/route-catalog.ts:14-24`,
+      `${GEN}/infrastructure/route-catalog.ts:65-128`,
+      /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
+      `${GEN}/infrastructure/dom-snapshot.ts:227-231`,
+      `${GEN}/infrastructure/dom-snapshot.ts:251-287`,
+      `${GEN}/infrastructure/context-pack.ts:171-174`,
+      `${GEN}/infrastructure/context-pack.ts:207-208`,
+    ],
+    tests: [
+      `${GEN_TEST}/infrastructure/route-catalog.test.ts`,
+      `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
+      `${GEN_TEST}/infrastructure/context-pack.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "patch-app-yaml": {
     description: "app config patch: the managed fields of an app's YAML are edited in place, and placeholders, comments and unmanaged keys come out as they went in",
     mutate: ["src/server/onboarding/patch-app-yaml.ts"],
