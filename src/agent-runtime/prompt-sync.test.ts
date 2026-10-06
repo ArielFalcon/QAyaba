@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
 import { buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
+import { E2E_AUTH_FILE } from "@kernel/e2e-auth";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
 
@@ -306,6 +307,15 @@ describe("prompt-sync drift guard", () => {
       const rules = procedure.match(/Selector priority:[^\n]*/g) ?? [];
       assert.equal(rules.length, 1, `${rel}: the selector priority is stated exactly once`);
       assert.match(rules[0] ?? "", /STARTS WITH the configured testIdAttribute name/, `${rel}: an id=/name=/href hint must not read as a test-id`);
+    }
+  });
+
+  it("both generator mirrors tie the permission to rewrite auth.setup.ts to the absence of the declared central login file", () => {
+    for (const rel of GENERATOR_PROMPTS) {
+      const procedure = parseSections(readFile(rel)).get("Procedure") ?? "";
+      const loginRule = procedure.split(/\n(?=- )/).find((item) => item.includes("auth.setup.ts")) ?? "";
+      assert.ok(loginRule.includes(`e2e/${E2E_AUTH_FILE}`), `${rel}: the login rule names the file whose presence withdraws the permission`);
+      assert.ok(loginRule.indexOf(`e2e/${E2E_AUTH_FILE}`) > loginRule.indexOf("rewrite"), `${rel}: the exception follows the permission it limits`);
     }
   });
 
