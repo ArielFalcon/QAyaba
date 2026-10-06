@@ -2,7 +2,8 @@
 # QAyaba slim — operator entry point (macOS bash 3.2 compatible; needs only docker).
 #
 #   ./slim/qayaba.sh preflight              probe what the network allows (host + a container) and whether
-#                                           the LLM gateway declared in the override is reachable
+#                                           the LLM gateway declared in the override is reachable (fails
+#                                           when no gateway is declared)
 #   ./slim/qayaba.sh export-ca              export the macOS System keychain CAs to slim/certs/
 #   ./slim/qayaba.sh build                  build the image (all downloads happen here)
 #   ./slim/qayaba.sh up | down | ps | logs [service]
@@ -89,8 +90,8 @@ probe_gateway() {
   local override="$SLIM_DIR/opencode.override.json" no_proxy_list
   echo "== LLM gateway from inside a container (any HTTP status = reachable; no credentials are sent)"
   if [ ! -f "$override" ]; then
-    echo "no slim/opencode.override.json: the LLM gateway is not declared, nothing to probe"
-    return 0
+    echo "no LLM gateway is declared: create slim/opencode.override.json (start from slim/opencode.override.example.json); the image does not build without it"
+    return 1
   fi
   no_proxy_list="agents,orchestrator,localhost,127.0.0.1,$(env_value EXTRA_NO_PROXY)"
   docker run --rm -e "NO_PROXY=$no_proxy_list" -e "no_proxy=$no_proxy_list" \

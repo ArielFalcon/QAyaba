@@ -31,7 +31,10 @@ COPY packages ./packages
 COPY web/package.json ./web/package.json
 RUN npm ci --no-audit --no-fund
 COPY agents/opencode.json /tmp/qayaba/opencode.base.json
-# The override is optional: the glob lets the COPY succeed when it is absent.
+# The override is mandatory: opencode-config.mjs fails the build without a declared LLM provider
+# (the base config only names a public one) and for a provider key that is not an {env:VAR}
+# reference. The glob lets the COPY reach that script when the file is missing, so the failure
+# carries its explanation instead of a bare "not found".
 COPY slim/opencode-config.mjs slim/opencode.override.jso[n] /tmp/qayaba/
 RUN node /tmp/qayaba/opencode-config.mjs /tmp/qayaba/opencode.base.json /tmp/qayaba/opencode.override.json > /tmp/qayaba/opencode.json
 

@@ -35,7 +35,8 @@ de los secretos; `./slim/qayaba.sh sbom` genera la lista real de paquetes de la 
 - Artifactory (o equivalente) con remotos para: imágenes Docker (mcr.microsoft.com, Docker Hub),
   npm, PyPI, Go, apt de Ubuntu (archive/security para amd64, ports para arm64), Maven Central y, si
   no se *vendorizan* a mano, genéricos para `github.com` y `download.eclipse.org`.
-- Clave de la API de la pasarela de LLM. No hace falta para arrancar: si caduca a diario, se pega en la
+- Una pasarela de LLM compatible con OpenAI, declarada en `slim/opencode.override.json` (ver «LLM
+  corporativo»), y su clave de API. La clave no hace falta para arrancar: si caduca a diario, se pega en la
   consola (ver «Clave diaria del LLM»).
 
 ## Puesta en marcha
@@ -43,7 +44,8 @@ de los secretos; `./slim/qayaba.sh sbom` genera la lista real de paquetes de la 
 ```bash
 # 0. Diagnóstico de red (sin sudo): proxy visto por los contenedores, alcance a cada destino, inspección TLS
 cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los datos de GitLab/DEV
-./slim/qayaba.sh preflight            # incluye el alcance de la pasarela LLM del override (desde un contenedor, sin credenciales)
+./slim/qayaba.sh preflight            # incluye el alcance de la pasarela LLM del override (desde un contenedor, sin credenciales);
+                                      # falla si no hay pasarela declarada
 
 # 1. CA corporativa (si el preflight muestra un emisor TLS corporativo)
 ./slim/qayaba.sh export-ca            # escribe slim/certs/corporate-ca.crt desde el llavero del sistema
@@ -51,8 +53,9 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 # 2. (Opcional) Artefactos sin remoto en Artifactory: descárgalos con el navegador a slim/vendor/
 #    (lista y URLs en slim/vendor/README.md). Se verifican por SHA-256 en el build.
 
-# 3. (Opcional) LLM corporativo: copia slim/opencode.override.example.json a slim/opencode.override.json
-#    y ajusta el proveedor y los modelos. La clave no se declara aquí: se pega en la consola (paso 5).
+# 3. LLM corporativo (obligatorio): copia slim/opencode.override.example.json a slim/opencode.override.json
+#    y ajusta el proveedor y los modelos. La clave no se declara aquí (solo como {env:OPENCODE_API_KEY}):
+#    se pega en la consola (paso 5). Sin este fichero el build falla.
 
 # 4. Construir (todas las descargas ocurren aquí) y arrancar
 ./slim/qayaba.sh build
@@ -149,9 +152,9 @@ Qué conviene tener presente:
 
 ## LLM corporativo
 
-`slim/opencode.override.json` se fusiona con `agents/opencode.json` durante el build. Declara ahí el
-proveedor (compatible con OpenAI) y reasigna el `model` de cada agente. El orquestador lee esa misma
-configuración, así que:
+`slim/opencode.override.json` es **obligatorio** y se fusiona con `agents/opencode.json` durante el build.
+Declara ahí el proveedor (compatible con OpenAI) y reasigna el `model` de cada agente. El orquestador lee esa
+misma configuración, así que:
 
 - los presupuestos de prompt usan el `limit.context` que declares para cada modelo;
 - los modelos de generador, revisor y chat salen de sus agentes;
@@ -160,11 +163,16 @@ configuración, así que:
 Mantén **modelos distintos** para `qa-generator` y `qa-reviewer`: la independencia del revisor
 depende de ello. Tras cambiar el override: `./slim/qayaba.sh build && ./slim/qayaba.sh up`.
 
-Con un override que declara `provider`, OpenCode queda **limitado a esos proveedores**
-(`enabled_providers`): ningún rol puede llamar a otro destino de LLM. La compartición de sesiones
-(`share`) queda siempre desactivada. El build **falla** si `model`, `small_model` o el `model` de algún
-agente no apunta a un proveedor habilitado y a un modelo declarado en su `models`; el error lista cada
-clave afectada, de modo que un rol nunca llega a llamar en silencio a un proveedor inalcanzable.
+OpenCode queda **limitado a los proveedores del override** (`enabled_providers`): ningún rol puede llamar a
+otro destino de LLM. La compartición de sesiones (`share`) queda siempre desactivada. El build **falla** si:
+
+- el override no existe o no declara ningún `provider`: la configuración base solo nombra un proveedor
+  público, y ni el código ni la clave deben acabar allí;
+- el `options.apiKey` de un proveedor no es una referencia `{env:VAR}`: el override se copia a las capas de la
+  imagen, así que una clave literal quedaría grabada en ellas (el mensaje no la repite);
+- `model`, `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un modelo
+  declarado en su `models`; el error lista cada clave afectada, de modo que un rol nunca llega a llamar en
+  silencio a un proveedor inalcanzable.
 
 ## Presupuesto de memoria
 
@@ -201,6 +209,8 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
+| `opencode-config: the LLM gateway override is missing` o `no LLM provider is declared` en el build | Falta `slim/opencode.override.json` o no declara ningún `provider` | Cópialo desde `slim/opencode.override.example.json` y ajusta proveedor y modelos (ver «LLM corporativo») |
+| `opencode-config: … apiKey: must be an {env:VAR} reference` en el build | La clave del proveedor está escrita en el override | Sustitúyela por `{env:OPENCODE_API_KEY}` y pega la clave en la consola |
 | `certificate verify failed` / `SELF_SIGNED_CERT_IN_CHAIN` en el build | Falta la CA corporativa | `./slim/qayaba.sh export-ca` y reconstruir |
 | `java-trust-ca: … holds no PEM certificate` o `… are not trusted by Java` en el build | Un `.crt` de `slim/certs/` no es PEM, o el almacén de Java no admite el certificado | Reexporta con `./slim/qayaba.sh export-ca` (PEM) y reconstruye; el build falla a propósito para que Java (Serena/JDTLS, Maven) no quede sin confiar en la CA |
 | `fetch-artifact: cannot download …` | Host no permitido | Apunta su `*_BASE` a un remoto de Artifactory o vendoriza el fichero en `slim/vendor/` |

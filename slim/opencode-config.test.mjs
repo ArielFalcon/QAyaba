@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deepMerge, slimOpencodeConfig, validateModelRefs, PW_CHROMIUM } from "./opencode-config.mjs";
+import { deepMerge, slimOpencodeConfig, validateGateway, validateModelRefs, PW_CHROMIUM } from "./opencode-config.mjs";
 
 const base = JSON.parse(readFileSync(new URL("../agents/opencode.json", import.meta.url), "utf8"));
 
@@ -130,13 +130,14 @@ test("every violation carries a reason that names the offending reference", () =
   assert.match(violation.reason, /corp\/typo/);
 });
 
-function runCli(override) {
+function runCli(override, { overrideFile = true, args } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "qayaba-slim-config-"));
   try {
     const overridePath = join(dir, "override.json");
-    writeFileSync(overridePath, JSON.stringify(override));
+    if (overrideFile) writeFileSync(overridePath, JSON.stringify(override));
     const basePath = fileURLToPath(new URL("../agents/opencode.json", import.meta.url));
-    return spawnSync(process.execPath, [fileURLToPath(new URL("./opencode-config.mjs", import.meta.url)), basePath, overridePath], { encoding: "utf8" });
+    const cliArgs = args ? args(basePath, overridePath) : [basePath, overridePath];
+    return spawnSync(process.execPath, [fileURLToPath(new URL("./opencode-config.mjs", import.meta.url)), ...cliArgs], { encoding: "utf8" });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -155,4 +156,73 @@ test("the build step prints the effective config when every model resolves", () 
   const cfg = JSON.parse(result.stdout);
   assert.deepEqual(cfg.enabled_providers, ["corp"]);
   assert.equal(cfg.share, "disabled");
+});
+
+test("an override that declares no provider is not a gateway", () => {
+  for (const override of [undefined, {}, { provider: {} }, { agent: { "qa-generator": { model: "x/y" } } }]) {
+    assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider"], JSON.stringify(override));
+  }
+});
+
+test("a declared provider with no key, or a key read from the environment, is a valid gateway", () => {
+  assert.deepEqual(validateGateway({ provider: gateway("corp", ["big"]) }), []);
+  const withEnvKey = { provider: { corp: { options: { baseURL: "https://llm.corp/v1", apiKey: "{env:OPENCODE_API_KEY}" }, models: {} } } };
+  assert.deepEqual(validateGateway(withEnvKey), []);
+});
+
+test("a literal provider key is rejected under its key, without echoing the secret", () => {
+  const literal = "sk-live-0123456789abcdef";
+  const override = { provider: { corp: { options: { baseURL: "https://llm.corp/v1", apiKey: literal }, models: {} } } };
+  const violations = validateGateway(override);
+  assert.deepEqual(violations.map((v) => v.key), ["provider.corp.options.apiKey"]);
+  assert.ok(!JSON.stringify(violations).includes(literal), "the secret never appears in the report");
+});
+
+test("a key that is only partly an environment reference is still rejected", () => {
+  for (const apiKey of ["Bearer {env:KEY}", "{env:}", "{file:/run/secret}", "", 12345]) {
+    const override = { provider: { corp: { options: { apiKey }, models: {} } } };
+    assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider.corp.options.apiKey"], JSON.stringify(apiKey));
+  }
+});
+
+test("every offending provider is listed", () => {
+  const options = { apiKey: "literal" };
+  const override = { provider: { one: { options, models: {} }, two: { options: { apiKey: "{env:OK}" }, models: {} }, three: { options, models: {} } } };
+  assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider.one.options.apiKey", "provider.three.options.apiKey"]);
+});
+
+test("the build step refuses to run without the override file and emits no config", () => {
+  const result = runCli(undefined, { overrideFile: false });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /override/);
+});
+
+test("the build step refuses to run when no override path is given at all", () => {
+  const result = runCli(undefined, { overrideFile: false, args: (base) => [base] });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("the build step refuses an override that declares no provider, so the public defaults never ship", () => {
+  const result = runCli({ agent: { "qa-generator": { model: "opencode-go/some-model" } } });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /provider/);
+});
+
+test("the build step refuses a literal provider key and never prints it", () => {
+  const literal = "sk-live-0123456789abcdef";
+  const result = runCli({ provider: { corp: { ...gateway("corp", ["big"]).corp, options: { baseURL: "https://llm.corp/v1", apiKey: literal } } }, agent: allRolesOn("corp/big") });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.ok(result.stderr.includes("provider.corp.options.apiKey"));
+  assert.ok(!`${result.stdout}${result.stderr}`.includes(literal), "the secret is not echoed");
+});
+
+test("the build step accepts a provider whose key is an environment reference", () => {
+  const corp = { ...gateway("corp", ["big"]).corp, options: { baseURL: "https://llm.corp/v1", apiKey: "{env:OPENCODE_API_KEY}" } };
+  const result = runCli({ provider: { corp }, agent: allRolesOn("corp/big") });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).provider.corp.options.apiKey, "{env:OPENCODE_API_KEY}");
 });

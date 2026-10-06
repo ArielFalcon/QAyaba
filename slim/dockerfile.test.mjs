@@ -66,3 +66,10 @@ test("the Node and native module check fails when the runtime Node is older than
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /older than 24/);
 });
+
+test("the effective OpenCode config is built from the base and the override, so the build stops without a gateway", () => {
+  const step = /^RUN node \/tmp\/qayaba\/opencode-config\.mjs (\S+) (\S+) > \S+$/m.exec(dockerfile);
+  assert.ok(step, "the deps stage runs opencode-config.mjs with both inputs and no fallback");
+  assert.match(step[1], /opencode\.base\.json$/);
+  assert.match(step[2], /opencode\.override\.json$/);
+});

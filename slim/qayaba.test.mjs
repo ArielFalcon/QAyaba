@@ -100,11 +100,13 @@ test("preflight probes the declared LLM gateway from a container that uses the r
   assert.match(call, /registry\.test\/node:24/);
 });
 
-test("preflight reports the gateway as not declared, without probing, when there is no override", () => {
+test("preflight fails, after printing everything else, when there is no override and so no gateway to probe", () => {
   const result = qayaba(["preflight"]);
-  assert.equal(result.status, 0, result.output);
+  assert.notEqual(result.status, 0);
   assert.deepEqual(probeCalls(result.calls), []);
-  assert.match(result.output, /not declared/);
+  assert.match(result.output, /no LLM gateway/);
+  assert.match(result.output, /opencode\.override\.json/);
+  assert.ok(result.calls.some((c) => c.includes("registry.test/node:24")), "the network checks still ran");
 });
 
 test("preflight fails, after printing everything else, when the gateway is unreachable", () => {

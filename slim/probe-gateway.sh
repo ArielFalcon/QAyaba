@@ -8,12 +8,13 @@
 # work, which is all that is checked here; only a transport error counts as unreachable, and the fix
 # for it is printed. Runs inside a container (qayaba.sh preflight): needs sh, node and curl.
 #
-# Exit status: 0 when every declared gateway answered (or none is declared), 1 otherwise.
+# Exit status: 0 when every declared gateway answered, 1 otherwise — including when no gateway is
+# declared: the image refuses to build without one, so there is nothing to run against.
 override="${1:-/override.json}"
 
 if [ ! -f "$override" ]; then
-  echo "no slim/opencode.override.json: the LLM gateway is not declared, nothing to probe"
-  exit 0
+  echo "no LLM gateway is declared: create slim/opencode.override.json (start from slim/opencode.override.example.json); the image does not build without it"
+  exit 1
 fi
 
 urls="$(node -e '
@@ -24,8 +25,8 @@ urls="$(node -e '
   }' "$override")" || { echo "cannot read the providers of $override"; exit 1; }
 
 if [ -z "$urls" ]; then
-  echo "the override declares no provider baseURL: nothing to probe"
-  exit 0
+  echo "no LLM gateway is declared: the override has no provider with an options.baseURL; the image does not build without one"
+  exit 1
 fi
 
 errors="$(mktemp)"

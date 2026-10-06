@@ -105,18 +105,24 @@ test("one unreachable gateway does not hide the state of the others", () => {
   assert.match(result.output, /up\.example\.test.*reachable \(HTTP 200\)/);
 });
 
-test("a provider without a baseURL is skipped and an override without providers has nothing to probe", () => {
-  const skipped = probe({ override: { provider: { a: { npm: "x", options: {} } } } });
-  assert.equal(skipped.status, 0, skipped.output);
-  assert.deepEqual(skipped.calls, []);
-  const none = probe({ override: { agent: {} } });
-  assert.equal(none.status, 0, none.output);
-  assert.deepEqual(none.calls, []);
+test("a provider without a baseURL is skipped while another one is probed", () => {
+  const result = probe({ override: { provider: { a: { npm: "x", options: {} }, b: gateway("https://llm.example.test/v1") } } });
+  assert.equal(result.status, 0, result.output);
+  assert.deepEqual(result.calls.map((c) => c.split(" ").pop()), ["https://llm.example.test/v1/models"]);
 });
 
-test("without an override file the gateway is not declared and nothing is probed", () => {
+test("an override that leaves nothing to probe fails: the build would refuse it", () => {
+  for (const override of [{ agent: {} }, { provider: {} }, { provider: { a: { npm: "x", options: {} } } }]) {
+    const result = probe({ override });
+    assert.equal(result.status, 1, result.output);
+    assert.deepEqual(result.calls, []);
+    assert.match(result.output, /no LLM gateway/);
+  }
+});
+
+test("without an override file there is no gateway to probe, which fails", () => {
   const result = probe({ override: undefined });
-  assert.equal(result.status, 0, result.output);
+  assert.equal(result.status, 1, result.output);
   assert.deepEqual(result.calls, []);
-  assert.match(result.output, /not declared/);
+  assert.match(result.output, /no LLM gateway/);
 });

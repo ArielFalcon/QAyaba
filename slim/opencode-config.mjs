@@ -4,10 +4,14 @@
  *   - the Playwright MCP runs its globally installed binary against the image's own Chromium
  *     (no `npx` registry resolution, no browser download at run time);
  *   - auto-update is off and session sharing is disabled (nothing leaves for a hosted share service);
- *   - slim/opencode.override.json, when present, is deep-merged last (objects merge, everything
- *     else replaces) — the place to declare a corporate LLM provider and re-point agent models;
- *   - an override that declares `provider` also LOCKS OpenCode to exactly those providers
+ *   - slim/opencode.override.json is MANDATORY and deep-merged last (objects merge, everything
+ *     else replaces) — the place to declare the corporate LLM gateway and re-point agent models.
+ *     Without a declared `provider` the build exits non-zero: the base config's models belong to a
+ *     public provider, and the image must never send code or the key there;
+ *   - the override's `provider` also LOCKS OpenCode to exactly those providers
  *     (`enabled_providers`), so no role can reach any other LLM endpoint;
+ *   - a provider's `options.apiKey`, when set, must be an `{env:VAR}` reference: the override is
+ *     copied into the image layers, so a literal key would be baked into them;
  *   - every model reference of the effective config (`model`, `small_model`, `agent.<role>.model`)
  *     must resolve to an enabled provider and a model that provider declares. Otherwise the CLI
  *     exits non-zero listing every offending key, so the image build fails instead of a role
@@ -16,7 +20,7 @@
  * The result is written once at build time and read by BOTH roles (the agents' runtime and the
  * orchestrator's prompt budgets), so they can never disagree on which model runs.
  *
- *   node slim/opencode-config.mjs <base.json> [override.json] > effective.json
+ *   node slim/opencode-config.mjs <base.json> <override.json> > effective.json
  */
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -51,6 +55,28 @@ export function slimOpencodeConfig(base, override) {
     effective.enabled_providers = Object.keys(override.provider);
   }
   return effective;
+}
+
+const ENV_REFERENCE = /^\{env:[A-Za-z_][A-Za-z0-9_]*\}$/;
+
+/**
+ * Lists what keeps an override from being the operator's LLM gateway: no declared provider, or a
+ * provider key that is not read from the environment. The reasons never include the key itself.
+ */
+export function validateGateway(override) {
+  const providers = isPlainObject(override?.provider) ? override.provider : {};
+  const ids = Object.keys(providers);
+  if (ids.length === 0) {
+    return [{ key: "provider", reason: "no LLM provider is declared; without one the public default providers stay in effect, so code and the key would go to them" }];
+  }
+  const violations = [];
+  for (const id of ids) {
+    const apiKey = providers[id]?.options?.apiKey;
+    if (apiKey !== undefined && !(typeof apiKey === "string" && ENV_REFERENCE.test(apiKey))) {
+      violations.push({ key: `provider.${id}.options.apiKey`, reason: "must be an {env:VAR} reference; a literal key would be baked into the image layers" });
+    }
+  }
+  return violations;
 }
 
 function modelRefViolation(ref, enabled, declared) {
@@ -92,19 +118,32 @@ export function validateModelRefs(cfg) {
   return violations;
 }
 
+function report(violations, what) {
+  console.error(`opencode-config: ${violations.length} ${what}:`);
+  for (const { key, reason } of violations) console.error(`  ${key}: ${reason}`);
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [basePath, overridePath] = process.argv.slice(2);
-  if (!basePath) {
-    console.error("usage: opencode-config.mjs <base.json> [override.json]");
+  if (!basePath || !overridePath) {
+    console.error("usage: opencode-config.mjs <base.json> <override.json>");
     process.exit(2);
   }
+  if (!existsSync(overridePath)) {
+    console.error("opencode-config: the LLM gateway override is missing: create slim/opencode.override.json (start from slim/opencode.override.example.json) before building");
+    process.exit(1);
+  }
   const base = JSON.parse(readFileSync(basePath, "utf8"));
-  const override = overridePath && existsSync(overridePath) ? JSON.parse(readFileSync(overridePath, "utf8")) : undefined;
+  const override = JSON.parse(readFileSync(overridePath, "utf8"));
+  const gatewayViolations = validateGateway(override);
+  if (gatewayViolations.length > 0) {
+    report(gatewayViolations, "problem(s) with the LLM gateway override");
+    process.exit(1);
+  }
   const effective = slimOpencodeConfig(base, override);
   const violations = validateModelRefs(effective);
   if (violations.length > 0) {
-    console.error(`opencode-config: ${violations.length} model reference(s) cannot resolve in the effective config:`);
-    for (const { key, reason } of violations) console.error(`  ${key}: ${reason}`);
+    report(violations, "model reference(s) cannot resolve in the effective config");
     process.exit(1);
   }
   process.stdout.write(JSON.stringify(effective, null, 2) + "\n");

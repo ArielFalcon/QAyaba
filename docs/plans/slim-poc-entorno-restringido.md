@@ -280,7 +280,7 @@ anterior lo fijaba a `amd64`).
   interceptaría el nombre del servicio.
 - **Diagnóstico.** `./slim/qayaba.sh preflight` sondea además, desde un contenedor con las CA del build y la misma
   lista `NO_PROXY`, que la pasarela de LLM del override responde (cualquier estado HTTP cuenta; no se envían
-  credenciales) e imprime el remedio según el fallo (DNS, proxy o TLS). `./slim/qayaba.sh check` verifica que el
+  credenciales) e imprime el remedio según el fallo (DNS, proxy o TLS); sin pasarela declarada, falla. `./slim/qayaba.sh check` verifica que el
   puerto de la consola está publicado solo en loopback y que el orquestador responde por su dirección de la red
   de compose, como lo alcanza la consola de terminal.
 - **npm con entorno filtrado.** El `npm ci` del e2e corre con el entorno filtrado, y el npmrc **global**
@@ -301,10 +301,12 @@ anterior lo fijaba a `amd64`).
   - `playwright-mcp` global con `--executable-path` al Chromium de la imagen;
   - sin auto-actualización y con la compartición de sesiones desactivada (`share: "disabled"`);
   - Serena y engram intactos;
-  - fusión final con `slim/opencode.override.json` (opcional);
-  - si el override declara `provider`, `enabled_providers` queda fijado a exactamente esos proveedores, y el build
-    **falla** si `model`, `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un
-    modelo declarado en su `models` (la salida lista cada clave afectada).
+  - fusión final con `slim/opencode.override.json`, **obligatorio**: el build falla si falta, si no declara
+    ningún `provider` (la configuración base solo nombra un proveedor público) o si el `options.apiKey` de un
+    proveedor no es una referencia `{env:VAR}` (una clave literal quedaría grabada en las capas de la imagen);
+  - `enabled_providers` queda fijado a exactamente los proveedores del override, y el build **falla** si `model`,
+    `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un modelo declarado en su
+    `models` (la salida lista cada clave afectada).
 - **Una sola fuente de verdad para los modelos.** Ambos roles leen el mismo `opencode.json` efectivo:
   - el orquestador dimensiona los prompts con el `limit.context` declarado por el proveedor;
   - los modelos de generador, revisor y chat salen de sus agentes;
