@@ -208,8 +208,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/shared-kernel/route-capturability.ts",
       /* Only the lines that filter the candidates, cut them, log and list what was left out. */
       `${GEN}/infrastructure/context-pack.ts:125-134`,
-      `${GEN}/infrastructure/context-pack.ts:192-194`,
-      `${GEN}/infrastructure/context-pack.ts:229-237`,
+      `${GEN}/infrastructure/context-pack.ts:199-201`,
+      `${GEN}/infrastructure/context-pack.ts:238-247`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
@@ -348,6 +348,19 @@ export function clearPreviousReport(root: string, name: string): void {
 
 export function sourcePathOf(entry: string): string {
   return entry.replace(/:\d+(-\d+)?$/, "");
+}
+
+/* Why a `path.ts:start-end` entry cannot narrow a file of `lineCount` lines, or undefined when it can; an entry with no range names the whole file. */
+export function rangeProblemOf(entry: string, lineCount: number): string | undefined {
+  if (sourcePathOf(entry) === entry) return undefined;
+  const range = /:(\d+)-(\d+)$/.exec(entry);
+  if (range === null) return "the suffix is not a start-end line range";
+  const start = Number(range[1]);
+  const end = Number(range[2]);
+  if (start < 1) return "the range starts before line 1";
+  if (end < start) return "the range ends before it starts";
+  if (end > lineCount) return `the range ends at line ${end} but the file has ${lineCount} lines`;
+  return undefined;
 }
 
 /* The preset's tests, run in their own process group (scripts/run-in-group.mjs) so a timed-out run's

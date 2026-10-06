@@ -55,3 +55,7 @@ src/**/*.d.ts
 # Mutation testing (npm run mutate): Stryker sandbox, incremental state and reports.
 /.stryker-tmp/
 /reports/
+
+# Local-only: a third-party tool checkout (archify) and the diagrams it generates here — not maintained docs.
+/.tools/
+/docs/architecture/
