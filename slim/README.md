@@ -150,8 +150,14 @@ espera (`needs_config`) y la consola lo muestra como «needs configuration».
 
 1. Pega la clave del día en el panel **agent runtime · LLM gateway** de la consola web
    (`http://localhost:8080/app`, botón *Apply key*) o en la pantalla *agent runtime* de la TUI (tecla `a`).
-2. El orquestador la entrega al servicio de agentes, que reinicia el proceso del agente con esa clave.
-   El estado pasa a `healthy` en unos segundos.
+2. El orquestador la entrega al servicio de agentes, que reinicia el proceso del agente con esa clave y
+   comprueba que la pasarela la acepta (`GET <baseURL>/models` con esa clave). El estado pasa de `starting` a
+   `healthy` en unos segundos, o a:
+   - `failed` con «key rejected by the LLM gateway» (HTTP 401/403): la clave es incorrecta o ha caducado;
+   - `failed` con «LLM gateway unreachable» y la causa (DNS, conexión, TLS): revisa la VPN, `EXTRA_NO_PROXY`
+     y la CA corporativa, y vuelve a pulsar *Apply key* para repetir la comprobación;
+   - `degraded` si la pasarela responde otra cosa (p. ej. HTTP 404 porque no ofrece `/models`): la clave no se
+     ha podido verificar, pero el agente sigue en marcha.
 
 Qué conviene tener presente:
 

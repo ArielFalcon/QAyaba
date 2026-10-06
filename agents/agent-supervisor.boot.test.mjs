@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -74,9 +75,13 @@ function watchOutput(child) {
   };
 }
 
-async function withSupervisor(env, scenario) {
+async function withSupervisor(env, scenario, { config } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "supervisor-boot-"));
   const port = await freePort();
+  if (config) {
+    writeFileSync(join(dir, "opencode.json"), JSON.stringify(config));
+    env = { ...env, OPENCODE_CONFIG: join(dir, "opencode.json") };
+  }
   const child = spawn(process.execPath, [SUPERVISOR], {
     env: {
       PATH: `${writeStubOpencode(dir)}${delimiter}${process.env.PATH}`,
@@ -140,4 +145,92 @@ test("a key already present at boot starts opencode without any restart", async 
 
     assert.match(line, /key=present/);
   });
+});
+
+// The effective OpenCode config declares the LLM gateway; the supervisor reports healthy only once
+// that gateway has accepted the key. A stub gateway on loopback stands in for it.
+const gatewayConfig = (baseURL) => ({
+  provider: { corp: { npm: "@ai-sdk/openai-compatible", options: { baseURL, apiKey: "{env:OPENCODE_API_KEY}" }, models: {} } },
+  enabled_providers: ["corp"],
+});
+
+async function withGateway(statusFor, scenario) {
+  const seen = [];
+  const server = createHttpServer((req, res) => {
+    seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization });
+    res.writeHead(statusFor(req)).end("{}");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await scenario({ baseURL: `http://127.0.0.1:${server.address().port}/v1`, seen });
+  } finally {
+    await new Promise((resolve) => { server.close(resolve); server.closeAllConnections(); });
+  }
+}
+
+// opencode is reported "starting" until its readiness check settles.
+async function settled(base) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const state = (await providers(base)).opencode;
+    if (state.status !== "starting" || Date.now() > deadline) return state;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+const quick = { AGENT_READY_DELAY_MS: "20" };
+
+test("a gateway that accepts the key makes opencode healthy, and the key never leaves through /providers", async () => {
+  await withGateway(() => 200, async ({ baseURL, seen }) => {
+    await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+      const state = await settled(base);
+
+      assert.equal(state.status, "healthy");
+      assert.deepEqual(seen.map((s) => [s.method, s.url, s.authorization]), [["GET", "/v1/models", `Bearer ${SECRET}`]]);
+      assert.ok(!JSON.stringify(await providers(base)).includes(SECRET));
+    }, { config: gatewayConfig(baseURL) });
+  });
+});
+
+test("a gateway that rejects the key fails opencode with that reason", async () => {
+  await withGateway(() => 401, async ({ baseURL }) => {
+    await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+      const state = await settled(base);
+
+      assert.equal(state.status, "failed");
+      assert.match(state.error, /key rejected by the LLM gateway/);
+      assert.ok(!JSON.stringify(state).includes(SECRET));
+    }, { config: gatewayConfig(baseURL) });
+  });
+});
+
+test("a gateway that cannot be reached fails opencode with that reason", async () => {
+  const closed = await freePort();
+  await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+    const state = await settled(base);
+
+    assert.equal(state.status, "failed");
+    assert.match(state.error, /LLM gateway unreachable/);
+  }, { config: gatewayConfig(`http://127.0.0.1:${closed}/v1`) });
+});
+
+test("the key delivered through /restart is the one the gateway is asked to accept", async () => {
+  await withGateway((req) => (req.headers.authorization === `Bearer ${SECRET}` ? 200 : 401), async ({ baseURL, seen }) => {
+    await withSupervisor({ ...quick, OPENCODE_API_KEY: "" }, async ({ base }) => {
+      assert.equal((await providers(base)).opencode.status, "needs_config");
+      assert.deepEqual(seen, [], "nothing is checked while there is no key");
+
+      await fetch(`${base}/restart`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "opencode", apiKey: SECRET }) });
+      const state = await settled(base);
+
+      assert.equal(state.status, "healthy");
+      assert.equal(seen.at(-1).authorization, `Bearer ${SECRET}`);
+    }, { config: gatewayConfig(baseURL) });
+  });
+});
+
+test("a config that declares no gateway keeps opencode healthy without any check", async () => {
+  await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+    assert.equal((await settled(base)).status, "healthy");
+  }, { config: { agent: {} } });
 });

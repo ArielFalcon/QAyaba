@@ -162,7 +162,7 @@ cada cliente, Java incluido (`java-trust-ca` falla el build si algún certificad
 
 | Destino | Quién | Para qué | Control |
 |---|---|---|---|
-| Pasarela de LLM (`options.baseURL` del override) | `agents` (OpenCode) | Inferencia | OpenCode queda limitado a los proveedores del override (`enabled_providers`); sin catálogo de modelos, sin auto-actualización, sin plugins por defecto, sin descarga de LSP y sin compartir sesiones (`share: disabled`) |
+| Pasarela de LLM (`options.baseURL` del override) | `agents` (OpenCode y el supervisor) | Inferencia, y `GET <baseURL>/models` con la clave del día para comprobar que la acepta (el supervisor aplica `HTTPS_PROXY`/`NO_PROXY` del entorno; la clave no se registra ni se devuelve) | OpenCode queda limitado a los proveedores del override (`enabled_providers`); sin catálogo de modelos, sin auto-actualización, sin plugins por defecto, sin descarga de LSP y sin compartir sesiones (`share: disabled`) |
 | Servidor git (`GIT_REMOTE_BASE`) | `orchestrator` | Clonar y `fetch` de los repositorios (token de solo lectura) | Solo el orquestador recibe el token |
 | Aplicación bajo prueba en DEV y su proveedor de identidad (origen de `e2e.auth.loginUrl`) | `orchestrator` (specs, captura del DOM) y `agents` (MCP de Playwright) | Ejecutar y explorar la aplicación | Dominios de la propia aplicación |
 | Registro npm interno (`NPM_REGISTRY`, tomado del npmrc global) | `orchestrator` | `npm ci` del `e2e/` del repositorio vigilado al preparar cada ejecución | Es el mismo mirror que el del build; no hay otra descarga |

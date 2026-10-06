@@ -317,7 +317,9 @@ anterior lo fijaba a `amd64`).
   `slim/opencode.override.example.json`) y referencia la clave como `{env:OPENCODE_API_KEY}`. La clave **no**
   se declara en ningún fichero ni hace falta para arrancar: como caduca a diario, se pega en tiempo de ejecución
   en la consola web (panel «agent runtime · LLM gateway») o en la TUI (tecla `a`), y el supervisor reinicia
-  OpenCode con ella; sin clave, el servicio de agentes queda en `needs_config`. Se pierde al reiniciar el
+  OpenCode con ella y comprueba contra la pasarela (`GET <baseURL>/models`) que la acepta: `healthy` si responde 2xx,
+  `failed` con «key rejected by the LLM gateway» (401/403) o «LLM gateway unreachable», `degraded` si responde otra
+  cosa; sin clave, el servicio de agentes queda en `needs_config`. Se pierde al reiniciar el
   servicio de agentes (flujo completo en «Clave diaria del LLM», [`slim/README.md`](../../slim/README.md)).
   Generador y revisor deben usar **modelos distintos**.
 

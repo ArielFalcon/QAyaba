@@ -143,6 +143,57 @@ test("a provider that is still starting is checked again once it has had time to
   assert.match(h.text(), /healthy/i);
 });
 
+/* The supervisor keeps a provider "starting" while it checks the key against the LLM gateway, which can outlast one look. */
+function startingThen(settled: ReturnType<typeof agentConfig>, startingReads: number) {
+  let read = 0;
+  return controlApi({
+    apps: [appView("shop")],
+    runs: [],
+    extra: (req) => {
+      if (req.path !== "/api/v1/agent/config") return undefined;
+      if (req.method === "PUT") return { status: 200, json: { config: agentConfig(true, "starting"), restarted: ["opencode"] } };
+      return { status: 200, json: read++ < startingReads ? agentConfig(true, "starting") : settled };
+    },
+  });
+}
+
+test("a provider that stays starting for a while is followed until the gateway has accepted the key", async () => {
+  const h = await loadConsole({ withConsole: true, token: "t", routes: startingThen(agentConfig(true, "healthy"), 4) });
+
+  h.type(KEY_FIELD, KEY);
+  h.click("agent-key-apply");
+  await h.advance(1_000);
+  assert.match(h.text(), /starting/i);
+
+  await h.advance(30_000);
+
+  assert.match(h.text(), /healthy/i);
+});
+
+test("a gateway that rejects the key shows its reason in the panel once the provider settles", async () => {
+  const rejected = agentConfig(true, "failed", "key rejected by the LLM gateway (corp: HTTP 401)");
+  const h = await loadConsole({ withConsole: true, token: "t", routes: startingThen(rejected, 2) });
+
+  h.type(KEY_FIELD, KEY);
+  h.click("agent-key-apply");
+  await h.advance(30_000);
+
+  assert.match(h.text(), /failed/i);
+  assert.match(h.text(), /key rejected by the LLM gateway/);
+});
+
+test("a provider that never leaves starting stops being polled", async () => {
+  const h = await loadConsole({ withConsole: true, token: "t", routes: startingThen(agentConfig(true, "starting"), Number.MAX_SAFE_INTEGER) });
+
+  h.type(KEY_FIELD, KEY);
+  h.click("agent-key-apply");
+  await h.advance(10 * 60_000);
+  const reads = h.requests.filter((r) => r.method === "GET" && r.path === "/api/v1/agent/config").length;
+  await h.advance(10 * 60_000);
+
+  assert.equal(h.requests.filter((r) => r.method === "GET" && r.path === "/api/v1/agent/config").length, reads, "no read after the polling limit");
+});
+
 test("the key is cleared from the field and never stored, shown, put in a URL or logged", async () => {
   let h!: Awaited<ReturnType<typeof loadConsole>>;
   const logged = await consoleOutputDuring(async () => {

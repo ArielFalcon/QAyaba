@@ -409,21 +409,24 @@
   const onOverview = () => state.section === 'overview' && !state.runId && !state.appName;
   /* Repaints only while the overview is showing: the panel lives there, and a render elsewhere would restart a live run's mounts. */
   function repaintAgentPanel() { if (onOverview()) render(); }
+  /* A provider that has just been handed a key stays "starting" while the supervisor checks the key
+     against the LLM gateway: look again every few seconds, a bounded number of times. */
+  const AGENT_RECHECK_MS = 3000;
+  const AGENT_RECHECK_LIMIT = 10;
   let agentRecheck = 0;
-  function refreshAgentStatus(recheckIfStarting) {
+  function refreshAgentStatus(rechecksLeft) {
     const api = apiOf();
     if (!api || !api.agentStatus) return Promise.resolve();
     return api.agentStatus().then(function (a) {
       D.agent = a;
-      /* A provider that has just been handed a key is still coming up: look once more after it has had time. */
-      if (recheckIfStarting && a && a.status === 'starting') {
-        clearTimeout(agentRecheck);
+      clearTimeout(agentRecheck);
+      if (rechecksLeft > 0 && a && a.status === 'starting') {
         agentRecheck = setTimeout(function () {
-          refreshAgentStatus(false).then(function () {
+          refreshAgentStatus(rechecksLeft - 1).then(function () {
             const field = document.getElementById('agent-key');
             if (!state.agentBusy && !(field && field.value)) repaintAgentPanel();
           });
-        }, 3000);
+        }, AGENT_RECHECK_MS);
       }
     }, function () { /* keep the last known status: a refresh failure must not break the session */ });
   }
@@ -445,7 +448,7 @@
     repaintAgentPanel();
     api.applyAgentKey(key).then(function () {
       state.agentNote = { tone: 'note', text: CFG.mode === 'live' ? 'Key applied.' : 'Demo console — the key was not sent anywhere.' };
-      return refreshAgentStatus(true);
+      return refreshAgentStatus(AGENT_RECHECK_LIMIT);
     }, function (err) {
       state.agentNote = { tone: 'warn', text: agentKeyFailure(err, key) };
     }).then(function () { state.agentBusy = false; repaintAgentPanel(); });

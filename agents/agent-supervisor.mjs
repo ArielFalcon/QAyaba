@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createServer } from "node:http";
+import nodeHttp, { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -64,6 +64,114 @@ function redactForResponse(msg) {
   return out.replace(/\b(?:sk-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,})\b/g, "[REDACTED_CREDENTIAL]");
 }
 
+// ── LLM gateway key check ────────────────────────────────────────────────────────────────────────
+// `opencode serve` starts without ever contacting the LLM gateway, so a dead, mistyped or expired key
+// would read as healthy until the first run failed. After the process is up, every provider of the
+// effective OpenCode config that is enabled, declares options.baseURL and reads its key from the
+// environment is asked for GET <baseURL>/models with that key:
+//   2xx            -> healthy
+//   401 / 403      -> failed   "key rejected by the LLM gateway"
+//   transport error-> failed   "LLM gateway unreachable"
+//   anything else  -> degraded (the gateway answered, but the key is unverified)
+// The key is only ever sent to the baseURL of the provider configured to read it, and never logged or
+// returned: every message below is built without it and passed through redaction.
+const READY_DELAY_MS = Number(process.env.AGENT_READY_DELAY_MS) || 2500;
+const GATEWAY_CHECK_TIMEOUT_MS = Number(process.env.AGENT_GATEWAY_CHECK_TIMEOUT_MS) || 10_000;
+const ENV_REFERENCE = /^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/;
+
+// The config `opencode serve` itself reads: OPENCODE_CONFIG, else <XDG_CONFIG_HOME|~/.config>/opencode/opencode.json.
+// Undefined when it is absent or unreadable (nothing to verify; a warning when it exists but is malformed).
+export function readOpencodeConfig(env = process.env) {
+  const path = env.OPENCODE_CONFIG || join(env.XDG_CONFIG_HOME || join(env.HOME || "/root", ".config"), "opencode", "opencode.json");
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    if (err?.code !== "ENOENT") console.warn(`[agent-supervisor] cannot read ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+export function gatewayTargets(config, env = process.env) {
+  const providers = config && typeof config.provider === "object" && config.provider !== null ? config.provider : {};
+  const enabled = Array.isArray(config?.enabled_providers) ? config.enabled_providers : undefined;
+  const disabled = Array.isArray(config?.disabled_providers) ? config.disabled_providers : [];
+  const targets = [];
+  for (const [id, entry] of Object.entries(providers)) {
+    if ((enabled && !enabled.includes(id)) || disabled.includes(id)) continue;
+    const baseURL = entry?.options?.baseURL;
+    if (typeof baseURL !== "string" || !baseURL.trim()) continue;
+    const reference = ENV_REFERENCE.exec(String(entry.options.apiKey ?? ""));
+    const key = reference ? env[reference[1]] : undefined;
+    if (!key) continue;
+    targets.push({ id, url: `${baseURL.trim().replace(/\/+$/, "")}/models`, key });
+  }
+  return targets;
+}
+
+// Settles with `work`, or rejects as soon as `signal` aborts, even when `work` ignores the signal.
+function untilAborted(signal, work) {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new Error("aborted"));
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function checkGateway({ id, url, key }, { fetchImpl, signal }) {
+  try {
+    const res = await untilAborted(signal, fetchImpl(url, {
+      method: "GET",
+      headers: { authorization: `Bearer ${key}`, accept: "application/json" },
+      redirect: "manual",
+      signal,
+    }));
+    await res.body?.cancel?.().catch(() => {});
+    if (res.status >= 200 && res.status < 300) return { kind: "ok", id };
+    if (res.status === 401 || res.status === 403) return { kind: "rejected", id, detail: `HTTP ${res.status}` };
+    return { kind: "unverified", id, detail: `HTTP ${res.status}` };
+  } catch (err) {
+    const cause = err?.cause?.code ?? err?.cause?.message ?? (err instanceof Error ? err.message : String(err));
+    return { kind: "unreachable", id, detail: String(cause).split(key).join("[REDACTED_CREDENTIAL]") };
+  }
+}
+
+// One outcome for all the gateways: the worst one wins (rejected > unreachable > unverified).
+export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = GATEWAY_CHECK_TIMEOUT_MS, signalFor = (ms) => AbortSignal.timeout(ms) } = {}) {
+  const outcomes = await Promise.all(targets.map((target) => checkGateway(target, { fetchImpl, signal: signalFor(timeoutMs) })));
+  const pick = (kind) => outcomes.find((o) => o.kind === kind);
+  const rejected = pick("rejected");
+  if (rejected) return { status: "failed", error: `key rejected by the LLM gateway (${rejected.id}: ${rejected.detail})` };
+  const unreachable = pick("unreachable");
+  if (unreachable) return { status: "failed", error: `LLM gateway unreachable (${unreachable.id}: ${unreachable.detail})` };
+  const unverified = pick("unverified");
+  if (unverified) return { status: "degraded", error: `LLM gateway answered ${unverified.detail} to the key check, so the key is unverified (${unverified.id})` };
+  return { status: "healthy" };
+}
+
+// Node's fetch ignores HTTP(S)_PROXY/NO_PROXY unless asked; the gateway check must reach the gateway
+// the way `opencode serve` does. Needs a Node that has http.setGlobalProxyFromEnv (24.14+): on an
+// older one the check goes direct, which is only wrong on a network that forces the proxy.
+export function useEnvProxy(http = nodeHttp, env = process.env) {
+  if (typeof http.setGlobalProxyFromEnv !== "function") {
+    console.warn(`[agent-supervisor] Node ${process.version} cannot apply HTTPS_PROXY to the LLM gateway check; it goes direct`);
+    return false;
+  }
+  http.setGlobalProxyFromEnv(env);
+  return true;
+}
+
+async function confirmReady(provider, child) {
+  try {
+    const targets = gatewayTargets(readOpencodeConfig(process.env), process.env);
+    const outcome = targets.length === 0 ? { status: "healthy" } : await verifyGateways(targets);
+    if (children.get(provider) !== child) return;
+    setState(provider, { status: outcome.status, error: outcome.error === undefined ? undefined : redactForResponse(outcome.error) });
+  } catch (err) {
+    if (children.get(provider) === child) setState(provider, { status: "failed", error: redactForResponse(err instanceof Error ? err.message : String(err)) });
+  }
+}
+
 const children = new Map();
 const state = new Map(PROVIDERS.map((provider) => [provider, {
   provider,
@@ -124,8 +232,8 @@ function startProvider(provider) {
   });
   children.set(provider, child);
   const readyTimer = setTimeout(() => {
-    if (children.get(provider) === child) setState(provider, { status: "healthy" });
-  }, 2500);
+    if (children.get(provider) === child) void confirmReady(provider, child);
+  }, READY_DELAY_MS);
 
   child.on("exit", (code, signal) => {
     clearTimeout(readyTimer);
@@ -529,6 +637,7 @@ export function ensureCodexConfig(codexHome, env = process.env) {
 // without binding the port or registering signal handlers.
 const isMainModule = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMainModule) {
+  useEnvProxy();
   // Generate the Codex config.toml BEFORE ensureDesired so MCP servers are available
   // from the first codex exec turn. CODEX_HOME defaults to /root/.codex.
   const codexHome = process.env.CODEX_HOME || join(process.env.HOME || "/root", ".codex");
