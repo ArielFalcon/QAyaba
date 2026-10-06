@@ -206,3 +206,4 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | Contenedores reiniciándose por memoria | La suma de límites no cabe en la máquina virtual de Docker Desktop | Revisa «Presupuesto de memoria»: sube la memoria de la máquina virtual o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
 | El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
 | Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |
+| La consola web no inicia sesión (`/api/auth/local` responde 404) al abrirla por un nombre distinto de `localhost` | El login local solo acepta una cabecera `Host` de loopback (defensa frente a *DNS rebinding*) | Abre `http://localhost:8080/app`, o añade el nombre a `QA_WEB_LOGIN_HOST_ALLOWLIST` en `slim/.env` (lista separada por comas) y ejecuta `./slim/qayaba.sh up` |

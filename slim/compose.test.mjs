@@ -44,7 +44,7 @@ function toMiB(size) {
 }
 
 function interpolationDefault(value, name) {
-  const match = new RegExp(`\\$\\{${name}:-([^}]+)\\}`).exec(String(value));
+  const match = new RegExp(`\\$\\{${name}:-([^}]*)\\}`).exec(String(value));
   assert.ok(match, `${name} falls back to a default in "${value}"`);
   return match[1];
 }
@@ -73,4 +73,14 @@ test("the Java language server heap leaves the rest of the agents container what
 test("the Java language server heap defaults to the same value in the compose build args and the Dockerfile", () => {
   const fromCompose = interpolationDefault(compose["x-build"].args.JDTLS_XMX, "JDTLS_XMX");
   assert.equal(/^ARG JDTLS_XMX=(\S+)$/m.exec(dockerfile)?.[1], fromCompose);
+});
+
+test("the console login host allowlist is passed through to the orchestrator and is empty by default", () => {
+  const value = declaredValue("orchestrator", "QA_WEB_LOGIN_HOST_ALLOWLIST");
+  assert.equal(typeof value, "string", "the allowlist is passed through");
+  assert.equal(interpolationDefault(value, "QA_WEB_LOGIN_HOST_ALLOWLIST"), "", "with nothing set only loopback Host headers log in");
+});
+
+test("only the orchestrator, which serves the console login, receives the host allowlist", () => {
+  assert.ok(!("QA_WEB_LOGIN_HOST_ALLOWLIST" in compose.services.agents.environment));
 });
