@@ -15,6 +15,29 @@ import { DEFAULT_CHANGE_LIMITS, PROTECTED_PATHS } from "./merge-guard";
    or exiting the process. The irreversible boundaries are injected as spies.
  */
 
+/* Lets the event loop turn until `done()` holds, at most `turns` times. A flow that never settles fails
+   the test with what it was waiting for, instead of hanging the whole suite. */
+const SETTLE_TURN_LIMIT = 10_000;
+async function settleUntil(done: () => boolean, what: string, turns: number = SETTLE_TURN_LIMIT): Promise<void> {
+  for (let turn = 0; turn < turns; turn++) {
+    if (done()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`never settled: ${what}`);
+}
+
+test("settleUntil returns as soon as the condition holds", async () => {
+  let turnsLeft = 3;
+
+  await settleUntil(() => --turnsLeft <= 0, "a condition that holds after a few turns", 10);
+
+  assert.equal(turnsLeft, 0);
+});
+
+test("settleUntil fails naming what it waited for when the condition never holds", async () => {
+  await assert.rejects(settleUntil(() => false, "the maintainer to go idle", 5), /never settled: the maintainer to go idle/);
+});
+
 function freshRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "maint-rt-"));
   mkdirSync(join(root, "data"), { recursive: true });
@@ -406,7 +429,7 @@ test("with self-maintenance, recovering incidents left mid-diagnosis re-triggers
   runtime.recoverMaintainerState();
 
   assert.equal(getMaintainerStatus(), "diagnosing", "the maintainer started");
-  while (getMaintainerStatus() !== "idle") await new Promise((resolve) => setImmediate(resolve));
+  await settleUntil(() => getMaintainerStatus() === "idle", "the maintainer to go idle");
 });
 
 test("without self-maintenance a promote interrupted by a restart is neither re-driven nor dropped", () => {
@@ -428,5 +451,5 @@ test("with self-maintenance a promote interrupted by a restart is re-driven", as
   runtime.confirmSwapAfterBoot();
 
   assert.equal(calls.enableAutoMerge, 1, "the merge is taken up again");
-  while (existsSync(join(root, "data", PENDING_PROMOTE_FILE))) await new Promise((resolve) => setImmediate(resolve));
+  await settleUntil(() => !existsSync(join(root, "data", PENDING_PROMOTE_FILE)), "the pending promote record to be consumed");
 });

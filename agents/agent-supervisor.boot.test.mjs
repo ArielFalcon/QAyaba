@@ -75,14 +75,26 @@ function watchOutput(child) {
   };
 }
 
-async function withSupervisor(env, scenario, { config } = {}) {
+// Settles once the supervisor logs that it is listening. A supervisor that exits first, or stays silent
+// past the deadline, rejects instead: a boot that fails must fail the test, not hang the suite.
+function whenListening(child, output, deadlineMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`supervisor not listening after ${deadlineMs} ms`)), deadlineMs);
+    child.once("exit", (code, signal) => reject(new Error(`supervisor exited with code ${code ?? signal} before it was listening`)));
+    output.next(/listening on/).then(resolve).finally(() => clearTimeout(timer));
+  });
+}
+
+const LISTEN_DEADLINE_MS = 15_000;
+
+async function withSupervisor(env, scenario, { config, entrypoint = [SUPERVISOR], listenDeadlineMs = LISTEN_DEADLINE_MS } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "supervisor-boot-"));
   const port = await freePort();
   if (config) {
     writeFileSync(join(dir, "opencode.json"), JSON.stringify(config));
     env = { ...env, OPENCODE_CONFIG: join(dir, "opencode.json") };
   }
-  const child = spawn(process.execPath, [SUPERVISOR], {
+  const child = spawn(process.execPath, entrypoint, {
     env: {
       PATH: `${writeStubOpencode(dir)}${delimiter}${process.env.PATH}`,
       HOME: dir,
@@ -95,14 +107,16 @@ async function withSupervisor(env, scenario, { config } = {}) {
     stdio: ["ignore", "pipe", "inherit"],
   });
   const output = watchOutput(child);
-  const listening = output.next(/listening on/);
   try {
-    await listening;
+    await whenListening(child, output, listenDeadlineMs);
     await scenario({ base: `http://127.0.0.1:${port}`, output });
   } finally {
-    const exited = new Promise((resolve) => child.once("exit", resolve));
-    child.kill("SIGTERM");
-    await exited;
+    // A child that already exited never emits "exit" again: waiting for it would hang.
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      child.kill("SIGTERM");
+      await exited;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -233,4 +247,22 @@ test("a config that declares no gateway keeps opencode healthy without any check
   await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
     assert.equal((await settled(base)).status, "healthy");
   }, { config: { agent: {} } });
+});
+
+test("a supervisor that exits before it listens fails the scenario with its exit status instead of hanging", async () => {
+  let scenarioRan = false;
+
+  await assert.rejects(
+    withSupervisor({ AGENT_SUPERVISOR_PORT: "99999" }, async () => { scenarioRan = true; }),
+    /exited with code 1 before it was listening/,
+  );
+  assert.equal(scenarioRan, false);
+});
+
+test("a supervisor that never starts listening fails the scenario at the deadline", async () => {
+  // A stand-in entrypoint that stays alive and silent; the deadline is injected so the test is instant.
+  await assert.rejects(
+    withSupervisor({}, async () => {}, { entrypoint: ["-e", "setInterval(() => {}, 1000)"], listenDeadlineMs: 50 }),
+    /not listening after 50 ms/,
+  );
 });
