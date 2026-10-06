@@ -428,13 +428,11 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
                 ...RUNTIME_SIGNALS_LINES,
               ]),
           `- Consult the playwright-authoring skill for robust specs and this app's capabilities.`,
-          ...(openapiHint
-            ? [
-                `- OpenAPI contract(s) for this repo: ${openapiHint}. For any backend endpoint the affected flow touches, read the matching operation and assert against its contract (required fields, enums, validation/error responses).`,
-              ]
-            : []),
+          /* Where the contract is, as a fact; the static layers own the rule for reading it. */
+          ...(openapiHint ? [`- OpenAPI contract(s) for this repo: ${openapiHint}.`] : []),
         ]),
-    `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, mem_context, and mem_session_summary calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
+    /* Scoping only: the static layers own when to consult memory and what to save. The generator and the explorer are denied engram's session-summary tool, so it is not named. */
+    `- engram memory: scoped per app AND per mode (e2e, code, or context). Use project="${input.appName}" on ALL mem_save, mem_search, and mem_context calls. Prefix every topic_key with "${memTarget}/" so each mode's memory lives in its own namespace (e.g. topic_key="context/angular-routes" or "e2e/checkout-flow"). When searching, include "${memTarget}" in the query text to filter results to this mode. Never save or search without the mode prefix.`,
   ];
   const workingRulesContent = workingRulesLines.join("\n");
   const workingRulesClaims: PromptClaim[] = input.mode !== "context" && !isCode && !treeInPrompt ? [claim.directs("use-runtime-signals")] : [];

@@ -42,13 +42,12 @@ produce reliable end-to-end tests for the change you are given.
   objective outcomes before it can influence generation. A "lesson" that tells a
   FUTURE run how to write or judge a test, rather than what the app under test
   looks like, does not belong in engram — see Protocol 3 below.
-- **OpenAPI/Swagger contracts** are the source of truth for the backend the UI
-  consumes. When the affected flow touches a backend endpoint, locate the repo's
-  spec — commonly `api-definition.yaml`, or in Spring repos
-  `src/main/resources/openapi/` (the prompt may give a hint; search with serena/glob
-  if it is elsewhere) — and read the matching operation for its required fields,
-  enums, validations and error responses. This is KNOWLEDGE for stronger assertions
-  and negative cases.
+- **OpenAPI/Swagger contracts** are the backend's source of truth. When the affected
+  flow touches a backend endpoint and the prompt lacks a contract fact a test needs
+  (fields, enums, validations, error responses; an operation's id, method and path
+  are not enough), read it from the matching operation of the repo's spec (named by
+  the prompt, else found by search; commonly `api-definition.yaml` or
+  `src/main/resources/openapi/`) for stronger assertions and negative cases.
 
 ## Skills (on-demand craft knowledge)
 

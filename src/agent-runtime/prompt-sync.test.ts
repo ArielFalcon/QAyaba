@@ -17,10 +17,11 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
-import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
+import { RUN_MODES } from "../types";
 
 /* Resolve repo root relative to this test file (src/agent-runtime/ → two levels up) */
 const REPO_ROOT = join(import.meta.dirname ?? __dirname, "..", "..");
@@ -497,7 +498,8 @@ describe("prompt-sync drift guard", () => {
   interface OwnedRule {
     rule: string;
     pattern: RegExp;
-    shape: "code" | "tree";
+    /* The assembled prompt the rule is counted in: a code run, an e2e run whose page the prompt supplies a tree for, or an e2e run of an app that declares an OpenAPI contract. */
+    shape: "code" | "tree" | "openapi";
     inStatic: number;
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
@@ -507,12 +509,23 @@ describe("prompt-sync drift guard", () => {
   /* Supplied context is used at the confidence the prompt states for each part, and what the prompt marks as unverified or stale is looked up when a test depends on it. */
   const CONFIDENCE_RULE = phrasePattern("at the confidence the prompt states", "at the confidence it states");
   const UNVERIFIED_LOOKUP_RULE = phrasePattern("marks as unverified or stale");
+  /* A backend contract fact the prompt lacks is read from the matching operation of the repo's OpenAPI spec, and an operation's id, method and path do not supply that contract. The static layers own the rule; the assembled prompt of an app that declares a contract only says where the spec is. */
+  const CONTRACT_READ_RULE = /\bread\b[^.]*?\bmatching\s+operation\b/gi;
+  const CONTRACT_LACK_RULE = phrasePattern("the prompt lacks a contract fact");
+  const CONTRACT_FACTS_RULE = /\bfields\b[^.;)]*\benums\b[^.;)]*\berror responses\b/gi;
+  const CONTRACT_IDENTITY_RULE = phrasePattern("an operation's id, method and path are not enough");
+  /* Engram's tool for ending a session. The runtime denies it to the generator and the explorer, so no prompt either reads names it. */
+  const SESSION_SUMMARY_TOOL = /\bmem_session_summary\b/g;
+  /* Memory is scoped to the run's mode by a topic-key prefix, and to its app by the project parameter. */
+  const TOPIC_KEY_PREFIX_RULE = /prefix (?:every |all )?`?topic_key/gi;
+  /* A directive to search or consult memory. Only the static layers say when memory is consulted; an assembled prompt scopes the calls and starts none. */
+  const MEMORY_SEARCH_DIRECTIVE = /\b(?:search|query|consult|recall|look up)\b[^.\n]*\b(?:memory|engram)\b/gi;
   const OWNED_RULES: readonly OwnedRule[] = [
     { rule: "the compile check of a code run", pattern: /cargo check --tests/gi, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
-    { rule: "the engram topic key prefix", pattern: /prefix (?:every |all )?`?topic_key/gi, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "the engram topic key prefix", pattern: TOPIC_KEY_PREFIX_RULE, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
     { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the verdict being the last action (code)", pattern: LAST_ACTION_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
@@ -527,6 +540,13 @@ describe("prompt-sync drift guard", () => {
     { rule: "consulting memory only for an operational fact the prompt lacks", pattern: phrasePattern("Consult it only for an operational fact the prompt lacks"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "saving an operational lesson only when this run learned a new one", pattern: phrasePattern("only when this run learned a new one"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the project parameter on every engram call", pattern: phrasePattern("Always include the `project` parameter"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* An OpenAPI contract is read for a contract fact the prompt lacks: the static layers hold the rule, and the assembled prompt of an app that declares a contract does not repeat it. */
+    { rule: "reading a contract fact from the matching operation of the repo's OpenAPI spec", pattern: CONTRACT_READ_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "reading the contract only for a contract fact the prompt lacks", pattern: CONTRACT_LACK_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the contract facts the read supplies: fields, enums and error responses", pattern: CONTRACT_FACTS_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "an operation's id, method and path not supplying its contract", pattern: CONTRACT_IDENTITY_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator cannot call the session-summary tool, so no layer it reads names it. */
+    { rule: "naming the session-summary tool the runtime denies the generator", pattern: SESSION_SUMMARY_TOOL, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The phrasings those rules replaced: orienting, searching and consulting memory whatever the prompt carries. */
     {
       rule: "orienting or searching before every look-up, whatever the prompt carries",
@@ -561,6 +581,16 @@ describe("prompt-sync drift guard", () => {
       inStatic: 0,
       inAssembled: { exactly: 0 },
     },
+    {
+      rule: "reading the matching operation of every backend endpoint the flow touches, whatever the prompt supplies",
+      pattern: phrasePattern(
+        "For any backend endpoint the affected flow touches",
+        "When the affected flow touches a backend endpoint, locate the repo's spec",
+      ),
+      shape: "openapi",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
   ];
   const assembledInput = {
     repo: "org/app",
@@ -577,6 +607,8 @@ describe("prompt-sync drift guard", () => {
     buildPrompt(
       (shape === "code"
         ? { ...assembledInput, target: "code" }
+        : shape === "openapi"
+        ? { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000", openapi: "api-definition.yaml" }
         : { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000", domSnapshot: "route /cart:\n  button: Apply coupon" }) as Parameters<typeof buildPrompt>[0],
     );
   const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
@@ -593,6 +625,48 @@ describe("prompt-sync drift guard", () => {
       const found = countOf(assembledFor(shape), pattern);
       if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt: ${rule} is stated ${inAssembled.exactly} time(s)`);
       else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+    }
+  });
+
+  /* Every mode a generator prompt is built for, with both targets; a context run maps the architecture and never writes code tests. */
+  const GENERATOR_SHAPES = RUN_MODES.flatMap((mode) =>
+    (["e2e", "code"] as const).filter((target) => !(mode === "context" && target === "code")).map((target) => ({ mode, target })),
+  );
+  const generatorPromptFor = ({ mode, target }: (typeof GENERATOR_SHAPES)[number], extra: Record<string, unknown> = {}): string =>
+    buildPrompt({
+      ...assembledInput,
+      mode,
+      target,
+      guidance: "cover the coupon form",
+      ...(target === "e2e" ? { baseUrl: "http://localhost:3000" } : {}),
+      ...extra,
+    } as Parameters<typeof buildPrompt>[0]);
+
+  it("every assembled generator prompt scopes the memory calls to the app and the topic keys to the mode once, starts no memory search, and no generator or explorer prompt names the session-summary tool", () => {
+    assert.deepEqual([...new Set(GENERATOR_SHAPES.map(({ mode }) => mode))], [...RUN_MODES], "every run mode is built");
+    for (const shape of GENERATOR_SHAPES) {
+      const where = `${shape.mode}/${shape.target}`;
+      const prompt = generatorPromptFor(shape);
+      assert.ok(countOf(prompt, /\bmem_save\b/g) >= 1, `${where}: the memory rule is in the prompt this scan reads`);
+      assert.equal(countOf(prompt, MEMORY_SEARCH_DIRECTIVE), 0, `${where}: directs a memory search`);
+      assert.equal(countOf(prompt, SESSION_SUMMARY_TOOL), 0, `${where}: names the session-summary tool`);
+      assert.equal(countOf(prompt, new RegExp(`\\bproject="${assembledInput.appName}"`, "g")), 1, `${where}: scopes the memory calls to the app once`);
+      assert.equal(countOf(prompt, TOPIC_KEY_PREFIX_RULE), 1, `${where}: scopes the topic keys to the mode once`);
+    }
+    for (const mode of ["diff", "manual"] as const) {
+      const explorer = buildExplorerPrompt({ ...assembledInput, mode, guidance: "cover the coupon form" } as Parameters<typeof buildExplorerPrompt>[0]);
+      assert.equal(countOf(explorer, SESSION_SUMMARY_TOOL), 0, `explorer ${mode}: names the session-summary tool`);
+    }
+  });
+
+  it("an app that declares an OpenAPI contract has its spec location given to the generator in every e2e mode, and no assembled prompt directs reading its operations", () => {
+    const hint = "api-definition.yaml";
+    for (const shape of GENERATOR_SHAPES) {
+      const where = `${shape.mode}/${shape.target}`;
+      const prompt = generatorPromptFor(shape, { openapi: hint });
+      assert.equal(countOf(prompt, CONTRACT_READ_RULE), 0, `${where}: directs reading the matching operation`);
+      /* The context run states its own hint while it builds the map; a code run has no contract to read. */
+      if (shape.target === "e2e" && shape.mode !== "context") assert.equal(prompt.split(hint).length - 1, 1, `${where}: gives the spec location once`);
     }
   });
 
