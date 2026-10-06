@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| **Estado** | **Implementado** en esta rama y verificado (ver §12). Pendiente solo la ejecución en el entorno del banco. |
-| **Rama** | `claude/qayaba-restricted-env-poc-hytgtl` |
+| **Estado** | **Implementado** y verificado (ver §12), integrado con `main`. Pendiente la construcción de la imagen con el endurecimiento de §14 y la ejecución en el entorno del banco. |
+| **Rama** | `claude/merge-main-restricted-env-925a71` (integra `main`; la implementación original está en `claude/qayaba-restricted-env-poc-hytgtl`) |
 | **Alcance** | `target: e2e` (Playwright contra DEV). Un solo runtime de agente (OpenCode). SCM: GitLab. |
-| **Entorno objetivo** | MacBook M4 con 16 GB, sin sudo; Docker; Artifactory; proxy con inspección TLS; LLM configurable; DEV con login central (mTLS opcional y usuario/contraseña). |
+| **Entorno objetivo** | Portátil corporativo gestionado (MacBook M4 con 16 GB, sin sudo, con lista de aplicaciones permitidas); Docker Desktop; Artifactory; proxy con inspección TLS; una pasarela de LLM corporativa compatible con OpenAI; DEV con login central (mTLS opcional y usuario/contraseña). |
 | **Runbook operativo** | [`slim/README.md`](../../slim/README.md) |
-| **Fecha** | 2026-09-27 |
+| **Fecha** | 2026-09-27 (actualizado el 2026-10-06 tras integrar `main` y adaptar el empaquetado al equipo objetivo) |
 
 ---
 
@@ -27,6 +27,7 @@
 11. [Cambios de código](#11-cambios-de-código)
 12. [Verificación realizada](#12-verificación-realizada)
 13. [Riesgos, límites y siguientes pasos](#13-riesgos-límites-y-siguientes-pasos)
+14. [Actualización: integración con `main` y adaptación al equipo objetivo](#14-actualización-integración-con-main-y-adaptación-al-equipo-objetivo)
 - [Apéndice — Referencias al código](#apéndice--referencias-al-código)
 
 ---
@@ -62,10 +63,10 @@ con redirección** declarado por configuración, y lo usan por igual los tests, 
 
 | Aspecto | Situación |
 |---|---|
-| Máquina | MacBook M4, 16 GB, sin sudo; apps de una tienda interna |
-| Contenedores | Docker |
+| Máquina | MacBook M4, 16 GB, sin sudo; apps de una tienda interna. Equipo gestionado: la lista de aplicaciones permitidas bloquea los binarios sin firmar, así que nada se ejecuta en el equipo salvo Docker |
+| Contenedores | Docker Desktop, probablemente con controles de Docker Business: solo imágenes del Artifactory interno, sin montar `docker.sock` y ajustes bloqueados, de modo que la máquina virtual conserva su memoria por defecto (la mitad de la RAM: 8 GB) |
 | Paquetes | Artifactory (npm confirmado; el resto de remotos se configuran por URL) |
-| LLM | Configurable desde el propio Mac (OpenCode Go/Zen o un proveedor propio) |
+| LLM | Una única pasarela corporativa compatible con OpenAI, declarada en el override local. La clave caduca a diario y se pega en tiempo de ejecución (§7) |
 | SCM | GitLab |
 | Entrada del código | ZIP descargado de GitHub (sin `.git`; la imagen ya se construía sin `.git`) |
 | DEV | Login en una web central (otro origen). Pide certificado de cliente (mTLS, con Touch ID); si se cancela, ofrece usuario y contraseña. La redirección de ida y vuelta debe funcionar |
@@ -102,14 +103,21 @@ gestionado desde GitHub, Serena desde `git+https://github.com`, Chromium desde l
 
 ### 2.3 Regresiones previas encontradas y corregidas
 
-El commit de limpieza de comentarios (`0cd32f5`) había roto dos cosas del camino real. Se corrigieron en
-esta rama (commit `884d6d9`):
+El commit de limpieza de comentarios (`0cd32f5`) había roto dos cosas del camino real. Esta rama las
+corrigió primero (commit `884d6d9`), y `main` las resolvió después a su manera; la integración conserva la
+solución de `main` y la rama ya no tiene cambios propios en esos puntos:
 
-- Eliminó la línea marcador de `FAILURE_CAPTURE_BLOCK`. `ensureFailureCapture` volvía a añadir el bloque
-  en cada ejecución a los `fixtures.ts` sin marcador; las declaraciones `let` duplicadas hacían fallar el
-  *static gate* y el run quedaba `invalid`.
-- Cambió la regex de `merge-guard` de `/^\.\//` a `/^\.\/*/`, que quitaba el punto de `.github/` y
-  dejaba esas rutas fuera de la protección.
+- Eliminó la línea marcador de `FAILURE_CAPTURE_BLOCK`: `ensureFailureCapture` volvía a añadir el bloque en
+  cada ejecución a los `fixtures.ts` sin marcador, y las declaraciones `let` duplicadas hacían fallar el
+  *static gate* (run `invalid`). `main` lo resuelve en `setup.adapter.ts` con marcadores de apertura y cierre
+  del bloque, un conjunto de hashes de las revisiones anteriores (`EARLIER_FAILURE_CAPTURE_BLOCKS`: un bloque
+  que coincide byte a byte se actualiza en su sitio y uno editado se respeta) y el reconocimiento de la
+  revisión sin marcador (`UNMARKED_FAILURE_CAPTURE_BLOCK`), que se sustituye por el bloque actual en lugar de
+  añadir otra copia al lado.
+- Cambió la regex de `merge-guard` de `/^\.\//` a `/^\.\/*/`, que quitaba el punto de `.github/` y dejaba esas
+  rutas fuera de la protección. `main` la sustituye por `normalizeRepoPath` (`src/server/merge-guard.ts`), que
+  unifica separadores, colapsa barras repetidas y quita solo grupos completos `./`, conservando el punto de
+  `.github/` y `.dockerignore`.
 
 ---
 
@@ -127,7 +135,7 @@ actúa fuera del run.
 | Stitcher FE↔BE / BE↔BE (`service-topology/`, tree-sitter WASM) | Intacto |
 | Grafo de código (`codebase-memory-mcp`): nivel `IMPACTED_SYMBOL` del stitcher, señal estructural, blast radius. Sin él, el stitcher caería a `CONTRACT_FILE` sin avisar | Incluido (verificado) |
 | Onboarding por *job*: clona los mirrors de **todos** los servicios, indexa y propone `boundaries:`. Es el único camino que clona los servicios | Incluido (`qayaba.sh onboard`) |
-| Mapa `context.json` (modo `context`) → *context pack* | Incluido; persiste vía MR (§8) |
+| Mapa FE↔BE (modo `context`) → *context pack* | Incluido; `main` lo guarda en SQLite (`context_maps`) y, con `qa.shadow: false`, además se exporta como `context.json` para un MR (§8) |
 | *Grounding*: captura de DOM, catálogo de selectores, *pre-exec grounding* | Intacto, y ahora con login (§9) |
 | Oráculo de valor e2e (inyección de fallos) | Intacto; ahora no corrompe el tráfico del login |
 | Agentes: generator, reviewer, explorer, reflector, worker, proposer, sidekick, assistant | Intactos |
@@ -176,8 +184,17 @@ actúa fuera del run.
 de la imagen, sino del entorno inyectado por servicio: `agents` **no recibe** el token de GitLab ni el
 de la API (el agente sigue siendo de solo lectura sobre los repos vigilados).
 
-**Recursos para 16 GB.** Límites por defecto de 3 GB para el orquestador y 5 GB para `agents`, con JDTLS
-a 1,5 GB de heap. Docker Desktop debe tener ≥ 9 GB; todo es ajustable en `slim/.env`.
+**Recursos para la máquina virtual por defecto (8 GiB).** Los límites por defecto son 2560m para el
+orquestador, 4g para `agents` y 128m para la consola de terminal: 6,6 GiB en total, con el heap de JDTLS en
+1 GiB (`JDTLS_XMX`). Quedan ≈ 1,4 GiB para el núcleo, el motor de Docker y la caché de páginas. Chromium no
+necesita `shm_size`: Playwright 1.60.0 lo lanza con `--disable-dev-shm-usage`. Un test del compose comprueba que
+cada servicio declara límite y que la suma cabe; todo es ajustable en `slim/.env` (ver «Presupuesto de memoria»
+en [`slim/README.md`](../../slim/README.md)).
+
+**Puerto.** Slim publica `127.0.0.1:8080` (`PORT=8080` en el orquestador). El valor por defecto de `main` es el
+458 (`src/server/port.ts`), un puerto privilegiado: la imagen corre como root y puede enlazarlo, pero Docker en
+modo *rootless* no puede publicarlo. Un cliente que use el puerto por defecto debe indicar `QA_HOST=…:8080`
+(la consola de terminal del compose ya lo hace).
 
 ---
 
@@ -213,6 +230,9 @@ a 1,5 GB de heap. Docker Desktop debe tener ≥ 9 GB; todo es ajustable en `slim
 | TUI | módulo `client/` | Go | `go.sum` |
 
 Las sumas SHA-256 de `slim/vendor/SHA256SUMS` se calcularon descargando cada fichero de su origen oficial.
+El detalle completo para la revisión de seguridad (usuarios, puertos, volúmenes, salida de red, secretos) está en
+[`slim/INVENTORIO.md`](../../slim/INVENTORIO.md), y `./slim/qayaba.sh sbom` genera la lista real de paquetes de la
+imagen construida.
 
 ### 5.3 Serena sin descargas en ejecución
 
@@ -232,18 +252,41 @@ Todo el inventario existe para `arm64` y `amd64`; el build elige el binario con 
 construye y ejecuta `linux/arm64` de forma nativa. Se verificó que engram publica `linux_arm64` (la imagen
 anterior lo fijaba a `amd64`).
 
+### 5.5 Comprobaciones que hacen fallar el build
+
+| Comprobación | Qué evita |
+|---|---|
+| SHA-256 de cada artefacto fuera de los gestores de paquetes (`fetch-artifact`) | Un fichero distinto al fijado |
+| `java-trust-ca`: cada certificado de `slim/certs/*.crt` debe quedar en el almacén de Java | Java (Serena/JDTLS, Maven) sin confiar en la CA corporativa |
+| Node de la imagen final ≥ 24 y apertura de una base con `better-sqlite3` | Una discordancia entre el Node de la base de Playwright y el del módulo nativo compilado en la etapa `deps` |
+| `slim/opencode-config.mjs`: `model`, `small_model` y el `model` de cada agente deben resolver a un proveedor habilitado y a un modelo declarado | Un rol que llame en silencio a un proveedor inalcanzable |
+| LS de TypeScript aprovisionado, JDTLS probado sobre un proyecto mínimo | Descargas de servidores de lenguaje en ejecución |
+
 ---
 
 ## 6. Red dentro de los contenedores
 
 - **DNS.** Sin `dns:` fijado: los contenedores usan el DNS del host/VPN.
 - **CA corporativa.** `./slim/qayaba.sh export-ca` exporta el llavero del sistema de macOS (sin sudo) a
-  `slim/certs/corporate-ca.crt`. El build la instala para apt, git, curl, npm/Node (`cafile` +
-  `NODE_EXTRA_CA_CERTS`), pip (`PIP_CERT`), Python (`SSL_CERT_FILE`), Go y Java.
+  `slim/certs/corporate-ca.crt`. El build la instala para apt, curl, npm/Node (`cafile` +
+  `NODE_EXTRA_CA_CERTS`), pip (`PIP_CERT`), Python (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`), Go, git
+  (`http.sslCAInfo` del sistema apunta al almacén del sistema) y Java. El JDK se instala **después** de
+  `update-ca-certificates`, por lo que su almacén propio (`/etc/ssl/certs/java/cacerts`) podía no recibir los
+  certificados; `slim/java-trust-ca.sh` los importa uno a uno con `keytool` y hace fallar el build si alguno no
+  queda confiado.
 - **Proxy.** Docker Desktop lo inyecta desde `~/.docker/config.json` (nivel usuario, sin sudo). El compose
-  añade a `NO_PROXY` los nombres de servicio y `EXTRA_NO_PROXY` para los dominios internos.
-- **npm con entorno filtrado.** El `npm ci` del e2e corre como usuario `sandbox` con el entorno filtrado.
-  El npmrc **global** (registro + `cafile`) se lee igualmente. Además, `scrubEnv` deja pasar ya
+  añade a `NO_PROXY` los nombres de servicio y `EXTRA_NO_PROXY` para los dominios internos, en **los tres**
+  servicios: la consola de terminal (cliente Go) habla con `orchestrator:8080` y, sin esa entrada, un proxy
+  interceptaría el nombre del servicio.
+- **Diagnóstico.** `./slim/qayaba.sh preflight` sondea además, desde un contenedor con las CA del build y la misma
+  lista `NO_PROXY`, que la pasarela de LLM del override responde (cualquier estado HTTP cuenta; no se envían
+  credenciales) e imprime el remedio según el fallo (DNS, proxy o TLS). `./slim/qayaba.sh check` verifica que el
+  puerto de la consola está publicado solo en loopback y que el orquestador responde por su dirección de la red
+  de compose, como lo alcanza la consola de terminal.
+- **npm con entorno filtrado.** El `npm ci` del e2e corre con el entorno filtrado, y el npmrc **global**
+  (registro + `cafile`) se lee igualmente. El cambio de usuario a `sandbox` solo se aplica en `target: code`: en
+  el modo e2e estos procesos se ejecutan como el usuario del contenedor (root); ver
+  [`slim/INVENTORIO.md`](../../slim/INVENTORIO.md), §3 y §8. Además, `scrubEnv` deja pasar ya
   `HTTP(S)_PROXY`, `NO_PROXY`, `NODE_EXTRA_CA_CERTS` y `SSL_CERT_*`, **salvo** un proxy con credenciales
   en la URL (sería un secreto al alcance de código no confiable).
 
@@ -256,19 +299,25 @@ anterior lo fijaba a `amd64`).
 - **Configuración efectiva** (`slim/opencode-config.mjs`, generada en el build a partir de
   `agents/opencode.json`):
   - `playwright-mcp` global con `--executable-path` al Chromium de la imagen;
-  - sin auto-actualización;
+  - sin auto-actualización y con la compartición de sesiones desactivada (`share: "disabled"`);
   - Serena y engram intactos;
-  - fusión final con `slim/opencode.override.json` (opcional).
+  - fusión final con `slim/opencode.override.json` (opcional);
+  - si el override declara `provider`, `enabled_providers` queda fijado a exactamente esos proveedores, y el build
+    **falla** si `model`, `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un
+    modelo declarado en su `models` (la salida lista cada clave afectada).
 - **Una sola fuente de verdad para los modelos.** Ambos roles leen el mismo `opencode.json` efectivo:
   - el orquestador dimensiona los prompts con el `limit.context` declarado por el proveedor;
   - los modelos de generador, revisor y chat salen de sus agentes;
   - el *proposer* del stitcher usa el modelo de `qa-proposer`.
 
   Cambiar de proveedor es editar **un** fichero y reconstruir.
-- **Proveedor propio.** Declaralo en el override (hay un ejemplo compatible con OpenAI en
-  `slim/opencode.override.example.json`), pon su clave en `OPENCODE_API_KEY` y referénciala como
-  `{env:OPENCODE_API_KEY}`: el supervisor solo arranca OpenCode con esa variable definida. Generador y
-  revisor deben usar **modelos distintos**.
+- **Proveedor propio.** Se declara en el override (hay un ejemplo compatible con OpenAI en
+  `slim/opencode.override.example.json`) y referencia la clave como `{env:OPENCODE_API_KEY}`. La clave **no**
+  se declara en ningún fichero ni hace falta para arrancar: como caduca a diario, se pega en tiempo de ejecución
+  en la consola web (panel «agent runtime · LLM gateway») o en la TUI (tecla `a`), y el supervisor reinicia
+  OpenCode con ella; sin clave, el servicio de agentes queda en `needs_config`. Se pierde al reiniciar el
+  servicio de agentes (flujo completo en «Clave diaria del LLM», [`slim/README.md`](../../slim/README.md)).
+  Generador y revisor deben usar **modelos distintos**.
 
 ---
 
@@ -293,7 +342,13 @@ anterior lo fijaba a `amd64`).
   - `export.json`.
 
   La decisión no cambia. La fuente de verdad sigue siendo git: tras fusionar el MR, la siguiente
-  ejecución parte de la suite actualizada. Esto aplica también al `context.json` del onboarding.
+  ejecución parte de la suite actualizada.
+- **Mapa de contexto.** `main` guarda además el mapa FE↔BE validado en SQLite (tabla `context_maps`, vía
+  `ContextMapCapturePort`), que es la fuente que consulta el motor y sobrevive a que se borre el mirror; el
+  fichero `e2e/.qa/context.json` del repositorio queda como alternativa (p. ej. antes de la primera ejecución de
+  contexto o en un clon nuevo). Las ejecuciones de contexto que lanza el onboarding siguen el `qa.shadow` de la
+  app: con `shadow: false` exportan el `context.json` como un MR en `slim/exports/` para subirlo al repositorio;
+  con `shadow: true` el mapa queda igualmente en SQLite sin necesidad de MR.
 
 ---
 
@@ -329,7 +384,10 @@ usuario técnico con contraseña en DEV.
 ## 10. Consolas: TUI y web
 
 - **Web** (`http://localhost:8080/app`): estática, sin build; auto-login local (`QA_WEB_AUTO_LOGIN`),
-  seguro porque el puerto solo escucha en loopback.
+  seguro porque el puerto solo se publica en loopback. El inicio de sesión comprueba además la cabecera `Host`
+  (defensa frente a *DNS rebinding*): solo acepta `localhost`, `127.0.0.1` y `::1`. Si la consola se abre por
+  otro nombre que apunte al puerto de loopback, hay que añadirlo a `QA_WEB_LOGIN_HOST_ALLOWLIST` (lista separada
+  por comas; el compose lo pasa al orquestador, vacío por defecto).
 - **TUI**: la imagen compila la consola Go solo para Linux. No se entrega ningún binario para ejecutar
   en el equipo: la lista de aplicaciones permitidas de un portátil gestionado bloquea los binarios sin firmar.
   - `qayaba.sh tui` la ejecuta en un contenedor que llega al orquestador por nombre de servicio y
@@ -350,8 +408,16 @@ usuario técnico con contraseña en DEV.
 | C7 | Modelos desde `agents/`: ventana de contexto declarada por el proveedor, modelo del *proposer* y *defaults* de rol | `model-window-catalog.ts`, `llm-profile-proposer.adapter.ts`, `agent-runtime/config.ts` | Hecho |
 | L1 | Login central declarativo (`e2e.auth`) | `schemas.ts`, `shared-kernel/e2e-auth.ts`, `setup.adapter.ts`, `dom-snapshot.ts`, `route-catalog.ts`, `config/e2e/fixtures.ts`, skills | Hecho |
 | T1 | La TUI respeta `QA_HOST` | `client/internal/ui/connect.go` | Hecho |
-| F1 | Regresiones del commit de comentarios | `setup.adapter.ts`, `merge-guard.ts` | Hecho |
+| F1 | Regresiones del commit de comentarios | `setup.adapter.ts`, `merge-guard.ts` | Superado por `main` (`FAILURE_CAPTURE_BLOCK` con hashes de revisiones anteriores; `normalizeRepoPath`): ver §2.3 |
 | C8 | GitLab nativo (MR/Issue automáticos, webhook con `X-Gitlab-Token`) | — | Después de la POC |
+| S1 | OpenCode limitado a la pasarela del operador (`enabled_providers`, `share: "disabled"`) y validación de los modelos en el build | `slim/opencode-config.mjs` | Hecho |
+| S2 | Nada que ejecutar en el equipo: sin binarios de la consola para macOS ni `tui-install` | `slim/Dockerfile`, `slim/qayaba.sh` | Hecho |
+| S3 | Presupuesto de memoria para la máquina virtual por defecto de 8 GiB (2560m + 4g + 128m, JDTLS a 1 GiB) | `slim/compose.yml`, `slim/Dockerfile` | Hecho |
+| S4 | CA corporativa en cada cliente: almacén de Java verificado en el build, git del sistema, Serena sin informe de uso | `slim/java-trust-ca.sh`, `slim/Dockerfile` | Hecho |
+| S5 | El build exige Node ≥ 24 y que `better-sqlite3` abra una base | `slim/Dockerfile` | Hecho |
+| S6 | Paso de `QA_WEB_LOGIN_HOST_ALLOWLIST` al orquestador y `NO_PROXY` en la consola de terminal | `slim/compose.yml` | Hecho |
+| S7 | Diagnóstico: alcance de la pasarela de LLM (`preflight`) y puerto/red de compose (`check`) | `slim/qayaba.sh`, `slim/probe-gateway.sh` | Hecho |
+| S8 | Inventario para la revisión de seguridad y `qayaba.sh sbom` | `slim/INVENTORIO.md`, `slim/qayaba.sh` | Hecho |
 
 Ningún cambio toca `PublishDecisionService`, `DecideCoverageService`, el stitcher, el clasificador, el
 *static gate* ni los prompts de generación. Los ficheros nuevos que deciden escrituras (el exportador y el
@@ -366,7 +432,7 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 
 | Prueba | Resultado |
 |---|---|
-| `npm test` | 3979 tests, 0 fallos (incluye los nuevos del perfil, el exportador, git/GitLab, modelos, login y `slim/`) |
+| `npm test` (rama integrada con `main`, 2026-10-06) | 6114 tests: 6112 correctos, 1 omitido y 1 fallo ajeno a slim (una prueba dependiente de la configuración regional en `vcs-write.adapter.test.ts`, anterior a estos cambios). Incluye los de `slim/`: configuración de OpenCode, compose (memoria, `NO_PROXY`, lista de hosts del login), Dockerfile, `java-trust-ca.sh`, `probe-gateway.sh` y `qayaba.sh` con un `docker` simulado |
 | `npm run typecheck` / `npm run arch:check` | Limpios (qa-engine no importa `src/`) |
 | Tests Go de la TUI (Go 1.26) | En verde |
 | `docker build` de `slim/Dockerfile` detrás del proxy TLS | Correcto; cada artefacto verificado por SHA-256. Un 429 de Maven Central se resolvió con la vía `vendor/` (`lombok … verified (from slim/vendor)`) |
@@ -381,7 +447,13 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 | IdP HTTPS con mTLS opcional | Chromium sin certificado → formulario → vuelta a la app |
 | Captura de DOM con login | Rutas autenticadas capturadas en la app; sin login quedan degradadas |
 
-**No verificable aquí:** un run completo contra el GitLab, el LLM y el DEV reales del banco.
+**No verificable aquí:**
+
+- Un run completo contra el GitLab, el LLM y el DEV reales del banco.
+- La construcción de la imagen con el endurecimiento de §14 (`java-trust-ca`, la comprobación de Node y
+  `better-sqlite3`, la validación de modelos): Docker no estaba disponible donde se integró `main`. Los scripts
+  se probaron con `keytool`, `curl` y `docker` simulados (y `java-trust-ca.sh` además contra el `keytool` real
+  con un almacén temporal); la comprobación definitiva es `./slim/qayaba.sh build && ./slim/qayaba.sh check`.
 
 ---
 
@@ -392,11 +464,15 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 | Cumplimiento del envío de código al LLM | Usar el proveedor aprobado vía override |
 | IdP que exige certificado sin alternativa | Usuario técnico con contraseña en DEV |
 | Remotos de Artifactory que falten | `slim/vendor/` para lo que no sea paquete; el `preflight` dice qué hay |
-| Memoria en 16 GB | Límites ajustables y `JDTLS_XMX` |
+| Memoria en la máquina virtual por defecto (8 GiB) | Presupuesto de 6,6 GiB comprobado por un test del compose; límites y `JDTLS_XMX` ajustables (§4). Un repositorio Java muy grande puede necesitar más heap de JDTLS |
+| El código del repositorio vigilado se ejecuta como root en el contenedor del orquestador (el cambio a `sandbox` solo existe en `target: code`) | El filtrado de entorno quita los secretos de esos procesos y el contenedor es la frontera; endurecerlo (cambio de usuario también en e2e) es un cambio del motor que debe ir en su propio PR. Ver `slim/INVENTORIO.md`, §8 |
+| La consola web carga fuentes de Google y un script de `unpkg.com` desde el navegador, en la página donde se pega la clave del LLM | Servir ambos desde `web/public/` (o añadir SRI y CSP); pendiente, es un cambio de `web/` |
+| Serena aprovisiona en ejecución el servidor de lenguaje de otro lenguaje presente en un repositorio | Solo TypeScript y Java están aprovisionados en el build; revisar los lenguajes de los repositorios objetivo |
 | Tamaño de imagen (~6 GB) | Asumible en POC; a medio plazo, construir en GitLab CI y publicar en un registro interno |
 | `npm` avisa de que `nodedir`/`build-from-source` como variables de entorno dejarán de funcionar en su próxima versión mayor | Fijado a la versión de npm de Node 24; revisar al subir de mayor |
 
 **Siguientes pasos:**
+0. Construir la imagen con el endurecimiento de §14 (`./slim/qayaba.sh build`, `check`, `preflight`) y pasar la revisión de seguridad con `slim/INVENTORIO.md`.
 1. POC en el Mac según `slim/README.md`.
 2. MR/Issues nativos de GitLab (C8) y disparo desde GitLab CI.
 3. Construir la imagen en GitLab CI y publicarla en un registro interno.
@@ -404,11 +480,47 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 
 ---
 
+## 14. Actualización: integración con `main` y adaptación al equipo objetivo
+
+### 14.1 Qué aporta `main` a slim
+
+| Cambio de `main` | Efecto en slim | Dónde |
+|---|---|---|
+| Arreglos propios de `FAILURE_CAPTURE_BLOCK` y de la normalización de rutas del *merge-guard* | Sustituyen a los de esta rama (F1) | §2.3 |
+| Mapa FE↔BE en SQLite (`context_maps`) además de `e2e/.qa/context.json`; las ejecuciones de contexto del onboarding siguen el `qa.shadow` de la app | Con `shadow: false` se exporta un MR con el `context.json` a `slim/exports/`; con `shadow: true` el mapa queda en SQLite | §8 |
+| Clave de la pasarela de LLM pegada desde la consola y enmascarada en errores del agente | La pila arranca sin clave y se la entrega en ejecución | §7 |
+| `QA_WEB_LOGIN_HOST_ALLOWLIST` | Paso opcional al orquestador | §10 |
+| Puerto por defecto 458 | Slim sigue publicando `127.0.0.1:8080` | §4 |
+
+### 14.2 Adaptación al equipo objetivo
+
+Un portátil gestionado con lista de aplicaciones permitidas, Docker Desktop con controles de empresa y una
+única pasarela de LLM motivó ocho cambios, cada uno con sus pruebas:
+
+1. **Pasarela fija.** OpenCode solo puede usar los proveedores del override, sin compartir sesiones, y el build
+   falla si un rol apunta a un modelo que no resuelve (§7).
+2. **Nada en el equipo.** Se retiran los binarios de la consola para macOS y `tui-install`; la consola corre en
+   un contenedor o en el navegador (§10).
+3. **Memoria.** Presupuesto de 6,6 GiB para una máquina virtual de 8 GiB, comprobado por un test (§4).
+4. **CA en cada cliente.** El almacén de Java se verifica en el build; git y Serena quedan configurados (§6).
+5. **Node y módulo nativo.** El build lo comprueba (§5.5).
+6. **Consola.** `QA_WEB_LOGIN_HOST_ALLOWLIST` y `NO_PROXY` en la consola de terminal (§6, §10).
+7. **Diagnóstico.** `preflight` sondea la pasarela y `check` el puerto y la red de compose (§6).
+8. **Revisión de seguridad.** `slim/INVENTORIO.md` y `./slim/qayaba.sh sbom` (§5.2).
+
+La construcción de la imagen con estos cambios no se ha ejecutado todavía (Docker no estaba disponible donde se
+integraron): se cubre con pruebas unitarias de los scripts y de los ficheros de configuración, y queda
+pendiente la verificación con `./slim/qayaba.sh build` (§12).
+
+---
+
 ## Apéndice — Referencias al código
 
 | Tema | Fichero |
 |---|---|
-| Empaquetado slim | `slim/Dockerfile`, `slim/compose.yml`, `slim/qayaba.sh`, `slim/opencode-config.mjs`, `slim/fetch-artifact.sh`, `slim/vendor/SHA256SUMS` |
+| Empaquetado slim | `slim/Dockerfile`, `slim/compose.yml`, `slim/qayaba.sh`, `slim/opencode-config.mjs`, `slim/fetch-artifact.sh`, `slim/java-trust-ca.sh`, `slim/probe-gateway.sh`, `slim/vendor/SHA256SUMS` |
+| Inventario de seguridad | `slim/INVENTORIO.md` |
+| Pruebas del empaquetado | `slim/*.test.mjs` (configuración de OpenCode, compose, Dockerfile, CA de Java, sondeo de la pasarela, `qayaba.sh`) |
 | Perfil y efectores | `src/server/deployment-profile.ts`, `src/server/rewritten-engine-factory.ts` (`buildPublicationEffectors`), `qa-engine/.../composition/composition-root.ts` (`shadowPublication`) |
 | Exportación local | `qa-engine/src/contexts/workspace-and-publication/infrastructure/local-export-publication.adapter.ts` |
 | Git/GitLab | `src/integrations/repo-mirror.ts` (`authHeaderArgs`, `gitRemoteBase`, `getRepoInfoViaGit`) |
