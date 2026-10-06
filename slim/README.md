@@ -206,8 +206,8 @@ misma configuración, así que:
 Mantén **modelos distintos** para `qa-generator` y `qa-reviewer`: la independencia del revisor
 depende de ello. Tras cambiar el override: `./slim/qayaba.sh build && ./slim/qayaba.sh up`.
 
-OpenCode queda **limitado a los proveedores del override** (`enabled_providers`): ningún rol puede llamar a
-otro destino de LLM. La compartición de sesiones (`share`) queda siempre desactivada. El build **falla** si:
+OpenCode queda **limitado a los proveedores del override** (`enabled_providers`): ningún rol configurado puede
+llamar a otro destino de LLM (el alcance exacto de esta garantía está en «Qué contiene el bloqueo y qué no»). La compartición de sesiones (`share`) queda siempre desactivada. El build **falla** si:
 
 - el override no existe o no declara ningún `provider`: la configuración base solo nombra un proveedor
   público, y ni el código ni la clave deben acabar allí;
@@ -242,6 +242,28 @@ Dos caminos podrían saltarse ese límite, y los dos están cerrados:
   igual `/etc/opencode`, la configuración gestionada que OpenCode carga la última y que prevalece sobre la global.
   `config-init` se ejecuta en cada `./slim/qayaba.sh up` y `agents` espera a que termine bien; cada arranque
   parte, pues, de la configuración de la imagen. Cambiar el override exige reconstruir la imagen, como antes.
+
+### Qué contiene el bloqueo de la pasarela y qué no
+
+El bloqueo de proveedores, el rechazo de destinos alternativos en el override y la configuración congelada
+impiden que un **error de configuración** encamine el código o la clave a un proveedor de LLM no aprobado. **No
+contienen a un agente comprometido o manipulado por inyección de instrucciones**: `agents` corre como root, con
+shell, con la clave en su entorno y con salida a la red, así que ese proceso puede abrir conexiones por su cuenta.
+La barrera efectiva frente a la exfiltración es la **lista de destinos permitidos del proxy corporativo**. Los
+contenedores solo necesitan, en ejecución:
+
+- la pasarela de LLM (el host de `options.baseURL`);
+- el servidor git (`GIT_REMOTE_BASE`);
+- la aplicación bajo prueba en DEV y su proveedor de identidad;
+- los mirrors internos de npm y de Maven, para `npm ci` del `e2e/` de cada ejecución y para el servidor de
+  lenguaje de Java.
+
+Todo lo demás puede quedar denegado. Siguiente paso recomendado (no hecho; requiere validarlo con Docker):
+ejecutar OpenCode y sus herramientas en `agents` como usuario sin privilegios, con `cap_drop: [ALL]` y
+`no-new-privileges:true`. Riesgo residual conocido: `~/.local/share/opencode` es escribible (OpenCode guarda ahí
+sus sesiones) y un `auth.json` con entradas «wellknown» puede añadir configuración remota con la prioridad más
+baja. El detalle y los destinos de cada contenedor están en [`INVENTORIO.md`](INVENTORIO.md), §6.2 y §8 (puntos
+9 y 10).
 
 ## Presupuesto de memoria
 

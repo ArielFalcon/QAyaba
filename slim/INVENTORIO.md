@@ -253,6 +253,33 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
    la variable `OPENCODE_TEST_MANAGED_CONFIG_DIR`, que movería ese directorio. Contrapartida: el
    `AGENTS.md` y la configuración propios del repositorio vigilado no se cargan. Las *skills* externas que OpenCode
    descubre en la copia de trabajo no son configuración sino contexto y esta medida no las desactiva.
+9. **El bloqueo de la pasarela previene una configuración equivocada; no contiene a un agente comprometido.**
+   `enabled_providers`, el rechazo de destinos alternativos en el override (§2.7) y la configuración congelada
+   (punto 8) impiden que un error de configuración encamine el código o la clave a un proveedor de LLM no
+   aprobado. No son una barrera frente a un agente comprometido o manipulado por inyección de instrucciones: el
+   servicio `agents` corre como root, con shell, con la clave del LLM en su entorno y con salida a la red
+   (punto 2), de modo que ese proceso puede abrir conexiones por su cuenta, sin pasar por OpenCode. La barrera
+   efectiva frente a la exfiltración es la **lista de destinos permitidos del proxy corporativo**, que debe
+   admitir solo lo que los contenedores necesitan en ejecución (detalle en §6.2):
+   - la pasarela de LLM (el host de `options.baseURL`), desde `agents`;
+   - el servidor git (`GIT_REMOTE_BASE`), desde `orchestrator`;
+   - la aplicación bajo prueba en DEV y su proveedor de identidad (`e2e.auth.loginUrl`), desde `orchestrator` y
+     `agents`;
+   - los mirrors internos de npm (`NPM_REGISTRY`) y de Maven (el `settings.xml` de `slim/maven/`), para
+     `npm ci` del `e2e/` en cada ejecución y para la resolución de dependencias del servidor de lenguaje de Java.
+
+   Cualquier otro destino debe quedar denegado en el proxy; la red de compose no añade ningún filtro de salida
+   por sí misma. **Siguiente paso recomendado, no hecho aquí porque exige validarlo con Docker:** ejecutar
+   OpenCode y sus herramientas en `agents` como un usuario sin privilegios, con `cap_drop: [ALL]` y
+   `no-new-privileges:true`. Habría que comprobar el sandbox de Chromium, los directorios de caché de Serena y de
+   JDTLS, la propiedad de los volúmenes y los puertos 4096/4097. Con ello el aislamiento dejaría de depender solo
+   de que root sin `CAP_SYS_ADMIN` no pueda remontar los volúmenes de solo lectura (punto 8).
+10. **Ruta escribible que OpenCode aún lee (riesgo residual conocido).** `~/.local/share/opencode` (volumen
+    `opencode-data`) es escribible porque OpenCode guarda ahí sus sesiones. Un `auth.json` en ese directorio
+    puede declarar entradas de tipo «wellknown» que añaden configuración remota con la prioridad más baja de todas
+    las fuentes: no pisa lo que fija la configuración efectiva, pero sí puede añadir claves que esta no fija
+    (por ejemplo, servidores MCP). La mitigación actual es la lista de destinos permitidos del proxy (punto 9);
+    cerrar esta ruta exige comprobar con Docker qué más escribe OpenCode en ese directorio.
 
 ## 9. Cómo verificarlo
 
