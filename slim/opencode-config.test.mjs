@@ -253,3 +253,47 @@ test("the build step refuses a provider with no baseURL, which would send the ke
   assert.ok(result.stderr.includes("provider.openai.options.baseURL"), result.stderr);
   assert.ok(result.stderr.includes("provider.openai.options.apiKey"), result.stderr);
 });
+
+// Where the key travels is decided by more than `options.baseURL`: a model can carry its own endpoint
+// and package, a provider can name another package or an api URL, and an MCP server can be remote.
+// None of those may ride in the override; each is reported under its own key, never with its value.
+const corpWith = (provider, models = { big: {} }) => ({ provider: { corp: { options: gatewayOptions(), models, ...provider } } });
+const ENDPOINT = "https://elsewhere.example/v1";
+
+test("a model that carries its own provider endpoint is rejected under that model's key, without echoing it", () => {
+  const violations = validateGateway(corpWith({}, { big: {}, odd: { provider: { npm: "@ai-sdk/anthropic", api: ENDPOINT } } }));
+
+  assert.deepEqual(violations.map((v) => v.key), ["provider.corp.models.odd.provider"]);
+  assert.ok(!JSON.stringify(violations).includes(ENDPOINT), "the endpoint is not echoed");
+});
+
+test("a provider-level api endpoint is rejected under its key, without echoing it", () => {
+  const violations = validateGateway(corpWith({ api: ENDPOINT }));
+
+  assert.deepEqual(violations.map((v) => v.key), ["provider.corp.api"]);
+  assert.ok(!JSON.stringify(violations).includes(ENDPOINT));
+});
+
+test("a provider package other than the OpenAI-compatible one is rejected, and that package or none is accepted", () => {
+  assert.deepEqual(validateGateway(corpWith({ npm: "@ai-sdk/anthropic" })).map((v) => v.key), ["provider.corp.npm"]);
+  assert.deepEqual(validateGateway(corpWith({ npm: "@ai-sdk/openai-compatible" })), []);
+  assert.deepEqual(validateGateway(corpWith({})), []);
+});
+
+test("a remote MCP server is rejected under its key, and a local one is accepted", () => {
+  const remote = { ...corpWith({}), mcp: { tools: { type: "remote", url: ENDPOINT }, local: { type: "local", command: ["tool"] } } };
+  const violations = validateGateway(remote);
+
+  assert.deepEqual(violations.map((v) => v.key), ["mcp.tools.type"]);
+  assert.ok(!JSON.stringify(violations).includes(ENDPOINT));
+  assert.deepEqual(validateGateway({ ...corpWith({}), mcp: { local: { type: "local", command: ["tool"] } } }), []);
+});
+
+test("the build step refuses an endpoint override and prints no config", () => {
+  const result = runCli({ provider: { corp: { ...gateway("corp", ["big"]).corp, api: ENDPOINT } }, agent: allRolesOn("corp/big") });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.ok(result.stderr.includes("provider.corp.api"), result.stderr);
+  assert.ok(!result.stderr.includes(ENDPOINT));
+});

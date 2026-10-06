@@ -213,6 +213,9 @@ otro destino de LLM. La compartición de sesiones (`share`) queda siempre desact
   entrega a los agentes y que fija la consola: una clave literal quedaría grabada en las capas de la imagen (el
   mensaje no la repite) y cualquier otra referencia no recibiría nunca valor. Tampoco se admite un `baseURL`
   con credenciales incrustadas;
+- el override nombra otro destino por una vía distinta de `options.baseURL`: un `provider` propio dentro de un
+  modelo (paquete o `api` por modelo), una `api` a nivel de proveedor, un `npm` de proveedor distinto de
+  `@ai-sdk/openai-compatible` o cualquier servidor MCP de tipo `remote`. El error nombra la clave, nunca el valor;
 - `model`, `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un modelo
   declarado en su `models`; el error lista cada clave afectada, de modo que un rol nunca llega a llamar en
   silencio a un proveedor inalcanzable.
@@ -282,6 +285,7 @@ necesita: no pongas en él credenciales con más alcance del necesario (mejor un
 | `opencode-config: the LLM gateway override is missing` o `no LLM provider is declared` en el build | Falta `slim/opencode.override.json` o no declara ningún `provider` | Cópialo desde `slim/opencode.override.example.json` y ajusta proveedor y modelos (ver «LLM corporativo») |
 | `opencode-config: … options.apiKey: must be exactly {env:OPENCODE_API_KEY}` en el build | La clave del proveedor está escrita en el override, falta o es otra referencia | Sustitúyela por `{env:OPENCODE_API_KEY}` y pega la clave en la consola |
 | `opencode-config: … options.baseURL: …` en el build | Un proveedor del override no declara la URL http(s) de la pasarela | Añade `options.baseURL` a ese proveedor |
+| `opencode-config: … provider.<id>.api`, `….npm`, `….models.<modelo>.provider` o `mcp.<nombre>.type` en el build | El override nombra otro destino distinto de la pasarela (`api`, otro paquete, un `provider` por modelo o un MCP remoto) | Quita esa clave: todo el tráfico del LLM va por `options.baseURL` |
 | `certificate verify failed` / `SELF_SIGNED_CERT_IN_CHAIN` en el build | Falta la CA corporativa | `./slim/qayaba.sh export-ca` y reconstruir |
 | `java-trust-ca: … holds no PEM certificate` o `… are not trusted by Java` en el build | Un `.crt` de `slim/certs/` no es PEM, o el almacén de Java no admite el certificado | Reexporta con `./slim/qayaba.sh export-ca` (PEM) y reconstruye; el build falla a propósito para que Java (Serena/JDTLS, Maven) no quede sin confiar en la CA |
 | `fetch-artifact: cannot download …` | Host no permitido | Apunta su `*_BASE` a un remoto de Artifactory o vendoriza el fichero en `slim/vendor/` |

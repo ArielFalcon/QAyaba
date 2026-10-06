@@ -304,7 +304,9 @@ anterior lo fijaba a `amd64`).
   - fusión final con `slim/opencode.override.json`, **obligatorio**: el build falla si falta, si no declara
     ningún `provider` (la configuración base solo nombra un proveedor público), si algún proveedor no tiene un
     `options.baseURL` http(s) (OpenCode usaría el destino público por defecto) o si su `options.apiKey` no es
-    exactamente `{env:OPENCODE_API_KEY}` (una clave literal quedaría grabada en las capas de la imagen);
+    exactamente `{env:OPENCODE_API_KEY}` (una clave literal quedaría grabada en las capas de la imagen), o si
+    nombra otro destino por otra vía (un `provider` por modelo, una `api` de proveedor, un `npm` de proveedor
+    distinto de `@ai-sdk/openai-compatible` o un servidor MCP `remote`);
   - `enabled_providers` queda fijado a exactamente los proveedores del override, y el build **falla** si `model`,
     `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un modelo declarado en su
     `models` (la salida lista cada clave afectada).

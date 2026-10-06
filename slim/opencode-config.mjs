@@ -14,6 +14,9 @@
  *     exactly `{env:OPENCODE_API_KEY}` (the only key the stack passes): a provider without a baseURL
  *     would send the pasted key to its public default endpoint, and a literal key would be baked into
  *     the image layers (the override is copied into them);
+ *   - the override cannot name another endpoint by any other route either: a model's own `provider`,
+ *     a provider-level `api` URL, a provider `npm` package other than the OpenAI-compatible one, and
+ *     remote MCP servers are all rejected;
  *   - every model reference of the effective config (`model`, `small_model`, `agent.<role>.model`)
  *     must resolve to an enabled provider and a model that provider declares. Otherwise the CLI
  *     exits non-zero listing every offending key, so the image build fails instead of a role
@@ -77,12 +80,18 @@ function baseUrlProblem(baseURL) {
   return undefined;
 }
 
+// The one package that talks to the gateway the override declares through `options.baseURL`.
+export const GATEWAY_PACKAGE = "@ai-sdk/openai-compatible";
+
 /**
  * Lists what keeps an override from being the operator's LLM gateway: no declared provider, or a
  * declared one that is not an http(s) gateway reading exactly the key the stack passes
  * (GATEWAY_KEY_REFERENCE). Whatever a provider declares is where the pasted key goes, and the
- * supervisor can only verify a gateway it can address with that key. The reasons never include a
- * key or a URL's credentials.
+ * supervisor can only verify a gateway it can address with that key. `options.baseURL` is not the
+ * only place an endpoint can be named, so the rest are refused too: a model's own `provider`
+ * (per-model package and api URL), a provider-level `api` URL, a provider package other than
+ * GATEWAY_PACKAGE, and any remote MCP server. The reasons name the key, never a key, a URL or its
+ * credentials.
  */
 export function validateGateway(override) {
   const providers = isPlainObject(override?.provider) ? override.provider : {};
@@ -97,6 +106,23 @@ export function validateGateway(override) {
     if (urlProblem) violations.push({ key: `provider.${id}.options.baseURL`, reason: urlProblem });
     if (options?.apiKey !== GATEWAY_KEY_REFERENCE) {
       violations.push({ key: `provider.${id}.options.apiKey`, reason: `must be exactly ${GATEWAY_KEY_REFERENCE}, the only key the stack passes; a literal key would be baked into the image layers` });
+    }
+    const provider = providers[id];
+    if (provider?.npm !== undefined && provider.npm !== GATEWAY_PACKAGE) {
+      violations.push({ key: `provider.${id}.npm`, reason: `must be ${GATEWAY_PACKAGE} or absent; another package would talk to an endpoint other than the gateway's baseURL` });
+    }
+    if (provider?.api !== undefined) {
+      violations.push({ key: `provider.${id}.api`, reason: "must not be set; it names an endpoint other than the gateway's baseURL" });
+    }
+    for (const [modelId, model] of Object.entries(isPlainObject(provider?.models) ? provider.models : {})) {
+      if (isPlainObject(model) && Object.hasOwn(model, "provider")) {
+        violations.push({ key: `provider.${id}.models.${modelId}.provider`, reason: "must not be set; a per-model provider (package, api) would send that model's traffic to an endpoint other than the gateway's baseURL" });
+      }
+    }
+  }
+  for (const [name, server] of Object.entries(isPlainObject(override?.mcp) ? override.mcp : {})) {
+    if (isPlainObject(server) && server.type === "remote") {
+      violations.push({ key: `mcp.${name}.type`, reason: "a remote MCP server would receive the agent's tool traffic outside the gateway; only local servers are allowed" });
     }
   }
   return violations;

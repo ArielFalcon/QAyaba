@@ -102,7 +102,7 @@ El contexto de build es la raíz del repositorio, filtrado por [`Dockerfile.dock
 Entran el código de `src/`, `qa-engine/`, `agents/`, `agent/`, `web/`, `config/` y `slim/` (incluida la CA pública
 de `slim/certs/*.crt`). `config/apps/*.yaml` (si existen) y `slim/opencode.override.json` (obligatorio) entran también: no
 contienen secretos (las variables van como `${VAR}`; cada proveedor del override ha de tener un
-`baseURL` http(s) y leer la clave exactamente como `{env:OPENCODE_API_KEY}`, y el build rechaza una clave literal), y en ejecución `../config` se monta encima de `/app/config`.
+`baseURL` http(s) y leer la clave exactamente como `{env:OPENCODE_API_KEY}`, y el build rechaza una clave literal, un destino alternativo por otra vía —`api`, `npm` distinto del compatible con OpenAI o un `provider` por modelo— y los servidores MCP remotos), y en ejecución `../config` se monta encima de `/app/config`.
 
 ## 3. Usuarios y privilegios
 
