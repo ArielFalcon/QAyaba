@@ -156,6 +156,7 @@ const eventStreamController = new AbortController();
 const agentRuntime = createAgentRuntimeManager({
   env: process.env,
   fs: envStoreFor(CAPABILITIES),
+  allowedProviders: CAPABILITIES.agentProviders,
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
     codex: new CodexRuntimeStrategy({ env: process.env }),

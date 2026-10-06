@@ -14,6 +14,7 @@ import { sanitizeText, RedactionPortAdapter } from "../orchestrator/sanitizer";
 import { buildRunContext, buildLearningContext, buildRunChatContext } from "./chat";
 import { buildHelpContext } from "./help";
 import { json, readBody } from "./helpers";
+import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 import { getOpenSessionCount, activityRouter } from "../integrations/opencode-client";
 import type { CreateAppInput as AdminCreateAppInput, CreateAppResult, UpdateAppInput as AdminUpdateAppInput } from "./app-admin";
 import {
@@ -940,7 +941,7 @@ async function handlePutAgentConfig(req: IncomingMessage, res: ServerResponse, d
     contractJson(res, 200, AgentConfigApplyResultSchema, result);
   } catch (err) {
     const message = redactionPort.redactError(err);
-    json(res, runtimeStatusFromErrorMessage(message), { error: message });
+    json(res, err instanceof AgentConfigRefusedError ? 422 : runtimeStatusFromErrorMessage(message), { error: message });
   }
   return true;
 }

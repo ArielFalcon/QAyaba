@@ -25,6 +25,7 @@ de los secretos; `./slim/qayaba.sh sbom` genera la lista real de paquetes de la 
 | SCM | GitHub | Cualquier host git (GitLab): `GIT_REMOTE_BASE` + `GIT_TOKEN` |
 | Login de la consola | OAuth de GitHub | Token local (`config/.api_token`), sin login automático: `./slim/qayaba.sh console` lo copia al portapapeles |
 | Auto-mantenimiento | Sí | No |
+| Proveedores de agente | OpenCode y Codex | Solo OpenCode: la imagen no incluye Codex, y la API rechaza con 422 asignarlo o fijar su clave |
 
 ## Requisitos
 

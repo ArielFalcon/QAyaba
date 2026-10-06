@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
+import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
 import { CodexRuntimeStrategy } from "../agent-runtime/codex-strategy";
 import { envStoreFor, type EnvStoreFs } from "./env-store";
@@ -391,4 +392,54 @@ test("agent runtime manager re-injects runtime role models on applyConfig so rol
   } finally {
     setRuntimeRoleModels(undefined);
   }
+});
+
+// A deployment that does not ship a provider's CLI must refuse to be configured for it, whatever the
+// route: a codex key or a codex role would leave every run waiting on a binary that is not there.
+function opencodeOnly() {
+  const restarts: AgentProvider[] = [];
+  const env: Record<string, string | undefined> = { OPENCODE_API_KEY: "open-key" };
+  const fs = memoryFs("OPENCODE_API_KEY=open-key\n");
+  const manager = createAgentRuntimeManager({
+    env,
+    fs,
+    allowedProviders: ["opencode"],
+    strategies: { opencode: strategy("opencode", restarts), codex: strategy("codex", restarts) },
+  });
+  return { manager, env, fs, restarts };
+}
+
+const refusals: Array<[string, Parameters<ReturnType<typeof opencodeOnly>["manager"]["applyConfig"]>[0]]> = [
+  ["a codex API key", { apiKeys: { codex: "codex-key" } }],
+  ["codex as the single provider", { mode: "single", singleProvider: "codex" }],
+  ["codex assigned to a role", { assignments: { reviewer: { provider: "codex", model: "gpt-5.4" } } }],
+  ["dual mode, which needs a second provider", { mode: "dual" }],
+];
+
+for (const [label, input] of refusals) {
+  test(`a deployment without codex refuses ${label}, changing and restarting nothing`, async () => {
+    const { manager, env, fs, restarts } = opencodeOnly();
+
+    await assert.rejects(manager.applyConfig(input), (err) => err instanceof AgentConfigRefusedError && err.message.length > 0);
+
+    assert.equal(env.CODEX_API_KEY, undefined);
+    assert.equal(fs.content, "OPENCODE_API_KEY=open-key\n");
+    assert.deepEqual(restarts, []);
+  });
+}
+
+test("a refusal never repeats the key it refused", async () => {
+  const { manager } = opencodeOnly();
+
+  await assert.rejects(manager.applyConfig({ apiKeys: { codex: "codex-secret-value" } }), (err) => !String(err).includes("codex-secret-value"));
+});
+
+test("a deployment without codex still takes the opencode key", async () => {
+  const { manager, env, restarts } = opencodeOnly();
+
+  const result = await manager.applyConfig({ apiKeys: { opencode: "todays-key" } });
+
+  assert.equal(env.OPENCODE_API_KEY, "todays-key");
+  assert.deepEqual(result.restarted, ["opencode"]);
+  assert.deepEqual(restarts, ["opencode"]);
 });

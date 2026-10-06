@@ -22,6 +22,7 @@ import type {
   RoleAssignment,
 } from "../agent-runtime/types";
 import type { AgentConfigUpdate, AgentModelInfo } from "../contract/commands";
+import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 
 export interface AgentRuntimeManager {
   getConfig(): Promise<PublicAgentConfig>;
@@ -37,6 +38,8 @@ export interface CreateAgentRuntimeManagerOptions {
   fs?: EnvStoreFs;
   strategies: Record<AgentProvider, AgentRuntimeStrategy>;
   hasOpenSessions?: () => boolean;
+  /* The providers this deployment can run; a configuration that keys or assigns any other is refused. Default: all. */
+  allowedProviders?: readonly AgentProvider[];
 }
 
 const PROVIDERS: AgentProvider[] = ["opencode", "codex"];
@@ -50,6 +53,7 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
   /* Without an explicit store, the deployment profile decides whether pasted secrets may touch the disk. */
   const fs = opts.fs ?? envStoreFor(profileCapabilities(resolveDeploymentProfile(env)));
   let config = configFromEnv(env);
+  const allowedProviders = opts.allowedProviders ?? PROVIDERS;
 
   /*
    * Each strategy reports its own provider's state. A provider that needs a key is unconfigured
@@ -95,7 +99,9 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       const apiKeyVars = apiKeyEnvVars(input);
       for (const [key, value] of Object.entries(apiKeyVars)) nextEnv[key] = value;
 
+      refuseUnavailableProviders(input, allowedProviders);
       let next = mergeConfig(previous, input, nextEnv);
+      refuseUnavailableAssignments(next, allowedProviders);
       let downgraded = false;
       let validation = validateAgentRuntimeConfig(next, keyPresence(nextEnv));
 
@@ -157,6 +163,26 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
       return opts.hasOpenSessions?.() ?? false;
     },
   };
+}
+
+/* What the request itself names: a key for, or the selection of, a provider this deployment does not offer. */
+function refuseUnavailableProviders(input: AgentConfigUpdate, allowed: readonly AgentProvider[]): void {
+  for (const provider of PROVIDERS.filter((p) => !allowed.includes(p))) {
+    if (provider === "codex" ? input.apiKeys?.codex?.trim() : input.apiKeys?.opencode?.trim()) {
+      throw new AgentConfigRefusedError(`an API key for the ${provider} provider cannot be set: this deployment does not offer it`);
+    }
+    const named = input.singleProvider === provider || ROLES.some((role) => input.assignments?.[role]?.provider === provider);
+    if (named) throw new AgentConfigRefusedError(`the ${provider} provider cannot be used: this deployment does not offer it`);
+  }
+  if (input.mode === "dual" && allowed.length < 2) {
+    throw new AgentConfigRefusedError("dual mode needs two providers and this deployment offers only " + allowed.join(", "));
+  }
+}
+
+/* What the merged configuration would run: no role may end up on a provider this deployment does not offer. */
+function refuseUnavailableAssignments(next: AgentRuntimeConfig, allowed: readonly AgentProvider[]): void {
+  const unavailable = ROLES.map((role) => next.assignments[role].provider).find((provider) => !allowed.includes(provider));
+  if (unavailable) throw new AgentConfigRefusedError(`the ${unavailable} provider cannot be used: this deployment does not offer it`);
 }
 
 async function validateAssignedModels(

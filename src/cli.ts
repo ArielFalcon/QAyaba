@@ -41,6 +41,7 @@ import { resolvePort } from "./server/port";
 const cliAgentRuntime = createAgentRuntimeManager({
   env: process.env,
   fs: envStoreFor(profileCapabilities(resolveDeploymentProfile(process.env))),
+  allowedProviders: profileCapabilities(resolveDeploymentProfile(process.env)).agentProviders,
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
     codex: new CodexRuntimeStrategy({ env: process.env }),

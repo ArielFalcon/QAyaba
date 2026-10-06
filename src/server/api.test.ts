@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { handleApi, ApiDeps } from "./api";
+import { AgentConfigRefusedError } from "../agent-runtime/config-refused";
 import { createLocalConsoleLogin, LOCAL_CONSOLE_PRINCIPAL, validateSession } from "./auth";
 import { toTrendsView } from "./trends-view";
 import { toReportView } from "./report-view";
@@ -686,6 +687,27 @@ test("PUT /api/agent/config applies runtime config without echoing api keys", as
   assert.equal(res.status, 200);
   assert.equal((seen as any).apiKeys.codex, "sk-codex-secret");
   AgentConfigApplyResultSchema.parse(JSON.parse(res.body));
+  assert.doesNotMatch(res.body, /sk-codex-secret/);
+});
+
+test("PUT /api/agent/config answers 422 with the reason when the deployment refuses the configuration", async () => {
+  const res = mkRes();
+  await handleApi(
+    mkReq("PUT", "/api/agent/config", JSON.stringify({ apiKeys: { codex: "sk-codex-secret" } })),
+    res,
+    deps({
+      agentRuntime: {
+        getConfig: async () => publicAgentConfig,
+        applyConfig: async () => {
+          throw new AgentConfigRefusedError("the codex provider is not available in this deployment");
+        },
+        listModels: async () => [],
+        restart: async () => ({ provider: "opencode", status: "healthy", configured: true }),
+      },
+    }),
+  );
+  assert.equal(res.status, 422);
+  assert.match(res.body, /codex provider is not available/);
   assert.doesNotMatch(res.body, /sk-codex-secret/);
 });
 

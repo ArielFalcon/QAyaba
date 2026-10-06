@@ -33,3 +33,8 @@ test("exportRoot honors QAYABA_EXPORT_DIR, else <QAYABA_ROOT>/data/exports", () 
   assert.equal(exportRoot({ QAYABA_EXPORT_DIR: "/x/exports" }), "/x/exports");
   assert.equal(exportRoot({ QAYABA_ROOT: "/app" }), "/app/data/exports");
 });
+
+test("slim offers only the opencode provider (its image ships no codex binary); full offers both", () => {
+  assert.deepEqual(profileCapabilities("slim").agentProviders, ["opencode"]);
+  assert.deepEqual([...profileCapabilities("full").agentProviders].sort(), ["codex", "opencode"]);
+});

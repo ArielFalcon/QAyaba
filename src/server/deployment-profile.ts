@@ -7,12 +7,14 @@
  *   slim           — hermetic restricted-network install: the publish decision is materialized as
  *                    a local export (patch + MR/Issue bodies) for a human to submit, the
  *                    self-maintainer never runs, GitHub login is not offered, and secrets pasted at
- *                    run time (the daily LLM key) stay in memory instead of a file in the container.
+ *                    run time (the daily LLM key) stay in memory instead of a file in the container,
+ *                    and only the opencode agent provider is offered (the image ships no codex CLI).
  *
  * Deployment-specific, not app-specific: nothing here names or branches on a watched app.
  */
 
 import { join } from "node:path";
+import type { AgentProvider } from "../agent-runtime/types";
 
 export type DeploymentProfile = "full" | "slim";
 
@@ -25,11 +27,13 @@ export interface ProfileCapabilities {
   githubLogin: boolean;
   /* Secrets applied at run time (API keys pasted in the console) are written to the .env file. Off → memory only. */
   persistRuntimeSecrets: boolean;
+  /* The agent providers this install can run: the image of an install that ships no codex CLI offers only opencode. */
+  agentProviders: readonly AgentProvider[];
 }
 
 const CAPABILITIES: Record<DeploymentProfile, ProfileCapabilities> = {
-  full: { remotePublication: true, selfMaintenance: true, githubLogin: true, persistRuntimeSecrets: true },
-  slim: { remotePublication: false, selfMaintenance: false, githubLogin: false, persistRuntimeSecrets: false },
+  full: { remotePublication: true, selfMaintenance: true, githubLogin: true, persistRuntimeSecrets: true, agentProviders: ["opencode", "codex"] },
+  slim: { remotePublication: false, selfMaintenance: false, githubLogin: false, persistRuntimeSecrets: false, agentProviders: ["opencode"] },
 };
 
 /* An unknown value throws: a typo must not silently fall back to the profile that pushes to a remote. */
