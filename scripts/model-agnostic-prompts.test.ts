@@ -1,7 +1,8 @@
-/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and the assembled generator, explorer and reviewer prompts, in three layers:
+/* The model-agnostic prompt guard: no prompt names a model. A limit, a tier or a budget comes from the runtime or from a named constant, never from which model runs, so a text that names a model id or a family is a defect wherever it stands. The guard scans the static role and shared layers of both mirrors, the skills and every prompt the harness sends to an agent (generator, context task, explorer, worker, reviewer, verdict repair, sidekick, maintainer, assistant, reflector, proposer), in three layers:
    - derived: every id and label a declared model source holds (the runtime agent config and its fallbacks, each provider's role defaults, the cataloged windows, the proposer's pin), so a model configured later is caught with no edit here. An id is forbidden anywhere, its family only next to a version chunk;
    - fixed list: well-known vendor and family names, forbidden anywhere. The list only forbids: nothing selects a prompt, a limit or a rule by it;
    - headings: the parenthetical of a role's title holds no version-like token and no letter segment of a declared id.
+   The title's letter-segment match is intentionally strict inside parentheses: a plain word such as "flash" or "mini" is a finding there, though it is fine in a body.
    Matching is whole-word and blind to case and separators. This file lives under scripts/ because it drives the prompt-contract matrix, whose imports carry `.ts` extensions the root typecheck does not accept. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,19 +12,33 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CATALOGED_MODELS } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog.ts";
 import {
+  buildContextTask,
   buildExplorerPrompt,
   buildPromptAssembled,
   buildReviewerPromptAssembled,
+  buildWorkerPromptAssembled,
   renderExecutionResult,
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import type { ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ParallelWorkerInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import { createDelegationBrief } from "@contexts/qa-run-orchestration/application/coordination/delegation-brief.ts";
+import { SidekickExecutor } from "@contexts/qa-run-orchestration/application/coordination/sidekick-executor.ts";
+import { ReflectorPortAdapter } from "@contexts/cross-run-learning/infrastructure/reflector-port.adapter.ts";
+import type { ReflectionInput } from "@contexts/cross-run-learning/application/ports/index.ts";
+import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 import { singleProviderConfig } from "../src/agent-runtime/config.ts";
 import { CODEX_MODELS, codexPreambleParts } from "../src/agent-runtime/codex-strategy.ts";
 import { OpenCodeRuntimeStrategy } from "../src/agent-runtime/opencode-strategy.ts";
 import { AGENT_NAME_FOR_ROLE, type AgentModelInfo, type AgentRole } from "../src/agent-runtime/types.ts";
-import { PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import { askAssistant, type AgentDeps } from "../src/integrations/opencode-client.ts";
+import { repairInstruction } from "../src/integrations/verdict-validate.ts";
+import { createMaintainerRuntime, type MaintainerConfig, type MaintainerSideEffects } from "../src/server/maintainer-runtime.ts";
+import { recordIncident } from "../src/server/maintainer.ts";
+import { recordFixFailure } from "../src/server/maintainer-memory.ts";
+import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
+import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
+import type { RunRecord } from "../src/types.ts";
 import { DIMENSIONS, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,6 +68,7 @@ interface ModelTerms {
 const VENDORS: readonly string[] = [
   "deepseek", "qwen", "glm", "kimi", "minimax", "gpt", "claude", "opus", "sonnet", "haiku",
   "gemini", "gemma", "llama", "mistral", "mixtral", "devstral", "codestral", "grok", "nemotron",
+  "openai", "anthropic", "chatgpt",
 ];
 
 /* The words with a digit a title may keep in its parentheses. Case-sensitive, so anything else with a digit reads as a version. */
@@ -298,10 +314,11 @@ test("the words of a declared id are no finding in a body, only in a title", asy
 
 test("a listed vendor is caught wherever it stands, as a whole word only", async () => {
   const terms = deriveModelTerms([]);
-  /* The vendors the design lists: the guard may forbid more, never fewer. */
+  /* The vendors the design lists, and the labs and products behind them: the guard may forbid more, never fewer. */
   const listed = [
     "deepseek", "qwen", "glm", "kimi", "minimax", "gpt", "claude", "opus", "sonnet", "haiku",
     "gemini", "gemma", "llama", "mistral", "mixtral", "devstral", "codestral", "grok", "nemotron",
+    "openai", "anthropic", "chatgpt",
   ];
   for (const vendor of listed) {
     const written = vendor[0]!.toUpperCase() + vendor.slice(1);
@@ -381,12 +398,21 @@ test("the generator cells scanned reach every value of every dimension", () => {
   }
 });
 
-/* The reviewer inlines the specs it judges, so its prompts are built over a mirror that holds one. */
-function withReviewMirror<T>(run: (review: (over?: Partial<ReviewInput>) => ReviewInput) => T): T {
+/* ── what the harness sends to an agent ── */
+
+/* A kind of prompt the harness authors for an agent. `prompts(subject)` drives the real builder, or the real class that sends it, with `subject` spliced into a free-text field the prompt renders, and returns every variant of the kind. Every role the runtime opens a session for is reached by at least one kind. `buildFollowupPrompt` has no kind: no production code sends it. */
+interface PromptKind {
+  kind: string;
+  roles: readonly AgentRole[];
+  prompts: (subject: string) => Promise<PromptText[]>;
+}
+
+/* The reviewer inlines the specs it judges, in every mode, so its prompts are built over a mirror that holds one; `subject` is the spec's test title. */
+function withReviewMirror<T>(subject: string, run: (review: (over?: Partial<ReviewInput>) => ReviewInput) => T): T {
   const mirror = mkdtempSync(join(tmpdir(), "model-agnostic-review-"));
   try {
     mkdirSync(join(mirror, "e2e"));
-    writeFileSync(join(mirror, "e2e", "cart.spec.ts"), "import { test } from '@playwright/test';\ntest('cart shows the total', async ({ page }) => { await page.goto('/cart'); });\n");
+    writeFileSync(join(mirror, "e2e", "cart.spec.ts"), `import { test } from '@playwright/test';\ntest('cart shows the ${subject} total', async ({ page }) => { await page.goto('/cart'); });\n`);
     return run((over = {}) => ({
       diff: "diff --git a/src/cart.ts b/src/cart.ts\n+export const total = 1;\n",
       specs: ["cart.spec.ts"],
@@ -403,18 +429,30 @@ function withReviewMirror<T>(run: (review: (over?: Partial<ReviewInput>) => Revi
 
 const wireBriefRenderer = (): void => setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
 
-test("the assembled generator, explorer and reviewer prompts name no model", async () => {
-  const terms = await repoTerms();
+const repoOf = (subject: string): string => `org/${subject}-app`;
+
+async function generatorPrompts(subject: string): Promise<PromptText[]> {
   wireBriefRenderer();
-  const prompts: PromptText[] = [];
-  for (const spec of coveringSpecs(validSpecs())) {
-    const input = await buildInput(spec);
-    prompts.push(
-      { source: `generator prompt ${cellName(spec)}`, text: buildPromptAssembled(input, { budgetBytes: 0 }).text },
-      { source: `explorer prompt ${cellName(spec)}`, text: buildExplorerPrompt(input) },
-    );
-  }
-  withReviewMirror((review) => {
+  return Promise.all(
+    coveringSpecs(validSpecs()).map(async (spec) => ({
+      source: `generator prompt ${cellName(spec)}`,
+      text: buildPromptAssembled({ ...(await buildInput(spec)), repo: repoOf(subject) }, { budgetBytes: 0 }).text,
+    })),
+  );
+}
+
+async function explorerPrompts(subject: string): Promise<PromptText[]> {
+  wireBriefRenderer();
+  return Promise.all(
+    coveringSpecs(validSpecs()).map(async (spec) => ({
+      source: `explorer prompt ${cellName(spec)}`,
+      text: buildExplorerPrompt({ ...(await buildInput(spec)), repo: repoOf(subject) }),
+    })),
+  );
+}
+
+async function reviewerPrompts(subject: string): Promise<PromptText[]> {
+  return withReviewMirror(subject, (review) => {
     const variants: Array<[string, ReviewInput]> = [
       ["diff", review()],
       ["code diff", review({ target: "code" })],
@@ -432,28 +470,266 @@ test("the assembled generator, explorer and reviewer prompts name no model", asy
         }),
       ],
     ];
-    for (const [name, input] of variants) prompts.push({ source: `reviewer prompt ${name}`, text: buildReviewerPromptAssembled(input).text });
+    return variants.map(([name, input]) => ({ source: `reviewer prompt ${name}`, text: buildReviewerPromptAssembled(input).text }));
   });
+}
 
-  assert.ok(prompts.length > 0);
-  const findings = prompts.flatMap((p) => scanText(p.source, p.text, terms));
-  assert.equal(findings.length, 0, `model references in the assembled prompts:\n${describeFindings(findings)}`);
+/* A session that records every prompt it is sent and answers with nothing: the senders below put their real prompts in it. */
+const recordingRuntime = (sent: string[]): AgentRuntimePort => ({
+  openSession: async () => ({
+    prompt: async (text) => {
+      sent.push(text);
+      return { output: "" };
+    },
+    dispose: async () => {},
+  }),
 });
 
-test("the assembled-prompt scan reads what the builders emit: a model named in a fixture is found in the generator, explorer and reviewer prompts", async () => {
-  const terms = await repoTerms();
-  wireBriefRenderer();
-  const cell = coveringSpecs(validSpecs()).find((s) => s.mode === "diff" && s.target === "e2e")!;
-  const input = await buildInput(cell);
-  const named = { ...input, intent: { ...input.intent!, message: "feat(cart): ask Deepseek for the total" } };
-  const found = [{ source: "named", layer: "vendor", token: "Deepseek" }];
+const recordingDeps = (sent: string[]): AgentDeps => ({
+  open: async () => ({
+    id: "recording",
+    prompt: async (text: string) => {
+      sent.push(text);
+      return "";
+    },
+    dispose: async () => {},
+  }),
+});
 
-  assert.deepEqual(scanText("named", buildPromptAssembled(named, { budgetBytes: 0 }).text, terms), found);
-  assert.deepEqual(scanText("named", buildExplorerPrompt(named), terms), found);
-  withReviewMirror((review) => {
-    const prompt = buildReviewerPromptAssembled(review({ mode: "manual", guidance: "ask Deepseek for the total" })).text;
-    assert.deepEqual(scanText("named", prompt, terms), found);
+const promptsSent = (label: string, sent: readonly string[]): PromptText[] =>
+  sent.map((text, index) => ({ source: `${label} prompt ${index + 1}`, text }));
+
+/* The context-mode task, built for the covering cell that has that mode (the generator scan reaches the same text), with and without the microservice block. */
+async function contextPrompts(subject: string): Promise<PromptText[]> {
+  const cell = coveringSpecs(validSpecs()).find((spec) => spec.mode === "context");
+  assert.ok(cell, "a covering cell has the context mode");
+  const input = { ...(await buildInput(cell)), repo: repoOf(subject) };
+  const services = [{ repo: `org/${subject}-orders`, mirrorDir: "/m/orders", openapi: "api.yaml" }];
+  return [
+    { source: "context task", text: buildContextTask(input) },
+    { source: "context task with services", text: buildContextTask({ ...input, services }) },
+  ];
+}
+
+/* The parallel worker's prompt: a UI worker with nothing grounded, a UI worker with every grounding block, and a code-only worker. */
+async function workerPrompts(subject: string): Promise<PromptText[]> {
+  wireBriefRenderer();
+  const link = {
+    from: { repo: "org/web", file: "src/cart.ts", symbol: "CartClient.total" },
+    to: { repo: "org/orders", file: "src/orders.ts", symbol: "OrdersController.total" },
+    transport: "http" as const,
+    confidence: 0.9,
+    source: "stitcher",
+  };
+  const base: ParallelWorkerInput = {
+    objective: `show the ${subject} total`,
+    flow: "cart-total",
+    symbols: ["CartService.total"],
+    needsUi: true,
+    specFile: "cart-total.spec.ts",
+    repo: "org/app",
+    mirrorDir: "/m",
+    e2eRelDir: "e2e",
+    namespace: "qa-bot-abc1234",
+    appName: "shop",
+    mode: "diff",
+  };
+  const variants: Array<[string, ParallelWorkerInput]> = [
+    ["ui, nothing grounded", base],
+    [
+      "ui, fully grounded",
+      {
+        ...base,
+        domSnapshot: "route /cart:\n  button: Pay",
+        brief: { builtForSha: "abc1234", objective: "cart total", blastRadius: [{ symbol: "CartService.total", file: "src/cart.service.ts", role: "sums the lines" }] },
+        learnedRules: "- prefer role locators",
+        staticSignal: "## Structural signal\n- CartService.total is called by CartPage",
+        serviceLinks: [link],
+        contractDrift: [{ from: link.from, verb: "GET", path: "/orders/total" }],
+        crossRepoImpact: { impactedLinks: [{ link, tier: "direct" }] },
+      },
+    ],
+    ["code", { ...base, needsUi: false }],
+  ];
+  return variants.map(([name, worker]) => ({ source: `worker prompt (${name})`, text: buildWorkerPromptAssembled(worker).text }));
+}
+
+/* What the generator and the reviewer are asked when their closing verdict is unreadable, with and without the tail of their last reply. */
+async function repairPrompts(subject: string): Promise<PromptText[]> {
+  const issues = [`no closing JSON block after the ${subject} note`];
+  return (["generator", "reviewer"] as const).flatMap((kind) => [
+    { source: `${kind} repair`, text: repairInstruction(kind, issues) },
+    { source: `${kind} repair with the prior reply`, text: repairInstruction(kind, issues, { priorResponseTail: "...and that is the end of my last reply" }) },
+  ]);
+}
+
+/* The sidekick's brief and the lead's feedback turn, as the executor sends them. */
+async function sidekickPrompts(subject: string): Promise<PromptText[]> {
+  const sent: string[] = [];
+  const brief = createDelegationBrief({
+    delegationId: "d1",
+    runId: "r1",
+    objective: `repair the ${subject} cart spec`,
+    task: "make the failing spec pass without weakening its assertions",
+    acceptanceCriteria: ["the total is asserted"],
+    scope: { readablePaths: ["e2e/"], writablePaths: ["e2e/flows/"], allowedCommands: ["npx playwright test --list"] },
+    knownFacts: [{ id: "f1", kind: "execution", source: "runner", summary: "the cart spec timed out", confidence: "observed" }],
+    artifactRefs: [{ id: "a1", path: "e2e/flows/cart.spec.ts" }],
+    validationPlan: [{ id: "v1", description: "the spec lists cleanly" }],
   });
+  await new SidekickExecutor({ runtime: recordingRuntime(sent) }).execute(brief, {
+    cwd: "/m",
+    capability: "sidekick-standard",
+    feedback: `the ${subject} total is still missing`,
+  });
+  return promptsSent("sidekick", sent);
+}
+
+/* The maintainer's incident prompt, with a past failed fix in its memory. Its console line is silenced. */
+async function maintainerPrompts(subject: string): Promise<PromptText[]> {
+  const root = mkdtempSync(join(tmpdir(), "model-agnostic-maintainer-"));
+  const sent: string[] = [];
+  const log = console.log;
+  console.log = () => {};
+  try {
+    mkdirSync(join(root, "data"));
+    recordFixFailure(join(root, "data", "maintainer-failures.json"), {
+      at: "2026-01-01T00:00:00.000Z",
+      reason: "canary-unhealthy",
+      prTitle: "fix: retry the health probe",
+      rootCause: "the probe raced the boot",
+    });
+    recordIncident({ source: "health-check", severity: "critical", summary: `the ${subject} health check failed`, detail: "the gate timed out" });
+    const config: MaintainerConfig = {
+      queue: { drain: async () => {} },
+      getAgentDeps: () => recordingDeps(sent),
+      setShuttingDown: () => {},
+      root,
+      selfRepo: "org/qayaba",
+      autonomous: false,
+      port: 9999,
+    };
+    const effects = { mirrorDeps: { exists: () => true, git: async () => "" } } as unknown as MaintainerSideEffects;
+    await createMaintainerRuntime(config, effects).triggerMaintainer();
+  } finally {
+    console.log = log;
+    rmSync(root, { recursive: true, force: true });
+  }
+  return promptsSent("maintainer", sent);
+}
+
+/* The read-only assistant's answer prompt over the run context of an e2e run and of a code run. */
+async function assistantPrompts(subject: string): Promise<PromptText[]> {
+  const sent: string[] = [];
+  const record = (target: RunRecord["target"]): RunRecord => ({
+    id: "run-1",
+    app: "shop",
+    sha: "abc1234def5678",
+    target,
+    mode: "diff",
+    status: "done",
+    step: "execute",
+    verdict: "fail",
+    passed: 1,
+    failed: 1,
+    note: `the ${subject} spec failed`,
+    cases: [{ name: "cart shows the total", status: "fail", detail: "timed out waiting for the total" }],
+    logs: ["generate: wrote 1 spec", "execute: 1 failed"],
+    at: "2026-01-01T00:00:00.000Z",
+  });
+  for (const target of ["e2e", "code"] as const) {
+    const context = [buildRunChatContext(), buildRunContext(record(target), undefined, { repo: "org/app", baseUrl: "http://localhost:3000" }, "writing specs")].join("\n\n");
+    await askAssistant({ context, question: `why did the ${subject} spec fail?` }, recordingDeps(sent), "/m");
+  }
+  return promptsSent("assistant", sent);
+}
+
+/* The reflector's prompt for a run with a suite and for a run that never wrote one. */
+async function reflectorPrompts(subject: string): Promise<PromptText[]> {
+  const sent: string[] = [];
+  const adapter = new ReflectorPortAdapter({
+    runtime: recordingRuntime(sent),
+    repo: { save: async () => {}, topRules: async () => [], applyOutcome: async () => {} },
+    backfill: () => {},
+    cwd: "/m",
+    app: "shop",
+    onReflectError: (error) => {
+      throw error;
+    },
+  });
+  const input: ReflectionInput = {
+    runId: "run-12345678",
+    app: "shop",
+    sha: "abc1234",
+    mode: "diff",
+    verdict: "fail",
+    errorClass: "E-FRAGILE-SELECTOR",
+    gateSignals: { static: true, coverageRatio: 0.5, valueScore: 0.4, reviewerCorrections: [`[fragile-selector] scope the ${subject} button`], flaky: false, retries: 1 },
+  };
+  await adapter.reflect(input);
+  await adapter.reflect({ ...input, errorClass: "E-STEP-BUDGET" });
+  return promptsSent("reflector", sent);
+}
+
+/* The onboarding proposer's prompt, on the first round and after a round that scored low. */
+async function proposerPrompts(subject: string): Promise<PromptText[]> {
+  const sent: string[] = [];
+  const adapter = new LlmProfileProposerAdapter(async () => recordingDeps(sent), PROPOSER_MODEL, { app: subject });
+  const front = { repo: "org/web", mirrorDir: "/m/web" };
+  const system = [{ repo: "org/orders", mirrorDir: "/m/orders" }];
+  const profile = {
+    transport: "http" as const,
+    frontFiles: "**/*.api.ts",
+    frontCallSite: { kind: "receiver-verb-call" },
+    servicePrefixTemplate: "svc-{service}-api",
+    serviceRepoTemplate: "ms-{service}",
+    openApiPath: "src/main/resources/openapi/api-definition.yaml",
+  };
+  const score = { links: 3, drift: 0, external: 1, unresolved: 2, coverage: 6, resolutionRatio: 0.5, resolvedScore: 0.5 };
+  await adapter.propose(system, front);
+  await adapter.propose(system, front, { priorCandidates: [{ profile, score }] });
+  return promptsSent("proposer", sent);
+}
+
+const PROMPT_KINDS: readonly PromptKind[] = [
+  { kind: "generator", roles: ["primary"], prompts: generatorPrompts },
+  { kind: "context task", roles: ["primary"], prompts: contextPrompts },
+  { kind: "explorer", roles: ["explorer"], prompts: explorerPrompts },
+  { kind: "worker", roles: ["worker", "workerCode"], prompts: workerPrompts },
+  { kind: "reviewer", roles: ["reviewer"], prompts: reviewerPrompts },
+  { kind: "verdict repair", roles: ["primary", "reviewer"], prompts: repairPrompts },
+  { kind: "sidekick", roles: ["sidekick"], prompts: sidekickPrompts },
+  { kind: "maintainer", roles: ["maintainer"], prompts: maintainerPrompts },
+  { kind: "assistant", roles: ["chat"], prompts: assistantPrompts },
+  { kind: "reflector", roles: ["reflector"], prompts: reflectorPrompts },
+  { kind: "proposer", roles: ["proposer"], prompts: proposerPrompts },
+];
+
+test("every role the runtime opens a session for is sent a kind of prompt the guard scans", () => {
+  const reached = new Set(PROMPT_KINDS.flatMap((k) => k.roles));
+  const unreached = (Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[]).filter((role) => !reached.has(role));
+  assert.deepEqual(unreached, [], `roles with no scanned prompt kind: ${unreached.join(", ")}`);
+});
+
+test("the prompts the harness sends to an agent, of every kind, name no model", async () => {
+  const terms = await repoTerms();
+  for (const { kind, prompts } of PROMPT_KINDS) {
+    const found = await prompts("shop");
+    assert.ok(found.length > 0, `${kind}: has prompts to scan`);
+    const findings = found.flatMap((p) => scanText(p.source, p.text, terms));
+    assert.equal(findings.length, 0, `model references in the ${kind} prompts:\n${describeFindings(findings)}`);
+  }
+});
+
+test("the scan reads what each builder emits: a model named in a field the builder renders is found in every prompt of its kind", async () => {
+  const terms = await repoTerms();
+  for (const { kind, prompts } of PROMPT_KINDS) {
+    const named = await prompts("Deepseek");
+    assert.ok(named.length > 0, `${kind}: has prompts to scan`);
+    for (const { source, text } of named) {
+      assert.deepEqual(scanText(source, text, terms), [{ source, layer: "vendor", token: "Deepseek" }], `${kind}: ${source}`);
+    }
+  }
 });
 
 test("the Codex preamble of every role names no model", async () => {

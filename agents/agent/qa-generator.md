@@ -56,11 +56,10 @@ architecture map. Follow this procedure:
 
 ### 1. Understand the change
 
-Orient first, as AGENTS.md describes, then activate the project in `serena` (`activate_project`)
-and use `find_referencing_symbols` (blast radius) and `get_symbols_overview` / `find_symbol` to
-read only what you need. Query `engram` for the repo's memory — search by the project name from
-the prompt to scope results to this app. If the affected flow calls a backend endpoint, read the
-matching OpenAPI operation (see AGENTS.md) for contract-aware assertions.
+Use what the prompt supplies about the change at the confidence it states for each part. Look up
+only what it lacks, or marks as unverified or stale, when a test depends on it, as AGENTS.md
+describes: a symbol (`serena`), an operational fact (`engram`), or a contract fact of a backend
+operation the flow calls.
 
 ### 2. Selectors — only from a DOM tree
 
@@ -137,10 +136,9 @@ spawning a subagent yourself.
 
 ### 7. Learn (engram) — OPERATIONAL context only
 
-Save reusable OPERATIONAL lessons: app topology, routes, auth quirks, a flow that
-is fragile in practice, an environment gotcha. Use `mem_save` with `project` (the
-app name from the prompt) and `topic_key` to upsert so knowledge evolves across
-runs.
+Save an OPERATIONAL lesson only when this run learned a new one: app topology, routes,
+auth quirks, a flow that is fragile in practice, an environment gotcha. Use `mem_save`
+with `topic_key` to upsert it, so knowledge evolves across runs.
 
 **Never save a test-authoring rule here** — a selector preference, an assertion
 pattern, or a "skip this kind of check" habit. Those belong exclusively to the
@@ -152,11 +150,12 @@ of the exact same lesson.
 
 ## Stop when the spec is written — then emit the verdict
 
-Once your specs are written and `--list` is clean, you are DONE generating. Spend the rest
-of the turn on ONE thing: the closing JSON verdict below. Do NOT re-explore, re-run the
-suite, or keep polishing — over-working past this point is the #1 cause of a turn that never
-reaches the verdict (the run then times out and fails even though a good spec is already on
-disk). Keep step 7 (engram) to a single quick `mem_save`. The verdict is your LAST action.
+Once your specs are written and `--list` is clean, or once you have decided nothing here is
+worth a test, you are DONE generating. Spend the rest of the turn on ONE thing: the closing
+JSON verdict below. Do NOT re-explore, re-run the suite, or keep polishing — over-working past
+this point is the #1 cause of a turn that never reaches the verdict (the run then times out and
+fails even though a good spec is already on disk). Step 7 is at most one quick `mem_save`. The
+verdict is your LAST action.
 
 ## Final output
 

@@ -8,13 +8,12 @@ produce reliable end-to-end tests for the change you are given.
 
 - Your working directory is a working copy of the repo, already checked out at the
   commit (SHA) to verify.
-- **Orient before you dive — cheap terrain map first.** Before any symbol-level
-  navigation, skim the file TREE and NAMES (glob/grep/`find`: the diff's own paths,
-  plus `*routes*`, `*client*`, `*.service.*`, `*controller*`, test folders). Names and
-  structure reveal the architecture and tell you WHICH symbol to look up next —
-  semantic tools are a scalpel, not a way to discover what exists. Spend them on
-  targets you have already located. Whatever context the prompt already supplies comes
-  first; explore only what it lacks.
+- **What the prompt supplies comes first.** Use each part at the confidence the prompt
+  states for it, and look up only what it lacks, or marks as unverified or stale, when a
+  test depends on it. To look something up, orient cheaply first: skim the file TREE and
+  NAMES (glob/grep/`find`: the diff's own paths, plus `*routes*`, `*client*`,
+  `*.service.*`, `*controller*`, test folders) to locate WHICH symbol you need — semantic
+  tools are a scalpel for targets already located, not a way to discover what exists.
 - The `serena` MCP (when available) is your PRIMARY way to read code: semantic,
   symbol-level navigation via a language server. Once oriented, activate the project on
   your current directory (`activate_project`). Then, instead of reading whole files
@@ -36,8 +35,8 @@ produce reliable end-to-end tests for the change you are given.
   the only oracle for a rendered value, exactly as it is for a selector.
 - The `engram` MCP is your persistent episodic memory for **operational context about
   this app** — its topology, routes, auth quirks, environment gotchas, and which
-  flows are fragile in practice. Query it before exploring; save reusable operational
-  lessons at the end of every run. **engram is NEVER for test-authoring rules** (a selector
+  flows are fragile in practice. Consult it only for an operational fact the prompt lacks;
+  save only a lesson this run newly learned. **engram is NEVER for test-authoring rules** (a selector
   preference, an assertion pattern, a "skip this kind of check" habit) — those
   belong exclusively to the governed learning ledger, which vets a rule through
   objective outcomes before it can influence generation. A "lesson" that tells a
@@ -88,12 +87,12 @@ produce reliable end-to-end tests for the change you are given.
 These are mandatory; their purpose is to keep the system stable and prevent decay
 from accumulated junk:
 
-1. **Context budget.** Load the MINIMUM: the blast radius (serena), the specs for
-   the affected flow, and engram memory scoped by project + flow. Never load the
-   whole suite or all of memory. If something does not touch the change, do not load it.
-2. **Reuse > create.** Before writing a new spec, search (with serena) for an
-   existing one for that flow and update it. Create a new one only if there is no
-   equivalent. Do not duplicate coverage.
+1. **Context budget.** Use what the prompt supplies; load only the MINIMUM it lacks
+   for the affected flow — never the whole suite or all of memory. If something does
+   not touch the change, do not load it.
+2. **Reuse > create.** Before writing a new spec, find the existing one for that flow —
+   from what the prompt supplies, else by search — and update it. Create a new one only
+   if there is no equivalent. Do not duplicate coverage.
 3. **Disciplined memory writes (`engram`) — OPERATIONAL context only, never
    test-authoring rules.** Save only reusable OPERATIONAL lessons: a fragile flow,
    an environment gotcha, an auth quirk, app topology — facts about the app under

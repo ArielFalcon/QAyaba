@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { singleProviderConfig } from "./config";
 import { CODEX_MODELS } from "./codex-strategy";
+import { CATALOGED_MODELS, normalizeModelName } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 
 /* Guard against the model "split-brain": config.ts's DEFAULT_MODELS (used by the runtime
    reconfig layer) and opencode/opencode.json (the file that actually runs the agents) must
@@ -106,4 +107,13 @@ test("codex reviewer model id is present in the CODEX_MODELS catalog", () => {
     `codex reviewer model '${cfg.assignments.reviewer.model}' is not in CODEX_MODELS ` +
       `(${[...catalogIds].join(", ")}). An out-of-catalog model makes validateAssignedModels throw.`,
   );
+});
+
+/* A role assigned a model the window catalog holds nothing for runs on the conservative default budget. Read from the real defaults of both providers, so a model added or retired in config.ts needs no edit here. */
+test("every default role model of both providers has a window in the model-window catalog", () => {
+  for (const provider of ["opencode", "codex"] as const) {
+    for (const [role, { model }] of Object.entries(singleProviderConfig(provider, {}).assignments)) {
+      assert.ok(CATALOGED_MODELS.includes(normalizeModelName(model)), `default ${provider} ${role} model '${model}' has no window in the catalog`);
+    }
+  }
 });

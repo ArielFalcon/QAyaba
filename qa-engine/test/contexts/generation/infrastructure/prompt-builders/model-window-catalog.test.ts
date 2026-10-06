@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   BYTES_PER_TOKEN,
   CATALOGED_MODELS,
@@ -323,8 +323,15 @@ test("catalog: CATALOGED_MODELS lists the ids the catalog holds a window for: a 
     console.warn = originalWarn;
     setRuntimeRoleModels(undefined);
   }
-  /* The models with a window of their own above are listed. */
-  for (const id of ["kimi-k2.7-code", "gpt-5.4", "gpt-5.4-mini"]) {
-    assert.ok(CATALOGED_MODELS.includes(id), `${id} is listed`);
+});
+
+/* A role on a model the catalog holds no window for runs on the conservative default. The models are read from the agent config the roles run on, so adding or retiring one needs no edit here. */
+test("catalog: every model agents/opencode.json assigns to an agent is cataloged", () => {
+  const repoRoot = join(import.meta.dirname, "..", "..", "..", "..", "..", "..");
+  const config = JSON.parse(readFileSync(join(repoRoot, "agents", "opencode.json"), "utf8")) as { agent: Record<string, { model?: string }> };
+  const assigned = Object.entries(config.agent).flatMap(([agent, { model }]) => (model ? [{ agent, id: normalizeModelName(model) }] : []));
+  assert.ok(assigned.length > 0, "the config assigns a model to at least one agent");
+  for (const { agent, id } of assigned) {
+    assert.ok(CATALOGED_MODELS.includes(id), `${agent} runs ${id}, which has no window in the catalog`);
   }
 });

@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
-import { buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -488,6 +488,11 @@ describe("prompt-sync drift guard", () => {
     for (const input of [base, withOpenapi, crossRepo]) assert.equal(restatementsIn(buildPrompt(input)), 0);
   });
 
+  /* A phrase as the static layers may wrap it: any run of whitespace stands for the space between its words. */
+  const phrase = (words: string): string =>
+    words.trim().split(/\s+/).map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+");
+  const phrasePattern = (...alternatives: string[]): RegExp => new RegExp(alternatives.map(phrase).join("|"), "gi");
+
   /* A craft rule has one owner. The static layers (AGENTS.md and the generator role) hold what applies to every run; a rule that applies only to some shapes of run is stated by the assembled prompt for that shape, and only there. These are the phrasings each rule has had; a second copy in the other layer is a restatement to delete. */
   interface OwnedRule {
     rule: string;
@@ -497,12 +502,65 @@ describe("prompt-sync drift guard", () => {
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
   }
+  const LAST_ACTION_RULE = phrasePattern("verdict is your LAST action");
+  const DECIDED_NO_OP_RULE = phrasePattern("decided nothing here is worth a test");
+  /* Supplied context is used at the confidence the prompt states for each part, and what the prompt marks as unverified or stale is looked up when a test depends on it. */
+  const CONFIDENCE_RULE = phrasePattern("at the confidence the prompt states", "at the confidence it states");
+  const UNVERIFIED_LOOKUP_RULE = phrasePattern("marks as unverified or stale");
   const OWNED_RULES: readonly OwnedRule[] = [
     { rule: "the compile check of a code run", pattern: /cargo check --tests/gi, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
     { rule: "the engram topic key prefix", pattern: /prefix (?:every |all )?`?topic_key/gi, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    /* The verdict ends the turn: the static stop rule is the only owner, whether the specs are written or the no-op is decided. */
+    { rule: "the verdict being the last action (e2e)", pattern: LAST_ACTION_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict being the last action (code)", pattern: LAST_ACTION_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict following a decided no-op (e2e)", pattern: DECIDED_NO_OP_RULE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the verdict following a decided no-op (code)", pattern: DECIDED_NO_OP_RULE, shape: "code", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* What the prompt carries comes first, and only what it lacks is looked up: orientation and memory follow that one rule. */
+    { rule: "using what the prompt supplies and looking up only what it lacks", pattern: phrasePattern("What the prompt supplies comes first"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The shared layer and the generator's first step each say so once; the assembled prompt carries the framing itself. */
+    { rule: "using each supplied part at the confidence the prompt states for it", pattern: CONFIDENCE_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
+    { rule: "looking up what the prompt marks as unverified or stale when a test depends on it", pattern: UNVERIFIED_LOOKUP_RULE, shape: "tree", inStatic: 2, inAssembled: { exactly: 0 } },
+    { rule: "orienting by the file tree and names before a look-up", pattern: phrasePattern("skim the file TREE and NAMES"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "consulting memory only for an operational fact the prompt lacks", pattern: phrasePattern("Consult it only for an operational fact the prompt lacks"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "saving an operational lesson only when this run learned a new one", pattern: phrasePattern("only when this run learned a new one"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "the project parameter on every engram call", pattern: phrasePattern("Always include the `project` parameter"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The phrasings those rules replaced: orienting, searching and consulting memory whatever the prompt carries. */
+    {
+      rule: "orienting or searching before every look-up, whatever the prompt carries",
+      pattern: phrasePattern(
+        "Orient before you dive",
+        "Orient first, as AGENTS.md describes",
+        "Before any symbol-level navigation",
+        "Load the MINIMUM: the blast radius",
+        "search (with serena) for an existing one",
+      ),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    {
+      rule: "querying memory first and saving at the end of every run",
+      pattern: phrasePattern(
+        "Query it before exploring",
+        "at the end of every run",
+        "Query `engram` for the repo's memory",
+        "Save reusable OPERATIONAL lessons",
+        "Keep step 7 (engram) to a single quick",
+      ),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
+    {
+      rule: "taking what the prompt supplies as given, whatever confidence the prompt states for it",
+      pattern: phrasePattern("Use it as given", "about the change as given"),
+      shape: "tree",
+      inStatic: 0,
+      inAssembled: { exactly: 0 },
+    },
   ];
   const assembledInput = {
     repo: "org/app",
@@ -535,6 +593,67 @@ describe("prompt-sync drift guard", () => {
       const found = countOf(assembledFor(shape), pattern);
       if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt: ${rule} is stated ${inAssembled.exactly} time(s)`);
       else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+    }
+  });
+
+  /* Each mirror: its shared layer, its generator role, and the roles that point at the shared layer for how to orient. */
+  const MIRRORS = [
+    { shared: "agents/AGENTS.md", generator: "agents/agent/qa-generator.md", pointers: ["agents/agent/qa-explorer.md", "agents/agent/qa-proposer.md"] },
+    { shared: "agent/AGENTS.md", generator: "agent/roles/qa-generator.md", pointers: ["agent/roles/qa-explorer.md", "agent/roles/qa-proposer.md"] },
+  ] as const;
+  const STOP_RULE_SECTION = "Stop when the spec is written — then emit the verdict";
+  const PROTOCOLS_SECTION = "Protocols (to keep quality from degrading over time)";
+  /* The text of the generator procedure's step 1, up to the heading of step 2. */
+  const stepOneOf = (procedure: string): string => /### 1\. Understand the change\n([\s\S]*?)\n### 2\./.exec(procedure)?.[1] ?? "";
+
+  it("in both generator mirrors the stop rule's own section holds the last-action rule and the decided no-op clause", () => {
+    for (const { generator } of MIRRORS) {
+      const stopRule = parseSections(readFile(generator)).get(STOP_RULE_SECTION) ?? "";
+      assert.ok(stopRule.length > 0, `${generator}: has the section "${STOP_RULE_SECTION}"`);
+      assert.equal(countOf(stopRule, LAST_ACTION_RULE), 1, `${generator}: the stop rule section states that the verdict is the last action once`);
+      assert.equal(countOf(stopRule, DECIDED_NO_OP_RULE), 1, `${generator}: the stop rule section covers a decided no-op once`);
+    }
+  });
+
+  it("the sections that carry the consume-first rule state it, and name no assembled artifact, split no case and number no step, in both mirrors", () => {
+    for (const { shared, generator } of MIRRORS) {
+      const sharedSections = parseSections(readFile(shared));
+      const carriers: Array<[string, string]> = [
+        [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
+        [`${shared} Execution context`, sharedSections.get("Execution context") ?? ""],
+        [`${shared} Protocols`, sharedSections.get(PROTOCOLS_SECTION) ?? ""],
+      ];
+      for (const [where, text] of carriers) {
+        assert.ok(text.length > 0, `${where}: the text is found`);
+        assert.ok(countOf(text, phrasePattern("what the prompt supplies")) >= 1, `${where}: states the consume-first rule`);
+        for (const name of ASSEMBLED_ARTIFACT_NAMES) assert.equal(text.includes(name), false, `${where}: names the assembled artifact "${name}"`);
+        assert.doesNotMatch(text, /\bCase [A-Z]\b/, `${where}: does not split by case`);
+        assert.doesNotMatch(text, /\bsteps? \d+\b/i, `${where}: does not number a step`);
+      }
+    }
+  });
+
+  it("the shared Execution context and the generator's first step use what the prompt supplies at the confidence the prompt states for each part, never as given, in both mirrors", () => {
+    for (const { shared, generator } of MIRRORS) {
+      const carriers: Array<[string, string]> = [
+        [`${generator} Procedure step 1`, stepOneOf(parseSections(readFile(generator)).get("Procedure") ?? "")],
+        [`${shared} Execution context`, parseSections(readFile(shared)).get("Execution context") ?? ""],
+      ];
+      for (const [where, text] of carriers) {
+        assert.ok(text.length > 0, `${where}: the text is found`);
+        assert.equal(countOf(text, CONFIDENCE_RULE), 1, `${where}: states once that each supplied part is used at the confidence the prompt states`);
+        assert.equal(countOf(text, UNVERIFIED_LOOKUP_RULE), 1, `${where}: looks up what the prompt marks as unverified or stale when a test depends on it`);
+        assert.doesNotMatch(text, /\bas given\b/i, `${where}: does not take what the prompt supplies as given`);
+      }
+    }
+  });
+
+  it("every role that points at AGENTS.md for orientation finds the orientation rule there, in both mirrors", () => {
+    for (const { shared, pointers } of MIRRORS) {
+      for (const role of pointers) {
+        assert.match(readFile(role), /\*\*Orient[^\n]*\(see AGENTS\.md\)/, `${role}: cites AGENTS.md for orientation`);
+      }
+      assert.equal(countOf(readFile(shared), phrasePattern("skim the file TREE and NAMES")), 1, `${shared}: states the orientation the roles cite`);
     }
   });
 
