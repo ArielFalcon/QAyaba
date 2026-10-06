@@ -278,6 +278,12 @@ export const PROTECTED_PATHS: string[] = [
   /* The slim image's gateway lock (provider allowlist, no literal key in a layer) and the ignore rules that keep secrets out of its build context. */
   "slim/opencode-config.mjs",
   "slim/Dockerfile.dockerignore",
+  /* What the slim image verifies and trusts: the checksums every artifact is compared with, the fetcher that compares them, the Java CA import, and the operator scripts that carry the API token and report the probe and port results. */
+  "slim/vendor/SHA256SUMS",
+  "slim/fetch-artifact.sh",
+  "slim/java-trust-ca.sh",
+  "slim/qayaba.sh",
+  "slim/probe-gateway.sh",
   /* Decides what the image build context contains — dropping an entry can bake .env into the image. */
   ".dockerignore",
   "docker-compose.yml",

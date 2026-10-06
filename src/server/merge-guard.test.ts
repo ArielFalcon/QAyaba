@@ -249,6 +249,18 @@ test("isProtectedPath flags the slim gateway lock and the slim image's build-con
   }
 });
 
+/* What the slim image verifies and trusts: the checksums every downloaded artifact is compared with, the fetcher that
+   compares them, the step that imports the corporate CA into Java, and the operator scripts that run with the API
+   token and decide what the probe and the port check report. Rewriting any of them lets an unverified artifact, an
+   untrusted CA or a wrongly reported exposure through without touching the image or compose files. */
+test("isProtectedPath flags the slim trust files: checksums, artifact fetcher, Java CA import and operator scripts", () => {
+  const trustFiles = ["slim/vendor/SHA256SUMS", "slim/fetch-artifact.sh", "slim/java-trust-ca.sh", "slim/qayaba.sh", "slim/probe-gateway.sh"];
+  for (const file of trustFiles) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
 test("isProtectedPath flags the test infrastructure an autonomous fix could weaken to pass its own checks", () => {
   const testInfrastructure = [
     "test-setup.mjs",
