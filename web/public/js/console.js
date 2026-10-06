@@ -1449,6 +1449,7 @@
   }
   /* Full render — only on navigation. Rebuilds the shell and plays the view-entrance. */
   function render() {
+    clearTimeout(deferredRender);
     teardown.forEach((fn) => { try { fn(); } catch (e) {} }); teardown = [];
     const onView = !state.appName && !state.runId;
     const tp = titlePair();
@@ -1694,8 +1695,25 @@ function loadRunExtras(id) {
       const data = await api.loadAll();
       D = data;
       refreshShaAbbrevs();
-      render();
+      if (agentKeyBeingEntered()) deferRender();
+      else render();
     } catch (err) { /* keep the current view; a refresh failure must not break the session */ }
+  }
+  /* A repaint replaces the whole page, and with it the key field: while the operator has the field
+     focused or holds text in it, the repaint waits. Only the field's own DOM state is read, so the
+     key never passes through the console's state. */
+  const RENDER_DEFER_MS = 1500;
+  let deferredRender = 0;
+  function agentKeyBeingEntered() {
+    const field = document.getElementById('agent-key');
+    return !!field && (!!field.value || document.activeElement === field);
+  }
+  function deferRender() {
+    clearTimeout(deferredRender);
+    deferredRender = setTimeout(function () {
+      if (agentKeyBeingEntered()) deferRender();
+      else render();
+    }, RENDER_DEFER_MS);
   }
 
   /* Follow a queued run's verdict via its SSE feed. When the verdict lands, refresh the model

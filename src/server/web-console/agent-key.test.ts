@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appView, controlApi, loadConsole, type ConsoleRequest, type Reply } from "./console-harness";
+import { appView, controlApi, loadConsole, sseEvent, type ConsoleRequest, type Reply } from "./console-harness";
 
 const KEY = "Zk8#mQ2!vL9-gateway";
 const KEY_FIELD = "agent-key";
@@ -317,4 +317,65 @@ test("in the offline demo console the panel renders and applying a key contacts 
   await h.advance(1_000);
 
   assert.equal(h.requests.length, 0);
+});
+
+/* The console with a run queued from the trigger dialog: its verdict lands over the stream and the console refreshes itself. */
+async function consoleWithQueuedRun() {
+  const apps = [appView("shop")];
+  const h = await loadConsole({
+    withConsole: true,
+    token: "t",
+    routes: controlApi({
+      apps,
+      runs: [],
+      extra: (req) => {
+        if (req.path === "/api/v1/agent/config") return req.method === "PUT" ? undefined : { status: 200, json: agentConfig(false, "needs_config") };
+        if (req.method === "POST" && req.path === "/api/v1/runs") return { status: 202, json: { id: "run-queued", status: "enqueued" } };
+        if (req.path === "/api/v1/runs/run-queued/events") {
+          return { status: 200, hold: true, sse: [sseEvent("run-queued", 0, { type: "run.verdict", verdict: "pass", engineStatus: "success" })] };
+        }
+        return undefined;
+      },
+    }),
+  });
+  h.click("trigger");
+  h.click("dialog-submit");
+  await h.advance(300);
+  return { h, apps };
+}
+
+test("a key being typed survives the refresh a run's verdict triggers: the page is not rebuilt under it", async () => {
+  const { h, apps } = await consoleWithQueuedRun();
+
+  h.type(KEY_FIELD, KEY);
+  apps.push(appView("billing"));
+  await h.advance(5_000);
+
+  assert.equal(h.fieldValue(KEY_FIELD), KEY);
+  assert.ok(!h.text().includes("billing"), "a rebuilt page would have wiped the field");
+  assert.equal(puts(h).length, 0, "typing is not applying");
+  assert.ok(![...h.storage.values()].some((v) => v.includes(KEY)), "the held-back refresh keeps the key out of storage");
+});
+
+test("the refresh a typed key held back lands once the field is empty again", async () => {
+  const { h, apps } = await consoleWithQueuedRun();
+
+  h.type(KEY_FIELD, KEY);
+  apps.push(appView("billing"));
+  await h.advance(5_000);
+  assert.ok(!h.text().includes("billing"), "the page is not rebuilt under the operator's hands");
+
+  h.type(KEY_FIELD, "");
+  await h.advance(5_000);
+
+  assert.ok(h.text().includes("billing"), "the deferred refresh shows the data that arrived meanwhile");
+});
+
+test("an untouched key field does not hold the refresh back", async () => {
+  const { h, apps } = await consoleWithQueuedRun();
+
+  apps.push(appView("billing"));
+  await h.advance(5_000);
+
+  assert.ok(h.text().includes("billing"));
 });
