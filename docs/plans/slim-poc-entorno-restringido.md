@@ -302,8 +302,9 @@ anterior lo fijaba a `amd64`).
   - sin auto-actualización y con la compartición de sesiones desactivada (`share: "disabled"`);
   - Serena y engram intactos;
   - fusión final con `slim/opencode.override.json`, **obligatorio**: el build falla si falta, si no declara
-    ningún `provider` (la configuración base solo nombra un proveedor público) o si el `options.apiKey` de un
-    proveedor no es una referencia `{env:VAR}` (una clave literal quedaría grabada en las capas de la imagen);
+    ningún `provider` (la configuración base solo nombra un proveedor público), si algún proveedor no tiene un
+    `options.baseURL` http(s) (OpenCode usaría el destino público por defecto) o si su `options.apiKey` no es
+    exactamente `{env:OPENCODE_API_KEY}` (una clave literal quedaría grabada en las capas de la imagen);
   - `enabled_providers` queda fijado a exactamente los proveedores del override, y el build **falla** si `model`,
     `small_model` o el `model` de algún agente no apunta a un proveedor habilitado y a un modelo declarado en su
     `models` (la salida lista cada clave afectada).

@@ -10,8 +10,10 @@
  *     public provider, and the image must never send code or the key there;
  *   - the override's `provider` also LOCKS OpenCode to exactly those providers
  *     (`enabled_providers`), so no role can reach any other LLM endpoint;
- *   - a provider's `options.apiKey`, when set, must be an `{env:VAR}` reference: the override is
- *     copied into the image layers, so a literal key would be baked into them;
+ *   - every declared provider must have an http(s) `options.baseURL` and an `options.apiKey` that is
+ *     exactly `{env:OPENCODE_API_KEY}` (the only key the stack passes): a provider without a baseURL
+ *     would send the pasted key to its public default endpoint, and a literal key would be baked into
+ *     the image layers (the override is copied into them);
  *   - every model reference of the effective config (`model`, `small_model`, `agent.<role>.model`)
  *     must resolve to an enabled provider and a model that provider declares. Otherwise the CLI
  *     exits non-zero listing every offending key, so the image build fails instead of a role
@@ -57,11 +59,30 @@ export function slimOpencodeConfig(base, override) {
   return effective;
 }
 
-const ENV_REFERENCE = /^\{env:[A-Za-z_][A-Za-z0-9_]*\}$/;
+// The only key the stack passes to the agents (slim/compose.yml) and the console sets.
+export const GATEWAY_KEY_REFERENCE = "{env:OPENCODE_API_KEY}";
+
+// Why a provider's baseURL cannot be the gateway: not an http(s) URL, or one that carries credentials
+// (the override is copied into the image layers). The reason never repeats the value.
+function baseUrlProblem(baseURL) {
+  if (typeof baseURL !== "string" || baseURL.trim() === "") return "must be the gateway's http(s) URL; without one OpenCode sends the key to the provider's public default endpoint";
+  let url;
+  try {
+    url = new URL(baseURL.trim());
+  } catch {
+    return "must be an http(s) URL";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return "must be an http(s) URL";
+  if (url.username !== "" || url.password !== "") return "must not carry credentials; they would be baked into the image layers";
+  return undefined;
+}
 
 /**
  * Lists what keeps an override from being the operator's LLM gateway: no declared provider, or a
- * provider key that is not read from the environment. The reasons never include the key itself.
+ * declared one that is not an http(s) gateway reading exactly the key the stack passes
+ * (GATEWAY_KEY_REFERENCE). Whatever a provider declares is where the pasted key goes, and the
+ * supervisor can only verify a gateway it can address with that key. The reasons never include a
+ * key or a URL's credentials.
  */
 export function validateGateway(override) {
   const providers = isPlainObject(override?.provider) ? override.provider : {};
@@ -71,9 +92,11 @@ export function validateGateway(override) {
   }
   const violations = [];
   for (const id of ids) {
-    const apiKey = providers[id]?.options?.apiKey;
-    if (apiKey !== undefined && !(typeof apiKey === "string" && ENV_REFERENCE.test(apiKey))) {
-      violations.push({ key: `provider.${id}.options.apiKey`, reason: "must be an {env:VAR} reference; a literal key would be baked into the image layers" });
+    const options = providers[id]?.options;
+    const urlProblem = baseUrlProblem(options?.baseURL);
+    if (urlProblem) violations.push({ key: `provider.${id}.options.baseURL`, reason: urlProblem });
+    if (options?.apiKey !== GATEWAY_KEY_REFERENCE) {
+      violations.push({ key: `provider.${id}.options.apiKey`, reason: `must be exactly ${GATEWAY_KEY_REFERENCE}, the only key the stack passes; a literal key would be baked into the image layers` });
     }
   }
   return violations;

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { deepMerge, slimOpencodeConfig, validateGateway, validateModelRefs, PW_CHROMIUM } from "./opencode-config.mjs";
+import { deepMerge, slimOpencodeConfig, validateGateway, validateModelRefs, GATEWAY_KEY_REFERENCE, PW_CHROMIUM } from "./opencode-config.mjs";
 
 const base = JSON.parse(readFileSync(new URL("../agents/opencode.json", import.meta.url), "utf8"));
 
@@ -53,7 +53,7 @@ test("re-running on an already-slim config is idempotent", () => {
 });
 
 const gateway = (id, models) => ({
-  [id]: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://llm.corp/v1" }, models: Object.fromEntries(models.map((m) => [m, {}])) },
+  [id]: { npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://llm.corp/v1", apiKey: GATEWAY_KEY_REFERENCE }, models: Object.fromEntries(models.map((m) => [m, {}])) },
 });
 const allRolesOn = (ref) => Object.fromEntries(Object.keys(base.agent).map((role) => [role, { model: ref }]));
 
@@ -164,31 +164,51 @@ test("an override that declares no provider is not a gateway", () => {
   }
 });
 
-test("a declared provider with no key, or a key read from the environment, is a valid gateway", () => {
-  assert.deepEqual(validateGateway({ provider: gateway("corp", ["big"]) }), []);
-  const withEnvKey = { provider: { corp: { options: { baseURL: "https://llm.corp/v1", apiKey: "{env:OPENCODE_API_KEY}" }, models: {} } } };
-  assert.deepEqual(validateGateway(withEnvKey), []);
+// Whatever the override declares is where the pasted key goes, and the supervisor can only check a
+// gateway that has an http(s) baseURL and reads exactly the key the stack passes. A provider without
+// a baseURL would be sent to the provider's public default endpoint.
+const gatewayOptions = (extra) => ({ baseURL: "https://llm.corp/v1", apiKey: GATEWAY_KEY_REFERENCE, ...extra });
+const withOptions = (options) => ({ provider: { corp: { options, models: {} } } });
+
+test("a provider with an http(s) baseURL that reads the stack's key is a valid gateway", () => {
+  for (const baseURL of ["https://llm.corp/v1", "http://llm.corp:8080/v1", "https://llm.corp"]) {
+    assert.deepEqual(validateGateway(withOptions(gatewayOptions({ baseURL }))), [], baseURL);
+  }
+});
+
+test("a provider with no usable baseURL is rejected under its key", () => {
+  for (const baseURL of [undefined, "", "   ", "llm.corp/v1", "ftp://llm.corp/v1", "{env:GATEWAY_URL}", 443, null]) {
+    assert.deepEqual(validateGateway(withOptions(gatewayOptions({ baseURL }))).map((v) => v.key), ["provider.corp.options.baseURL"], JSON.stringify(baseURL));
+  }
+});
+
+test("a baseURL that carries credentials is rejected without echoing them", () => {
+  const baseURL = "https://operator:hunter2-secret@llm.corp/v1";
+  const violations = validateGateway(withOptions(gatewayOptions({ baseURL })));
+  assert.deepEqual(violations.map((v) => v.key), ["provider.corp.options.baseURL"]);
+  assert.ok(!JSON.stringify(violations).includes("hunter2-secret"), "the credentials never appear in the report");
+});
+
+test("a provider that does not read exactly the key the stack passes is rejected under its key", () => {
+  for (const apiKey of [undefined, "{env:OTHER_KEY}", "{env:opencode_api_key}", "Bearer {env:OPENCODE_API_KEY}", "{env:}", "{file:/run/secret}", "", 12345]) {
+    assert.deepEqual(validateGateway(withOptions(gatewayOptions({ apiKey }))).map((v) => v.key), ["provider.corp.options.apiKey"], JSON.stringify(apiKey));
+  }
 });
 
 test("a literal provider key is rejected under its key, without echoing the secret", () => {
   const literal = "sk-live-0123456789abcdef";
-  const override = { provider: { corp: { options: { baseURL: "https://llm.corp/v1", apiKey: literal }, models: {} } } };
-  const violations = validateGateway(override);
+  const violations = validateGateway(withOptions(gatewayOptions({ apiKey: literal })));
   assert.deepEqual(violations.map((v) => v.key), ["provider.corp.options.apiKey"]);
   assert.ok(!JSON.stringify(violations).includes(literal), "the secret never appears in the report");
 });
 
-test("a key that is only partly an environment reference is still rejected", () => {
-  for (const apiKey of ["Bearer {env:KEY}", "{env:}", "{file:/run/secret}", "", 12345]) {
-    const override = { provider: { corp: { options: { apiKey }, models: {} } } };
-    assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider.corp.options.apiKey"], JSON.stringify(apiKey));
-  }
+test("a provider that declares no options at all breaks both rules, the baseURL first", () => {
+  assert.deepEqual(validateGateway({ provider: { openai: { models: {} } } }).map((v) => v.key), ["provider.openai.options.baseURL", "provider.openai.options.apiKey"]);
 });
 
-test("every offending provider is listed", () => {
-  const options = { apiKey: "literal" };
-  const override = { provider: { one: { options, models: {} }, two: { options: { apiKey: "{env:OK}" }, models: {} }, three: { options, models: {} } } };
-  assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider.one.options.apiKey", "provider.three.options.apiKey"]);
+test("every offending provider is listed, and the valid one is not", () => {
+  const override = { provider: { one: { options: gatewayOptions({ apiKey: "literal" }), models: {} }, two: { options: gatewayOptions(), models: {} }, three: { options: gatewayOptions({ baseURL: undefined }), models: {} } } };
+  assert.deepEqual(validateGateway(override).map((v) => v.key), ["provider.one.options.apiKey", "provider.three.options.baseURL"]);
 });
 
 test("the build step refuses to run without the override file and emits no config", () => {
@@ -213,16 +233,23 @@ test("the build step refuses an override that declares no provider, so the publi
 
 test("the build step refuses a literal provider key and never prints it", () => {
   const literal = "sk-live-0123456789abcdef";
-  const result = runCli({ provider: { corp: { ...gateway("corp", ["big"]).corp, options: { baseURL: "https://llm.corp/v1", apiKey: literal } } }, agent: allRolesOn("corp/big") });
+  const result = runCli({ provider: { corp: { ...gateway("corp", ["big"]).corp, options: gatewayOptions({ apiKey: literal }) } }, agent: allRolesOn("corp/big") });
   assert.notEqual(result.status, 0);
   assert.equal(result.stdout, "");
   assert.ok(result.stderr.includes("provider.corp.options.apiKey"));
   assert.ok(!`${result.stdout}${result.stderr}`.includes(literal), "the secret is not echoed");
 });
 
-test("the build step accepts a provider whose key is an environment reference", () => {
-  const corp = { ...gateway("corp", ["big"]).corp, options: { baseURL: "https://llm.corp/v1", apiKey: "{env:OPENCODE_API_KEY}" } };
-  const result = runCli({ provider: { corp }, agent: allRolesOn("corp/big") });
+test("the build step accepts a provider with an http(s) baseURL whose key is the stack's environment reference", () => {
+  const result = runCli({ provider: gateway("corp", ["big"]), agent: allRolesOn("corp/big") });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(JSON.parse(result.stdout).provider.corp.options.apiKey, "{env:OPENCODE_API_KEY}");
+  assert.equal(JSON.parse(result.stdout).provider.corp.options.apiKey, GATEWAY_KEY_REFERENCE);
+});
+
+test("the build step refuses a provider with no baseURL, which would send the key to a public default endpoint", () => {
+  const result = runCli({ provider: { openai: { models: { big: {} } } }, agent: allRolesOn("openai/big") });
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.ok(result.stderr.includes("provider.openai.options.baseURL"), result.stderr);
+  assert.ok(result.stderr.includes("provider.openai.options.apiKey"), result.stderr);
 });

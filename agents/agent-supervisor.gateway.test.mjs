@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gatewayTargets, readOpencodeConfig, useEnvProxy, verifyGateways } from "./agent-supervisor.mjs";
+import { GATEWAY_REASON, gatewayTargets, readOpencodeConfig, useEnvProxy, verifyConfiguredGateways, verifyGateways } from "./agent-supervisor.mjs";
 
 // The supervisor reports `healthy` only once the key it holds has been accepted by the LLM gateway
 // the effective OpenCode config declares. The HTTP call is injected, so nothing here touches a network.
@@ -78,6 +78,48 @@ test("the effective OpenCode config is read from OPENCODE_CONFIG, and an unreada
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// Which providers a key is checked against is decided by the config alone. A config that declares
+// providers the key cannot be checked against (no baseURL, a key read from elsewhere) must never read
+// as healthy: the key goes where the config sends it, and nobody verified that place.
+const notCalled = async () => assert.fail("no gateway should be asked");
+
+test("a config whose declared providers cannot be checked leaves the key unverified, never healthy", async () => {
+  const configs = [
+    { provider: { openai: { models: {} } } },
+    { provider: { corp: provider({ baseURL: undefined }) } },
+    { provider: { corp: provider({ apiKey: "{env:CORP_KEY}" }) } },
+    { provider: { corp: provider({ apiKey: "{file:/run/key}" }) } },
+    { provider: { corp: provider({ baseURL: "" }), other: provider() }, enabled_providers: ["corp"] },
+  ];
+
+  for (const config of configs) {
+    const outcome = await verifyConfiguredGateways(config, { OPENCODE_API_KEY: KEY }, { fetchImpl: notCalled });
+
+    assert.equal(outcome.status, "degraded", JSON.stringify(config));
+    assert.equal(outcome.error, GATEWAY_REASON.noCheckableGateway);
+  }
+});
+
+test("a config that declares no provider the key could go to has nothing to verify and stays healthy", async () => {
+  const configs = [undefined, {}, { agent: {} }, { provider: {} }, { provider: { corp: provider() }, disabled_providers: ["corp"] }, { provider: { corp: provider() }, enabled_providers: ["other"] }];
+
+  for (const config of configs) {
+    const outcome = await verifyConfiguredGateways(config, { OPENCODE_API_KEY: KEY }, { fetchImpl: notCalled });
+
+    assert.deepEqual(outcome, { status: "healthy" }, JSON.stringify(config));
+  }
+});
+
+test("a config with a checkable gateway is verified against it, whatever else it declares", async () => {
+  const config = { provider: { corp: provider(), unchecked: { models: {} } } };
+
+  const accepted = await verifyConfiguredGateways(config, { OPENCODE_API_KEY: KEY }, { fetchImpl: answering(200) });
+  const rejected = await verifyConfiguredGateways(config, { OPENCODE_API_KEY: KEY }, { fetchImpl: answering(401) });
+
+  assert.equal(accepted.status, "healthy");
+  assert.equal(rejected.status, "failed");
 });
 
 test("a gateway that accepts the key makes the provider healthy, asked for its model list with that key", async () => {

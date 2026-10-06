@@ -76,6 +76,9 @@ function redactForResponse(msg) {
 //                    the gateway host -> degraded "key not verified (no proxy support in this Node)":
 //                    the direct attempt says nothing about the key
 //   anything else  -> degraded (the gateway answered, but the key is unverified)
+//   a config that declares an enabled provider none of which can be checked (no baseURL, or a key
+//                    read from elsewhere) -> degraded: the key goes where the config sends it, and that
+//                    place was never verified. A config that declares no provider has nothing to check.
 // The key is only ever sent to the baseURL of the provider configured to read it, and never logged or
 // returned: every message below is built without it and passed through redaction.
 const READY_DELAY_MS = Number(process.env.AGENT_READY_DELAY_MS) || 2500;
@@ -94,13 +97,23 @@ export function readOpencodeConfig(env = process.env) {
   }
 }
 
-export function gatewayTargets(config, env = process.env) {
+// What the supervisor reports to the operator when the key check cannot give a verdict on its own.
+// Exported so the tests assert against the constants rather than a copy of the wording.
+export const GATEWAY_REASON = Object.freeze({
+  noCheckableGateway: "key not verified: the effective OpenCode config declares an LLM provider that cannot be checked (it needs an http(s) baseURL and an apiKey read from the environment)",
+});
+
+// The providers the config declares and leaves enabled, as [id, entry] pairs.
+function enabledProviders(config) {
   const providers = config && typeof config.provider === "object" && config.provider !== null ? config.provider : {};
   const enabled = Array.isArray(config?.enabled_providers) ? config.enabled_providers : undefined;
   const disabled = Array.isArray(config?.disabled_providers) ? config.disabled_providers : [];
+  return Object.entries(providers).filter(([id]) => !((enabled && !enabled.includes(id)) || disabled.includes(id)));
+}
+
+export function gatewayTargets(config, env = process.env) {
   const targets = [];
-  for (const [id, entry] of Object.entries(providers)) {
-    if ((enabled && !enabled.includes(id)) || disabled.includes(id)) continue;
+  for (const [id, entry] of enabledProviders(config)) {
     const baseURL = entry?.options?.baseURL;
     if (typeof baseURL !== "string" || !baseURL.trim()) continue;
     const reference = ENV_REFERENCE.exec(String(entry.options.apiKey ?? ""));
@@ -186,6 +199,16 @@ export async function verifyGateways(targets, { fetchImpl = fetch, timeoutMs = G
   return { status: "healthy" };
 }
 
+// The verdict for the whole config: its checkable gateways are verified; declared providers that cannot
+// be checked at all leave the key unverified (degraded), never healthy; a config that declares none has
+// nothing to verify.
+export async function verifyConfiguredGateways(config, env = process.env, options = {}) {
+  const targets = gatewayTargets(config, env);
+  if (targets.length > 0) return verifyGateways(targets, { ...options, env });
+  if (enabledProviders(config).length > 0) return { status: "degraded", error: GATEWAY_REASON.noCheckableGateway };
+  return { status: "healthy" };
+}
+
 // Node's fetch ignores HTTP(S)_PROXY/NO_PROXY unless asked; the gateway check must reach the gateway
 // the way `opencode serve` does. Needs a Node that has http.setGlobalProxyFromEnv (24.14+): on an
 // older one the check goes direct, and a transport error on a host the proxy applies to is reported
@@ -204,8 +227,7 @@ let proxyHonoured = true;
 
 async function confirmReady(provider, child) {
   try {
-    const targets = gatewayTargets(readOpencodeConfig(process.env), process.env);
-    const outcome = targets.length === 0 ? { status: "healthy" } : await verifyGateways(targets, { proxyHonoured });
+    const outcome = await verifyConfiguredGateways(readOpencodeConfig(process.env), process.env, { proxyHonoured });
     if (children.get(provider) !== child) return;
     setState(provider, { status: outcome.status, error: outcome.error === undefined ? undefined : redactForResponse(outcome.error) });
   } catch (err) {

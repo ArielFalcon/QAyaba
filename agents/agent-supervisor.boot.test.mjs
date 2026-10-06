@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { GATEWAY_REASON } from "./agent-supervisor.mjs";
 
 // Boots the real supervisor entrypoint as a child process with a stub `opencode` executable on
 // PATH, so the key hand-off is exercised end to end: a keyless boot waits for configuration, and a
@@ -251,10 +252,19 @@ test("the key delivered through /restart is the one the gateway is asked to acce
   });
 });
 
-test("a config that declares no gateway keeps opencode healthy without any check", async () => {
+test("a config that declares no provider keeps opencode healthy without any check", async () => {
   await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
     assert.equal((await settled(base)).status, "healthy");
   }, { config: { agent: {} } });
+});
+
+test("a config whose declared provider cannot be checked leaves opencode degraded, not healthy", async () => {
+  await withSupervisor({ ...quick, OPENCODE_API_KEY: SECRET }, async ({ base }) => {
+    const state = await settled(base);
+
+    assert.equal(state.status, "degraded");
+    assert.equal(state.error, GATEWAY_REASON.noCheckableGateway);
+  }, { config: { provider: { openai: { models: {} } } } });
 });
 
 test("a supervisor that exits before it listens fails the scenario with its exit status instead of hanging", async () => {
