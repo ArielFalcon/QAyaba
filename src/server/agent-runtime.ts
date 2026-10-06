@@ -1,4 +1,5 @@
-import { defaultEnvStoreFs, applyEnvVars, type EnvStoreFs } from "./env-store";
+import { envStoreFor, applyEnvVars, type EnvStoreFs } from "./env-store";
+import { profileCapabilities, resolveDeploymentProfile } from "./deployment-profile";
 import { RedactionPortAdapter } from "../orchestrator/sanitizer";
 import {
   configFromEnv,
@@ -46,7 +47,8 @@ const redactionPort = new RedactionPortAdapter();
 
 export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions): AgentRuntimeManager {
   const env = opts.env ?? process.env;
-  const fs = opts.fs ?? defaultEnvStoreFs();
+  /* Without an explicit store, the deployment profile decides whether pasted secrets may touch the disk. */
+  const fs = opts.fs ?? envStoreFor(profileCapabilities(resolveDeploymentProfile(env)));
   let config = configFromEnv(env);
 
   /*

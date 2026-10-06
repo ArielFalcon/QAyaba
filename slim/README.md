@@ -171,9 +171,9 @@ Qué conviene tener presente:
   error): la consola muestra «needs configuration» con el motivo y hay que pegarla otra vez. Si el
   orquestador no puede leer el estado del servicio de agentes, la consola lo muestra como «failed» con la
   causa, no como falta de clave.
-- **Dónde queda la clave.** Solo en el entorno del orquestador y del servicio de agentes y, para el
-  orquestador, en `/app/.env` (permisos `0600`) dentro de su contenedor; ningún volumen la conserva, así que
-  se pierde al recrearlo. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de
+- **Dónde queda la clave.** Solo en la memoria y en el entorno de los procesos del orquestador y del servicio
+  de agentes: ningún fichero la conserva (el perfil slim no escribe `/app/.env`) y ningún volumen tampoco, así
+  que se pierde al reiniciar. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de
   error del agente y en las salidas que se registran.
 
 ## LLM corporativo

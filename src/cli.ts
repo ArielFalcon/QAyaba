@@ -30,7 +30,8 @@ import { RUN_MODES, RunMode, TestTarget } from "./types";
 import { runSucceeded } from "./cli-exit";
 import { renderRunReport } from "./qa/value-report";
 import { createAgentRuntimeManager } from "./server/agent-runtime";
-import { defaultEnvStoreFs } from "./server/env-store";
+import { envStoreFor } from "./server/env-store";
+import { profileCapabilities, resolveDeploymentProfile } from "./server/deployment-profile";
 import { OpenCodeRuntimeStrategy, CodexRuntimeStrategy } from "./agent-runtime";
 import { getOpenSessionCount } from "./integrations/opencode-client";
 import { createRewrittenEngineFactory } from "./server/rewritten-engine-factory";
@@ -39,7 +40,7 @@ import { resolvePort } from "./server/port";
 
 const cliAgentRuntime = createAgentRuntimeManager({
   env: process.env,
-  fs: defaultEnvStoreFs(),
+  fs: envStoreFor(profileCapabilities(resolveDeploymentProfile(process.env))),
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
     codex: new CodexRuntimeStrategy({ env: process.env }),

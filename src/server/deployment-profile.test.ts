@@ -18,8 +18,15 @@ test("resolveDeploymentProfile throws on an unknown value instead of falling bac
 });
 
 test("slim disables every remote/peripheral effector; full enables them", () => {
-  assert.deepEqual(profileCapabilities("slim"), { remotePublication: false, selfMaintenance: false, githubLogin: false });
-  assert.deepEqual(profileCapabilities("full"), { remotePublication: true, selfMaintenance: true, githubLogin: true });
+  const { remotePublication, selfMaintenance, githubLogin } = profileCapabilities("slim");
+  assert.deepEqual([remotePublication, selfMaintenance, githubLogin], [false, false, false]);
+  const full = profileCapabilities("full");
+  assert.deepEqual([full.remotePublication, full.selfMaintenance, full.githubLogin], [true, true, true]);
+});
+
+test("slim keeps runtime secrets out of the filesystem; full persists them to .env", () => {
+  assert.equal(profileCapabilities("slim").persistRuntimeSecrets, false);
+  assert.equal(profileCapabilities("full").persistRuntimeSecrets, true);
 });
 
 test("exportRoot honors QAYABA_EXPORT_DIR, else <QAYABA_ROOT>/data/exports", () => {

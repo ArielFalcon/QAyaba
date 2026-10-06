@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { applyEnvVars, defaultEnvStoreFs } from "./env-store";
+import { applyEnvVars, defaultEnvStoreFs, envStoreFor } from "./env-store";
 
 function makeFs(initial: string | null) {
   let content = initial;
@@ -59,4 +59,47 @@ test("default env store writes secrets with owner-only permissions", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+function inTempDir(body: (dir: string) => void) {
+  const dir = mkdtempSync(join(tmpdir(), "qa-env-store-"));
+  try {
+    body(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("a store that keeps secrets in memory applies them to the environment and writes nothing to disk", () => {
+  inTempDir((dir) => {
+    const path = join(dir, ".env");
+    const env: Record<string, string | undefined> = {};
+
+    applyEnvVars({ OPENCODE_API_KEY: "todays-key" }, { fs: envStoreFor({ persistRuntimeSecrets: false }, path), env });
+
+    assert.equal(env.OPENCODE_API_KEY, "todays-key");
+    assert.equal(existsSync(path), false);
+    assert.deepEqual(readdirSync(dir), []);
+  });
+});
+
+test("a store that keeps secrets in memory remembers only the latest value of each variable", () => {
+  inTempDir((dir) => {
+    const fs = envStoreFor({ persistRuntimeSecrets: false }, join(dir, ".env"));
+
+    applyEnvVars({ OPENCODE_API_KEY: "first" }, { fs, env: {} });
+    applyEnvVars({ OPENCODE_API_KEY: "second" }, { fs, env: {} });
+
+    assert.deepEqual((fs.read() ?? "").split("\n").filter((l) => l.startsWith("OPENCODE_API_KEY=")), ["OPENCODE_API_KEY=second"]);
+  });
+});
+
+test("a store that persists secrets writes the .env file with owner-only permissions", () => {
+  inTempDir((dir) => {
+    const path = join(dir, ".env");
+
+    applyEnvVars({ OPENCODE_API_KEY: "todays-key" }, { fs: envStoreFor({ persistRuntimeSecrets: true }, path), env: {} });
+
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+  });
 });

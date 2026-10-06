@@ -43,7 +43,7 @@ import { type RunMode, type TestTarget } from "./types";
 import { github } from "./integrations/github";
 import { createApp as adminCreateApp, updateApp as adminUpdateApp, deleteApp as adminDeleteApp, type AppAdminDeps } from "./server/app-admin";
 import { writeConfig, configExists } from "./server/onboard";
-import { applyEnvVars, defaultEnvStoreFs } from "./server/env-store";
+import { applyEnvVars, envStoreFor } from "./server/env-store";
 import { logJson } from "./integrations/logger";
 import { createOnboardingJob, type RepoIndexOutcome } from "./server/onboarding/onboarding-job";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "./server/onboarding/llm-profile-proposer.adapter";
@@ -155,7 +155,7 @@ const SHUTDOWN_TIMEOUT_MS = 25_000;
 const eventStreamController = new AbortController();
 const agentRuntime = createAgentRuntimeManager({
   env: process.env,
-  fs: defaultEnvStoreFs(),
+  fs: envStoreFor(CAPABILITIES),
   strategies: {
     opencode: new OpenCodeRuntimeStrategy({ env: process.env }),
     codex: new CodexRuntimeStrategy({ env: process.env }),
@@ -427,7 +427,7 @@ const appAdminDeps: AppAdminDeps = {
   deleteMirror: (repo) => rmSync(join(process.env.MIRROR_DIR ?? join(ROOT, ".mirrors"), repo.replaceAll("/", "__")), { recursive: true, force: true }),
   deleteHistory: (app) => deleteAppHistory(app),
   deleteAuthMaterial: (app) => rmSync(appAuthDir(ROOT, app), { recursive: true, force: true }),
-  applyEnv: (vars) => applyEnvVars(vars, { fs: defaultEnvStoreFs(), env: process.env }),
+  applyEnv: (vars) => applyEnvVars(vars, { fs: envStoreFor(CAPABILITIES), env: process.env }),
   loadApp: (name) => loadAppConfig(name),
   readConfig: (name) => readFileSync(join(ROOT, "config", "apps", `${name}.yaml`), "utf8"),
   env: process.env,

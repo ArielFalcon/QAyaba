@@ -6,7 +6,8 @@
  *   full (default) — GitHub-integrated: PR/Issue publication, self-maintenance, GitHub login.
  *   slim           — hermetic restricted-network install: the publish decision is materialized as
  *                    a local export (patch + MR/Issue bodies) for a human to submit, the
- *                    self-maintainer never runs, and GitHub login is not offered.
+ *                    self-maintainer never runs, GitHub login is not offered, and secrets pasted at
+ *                    run time (the daily LLM key) stay in memory instead of a file in the container.
  *
  * Deployment-specific, not app-specific: nothing here names or branches on a watched app.
  */
@@ -22,11 +23,13 @@ export interface ProfileCapabilities {
   selfMaintenance: boolean;
   /* GitHub OAuth device-flow login for the console. */
   githubLogin: boolean;
+  /* Secrets applied at run time (API keys pasted in the console) are written to the .env file. Off → memory only. */
+  persistRuntimeSecrets: boolean;
 }
 
 const CAPABILITIES: Record<DeploymentProfile, ProfileCapabilities> = {
-  full: { remotePublication: true, selfMaintenance: true, githubLogin: true },
-  slim: { remotePublication: false, selfMaintenance: false, githubLogin: false },
+  full: { remotePublication: true, selfMaintenance: true, githubLogin: true, persistRuntimeSecrets: true },
+  slim: { remotePublication: false, selfMaintenance: false, githubLogin: false, persistRuntimeSecrets: false },
 };
 
 /* An unknown value throws: a typo must not silently fall back to the profile that pushes to a remote. */

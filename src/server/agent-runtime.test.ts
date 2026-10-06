@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
 import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
 import { CodexRuntimeStrategy } from "../agent-runtime/codex-strategy";
-import type { EnvStoreFs } from "./env-store";
+import { envStoreFor, type EnvStoreFs } from "./env-store";
+import { profileCapabilities } from "./deployment-profile";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentProvider, AgentProviderHealth, AgentRuntimeStrategy } from "../agent-runtime/types";
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
 import {
@@ -152,6 +156,43 @@ test("an empty key, as the slim stack passes it when none is set, reads as needi
   assert.equal(cfg.keys.opencode, false);
   assert.equal(cfg.health?.opencode?.status, "needs_config");
   assert.equal(cfg.health?.opencode?.configured, false);
+});
+
+test("under the slim profile a pasted key reaches the agent service and this process but never the disk", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-agent-runtime-"));
+  try {
+    const restartOpts: Partial<Record<AgentProvider, unknown[]>> = { opencode: [] };
+    const env: Record<string, string | undefined> = {};
+    const manager = createAgentRuntimeManager({
+      env,
+      fs: envStoreFor(profileCapabilities("slim"), join(dir, ".env")),
+      strategies: { opencode: strategy("opencode", [], restartOpts), codex: strategy("codex", []) },
+    });
+
+    const result = await manager.applyConfig({ apiKeys: { opencode: "todays-key" } });
+
+    assert.equal(env.OPENCODE_API_KEY, "todays-key");
+    assert.deepEqual(result.restarted, ["opencode"]);
+    assert.equal((restartOpts.opencode?.[0] as { apiKey?: string }).apiKey, "todays-key");
+    assert.deepEqual(readdirSync(dir), []);
+    assert.equal(existsSync(join(dir, ".env")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// With no store given the manager must not fall back to a file: under the slim profile any write
+// into the repository tree would make the test-write guard throw.
+test("under the slim profile the manager's default store keeps a pasted key in memory", async () => {
+  const env: Record<string, string | undefined> = { QAYABA_PROFILE: "slim" };
+  const manager = createAgentRuntimeManager({
+    env,
+    strategies: { opencode: strategy("opencode", []), codex: strategy("codex", []) },
+  });
+
+  await manager.applyConfig({ apiKeys: { opencode: "todays-key" } });
+
+  assert.equal(env.OPENCODE_API_KEY, "todays-key");
 });
 
 test("agent runtime manager applies a codex key and restarts only codex", async () => {

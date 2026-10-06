@@ -187,7 +187,7 @@ los bloquea, la consola sigue funcionando sin iconos ni tipografía propia (ver 
 
 | Secreto | Cómo llega | Dónde vive | Protecciones |
 |---|---|---|---|
-| Clave de la pasarela de LLM (caduca a diario) | Se pega en la consola web o en la TUI; opcionalmente `OPENCODE_API_KEY` en `slim/.env` | Entorno de `orchestrator` y `agents`; en el orquestador, además `/app/.env` (modo `0600`) dentro del contenedor. Ningún volumen la conserva | No se guarda en el navegador ni en URL; se enmascara en errores de transporte y en las salidas registradas; el filtrado de entorno la quita de los procesos del repositorio vigilado |
+| Clave de la pasarela de LLM (caduca a diario) | Se pega en la consola web o en la TUI; opcionalmente `OPENCODE_API_KEY` en `slim/.env` | Memoria y entorno de los procesos de `orchestrator` y `agents`; el perfil slim no escribe ningún fichero (ni `/app/.env`). Ningún volumen la conserva | No se guarda en el navegador ni en URL; se enmascara en errores de transporte y en las salidas registradas; el filtrado de entorno la quita de los procesos del repositorio vigilado |
 | Token de git | `GIT_TOKEN` (solo lectura) en `slim/.env` | Entorno de `orchestrator` | `agents` no lo recibe; se aplica con `-c url.<…>.insteadOf` solo en `clone`/`fetch` y no queda en `.git/config`; se oculta en logs y se bloquea en el entorno de procesos no confiables |
 | Token de la API local | `config/.api_token` (generado) o `QA_API_TOKEN` | Anfitrión (`config/`, no versionado) | La consola pide este token (sin login automático) y lo guarda solo en `sessionStorage`; `./slim/qayaba.sh console` lo copia al portapapeles sin imprimirlo |
 | `WEBHOOK_SECRET` | `slim/.env` | Entorno de `orchestrator` | Firma HMAC del webhook |
@@ -207,7 +207,7 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
 1. **El código del repositorio vigilado se ejecuta como root en el orquestador.** El cambio de usuario a `sandbox`
    solo se aplica en `target: code`. En el modo e2e (el de slim), `npm ci` del `e2e/` (con sus scripts de
    instalación), `tsc`, ESLint y los specs de Playwright —ficheros que genera el agente— corren como root con el
-   entorno filtrado, pero con acceso al sistema de ficheros del contenedor (`/app/.env`, `config/.api_token`,
+   entorno filtrado, pero con acceso al sistema de ficheros del contenedor (`config/.api_token`,
    `/app/data`) y al entorno del proceso principal. La frontera efectiva es el contenedor, no el usuario.
 2. **El servicio `agents` corre entero como root**, sin `no-new-privileges` ni retirada de capacidades; solo el
    orquestador tiene `no-new-privileges`.

@@ -1,10 +1,11 @@
-/* Applies operator-provided env vars to process.env and persists them to .env. */
+/* Applies operator-provided env vars to process.env and, unless the deployment profile forbids it, persists them to .env. */
 /* docker compose env_file does not strip inline # */
 /* Doppler users must also add the var in Doppler; .env only covers local boots. */
 
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { qayabaRoot } from "../paths";
+import type { ProfileCapabilities } from "./deployment-profile";
 
 const KEY_RE = /^[A-Z][A-Z0-9_]*$/;
 
@@ -21,6 +22,20 @@ export function defaultEnvStoreFs(envPath = join(qayabaRoot(), ".env")): EnvStor
       chmodSync(envPath, 0o600);
     },
   };
+}
+
+/* Holds what is applied for this process only: nothing is ever written to disk. */
+export function memoryEnvStoreFs(): EnvStoreFs {
+  let content: string | null = null;
+  return {
+    read: () => content,
+    write: (c) => { content = c; },
+  };
+}
+
+/* The store the deployment profile allows: the .env file, or memory only when secrets must stay off disk. */
+export function envStoreFor(capabilities: Pick<ProfileCapabilities, "persistRuntimeSecrets">, envPath?: string): EnvStoreFs {
+  return capabilities.persistRuntimeSecrets ? defaultEnvStoreFs(envPath) : memoryEnvStoreFs();
 }
 
 export function applyEnvVars(
