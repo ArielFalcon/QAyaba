@@ -19,6 +19,9 @@ const MODEL_WINDOW_TOKENS: Record<string, number> = {
   "gpt-5.5": 128_000,
 };
 
+/* The ids the catalog holds a window for. The model-name guard derives what no prompt may name from this list, so a cataloged model needs no edit there. */
+export const CATALOGED_MODELS: readonly string[] = Object.keys(MODEL_WINDOW_TOKENS);
+
 export const DEFAULT_WINDOW_TOKENS = 32_000;
 
 export function modelWindowBytes(modelName: string): number {

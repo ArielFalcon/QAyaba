@@ -60,7 +60,8 @@ const SKILL_FILE_PAIRS: Array<[string, string]> = [
 
 /* Must-match sections for the worker role (by canonical H2 header text).
    The guard compares H2 bodies between the OpenCode mirror (agents/agent/qa-worker.md)
-   and the Codex mirror (agent/roles/qa-worker.md). H1 may differ (Flash suffix).
+   and the Codex mirror (agent/roles/qa-worker.md). The H1 is a model-free title in both; scripts/
+   model-agnostic-prompts.test.ts guards that.
  */
 const WORKER_MUST_MATCH_SECTIONS = ["How to write a valuable spec"];
 
@@ -608,7 +609,7 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
   });
 
   /* ---------------------------------------------------------------------------
-     Worker H1 may differ (Flash suffix) — the guard compares H2 bodies only.
+     The worker H1 is a model-free title in both mirrors — the guard compares H2 bodies only.
      ---------------------------------------------------------------------------
    */
   it("qa-worker.md 'How to write a valuable spec' section matches across both mirrors", () => {

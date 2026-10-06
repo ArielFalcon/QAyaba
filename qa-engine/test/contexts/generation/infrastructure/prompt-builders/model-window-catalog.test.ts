@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
 import {
   BYTES_PER_TOKEN,
+  CATALOGED_MODELS,
   INPUT_PROMPT_SAFETY_MARGIN,
   DEFAULT_WINDOW_TOKENS,
   modelWindowBytes,
@@ -298,5 +299,32 @@ test("AFTER: cross-source disagreement warns once (console.warn) without throwin
   } finally {
     console.warn = originalWarn;
     setRuntimeRoleModels(undefined);
+  }
+});
+
+test("catalog: CATALOGED_MODELS lists the ids the catalog holds a window for: a listed id resolves without a not-in-the-catalog warning, an unlisted one warns", () => {
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args.join(" ")); };
+  const notInCatalog = (): string[] => warnings.filter((w) => /not in the catalog/.test(w));
+  const absentConfig = "/nonexistent/path/opencode.json";
+  try {
+    assert.ok(CATALOGED_MODELS.length > 0);
+    for (const id of CATALOGED_MODELS) {
+      setRuntimeRoleModels({ primary: id, reviewer: id, chat: id });
+      roleWindowBytes("qa-generator", absentConfig);
+    }
+    assert.deepEqual(notInCatalog(), [], "every listed id is a cataloged one");
+
+    setRuntimeRoleModels({ primary: "__not_cataloged__", reviewer: "__not_cataloged__", chat: "__not_cataloged__" });
+    roleWindowBytes("qa-generator", absentConfig);
+    assert.equal(notInCatalog().length, 1, "an id outside the list is not cataloged");
+  } finally {
+    console.warn = originalWarn;
+    setRuntimeRoleModels(undefined);
+  }
+  /* The models with a window of their own above are listed. */
+  for (const id of ["kimi-k2.7-code", "gpt-5.4", "gpt-5.4-mini"]) {
+    assert.ok(CATALOGED_MODELS.includes(id), `${id} is listed`);
   }
 });
