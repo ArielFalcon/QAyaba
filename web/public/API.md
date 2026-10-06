@@ -24,6 +24,7 @@ contract schema names are in (parens).
 |---|---|---|---|
 | Watched apps (sidebar, fleet) | `GET /api/v1/apps` → `AppView[]` | ✓ | `AppView` lacks a human **`stack`** label ("Astro · Vercel") and a **`status`** is derived from `code`/`shadow`. |
 | Model ids (generator/reviewer) | `GET /api/v1/agent/config` → `PublicAgentConfig` | ✓ wired | Console maps `models.generator`/`models.reviewer` from `assignments.primary.model` / `assignments.reviewer.model`. |
+| LLM gateway key (Fleet · agent runtime panel) | `GET /api/v1/agent/config` → `PublicAgentConfig` (`keys.opencode`, `health.opencode`); `PUT /api/v1/agent/config` `{apiKeys:{opencode}}` | ✓ wired | The key expires daily, so the operator pastes it in the console. The field is a password input, cleared as soon as it is read; the key travels only in the PUT body (never storage, URL or log). `409` (a run or session is active) → "apply the key when it finishes"; `422` → the server's own reason. After a success the console re-reads the config, and once more a few seconds later while the provider reports `starting`. |
 | Auth | — | — | Static shell public at `/app`; `/api/v1/*` Bearer-protected. The console sends `credentials:'include'` + optional `Authorization`. |
 
 ---

@@ -108,6 +108,8 @@ export interface ConsoleApi {
   createRun(input: Record<string, unknown>): Promise<unknown>;
   cancelRun(id: string): Promise<unknown>;
   continueRun(id: string, input?: Record<string, unknown>): Promise<unknown>;
+  applyAgentKey(key: string): Promise<unknown>;
+  agentStatus(): Promise<unknown>;
 }
 
 export interface ConsoleHarness {
@@ -128,6 +130,9 @@ export interface ConsoleHarness {
   loginControls(): string[];
   pressLogin(id: string): void;
   typeLogin(id: string, text: string): void;
+  /* Types into, and reads back, a text field the console rendered (looked up by its element id). */
+  type(id: string, text: string): void;
+  fieldValue(id: string): string;
   /* The login screen's error line, or "" while it is hidden. */
   loginError(): string;
 }
@@ -378,6 +383,10 @@ export async function loadConsole(opts: LoadOptions): Promise<ConsoleHarness> {
     typeLogin(id, text) {
       byId(id).value = text;
     },
+    type(id, text) {
+      byId(id).value = text;
+    },
+    fieldValue: (id) => String(byId(id).value ?? ""),
     loginError: () => {
       const el = byId("login-error");
       return el.style.display === "none" ? "" : String(el.textContent ?? "");

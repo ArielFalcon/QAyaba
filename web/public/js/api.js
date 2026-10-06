@@ -16,6 +16,8 @@
    api.ask(runId, question) → Promise<string|null> (null ⇒ UI uses canned answer)
    api.createRun({app,mode,sha}) → Promise<any>
    api.cancelRun(runId) → Promise<any>
+   api.applyAgentKey(key) → Promise<any> (PUT /agent/config {apiKeys:{opencode}}; rejects with err.status/err.reason)
+   api.agentStatus() → Promise<AgentStatus|null> (GET /agent/config, mapped like ViewModel.agent)
    QayabaConsole.onAuthRequired(fn) → fn() runs whenever the server answers 401 (session gone)
    See API.md for the full endpoint requirements + field-mapping + gaps.
    ═══════════════════════════════════════════════════════════════════════
@@ -39,6 +41,9 @@ window.QayabaConsole = (function () {
     createRun(input) { return Promise.resolve({ id: 'queued', status: 'enqueued', app: input.app, mode: input.mode }); },
     cancelRun(id) { return Promise.resolve({ id: id, status: 'cancelled' }); },
     continueRun(id) { return Promise.resolve({ id: 'queued', parentRunId: id }); },
+    /* Demo console: there is no runtime to configure, so a key goes nowhere. */
+    applyAgentKey() { return Promise.resolve(null); },
+    agentStatus() { return Promise.resolve(window.QayabaMockData.agent || null); },
     runReport() { return Promise.resolve(null); },
     turns() { return Promise.resolve([]); },
   };
@@ -112,6 +117,9 @@ window.QayabaConsole = (function () {
     report: (app) => req('GET', '/apps/' + encodeURIComponent(app) + '/report'),
     agentModels: (provider) => req('GET', '/agent/models?provider=' + encodeURIComponent(provider || '')),
     agentConfig: () => req('GET', '/agent/config'),
+    /* Operator-guarded runtime change (409 while a run is active). The body can carry a key, so it is
+       sent only through req — never put in a URL or logged. */
+    putAgentConfig: (body) => req('PUT', '/agent/config', body),
     runReport: (id) => req('GET', '/runs/' + encodeURIComponent(id) + '/report'),
     turns: (id) => req('GET', '/runs/' + encodeURIComponent(id) + '/turns'),
     /* Multi-agent coordination audit tail: one bounded request per dashboard load; the
@@ -306,6 +314,10 @@ window.QayabaConsole = (function () {
         guidance: input.guidance || undefined,
       });
     },
+    /* Hands the LLM gateway API key to the runtime; the server restarts the agent process with it. */
+    applyAgentKey(key) { return ep.putAgentConfig({ apiKeys: { opencode: key } }); },
+    /* Whether the runtime holds a key and how its provider is doing (null when /agent/config is unavailable). */
+    agentStatus() { return ep.agentConfig().then(mapAgent); },
     /* Run-scoped post-run summary: {current: ReportView, evolution: ReportView|null}. */
     runReport(id) { return ep.runReport(id); },
     /* Chronological agent turns (role, round, prompt/output, tokens) for one run. */
@@ -438,6 +450,7 @@ window.QayabaConsole = (function () {
         reviewer: raw.agentConfig.assignments.reviewer.model,
         chat: raw.agentConfig.assignments.chat.model,
       } : { generator: 'n/a', reviewer: 'n/a', chat: 'n/a' }, /* /agent/config unavailable — never the mock model ids */
+      agent: mapAgent(raw.agentConfig),
       apps: apps,
       running: mappedRunning,
       runs: runs,
@@ -570,6 +583,17 @@ window.QayabaConsole = (function () {
     base.runs = { measured: vo.measuredRuns || 0, total: vo.totalRuns || 0, prevMeasured: null, prevTotal: null, series: [vo.measuredRuns || 0] };
     base.coordination = s.coordination || null;
     return base;
+  }
+  /* PublicAgentConfig → the LLM gateway key's status: whether the runtime holds a key and its provider's health.
+     null when the config could not be read — the panel then says so rather than guessing. */
+  function mapAgent(cfg) {
+    if (!cfg) return null;
+    const health = cfg.health && cfg.health.opencode;
+    return {
+      keySet: !!(cfg.keys && cfg.keys.opencode),
+      status: health && health.status ? health.status : null,
+      error: health && health.error ? health.error : null,
+    };
   }
   function mapLedger(intelByApp) {
     const rules = [];

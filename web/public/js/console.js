@@ -314,6 +314,7 @@
     toast: null, toastHtml: null, toastingRunId: null, runFilter: 'all', appTab: 'runs', appSel: { a: 0, b: 0 },
     repTpl: 'exec', repView: 'blocks',
     runExtras: null,
+    agentNote: null, agentBusy: false,
   };
   var teardown = [];
   var LIVE = null;
@@ -368,6 +369,88 @@
           LiveStepper(running.stages || []) + '</button>'
         : '') + '</div>';
   }
+  /* ── agent runtime · LLM gateway key ───────────────────────────────────
+     The gateway key expires daily and is never baked into the stack, so the operator pastes the
+     day's key here. It goes to PUT /agent/config and nowhere else: not storage, not a URL, not a log.
+   */
+  const AGENT_STATUS = {
+    healthy: ['healthy', 'var(--pass-600)'],
+    starting: ['starting', 'var(--ember-600)'],
+    needs_config: ['needs configuration', 'var(--fail-600)'],
+    failed: ['failed', 'var(--fail-600)'],
+    degraded: ['degraded', 'var(--ember-600)'],
+    stopped: ['stopped', 'var(--ink-500)'],
+  };
+  function AgentChip(label, color) {
+    return '<span style="' + sty({ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', color: color }) + '">' +
+      '<span style="width:8px;height:8px;border-radius:50%;flex:none;background:' + color + '"></span>' + esc(label) + '</span>';
+  }
+  function AgentKeyPanel() {
+    const a = D.agent;
+    const meta = a && a.status ? (AGENT_STATUS[a.status] || [a.status, 'var(--ink-500)']) : null;
+    const chips = a
+      ? AgentChip(a.keySet ? 'key set' : 'no key', a.keySet ? 'var(--pass-600)' : 'var(--fail-600)') + (meta ? AgentChip(meta[0], meta[1]) : '')
+      : AgentChip('status unavailable', 'var(--ink-500)');
+    const detail = a && a.error ? '<div style="font-family:var(--font-mono);font-size:11.5px;color:var(--fail-600)">' + esc(a.error) + '</div>' : '';
+    const note = state.agentNote
+      ? '<div role="status" style="' + sty({ fontSize: 13, color: state.agentNote.tone === 'warn' ? 'var(--fail-600)' : 'var(--text-body)' }) + '">' + esc(state.agentNote.text) + '</div>'
+      : '';
+    const field = '<div class="dinput" style="flex:1;min-width:220px">' + I('key-round', 15) +
+      '<input type="password" id="agent-key" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="LLM gateway API key" placeholder="paste today\'s key"></div>';
+    return Card({
+      eyebrow: 'agent runtime · LLM gateway', title: 'API key',
+      children: '<div style="display:flex;flex-direction:column;gap:12px">' +
+        '<div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">' + chips + '</div>' + detail +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' + field +
+        Button({ variant: 'primary', size: 'sm', leadingIcon: 'check', label: 'Apply key', action: 'agent-key-apply' }) + '</div>' + note +
+        '<span class="dialog-hint">The key expires daily: paste the new one here. It is sent to the orchestrator only and never stored in this browser.</span></div>',
+    });
+  }
+  const onOverview = () => state.section === 'overview' && !state.runId && !state.appName;
+  /* Repaints only while the overview is showing: the panel lives there, and a render elsewhere would restart a live run's mounts. */
+  function repaintAgentPanel() { if (onOverview()) render(); }
+  let agentRecheck = 0;
+  function refreshAgentStatus(recheckIfStarting) {
+    const api = apiOf();
+    if (!api || !api.agentStatus) return Promise.resolve();
+    return api.agentStatus().then(function (a) {
+      D.agent = a;
+      /* A provider that has just been handed a key is still coming up: look once more after it has had time. */
+      if (recheckIfStarting && a && a.status === 'starting') {
+        clearTimeout(agentRecheck);
+        agentRecheck = setTimeout(function () {
+          refreshAgentStatus(false).then(function () {
+            const field = document.getElementById('agent-key');
+            if (!state.agentBusy && !(field && field.value)) repaintAgentPanel();
+          });
+        }, 3000);
+      }
+    }, function () { /* keep the last known status: a refresh failure must not break the session */ });
+  }
+  function agentKeyFailure(err, key) {
+    if (err && err.status === 409) return 'A QA run is in progress — apply the key when it finishes.';
+    /* The server explains a refusal in its own words; mask the key in case it echoed it. */
+    const reason = err && err.reason ? String(err.reason).split(key).join('[key]') : '';
+    return reason || 'Could not apply the key' + (err && err.status ? ' (HTTP ' + err.status + ')' : '') + '.';
+  }
+  function applyAgentKey() {
+    const api = apiOf();
+    if (!api || !api.applyAgentKey || state.agentBusy) return;
+    const field = document.getElementById('agent-key');
+    const key = field ? String(field.value).trim() : '';
+    if (!key) { state.agentNote = { tone: 'warn', text: 'Paste the LLM gateway API key first.' }; repaintAgentPanel(); return; }
+    field.value = ''; /* the key lives in the page only until it has been read */
+    state.agentBusy = true;
+    state.agentNote = { tone: 'note', text: 'Applying the key…' };
+    repaintAgentPanel();
+    api.applyAgentKey(key).then(function () {
+      state.agentNote = { tone: 'note', text: CFG.mode === 'live' ? 'Key applied.' : 'Demo console — the key was not sent anywhere.' };
+      return refreshAgentStatus(true);
+    }, function (err) {
+      state.agentNote = { tone: 'warn', text: agentKeyFailure(err, key) };
+    }).then(function () { state.agentBusy = false; repaintAgentPanel(); });
+  }
+
   function AppFleetCard(app) {
     const isCode = app.target === 'code';
     const valueBlock = app.value != null
@@ -436,6 +519,7 @@
     const windowLabel = (s.window && s.prevWindow) ? ('fleet signals · ' + s.window + ' vs ' + s.prevWindow) : 'fleet signals · not available from the API';
     return '<div style="padding:24px 28px 36px;display:flex;flex-direction:column;gap:var(--space-6)">' +
       LiveBand(D.live, D.running) +
+      AgentKeyPanel() +
       '<div><div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">' + EYEBROW(windowLabel) +
       '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint)">ground-truth first</span></div>' + kpis + '</div>' +
       '<div style="display:flex;flex-direction:column;gap:var(--space-4)">' + sectionHead('watched repositories · drill into App Value', 'Fleet') +
@@ -1708,12 +1792,16 @@ function loadRunExtras(id) {
         loadAndRender().then(() => queueVerdictWatch(newId));
       }).catch((err) => { showToast('could not queue the continuation' + (err && err.reason ? ': ' + err.reason : '')); });
     }
+    else if (action === 'agent-key-apply') applyAgentKey();
     else if (action === 'toast-run') {
       state.toast = null; renderOverlays();
       if (state.toastingRunId) openRun(state.toastingRunId);
     }
   });
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.dialog) { state.dialog = false; renderOverlays(); } });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.dialog) { state.dialog = false; renderOverlays(); }
+    else if (e.key === 'Enter' && e.target && e.target.id === 'agent-key') applyAgentKey();
+  });
   window.addEventListener('popstate', () => { if (D) { syncFromUrl(); render(); } });
 
   /* ── boot: load the model from the data layer, then render ─────────────── */

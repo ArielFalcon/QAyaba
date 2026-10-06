@@ -5,6 +5,7 @@
  */
 window.QayabaMockData = (function () {
   const models = { generator: 'deepseek-v4-pro', reviewer: 'minimax-m3' };
+  const agent = { keySet: true, status: 'healthy', error: null };
 
   const apps = [
     {
@@ -433,7 +434,7 @@ window.QayabaMockData = (function () {
     ],
   };
 
-  return { models, apps, running, runs, stats, live, verdictMix, trend, modes, flywheel, rules, gates,
+  return { models, agent, apps, running, runs, stats, live, verdictMix, trend, modes, flywheel, rules, gates,
     coordinationEvents, coordinationSignals,
     histories, suite, engram, signals, fleetErrorClasses, ledger, integrity, reports };
 })();
