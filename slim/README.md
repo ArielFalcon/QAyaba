@@ -160,8 +160,11 @@ Qué conviene tener presente:
 - **Clave caducada durante una ejecución.** Esa ejecución falla como `infra-error` (no es un fallo del
   código): pega la clave nueva y vuelve a lanzarla.
 - **Reinicio de contenedores.** Si se reinicia el servicio de agentes (o la pila entera) la clave se
-  pierde y hay que pegarla otra vez. Si solo se reinicia el orquestador, el servicio de agentes conserva
-  la suya y la consola refleja su estado.
+  pierde y hay que pegarla otra vez. Si solo se reinicia el orquestador, el servicio de agentes sigue con la
+  suya, pero el orquestador también la necesita (para enmascararla en los registros y en los mensajes de
+  error): la consola muestra «needs configuration» con el motivo y hay que pegarla otra vez. Si el
+  orquestador no puede leer el estado del servicio de agentes, la consola lo muestra como «failed» con la
+  causa, no como falta de clave.
 - **Dónde queda la clave.** Solo en el entorno del orquestador y del servicio de agentes y, para el
   orquestador, en `/app/.env` (permisos `0600`) dentro de su contenedor; ningún volumen la conserva, así que
   se pierde al recrearlo. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de

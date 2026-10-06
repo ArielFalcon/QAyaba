@@ -74,19 +74,40 @@ function reporting(provider: AgentProvider, health: Partial<AgentProviderHealth>
   return { ...strategy(provider, []), health: async () => ({ provider, status: "healthy", configured: true, ...health }) };
 }
 
-test("agent runtime manager reports a provider as ready when its supervisor holds the key this process lacks", async () => {
+test("agent runtime manager asks for the key again when the orchestrator restarted while the agent service kept its own", async () => {
+  const env: Record<string, string | undefined> = { AGENT_SUPERVISOR_URL: "http://agents:4097" };
+  const supervisorHoldingAKey = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ providers: { opencode: { provider: "opencode", status: "healthy", configured: true } } }),
+  });
   const manager = createAgentRuntimeManager({
-    env: {},
+    env,
     fs: memoryFs(),
-    strategies: { opencode: reporting("opencode", { status: "healthy", configured: true }), codex: reporting("codex", { status: "needs_config", configured: false }) },
+    strategies: { opencode: new OpenCodeRuntimeStrategy({ env, fetchImpl: supervisorHoldingAKey }), codex: reporting("codex", { status: "needs_config", configured: false }) },
   });
 
   const cfg = await manager.getConfig();
 
-  assert.equal(cfg.health?.opencode?.status, "healthy");
-  assert.equal(cfg.health?.opencode?.configured, true);
-  assert.equal(cfg.keys.opencode, true);
-  assert.equal(cfg.validation.ok, true);
+  assert.equal(cfg.health?.opencode?.status, "needs_config");
+  assert.ok(cfg.health?.opencode?.error, "the operator is told to paste the key again");
+  assert.equal(cfg.keys.opencode, false);
+  assert.equal(cfg.validation.ok, false);
+});
+
+test("agent runtime manager shows an unreachable agent service as a failure, not as a missing key", async () => {
+  const env: Record<string, string | undefined> = { AGENT_SUPERVISOR_URL: "http://agents:4097" };
+  const unreachable = async () => { throw new Error("connect ECONNREFUSED"); };
+  const manager = createAgentRuntimeManager({
+    env,
+    fs: memoryFs(),
+    strategies: { opencode: new OpenCodeRuntimeStrategy({ env, fetchImpl: unreachable }), codex: reporting("codex", { status: "needs_config", configured: false }) },
+  });
+
+  const cfg = await manager.getConfig();
+
+  assert.equal(cfg.health?.opencode?.status, "failed");
+  assert.match(cfg.health?.opencode?.error ?? "", /ECONNREFUSED/);
 });
 
 test("agent runtime manager reports needs_config when the supervisor lost the key this process still holds", async () => {

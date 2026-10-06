@@ -37,7 +37,19 @@ interface OpenCodeRuntimeStrategyOptions {
   ) => Promise<void>;
   dispose?: () => void;
   configPath?: string;
+  /* The deadline of one supervisor health call, as an abort signal; injectable so no test waits on a clock. */
+  timeoutSignal?: (ms: number) => AbortSignal;
 }
+
+const SUPERVISOR_HEALTH_TIMEOUT_MS = 1500;
+const RUNTIME_STATUSES: ReadonlySet<string> = new Set(["stopped", "starting", "healthy", "degraded", "failed", "needs_config"]);
+
+/*
+ * Why a supervisor that holds a key still reads as unconfigured: this process masks the key in logs
+ * and error output, and guards the onboarding proposer, from its OWN environment.
+ */
+const KEY_LOST_HERE =
+  "The agent service holds an LLM gateway key that this process does not have (the orchestrator restarted): paste the key again. This process needs it to mask the key in logs and error output.";
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
 const FALLBACK_MODELS: AgentModelInfo[] = [
@@ -55,10 +67,12 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly disposeClient: () => void;
   private readonly configPath: string;
   private readonly fetchImpl: SupervisorFetch;
+  private readonly timeoutSignal: (ms: number) => AbortSignal;
 
   constructor(opts: OpenCodeRuntimeStrategyOptions = {}) {
     this.env = opts.env ?? process.env;
     this.fetchImpl = opts.fetchImpl ?? (fetch as unknown as SupervisorFetch);
+    this.timeoutSignal = opts.timeoutSignal ?? ((ms) => AbortSignal.timeout(ms));
     this.depsFactory = opts.depsFactory ?? defaultAgentDeps;
     this.startEvents = opts.startEvents ?? startActivitySink;
     this.disposeClient = opts.dispose ?? disposeSharedClient;
@@ -67,16 +81,24 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
 
   /*
    * The supervisor owns the OpenCode process and the key it was started with, so its state is the
-   * truth whenever it answers: this process may have restarted without the key the supervisor still
-   * holds (or kept one the supervisor lost). The local key decides only when no supervisor answers.
+   * truth about the process — with one exception: a key only the supervisor holds still reads as
+   * needs_config, because this process needs the key itself (KEY_LOST_HERE). A supervisor that
+   * cannot be read is a failure with its cause, never a missing key: the operator must not be told
+   * to paste a key that is not the problem. The local key decides only when no supervisor is
+   * configured or it does not list the provider.
    */
   async health(): Promise<AgentProviderHealth> {
     const hasKey = Boolean(this.env.OPENCODE_API_KEY);
+    let supervised: AgentProviderHealth | undefined;
     try {
-      const supervised = await supervisorHealth(this.fetchImpl, this.env, this.provider);
-      if (supervised) return supervised;
+      supervised = await supervisorHealth(this.fetchImpl, this.env, this.provider, this.timeoutSignal(SUPERVISOR_HEALTH_TIMEOUT_MS));
     } catch (err) {
-      if (hasKey) return { provider: this.provider, status: "failed", configured: true, error: err instanceof Error ? err.message : String(err) };
+      return { provider: this.provider, status: "failed", configured: hasKey, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (supervised) {
+      return supervised.configured && !hasKey
+        ? { provider: this.provider, status: "needs_config", configured: false, error: KEY_LOST_HERE }
+        : supervised;
     }
     return hasKey
       ? { provider: this.provider, status: "healthy", configured: true }
@@ -136,18 +158,47 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   }
 }
 
-/* Throws when the supervisor cannot be reached or refuses; undefined when none is configured or it does not list the provider. */
+/*
+ * Throws when the supervisor cannot be reached, answers an error, outlasts `deadline` or answers
+ * something that is not a provider state; undefined when none is configured or it does not list the provider.
+ */
 async function supervisorHealth(
   fetchImpl: SupervisorFetch,
   env: Record<string, string | undefined>,
   provider: "opencode",
+  deadline: AbortSignal,
 ): Promise<AgentProviderHealth | undefined> {
   const base = env.AGENT_SUPERVISOR_URL;
   if (!base) return undefined;
-  const res = await fetchImpl(`${base}/providers`, { signal: AbortSignal.timeout(1500) });
-  if (!res.ok) throw new Error(`supervisor returned ${res.status}`);
-  const body = await res.json() as { providers?: Record<string, AgentProviderHealth> };
-  return body.providers?.[provider];
+  return untilAborted(deadline, (async () => {
+    const res = await fetchImpl(`${base}/providers`, { signal: deadline });
+    if (!res.ok) throw new Error(`supervisor returned ${res.status}`);
+    return providerStateFrom(await res.json(), provider);
+  })());
+}
+
+function providerStateFrom(body: unknown, provider: "opencode"): AgentProviderHealth | undefined {
+  const providers = (body as { providers?: unknown } | null)?.providers;
+  if (typeof providers !== "object" || providers === null || Array.isArray(providers)) {
+    throw new Error("supervisor answered something that is not a provider list");
+  }
+  const entry = (providers as Record<string, unknown>)[provider];
+  if (entry === undefined) return undefined;
+  const state = entry as { status?: unknown; configured?: unknown; error?: unknown } | null;
+  if (typeof state !== "object" || state === null || typeof state.configured !== "boolean" || typeof state.status !== "string" || !RUNTIME_STATUSES.has(state.status)) {
+    throw new Error(`supervisor reported an unreadable state for ${provider}`);
+  }
+  return { provider, status: state.status as AgentProviderHealth["status"], configured: state.configured, ...(typeof state.error === "string" ? { error: state.error } : {}) };
+}
+
+/* Settles with `work`, or rejects as soon as `signal` aborts, even when `work` ignores it. */
+function untilAborted<T>(signal: AbortSignal, work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new Error("aborted"));
+    if (signal.aborted) return abort();
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
 }
 
 async function supervisorRestart(

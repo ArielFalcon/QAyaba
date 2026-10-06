@@ -50,9 +50,10 @@ export function createAgentRuntimeManager(opts: CreateAgentRuntimeManagerOptions
   let config = configFromEnv(env);
 
   /*
-   * Each strategy reports its own provider's state: it knows where the key actually lives (the
-   * supervisor that runs the agent, not necessarily this process's env), so a provider is never
-   * declared unconfigured from the local env alone.
+   * Each strategy reports its own provider's state. A provider that needs a key is unconfigured
+   * whenever THIS process lacks it, even if the supervisor that runs the agent holds one: the key is
+   * masked in logs and error output from this process's env. Beyond that, the supervisor's own report
+   * is the truth about the process, and a supervisor that cannot be read is a failure, not a missing key.
    */
   async function health(): Promise<Record<AgentProvider, AgentProviderHealth>> {
     const entries = await Promise.all(PROVIDERS.map(async (provider) => {

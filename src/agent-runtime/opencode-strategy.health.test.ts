@@ -32,14 +32,29 @@ function strategy(env: Record<string, string | undefined>, fetchImpl: Supervisor
   return new OpenCodeRuntimeStrategy({ env, fetchImpl });
 }
 
-test("a supervisor that holds the key reports healthy even when this process was started without one", async () => {
+test("a supervisor that holds the key and a process that holds it too report healthy", async () => {
   const health = await strategy(
-    { AGENT_SUPERVISOR_URL: SUPERVISOR },
+    { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" },
     supervisorReporting({ status: "healthy", configured: true }),
   ).health();
 
   assert.equal(health.status, "healthy");
   assert.equal(health.configured, true);
+});
+
+// The orchestrator masks the key in logs and error output from its own environment, and its
+// onboarding guard reads it from there: a key only the supervisor holds protects nothing here.
+test("a supervisor holding a key this process lacks reports needs_config and asks for the key again", async () => {
+  for (const state of [{ status: "healthy" }, { status: "starting" }, { status: "failed", error: "opencode exited 1" }] as const) {
+    const health = await strategy(
+      { AGENT_SUPERVISOR_URL: SUPERVISOR },
+      supervisorReporting({ ...state, configured: true }),
+    ).health();
+
+    assert.equal(health.status, "needs_config", state.status);
+    assert.equal(health.configured, false);
+    assert.ok(health.error && health.error.length > 0, "the operator is told why");
+  }
 });
 
 test("a supervisor waiting for a key reports needs_config even when this process still holds a stale key", async () => {
@@ -62,30 +77,86 @@ test("the supervisor's failure detail is passed on", async () => {
   assert.match(health.error ?? "", /opencode exited 1/);
 });
 
-test("an unreachable supervisor with no key held locally reports needs_config", async () => {
-  const health = await strategy({ AGENT_SUPERVISOR_URL: SUPERVISOR }, unreachable).health();
+test("an unreachable supervisor is a failure with its cause, never a missing key, whether or not a key is held locally", async () => {
+  for (const env of [{ AGENT_SUPERVISOR_URL: SUPERVISOR }, { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }]) {
+    const health = await strategy(env, unreachable).health();
 
-  assert.equal(health.status, "needs_config");
-  assert.equal(health.configured, false);
+    assert.equal(health.status, "failed");
+    assert.equal(health.configured, Boolean(env.OPENCODE_API_KEY));
+    assert.match(health.error ?? "", /ECONNREFUSED/);
+  }
 });
 
-test("an unreachable supervisor with a key held locally reports the failure and its cause", async () => {
-  const health = await strategy({ AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }, unreachable).health();
-
-  assert.equal(health.status, "failed");
-  assert.equal(health.configured, true);
-  assert.match(health.error ?? "", /ECONNREFUSED/);
-});
-
-test("a supervisor answering with an error status counts as unreachable", async () => {
+test("a supervisor answering with an error status is a failure carrying the status", async () => {
   const unavailable = async () => ({ ok: false, status: 503, json: async () => ({}) });
 
-  const withoutKey = await strategy({ AGENT_SUPERVISOR_URL: SUPERVISOR }, unavailable).health();
-  const withKey = await strategy({ AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }, unavailable).health();
+  for (const env of [{ AGENT_SUPERVISOR_URL: SUPERVISOR }, { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }]) {
+    const health = await strategy(env, unavailable).health();
 
-  assert.equal(withoutKey.status, "needs_config");
-  assert.equal(withKey.status, "failed");
-  assert.match(withKey.error ?? "", /503/);
+    assert.equal(health.status, "failed");
+    assert.match(health.error ?? "", /503/);
+  }
+});
+
+// The injected signal stands for the health deadline, so no test waits on a real clock.
+function withDeadline(env: Record<string, string | undefined>, fetchImpl: SupervisorFetch) {
+  const deadline = new AbortController();
+  const supervised = new OpenCodeRuntimeStrategy({ env, fetchImpl, timeoutSignal: () => deadline.signal });
+  return { supervised, expire: () => deadline.abort(new Error("deadline reached")) };
+}
+
+test("a supervisor that never answers fails once the deadline passes, whatever the fetch does with the signal", async () => {
+  const honoursSignal: SupervisorFetch = (_url, init) =>
+    new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+  const ignoresSignal: SupervisorFetch = () => new Promise(() => {});
+
+  for (const fetchImpl of [honoursSignal, ignoresSignal]) {
+    for (const env of [{ AGENT_SUPERVISOR_URL: SUPERVISOR }, { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }]) {
+      const { supervised, expire } = withDeadline(env, fetchImpl);
+      const pending = supervised.health();
+      expire();
+      const health = await pending;
+
+      assert.equal(health.status, "failed");
+      assert.match(health.error ?? "", /deadline reached/);
+    }
+  }
+});
+
+test("a response whose body never arrives fails once the deadline passes", async () => {
+  const headersOnly: SupervisorFetch = async () => ({ ok: true, status: 200, json: () => new Promise(() => {}) });
+  const { supervised, expire } = withDeadline({ AGENT_SUPERVISOR_URL: SUPERVISOR }, headersOnly);
+  const pending = supervised.health();
+  await new Promise((resolve) => setImmediate(resolve));
+  expire();
+
+  assert.equal((await pending).status, "failed");
+});
+
+test("a supervisor answer that is not usable state is a failure, never a missing key", async () => {
+  const answers: Array<[string, () => Promise<unknown>]> = [
+    ["not JSON", async () => { throw new SyntaxError("Unexpected token < in JSON"); }],
+    ["null", async () => null],
+    ["a string", async () => "ok"],
+    ["a list", async () => []],
+    ["no providers", async () => ({})],
+    ["providers that is null", async () => ({ providers: null })],
+    ["an entry that is not an object", async () => ({ providers: { opencode: "healthy" } })],
+    ["an entry without configured", async () => ({ providers: { opencode: { provider: "opencode", status: "healthy" } } })],
+    ["an entry with a configured that is not a boolean", async () => ({ providers: { opencode: { provider: "opencode", status: "healthy", configured: "yes" } } })],
+    ["an entry without a status", async () => ({ providers: { opencode: { provider: "opencode", configured: true } } })],
+    ["an entry with an unknown status", async () => ({ providers: { opencode: { provider: "opencode", status: "great", configured: true } } })],
+  ];
+
+  for (const [label, json] of answers) {
+    for (const env of [{ AGENT_SUPERVISOR_URL: SUPERVISOR }, { AGENT_SUPERVISOR_URL: SUPERVISOR, OPENCODE_API_KEY: "k" }]) {
+      const health = await strategy(env, async () => ({ ok: true, status: 200, json })).health();
+
+      assert.equal(health.status, "failed", `${label} (key held: ${Boolean(env.OPENCODE_API_KEY)})`);
+      assert.equal(health.configured, Boolean(env.OPENCODE_API_KEY));
+      assert.ok(health.error && health.error.length > 0, `${label} carries a reason`);
+    }
+  }
 });
 
 test("a supervisor that does not list the provider leaves the answer to the local key", async () => {
