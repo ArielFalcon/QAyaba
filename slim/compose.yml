@@ -56,7 +56,8 @@ services:
       AGENT_SUPERVISOR_URL: http://agents:4097
       AGENT_RUNTIME_MODE: single
       AGENT_SINGLE_PROVIDER: opencode
-      OPENCODE_API_KEY: ${OPENCODE_API_KEY:?set OPENCODE_API_KEY in slim/.env}
+      # Optional: the stack boots without it and takes the key at run time (web console or TUI).
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       OPENCODE_TIMEOUT_MS: ${OPENCODE_TIMEOUT_MS:-900000}
       MIRROR_DIR: /app/.mirrors
       CBM_CACHE_DIR: /app/.codebase-memory
@@ -106,7 +107,8 @@ services:
       AGENT_SUPERVISOR_PORT: "4097"
       AGENT_RUNTIME_MODE: single
       AGENT_SINGLE_PROVIDER: opencode
-      OPENCODE_API_KEY: ${OPENCODE_API_KEY:?set OPENCODE_API_KEY in slim/.env}
+      # Optional: the stack boots without it and takes the key at run time (web console or TUI).
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       OPENCODE_PRINT_LOGS: "true"
       OPENCODE_LOG_LEVEL: ${OPENCODE_LOG_LEVEL:-INFO}
       # The Playwright MCP explores DEV through the same central login the specs use.

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgentRuntimeManager } from "./agent-runtime";
+import { OpenCodeRuntimeStrategy } from "../agent-runtime/opencode-strategy";
 import type { EnvStoreFs } from "./env-store";
 import type { AgentProvider, AgentRuntimeStrategy } from "../agent-runtime/types";
 import { configFromEnv, runtimeRoleModelsFromConfig } from "../agent-runtime/config";
@@ -66,6 +67,21 @@ test("agent runtime manager boots single/opencode and reports missing key as nee
   assert.equal(cfg.keys.opencode, false);
   assert.equal(cfg.validation.ok, false);
   assert.equal(cfg.health?.opencode?.status, "needs_config");
+});
+
+test("an empty key, as the slim stack passes it when none is set, reads as needing configuration", async () => {
+  const env: Record<string, string | undefined> = { OPENCODE_API_KEY: "" };
+  const manager = createAgentRuntimeManager({
+    env,
+    fs: memoryFs(),
+    strategies: { opencode: new OpenCodeRuntimeStrategy({ env }), codex: strategy("codex", []) },
+  });
+
+  const cfg = await manager.getConfig();
+
+  assert.equal(cfg.keys.opencode, false);
+  assert.equal(cfg.health?.opencode?.status, "needs_config");
+  assert.equal(cfg.health?.opencode?.configured, false);
 });
 
 test("agent runtime manager applies a codex key and restarts only codex", async () => {
