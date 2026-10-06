@@ -120,8 +120,9 @@ RUN fetch-artifact "$JDTLS_FILE" "${JDTLS_BASE_URL}/${JDTLS_FILE}" /tmp/jdtls.ta
  && fetch-artifact "lombok-${LOMBOK_VERSION}.jar" \
       "${MAVEN_REPO%/}/org/projectlombok/lombok/${LOMBOK_VERSION}/lombok-${LOMBOK_VERSION}.jar" /opt/jdtls/lombok.jar
 
-# Serena global config: upstream JDTLS, a heap that fits a 16 GB laptop, no dashboard/browser.
-ARG JDTLS_XMX=1536m
+# Serena global config: upstream JDTLS, a heap sized for the agents container's memory limit inside
+# the default 8 GB Docker Desktop VM (slim/README.md, "Presupuesto de memoria"), no dashboard/browser.
+ARG JDTLS_XMX=1024m
 RUN serena init >/dev/null && /opt/serena/bin/python - <<PY
 import yaml, pathlib
 path = pathlib.Path.home() / ".serena" / "serena_config.yml"

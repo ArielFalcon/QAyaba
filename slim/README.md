@@ -25,7 +25,9 @@ El diseño completo, sus razones y los riesgos están en
 
 ## Requisitos
 
-- Docker Desktop (u otro motor con `docker compose` ≥ 2.24) con **≥ 9 GB de memoria** asignados.
+- Docker Desktop (u otro motor con `docker compose` ≥ 2.24) con **≥ 8 GB de memoria** asignados: basta
+  el valor por defecto de la máquina virtual (la mitad de la RAM del equipo, 8 GB en un portátil de 16 GB);
+  no hace falta cambiar ningún ajuste de Docker Desktop (ver «Presupuesto de memoria»).
 - Acceso de solo lectura a GitLab (un *Project/Group Access Token* con `read_repository`).
 - Artifactory (o equivalente) con remotos para: imágenes Docker (mcr.microsoft.com, Docker Hub),
   npm, PyPI, Go, apt de Ubuntu (archive/security para amd64, ports para arm64), Maven Central y, si
@@ -159,6 +161,31 @@ Con un override que declara `provider`, OpenCode queda **limitado a esos proveed
 agente no apunta a un proveedor habilitado y a un modelo declarado en su `models`; el error lista cada
 clave afectada, de modo que un rol nunca llega a llamar en silencio a un proveedor inalcanzable.
 
+## Presupuesto de memoria
+
+En un equipo gestionado los ajustes de Docker Desktop suelen estar bloqueados, así que la máquina virtual
+conserva su memoria por defecto: la mitad de la RAM del equipo (8 GiB con 16 GiB). Los límites por defecto
+suman **6,6 GiB** y dejan **≈ 1,4 GiB** a la propia máquina virtual (kernel, motor de Docker, caché de
+páginas); sin ese margen, el OOM-killer del kernel empieza a elegir víctimas fuera de los contenedores.
+
+| Servicio | Límite por defecto | Qué corre | Variable |
+|---|---|---|---|
+| `orchestrator` | 2560m | Node (control plane y motor), Chromium de Playwright (specs y captura del DOM; nunca a la vez, la cola es secuencial), `npm ci`, `tsc` y ESLint del repositorio de pruebas, grafo de código | `ORCHESTRATOR_MEMORY` |
+| `agents` | 4g | `opencode serve`, Serena, JDTLS (heap + ≈ 0,4 GiB nativos), servidor de lenguaje de TypeScript, Chromium del MCP de Playwright, engram | `AGENTS_MEMORY`, `JDTLS_XMX` |
+| `tui` | 128m | Consola de terminal (solo mientras está abierta) | — |
+
+- **`/dev/shm`.** Chromium no necesita `shm_size`: Playwright lo lanza con `--disable-dev-shm-usage`
+  (comprobado en `playwright-core` 1.60.0), por lo que los 64 MB por defecto bastan para los specs, la
+  captura del DOM y el MCP de Playwright.
+- **Cómo subir el presupuesto.** Si Docker Desktop permite cambiarlo (*Settings → Resources → Memory*),
+  sube la memoria de la máquina virtual y después los límites en `slim/.env` (`ORCHESTRATOR_MEMORY`,
+  `AGENTS_MEMORY`; `./slim/qayaba.sh up` recrea los contenedores). `JDTLS_XMX` es un argumento de build:
+  cambiarlo exige `./slim/qayaba.sh build`. Regla práctica: `AGENTS_MEMORY` ≥ `JDTLS_XMX` + 0,4 GiB + 2,5 GiB
+  (el resto de procesos del contenedor), y la suma de límites ≤ memoria de la máquina virtual − 1 GiB.
+- **Si no se puede subir.** Un repositorio Java muy grande puede necesitar más de 1 GiB de heap en JDTLS;
+  sin margen en la máquina virtual, es preferible dejar los valores por defecto y limitar los repositorios
+  que se indexan a la vez que ampliar el heap.
+
 ## Java y Maven
 
 El *language server* de Java funciona en el modo "upstream JDTLS" de Serena: JDTLS, Lombok y el JDK
@@ -175,6 +202,6 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | `apt-get update` falla | Sin acceso a Ubuntu | `APT_MIRROR` (amd64) / `APT_PORTS_MIRROR` (arm64) |
 | Los contenedores no resuelven hosts internos | DNS/VPN | Revisa que Docker Desktop use el DNS del sistema; añade los dominios internos a `EXTRA_NO_PROXY` |
 | `authenticate(): the central login did not redirect back` | Credenciales o selectores | Revisa `DEV_TEST_*` y `e2e.auth` |
-| Contenedores reiniciándose por memoria | Docker Desktop con poca RAM | Sube la memoria o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
+| Contenedores reiniciándose por memoria | La suma de límites no cabe en la máquina virtual de Docker Desktop | Revisa «Presupuesto de memoria»: sube la memoria de la máquina virtual o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
 | El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
 | Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |

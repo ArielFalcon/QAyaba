@@ -8,6 +8,12 @@
 # No `dns:` pin: containers resolve through Docker's embedded DNS, i.e. the host/VPN resolver, so
 # internal names (GitLab, Artifactory, DEV, the identity provider) resolve.
 # Values come from slim/.env (copy slim/.env.example).
+#
+# Memory budget (see slim/README.md, "Presupuesto de memoria"): a managed laptop usually cannot change
+# Docker Desktop's settings, so the Linux VM keeps its default memory, half of the host RAM (8 GiB on
+# a 16 GiB laptop). The limits below add up to 6.6 GiB and leave the VM, the Docker engine and the page
+# cache the rest. Chromium needs no `shm_size`: Playwright launches it with --disable-dev-shm-usage,
+# so the default 64 MB /dev/shm is enough for the specs, the DOM capture and the Playwright MCP.
 
 name: qayaba-slim
 
@@ -27,7 +33,7 @@ x-build: &build
     GITHUB_RELEASES_BASE: ${GITHUB_RELEASES_BASE:-https://github.com}
     JDTLS_BASE_URL: ${JDTLS_BASE_URL:-https://download.eclipse.org/jdtls/milestones/1.58.0}
     MAVEN_REPO: ${MAVEN_REPO:-https://repo.maven.apache.org/maven2}
-    JDTLS_XMX: ${JDTLS_XMX:-1536m}
+    JDTLS_XMX: ${JDTLS_XMX:-1024m}
 
 x-image: &image qayaba-slim:${QAYABA_SLIM_TAG:-local}
 
@@ -92,7 +98,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${ORCHESTRATOR_MEMORY:-3g}
+          memory: ${ORCHESTRATOR_MEMORY:-2560m}
           cpus: "2.0"
 
   agents:
@@ -133,7 +139,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: ${AGENTS_MEMORY:-5g}
+          memory: ${AGENTS_MEMORY:-4g}
           cpus: "3.0"
 
   # Terminal console: `./slim/qayaba.sh tui` (docker compose run --rm tui).
@@ -151,6 +157,10 @@ services:
       TERM: ${TERM:-xterm-256color}
     volumes:
       - ../config:/app/config:ro
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
 volumes:
   mirrors:
