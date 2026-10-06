@@ -168,7 +168,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Both roles read the SAME effective OpenCode config: the agents run it, the orchestrator sizes
-# prompts and resolves role models from it.
+# prompts and resolves role models from it. The copies under /root/.config are what the one-shot
+# config-init service (slim/compose.yml) freezes into read-only volumes for the agents.
 COPY --from=deps /tmp/qayaba/opencode.json /app/agents/opencode.json
 RUN mkdir -p /root/.config \
  && rm -rf /root/.config/opencode /root/.config/agent \
@@ -186,12 +187,17 @@ RUN node -e 'const major = Number(process.versions.node.split(".")[0]); if (majo
 
 # LISTEN_HOST: inside the container the control plane listens on every interface so the published
 # port (slim/compose.yml binds it to 127.0.0.1 on the host) and the tui service can reach it.
+# OPENCODE_DISABLE_PROJECT_CONFIG: OpenCode would otherwise merge the watched repository's own
+# opencode.json[c], .opencode/ and AGENTS.md over this image's config, letting a repository re-point the
+# gateway, re-enable a provider or add a remote MCP server. Only the global config (the agents mount it
+# read-only from a volume, see slim/compose.yml) applies.
 ENV QAYABA_PROFILE=slim \
     LISTEN_HOST=0.0.0.0 \
     MIRROR_DIR=/app/.mirrors \
     OPENCODE_DISABLE_AUTOUPDATE=true \
     OPENCODE_DISABLE_MODELS_FETCH=true \
     OPENCODE_DISABLE_LSP_DOWNLOAD=true \
-    OPENCODE_DISABLE_DEFAULT_PLUGINS=true
+    OPENCODE_DISABLE_DEFAULT_PLUGINS=true \
+    OPENCODE_DISABLE_PROJECT_CONFIG=true
 
 CMD ["npm", "run", "start"]

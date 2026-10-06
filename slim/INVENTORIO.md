@@ -116,6 +116,7 @@ contenedor.** Existe un usuario `sandbox` (uid 1002), pero solo lo usa el modo `
 | `orchestrator` | `npm ci`/`npm install` del `e2e/` del repositorio vigilado, `tsc`, ESLint, `playwright test`, captura del DOM, `codebase-memory-mcp` | root, con entorno filtrado (`scrubEnv`) | El filtrado quita `GIT_TOKEN`, `OPENCODE_API_KEY`, `WEBHOOK_SECRET`, `QA_API_TOKEN`… del entorno de estos procesos, pero **no cambian de usuario** (ver §8, punto 1) |
 | `agents` | `agent-supervisor.mjs` → `opencode serve`, y sus MCP: Serena (+ JDTLS, servidor de TypeScript), engram, `playwright-mcp` + Chromium | root | Límites 4g / 3 CPU. Sin `no-new-privileges` |
 | `tui` | `qayaba` (consola de terminal) | root | 128m. Solo mientras está abierta |
+| `config-init` | `sh` (copia la configuración efectiva de OpenCode a sus volúmenes y termina) | root | 64m. Un solo uso, antes que `agents` (`depends_on: service_completed_successfully`); `restart: "no"` |
 
 El agente de IA es de **solo lectura** sobre los repositorios vigilados: solo el orquestador ejecuta `git`. El agente
 únicamente escribe ficheros (los `.spec.ts` y el manifiesto) en la copia de trabajo; el orquestador los valida
@@ -147,6 +148,9 @@ portapapeles. Un contenedor de la red de compose no puede obtener una sesión de
 | `codebase-memory` → `/app/.codebase-memory` | `orchestrator` | Grafo de código por proyecto | Volumen; regenerable |
 | `engram-data` → `/data` | `agents` | Memoria episódica de engram (SQLite) | Volumen; el único dato no regenerable |
 | `opencode-data` → `/root/.local/share/opencode` | `agents` | Sesiones de OpenCode | Volumen |
+| `opencode-config` → `/root/.config/opencode` (solo lectura) | `agents`; `config-init` lo escribe | Configuración efectiva de OpenCode (`opencode.json`, `agents/`, `AGENTS.md`, skills), copiada de la imagen en cada `up` | Volumen; regenerable. El agente no puede escribirla |
+| `agent-prompts` → `/root/.config/agent` (solo lectura) | `agents`; `config-init` lo escribe | Prompts neutrales respecto al proveedor | Volumen; regenerable. El agente no puede escribirlo |
+| `opencode-home` → `/root/.opencode` (solo lectura) | `agents`; `config-init` lo vacía | Nada: OpenCode lee `~/.opencode/` como directorio de configuración, así que se mantiene vacío y no escribible | Volumen; siempre vacío |
 
 ## 6. Salida de red
 
@@ -170,7 +174,7 @@ cada cliente, Java incluido (`java-trust-ca` falla el build si algún certificad
 
 | Destino | Quién | Para qué | Control |
 |---|---|---|---|
-| Pasarela de LLM (`options.baseURL` del override) | `agents` (OpenCode y el supervisor) | Inferencia, y `GET <baseURL>/models` con la clave del día para comprobar que la acepta (el supervisor aplica `HTTPS_PROXY`/`NO_PROXY` del entorno; la clave no se registra ni se devuelve) | OpenCode queda limitado a los proveedores del override (`enabled_providers`); sin catálogo de modelos, sin auto-actualización, sin plugins por defecto, sin descarga de LSP y sin compartir sesiones (`share: disabled`) |
+| Pasarela de LLM (`options.baseURL` del override) | `agents` (OpenCode y el supervisor) | Inferencia, y `GET <baseURL>/models` con la clave del día para comprobar que la acepta (el supervisor aplica `HTTPS_PROXY`/`NO_PROXY` del entorno; la clave no se registra ni se devuelve) | OpenCode queda limitado a los proveedores del override (`enabled_providers`); sin catálogo de modelos, sin auto-actualización, sin plugins por defecto, sin descarga de LSP y sin compartir sesiones (`share: disabled`). La configuración de OpenCode es de solo lectura para el agente y el repositorio vigilado no aporta la suya (`OPENCODE_DISABLE_PROJECT_CONFIG`, ver §8, punto 8) |
 | Servidor git (`GIT_REMOTE_BASE`) | `orchestrator` | Clonar y `fetch` de los repositorios (token de solo lectura) | Solo el orquestador recibe el token |
 | Aplicación bajo prueba en DEV y su proveedor de identidad (origen de `e2e.auth.loginUrl`) | `orchestrator` (specs, captura del DOM) y `agents` (MCP de Playwright) | Ejecutar y explorar la aplicación | Dominios de la propia aplicación |
 | Registro npm interno (`NPM_REGISTRY`, tomado del npmrc global) | `orchestrator` | `npm ci` del `e2e/` del repositorio vigilado al preparar cada ejecución | Es el mismo mirror que el del build; no hay otra descarga |
@@ -235,6 +239,14 @@ Hechos comprobados en el código y la configuración que conviene valorar; ningu
    descarga directa); la hermeticidad cubre los lenguajes de la versión actual de los repositorios objetivo.
 7. **Binarios de terceros** (`engram`, `codebase-memory-mcp`): verificados por SHA-256 contra la versión fijada,
    pero sin auditoría de su código ni de su comportamiento de red en este repositorio.
+8. **La configuración de OpenCode no se puede cambiar desde el repositorio vigilado ni desde el agente.** OpenCode
+   fusiona el `opencode.json`, el `.opencode/` y el `AGENTS.md` de la copia de trabajo sobre su configuración
+   global; la imagen fija `OPENCODE_DISABLE_PROJECT_CONFIG=true`, de modo que solo rige la global. Además, esa
+   configuración llega a `agents` por volúmenes de solo lectura que rellena `config-init` desde la imagen en cada
+   arranque (§5): el shell del agente (root) no puede reescribirla para el siguiente reinicio, y `~/.opencode/`,
+   que OpenCode también lee como directorio de configuración, queda vacío y no escribible. Contrapartida: el
+   `AGENTS.md` y la configuración propios del repositorio vigilado no se cargan. Las *skills* externas que OpenCode
+   descubre en la copia de trabajo no son configuración sino contexto y esta medida no las desactiva.
 
 ## 9. Cómo verificarlo
 

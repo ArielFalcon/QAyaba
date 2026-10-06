@@ -43,6 +43,14 @@ test("Serena does not report usage from the image", () => {
   assert.equal(envOf(runtime).SERENA_USAGE_REPORTING, "false");
 });
 
+// OpenCode merges <session directory>/opencode.json[c] and .opencode/ (config, agents, plugins) from the
+// watched repository's working copy over the image's global config. A repository that can re-point a
+// provider's baseURL or add a remote MCP server would bypass the gateway lock, so the image tells
+// OpenCode to ignore the project's own config.
+test("OpenCode ignores the watched repository's own config", () => {
+  assert.equal(envOf(runtime).OPENCODE_DISABLE_PROJECT_CONFIG, "true");
+});
+
 // The one-line `RUN node -e '...'` that proves the runtime's Node and its native module.
 const nodeCheck = /^RUN node -e '([^']+)'$/m.exec(runtime);
 

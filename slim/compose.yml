@@ -103,6 +103,38 @@ services:
           memory: ${ORCHESTRATOR_MEMORY:-2560m}
           cpus: "2.0"
 
+  # One-shot, before the agents: freezes the effective OpenCode config. OpenCode reads its global config
+  # at every start (every key paste restarts it) and the agents' shell runs as root, so the config must
+  # not live in a directory the agents can write. This service copies the image's config into named
+  # volumes that the agents mount read-only; root without CAP_SYS_ADMIN cannot remount them read-write.
+  # The home `.opencode` directory is read by OpenCode as a config directory as well: it is kept empty
+  # and read-only. `up` runs this again, so each start begins from the image's config.
+  config-init:
+    image: *image
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        for name in opencode agent; do
+          find "/frozen/$$name" -mindepth 1 -delete
+          cp -a "/root/.config/$$name/." "/frozen/$$name/"
+        done
+        find /frozen/opencode-home -mindepth 1 -delete
+        test -f /frozen/opencode/opencode.json
+    environment:
+      NO_PROXY: agents,orchestrator,localhost,127.0.0.1,${EXTRA_NO_PROXY:-}
+      no_proxy: agents,orchestrator,localhost,127.0.0.1,${EXTRA_NO_PROXY:-}
+    volumes:
+      - opencode-config:/frozen/opencode
+      - agent-prompts:/frozen/agent
+      - opencode-home:/frozen/opencode-home
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
   agents:
     image: *image
     build: *build
@@ -114,6 +146,9 @@ services:
       - -c
       - 'if [ -f /root/.m2-settings/settings.xml ]; then mkdir -p "$$HOME/.m2" && ln -sf /root/.m2-settings/settings.xml "$$HOME/.m2/settings.xml"; fi; exec node /usr/local/bin/agent-supervisor.mjs'
     restart: unless-stopped
+    depends_on:
+      config-init:
+        condition: service_completed_successfully
     environment:
       MIRROR_DIR: /app/.mirrors
       ENGRAM_DATA_DIR: /data
@@ -136,6 +171,12 @@ services:
       - mirrors:/app/.mirrors # same path as the orchestrator: the agent's session cwd
       - engram-data:/data
       - opencode-data:/root/.local/share/opencode
+      # The effective OpenCode config, the provider-neutral prompts and the (empty) home config
+      # directory, read-only: only config-init writes them. The agents' shell cannot change the config
+      # OpenCode reads at its next start.
+      - opencode-config:/root/.config/opencode:ro
+      - agent-prompts:/root/.config/agent:ro
+      - opencode-home:/root/.opencode:ro
       # Optional: Artifactory Maven mirror for the Java language server's dependency resolution.
       # Read-only: the file may hold credentials and the agents' shell must not rewrite it.
       - ./maven:/root/.m2-settings:ro
@@ -182,4 +223,7 @@ volumes:
   codebase-memory:
   engram-data:
   opencode-data:
+  opencode-config:
+  agent-prompts:
+  opencode-home:
   maven-repository:

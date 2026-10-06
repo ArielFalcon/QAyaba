@@ -203,18 +203,38 @@ otro destino de LLM. La compartición de sesiones (`share`) queda siempre desact
   declarado en su `models`; el error lista cada clave afectada, de modo que un rol nunca llega a llamar en
   silencio a un proveedor inalcanzable.
 
+### La configuración de OpenCode no la puede cambiar ni el agente ni el repositorio vigilado
+
+Dos caminos podrían saltarse ese límite, y los dos están cerrados:
+
+- **El repositorio vigilado.** OpenCode fusiona el `opencode.json`, el `.opencode/` y el `AGENTS.md` de la copia de
+  trabajo sobre su configuración global, de modo que un repositorio podría reapuntar `baseURL`, rehabilitar un
+  proveedor, activar `share` o añadir un servidor MCP remoto. La imagen fija `OPENCODE_DISABLE_PROJECT_CONFIG=true`
+  y solo rige la configuración global. Contrapartida: el `AGENTS.md` y la configuración propios del repositorio
+  vigilado **ya no se cargan**; las reglas del agente salen únicamente de `agents/`.
+- **El propio agente.** El servicio `agents` corre como root y un LLM dirige su shell; OpenCode relee su
+  configuración en cada arranque, y cada pegado de clave lo reinicia. Por eso la configuración efectiva no vive en
+  un directorio escribible por el agente: el servicio de un solo uso `config-init` copia la de la imagen a volúmenes
+  con nombre (`opencode-config`, `agent-prompts`) y `agents` los monta **de solo lectura** en
+  `/root/.config/opencode` y `/root/.config/agent` (root sin `CAP_SYS_ADMIN` no puede remontarlos). El directorio
+  `~/.opencode`, que OpenCode también lee como directorio de configuración, queda montado vacío y de solo lectura.
+  `config-init` se ejecuta en cada `./slim/qayaba.sh up` y `agents` espera a que termine bien; cada arranque
+  parte, pues, de la configuración de la imagen. Cambiar el override exige reconstruir la imagen, como antes.
+
 ## Presupuesto de memoria
 
 En un equipo gestionado los ajustes de Docker Desktop suelen estar bloqueados, así que la máquina virtual
-conserva su memoria por defecto: la mitad de la RAM del equipo (8 GiB con 16 GiB). Los límites por defecto
-suman **6,6 GiB** y dejan **≈ 1,4 GiB** a la propia máquina virtual (kernel, motor de Docker, caché de
-páginas); sin ese margen, el OOM-killer del kernel empieza a elegir víctimas fuera de los contenedores.
+conserva su memoria por defecto: la mitad de la RAM del equipo (8 GiB con 16 GiB). Los límites por defecto de
+los servicios en régimen suman **6,6 GiB** y dejan **≈ 1,4 GiB** a la propia máquina virtual (kernel, motor de
+Docker, caché de páginas); sin ese margen, el OOM-killer del kernel empieza a elegir víctimas fuera de los
+contenedores.
 
 | Servicio | Límite por defecto | Qué corre | Variable |
 |---|---|---|---|
 | `orchestrator` | 2560m | Node (control plane y motor), Chromium de Playwright (specs y captura del DOM; nunca a la vez, la cola es secuencial), `npm ci`, `tsc` y ESLint del repositorio de pruebas, grafo de código | `ORCHESTRATOR_MEMORY` |
 | `agents` | 4g | `opencode serve`, Serena, JDTLS (heap + ≈ 0,4 GiB nativos), servidor de lenguaje de TypeScript, Chromium del MCP de Playwright, engram | `AGENTS_MEMORY`, `JDTLS_XMX` |
 | `tui` | 128m | Consola de terminal (solo mientras está abierta) | — |
+| `config-init` | 64m | Copia la configuración de OpenCode a sus volúmenes y termina; corre antes que `agents`, así que no se suma a los demás en régimen | — |
 
 - **`/dev/shm`.** Chromium no necesita `shm_size`: Playwright lo lanza con `--disable-dev-shm-usage`
   (comprobado en `playwright-core` 1.60.0), por lo que los 64 MB por defecto bastan para los specs, la
@@ -254,6 +274,7 @@ necesita: no pongas en él credenciales con más alcance del necesario (mejor un
 | Los contenedores no resuelven hosts internos | DNS/VPN | Revisa que Docker Desktop use el DNS del sistema; añade los dominios internos a `EXTRA_NO_PROXY` |
 | `authenticate(): the central login did not redirect back` | Credenciales o selectores | Revisa `DEV_TEST_*` y `e2e.auth` |
 | Contenedores reiniciándose por memoria | La suma de límites no cabe en la máquina virtual de Docker Desktop | Revisa «Presupuesto de memoria»: sube la memoria de la máquina virtual o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
+| `config-init` termina con error y `agents` no arranca | La imagen no trae `opencode.json` en `/root/.config/opencode` | Reconstruye la imagen (`./slim/qayaba.sh build`); el build comprueba ese fichero |
 | El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
 | Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |
 | La consola web muestra «qayaba · login» | Es lo esperado: no hay login automático | `./slim/qayaba.sh console` copia el token local al portapapeles; pégalo en la pantalla de acceso |

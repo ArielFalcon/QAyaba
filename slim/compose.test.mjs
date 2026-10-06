@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -178,4 +178,115 @@ test("the agents start without a settings.xml and leave Maven's default location
 
 test("the agents command still ends in the supervisor", () => {
   assert.match(compose.services.agents.command[2], /exec node \/usr\/local\/bin\/agent-supervisor\.mjs$/);
+});
+
+// OpenCode reads its global config at every start, and every key paste restarts it. The agents
+// container runs as root with an LLM-driven shell, so a config directory it can write would let it
+// re-point the gateway, re-enable a provider or add a remote MCP server for the next start. The
+// effective config therefore reaches the agents only through read-only named volumes that a one-shot
+// service fills from the image (root without CAP_SYS_ADMIN cannot remount a read-only mount). The home
+// `.opencode` directory is read by OpenCode as a config directory too, so it is held read-only and empty.
+const OPENCODE_CONFIG_DIR = "/root/.config/opencode";
+const PROMPT_DIR = "/root/.config/agent";
+const OPENCODE_HOME_DIR = "/root/.opencode";
+const FROZEN_DIRS = [OPENCODE_CONFIG_DIR, PROMPT_DIR, OPENCODE_HOME_DIR];
+
+function mountsOf(service) {
+  return (compose.services[service].volumes ?? []).map((entry) => {
+    const [source, target, mode] = String(entry).split(":");
+    return { source, target, mode };
+  });
+}
+
+const [configInitName, configInit] =
+  Object.entries(compose.services.agents.depends_on ?? {}).find(([, dependency]) => dependency.condition === "service_completed_successfully") ?? [];
+
+test("the agents read the OpenCode config, the prompts and the home config directory from read-only named volumes", () => {
+  for (const target of FROZEN_DIRS) {
+    const mount = agentMounts.find((m) => m.target === target);
+    assert.ok(mount, `${target} is mounted into the agents`);
+    assert.equal(mount.mode, "ro", `${target} is read-only`);
+    assert.ok(Object.hasOwn(compose.volumes, mount.source), `${mount.source} is a declared named volume`);
+  }
+});
+
+test("the agents wait for a one-shot service that ran to completion before they start", () => {
+  assert.ok(configInit, "the agents depend on a service with condition service_completed_successfully");
+  assert.equal(compose.services[configInitName].restart, "no", "the init service runs once per start, never in a loop");
+  assert.equal(compose.services[configInitName].image, compose.services.agents.image, "it carries the image whose config it freezes");
+});
+
+test("only the init service can write the volumes the agents see read-only", () => {
+  for (const { source } of FROZEN_DIRS.map((target) => agentMounts.find((m) => m.target === target))) {
+    const writers = Object.keys(compose.services).filter((name) => mountsOf(name).some((m) => m.source === source && m.mode !== "ro"));
+    assert.deepEqual(writers, [configInitName], `writers of ${source}`);
+  }
+});
+
+test("the init service does not mount a volume over the config directories it copies from", () => {
+  for (const mount of mountsOf(configInitName)) {
+    assert.ok(!FROZEN_DIRS.includes(mount.target), `${mount.source} -> ${mount.target}`);
+  }
+});
+
+// The init command, run against temporary directories: the image's config stands in for
+// /root/.config, the volumes for /frozen.
+function listTree(root, base = root) {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    const relative = path.slice(base.length + 1);
+    return entry.isDirectory() ? [`${relative}/`, ...listTree(path, base)] : [`${relative}=${readFileSync(path, "utf8")}`];
+  }).sort();
+}
+
+function runConfigInit({ image, volumes }) {
+  const root = mkdtempSync(join(tmpdir(), "qayaba-freeze-"));
+  try {
+    const sourceRoot = join(root, "image");
+    const volumeRoot = join(root, "volumes");
+    const seed = (base, files) => {
+      for (const [name, content] of Object.entries(files)) {
+        mkdirSync(join(base, name, ".."), { recursive: true });
+        writeFileSync(join(base, name), content);
+      }
+    };
+    seed(sourceRoot, image);
+    seed(volumeRoot, volumes);
+    const script = compose.services[configInitName].command[2].replaceAll("$$", "$").replaceAll("/root/.config", sourceRoot).replaceAll("/frozen", volumeRoot);
+    const run = spawnSync("sh", ["-c", script], { encoding: "utf8" });
+    const trees = Object.fromEntries(["opencode", "agent", "opencode-home"].map((name) => [name, existsSync(join(volumeRoot, name)) ? listTree(join(volumeRoot, name)) : undefined]));
+    return { run, trees };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("the init command makes each volume an exact copy of the image's config and clears whatever else it held", () => {
+  const { run, trees } = runConfigInit({
+    image: {
+      "opencode/opencode.json": '{"share":"disabled"}',
+      "opencode/agent/qa-generator.md": "prompt",
+      "opencode/.hidden": "dotfile",
+      "agent/roles/qa-reviewer.md": "neutral prompt",
+    },
+    volumes: {
+      "opencode/opencode.json": '{"share":"auto"}',
+      "opencode/stale.json": "left by an earlier boot",
+      "opencode/.stale-hidden": "dotfile",
+      "opencode/agent/old.md": "old prompt",
+      "agent/stale.md": "old",
+      "opencode-home/opencode.json": '{"provider":{}}',
+    },
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(trees.opencode, [".hidden=dotfile", "agent/", "agent/qa-generator.md=prompt", 'opencode.json={"share":"disabled"}']);
+  assert.deepEqual(trees.agent, ["roles/", "roles/qa-reviewer.md=neutral prompt"]);
+  assert.deepEqual(trees["opencode-home"], [], "the home config directory is left empty");
+});
+
+test("the init command fails, and so the agents never start, when the image carries no OpenCode config", () => {
+  const { run } = runConfigInit({ image: { "agent/p.md": "prompt" }, volumes: { "opencode/stale.json": "x", "opencode-home/x": "x" } });
+
+  assert.notEqual(run.status, 0);
 });

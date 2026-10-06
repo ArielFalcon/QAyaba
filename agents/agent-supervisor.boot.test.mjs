@@ -34,7 +34,7 @@ function writeStubOpencode(dir) {
   writeFileSync(
     file,
     '#!/usr/bin/env node\n' +
-      'console.log(`STUB_OPENCODE key=${process.env.OPENCODE_API_KEY ? "present" : "missing"} args=${process.argv.slice(2).join(" ")}`);\n' +
+      'console.log(`STUB_OPENCODE key=${process.env.OPENCODE_API_KEY ? "present" : "missing"} projectConfig=${process.env.OPENCODE_DISABLE_PROJECT_CONFIG ?? "unset"} args=${process.argv.slice(2).join(" ")}`);\n' +
       'const parent = process.ppid;\n' +
       'process.on("SIGTERM", () => process.exit(0));\n' +
       // Never outlive the supervisor, even when a test has to kill it hard.
@@ -158,6 +158,14 @@ test("a key already present at boot starts opencode without any restart", async 
     const line = await output.next(/^STUB_OPENCODE/);
 
     assert.match(line, /key=present/);
+  });
+});
+
+test("opencode serve inherits the switch that makes it ignore the watched repository's own config", async () => {
+  await withSupervisor({ OPENCODE_API_KEY: SECRET, OPENCODE_DISABLE_PROJECT_CONFIG: "true" }, async ({ output }) => {
+    const line = await output.next(/^STUB_OPENCODE/);
+
+    assert.match(line, /projectConfig=true/);
   });
 });
 
