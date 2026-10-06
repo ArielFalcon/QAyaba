@@ -274,3 +274,38 @@ test("two routes that only rendered empty are not a gated app", () => {
 test("no gated-app advisory when every route captured", () => {
   assert.equal(gatedAppAdvisory([buildRouteCatalog({ route: "/a", nodes: ["x: y"] })]), undefined);
 });
+
+/* ── A capture redirected to another origin ── */
+
+const SSO_URL = "https://sso.corp.example/auth/realms/x/login";
+const offOriginRedirect = (route: string, finalUrl = SSO_URL, withPassword = false) =>
+  buildRouteCatalog({ route, nodes: ["x: y"], finalUrl, offOrigin: true, ...(withPassword ? { attrs: [PASSWORD_ATTR] } : {}) });
+
+test("a redirect to another origin on a different path keeps the origin in the page it names", () => {
+  const cat = offOriginRedirect("/orders");
+  assert.equal(cat.degradeReason, DEGRADE_REASON.REDIRECTED);
+  assert.equal(cat.redirectedTo, SSO_URL, "the identity provider's origin is part of the name, not just its path");
+});
+
+test("a redirect to another origin on the requested path still names the origin", () => {
+  assert.equal(offOriginRedirect("/login", "https://sso.corp.example/login").redirectedTo, "https://sso.corp.example/login");
+});
+
+test("the gated-app advisory points a login on another origin at e2e.auth, not at the same-origin auth block", () => {
+  const advisory = gatedAppAdvisory([offOriginRedirect("/a"), offOriginRedirect("/b")]) ?? "";
+  assert.ok(advisory.includes(SSO_URL));
+  assert.match(advisory, /e2e\.auth/);
+  assert.doesNotMatch(advisory, /(?<!e2e\.)\bauth:/);
+});
+
+test("the gated-app advisory keeps pointing a same-origin login at the auth block", () => {
+  const advisory = gatedAppAdvisory([redirected("/a", "/login", true)]) ?? "";
+  assert.match(advisory, /\bauth:/);
+  assert.doesNotMatch(advisory, /e2e\.auth/);
+});
+
+test("the gated-app advisory names both blocks when one page is on another origin and another is not", () => {
+  const advisory = gatedAppAdvisory([offOriginRedirect("/a", SSO_URL, true), redirected("/b", "/login", true)]) ?? "";
+  assert.match(advisory, /e2e\.auth/);
+  assert.match(advisory, /(?<!e2e\.)\bauth:/);
+});

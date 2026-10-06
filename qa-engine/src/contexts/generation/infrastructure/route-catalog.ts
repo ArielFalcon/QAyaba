@@ -36,6 +36,8 @@ export interface RouteCatalog {
   redirectedTo?: string;
   /** Whether the page a redirect reached has a password field (a login page); absent when the route did not redirect. */
   reachedPasswordField?: boolean;
+  /** Whether the redirect left the app's origin (a central login); absent when the route did not redirect. */
+  reachedOtherOrigin?: boolean;
 }
 
 /** Build the test-id index from the raw, role-independent capture (every element carrying the configured testIdAttribute, including role-less elements). Counts occurrences so presence and uniqueness are checkable. Blank values are ignored. */
@@ -93,7 +95,9 @@ function offOriginTarget(finalUrl: string | undefined): string {
 export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
   const captureFailed = snapshot.error !== undefined;
   const emptyRender = !captureFailed && (snapshot.nodes?.length ?? 0) === 0;
-  const redirectedTo = captureFailed ? undefined : redirectTarget(snapshot.route, snapshot.finalUrl) ?? (snapshot.offOrigin === true ? offOriginTarget(snapshot.finalUrl) : undefined);
+  const offOrigin = snapshot.offOrigin === true;
+  /* Another origin is named with its origin whatever its path: the same path elsewhere is not the app's page, and a different path on it must not read as the app's own. */
+  const redirectedTo = captureFailed ? undefined : offOrigin ? offOriginTarget(snapshot.finalUrl) : redirectTarget(snapshot.route, snapshot.finalUrl);
   /* Grounding trust is structural render (captureFailed / emptyRender / redirect), not whether the app logged a runtime error. Runtime errors are adjudication evidence, not a catalog degrade. */
   const degradeReason = captureFailed
     ? DEGRADE_REASON.CAPTURE_FAILED
@@ -109,7 +113,9 @@ export function buildRouteCatalog(snapshot: RouteSnapshot): RouteCatalog {
     settled: !degraded && snapshot.settled === true,
     testIds: degraded ? new Map() : (snapshot.testIds ?? new Map()),
     ...(degraded ? { degradeReason } : {}),
-    ...(redirectedTo === undefined ? {} : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false }),
+    ...(redirectedTo === undefined
+      ? {}
+      : { redirectedTo, reachedPasswordField: snapshot.attrs?.some((attr) => attr.inputType === "password") ?? false, reachedOtherOrigin: offOrigin }),
   };
 }
 
@@ -121,18 +127,20 @@ export function degradedRouteWarning(catalogs: readonly RouteCatalog[]): string 
   return `[qa] WARNING: DOM capture DEGRADED for ${degraded.length} route(s) [${named.join(", ")}] — these routes are NOT grounded; the selector gate treats them as advisory (no fail-closed).`;
 }
 
-/** A note, for the log only, when redirects look like a gated app: two or more routes reached one page, or the page reached has a password field. The app may need a login declared in its config. Undefined when nothing looks gated. */
+/** A note, for the log only, when redirects look like a gated app: two or more routes reached one page, or the page reached has a password field. The app may need a login declared in its config: `auth:` when the page is on the app's own origin, `e2e.auth:` when it is another origin's (a central login). Undefined when nothing looks gated. */
 export function gatedAppAdvisory(catalogs: readonly RouteCatalog[]): string | undefined {
-  const reached = new Map<string, { routes: string[]; hasPasswordField: boolean }>();
+  const reached = new Map<string, { routes: string[]; hasPasswordField: boolean; otherOrigin: boolean }>();
   for (const c of catalogs) {
     if (c.redirectedTo === undefined) continue;
-    const page = reached.get(c.redirectedTo) ?? { routes: [], hasPasswordField: false };
+    const page = reached.get(c.redirectedTo) ?? { routes: [], hasPasswordField: false, otherOrigin: false };
     page.routes.push(c.route);
     page.hasPasswordField ||= c.reachedPasswordField === true;
+    page.otherOrigin ||= c.reachedOtherOrigin === true;
     reached.set(c.redirectedTo, page);
   }
   const gated = [...reached].filter(([, page]) => page.routes.length > 1 || page.hasPasswordField);
   if (gated.length === 0) return undefined;
   const named = gated.map(([path, page]) => `${path} (reached from ${page.routes.join(", ")})`);
-  return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare auth: in its config.`;
+  const blocks = [...(gated.some(([, page]) => !page.otherOrigin) ? ["auth: (a login on the app's own origin)"] : []), ...(gated.some(([, page]) => page.otherOrigin) ? ["e2e.auth: (a central login on another origin)"] : [])];
+  return `[qa] NOTE: the app may be gated: ${named.join("; ")}. If it needs a login, declare ${blocks.join(" or ")} in its config.`;
 }
