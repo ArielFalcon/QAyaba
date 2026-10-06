@@ -9,11 +9,17 @@ import { fileURLToPath } from "node:url";
 const slimFile = (name) => fileURLToPath(new URL(`./${name}`, import.meta.url));
 
 // A stand-in for the docker CLI, the process boundary of qayaba.sh. It records every call, prints
-// STUB_PORT for `compose port`, and fails any call that contains STUB_FAIL_ON.
+// STUB_PORT for `compose port`, and fails any call that contains one of the STUB_FAIL_ON patterns
+// (separated by "|").
 const DOCKER_STUB = `#!/bin/sh
-echo "$*" >> "$STUB_LOG"
+args="$*"
+echo "$args" >> "$STUB_LOG"
 if [ -n "\${STUB_FAIL_ON:-}" ]; then
-  case "$*" in *"$STUB_FAIL_ON"*) echo "stub docker: refusing $*" >&2; exit 1 ;; esac
+  IFS='|'
+  for pattern in $STUB_FAIL_ON; do
+    case "$args" in *"$pattern"*) echo "stub docker: refusing $args" >&2; exit 1 ;; esac
+  done
+  unset IFS
 fi
 case "$*" in
   *" port orchestrator "*) printf '%s\\n' "$STUB_PORT" ;;
@@ -24,7 +30,7 @@ exit 0
 
 // qayaba.sh locates everything relative to its own path, so a copy inside a temp "slim" directory
 // runs against temp files only.
-function qayaba(args, { override, failOn = "", port = "127.0.0.1:8080" } = {}) {
+function qayaba(args, { override, failOn = "", port = "127.0.0.1:8080", tag = "" } = {}) {
   const root = mkdtempSync(join(tmpdir(), "qayaba-cli-"));
   try {
     const slim = join(root, "slim");
@@ -33,7 +39,7 @@ function qayaba(args, { override, failOn = "", port = "127.0.0.1:8080" } = {}) {
     mkdirSync(join(slim, "certs"));
     mkdirSync(bin);
     for (const file of ["qayaba.sh", "probe-gateway.sh"]) copyFileSync(slimFile(file), join(slim, file));
-    writeFileSync(join(slim, ".env"), "NODE_IMAGE=registry.test/node:24\nEXTRA_NO_PROXY=.corp.test\n");
+    writeFileSync(join(slim, ".env"), `NODE_IMAGE=registry.test/node:24\nEXTRA_NO_PROXY=.corp.test\n${tag ? `QAYABA_SLIM_TAG=${tag}\n` : ""}`);
     if (override) writeFileSync(join(slim, "opencode.override.json"), JSON.stringify(override));
     writeFileSync(join(bin, "docker"), DOCKER_STUB);
     chmodSync(join(bin, "docker"), 0o755);
@@ -105,4 +111,36 @@ test("preflight fails, after printing everything else, when the gateway is unrea
   const result = qayaba(["preflight"], { override: withGateway, failOn: "probe-gateway.sh" });
   assert.notEqual(result.status, 0);
   assert.match(result.output, /LLM gateway/);
+});
+
+const sbomCalls = (calls) => calls.filter((c) => /(^| )(scout sbom|sbom) /.test(c) && !c.includes("--version") && !c.includes("scout version"));
+
+test("sbom asks Docker Scout for the SBOM of the built image and forwards the extra arguments", () => {
+  const result = qayaba(["sbom", "--format", "spdx"]);
+  assert.equal(result.status, 0, result.output);
+  assert.deepEqual(sbomCalls(result.calls), ["scout sbom --format spdx qayaba-slim:local"]);
+});
+
+test("sbom uses the image tag the operator configured", () => {
+  const result = qayaba(["sbom"], { tag: "2026-10" });
+  assert.deepEqual(sbomCalls(result.calls), ["scout sbom qayaba-slim:2026-10"]);
+});
+
+test("sbom falls back to the docker sbom plugin when Docker Scout is not available", () => {
+  const result = qayaba(["sbom"], { failOn: "scout version" });
+  assert.equal(result.status, 0, result.output);
+  assert.deepEqual(sbomCalls(result.calls), ["sbom qayaba-slim:local"]);
+});
+
+test("sbom without any generator points at the static inventory instead of failing", () => {
+  const result = qayaba(["sbom"], { failOn: "scout version|sbom --version" });
+  assert.equal(result.status, 0, result.output);
+  assert.deepEqual(sbomCalls(result.calls), []);
+  assert.match(result.output, /INVENTORIO\.md/);
+});
+
+test("sbom asks for a build first when the image does not exist", () => {
+  const result = qayaba(["sbom"], { failOn: "image inspect" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.output, /build/);
 });

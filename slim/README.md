@@ -9,6 +9,9 @@ periferia: la publicación remota (PR/Issue), el auto-mantenimiento y el login c
 
 El diseño completo, sus razones y los riesgos están en
 [`docs/plans/slim-poc-entorno-restringido.md`](../docs/plans/slim-poc-entorno-restringido.md).
+Para la revisión de seguridad, [`INVENTORIO.md`](INVENTORIO.md) lista cada componente con su versión y su
+origen, los usuarios y puertos, los volúmenes, la salida de red (en el build y en ejecución) y el tratamiento
+de los secretos; `./slim/qayaba.sh sbom` genera la lista real de paquetes de la imagen construida.
 
 ## Qué cambia respecto a la instalación completa
 
@@ -87,6 +90,7 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 ./slim/qayaba.sh tui                                                # consola de terminal
 open http://localhost:8080/app                                      # consola web
 ./slim/qayaba.sh exports <app>                                      # resultados exportados
+./slim/qayaba.sh sbom                                               # lista de paquetes de la imagen (para la revisión de seguridad)
 ```
 
 Cada ejecución que decide publicar deja en `slim/exports/<app>/<run>/`:

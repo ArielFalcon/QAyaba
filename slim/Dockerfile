@@ -86,7 +86,7 @@ COPY --chmod=755 slim/java-trust-ca.sh /usr/local/bin/java-trust-ca
 RUN java-trust-ca
 
 # npm: the internal mirror for every npm in the image. The GLOBAL npmrc is read whatever the user,
-# HOME or filtered environment (the e2e install runs as the sandbox user with a scrubbed env).
+# HOME or filtered environment (the e2e install runs with a scrubbed env).
 ARG NPM_REGISTRY=https://registry.npmjs.org/
 RUN npm config set --location=global registry "$NPM_REGISTRY" \
  && npm config set --location=global cafile /etc/ssl/certs/ca-certificates.crt
@@ -157,7 +157,8 @@ RUN serena project index /tmp/warmup/ts --language typescript --log-level WARNIN
  && test -x "$HOME/.serena/language_servers/static/TypeScriptLanguageServer/ts-lsp/node_modules/.bin/typescript-language-server" \
  && rm -rf /tmp/warmup "$HOME/.serena/language_servers/static/EclipseJDTLS/workspaces"
 
-# Orchestrator: the unprivileged user that runs untrusted code (the repo's install, the specs).
+# Orchestrator: the unprivileged user that `target: code` runs drop to for untrusted code. The e2e path
+# (the repo's install, the specs) runs as the container user with a scrubbed env: slim/INVENTORIO.md, §3.
 RUN useradd --create-home --uid 1002 --shell /usr/sbin/nologin sandbox
 
 WORKDIR /app

@@ -16,6 +16,8 @@
 #                                           (mode: diff | context | complete | exhaustive | manual)
 #   ./slim/qayaba.sh tui                    terminal console (runs in a container; nothing runs on the host)
 #   ./slim/qayaba.sh exports [app]          list exported publications (patch + MR/Issue bodies)
+#   ./slim/qayaba.sh sbom [args]            software bill of materials of the built image (docker scout sbom, or
+#                                           docker sbom); without either, see slim/INVENTORIO.md
 set -euo pipefail
 
 SLIM_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -146,6 +148,19 @@ check_compose_network() {
     || die "the tui service cannot reach the orchestrator on orchestrator:8080: check that the orchestrator is healthy (./slim/qayaba.sh ps), that it listens on every interface (LISTEN_HOST) and that no proxy intercepts the service name (EXTRA_NO_PROXY)"
 }
 
+sbom() {
+  local image="qayaba-slim:$(env_value QAYABA_SLIM_TAG local)"
+  docker image inspect "$image" >/dev/null 2>&1 || die "image $image not found: build it first (./slim/qayaba.sh build)"
+  if docker scout version >/dev/null 2>&1; then
+    docker scout sbom "$@" "$image"
+  elif docker sbom --version >/dev/null 2>&1; then
+    docker sbom "$@" "$image"
+  else
+    echo "no SBOM generator available (neither 'docker scout' nor the 'docker sbom' plugin)."
+    echo "the components of the image, with versions and origin, are listed in slim/INVENTORIO.md"
+  fi
+}
+
 cmd="${1:-help}"; shift || true
 case "$cmd" in
   preflight) preflight ;;
@@ -183,6 +198,7 @@ case "$cmd" in
           body: JSON.stringify(b),
         }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });' ;;
   tui) "${COMPOSE[@]}" run --rm tui ;;
+  sbom) sbom "$@" ;;
   exports) ls -1t "$SLIM_DIR/exports/${1:-}" 2>/dev/null || echo "no exports yet" ;;
   help|*) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" ;;
 esac
