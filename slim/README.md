@@ -67,8 +67,9 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 # 5. Abre la consola web (el token local queda en el portapapeles: pégalo en la pantalla de acceso) y pega
 #    la clave de la API del LLM del día en el panel «agent runtime · LLM gateway», o usa la pantalla
 #    «agent runtime» de la TUI (tecla `a`).
-./slim/qayaba.sh console OPENCODE_API_KEY en slim/.env es
-#    opcional: la pila arranca sin ella y el agente espera la clave (ver «Clave diaria del LLM»).
+./slim/qayaba.sh console
+#    OPENCODE_API_KEY en slim/.env es opcional: la pila arranca sin ella y el agente espera la clave
+#    (ver «Clave diaria del LLM»).
 ```
 
 ## Dar de alta una aplicación
