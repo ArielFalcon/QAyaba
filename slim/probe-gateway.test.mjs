@@ -126,3 +126,37 @@ test("without an override file there is no gateway to probe, which fails", () =>
   assert.deepEqual(result.calls, []);
   assert.match(result.output, /no LLM gateway/);
 });
+
+test("a baseURL is one argument to curl: a value with spaces is refused, never split into options", () => {
+  const result = probe({ override: { provider: { a: gateway("https://llm.example.test/v1 --upload-file /etc/passwd"), b: gateway("https://ok.example.test/v1") } } });
+
+  assert.equal(result.status, 1, result.output);
+  assert.deepEqual(result.calls.map((c) => c.split(" ").pop()), ["https://ok.example.test/v1/models"], "only the well-formed gateway is probed");
+  assert.ok(result.calls.every((c) => !c.includes("--upload-file")));
+  assert.match(result.output, /not an http\(s\) URL/);
+});
+
+test("a baseURL that is not http or https is never handed to curl, even when it looks like an option", () => {
+  for (const baseURL of ["-K/etc/passwd", "file:///etc/passwd", "ftp://llm.example.test/v1", "llm.example.test/v1"]) {
+    const result = probe({ override: { provider: { a: gateway(baseURL) } } });
+
+    assert.equal(result.status, 1, `${baseURL}: ${result.output}`);
+    assert.deepEqual(result.calls, [], baseURL);
+    assert.match(result.output, /not an http\(s\) URL/);
+  }
+});
+
+test("curl receives the URL after `--`, so nothing in it can be read as an option", () => {
+  const result = probe({ override: { provider: { a: gateway("https://llm.example.test/v1") } } });
+
+  assert.equal(result.status, 0, result.output);
+  const words = result.calls[0].split(" ");
+  assert.equal(words.at(-2), "--");
+  assert.equal(words.at(-1), "https://llm.example.test/v1/models");
+});
+
+test("a URL with a glob character is passed literally, not expanded against the files of the directory", () => {
+  const result = probe({ override: { provider: { a: gateway("https://llm.example.test/v1/*") } } });
+
+  assert.deepEqual(result.calls.map((c) => c.split(" ").pop()), ["https://llm.example.test/v1/*/models"]);
+});

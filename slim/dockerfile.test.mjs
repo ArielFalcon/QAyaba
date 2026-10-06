@@ -91,3 +91,48 @@ test("the effective OpenCode config is built from the base and the override, so 
   assert.match(step[1], /opencode\.base\.json$/);
   assert.match(step[2], /opencode\.override\.json$/);
 });
+
+// The build context of the slim image: BuildKit reads Dockerfile.dockerignore beside the Dockerfile.
+// A pattern without `**/` only matches at the root of the context, so a secret file nested in a
+// subdirectory would be copied into the image. A minimal matcher of the documented syntax (`**/` any
+// depth, `*` within a segment, `?` one character, `!` re-includes, the last matching rule wins).
+const ignoreRules = readFileSync(new URL("./Dockerfile.dockerignore", import.meta.url), "utf8")
+  .split("\n")
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith("#"));
+
+function ignoreRegex(pattern) {
+  let source = "";
+  for (let i = 0; i < pattern.length; i++) {
+    if (pattern.startsWith("**/", i)) { source += "(?:.*/)?"; i += 2; }
+    else if (pattern.startsWith("**", i)) { source += ".*"; i += 1; }
+    else if (pattern[i] === "*") source += "[^/]*";
+    else if (pattern[i] === "?") source += "[^/]";
+    else source += pattern[i].replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}(?:/.*)?$`);
+}
+
+function isIgnored(path) {
+  let ignored = false;
+  for (const rule of ignoreRules) {
+    const negated = rule.startsWith("!");
+    if (ignoreRegex((negated ? rule.slice(1) : rule).replace(/\/$/, "")).test(path)) ignored = !negated;
+  }
+  return ignored;
+}
+
+test("secret files stay out of the build context at any depth", () => {
+  const secrets = [
+    ".env", "slim/.env", "app/config/.env", "e2e/.env.local", "a/b/c/.env.production",
+    "server.pem", "certs/nested/server.pem", "id.key", "deploy/keys/id.key",
+    ".api_token", "config/.api_token", "deep/dir/.api_token",
+  ];
+  for (const path of secrets) assert.ok(isIgnored(path), `${path} must not enter the build context`);
+});
+
+test("the example environment file and the corporate CA bundle still enter the build context", () => {
+  for (const path of [".env.example", "slim/.env.example", "deep/dir/.env.example", "slim/certs/corp.crt", "qa-engine/src/index.ts", "config/e2e/fixtures.ts"]) {
+    assert.ok(!isIgnored(path), `${path} is needed by the build`);
+  }
+});

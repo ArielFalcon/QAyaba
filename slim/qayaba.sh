@@ -46,26 +46,57 @@ api_token() {
   printf '%s' "$t"
 }
 
-api() {
-  # api METHOD PATH [JSON] — calls the orchestrator API from inside its container (loopback only).
-  local method="$1" path="$2" body="${3:-}"
-  local token
+orchestrator_node() {
+  # orchestrator_node SCRIPT [-e NAME=VALUE ...] — runs a node script inside the orchestrator. The API
+  # token is written to the script's stdin, so it never appears in a process argument list (here or in
+  # `docker`'s), and everything else travels as environment variables, so what the operator typed is
+  # never spliced into the script or into a JSON string.
+  local script="$1" token
+  shift
   token="$(api_token)"
-  if [ -n "$body" ]; then
-    "${COMPOSE[@]}" exec -T orchestrator curl -sS -X "$method" -H "Authorization: Bearer $token" \
-      -H 'content-type: application/json' --data "$body" "http://localhost:8080$path"
-  else
-    "${COMPOSE[@]}" exec -T orchestrator curl -sS -X "$method" -H "Authorization: Bearer $token" "http://localhost:8080$path"
-  fi
-  echo
+  printf '%s' "$token" | "${COMPOSE[@]}" exec -T "$@" orchestrator node -e "$script"
 }
 
-json_array() {
-  # json_array a b c → ["a","b","c"]
-  local out="" item
-  for item in "$@"; do out="$out${out:+,}\"$item\""; done
-  printf '[%s]' "$out"
+valid_app() {
+  # An app name is a config/apps/<app>.yaml file name: plain characters only, so it can neither climb out
+  # of the /api/apps/<app> path nor smuggle a query string into it.
+  local re='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+  [[ "$1" =~ $re ]] || die "invalid app name '$1' (letters, digits, '.', '_' and '-' only)"
 }
+
+valid_repo() {
+  # group/project, with nested groups allowed: every segment is plain characters.
+  local re='^[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)+$'
+  [[ "$1" =~ $re ]] || die "invalid repository path '$1' (expected group/project: letters, digits, '.', '_' and '-' in each segment)"
+}
+
+# The request of the onboarding commands, built in node from the environment (API_APP, API_ACTION, API_METHOD
+# and, for the proposal, ONBOARD_REPO / ONBOARD_SERVICES, one service per line): the app is percent-encoded
+# into the path and the body is serialized, never assembled from strings.
+ONBOARD_REQUEST='
+  const e = process.env;
+  const token = require("fs").readFileSync(0, "utf8").trim();
+  const path = "/api/apps/" + encodeURIComponent(e.API_APP) + "/" + e.API_ACTION;
+  let body;
+  if (e.ONBOARD_REPO) body = JSON.stringify({ repo: e.ONBOARD_REPO, services: (e.ONBOARD_SERVICES || "").split("\n").filter(Boolean) });
+  else if (e.API_BODY) body = e.API_BODY;
+  const headers = { authorization: "Bearer " + token };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  fetch("http://localhost:8080" + path, { method: e.API_METHOD, headers, body })
+    .then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });'
+
+# The run request: the JSON is built inside the container from the environment.
+RUN_REQUEST='
+  const token = require("fs").readFileSync(0, "utf8").trim();
+  const b = { app: process.env.RUN_APP, target: "e2e", mode: process.env.RUN_MODE };
+  const ref = process.env.RUN_REF;
+  if (/^[0-9a-f]{7,40}$/i.test(ref)) b.sha = ref; else b.ref = ref;
+  if (process.env.RUN_GUIDANCE) b.guidance = process.env.RUN_GUIDANCE;
+  fetch("http://localhost:8080/api/runs", {
+    method: "POST",
+    headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+    body: JSON.stringify(b),
+  }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });'
 
 preflight() {
   local mirror gitlab dev
@@ -156,14 +187,23 @@ check() {
 }
 
 check_console_port() {
-  # The console, API and webhook must be published on the host's loopback interface only.
-  local published
-  published="$("${COMPOSE[@]}" port orchestrator 8080 2>/dev/null || true)"
-  [ -n "$published" ] || die "the console port is not published (is the orchestrator up? ./slim/qayaba.sh ps)"
-  case "$published" in
-    127.0.0.1:*|"[::1]:"*) echo "console port published on loopback only: $published" ;;
-    *) die "the console port is published on every interface ($published); it must be 127.0.0.1 only (see ports: in slim/compose.yml)" ;;
-  esac
+  # The console, API and webhook must be published on the host's loopback interface only. Every binding
+  # of the port counts (`docker port` lists them all; `compose port` reports a single one), so a second
+  # binding on another interface cannot hide behind a loopback first one.
+  local id bindings binding
+  id="$("${COMPOSE[@]}" ps -q orchestrator 2>/dev/null || true)"
+  [ -n "$id" ] || die "the console port is not published (is the orchestrator up? ./slim/qayaba.sh ps)"
+  bindings="$(docker port "$id" 8080/tcp 2>/dev/null | grep -v '^[[:space:]]*$' || true)"
+  [ -n "$bindings" ] || die "the console port is not published (is the orchestrator up? ./slim/qayaba.sh ps)"
+  while IFS= read -r binding; do
+    case "$binding" in
+      127.0.0.1:*|"[::1]:"*) ;;
+      *) die "the console port is published on every interface ($binding); it must be 127.0.0.1 only (see ports: in slim/compose.yml)" ;;
+    esac
+  done <<EOF
+$bindings
+EOF
+  echo "console port published on loopback only: $(printf '%s' "$bindings" | tr '\n' ' ')"
 }
 
 check_compose_network() {
@@ -202,9 +242,18 @@ case "$cmd" in
   onboard)
     [ $# -ge 2 ] || die "usage: onboard <app> <repo> [service-repo ...]"
     app="$1"; repo="$2"; shift 2
-    api POST "/api/apps/$app/boundaries/propose" "{\"repo\":\"$repo\",\"services\":$(json_array "$@")}" ;;
-  onboard-status) api GET "/api/apps/${1:?app}/boundaries/propose/status" ;;
-  onboard-confirm) api POST "/api/apps/${1:?app}/boundaries/confirm" '{"confirm":true}' ;;
+    valid_app "$app"; valid_repo "$repo"
+    services=""
+    for service in "$@"; do valid_repo "$service"; services="$services${services:+
+}$service"; done
+    orchestrator_node "$ONBOARD_REQUEST" -e API_METHOD=POST -e "API_APP=$app" -e API_ACTION=boundaries/propose \
+      -e "ONBOARD_REPO=$repo" -e "ONBOARD_SERVICES=$services" ;;
+  onboard-status)
+    app="${1:?usage: onboard-status <app>}"; valid_app "$app"
+    orchestrator_node "$ONBOARD_REQUEST" -e API_METHOD=GET -e "API_APP=$app" -e API_ACTION=boundaries/propose/status ;;
+  onboard-confirm)
+    app="${1:?usage: onboard-confirm <app>}"; valid_app "$app"
+    orchestrator_node "$ONBOARD_REQUEST" -e API_METHOD=POST -e "API_APP=$app" -e API_ACTION=boundaries/confirm -e 'API_BODY={"confirm":true}' ;;
   run)
     [ $# -ge 2 ] || die "usage: run <app> <sha|branch> [mode] [--guidance \"...\"]"
     app="$1"; ref="$2"; shift 2; mode="diff"; guidance=""
@@ -212,17 +261,7 @@ case "$cmd" in
     if [ "${1:-}" = "--guidance" ]; then guidance="${2:-}"; fi
     # Enqueued through the API (the server's single sequential queue), so it never overlaps another
     # run and shows live in the TUI and the web console. The JSON is built inside the container.
-    "${COMPOSE[@]}" exec -T -e RUN_APP="$app" -e RUN_REF="$ref" -e RUN_MODE="$mode" -e RUN_GUIDANCE="$guidance" \
-      -e QA_TOKEN="$(api_token)" orchestrator node -e '
-        const b = { app: process.env.RUN_APP, target: "e2e", mode: process.env.RUN_MODE };
-        const ref = process.env.RUN_REF;
-        if (/^[0-9a-f]{7,40}$/i.test(ref)) b.sha = ref; else b.ref = ref;
-        if (process.env.RUN_GUIDANCE) b.guidance = process.env.RUN_GUIDANCE;
-        fetch("http://localhost:8080/api/runs", {
-          method: "POST",
-          headers: { authorization: "Bearer " + process.env.QA_TOKEN, "content-type": "application/json" },
-          body: JSON.stringify(b),
-        }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });' ;;
+    orchestrator_node "$RUN_REQUEST" -e "RUN_APP=$app" -e "RUN_REF=$ref" -e "RUN_MODE=$mode" -e "RUN_GUIDANCE=$guidance" ;;
   tui) "${COMPOSE[@]}" run --rm tui ;;
   console) console_login "$@" ;;
   sbom) sbom "$@" ;;

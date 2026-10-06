@@ -32,9 +32,19 @@ fi
 errors="$(mktemp)"
 trap 'rm -f "$errors"' EXIT
 status=0
-for base in $urls; do
+# One URL per line, read verbatim: nothing is word-split or glob-expanded, and a value that is not an
+# http(s) URL (or holds whitespace) is refused instead of being passed to curl, where it could be read
+# as an option. `--` ends curl's options before the URL as a second guard.
+while IFS= read -r base; do
+  case "$base" in
+    http://*|https://*) ;;
+    *) status=1; echo "$base  skipped: not an http(s) URL"; continue ;;
+  esac
+  case "$base" in
+    *[[:space:]]*) status=1; echo "$base  skipped: not an http(s) URL (it holds whitespace)"; continue ;;
+  esac
   url="${base%/}/models"
-  code="$(curl -sS -o /dev/null -m "${PROBE_TIMEOUT_SECONDS:-15}" -w '%{http_code}' "$url" 2>"$errors")" && rc=0 || rc=$?
+  code="$(curl -sS -o /dev/null -m "${PROBE_TIMEOUT_SECONDS:-15}" -w '%{http_code}' -- "$url" 2>"$errors")" && rc=0 || rc=$?
   if [ "$rc" -eq 0 ]; then
     echo "$url  reachable (HTTP $code)"
     continue
@@ -47,5 +57,7 @@ for base in $urls; do
     35|51|58|60|77|83) echo "  fix: TLS verification failed; run ./slim/qayaba.sh export-ca (every certificate of the chain) and rebuild" ;;
     *) echo "  fix: unexpected curl error; see the message above and the troubleshooting table in slim/README.md" ;;
   esac
-done
+done <<EOF
+$urls
+EOF
 exit "$status"

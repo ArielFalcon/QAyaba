@@ -10,15 +10,18 @@ node_modules/
 data/
 qa-engine/.tsbuild/
 
-# Secrets never enter the image.
+# Secrets never enter the image. `**/` makes each rule match at any depth: without it a pattern only
+# matches at the root of the context, so a nested file would be copied in.
 .env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 slim/.env
 .api_token
+**/.api_token
 config/.api_token
-*.pem
-*.key
+**/*.pem
+**/*.key
 
 # Local outputs.
 slim/exports/
