@@ -30,7 +30,8 @@ El diseño completo, sus razones y los riesgos están en
 - Artifactory (o equivalente) con remotos para: imágenes Docker (mcr.microsoft.com, Docker Hub),
   npm, PyPI, Go, apt de Ubuntu (archive/security para amd64, ports para arm64), Maven Central y, si
   no se *vendorizan* a mano, genéricos para `github.com` y `download.eclipse.org`.
-- Clave del LLM (OpenCode Go/Zen o un proveedor corporativo).
+- Clave de la API de la pasarela de LLM. No hace falta para arrancar: si caduca a diario, se pega en la
+  consola (ver «Clave diaria del LLM»).
 
 ## Puesta en marcha
 
@@ -46,12 +47,16 @@ cp slim/.env.example slim/.env        # y rellena las URLs de Artifactory y los 
 #    (lista y URLs en slim/vendor/README.md). Se verifican por SHA-256 en el build.
 
 # 3. (Opcional) LLM corporativo: copia slim/opencode.override.example.json a slim/opencode.override.json
-#    y ajusta el proveedor y los modelos. Pon su clave en OPENCODE_API_KEY.
+#    y ajusta el proveedor y los modelos. La clave no se declara aquí: se pega en la consola (paso 5).
 
 # 4. Construir (todas las descargas ocurren aquí) y arrancar
 ./slim/qayaba.sh build
 ./slim/qayaba.sh up
 ./slim/qayaba.sh check                # binarios, language servers y configuración: sin nada pendiente de descargar
+
+# 5. Pega la clave de la API del LLM del día: consola web (http://localhost:8080/app, panel «agent runtime ·
+#    LLM gateway») o pantalla «agent runtime» de la TUI (tecla `a`). OPENCODE_API_KEY en slim/.env es
+#    opcional: la pila arranca sin ella y el agente espera la clave (ver «Clave diaria del LLM»).
 ```
 
 ## Dar de alta una aplicación
@@ -110,6 +115,31 @@ tiene certificado de cliente: si el proveedor pide mTLS de forma opcional, conti
 formulario de usuario y contraseña (verificado contra un proveedor HTTPS que solicita certificado).
 Si el proveedor **exige** certificado sin alternativa, hace falta un usuario técnico con contraseña en DEV.
 
+## Clave diaria del LLM
+
+La clave de la API de la pasarela de LLM caduca a diario, así que la pila **arranca sin ella**:
+`OPENCODE_API_KEY` en `slim/.env` es opcional. Mientras no haya clave, el servicio de agentes queda en
+espera (`needs_config`) y la consola lo muestra como «needs configuration».
+
+1. Pega la clave del día en el panel **agent runtime · LLM gateway** de la consola web
+   (`http://localhost:8080/app`, botón *Apply key*) o en la pantalla *agent runtime* de la TUI (tecla `a`).
+2. El orquestador la entrega al servicio de agentes, que reinicia el proceso del agente con esa clave.
+   El estado pasa a `healthy` en unos segundos.
+
+Qué conviene tener presente:
+
+- **Ejecución en curso.** Con una ejecución activa la clave no se aplica (la consola avisa de que hay una
+  ejecución en curso): vuelve a pegarla cuando termine.
+- **Clave caducada durante una ejecución.** Esa ejecución falla como `infra-error` (no es un fallo del
+  código): pega la clave nueva y vuelve a lanzarla.
+- **Reinicio de contenedores.** Si se reinicia el servicio de agentes (o la pila entera) la clave se
+  pierde y hay que pegarla otra vez. Si solo se reinicia el orquestador, el servicio de agentes conserva
+  la suya y la consola refleja su estado.
+- **Dónde queda la clave.** Solo en el entorno del orquestador y del servicio de agentes y, para el
+  orquestador, en `/app/.env` (permisos `0600`) dentro de su contenedor; ningún volumen la conserva, así que
+  se pierde al recrearlo. No se guarda en el navegador ni en ninguna URL, y se enmascara en los mensajes de
+  error del agente y en las salidas que se registran.
+
 ## LLM corporativo
 
 `slim/opencode.override.json` se fusiona con `agents/opencode.json` durante el build. Declara ahí el
@@ -140,3 +170,5 @@ contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settin
 | Los contenedores no resuelven hosts internos | DNS/VPN | Revisa que Docker Desktop use el DNS del sistema; añade los dominios internos a `EXTRA_NO_PROXY` |
 | `authenticate(): the central login did not redirect back` | Credenciales o selectores | Revisa `DEV_TEST_*` y `e2e.auth` |
 | Contenedores reiniciándose por memoria | Docker Desktop con poca RAM | Sube la memoria o baja `AGENTS_MEMORY`/`JDTLS_XMX` |
+| El panel *agent runtime* muestra «needs configuration» | No hay clave del día | Pégala (ver «Clave diaria del LLM») |
+| Ejecución en `infra-error` con un mensaje de autenticación o de créditos del proveedor | La clave caducó o se agotó | Pega la clave nueva y vuelve a lanzar la ejecución |
