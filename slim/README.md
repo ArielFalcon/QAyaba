@@ -153,6 +153,12 @@ configuración, así que:
 Mantén **modelos distintos** para `qa-generator` y `qa-reviewer`: la independencia del revisor
 depende de ello. Tras cambiar el override: `./slim/qayaba.sh build && ./slim/qayaba.sh up`.
 
+Con un override que declara `provider`, OpenCode queda **limitado a esos proveedores**
+(`enabled_providers`): ningún rol puede llamar a otro destino de LLM. La compartición de sesiones
+(`share`) queda siempre desactivada. El build **falla** si `model`, `small_model` o el `model` de algún
+agente no apunta a un proveedor habilitado y a un modelo declarado en su `models`; el error lista cada
+clave afectada, de modo que un rol nunca llega a llamar en silencio a un proveedor inalcanzable.
+
 ## Java y Maven
 
 El *language server* de Java funciona en el modo "upstream JDTLS" de Serena: JDTLS, Lombok y el JDK
