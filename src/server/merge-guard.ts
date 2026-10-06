@@ -284,6 +284,15 @@ export const PROTECTED_PATHS: string[] = [
   "slim/java-trust-ca.sh",
   "slim/qayaba.sh",
   "slim/probe-gateway.sh",
+  /* The key hand-off: the supervisor that holds the gateway key and reports its fingerprint, and the strategy that compares it with the orchestrator's own key before a run. A quiet edit leaves the key in use unmasked in logs and Issues. */
+  "agents/agent-supervisor.mjs",
+  "src/agent-runtime/opencode-strategy.ts",
+  /* The console's security posture: the response headers that confine it to its own origin, the page and the two scripts that take the gateway key and the API token and send them, and the vendored assets served under that policy (a directory entry, so a file added later is covered). */
+  "src/server/static.ts",
+  "web/public/index.html",
+  "web/public/js/api.js",
+  "web/public/js/console.js",
+  "web/public/vendor/",
   /* Decides what the image build context contains — dropping an entry can bake .env into the image. */
   ".dockerignore",
   "docker-compose.yml",

@@ -261,6 +261,32 @@ test("isProtectedPath flags the slim trust files: checksums, artifact fetcher, J
   }
 });
 
+/* The key hand-off and the console's security posture: the supervisor that holds the gateway key and reports its
+   fingerprint, the strategy that compares it with the orchestrator's own key before a run, the response headers that
+   confine the console to its own origin, and the console that takes the key and the API token and sends them. The
+   vendored scripts and fonts are served from that origin under the policy, so a swapped file runs with the
+   console's token. Rewriting any of them leaves the key unmasked or the token exposed without touching a trust file. */
+test("isProtectedPath flags the key hand-off and the web console's security surface", () => {
+  const surface = [
+    "agents/agent-supervisor.mjs",
+    "src/agent-runtime/opencode-strategy.ts",
+    "src/server/static.ts",
+    "web/public/index.html",
+    "web/public/js/api.js",
+    "web/public/js/console.js",
+  ];
+  for (const file of surface) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
+test("isProtectedPath flags everything under the vendored console assets, and nothing that only shares the prefix", () => {
+  assert.equal(isProtectedPath("web/public/vendor/lucide/lucide.min.js"), true);
+  assert.equal(isProtectedPath("web/public/vendor/fonts/archivo-latin-wght-normal.woff2"), true);
+  assert.equal(isProtectedPath("web/public/vendors/other.js"), false);
+});
+
 test("isProtectedPath flags the test infrastructure an autonomous fix could weaken to pass its own checks", () => {
   const testInfrastructure = [
     "test-setup.mjs",
