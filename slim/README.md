@@ -120,7 +120,7 @@ autenticadas y el agente al explorar DEV:
 ```yaml
 e2e:
   auth:
-    loginUrl: "https://sso.banco.internal/"      # prefijo de la URL de la página de login
+    loginUrl: "https://sso.corp.example/"      # prefijo de la URL de la página de login
     passwordEntry: "text=Usuario y contraseña"   # si primero ofrece login con certificado
     successSelector: "[data-testid=user-menu]"   # visible solo con sesión iniciada (recomendado)
 ```

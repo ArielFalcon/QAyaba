@@ -10,13 +10,13 @@ test("authHeaderArgs: default GitHub rewrite is unchanged (x-access-token on git
 });
 
 test("authHeaderArgs: no token → no rewrite", () => {
-  assert.deepEqual(authHeaderArgs({ GIT_REMOTE_BASE: "https://gitlab.bank.local" }), []);
+  assert.deepEqual(authHeaderArgs({ GIT_REMOTE_BASE: "https://gitlab.corp.example" }), []);
 });
 
 test("authHeaderArgs: a GitLab remote is rewritten for ITS host with the oauth2 user and GIT_TOKEN", () => {
-  assert.deepEqual(authHeaderArgs({ GIT_REMOTE_BASE: "https://gitlab.bank.local/", GIT_TOKEN: "glpat-abcdefghijklmnopqrstu" }), [
+  assert.deepEqual(authHeaderArgs({ GIT_REMOTE_BASE: "https://gitlab.corp.example/", GIT_TOKEN: "glpat-abcdefghijklmnopqrstu" }), [
     "-c",
-    "url.https://oauth2:glpat-abcdefghijklmnopqrstu@gitlab.bank.local/.insteadOf=https://gitlab.bank.local/",
+    "url.https://oauth2:glpat-abcdefghijklmnopqrstu@gitlab.corp.example/.insteadOf=https://gitlab.corp.example/",
   ]);
 });
 
@@ -36,14 +36,14 @@ test("authHeaderArgs: an invalid GIT_REMOTE_BASE fails loud", () => {
 
 test("gitRemoteBase / isGithubRemote", () => {
   assert.equal(gitRemoteBase({}), "https://github.com");
-  assert.equal(gitRemoteBase({ GIT_REMOTE_BASE: "https://gitlab.bank.local//" }), "https://gitlab.bank.local");
+  assert.equal(gitRemoteBase({ GIT_REMOTE_BASE: "https://gitlab.corp.example//" }), "https://gitlab.corp.example");
   assert.equal(isGithubRemote({}), true);
-  assert.equal(isGithubRemote({ GIT_REMOTE_BASE: "https://gitlab.bank.local" }), false);
+  assert.equal(isGithubRemote({ GIT_REMOTE_BASE: "https://gitlab.corp.example" }), false);
 });
 
 test("nested GitLab groups clone from <base>/<group>/<sub>/<project>.git into a flattened mirror dir", async () => {
   const prev = process.env.GIT_REMOTE_BASE;
-  process.env.GIT_REMOTE_BASE = "https://gitlab.bank.local";
+  process.env.GIT_REMOTE_BASE = "https://gitlab.corp.example";
   try {
     const calls: string[][] = [];
     const deps: MirrorDeps = {
@@ -57,7 +57,7 @@ test("nested GitLab groups clone from <base>/<group>/<sub>/<project>.git into a 
     };
     await ensureMirror("group/sub/shop", "abc1234", deps);
     const clone = calls.find((c) => c.includes("clone"))!;
-    assert.deepEqual(clone.slice(clone.indexOf("clone")), ["clone", "https://gitlab.bank.local/group/sub/shop.git", "/tmp/mirrors/group__sub__shop"]);
+    assert.deepEqual(clone.slice(clone.indexOf("clone")), ["clone", "https://gitlab.corp.example/group/sub/shop.git", "/tmp/mirrors/group__sub__shop"]);
   } finally {
     if (prev === undefined) delete process.env.GIT_REMOTE_BASE;
     else process.env.GIT_REMOTE_BASE = prev;

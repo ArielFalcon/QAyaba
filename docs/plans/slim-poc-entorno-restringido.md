@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Estado** | **Implementado** y verificado (ver §12), integrado con `main`. Pendiente la construcción de la imagen con el endurecimiento de §14 y la ejecución en el entorno del banco. |
+| **Estado** | **Implementado** y verificado (ver §12), integrado con `main`. Pendiente la construcción de la imagen con el endurecimiento de §14 y la ejecución en el entorno corporativo restringido. |
 | **Rama** | `claude/merge-main-restricted-env-925a71` (integra `main`; la implementación original está en `claude/qayaba-restricted-env-poc-hytgtl`) |
 | **Alcance** | `target: e2e` (Playwright contra DEV). Un solo runtime de agente (OpenCode). SCM: GitLab. |
 | **Entorno objetivo** | Portátil corporativo gestionado (MacBook M4 con 16 GB, sin sudo, con lista de aplicaciones permitidas); Docker Desktop; Artifactory; proxy con inspección TLS; una pasarela de LLM corporativa compatible con OpenAI; DEV con login central (mTLS opcional y usuario/contraseña). |
@@ -34,7 +34,7 @@
 
 ## 0. Resumen
 
-QAyaba fallaba en el entorno del banco por un motivo **estructural**: descargaba cosas de Internet no
+QAyaba fallaba en el entorno corporativo restringido por un motivo **estructural**: descargaba cosas de Internet no
 solo al construir las imágenes, sino también **al ejecutarse**. La más probable, el fallo observado:
 Serena hace `npm install` de su *language server* de TypeScript la primera vez que abre un proyecto.
 A eso se sumaban OpenCode (catálogo, plugins, LSPs), `npx`, un `npm install` que perdía el proxy y la CA
@@ -51,7 +51,7 @@ La versión **slim** (`slim/`) resuelve esto con cuatro decisiones:
    después de decidir: publicación remota, auto-mantenimiento y login con GitHub.
 3. **Publicación local.** La decisión (PR/Issue/cuarentena/no-op) se calcula igual, pero su efecto es una
    exportación a disco (parche + cuerpo del MR/Issue) que una persona sube a GitLab. Nada escribe
-   automáticamente en los repos del banco.
+   automáticamente en los repos de la organización.
 4. **Una imagen, dos servicios.** Una sola cadena de construcción: CA, mirrors y versiones fijadas.
 
 Además, como requisito general (no solo de slim), QAyaba soporta ahora un **login en una web central
@@ -367,7 +367,7 @@ Requisito general, no solo de slim. La app declara su login en `config/apps/<app
 ```yaml
 e2e:
   auth:
-    loginUrl: "https://sso.banco.internal/"      # prefijo de la página de login central (otro origen)
+    loginUrl: "https://sso.corp.example/"      # prefijo de la página de login central (otro origen)
     passwordEntry: "text=Usuario y contraseña"   # si antes ofrece login con certificado
     successSelector: "[data-testid=user-menu]"   # visible solo con sesión (recomendado)
 ```
@@ -436,7 +436,7 @@ perfil) se añadieron a `PROTECTED_PATHS`.
 ## 12. Verificación realizada
 
 El sandbox de desarrollo sale a Internet por un **proxy que re-termina TLS con su propia CA**, un análogo
-fiel de la red del banco. Su CA hizo el papel de la corporativa.
+fiel de la red corporativa restringida. Su CA hizo el papel de la corporativa.
 
 | Prueba | Resultado |
 |---|---|
@@ -457,7 +457,7 @@ fiel de la red del banco. Su CA hizo el papel de la corporativa.
 
 **No verificable aquí:**
 
-- Un run completo contra el GitLab, el LLM y el DEV reales del banco.
+- Un run completo contra el GitLab, el LLM y el DEV reales del entorno corporativo.
 - La construcción de la imagen con el endurecimiento de §14 (`java-trust-ca`, la comprobación de Node y
   `better-sqlite3`, la validación de modelos): Docker no estaba disponible donde se integró `main`. Los scripts
   se probaron con `keytool`, `curl` y `docker` simulados (y `java-trust-ca.sh` además contra el `keytool` real
