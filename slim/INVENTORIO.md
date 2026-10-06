@@ -140,7 +140,8 @@ portapapeles. Un contenedor de la red de compose no puede obtener una sesión de
 |---|---|---|---|
 | `../config` → `/app/config` | `orchestrator` (lectura/escritura), `tui` (solo lectura) | YAML de las apps, semilla `e2e`, `config/.api_token` (se genera aquí) | Anfitrión; el `.api_token` no se versiona |
 | `./exports` → `/app/exports` | `orchestrator` | Parche y cuerpos de MR/Issue de cada ejecución | Anfitrión; no se versiona |
-| `./maven` → `/root/.m2` | `agents` | `settings.xml` opcional con el mirror de Artifactory (puede contener credenciales) | Anfitrión; no se versiona ni entra en el build |
+| `./maven` → `/root/.m2-settings` (solo lectura) | `agents` | `settings.xml` opcional con el mirror de Artifactory (puede contener credenciales); el arranque lo enlaza en `~/.m2/settings.xml` | Anfitrión; no se versiona ni entra en el build |
+| `maven-repository` → `/root/.m2/repository` | `agents` | Repositorio local de Maven (dependencias que resuelve JDTLS) | Volumen; regenerable |
 | `mirrors` → `/app/.mirrors` | ambos | Copias de trabajo de los repositorios (cwd de las sesiones del agente) | Volumen; regenerable |
 | `qa-data` → `/app/data` | `orchestrator` | Historial de ejecuciones (SQLite) y estado | Volumen |
 | `codebase-memory` → `/app/.codebase-memory` | `orchestrator` | Grafo de código por proyecto | Volumen; regenerable |

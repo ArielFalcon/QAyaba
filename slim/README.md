@@ -234,6 +234,12 @@ El *language server* de Java funciona en el modo "upstream JDTLS" de Serena: JDT
 van en la imagen y no se descarga nada al abrir un `.java`. Para que resuelva dependencias de Maven
 contra Artifactory, coloca un `settings.xml` con el mirror en `slim/maven/settings.xml`.
 
+El directorio `slim/maven/` se monta en los agentes **de solo lectura** (`/root/.m2-settings`) y el arranque
+enlaza el fichero en `~/.m2/settings.xml`, que es donde lo leen JDTLS y `mvn`; el fichero del anfitrión no se
+puede reescribir desde el contenedor. El repositorio local de Maven (lo que se descarga) vive en el volumen
+`maven-repository`, no en el anfitrión. Los agentes sí pueden **leer** el `settings.xml`, porque Maven lo
+necesita: no pongas en él credenciales con más alcance del necesario (mejor un token de solo lectura del mirror).
+
 ## Solución de problemas
 
 | Síntoma | Causa probable | Qué hacer |

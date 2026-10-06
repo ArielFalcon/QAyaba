@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parse } from "yaml";
 
 // The LLM gateway key expires daily, so the stack must start without it and receive it at run time
@@ -100,4 +103,79 @@ test("no service enables the automatic console login", () => {
 
 test("no service imports an environment file that could switch the automatic login on", () => {
   for (const [name, service] of Object.entries(compose.services)) assert.equal(service.env_file, undefined, `${name} declares env_file`);
+});
+
+// The agents container runs as root and an LLM drives its shell. The Maven settings.xml it reads for the
+// Artifactory mirror may hold credentials, so the host file must never be writable from inside: the
+// directory that carries it is mounted read-only apart from Maven's own home, and the local
+// repository (which Maven does write) lives in a named volume.
+const MAVEN_SETTINGS_DIR = "/root/.m2-settings";
+const MAVEN_REPOSITORY = "/root/.m2/repository";
+const agentMounts = compose.services.agents.volumes.map((entry) => {
+  const [source, target, mode] = String(entry).split(":");
+  return { source, target, mode };
+});
+
+test("the host Maven settings reach the agents only through a read-only mount", () => {
+  const hostMounts = agentMounts.filter((m) => m.source.startsWith(".") && m.source.includes("maven"));
+  assert.ok(hostMounts.length > 0, "the settings are still offered to the agents");
+  for (const mount of hostMounts) assert.equal(mount.mode, "ro", `${mount.source} is mounted read-only`);
+  assert.ok(hostMounts.some((m) => m.target === MAVEN_SETTINGS_DIR));
+});
+
+test("nothing from the host is mounted into Maven's home, where the agents write", () => {
+  for (const mount of agentMounts) {
+    if (mount.source.startsWith(".")) assert.ok(mount.target !== "/root/.m2" && !mount.target.startsWith("/root/.m2/"), `${mount.source} -> ${mount.target}`);
+  }
+});
+
+test("the local Maven repository is a named volume, so the host directory stays settings-only", () => {
+  const repository = agentMounts.find((m) => m.target === MAVEN_REPOSITORY);
+  assert.ok(repository, "the repository is mounted");
+  assert.ok(Object.hasOwn(compose.volumes, repository.source), `${repository.source} is a declared named volume`);
+});
+
+// The agents' command links the read-only settings.xml into Maven's default location (JDTLS and `mvn`
+// both read ~/.m2/settings.xml), when the operator provided one.
+function runAgentCommandWith(settingsFile) {
+  const script = compose.services.agents.command[2].replaceAll("$$", "$");
+  const root = mkdtempSync(join(tmpdir(), "qayaba-m2-"));
+  try {
+    const settingsDir = join(root, "settings");
+    mkdirSync(settingsDir);
+    if (settingsFile !== undefined) writeFileSync(join(settingsDir, "settings.xml"), settingsFile);
+    const home = join(root, "home");
+    mkdirSync(home);
+    const probe = script.replaceAll(MAVEN_SETTINGS_DIR, settingsDir).replace(/exec node \S+/, "exec true");
+    execFileSync("sh", ["-c", probe], { env: { HOME: home, PATH: process.env.PATH }, stdio: "pipe" });
+    const linked = join(home, ".m2", "settings.xml");
+    let link;
+    try {
+      lstatSync(linked);
+      link = { target: readlinkSync(linked), content: readFileSync(linked, "utf8") };
+    } catch {
+      link = undefined;
+    }
+    return { link, settingsFile: join(settingsDir, "settings.xml") };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("a settings.xml the operator provided is what Maven finds at its default location", () => {
+  const { link, settingsFile } = runAgentCommandWith("<settings/>");
+
+  assert.ok(link, "~/.m2/settings.xml exists");
+  assert.equal(link.target, settingsFile, "it points at the read-only file, not at a copy");
+  assert.equal(link.content, "<settings/>");
+});
+
+test("the agents start without a settings.xml and leave Maven's default location empty", () => {
+  const { link } = runAgentCommandWith(undefined);
+
+  assert.equal(link, undefined);
+});
+
+test("the agents command still ends in the supervisor", () => {
+  assert.match(compose.services.agents.command[2], /exec node \/usr\/local\/bin\/agent-supervisor\.mjs$/);
 });
