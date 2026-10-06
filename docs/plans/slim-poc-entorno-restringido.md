@@ -330,10 +330,10 @@ usuario técnico con contraseña en DEV.
 
 - **Web** (`http://localhost:8080/app`): estática, sin build; auto-login local (`QA_WEB_AUTO_LOGIN`),
   seguro porque el puerto solo escucha en loopback.
-- **TUI**: la imagen compila la consola Go para Linux y para macOS (arm64/amd64).
+- **TUI**: la imagen compila la consola Go solo para Linux. No se entrega ningún binario para ejecutar
+  en el equipo: la lista de aplicaciones permitidas de un portátil gestionado bloquea los binarios sin firmar.
   - `qayaba.sh tui` la ejecuta en un contenedor que llega al orquestador por nombre de servicio y
     descubre el token en `config/.api_token`.
-  - `qayaba.sh tui-install` copia el binario nativo para el Mac.
   - Se corrigió un hueco general: la pantalla de conexión ignoraba `QA_HOST`.
 
 ---

@@ -35,7 +35,8 @@ COPY agents/opencode.json /tmp/qayaba/opencode.base.json
 COPY slim/opencode-config.mjs slim/opencode.override.jso[n] /tmp/qayaba/
 RUN node /tmp/qayaba/opencode-config.mjs /tmp/qayaba/opencode.base.json /tmp/qayaba/opencode.override.json > /tmp/qayaba/opencode.json
 
-# ── tui: the terminal console (Linux build for the container, macOS builds for the host) ────────
+# ── tui: the terminal console, built for the container only (nothing is shipped to run on the host:
+# app allowlisting on a managed laptop blocks unsigned host binaries) ───────────────────────────
 FROM ${GO_IMAGE} AS tui
 ARG GOPROXY=https://proxy.golang.org,direct
 ARG GOSUMDB=sum.golang.org
@@ -46,9 +47,7 @@ WORKDIR /src
 COPY client/go.mod client/go.sum ./
 RUN go mod download
 COPY client/ ./
-RUN go build -trimpath -o /out/qayaba ./cmd/qayaba \
- && GOOS=darwin GOARCH=arm64 go build -trimpath -o /out/qayaba-darwin-arm64 ./cmd/qayaba \
- && GOOS=darwin GOARCH=amd64 go build -trimpath -o /out/qayaba-darwin-amd64 ./cmd/qayaba
+RUN go build -trimpath -o /out/qayaba ./cmd/qayaba
 
 # ── runtime image ─────────────────────────────────────────────────────────────────────────────────
 # The Playwright base already ships Node 24, git and Chromium with its system libraries: the
@@ -162,7 +161,6 @@ RUN mkdir -p /root/.config \
  && test -f /root/.config/opencode/opencode.json \
  && cp /app/agents/agent-supervisor.mjs /usr/local/bin/agent-supervisor.mjs
 COPY --from=tui /out/qayaba /usr/local/bin/qayaba
-COPY --from=tui /out/qayaba-darwin-arm64 /out/qayaba-darwin-amd64 /opt/qayaba/tui/
 
 # LISTEN_HOST: inside the container the control plane listens on every interface so the published
 # port (slim/compose.yml binds it to 127.0.0.1 on the host) and the tui service can reach it.

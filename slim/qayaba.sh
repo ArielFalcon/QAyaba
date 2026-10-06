@@ -12,8 +12,7 @@
 #   ./slim/qayaba.sh run <app> <sha|branch> [mode] [--guidance "..."]
 #                                           enqueue one e2e run on the server's sequential queue
 #                                           (mode: diff | context | complete | exhaustive | manual)
-#   ./slim/qayaba.sh tui                    terminal console (in a container)
-#   ./slim/qayaba.sh tui-install            copy the native macOS console binary to slim/bin/qayaba
+#   ./slim/qayaba.sh tui                    terminal console (runs in a container; nothing runs on the host)
 #   ./slim/qayaba.sh exports [app]          list exported publications (patch + MR/Issue bodies)
 set -euo pipefail
 
@@ -139,13 +138,6 @@ case "$cmd" in
           body: JSON.stringify(b),
         }).then(async (res) => { console.log(res.status, await res.text()); process.exit(res.ok ? 0 : 1); });' ;;
   tui) "${COMPOSE[@]}" run --rm tui ;;
-  tui-install)
-    arch="$(uname -m)"; [ "$arch" = "arm64" ] || arch="amd64"
-    mkdir -p "$SLIM_DIR/bin"
-    cid="$(docker create "qayaba-slim:$(env_value QAYABA_SLIM_TAG local)")"
-    docker cp "$cid:/opt/qayaba/tui/qayaba-darwin-$arch" "$SLIM_DIR/bin/qayaba" && docker rm "$cid" >/dev/null
-    chmod +x "$SLIM_DIR/bin/qayaba"
-    echo "installed slim/bin/qayaba — run it with: QA_HOST=localhost:$(env_value QAYABA_PORT 8080) QAYABA_ROOT=$ROOT_DIR slim/bin/qayaba" ;;
   exports) ls -1t "$SLIM_DIR/exports/${1:-}" 2>/dev/null || echo "no exports yet" ;;
-  help|*) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|*) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" ;;
 esac
