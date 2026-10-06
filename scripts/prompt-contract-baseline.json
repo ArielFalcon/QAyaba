@@ -3454,63 +3454,63 @@
       "directives": 12
     },
     "manual/e2e/first/tree-none/brief": {
-      "bytes": 5028,
+      "bytes": 5000,
       "directives": 11
     },
     "manual/e2e/first/tree-none/brief+pack": {
-      "bytes": 5328,
+      "bytes": 5300,
       "directives": 8
     },
     "manual/e2e/first/tree-none/brief+pack/contracts-only": {
-      "bytes": 5238,
+      "bytes": 5210,
       "directives": 11
     },
     "manual/e2e/first/tree-none/brief+pack/no-blast": {
-      "bytes": 5132,
+      "bytes": 5104,
       "directives": 8
     },
     "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only": {
-      "bytes": 5042,
+      "bytes": 5014,
       "directives": 11
     },
     "manual/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal": {
-      "bytes": 5455,
+      "bytes": 5427,
       "directives": 12
     },
     "manual/e2e/first/tree-none/brief+pack/no-blast/signal": {
-      "bytes": 5545,
+      "bytes": 5517,
       "directives": 9
     },
     "manual/e2e/first/tree-none/brief/no-blast": {
-      "bytes": 4832,
+      "bytes": 4804,
       "directives": 11
     },
     "manual/e2e/first/tree-none/brief/no-blast/signal": {
-      "bytes": 5245,
+      "bytes": 5217,
       "directives": 12
     },
     "manual/e2e/first/tree-none/none": {
-      "bytes": 4311,
+      "bytes": 4283,
       "directives": 9
     },
     "manual/e2e/first/tree-none/none/signal": {
-      "bytes": 4724,
+      "bytes": 4696,
       "directives": 10
     },
     "manual/e2e/first/tree-none/pack": {
-      "bytes": 4690,
+      "bytes": 4662,
       "directives": 7
     },
     "manual/e2e/first/tree-none/pack/contracts-only": {
-      "bytes": 4521,
+      "bytes": 4493,
       "directives": 9
     },
     "manual/e2e/first/tree-none/pack/contracts-only/signal": {
-      "bytes": 4934,
+      "bytes": 4906,
       "directives": 10
     },
     "manual/e2e/first/tree-none/pack/signal": {
-      "bytes": 5103,
+      "bytes": 5075,
       "directives": 8
     },
     "manual/e2e/regen-coverage/tree-none/brief": {
