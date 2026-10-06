@@ -227,6 +227,11 @@ export const AppConfigSchema = z
     error: "auth is only valid for e2e apps (code-mode apps have no browser session)",
     path: ["auth"],
   })
+  .refine((c) => !(c.auth !== undefined && c.e2e?.auth !== undefined), {
+    error:
+      "declare either auth (a same-origin login whose session is saved) or e2e.auth (a central login on another origin, run by the operator-declared flow), not both: they are alternatives",
+    path: ["e2e", "auth"],
+  })
   .refine((c) => c.auth?.kind !== "form" || (!!c.auth.usernameEnv && !!c.auth.passwordEnv), {
     error: "auth.kind form requires usernameEnv and passwordEnv",
     path: ["auth"],

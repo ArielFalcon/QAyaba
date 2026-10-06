@@ -200,6 +200,25 @@ test("AppConfigSchema rejects testIdAttribute: empty string", () => {
   assert.throws(() => AppConfigSchema.parse({ ...base, e2e: { testIdAttribute: "" } }));
 });
 
+const CENTRAL_LOGIN = { loginUrl: "https://sso.corp.example/login" };
+
+test("e2e.auth alone declares a cross-origin central login", () => {
+  const cfg = AppConfigSchema.parse({ ...base, e2e: { auth: CENTRAL_LOGIN } });
+  assert.equal(cfg.e2e?.auth?.loginUrl, CENTRAL_LOGIN.loginUrl);
+});
+
+test("declaring both the same-origin auth block and e2e.auth is rejected, naming e2e.auth", () => {
+  const result = AppConfigSchema.safeParse({ ...base, auth: FORM_LOGIN, e2e: { auth: CENTRAL_LOGIN } });
+  assert.equal(result.success, false);
+  const issue = result.error?.issues.find((i) => i.path.join(".") === "e2e.auth");
+  assert.ok(issue, "the issue points at e2e.auth");
+  assert.ok(issue.message.includes("e2e.auth") && /\bauth\b/.test(issue.message), "the message names both blocks");
+});
+
+test("the same-origin auth block alongside an e2e block without e2e.auth is accepted", () => {
+  assert.doesNotThrow(() => AppConfigSchema.parse({ ...base, auth: FORM_LOGIN, e2e: { testIdAttribute: "data-cy" } }));
+});
+
 /* boundaries[] config. Shallow/pass-through validation: field names match
    YamlBoundaryProfileAdapter's REQUIRED_HTTP_STRING_FIELDS/REQUIRED_EVENT_PATTERN_STRING_FIELDS.
    Deep validation (catalog-key checks, blank-string rejection) stays owned by that adapter —
