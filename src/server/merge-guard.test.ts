@@ -684,6 +684,15 @@ test("isProtectedPath protects where operator secrets are written and what count
   }
 });
 
+/* The seed fixtures types the app's account into the central login; the shared declaration shape decides what
+   that flow may be told; the slim image and compose file decide what the slim deployment mounts and bakes in. */
+test("isProtectedPath protects the central login's credential path and the slim profile's packaging", () => {
+  for (const file of ["config/e2e/fixtures.ts", "qa-engine/src/shared-kernel/e2e-auth.ts", "slim/Dockerfile", "slim/compose.yml"]) {
+    assert.ok(existsSync(join(repoRoot, file)), `${file} must exist — a protected path naming a deleted file proves nothing`);
+    assert.equal(isProtectedPath(file), true, `${file} must require human review`);
+  }
+});
+
 test("isProtectedPath protects every image build and dependency manifest", () => {
   for (const file of ["agents/Dockerfile", "docker-compose.override.yml", "package.json", "package-lock.json"]) {
     assert.equal(isProtectedPath(file), true, `${file} must require human review`);

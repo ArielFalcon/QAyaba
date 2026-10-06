@@ -80,6 +80,14 @@ export const PROTECTED_PATHS: string[] = [
    */
   "qa-engine/src/shared-infrastructure/e2e-seed/auth-setup-seed.ts",
   /*
+   * The seed fixtures copied into every watched repo: authenticate() types the app's account
+   * (DEV_TEST_USER/PASS) into the operator-declared central login — an edit could log or send them.
+   * The declaration shape beside it decides what that flow may be told, and the capture and setup
+   * adapters read it from one place.
+   */
+  "config/e2e/fixtures.ts",
+  "qa-engine/src/shared-kernel/e2e-auth.ts",
+  /*
    * Decides the orchestrator root and the data directory (the qa-data volume the agents container
    * never mounts) that holds the web token file, per-app auth material, the history DB, the logs
    * and the coordination ledger — repointing it moves all of them into an agent-visible tree
@@ -264,6 +272,9 @@ export const PROTECTED_PATHS: string[] = [
   ".github/",
   "Dockerfile",
   "agents/Dockerfile",
+  /* The slim profile's image and compose file: what it bakes in, mounts and exposes — the root entries above do not cover them. */
+  "slim/Dockerfile",
+  "slim/compose.yml",
   /* Decides what the image build context contains — dropping an entry can bake .env into the image. */
   ".dockerignore",
   "docker-compose.yml",
