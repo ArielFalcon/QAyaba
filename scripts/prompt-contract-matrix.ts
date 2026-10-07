@@ -2,13 +2,16 @@
  * Prompt-contract matrix: assembles the REAL generator prompt (real builders, the real shell brief
  * renderer, the real context-pack builder over fake capture deps) across the run shapes that can
  * reach the agent, pairs each with both static role layers (OpenCode and Codex) and lints every
- * combination. The lint lives in qa-engine; this module lives in scripts/ because it wires the
- * shell's brief renderer, which qa-engine may not import.
+ * combination. Each layer's cell is assembled from the input its own runtime hands the prompt: the
+ * OpenCode runtime enforces a step limit and the prompt is given it, the Codex runtime states none.
+ * The lint lives in qa-engine; this module lives in scripts/ because it wires the shell's brief
+ * renderer, which qa-engine may not import.
  *
  * Every combination is budgeted: its user-prompt bytes and directive volume against the largest
- * recorded for its bucket (mode, target, phase, tree and grounding), and each static layer against
- * its recorded size. The baseline only tightens: recording refuses any raise over the committed one
- * unless a reason is given, and the reason is kept in the file.
+ * recorded for its bucket (mode, target, phase, tree and grounding; a cell with a step limit has the
+ * bucket of its twin without one, plus a suffix), and each static layer against its recorded size.
+ * The baseline only tightens: recording refuses any raise over the committed one unless a reason is
+ * given, and the reason is kept in the file.
  *
  * Commands:
  *   tsx scripts/prompt-contract-matrix.ts                                    print the unique findings of the current tree
@@ -285,7 +288,11 @@ const SIGNAL_SHAPES = {
   },
 } as const;
 
-export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
+/* The step limit a cell of the OpenCode layer is assembled with. That runtime caps an agent's steps and reports the cap; the Codex runtime has no step cap to report (the `stepLimits` asymmetry documented in src/agent-runtime/contract-parity.test.ts), so a Codex prompt is built with none. */
+export const MATRIX_STEP_LIMIT = 40;
+
+/* The run input of a combination; `stepLimit` is the cap the runtime resolved for the generator, absent when it states none. */
+export async function buildInput(spec: CellSpec, stepLimit?: number): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
   const input: OpencodeRunInput = {
     repo: "org/app",
@@ -309,6 +316,7 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
     },
     ...(spec.mode === "manual" ? { guidance: "cover the coupon form on the cart page" } : {}),
     ...(spec.mode === "diff" || spec.mode === "manual" ? { existingSpecFiles: ["flows/cart.spec.ts"] } : {}),
+    ...(stepLimit !== undefined ? { stepLimit } : {}),
   };
 
   if (spec.grounding === "brief" || spec.grounding === "brief+pack") input.contextBrief = briefFor(spec);
@@ -353,6 +361,8 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
 /* ── the static layers the agent ships with ── */
 
 export type StaticLayerName = "opencode" | "codex";
+
+const STEP_LIMIT_BY_LAYER: Readonly<Record<StaticLayerName, number | undefined>> = { opencode: MATRIX_STEP_LIMIT, codex: undefined };
 
 function readText(path: string): string {
   return readFileSync(path, "utf8");
@@ -406,6 +416,8 @@ export interface MatrixCell {
   name: string;
   layer: StaticLayerName;
   spec: CellSpec;
+  /* The step limit the cell's prompt was assembled with; absent for a runtime that states none. */
+  stepLimit?: number;
   /* The group of combinations that share a recorded budget. */
   bucket: string;
   lint: LintCell;
@@ -414,8 +426,11 @@ export interface MatrixCell {
   staticBytes: number;
 }
 
+/* What follows the bucket of a cell whose prompt states a step limit. */
+export const LIMIT_BUCKET_SUFFIX = "/limit";
+
 /* Combinations that differ only in the small optional sections they carry share a budget: the largest of the group. The shapes that exclude one another, and the blocks that are large by themselves (the structural signal, the microservice change), stay in the key so they are budgeted apart. A pack that lists the page a redirect reached carries one more block, bounded by its own size: every such combination shares one budget, the largest of them, so growth of that block is caught, while the same prompts without it stay in their own tight buckets. */
-export function bucketOf(spec: CellSpec): string {
+function combinationBucket(spec: CellSpec): string {
   if (spec.packRedirect) return "redirect";
   return [
     spec.mode,
@@ -428,6 +443,11 @@ export function bucketOf(spec: CellSpec): string {
     ...(spec.structuralSignal === "none" ? [] : [SIGNAL_FLAG[spec.structuralSignal]]),
     ...(spec.service ? ["service"] : []),
   ].join("/");
+}
+
+/* The bucket a combination's budget is recorded in. A prompt that states a step limit is budgeted apart from its twin without one, in the same bucket plus a suffix: the runtime that states no limit keeps the budgets it always had, and what the limit adds reads as a raise over its twin. */
+export function bucketOf(spec: CellSpec, limited = false): string {
+  return limited ? `${combinationBucket(spec)}${LIMIT_BUCKET_SUFFIX}` : combinationBucket(spec);
 }
 
 export interface CellMeasure {
@@ -461,18 +481,20 @@ export async function buildMatrix(root: string = ROOT, specs: readonly CellSpec[
   const staticByLayer = new Map(layers.map((l) => [l, loadStaticLayer(l, root)] as const));
   const cells: MatrixCell[] = [];
   for (const spec of specs) {
-    const input = await buildInput(spec);
-    /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
-    const assembled = buildPromptAssembled(input, { budgetBytes: 0 });
-    const sections = assembledLintSections(assembled);
-    const measure = measureAssembled(sections);
     for (const layer of layers) {
+      /* A layer's cell is assembled from the input its own runtime hands the prompt, and records the limit that input carries. */
+      const input = await buildInput(spec, STEP_LIMIT_BY_LAYER[layer]);
+      /* Budget 0 disables shedding: the matrix measures the full prompt, independent of the model window catalog. */
+      const assembled = buildPromptAssembled(input, { budgetBytes: 0 });
+      const sections = assembledLintSections(assembled);
+      const measure = measureAssembled(sections);
       cells.push({
         key: `${cellName(spec)}|${layer}`,
         name: cellName(spec),
         layer,
         spec,
-        bucket: bucketOf(spec),
+        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
+        bucket: bucketOf(spec, input.stepLimit !== undefined),
         lint: { name: `${cellName(spec)}|${layer}`, regen: spec.phase !== "first", sections: [...staticByLayer.get(layer)!, ...sections] },
         assembledBytes: measure.bytes,
         directives: measure.directives,
@@ -491,7 +513,7 @@ export interface Baseline {
   ceiling: CellMeasure;
   /* The size of the role and shared-rule text each runtime ships with. */
   staticLayers: Record<StaticLayerName, number>;
-  /* The largest user prompt and directive volume of each bucket of combinations: every combination that can reach the agent is checked against its bucket. */
+  /* The largest user prompt and directive volume of each bucket of combinations: every combination that can reach the agent is checked against its bucket. A bucket with the limit suffix holds the cells whose prompt states a step limit; its twin without the suffix holds the cells of a runtime that states none. */
   buckets: Record<string, CellMeasure>;
   /* The reason the budgets were last raised and which ones; kept until the next raise. */
   lastIncrease?: { reason: string; budgets: string[] };
@@ -535,6 +557,13 @@ function measuresOf(name: string, from: CellMeasure | undefined, to: CellMeasure
   ];
 }
 
+/* What the committed baseline holds a bucket to: its own budget or, for a limited bucket it has not recorded yet, the budget its twin without a limit has there. The first record of the limited buckets is thus held to what their twins already carry, so whatever a prompt adds for the limit shows as a raise instead of arriving as a new bucket. */
+function committedBudgetOf(committed: Baseline, bucket: string): CellMeasure | undefined {
+  const own = committed.buckets[bucket];
+  if (own !== undefined || !bucket.endsWith(LIMIT_BUCKET_SUFFIX)) return own;
+  return committed.buckets[bucket.slice(0, -LIMIT_BUCKET_SUFFIX.length)];
+}
+
 /* Every budget the next baseline holds above the same budget in the committed one. A combination or layer the committed baseline does not know is new, not raised. */
 function budgetRaises(committed: Baseline, next: Baseline): BudgetRaise[] {
   const layers = (Object.keys(next.staticLayers) as StaticLayerName[]).flatMap((layer) =>
@@ -543,7 +572,7 @@ function budgetRaises(committed: Baseline, next: Baseline): BudgetRaise[] {
       : [],
   );
   return [
-    ...Object.entries(next.buckets).flatMap(([bucket, measure]) => measuresOf(bucket, committed.buckets[bucket], measure)),
+    ...Object.entries(next.buckets).flatMap(([bucket, measure]) => measuresOf(bucket, committedBudgetOf(committed, bucket), measure)),
     ...measuresOf("ceiling", committed.ceiling, next.ceiling),
     ...layers,
   ];

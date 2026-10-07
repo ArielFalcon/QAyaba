@@ -389,9 +389,10 @@ The lint later gained the artifact-reference rule, the trust-polarity rule, inde
 gained the fixtures reader. Its first run over that (747 mutants, 73 minutes) had 22 survivors and
 109 timeouts: the exhaustive matrix, now 13,882 combinations against two static layers, no longer fits
 the 15 second mutation timeout, so most mutants were classed as timeouts and a survivor could hide
-among them. The preset now runs a deterministic sample of the matrix (every 23rd combination, each
-value the stride skipped, and the brief-and-pack shapes; the exhaustive test stays in the suite and
-lints the combinations once) and a run takes under eight minutes. The real gaps got behavior tests: a
+among them. The preset now runs a deterministic sample of the matrix (every 47th combination, which was
+every 23rd until each layer's cell was assembled from its own input, below; each value the stride
+skipped, and the brief-and-pack shapes; the exhaustive test stays in the suite and lints the
+combinations once) and a run takes under eight minutes. The real gaps got behavior tests: a
 fixtures file of exactly the size cap, a named pipe that must not be opened, a plain attribute name
 that redaction would change, an attribute with no fixtures file, a negated-trust phrase without its
 suffix, a section that frames a tree without providing one, fences with a language, an indent or a
@@ -484,6 +485,36 @@ a second time in the generator role) all die, which makes 53 hand mutants for th
 size's tiers count raw files and changed lines, so generated files and lockfiles inflate a tier and a
 one-line change can have a wide blast radius: a limitation declared beside `DIFF_TIERS`, and harmless
 because a tier is only an upper bound on the effort and always admits the no-op.
+
+The matrix then learned to assemble each layer's cell for its own runtime (2026-10-07, 3 workers, 770
+mutants, 254 of them compile errors, 13 minutes 51 seconds): the OpenCode runtime enforces a step limit
+and a prompt for it is handed one, the Codex runtime has none to report, so every combination is built
+twice, with a limit and without, and a cell with one is budgeted in the bucket of its twin plus a `/limit`
+suffix. No prompt states the limit yet, so each limited bucket equals its twin: the first record held it to
+the budget its twin had in the committed baseline (a raise needs a reason) and moved no budget, 1,161
+buckets becoming 2,322. The sample every mutant runs is every 47th combination instead of every 23rd, the
+smallest prime whose prompts, one per layer for each combination, stay within the 860 the sample
+assembled while the layers shared one (428 combinations, 856 prompts), and a test holds that bound. The
+sample file runs in about 3.2 seconds of node time against 4.4 before, inside the 15 second timeout each
+mutant gets; the whole matrix takes about 10 seconds to build instead of 5, and about 800 MB at its peak
+instead of 500, which only the exhaustive test pays. The preset's own modules did not change: 509 killed,
+2 timeouts, 5 survivors, all five documented below (the four of before, and the look before the open of
+the fixtures reader, which the reader's flag against a named pipe makes an equivalent), none in the lint;
+the 516 mutants that compile are the same in number as before, and the split between kills and timeouts
+moves with the load (a first run, on a machine shared with other mutation runs, took 20 minutes 43
+seconds). The matrix script is outside every preset, so it was broken by hand against its own tests, 28
+mutants, all killed: the bucket taking the limit as never, always or a leading suffix, the suffix renamed
+or empty; the layers' limits swapped, on both or on neither; the input dropping the limit, always stating
+one or carrying the key with no value; a limit no runtime reports (zero, a
+fraction); a cell that forgets its limit, is budgeted in its twin's bucket, is built without the layer's
+limit or with the other layer's; the raise check with no twin, the twin under a key off by one, the twin
+preferred to a recorded budget or read alone, the check on the recorded budget or on the suffix inverted,
+and a check blind to the twin; the stride at 43 and at the old 23; and two prompts that state the limit,
+one that grows its limited bucket over the committed baseline and one that restates an owned rule only in
+the limited build, which only the limited build of the owned-rule pins can see. A last check recorded a
+prompt that states the limit against the baseline of before this change: the record is refused without a
+reason, and what it names is the 1,161 limited buckets and the global ceiling, never a bucket without a
+limit or a static layer.
 
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
@@ -595,7 +626,7 @@ run once per mutant and not fit the mutation timeout.
 | route-capturability | route-capturability, route-ranking (link fields, path matching, staged roots), the context pack's ranking call, candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 149 / 0 / 0 — 100% (100%) | — |
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | 129 / 0 / 6 — 95.56% (95.56%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 506 / 6 / 4 — 99.22% (98.06%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 509 / 2 / 5 — 99.03% (98.64%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
 
 ### Login discovery script (manual triangulation)
@@ -638,8 +669,8 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   hand): the open follows no link and waits on no pipe, so a directory ends in a read error and a pipe in an
   empty read, each a skip with a warning, and the two protections guard against the same pipe, so either
   one is enough. With both removed the pipe test fails within a fraction of a second under the watch, where
-  it used to hang. The preset was not re-run after the flag; the look is the one mutant it changes, and it
-  was run by hand.
+  it used to hang. The preset was re-run after the flag (509 killed, 2 timeouts, 5 survivors): the look is
+  the one mutant the flag changed, and it survives as listed here.
 
 **redirect-advisory** (`route-catalog.ts`, `dom-snapshot.ts`, the split in `context-pack.ts`)
 - `splitRedirectSection` — the default of the first part of the split, `""` → another string

@@ -20,8 +20,8 @@ import { hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-c
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/* Prime to the size of the dimensions' cycles, so the sample walks through every value of every dimension. */
-const SAMPLE_STRIDE = 23;
+/* Prime to the size of the dimensions' cycles, so the sample walks through every value of every dimension. The smallest prime whose sample, assembled once per layer for each combination, stays within the prompts a mutant run is sized for. */
+const SAMPLE_STRIDE = 47;
 
 /* A brief and a pack in one prompt with no tree: the shape whose brief frames only established facts. */
 const isBriefWithPack = (s: CellSpec): boolean => s.grounding === "brief+pack" && s.mode === "diff" && s.target === "e2e" && s.tree === "none";
@@ -62,6 +62,15 @@ test("the sample exercises every value of every dimension, and both static layer
     }
   }
   assert.deepEqual([...new Set((await cellsOnce()).map((c) => c.layer))].sort(), ["codex", "opencode"]);
+});
+
+/* The most prompts the sample may assemble: the work one mutant's run of the whole preset is sized for, against the 15 second timeout every mutant gets. Each cell of a layer is assembled from its own input, so every combination in the sample costs two prompts. */
+const MOST_PROMPTS_A_MUTANT_RUN_ASSEMBLES = 860;
+
+test("the sample assembles no more prompts than a mutant run is sized for, so every mutant fits its timeout", async () => {
+  const cells = await cellsOnce();
+  assert.ok(cells.length > 0, "setup: the sample is assembled");
+  assert.ok(cells.length <= MOST_PROMPTS_A_MUTANT_RUN_ASSEMBLES, `${cells.length} prompts are assembled, over the ${MOST_PROMPTS_A_MUTANT_RUN_ASSEMBLES} a mutant run is sized for`);
 });
 
 test("the sample carries a signal of co-change files alone on a first pass and on every kind of regeneration, in both targets", () => {

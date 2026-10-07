@@ -8,6 +8,8 @@ import {
   BaselineIncreaseError,
   DIMENSIONS,
   GLOBAL_USER_PROMPT_BASELINE_BYTES,
+  LIMIT_BUCKET_SUFFIX,
+  MATRIX_STEP_LIMIT,
   allValidSpecs,
   bucketOf,
   buildInput,
@@ -24,6 +26,7 @@ import {
   type CellSpec,
   type MatrixCell,
 } from "./prompt-contract-matrix.ts";
+import { enforcedStepLimit } from "../src/agent-runtime/step-limit.ts";
 import {
   buildPromptAssembled,
   setExplorationBriefCollaborators,
@@ -83,6 +86,56 @@ test("the matrix holds every valid combination against both static layers", asyn
   for (const layer of ["opencode", "codex"] as const) {
     const sections = loadStaticLayer(layer, ROOT);
     assert.ok(sections.length > 0 && sections.every((s) => s.layer === "static" && s.text.length > 0), layer);
+  }
+});
+
+/* ── one assembly per layer: the OpenCode runtime enforces a step limit and the Codex runtime states none ── */
+
+test("the step limit the matrix assembles with is one the runtime's resolver accepts", () => {
+  assert.equal(enforcedStepLimit(MATRIX_STEP_LIMIT), MATRIX_STEP_LIMIT);
+});
+
+test("an OpenCode cell is assembled with the step limit that runtime enforces, and a Codex cell with none", async () => {
+  const cells = await matrixOnce();
+  const opencode = cells.filter((c) => c.layer === "opencode");
+  const codex = cells.filter((c) => c.layer === "codex");
+  assert.ok(opencode.length > 0 && codex.length === opencode.length, "every combination has a cell in each layer");
+  assert.deepEqual([...new Set(opencode.map((c) => c.stepLimit))], [MATRIX_STEP_LIMIT]);
+  assert.deepEqual([...new Set(codex.map((c) => c.stepLimit))], [undefined]);
+});
+
+test("the input of a limited cell is the same run input plus the step limit, and an input built without one has no such key", async () => {
+  const specs = [
+    allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first")!,
+    allValidSpecs().find((s) => s.mode === "diff" && s.target === "code" && s.phase === "regen-fix")!,
+    allValidSpecs().find((s) => s.mode === "context")!,
+  ];
+  for (const spec of specs) {
+    const plain = await buildInput(spec);
+    const { stepLimit, ...rest } = await buildInput(spec, MATRIX_STEP_LIMIT);
+    assert.equal(stepLimit, MATRIX_STEP_LIMIT, cellName(spec));
+    assert.deepEqual(rest, plain, `${cellName(spec)}: the limit is the only difference`);
+    assert.equal("stepLimit" in plain, false, `${cellName(spec)}: no key without a limit`);
+  }
+});
+
+test("the bucket of a limited combination is the bucket of its twin without a limit plus a suffix, for every kind of bucket", () => {
+  const specs = [
+    allValidSpecs().find((s) => s.mode === "diff" && s.target === "e2e" && s.phase === "first" && !s.packRedirect)!,
+    allValidSpecs().find((s) => s.packRedirect)!,
+  ];
+  for (const spec of specs) {
+    assert.equal(bucketOf(spec, true), `${bucketOf(spec)}${LIMIT_BUCKET_SUFFIX}`, cellName(spec));
+    assert.equal(bucketOf(spec, false), bucketOf(spec), cellName(spec));
+    assert.notEqual(bucketOf(spec, true), bucketOf(spec), cellName(spec));
+  }
+});
+
+test("a cell that states a step limit is budgeted in its limited bucket, and one that states none in its twin's", async () => {
+  const cells = await matrixOnce();
+  assert.ok(cells.some((c) => c.stepLimit !== undefined) && cells.some((c) => c.stepLimit === undefined), "setup: cells with and without a limit");
+  for (const cell of cells) {
+    assert.equal(cell.bucket, bucketOf(cell.spec, cell.stepLimit !== undefined), cell.key);
   }
 });
 
@@ -233,9 +286,9 @@ test("the recorded global size is the reference production prompt size the modul
   assert.equal(loadBaseline(ROOT).globalUserPromptBytes, GLOBAL_USER_PROMPT_BASELINE_BYTES);
 });
 
-test("every combination that can reach the agent has a recorded budget, and the baseline names only combinations that can", () => {
+test("every combination that can reach the agent has a recorded budget, with a step limit and without, and the baseline names only combinations that can", () => {
   const baseline = loadBaseline(ROOT);
-  const reachable = new Set(allValidSpecs().map(bucketOf));
+  const reachable = new Set(allValidSpecs().flatMap((spec) => [bucketOf(spec), bucketOf(spec, true)]));
   assert.deepEqual([...reachable].filter((bucket) => baseline.buckets[bucket] === undefined), [], "a reachable combination has no budget");
   assert.deepEqual(Object.keys(baseline.buckets).filter((bucket) => !reachable.has(bucket)), [], "a budget names no reachable combination");
   for (const [bucket, measure] of Object.entries(baseline.buckets)) {
@@ -326,4 +379,118 @@ test("recording accepts a baseline that only shrinks, drops a combination or add
   const shrunk = recordBaseline(cells, looser);
   assert.deepEqual(shrunk.buckets, measured.buckets);
   assert.equal(shrunk.lastIncrease, undefined);
+});
+
+/* ── a limited bucket nobody has recorded is held to the budget of its twin without a limit ── */
+
+const isLimited = (bucket: string): boolean => bucket.endsWith(LIMIT_BUCKET_SUFFIX);
+const twinOf = (bucket: string): string => bucket.slice(0, -LIMIT_BUCKET_SUFFIX.length);
+
+/* The baseline of a record that has never held a step limit: every bucket but the limited ones. */
+function withoutLimitedBuckets(baseline: Baseline): Baseline {
+  const copy = structuredClone(baseline);
+  for (const bucket of Object.keys(copy.buckets)) if (isLimited(bucket)) delete copy.buckets[bucket];
+  return copy;
+}
+
+/* The cells of one bucket, each measured larger (or smaller) by what a prompt that stated the limit would add. */
+function resized(cells: readonly MatrixCell[], bucket: string, by: { bytes?: number; directives?: number }): MatrixCell[] {
+  return cells.map((c) => (c.bucket === bucket ? { ...c, assembledBytes: c.assembledBytes + (by.bytes ?? 0), directives: c.directives + (by.directives ?? 0) } : c));
+}
+
+/* The cells as they stand while no prompt states the limit: each limited cell measures what its twin does. The tests of the first record start from them, so they hold whatever the prompts later say about the limit. */
+function limitedCellsAsTheirTwins(cells: readonly MatrixCell[]): MatrixCell[] {
+  const twins = new Map(cells.filter((c) => c.stepLimit === undefined).map((c) => [c.name, c] as const));
+  return cells.map((c) => {
+    const twin = c.stepLimit === undefined ? undefined : twins.get(c.name);
+    return twin ? { ...c, assembledBytes: twin.assembledBytes, directives: twin.directives } : c;
+  });
+}
+
+/* A limited bucket well inside the ceiling, so growing it never moves the ceiling the raise check also reads. */
+function aLimitedBucket(baseline: Baseline): string {
+  const bucket = Object.keys(baseline.buckets).find(
+    (b) => isLimited(b) && baseline.buckets[b]!.bytes + 20 <= baseline.ceiling.bytes && baseline.buckets[b]!.directives + 2 <= baseline.ceiling.directives,
+  );
+  assert.ok(bucket, "setup: the baseline has a limited bucket with room under the ceiling");
+  return bucket;
+}
+
+test("the first record of the limited buckets states no raise while none is larger than its twin without a limit", async () => {
+  const cells = limitedCellsAsTheirTwins(await matrixOnce());
+  const measured = recordBaseline(cells);
+  const committed = withoutLimitedBuckets(measured);
+  const limited = aLimitedBucket(measured);
+  assert.equal(committed.buckets[limited], undefined, "setup: the committed baseline holds no limited bucket");
+  assert.deepEqual(measured.buckets[limited], measured.buckets[twinOf(limited)], "setup: a limited cell measures what its twin does");
+
+  const recorded = recordBaseline(cells, committed);
+  assert.deepEqual(recorded.buckets, measured.buckets);
+  assert.equal(recorded.lastIncrease, undefined);
+
+  const smaller = recordBaseline(resized(cells, limited, { bytes: -3 }), committed);
+  assert.equal(smaller.buckets[limited]!.bytes, measured.buckets[twinOf(limited)]!.bytes - 3, "a limited bucket below its twin is no raise");
+  assert.equal(smaller.lastIncrease, undefined);
+});
+
+test("the first record of a limited bucket that outgrows its twin is a raise: it needs a reason, which names that bucket", async () => {
+  const cells = limitedCellsAsTheirTwins(await matrixOnce());
+  const measured = recordBaseline(cells);
+  const committed = withoutLimitedBuckets(measured);
+  const limited = aLimitedBucket(measured);
+  const reason = "the prompt states the step limit";
+  for (const [what, growth, budget] of [
+    ["bytes", { bytes: 7 }, `${limited}:bytes`],
+    ["directives", { directives: 1 }, `${limited}:directives`],
+    ["both", { bytes: 7, directives: 1 }, `${limited}:bytes`],
+  ] as const) {
+    const grown = resized(cells, limited, growth);
+    assert.throws(
+      () => recordBaseline(grown, committed),
+      (error: unknown) => error instanceof BaselineIncreaseError && error.budgets.includes(budget) && error.budgets.every((b) => b.startsWith(limited)),
+      what,
+    );
+    assert.throws(() => recordBaseline(grown, committed, { increaseReason: "   " }), BaselineIncreaseError, `${what}: a blank reason is no reason`);
+    const raised = recordBaseline(grown, committed, { increaseReason: reason });
+    assert.equal(raised.lastIncrease?.reason, reason, what);
+    assert.ok(raised.lastIncrease?.budgets.includes(budget), `${what}: the stored budgets name ${budget}`);
+    assert.equal(raised.buckets[limited]!.bytes, measured.buckets[limited]!.bytes + (growth.bytes ?? 0), what);
+  }
+});
+
+test("a limited bucket nobody has recorded is held to the budget its twin has in the committed baseline, not to what the twin measures now", async () => {
+  const cells = limitedCellsAsTheirTwins(await matrixOnce());
+  const measured = recordBaseline(cells);
+  const limited = aLimitedBucket(measured);
+  const committed = withoutLimitedBuckets(measured);
+  committed.buckets[twinOf(limited)]!.bytes += 10;
+
+  const within = recordBaseline(resized(cells, limited, { bytes: 10 }), committed);
+  assert.equal(within.buckets[limited]!.bytes, measured.buckets[limited]!.bytes + 10);
+  assert.equal(within.lastIncrease, undefined, "up to the twin's recorded budget is no raise");
+  assert.throws(() => recordBaseline(resized(cells, limited, { bytes: 11 }), committed), BaselineIncreaseError, "a byte past it is");
+});
+
+test("a limited bucket the baseline has recorded is held to its own budget, never to its twin's", async () => {
+  const cells = limitedCellsAsTheirTwins(await matrixOnce());
+  const measured = recordBaseline(cells);
+  const limited = aLimitedBucket(measured);
+  const grown = resized(cells, limited, { bytes: 7, directives: 1 });
+  const committed = recordBaseline(grown, withoutLimitedBuckets(measured), { increaseReason: "the prompt states the step limit" });
+  assert.ok(committed.buckets[limited]!.bytes > committed.buckets[twinOf(limited)]!.bytes, "setup: the recorded limited bucket is larger than its twin");
+
+  assert.doesNotThrow(() => recordBaseline(grown, committed), "recording the same prompts again raises nothing");
+  assert.throws(() => recordBaseline(resized(cells, limited, { bytes: 8, directives: 1 }), committed), BaselineIncreaseError, "a byte past its own record is a raise");
+  assert.throws(() => recordBaseline(resized(cells, limited, { bytes: 7, directives: 2 }), committed), BaselineIncreaseError, "so is a directive");
+});
+
+test("a limited bucket is new, not raised, when its twin is not recorded either", async () => {
+  const cells = limitedCellsAsTheirTwins(await matrixOnce());
+  const measured = recordBaseline(cells);
+  const limited = aLimitedBucket(measured);
+  const committed = withoutLimitedBuckets(measured);
+  delete committed.buckets[twinOf(limited)];
+  const recorded = recordBaseline(resized(cells, limited, { bytes: 7 }), committed);
+  assert.equal(recorded.buckets[limited]!.bytes, measured.buckets[limited]!.bytes + 7);
+  assert.equal(recorded.lastIncrease, undefined);
 });

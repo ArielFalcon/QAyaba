@@ -656,18 +656,22 @@ describe("prompt-sync drift guard", () => {
   /* One file past the largest change the focused tier admits, so the diff is broad. */
   const BROAD_DIFF = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
   const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
-  const assembledFor = (shape: OwnedRule["shape"]): string => {
-    const e2e = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
-    const inputs: Record<OwnedRule["shape"], object> = {
-      code: { ...assembledInput, target: "code" },
-      "code-regen": { ...assembledInput, target: "code", fixCases: [FAILING_CASE] },
-      openapi: { ...e2e, openapi: "api-definition.yaml" },
-      pack: { ...e2e, contextPack: PACK_WITH_LIVE_DOM },
-      broad: { ...e2e, diff: BROAD_DIFF },
-      tree: { ...e2e, domSnapshot: "route /cart:\n  button: Apply coupon" },
-    };
-    return buildPrompt(inputs[shape] as Parameters<typeof buildPrompt>[0]);
+  /* Every shape is a turn that writes tests: a diff first pass, or a regeneration. */
+  const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
+  const SHAPE_INPUTS: Record<OwnedRule["shape"], object> = {
+    code: { ...assembledInput, target: "code" },
+    "code-regen": { ...assembledInput, target: "code", fixCases: [FAILING_CASE] },
+    openapi: { ...e2eInput, openapi: "api-definition.yaml" },
+    pack: { ...e2eInput, contextPack: PACK_WITH_LIVE_DOM },
+    broad: { ...e2eInput, diff: BROAD_DIFF },
+    tree: { ...e2eInput, domSnapshot: "route /cart:\n  button: Apply coupon" },
   };
+  /* The cap a runtime that enforces one hands the generator's prompt. A rule has one owner whether or not the runtime states a cap, so every shape is built both ways and each pin is counted in both. */
+  const STATED_STEP_LIMIT = 40;
+  const STEP_LIMIT_VARIANTS: ReadonlyArray<number | undefined> = [undefined, STATED_STEP_LIMIT];
+  const assembledInputFor = (shape: OwnedRule["shape"], stepLimit?: number): Parameters<typeof buildPrompt>[0] =>
+    ({ ...SHAPE_INPUTS[shape], ...(stepLimit !== undefined ? { stepLimit } : {}) }) as Parameters<typeof buildPrompt>[0];
+  const assembledFor = (shape: OwnedRule["shape"], stepLimit?: number): string => buildPrompt(assembledInputFor(shape, stepLimit));
   const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
 
   it("each craft rule is stated in the layer that owns it and nowhere else, in both runtimes", () => {
@@ -679,9 +683,24 @@ describe("prompt-sync drift guard", () => {
       for (const [runtime, text] of staticLayers) {
         assert.equal(countOf(text, pattern), inStatic, `${runtime} static layer: ${rule} is stated ${inStatic} time(s)`);
       }
-      const found = countOf(assembledFor(shape), pattern);
-      if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt: ${rule} is stated ${inAssembled.exactly} time(s)`);
-      else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+      for (const stepLimit of STEP_LIMIT_VARIANTS) {
+        const found = countOf(assembledFor(shape, stepLimit), pattern);
+        const build = stepLimit === undefined ? "without a step limit" : "with a step limit";
+        if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt ${build}: ${rule} is stated ${inAssembled.exactly} time(s)`);
+        else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt ${build}: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+      }
+    }
+  });
+
+  it("every shape the owned rules count in is also built with a step limit, and the limit is the only thing that tells the two builds apart", () => {
+    const shapes = Object.keys(SHAPE_INPUTS) as Array<OwnedRule["shape"]>;
+    assert.ok(shapes.length > 0, "setup: the shapes are known");
+    for (const shape of shapes) {
+      const plain = assembledInputFor(shape);
+      const { stepLimit, ...rest } = assembledInputFor(shape, STATED_STEP_LIMIT);
+      assert.equal(stepLimit, STATED_STEP_LIMIT, `${shape}: the build states the limit`);
+      assert.deepEqual(rest, plain, `${shape}: nothing else differs`);
+      assert.equal("stepLimit" in plain, false, `${shape}: the plain build has no limit key`);
     }
   });
 
