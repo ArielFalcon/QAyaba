@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { ReviewPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-port.adapter.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort, ReviewJudgment } from "@contexts/generation/application/ports/index.ts";
+import type { ReviewInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
 
 function fakeRuntime(output: string): AgentRuntimePort {
@@ -325,4 +326,51 @@ test("review() maps a thrown session.prompt() failure the same fail-closed way (
   assert.equal(result.approved, false);
   assert.equal(result.parsed, false);
   assert.ok(result.rationale?.includes("reviewer unavailable"));
+});
+
+/* The reviewer's session runs under a step limit of its own. The shell resolves it from the live runtime and the
+   adapter carries it onto the review input; with no resolver, or none for the role, the input has no such key. */
+
+function renderingRecording(seen: ReviewInput[]): PromptRenderingPort {
+  return {
+    ...fakeRendering(),
+    renderReviewer: (input) => {
+      seen.push(input);
+      return { text: "reviewer-prompt", sectionSizes: {} };
+    },
+  };
+}
+
+const approving = fakeVerdicts({ approved: true, corrections: [], parsed: true, valid: true, issues: [] });
+const REVIEW_CONTEXT = { diff: "", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", appName: "app", mode: "diff" as const };
+
+test("review() puts the reviewer's limit from the resolver on ReviewInput.stepLimit, asking for the reviewer role and for no other", async () => {
+  const seen: ReviewInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
+    stepLimitFor: async (role) => {
+      asked.push(role);
+      return role === "reviewer" ? 17 : 41;
+    },
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases);
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { priorCorrections: ["fix the assertion"] });
+
+  assert.deepEqual(seen.map((input) => input.stepLimit), [17, 17], "a re-review states it as the first review does");
+  assert.deepEqual(asked, ["reviewer", "reviewer"]);
+});
+
+test("review() carries no limit key when there is no resolver, or when the resolver has none", async () => {
+  const seen: ReviewInput[] = [];
+  const noResolver = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT);
+  const noLimit = new ReviewPortAdapter({ runtime: fakeRuntime("verdict-json"), rendering: renderingRecording(seen), verdicts: approving }, REVIEW_CONTEXT, {
+    stepLimitFor: async () => undefined,
+  });
+
+  await noResolver.review("/mirrors/org/app/e2e", cases);
+  await noLimit.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(seen.length, 2);
+  for (const input of seen) assert.equal("stepLimit" in input, false);
 });

@@ -20,7 +20,7 @@ import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { GenerationEnrichment, RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { TestTarget } from "@kernel/run-mode.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
@@ -1143,4 +1143,65 @@ test("a code-target run never renders the app login section, even with an unauth
   assert.ok(prompt.length > 0, "the generator was prompted");
   assert.doesNotMatch(prompt, /^## App login$/m);
   assert.ok(!prompt.includes("auth.setup.ts"));
+});
+
+/* The step limit the agent runtime enforces reaches each generation input: the generator's on every call, the
+   in-generate reviewer's only when that reviewer runs. The resolver is the shell's; with none, or with no limit
+   for a role, the input carries no key at all (absence is what tells a prompt not to state a limit). */
+
+function recordingUseCase(inputs: OpencodeRunInput[]): GenerateTestsUseCase {
+  return {
+    generate: async (input: OpencodeRunInput) => {
+      inputs.push(input);
+      return { specs: [], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
+    },
+  } as unknown as GenerateTestsUseCase;
+}
+
+/* A resolver that tells the two roles apart by value, so a limit put on the wrong field shows. */
+function resolverAsking(asked: StepLimitRole[]): (role: StepLimitRole) => Promise<number | undefined> {
+  return async (role) => {
+    asked.push(role);
+    return role === "generator" ? 41 : 17;
+  };
+}
+
+test("generate() puts the generator's limit from the resolver on every input it builds, a regeneration's included", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: false }, { stepLimitFor: resolverAsking(asked) });
+
+  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e", undefined, undefined, { reviewCorrections: ["fix the assertion"] });
+
+  assert.deepEqual(inputs.map((input) => input.stepLimit), [41, 41]);
+  assert.deepEqual(asked, ["generator", "generator"], "a generation that runs no reviewer never asks for the reviewer's limit");
+  assert.ok(inputs.every((input) => !("reviewerStepLimit" in input)));
+});
+
+test("generate() carries the in-generate reviewer's own limit when that reviewer runs, apart from the generator's", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true }, { stepLimitFor: resolverAsking(asked) });
+
+  await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+
+  assert.equal(inputs[0]?.stepLimit, 41);
+  assert.equal(inputs[0]?.reviewerStepLimit, 17);
+  assert.deepEqual([...asked].sort(), ["generator", "reviewer"]);
+});
+
+test("generate() carries no limit key when there is no resolver, or when the resolver has none for the role", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const noResolver = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true });
+  const noLimit = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, needsReview: true }, { stepLimitFor: async () => undefined });
+
+  await noResolver.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  await noLimit.generate(CHECKOUT, "/mirrors/org/app/e2e");
+
+  assert.equal(inputs.length, 2);
+  for (const input of inputs) {
+    assert.equal("stepLimit" in input, false);
+    assert.equal("reviewerStepLimit" in input, false);
+  }
 });

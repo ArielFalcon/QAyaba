@@ -1,9 +1,9 @@
-/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). reexploreNavigations is omitted; FixLoop treats absent as 0. AbortSignal is forwarded into openSession. */
+/* GenerationPort → GenerateTestsUseCase. Static per-run context is constructor config; specDir/objectives/signal/diff vary per call. Per-call `diff` is the live commit diff and takes precedence over ctx.diff. specSources come from optional readSpecSource — absent collaborator omits them (Lever-2 finds nothing). stepLimit (and reviewerStepLimit, when the generation runs its reviewer) come from optional stepLimitFor — absent collaborator, or a role with no limit, omits the key. reexploreNavigations is omitted; FixLoop treats absent as 0. AbortSignal is forwarded into openSession. */
 
 import type { Objective } from "@kernel/objective.ts";
 import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedRule } from "../../application/ports/index.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, StepLimitFor, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
@@ -84,6 +84,8 @@ export interface GenerationPortStaticContext {
 export interface GenerationPortCollaborators {
   /* Optional: re-reads a just-generated spec file's source text. `reported` is the path as the agent reported it, relative to the root's spec directory: the collaborator must confine it (the composition root defaults to the confined reader), and it throws when the path is refused, as loudly as a missing file. Absent -> specSources omitted. */
   readSpecSource?: (root: SpecRoot, reported: string) => string;
+  /* The step limit the runtime enforces for a role this run, asked for on every generation. Absent -> no input states a limit. */
+  stepLimitFor?: StepLimitFor;
 }
 
 export class GenerationPortAdapter implements GenerationPort {
@@ -95,6 +97,9 @@ export class GenerationPortAdapter implements GenerationPort {
 
   async generate(_objectives: readonly Objective[], specDir: string, signal?: AbortSignal, diff?: string, enrichment?: GenerationEnrichment): Promise<GenerationOutput> {
     const reviewerLearnedRules = enrichment?.learnedRules?.length ? renderLearnedRulesForReviewer(enrichment.learnedRules) : "";
+    const stepLimit = await this.collaborators.stepLimitFor?.("generator");
+    /* The in-generate reviewer's limit travels only with a generation that runs that reviewer's session. */
+    const reviewerStepLimit = this.ctx.needsReview ? await this.collaborators.stepLimitFor?.("reviewer") : undefined;
     const input: OpencodeRunInput = {
       repo: this.ctx.repo,
       /* Manifest changeRef.sha. From enrichment.sha when supplied; "" otherwise. */
@@ -113,6 +118,9 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(this.ctx.openapi ? { openapi: this.ctx.openapi } : {}),
       ...(this.ctx.service ? { service: this.ctx.service } : {}),
       ...(this.ctx.services?.length ? { services: this.ctx.services } : {}),
+      /* The limit the runtime enforces for each session of this generation. Absent -> omitted, never a made-up number. */
+      ...(stepLimit !== undefined ? { stepLimit } : {}),
+      ...(reviewerStepLimit !== undefined ? { reviewerStepLimit } : {}),
       ...(enrichment?.reviewCorrections?.length ? { reviewCorrections: [...enrichment.reviewCorrections] } : {}),
       ...(enrichment?.fixCases?.length ? { fixCases: [...enrichment.fixCases] } : {}),
       ...(enrichment?.selectorContradictions?.length ? { selectorContradictions: [...enrichment.selectorContradictions] } : {}),

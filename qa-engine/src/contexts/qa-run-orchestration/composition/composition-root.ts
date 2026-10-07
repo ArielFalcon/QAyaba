@@ -41,7 +41,7 @@ import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/proce
 import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
-import type { OpencodeRunInput, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ArchitectureContext, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/ports/index.ts";
 import type { StaticGateAdapter } from "@contexts/test-execution/infrastructure/static-gate.adapter.ts";
@@ -94,6 +94,8 @@ export interface CompositionConfig {
   };
   /* Override of the spec reader behind Lever-2's specSources. The shell passes none: absent, the composition root reads through the confined reader, the one that never follows a path an agent reported out of the spec directory. */
   readSpecSource?: GenerationPortCollaborators["readSpecSource"];
+  /* The step limit the agent runtime enforces for a role this run, shared by every prompt of the run (the shell reads it once). It resolves undefined when the runtime enforces none for the role or cannot be read, and never rejects. Optional, no stub: absent, no prompt of the run states a step limit. */
+  stepLimitFor?: StepLimitFor;
 
   /* ReviewPort collaborator — the SAME 3 generation-owned primitives the bridge composes standalone. */
   reviewRuntime: {
@@ -264,7 +266,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       ...(cfg.triggerService ? { service: cfg.triggerService } : {}),
       ...(cfg.services?.length ? { services: cfg.services } : {}),
     },
-    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile },
+    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile, stepLimitFor: cfg.stepLimitFor },
   );
 
   const review = new ReviewPortAdapter(cfg.reviewRuntime as ReviewPortRuntime, {
@@ -277,7 +279,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ...(cfg.baseUrl ? { baseUrl: cfg.baseUrl } : {}),
     ...(cfg.guidance ? { guidance: cfg.guidance } : {}),
     ...(cfg.reviewTimeoutMs !== undefined ? { timeoutMs: cfg.reviewTimeoutMs } : {}),
-  });
+  }, { stepLimitFor: cfg.stepLimitFor });
 
   const validation = new ValidationPortAdapter(
     {

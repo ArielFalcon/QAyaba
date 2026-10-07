@@ -161,7 +161,7 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the step-limit preset mutates the resolver, the lines that read, judge and route a limit and the agent-list read, against their own tests", () => {
+test("the step-limit preset mutates the resolver, the lines that read, judge and route a limit, the agent-list read and the factory's per-run memo, against their own tests", () => {
   const preset = PRESETS["step-limit"];
   assert.ok(preset, "the step-limit preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
@@ -169,10 +169,15 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
     "src/agent-runtime/opencode-strategy.ts",
     "src/agent-runtime/facades.ts",
     "src/integrations/opencode-client.ts",
+    "src/server/rewritten-engine-factory.ts",
   ]);
-  for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client"]) {
+  for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client", "rewritten-engine-factory.step-limit"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
   }
+  assert.ok(
+    !preset.tests.includes("src/server/rewritten-engine-factory.test.ts"),
+    "the memo's own tests stand apart from the factory's whole test file, which would run once per mutant",
+  );
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 

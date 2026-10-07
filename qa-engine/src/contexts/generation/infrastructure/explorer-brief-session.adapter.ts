@@ -12,7 +12,7 @@
 import { dirname } from "node:path";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
-import type { CommitIntent, ExplorationBrief, OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { CommitIntent, ExplorationBrief, OpencodeRunInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import { EXPLORER_AGENT_NAME } from "@contexts/generation/domain/explorer-agent.ts";
 import { buildExplorerPrompt } from "./prompt-builders/prompts.ts";
 
@@ -47,6 +47,11 @@ export interface ExplorerBriefDeps {
    * ctx.triggerService is set.
    */
   serviceContextDir?: (workingCopyDir: string, repo: string) => string;
+  /**
+   * The step limit the runtime enforces for the explorer this run. Resolved before the session is opened, so a
+   * slow read never holds one. Absent, or no limit for the explorer: the prompt input carries none.
+   */
+  stepLimitFor?: StepLimitFor;
 }
 
 export interface ExploreBriefArgs {
@@ -75,6 +80,7 @@ export class ExplorerBriefSessionAdapter {
     const cwd = dirname(args.specDir);
     let session: AgentSession | undefined;
     try {
+      const stepLimit = await this.deps.stepLimitFor?.("explorer");
       session = await this.deps.runtime.openSession("explorer", cwd, {
         ...(args.signal ? { signal: args.signal } : {}),
         timeoutMs: this.ctx.timeoutMs,
@@ -103,6 +109,7 @@ export class ExplorerBriefSessionAdapter {
         mode: this.ctx.mode,
         appName: this.ctx.appName,
         explorer: true,
+        ...(stepLimit !== undefined ? { stepLimit } : {}),
         ...(this.ctx.baseUrl ? { baseUrl: this.ctx.baseUrl } : {}),
         ...(this.ctx.guidance ? { guidance: this.ctx.guidance } : {}),
         ...(args.intent ? { intent: args.intent } : {}),

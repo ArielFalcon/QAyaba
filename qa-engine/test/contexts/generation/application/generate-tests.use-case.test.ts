@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
-import type { OpencodeRunInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -980,4 +980,49 @@ async function reportedSpecsFor(target: "e2e" | "code"): Promise<string[]> {
 test("an e2e generation reports its specs as suite-relative paths; a code generation keeps the names it was given", async () => {
   assert.deepEqual(await reportedSpecsFor("e2e"), ["flows/login.spec.ts"]);
   assert.deepEqual(await reportedSpecsFor("code"), ["login.spec.ts"]);
+});
+
+/* The in-generate reviewer's session runs under a step limit of its own. The caller resolves it from the live
+   runtime and hands it over as the generation input's reviewerStepLimit; it becomes the review input's stepLimit. */
+async function reviewInputFor(input: Partial<OpencodeRunInput>): Promise<ReviewInput | undefined> {
+  let seen: ReviewInput | undefined;
+  const ports: GenerationPorts = {
+    runtime: { openSession: async () => ({ prompt: async () => ({ output: "SESSION_OUTPUT" }), dispose: () => {} }) },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: (reviewInput) => {
+        seen = reviewInput;
+        return { text: "REV_PROMPT", sectionSizes: {} };
+      },
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [], parsed: true }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  };
+  await new GenerateTestsUseCase(ports).generate({
+    repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: true, target: "e2e", mode: "diff", appName: "a",
+    ...input,
+  });
+  return seen;
+}
+
+test("the in-generate reviewer's input carries the reviewer's own limit, never the generator's", async () => {
+  const reviewInput = await reviewInputFor({ stepLimit: 41, reviewerStepLimit: 17 });
+
+  assert.equal(reviewInput?.stepLimit, 17);
+});
+
+test("the in-generate reviewer's input carries no limit when the generation was handed none for it, whatever the generator's is", async () => {
+  const reviewInput = await reviewInputFor({ stepLimit: 41 });
+
+  assert.ok(reviewInput, "the reviewer was rendered");
+  assert.equal("stepLimit" in reviewInput, false);
 });

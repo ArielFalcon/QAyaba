@@ -46,7 +46,10 @@ const cliAgentRuntime = createAgentRuntimeManager({
   },
   hasOpenSessions: () => getOpenSessionCount() > 0,
 });
-const cliEngineFactory = createRewrittenEngineFactory({ getAgentDeps: () => cliAgentRuntime.facade().deps() });
+const cliEngineFactory = createRewrittenEngineFactory({
+  getAgentDeps: () => cliAgentRuntime.facade().deps(),
+  getAgentFacade: () => cliAgentRuntime.facade(),
+});
 
 /*
  * Probe the local service's unauthenticated liveness endpoint. A 200 means a long-lived

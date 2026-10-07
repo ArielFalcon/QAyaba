@@ -191,7 +191,12 @@ const enqueueContextHealRun = ({ app, sha }: ContextHealRunRequest): string => {
   return enqueueContextMapRun(queue, app, sha, runnerDeps());
 };
 
-engineFactory = createRewrittenEngineFactory({ getAgentDeps: currentAgentDeps, enqueueContextRun: enqueueContextHealRun });
+engineFactory = createRewrittenEngineFactory({
+  getAgentDeps: currentAgentDeps,
+  /* The facade is read per run, from the same manager the deps above come from: the runtime is switchable. */
+  getAgentFacade: () => agentRuntime.facade(),
+  enqueueContextRun: enqueueContextHealRun,
+});
 
 /*
  * Auto-maintenance runtime (ARCH-01): the self-deploy path lives in maintainer-runtime.ts; the

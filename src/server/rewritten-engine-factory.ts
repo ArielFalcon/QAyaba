@@ -11,8 +11,9 @@ import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
 import type { AgentDeps } from "../integrations/opencode-client";
-import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentTimeout } from "../integrations/opencode-client";
-import { AGENT_NAME_FOR_ROLE } from "../agent-runtime/types";
+import { REVIEWER_TIMEOUT_MS, EXPLORER_TIMEOUT_MS, agentTimeout, withTimeout } from "../integrations/opencode-client";
+import { AGENT_NAME_FOR_ROLE, type AgentFacade, type StepLimits } from "../agent-runtime/types";
+import { enforcedStepLimit } from "../agent-runtime/step-limit";
 
 import {
   withUsageSink,
@@ -81,6 +82,7 @@ import { parseVerdict } from "../integrations/verdict-parse";
 import { parseReviewerVerdict, checkGeneratorVerdict, repairInstruction } from "../integrations/verdict-validate";
 import { parseExplorationBrief } from "../qa/exploration-brief";
 import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter";
+import type { StepLimitFor, StepLimitRole } from "@contexts/generation/application/ports/generation-ports";
 import { MultiRepoCheckoutAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/multi-repo-checkout.adapter";
 import { roleWindowBytes } from "@contexts/generation/infrastructure/prompt-builders/model-window-catalog";
 import type { RepairPort } from "@contexts/generation/application/generate-tests.use-case.ts";
@@ -429,6 +431,12 @@ export interface RewrittenEngineFactoryDeps {
    * real :4097 supervisor, not a second AgentRuntimeManager instance.
    */
   getAgentDeps: () => AgentDeps;
+  /*
+   * The agent runtime's CURRENT facade, resolved once per run: the runtime is switchable, so a facade held any
+   * longer could be the wrong runtime's. It is where the step limit each role runs under is read from. Optional:
+   * absent, no prompt of the run states a step limit.
+   */
+  getAgentFacade?: () => AgentFacade;
 
   historyFilePath?: string;
   env?: Record<string, string | undefined>;
@@ -498,6 +506,44 @@ function requestContextHeal(
   );
 }
 
+/*
+ * How long a run waits for the agent runtime to answer the step-limit read. The first read of a directory
+ * starts that directory's agent instance, which is slow when cold, so the deadline is generous; a limit not
+ * known by then is no limit, since it is optional context and never worth holding a run for.
+ */
+export const STEP_LIMIT_READ_TIMEOUT_MS = 30_000;
+
+/* The runtime role each step-limit role runs as: the generator's session is the primary role's. */
+const RUNTIME_ROLE_OF_STEP_LIMIT_ROLE: Readonly<Record<StepLimitRole, AgentRole>> = {
+  generator: "primary",
+  reviewer: "reviewer",
+  explorer: "explorer",
+};
+
+/*
+ * The step limit each role of ONE run runs under, read live from the agent runtime: a single read of `directory`
+ * serves every role and every prompt of the run. The facade is resolved at the first ask, so a run that never
+ * prompts reads nothing and a runtime switched between runs gives each run its own. A read that throws or outlasts
+ * its deadline leaves every role without a limit and warns once. The baked config copy is never a substitute: it
+ * can differ from what the server enforces.
+ */
+function stepLimitResolver(getAgentFacade: () => AgentFacade, directory: string): StepLimitFor {
+  let read: Promise<StepLimits> | undefined;
+  return async (role) => {
+    read ??= readStepLimits(getAgentFacade, directory);
+    return enforcedStepLimit((await read)[RUNTIME_ROLE_OF_STEP_LIMIT_ROLE[role]]);
+  };
+}
+
+/* Never rejects: a failed read is no limit for any role, said once. */
+async function readStepLimits(getAgentFacade: () => AgentFacade, directory: string): Promise<StepLimits> {
+  try {
+    return await withTimeout(getAgentFacade().stepLimits(directory), STEP_LIMIT_READ_TIMEOUT_MS, "step limit read");
+  } catch (err) {
+    console.warn(`[qa] WARNING: the step limits of ${directory} could not be read from the agent runtime (${err instanceof Error ? err.message : String(err)}); no prompt of this run states one.`);
+    return {};
+  }
+}
 
 /*
  * An app's orchestrator-only auth material directory (storageState / client certificate) under
@@ -557,6 +603,12 @@ export function buildRewrittenCompositionConfig(
    */
   const mirrorDir = join(mirrorRoot, app.repo.replaceAll("/", "__"));
   const e2eDir = join(mirrorDir, e2eRelDir);
+  /*
+   * ONE resolver per run, shared by every session that states a limit: the generator, the reviewer and the explorer
+   * all run in the primary mirror (the working copy checkout(sha) returns is this same directory), so one read of it
+   * answers for all three. A host with no facade has no limit to give.
+   */
+  const stepLimitFor = deps.getAgentFacade ? stepLimitResolver(deps.getAgentFacade, mirrorDir) : undefined;
 
   /*
    * QAYABA_ROOT/data (the qa-data volume — NOT mounted into the agents container, only mirrors
@@ -778,7 +830,7 @@ export function buildRewrittenCompositionConfig(
         ? { triggerService: { repo: triggerService.repo, ...(triggerService.openapi ? { openapi: triggerService.openapi } : {}) } }
         : {}),
     },
-    { runtime: runtimeAdapter, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir },
+    { runtime: runtimeAdapter, parseBrief: parseExplorationBrief, buildPrompt: buildExplorerPrompt, serviceContextDir, stepLimitFor },
   );
 
   return {
@@ -828,6 +880,7 @@ export function buildRewrittenCompositionConfig(
 
     vcs,
     generationUseCase,
+    ...(stepLimitFor ? { stepLimitFor } : {}),
     reviewRuntime: {
       runtime: runtimeAdapter,
       rendering,

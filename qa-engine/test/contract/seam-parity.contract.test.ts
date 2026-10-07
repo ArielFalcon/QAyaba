@@ -17,6 +17,9 @@ import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryA
 import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from "../../../src/server/rewritten-engine-factory.ts";
 import type { AppConfig } from "../../../src/orchestrator/config-loader.ts";
 import type { AgentDeps } from "../../../src/integrations/opencode-client.ts";
+import { DualAgentFacade, SingleAgentFacade } from "../../../src/agent-runtime/facades.ts";
+import type { AgentFacade, AgentProvider, AgentRuntimeStrategy, StepLimits } from "../../../src/agent-runtime/types.ts";
+import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
 
 /* ── shared sentinel helpers ─────────────────────────────────────────────────────────────────────
    A sentinel is a value that is IMPOSSIBLE to produce by accident (unlike "", 0, false, or []),
@@ -184,6 +187,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
     readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired GenerationPort), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
+    stepLimitFor: "supplied ONLY when the host wires getAgentFacade: the per-run memo over the live runtime's step limits (asserted below as a present-when-given case that reaches the generation and review inputs). Legitimately absent when the host wires none: absent means no prompt of the run states a step limit, never a stand-in number.",
     setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
     cleanupCollaborators: "IS supplied (e2e only, matching composition-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
@@ -365,6 +369,102 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     } finally {
       rmSync(mirrorRoot, { recursive: true, force: true });
     }
+  });
+
+  /* The limit each role runs under is read by the shell from the live runtime and handed to the engine as a
+     resolver; the composition root gives it to the bridges. Observed here at the use case and at the review prompt
+     rendering, the two places a prompt is built from. With no facade wired there is no resolver, and so no limit. */
+  function facadeReporting(limits: StepLimits): AgentFacade {
+    const assignment = { provider: "opencode" as const, model: S("model") };
+    return {
+      config: { mode: "single", singleProvider: "opencode", assignments: { primary: assignment, reviewer: assignment, chat: assignment } },
+      deps: () => ({}) as unknown as AgentDeps,
+      getStatus: async () => ({ mode: "single", providers: [] }),
+      listModels: async () => [],
+      stepLimits: async () => limits,
+    };
+  }
+
+  async function inputsBuiltThrough(deps: RewrittenEngineFactoryDeps): Promise<{ cfg: CompositionConfig; generation: OpencodeRunInput; review: ReviewInput }> {
+    const cfg = buildRewrittenCompositionConfig(fakeAppConfig(), deps, S("namespace"), { mode: "diff" });
+    const generated: OpencodeRunInput[] = [];
+    const reviewed: ReviewInput[] = [];
+    const bridges = wireBridges({
+      ...cfg,
+      generationUseCase: {
+        generate: async (input) => {
+          generated.push(input);
+          return { specs: [], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
+        },
+      },
+      reviewRuntime: {
+        runtime: { openSession: async () => ({ prompt: async () => ({ output: "" }), dispose: async () => {} }) },
+        rendering: {
+          renderReviewer: (input) => {
+            reviewed.push(input);
+            return { text: "", sectionSizes: {} };
+          },
+        },
+        verdicts: { parseReview: () => ({ approved: true, corrections: [], parsed: true, valid: true, issues: [] }) },
+      },
+    });
+    const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
+    await bridges.generation.generate([], specDir);
+    await bridges.review.review(specDir, []);
+    assert.ok(generated[0] && reviewed[0], "both prompts were built");
+    return { cfg, generation: generated[0], review: reviewed[0] };
+  }
+
+  test("the step limit of each role crosses the composition root: the generator's reaches the generation input and the reviewer's the review input", async () => {
+    const { cfg, generation, review } = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => facadeReporting({ primary: 41, reviewer: 17, explorer: 9 }) });
+
+    const dyingLayer = "buildRewrittenCompositionConfig() -> wireBridges() (src/server/rewritten-engine-factory.ts -> composition-root.ts)";
+    assert.notEqual(cfg.stepLimitFor, undefined, `stepLimitFor dropped at ${dyingLayer}`);
+    assert.equal(generation.stepLimit, 41, `the generator's limit dropped at ${dyingLayer}`);
+    assert.equal(review.stepLimit, 17, `the reviewer's limit dropped at ${dyingLayer}`);
+  });
+
+  test("with no facade wired there is no resolver and no limit on any input (absent means no statement, never a stand-in)", async () => {
+    const { cfg, generation, review } = await inputsBuiltThrough(fakeFactoryDeps());
+
+    assert.equal(cfg.stepLimitFor, undefined);
+    assert.equal("stepLimit" in generation, false);
+    assert.equal("stepLimit" in review, false);
+  });
+
+  /* The real facades over the two providers, with only the providers themselves faked. A provider that enforces no
+     step limit it can report (Codex) leaves its roles without one, all the way to the input a prompt is built from. */
+  function providerReporting(provider: AgentProvider, limits?: StepLimits): AgentRuntimeStrategy {
+    return {
+      provider,
+      health: async () => ({ provider, status: "healthy", configured: true }),
+      listModels: async () => [],
+      openSession: async () => {
+        throw new Error("no session in a seam test");
+      },
+      ...(limits ? { stepLimits: async () => limits } : {}),
+    };
+  }
+  const assignedTo = (provider: AgentProvider) => ({ provider, model: S("model") });
+
+  test("a runtime that enforces no limit for a role gives that role none end to end: Codex alone has none, and with the reviewer on Codex only the generator keeps OpenCode's", async () => {
+    const codexAlone = new SingleAgentFacade(providerReporting("codex"), {
+      mode: "single",
+      singleProvider: "codex",
+      assignments: { primary: assignedTo("codex"), reviewer: assignedTo("codex"), chat: assignedTo("codex") },
+    });
+    const split = new DualAgentFacade(
+      { opencode: providerReporting("opencode", { primary: 41, reviewer: 17 }), codex: providerReporting("codex") },
+      { mode: "dual", singleProvider: "opencode", assignments: { primary: assignedTo("opencode"), reviewer: assignedTo("codex"), chat: assignedTo("codex") } },
+    );
+
+    const alone = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => codexAlone });
+    assert.equal("stepLimit" in alone.generation, false);
+    assert.equal("stepLimit" in alone.review, false);
+
+    const dual = await inputsBuiltThrough({ ...fakeFactoryDeps(), getAgentFacade: () => split });
+    assert.equal(dual.generation.stepLimit, 41);
+    assert.equal("stepLimit" in dual.review, false, "the reviewer runs on Codex, which has no limit to report: OpenCode's figure for that role is not its own");
   });
 
   test("every documented OPTIONAL_ALLOWLIST field is a REAL optional field on the type (guards against a stale allowlist entry after a refactor)", () => {

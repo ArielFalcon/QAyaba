@@ -150,6 +150,8 @@ export class GenerateTestsUseCase {
       ...(input.intent ? { intent: input.intent } : {}),
       ...(input.reviewerLearnedRules ? { learnedRules: input.reviewerLearnedRules } : {}),
       ...(input.domSnapshot ? { domSnapshot: input.domSnapshot } : {}),
+      /* The reviewer's session runs under a limit of its own: the generator's never stands in for it. */
+      ...(input.reviewerStepLimit !== undefined ? { stepLimit: input.reviewerStepLimit } : {}),
     };
     const reviewerAssembled = rendering.renderReviewer(reviewerInput);
     const reviewerSession = await runtime.openSession(reviewerRole, input.mirrorDir, {

@@ -267,7 +267,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "step-limit": {
-    description: "step limit: the cap each role runs under, read live from the runtime (the agent-list read, the judgment of a cap, the OpenCode mapping and its warnings, the facades' routing by provider) and the baked reader's order of names",
+    description: "step limit: the cap each role runs under, read live from the runtime (the agent-list read, the judgment of a cap, the OpenCode mapping and its warnings, the facades' routing by provider), the baked reader's order of names and the per-run memo that hands each role its limit (one read, a deadline, one warning)",
     mutate: [
       "src/agent-runtime/step-limit.ts",
       /* Only the lines that read, judge and route a limit: the rest of these modules is other code. */
@@ -278,6 +278,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/integrations/opencode-client.ts:201-202",
       "src/integrations/opencode-client.ts:314-316",
       "src/integrations/opencode-client.ts:324-334",
+      /* The factory's per-run memo: the deadline, the role mapping, the one read and its warning. */
+      "src/server/rewritten-engine-factory.ts:514-546",
     ],
     tests: [
       "src/agent-runtime/step-limit.test.ts",
@@ -285,6 +287,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "src/agent-runtime/facades.test.ts",
       "src/integrations/opencode-agents.test.ts",
       "src/integrations/opencode-client.test.ts",
+      /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
+      "src/server/rewritten-engine-factory.step-limit.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

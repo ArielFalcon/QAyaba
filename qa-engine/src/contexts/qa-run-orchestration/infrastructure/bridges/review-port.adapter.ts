@@ -5,7 +5,7 @@ import type { ReviewPort, ReviewEnrichment } from "../../application/ports/index
 import { REVIEWER_UNAVAILABLE_MARKER } from "../../application/ports/index.ts";
 import type { AgentRuntimePort } from "@kernel/ports/agent-runtime.port.ts";
 import type { PromptRenderingPort, VerdictParserPort } from "@contexts/generation/application/ports/index.ts";
-import type { ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { ReviewInput, StepLimitFor } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import { renderLearnedRulesForReviewer } from "./generation-port.adapter.ts";
 
@@ -28,10 +28,16 @@ export interface ReviewPortStaticContext {
   timeoutMs?: number;
 }
 
+export interface ReviewPortCollaborators {
+  /* The step limit the runtime enforces for a role this run, asked for on every review. Absent -> no review input states a limit. */
+  stepLimitFor?: StepLimitFor;
+}
+
 export class ReviewPortAdapter implements ReviewPort {
   constructor(
     private readonly deps: ReviewPortRuntime,
     private readonly ctx: ReviewPortStaticContext,
+    private readonly collaborators: ReviewPortCollaborators = {},
   ) {}
 
   async review(specDir: string, cases: readonly QaCase[], diff?: string, enrichment?: ReviewEnrichment): Promise<{
@@ -45,6 +51,7 @@ export class ReviewPortAdapter implements ReviewPort {
 
     /* Specs under review = case file/name; cases are the only per-spec identity at this seam. */
     const specs = cases.map((c) => c.file ?? c.name);
+    const stepLimit = await this.collaborators.stepLimitFor?.("reviewer");
 
     const reviewInput: ReviewInput = {
       diff: diff ?? this.ctx.diff,
@@ -60,6 +67,8 @@ export class ReviewPortAdapter implements ReviewPort {
       ...(enrichment?.learnedRules?.length ? { learnedRules: renderLearnedRulesForReviewer(enrichment.learnedRules) } : {}),
       ...(enrichment?.domSnapshot ? { domSnapshot: enrichment.domSnapshot } : {}),
       ...(enrichment?.runId ? { runId: enrichment.runId } : {}),
+      /* The limit the runtime enforces for the reviewer's session. Absent -> omitted, never a made-up number. */
+      ...(stepLimit !== undefined ? { stepLimit } : {}),
     };
     const assembled = rendering.renderReviewer(reviewInput);
 

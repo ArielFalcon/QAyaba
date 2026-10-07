@@ -93,6 +93,12 @@ export interface ExplorationBrief {
   notes?: string;
 }
 
+/* The roles whose step limit a prompt can state: the shell resolves each one from the live agent runtime. */
+export type StepLimitRole = "generator" | "reviewer" | "explorer";
+
+/* Resolves the step limit the agent runtime enforces for a role this run: a positive whole number of steps, or undefined when the runtime enforces none for the role or could not be read. Never rejects. A host that wires no resolver makes no statement: absence, never a stand-in number, is what tells a prompt not to state a limit. */
+export type StepLimitFor = (role: StepLimitRole) => Promise<number | undefined>;
+
 export interface OpencodeRunInput {
   repo: string;
   sha: string;
@@ -123,6 +129,10 @@ export interface OpencodeRunInput {
   runId?: string;
   contextMap?: ArchitectureContext;
   explorer?: boolean;
+  /* The step limit the runtime enforces for the session this input's prompt is built for: the generator's, or the explorer's when `explorer` is set. Absent = the runtime enforces none or could not be read, and no prompt states one. */
+  stepLimit?: number;
+  /* The same for the in-generate reviewer's session, a role with a limit of its own. Set only when that reviewer runs. */
+  reviewerStepLimit?: number;
   contextBrief?: ExplorationBrief; /* the distilled blast radius from the explorer pass (set internally → buildPrompt) */
   contextPack?: string;
   /* Facts about the suite's harness (test-id attribute, fixtures exports), rendered as data only. Absent = no section. */
@@ -164,6 +174,8 @@ export interface ReviewInput {
   runId?: string;
   priorCorrections?: string[];
   executionResult?: string;
+  /* The step limit the runtime enforces for the reviewer's session. Absent = the runtime enforces none or could not be read, and no prompt states one. */
+  stepLimit?: number;
 }
 
 export interface ParallelWorkerInput {

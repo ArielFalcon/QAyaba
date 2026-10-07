@@ -417,6 +417,24 @@ a dropped optional chain on a value that can be absent. Nothing else of the slic
 except the wiring that picks the real read when no test supplies one, a deliberately uncovered boundary
 (it would reach the network).
 
+The preset then took the per-run memo that hands each role its limit (2026-10-07, default workers, 85 mutants,
+36 of them compile errors, one to two minutes): 48 killed, no timeouts, 1 survivor, documented below, and none
+outside the memo (the 47 earlier mutants die again). The memo is the one read of a run's directory that every prompt of the run
+shares, with its deadline and its one warning. Stryker reaches little of it: the role table, the signatures and the
+blocks are typed, so most of its mutants do not compile, and it makes none for the choice between `??=` and `=`,
+for a dropped call or for the deadline's number. Those lines, and the lines that carry the limit onward (the
+generation port's, the review port's and the explorer's inputs, the in-generate reviewer's input, the composition
+root's hand-over and the factory's wiring of the resolver and of the explorer), sit outside the preset and were
+broken by hand against their own tests, 37 mutants in all, every one killed: the read made twice, held across runs
+or started before anyone asks; a number that is no positive whole count passed on as a limit; the generator, the
+reviewer and the explorer swapped, or each asked for another's limit; the deadline doubled or halved; another
+directory read; the warning dropped, or without its directory or its cause (an `Error`, or any other value thrown);
+a resolver composed for a host with no facade, or its key left in when absent; the explorer given no resolver, or
+resolving its limit after its session is open; each input's limit dropped, or left as a key with no value; the
+reviewer's limit put on the generator's field; and the reviewer's limit asked for by a generation that runs no
+reviewer. The memo's own tests sit in a file of their own, apart from the factory's whole test file, which would
+run once per mutant and not fit the mutation timeout.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -437,7 +455,7 @@ except the wiring that picks the real read when no test supplies one, a delibera
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | 129 / 0 / 6 — 95.56% (95.56%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 506 / 6 / 4 — 99.22% (98.06%) | — |
-| step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits | 43 / 0 / 4 — 91.49% (91.49%) | 47 / 0 / 0 — 100% (100%) | — |
+| step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
 
 ### Login discovery script (manual triangulation)
 
@@ -485,6 +503,10 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   pages the note names (StringLiteral ×2): the same, log text.
 - `formatRedirectAdvisory` — the `", "` between the routes a block says were asked for (StringLiteral):
   every route is still named; the separator is wording, not data.
+
+**step-limit** (`src/server/rewritten-engine-factory.ts`, the per-run memo)
+- `readStepLimits` — the label of the deadline's message, `"step limit read"` → `""` (StringLiteral): the
+  warning still names the directory, the deadline and the cause; the label is log text.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

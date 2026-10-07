@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentRuntimePort, AgentSession } from "@kernel/ports/agent-runtime.port.ts";
+import type { OpencodeRunInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorerBriefSessionAdapter } from "@contexts/generation/infrastructure/explorer-brief-session.adapter.ts";
 
 const staticCtx = {
@@ -235,4 +236,69 @@ test("explore(): forwards the abort signal to openSession", async () => {
   await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef", signal: controller.signal });
 
   assert.strictEqual((opens[0] as { opts?: { signal?: AbortSignal } }).opts?.signal, controller.signal);
+});
+
+/* The explorer's session runs under a step limit of its own: the shell resolves it from the live runtime and the
+   adapter carries it onto the input its prompt is built from. With no resolver, or none for the role, the input
+   has no such key (absence is what tells the prompt not to state a limit). */
+
+const idleSession: AgentSession = { prompt: async () => ({ output: "{}" }), dispose: async () => {} };
+
+test("explore(): the explorer's own limit from the resolver reaches the prompt input, asking for the explorer role and for no other", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const asked: StepLimitRole[] = [];
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(idleSession),
+    parseBrief: () => null,
+    buildPrompt: (input) => {
+      inputs.push(input);
+      return "PROMPT";
+    },
+    stepLimitFor: async (role) => {
+      asked.push(role);
+      return role === "explorer" ? 9 : 41;
+    },
+  });
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(inputs[0]?.stepLimit, 9);
+  assert.deepEqual(asked, ["explorer"]);
+});
+
+test("explore(): with no resolver, or none for the explorer, the prompt input carries no limit key", async () => {
+  const inputs: OpencodeRunInput[] = [];
+  const buildPrompt = (input: OpencodeRunInput): string => {
+    inputs.push(input);
+    return "PROMPT";
+  };
+  const noResolver = new ExplorerBriefSessionAdapter(staticCtx, { runtime: fakeRuntime(idleSession), parseBrief: () => null, buildPrompt });
+  const noLimit = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(idleSession),
+    parseBrief: () => null,
+    buildPrompt,
+    stepLimitFor: async () => undefined,
+  });
+
+  await noResolver.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+  await noLimit.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(inputs.length, 2);
+  for (const input of inputs) assert.equal("stepLimit" in input, false);
+});
+
+test("explore(): a resolver that fails keeps the pass fail-open (no brief, no throw) and no session is spent on it", async () => {
+  const opens: unknown[] = [];
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(idleSession, opens),
+    parseBrief: () => ({ builtForSha: "deadbeef", objective: "orders", blastRadius: [] }),
+    stepLimitFor: async () => {
+      throw new Error("limit read failed");
+    },
+  });
+
+  const brief = await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(brief, undefined);
+  assert.deepEqual(opens, [], "the limit is resolved before a session is opened, so a slow or failed read never holds one");
 });
