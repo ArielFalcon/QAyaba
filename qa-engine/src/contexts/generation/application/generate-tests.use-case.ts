@@ -1,6 +1,7 @@
 /* Generate-tests use case. Review is fail-closed: an unparseable verdict is approved:false. A parse miss (parsed:false) is distinct from an explicit rejection. One bounded generator repair and one bounded reviewer repair. Every generation ends in exactly one classified way (GenerationResult.end): with specs the run continues, without them the end says why. */
 import type { AgentRuntimePort, AgentTurnStats } from "@kernel/ports/agent-runtime.port.ts";
 import type { AgentRole } from "@kernel/agent-role.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.ts";
 import type {
   PromptRenderingPort,
@@ -12,6 +13,7 @@ import type {
 } from "./ports/index.ts";
 import type { OpencodeRunInput, ReviewInput } from "./ports/generation-ports.ts";
 import { classifyGenerationEnd, renderGenerationNote } from "../domain/generation-end.ts";
+import { declareSpecs } from "../domain/declared-specs.ts";
 
 export interface RepairPort {
   checkGenerator(text: string): { valid: boolean; issues: string[] };
@@ -31,6 +33,8 @@ export interface GenerationPorts {
 export interface GenerationResult {
   specs: string[];
   specMetas?: ManifestEntry[];
+  /** What the verdict declares for the specs it delivered (flow, objective), one entry per spec, the verdict's own word and not what the manifest kept: what the run carries forward into its regenerations. Absent when no spec was delivered. `specMetas` is the manifest's side of it, for publication. */
+  declaredSpecs?: DeliveredSpec[];
   approved: boolean;
   reviewed: boolean;
   /** For a generation that ended without specs, the explanation the run records: the agent's own reason for a declared no-op, otherwise what happened, what the turn measured and the end of its output. */
@@ -119,10 +123,14 @@ export class GenerateTestsUseCase {
     });
     const note = noteFor(end, deliverable, mainTurn, mainExhausted ? false : repairExhausted);
     const outcome = { end, note, ...(mainTurn ? { turn: mainTurn } : {}) };
+    /* The verdict's own declarations, read before the manifest drops anything: a spec the reviewer rejects, or one the manifest cannot hash, is still a spec the run delivered. */
+    const declaredSpecs = declareSpecs(deliverable.specs, deliverable.specMetas);
+    const declared = declaredSpecs.length > 0 ? { declaredSpecs } : {};
 
     if (!input.needsReview) {
       return {
         specs: deliverable.specs,
+        ...declared,
         reviewed: false,
         approved: true,
         parsed: deliverable.parsed,
@@ -189,6 +197,7 @@ export class GenerateTestsUseCase {
     return {
       specs: deliverable.specs,
       specMetas: reconciledEntries,
+      ...declared,
       reviewed: true,
       approved,
       parsed: deliverable.parsed,

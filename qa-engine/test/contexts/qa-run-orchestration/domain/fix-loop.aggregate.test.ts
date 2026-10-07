@@ -10,7 +10,7 @@ import {
   type FixLoopInput,
   type FixLoopRun,
 } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
-import type { SpecSelectorFindings } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
+import type { ContradictionOrigin, SpecSelectorFindings } from "@contexts/qa-run-orchestration/domain/helpers/selector-check.ts";
 import { CycleBudget } from "@contexts/qa-run-orchestration/domain/cycle-budget.ts";
 import { WallClockBudget } from "@contexts/qa-run-orchestration/domain/wall-clock-budget.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -243,6 +243,58 @@ test("Lever-2 absentKeys short-circuit — regenerates WITHOUT re-executing, loo
   assert.equal(result.retries, 1);
   assert.equal(result.run.verdict, "fail", "run is unchanged (never re-executed)");
   assert.equal(result.lastAdjudicatorVerdict?.action, "break-needs-human");
+});
+
+/* The check names the spec that raised each contradiction; the regeneration gets that beside the contradictions, so it can tell which specs they are about. */
+async function regenInputFor(findings: Partial<SpecSelectorFindings> & { origins?: ContradictionOrigin[] }): Promise<FixLoopGenerateInput> {
+  const seen: FixLoopGenerateInput[] = [];
+  const execution: FixLoopExecutionPort = { execute: async () => ({ verdict: "pass", cases: [{ name: "login", status: "pass" }] }) };
+  const generation: FixLoopGenerationPort = {
+    generate: async (input) => {
+      seen.push(input);
+      return { specs: ["login.spec.ts"], approved: true };
+    },
+  };
+  const { cycleBudget, wallClockBudget } = budgets();
+  const loop = new FixLoop({
+    execution,
+    generation,
+    selectorCheck: { check: () => ({ contradictions: [], absentKeys: new Set(), anyVerifiedPresent: false, anyNonExtractable: false, anyUnverifiable: false, ...findings }) },
+  });
+  await loop.run({
+    initialRun: { verdict: "fail", cases: [makeCase({ detail: "getByRole resolved to 0 elements" })] },
+    isCode: false,
+    generating: true,
+    mode: "diff",
+    objectiveSource: ["src/checkout.ts"],
+    maxRetries: 1,
+    cycleBudget,
+    wallClockBudget,
+    devHealthy: async () => true,
+    namespace: "qa-bot-abc",
+  });
+  assert.equal(seen.length, 1, "the loop regenerated once");
+  return seen[0]!;
+}
+
+test("the origins of the check's contradictions reach the regeneration beside them", async () => {
+  const contradiction = 'button:"Submit" is NOT in the captured failure-point tree. Present roles: (none)';
+  const origins = [{ contradiction, specIndex: 1 }];
+  const input = await regenInputFor({ contradictions: [contradiction], origins });
+  assert.deepEqual(input.selectorContradictions, [contradiction]);
+  assert.deepEqual(input.selectorContradictionOrigins, origins);
+});
+
+test("a check that does not say which spec raised its contradictions leaves the origins out", async () => {
+  const input = await regenInputFor({ contradictions: ["button:\"Submit\" matches MULTIPLE"] });
+  assert.equal(input.selectorContradictions?.length, 1);
+  assert.equal("selectorContradictionOrigins" in input, false);
+});
+
+test("a check that finds nothing hands the regeneration neither contradictions nor origins", async () => {
+  const input = await regenInputFor({ origins: [] });
+  assert.equal("selectorContradictions" in input, false);
+  assert.equal("selectorContradictionOrigins" in input, false);
 });
 
 test("filtered-retry — canFilter true (coverageWillMeasure=false, regen stayed in failed set)", async () => {

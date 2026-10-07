@@ -9,6 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,7 @@ import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastr
 import { Objective } from "@kernel/objective.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
+import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, StepLimitRole } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -1205,3 +1207,151 @@ test("generate() carries no limit key when there is no resolver, or when the res
     assert.equal("reviewerStepLimit" in input, false);
   }
 });
+
+/* What the verdict declared for each delivered spec travels out on the port's output; and the specs the run delivered so far travel in on a regeneration turn only, those whose file is still a regular file inside the spec directory. */
+
+test("generate() hands on what the verdict declared for each delivered spec, and omits the key when it declared none", async () => {
+  const declaredSpecs = [{ file: "flows/checkout.spec.ts", flow: "checkout", objective: "the order is placed" }, { file: "login.spec.ts" }];
+  const delivering = { generate: async () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], declaredSpecs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) } as unknown as GenerateTestsUseCase;
+  const nothing = { generate: async () => ({ specs: [], approved: true, reviewed: false, end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
+  const emptyHanded = { generate: async () => ({ specs: [], declaredSpecs: [], approved: true, reviewed: false, end: GENERATION_END.DECLARED_NOOP }) } as unknown as GenerateTestsUseCase;
+
+  const delivered = await new GenerationPortAdapter(delivering, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const none = await new GenerationPortAdapter(nothing, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
+  const empty = await new GenerationPortAdapter(emptyHanded, { ...STATIC_CONTEXT, needsReview: false }).generate(CHECKOUT, "/mirrors/org/app/e2e");
+
+  assert.deepEqual(delivered.declaredSpecs, declaredSpecs);
+  assert.equal("declaredSpecs" in none, false);
+  assert.equal("declaredSpecs" in empty, false, "an empty list of declarations is no key, never []");
+});
+
+test("generate() declares the specs of a real generation, by path when the verdict declared nothing else for them", async () => {
+  const adapter = new GenerationPortAdapter(new GenerateTestsUseCase(fakeGenerationPorts()), { ...STATIC_CONTEXT, needsReview: false });
+  const result = await adapter.generate(CHECKOUT, "/mirrors/org/app/e2e");
+  assert.deepEqual(result.declaredSpecs, [{ file: "flows/checkout.spec.ts" }]);
+});
+
+const FAILING_CASES = [{ name: "checkout works", status: "fail" as const, file: "flows/a.spec.ts" }];
+const REGENERATION_SIGNALS: ReadonlyArray<readonly [string, GenerationEnrichment]> = [
+  ["failing cases", { fixCases: FAILING_CASES }],
+  ["reviewer corrections", { reviewCorrections: ["assert the order total"] }],
+  ["a coverage gap", { coverageGap: "src/cart.ts: 10-14" }],
+  ["selector contradictions", { selectorContradictions: ["a selector the page does not have"] }],
+];
+
+/* The one generation input the adapter builds for `enrichment`, over a real mirror. */
+async function inputFor(enrichment: GenerationEnrichment, mirror: string, specDir: string): Promise<OpencodeRunInput> {
+  const inputs: OpencodeRunInput[] = [];
+  const adapter = new GenerationPortAdapter(recordingUseCase(inputs), { ...STATIC_CONTEXT, mirrorDir: mirror, needsReview: false });
+  await adapter.generate(CHECKOUT, specDir, undefined, undefined, enrichment);
+  assert.equal(inputs.length, 1);
+  return inputs[0]!;
+}
+
+const A = { file: "flows/a.spec.ts", flow: "login", objective: "the user signs in" };
+const B = { file: "b.spec.ts" };
+
+for (const [signal, regeneration] of REGENERATION_SIGNALS) {
+  test(`generate() hands the delivered specs whose file is there to a regeneration turn driven by ${signal}, as they were declared and in order`, () =>
+    withMirror(async ({ mirror, specDir }) => {
+      writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+      writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+      const input = await inputFor({ ...regeneration, deliveredSpecs: [A, B] }, mirror, specDir);
+      assert.deepEqual(input.deliveredSpecs, [A, B]);
+    }));
+}
+
+test("generate() hands no delivered spec to a first pass, whatever the enrichment holds", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+    const input = await inputFor({ deliveredSpecs: [B], attributedSpecFiles: ["b.spec.ts"] }, mirror, specDir);
+    assert.equal("deliveredSpecs" in input, false);
+    assert.equal("attributedSpecFiles" in input, false);
+  }));
+
+/* One delivered spec that is still there, beside one whose file the confinement refuses: only the first is handed on. */
+const REFUSED: ReadonlyArray<readonly [string, string, (dirs: { tmp: string; specDir: string }) => void]> = [
+  ["deleted", "flows/gone.spec.ts", () => {}],
+  ["renamed away: its old path is empty", "flows/old-name.spec.ts", () => {}],
+  ["a path that climbs out of the spec directory", "../../secret.txt", () => {}],
+  ["an absolute path", "/etc/hostname", () => {}],
+  ["a symlink that leaves the spec directory", "flows/link.spec.ts", ({ tmp, specDir }) => symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "link.spec.ts"))],
+  ["a directory, not a file", "flows", () => {}],
+  ["a path no filesystem can name", "flows/a\0.spec.ts", () => {}],
+  ["no path at all", "", () => {}],
+];
+
+for (const [why, refused, arrange] of REFUSED) {
+  test(`generate() drops a delivered spec that is ${why}, and keeps the one that is there`, () =>
+    withMirror(async ({ tmp, mirror, specDir }) => {
+      writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+      arrange({ tmp, specDir });
+      const input = await inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [{ file: refused, flow: "gone" }, A] }, mirror, specDir);
+      assert.deepEqual(input.deliveredSpecs, [A]);
+    }));
+}
+
+/* The named-pipe case needs mkfifo; where it is missing it skips, and says so. */
+function canMakeNamedPipes(): boolean {
+  const dir = mkdtempSync(join(tmpdir(), "qa-gen-port-fifo-probe-"));
+  try {
+    execFileSync("mkfifo", [join(dir, "probe")]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const NO_NAMED_PIPES = canMakeNamedPipes() ? false : "mkfifo is not available on this platform, so the named-pipe case is not exercised";
+
+/* The probe judges a path without opening it: a spec the agent replaced with a named pipe is dropped, and the generation never waits on it. Under the watch a probe that did open it fails within a fraction of a second instead of hanging. */
+test("generate() drops a delivered spec that is a named pipe without opening it", { skip: NO_NAMED_PIPES }, () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const pipe = join(specDir, "flows", "pipe.spec.ts");
+    execFileSync("mkfifo", [pipe]);
+    writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+
+    const input = await withoutWaitingOnNamedPipe(pipe, () => inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [{ file: "flows/pipe.spec.ts" }, A], attributedSpecFiles: ["flows/pipe.spec.ts"] }, mirror, specDir));
+
+    assert.deepEqual(input.deliveredSpecs, [A]);
+    assert.equal("attributedSpecFiles" in input, false);
+  }));
+
+test("generate() carries no delivered-specs key at all when none of them is there any more", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const input = await inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [A, B] }, mirror, specDir);
+    assert.equal("deliveredSpecs" in input, false);
+  }));
+
+test("generate() judges a delivered spec by the spec directory of the call: a file beside it is not a spec of the suite", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    writeFileSync(join(mirror, "top.spec.ts"), "// beside the suite\n");
+    const entry = { file: "top.spec.ts" };
+    const e2e = await inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [entry] }, mirror, specDir);
+    const code = await inputFor({ fixCases: FAILING_CASES, deliveredSpecs: [entry] }, mirror, mirror);
+    assert.equal("deliveredSpecs" in e2e, false);
+    assert.deepEqual(code.deliveredSpecs, [entry]);
+  }));
+
+test("generate() hands a regeneration turn the attributed spec files that are still there, in order, and drops the others", () =>
+  withMirror(async ({ tmp, mirror, specDir }) => {
+    writeFileSync(join(specDir, "flows", "a.spec.ts"), "// a\n");
+    writeFileSync(join(specDir, "b.spec.ts"), "// b\n");
+    symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "link.spec.ts"));
+    const input = await inputFor(
+      { selectorContradictions: ["x"], attributedSpecFiles: ["b.spec.ts", "gone.spec.ts", "flows/link.spec.ts", "../../secret.txt", "flows/a.spec.ts"] },
+      mirror,
+      specDir,
+    );
+    assert.deepEqual(input.attributedSpecFiles, ["b.spec.ts", "flows/a.spec.ts"]);
+  }));
+
+test("generate() carries no attributed-files key when there are none, or none of them is there", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const absent = await inputFor({ selectorContradictions: ["x"] }, mirror, specDir);
+    const gone = await inputFor({ selectorContradictions: ["x"], attributedSpecFiles: ["gone.spec.ts"] }, mirror, specDir);
+    assert.equal("attributedSpecFiles" in absent, false);
+    assert.equal("attributedSpecFiles" in gone, false);
+  }));

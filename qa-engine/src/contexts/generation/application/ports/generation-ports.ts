@@ -2,6 +2,7 @@
 
 import type { TestTarget, RunMode } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { ServiceLink, ContractDrift } from "@contexts/service-topology/domain/index.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 
@@ -120,6 +121,10 @@ export interface OpencodeRunInput {
   reviewCorrections?: string[];
   coverageGap?: string;
   selectorContradictions?: string[];
+  /* Every spec the run has delivered so far whose file still exists, on a regeneration turn only: the lead's declared flow and objective where it declared them, a sidekick's spec by path alone. Absent on a first pass, and when none is left. Data for the suite listing; no prompt reads it yet. */
+  deliveredSpecs?: readonly DeliveredSpec[];
+  /* The existing suite files whose source holds a selector that one of `selectorContradictions` names, since a contradiction names no file itself. Absent when none could be attributed. */
+  attributedSpecFiles?: readonly string[];
   /* Generator render of the retrieved rules: proven rules plus unproven candidates framed as hints. */
   learnedRules?: string;
   /* Reviewer render of the retrieved rules: PROVEN (active) rules only, as reject-on-sight rules. The reviewer is the publish gate, so an unproven candidate must never become grounds for rejection; absent when no proven rule was retrieved. */

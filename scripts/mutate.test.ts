@@ -211,6 +211,53 @@ test("the route-capturability preset mutates the route classification, the pack'
   assert.equal(preset.thresholds.break, null, "the preset stays in signal mode");
 });
 
+test("the carry-forward preset mutates the spec path and the one fold, the declarations, the merge and the attribution whole, and only the lines that wire them in the use case, the adapter, the checks, the FixLoop and the run, against their own tests", () => {
+  const preset = PRESETS["carry-forward"];
+  assert.ok(preset, "the carry-forward preset exists");
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
+    "qa-engine/src/shared-kernel/spec-path.ts",
+    "qa-engine/src/shared-kernel/delivered-spec.ts",
+    "qa-engine/src/contexts/generation/domain/declared-specs.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/delivered-specs.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/contradiction-attribution.ts",
+    "qa-engine/src/contexts/generation/application/generate-tests.use-case.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/helpers/selector-check.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/pre-exec-grounding.service.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/application/run-qa.use-case.ts",
+  ]);
+  for (const whole of ["spec-path", "delivered-spec", "declared-specs", "delivered-specs", "contradiction-attribution"]) {
+    assert.ok(preset.mutate.some((entry) => sourcePathOf(entry) === entry && entry.endsWith(`/${whole}.ts`)), `${whole} is mutated whole, never narrowed to a range`);
+  }
+  for (const wired of ["generate-tests.use-case", "generation-port.adapter", "selector-check", "pre-exec-grounding.service", "fix-loop.aggregate", "run-qa.use-case"]) {
+    assert.ok(
+      preset.mutate.filter((entry) => sourcePathOf(entry).endsWith(`/${wired}.ts`)).every((entry) => sourcePathOf(entry) !== entry),
+      `${wired} is narrowed to the lines that wire the carry-forward: the rest of it is other code`,
+    );
+  }
+  for (const tests of [
+    "shared-kernel/spec-path.test.ts",
+    "shared-kernel/delivered-spec.test.ts",
+    "domain/declared-specs.test.ts",
+    "application/generate-tests.declared-specs.test.ts",
+    "helpers/delivered-specs.test.ts",
+    "helpers/contradiction-attribution.test.ts",
+    "helpers/selector-check.origins.test.ts",
+    "domain/pre-exec-grounding.service.test.ts",
+    "domain/fix-loop.aggregate.test.ts",
+    "application/run-qa.carry-forward.test.ts",
+    "bridges/generation-port.adapter.test.ts",
+  ]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.ok(
+    !preset.tests.some((t) => t.endsWith("application/run-qa.use-case.test.ts")),
+    "the run's carry-forward tests stand apart from its whole test file, which would run once per mutant",
+  );
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",

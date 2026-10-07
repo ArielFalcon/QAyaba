@@ -5,6 +5,7 @@ import {
   confidentWindowEnd,
   extractTestIdSelectorsWithIndex,
   firstGotoRoute,
+  type ContradictionOrigin,
 } from "./helpers/selector-check.ts";
 
 /* Domain-local mirror of generation/infrastructure's RouteSnapshot ∩ RouteCatalog — only the fields this service reads. `nodes` mirrors RouteSnapshot.nodes (the "role: name" a11y tree, used by the ambiguity check). `status`/`settled`/`testIds` mirror RouteCatalog (the Pillar-2 catalog gate's own confidence fields) — all optional, defaulting to the SAME conservative posture buildRouteCatalog applies to a degraded/uncaptured route: status "degraded" (untrusted), settled false, testIds empty — so a caller that only ever captures `nodes` (ambiguity-only, no catalog work) never needs to fabricate catalog fields, and the gate correctly stays advisory-only for it. */
@@ -23,6 +24,8 @@ export interface PreExecGroundingInput {
 
 export interface PreExecGroundingResult {
   corrections: string[];
+  /* The spec each correction was raised on, by its index among the input's specSources: a correction two specs raise has an origin for each. Only the specs that raised a correction are origins; one that holds the same selector disambiguated, scoped or on another route is not. */
+  origins: ContradictionOrigin[];
   preExecAmbiguityCatches: number;
   catalogGateInWindow: number;
   catalogGateAdvisory: number;
@@ -50,28 +53,33 @@ function extractGotoRoutes(specSrc: string): Set<string> {
   return out;
 }
 
-function ambiguityContradictions(specSources: readonly string[], routes: readonly RouteTree[]): string[] {
-  const all: string[] = [];
-  for (const specSrc of specSources) {
+/* Each ambiguity is told once, however many specs raise it; `origins` has one entry for each spec that raised it. */
+function ambiguityContradictions(
+  specSources: readonly string[],
+  routes: readonly RouteTree[],
+): { contradictions: string[]; origins: ContradictionOrigin[] } {
+  const origins: ContradictionOrigin[] = [];
+  for (const [specIndex, specSrc] of specSources.entries()) {
     const paired = routesForSpec(specSrc, routes);
     const trees = paired.map((r) => r.nodes).filter((n) => n.length > 0);
-    all.push(...unscopedMultipleContradictions([specSrc], trees, "pre-write"));
+    const raised = unscopedMultipleContradictions([specSrc], trees, "pre-write");
+    for (const contradiction of raised) origins.push({ contradiction, specIndex });
   }
-  return [...new Set(all)];
+  return { contradictions: [...new Set(origins.map((origin) => origin.contradiction))], origins };
 }
 
 function catalogCorrections(
   specSources: readonly string[],
   routes: readonly RouteTree[],
-): { corrections: string[]; inWindow: number; advisory: number } {
+): { origins: ContradictionOrigin[]; inWindow: number; advisory: number } {
   if (!specSources.some((s) => extractTestIdSelectorsWithIndex(s).length > 0)) {
-    return { corrections: [], inWindow: 0, advisory: 0 };
+    return { origins: [], inWindow: 0, advisory: 0 };
   }
   const byRoute = new Map(routes.map((r) => [r.route, r]));
-  const corrections: string[] = [];
+  const origins: ContradictionOrigin[] = [];
   let inWindow = 0;
   let advisory = 0;
-  for (const specSrc of specSources) {
+  for (const [specIndex, specSrc] of specSources.entries()) {
     const firstRoute = firstGotoRoute(specSrc); /* the FIRST LITERAL goto — consistent with confidentWindowEnd */
     if (firstRoute === undefined) continue; /* un-navigable / no first goto → no window route → advisory */
     const windowRoute = byRoute.get(firstRoute);
@@ -84,16 +92,17 @@ function catalogCorrections(
       if (trusted && index < windowEnd) {
         inWindow++;
         if (!testIds.has(value)) {
-          corrections.push(
-            `getByTestId('${value}') is NOT in the captured DOM of route '${firstRoute}' — this test-id does not exist on the page. Use only a test-id present in the grounded DOM snapshot, or a role/label selector; never invent a test-id.`,
-          );
+          origins.push({
+            contradiction: `getByTestId('${value}') is NOT in the captured DOM of route '${firstRoute}' — this test-id does not exist on the page. Use only a test-id present in the grounded DOM snapshot, or a role/label selector; never invent a test-id.`,
+            specIndex,
+          });
         }
       } else {
         advisory++;
       }
     }
   }
-  return { corrections, inWindow, advisory };
+  return { origins, inWindow, advisory };
 }
 
 /* One-shot pre-execution grounding: combined ambiguity + catalog corrections for one corrective regen. This function never blocks — the caller captures routes, feeds corrections into one regen, and re-invokes (or just the ambiguity half) to decide whether a persisting ambiguity should escalate. */
@@ -102,14 +111,15 @@ export function checkPreExecGrounding(input: PreExecGroundingInput): PreExecGrou
   const ambiguities = ambiguityContradictions(specSources, routes);
   const catalog = catalogCorrections(specSources, routes);
   return {
-    corrections: [...ambiguities, ...catalog.corrections],
-    preExecAmbiguityCatches: ambiguities.length,
+    corrections: [...ambiguities.contradictions, ...catalog.origins.map((origin) => origin.contradiction)],
+    origins: [...ambiguities.origins, ...catalog.origins],
+    preExecAmbiguityCatches: ambiguities.contradictions.length,
     catalogGateInWindow: catalog.inWindow,
     catalogGateAdvisory: catalog.advisory,
-    catalogGateFailClosed: catalog.corrections.length,
+    catalogGateFailClosed: catalog.origins.length,
   };
 }
 
 export function checkPersistingAmbiguity(input: PreExecGroundingInput): string[] {
-  return ambiguityContradictions(input.specSources, input.routes);
+  return ambiguityContradictions(input.specSources, input.routes).contradictions;
 }

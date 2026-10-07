@@ -11,6 +11,7 @@ import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import type { RunStep } from "@kernel/run-step.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { Objective } from "@kernel/objective.ts";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
@@ -121,6 +122,18 @@ export interface GenerationEnrichment {
   domSnapshot?: string;
   /** Changed lines a green run failed to exercise (enforce-mode coverage regen). */
   coverageGap?: string;
+  /**
+   * Every spec this run has delivered so far, refreshed for each regeneration turn: the lead's
+   * declared flow and objective where it declared them, a sidekick's specs by path alone.
+   * Absent on a first pass and when nothing was delivered. The adapter drops the entries whose
+   * file is gone before they reach a prompt.
+   */
+  deliveredSpecs?: readonly DeliveredSpec[];
+  /**
+   * The suite files whose source holds a selector that one of `selectorContradictions` names:
+   * a contradiction names no spec itself. Absent when none could be attributed.
+   */
+  attributedSpecFiles?: readonly string[];
   /** Diff-mode CommitIntent from classify(). */
   intent?: CommitIntent;
   /**
@@ -217,10 +230,13 @@ export interface GenerationEnrichment {
  * `specSources` is just-generated spec text for selector checks; absent/empty is never
  * fabricated. `specMetas` is the flow/objective projection for publication; absent/empty omits
  * the "tested" section. `parsed` is false only when no verdict JSON could be parsed. `turn` is
- * what the generation's main turn measured, when its runtime can measure a turn.
+ * what the generation's main turn measured, when its runtime can measure a turn. `declaredSpecs`
+ * is what the verdict declared for each delivered spec (flow, objective), the lead's own word:
+ * what the run carries into its later regenerations. Absent when no spec was delivered.
  */
 export interface GenerationOutput {
   specs: string[];
+  declaredSpecs?: DeliveredSpec[];
   end: GenerationEndKind;
   reviewed: boolean;
   approved: boolean;

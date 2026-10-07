@@ -14,6 +14,7 @@ import { relative } from "node:path";
 import type { RunOutcome } from "@kernel/run-outcome.ts";
 import type { RunMode, TestTarget, TriggerSource } from "@kernel/run-mode.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
+import type { DeliveredSpec } from "@kernel/delivered-spec.ts";
 import { isOk } from "@kernel/result.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
 import type { AuthSessionContext, AuthSessionPort } from "./ports/auth-session.port.ts";
@@ -23,6 +24,7 @@ import { GENERATION_END, type GenerationEndKind } from "@kernel/generation-end.t
 import type {
   ChangeAnalysisPort,
   GenerationPort,
+  GenerationEnrichment,
   GenerationOutput,
   ReviewPort,
   ValidationPort,
@@ -107,7 +109,9 @@ import { decide, type RunEvidence } from "../domain/run-decision.service.ts";
 import { RunDecision } from "../domain/run-decision.ts";
 import { FixLoop, type FixLoopExecutionPort, type FixLoopGenerationPort, type FixLoopSelectorCheckPort } from "../domain/fix-loop.aggregate.ts";
 import type { AdjudicatorVerdict } from "../domain/adjudicate.service.ts";
-import { checkSpecSelectors } from "../domain/helpers/selector-check.ts";
+import { checkSpecSelectors, contradictionOrigins } from "../domain/helpers/selector-check.ts";
+import { attributeContradictions } from "../domain/helpers/contradiction-attribution.ts";
+import { mergeDeliveredSpecs } from "../domain/helpers/delivered-specs.ts";
 import { resolveErrorClass } from "../domain/helpers/error-class.ts";
 import { AuthPreconditionError, type PreconditionKind } from "../domain/auth-precondition.ts";
 import { terminalForGenerationEnd } from "../domain/helpers/generation-end-terminal.ts";
@@ -754,6 +758,23 @@ export class RunQaUseCase {
       ...(classificationContradiction ? { contradiction: true } : {}),
     };
 
+    /*
+     * The specs this run has delivered so far, merged after every generation pass: a lead pass
+     * refreshes what its verdict declared for each spec, a sidekick pass adds paths only (the
+     * objective of a delegation is never a spec's). Every regeneration is handed them.
+     */
+    let delivered: readonly DeliveredSpec[] = [];
+    /* One regeneration by the lead over what the run has delivered so far; what it delivers joins that. */
+    const regenerate = async (regenerationSignal: AbortSignal | undefined, enrichment: GenerationEnrichment): Promise<GenerationOutput> => {
+      const regenerated = await this.deps.generation.generate([], workspace.specDir, regenerationSignal, classificationDiff, {
+        ...baseEnrichment,
+        ...enrichment,
+        ...(delivered.length > 0 ? { deliveredSpecs: delivered } : {}),
+      });
+      delivered = mergeDeliveredSpecs(delivered, regenerated, "lead");
+      return regenerated;
+    };
+
     /* After classification+grounding, before generate. Fail-open on decide() errors. */
     let coordinationProposal: ProposedOrchestrationDecision | undefined;
     let leadContext: LeadContext | undefined;
@@ -993,11 +1014,13 @@ export class RunQaUseCase {
        * prompt builders render the rewrite instruction); the Context Pack stays grounding-only.
        * Sidekick output from the login wall is not the session the suite will run with.
        */
-      generated = (authSeedUnauthored ? undefined : fromSidekick)
+      const sidekickFirstPass = authSeedUnauthored ? undefined : fromSidekick;
+      generated = sidekickFirstPass
         ?? (await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
           ...baseEnrichment,
           ...(authSeedUnauthored ? { authSeedUnauthored: true } : {}),
         }));
+      delivered = mergeDeliveredSpecs(delivered, generated, sidekickFirstPass ? "sidekick" : "lead");
     }
     /*
      * Confinement after a real generate() only. The regression synthetic stand-in
@@ -1079,35 +1102,39 @@ export class RunQaUseCase {
     let catalogGateInWindow = 0;
     let catalogGateAdvisory = 0;
     let catalogGateFailClosed = 0;
-    /* Re-reads on-disk specs every call so a post-regen re-check is not stale. */
-    const runPreExecGrounding = async (): Promise<string[]> => {
-      if (!this.deps.preExecGrounding) return [];
-      const { specSources, routes } = await this.deps.preExecGrounding.capture(workspace.specDir, signal);
+    /*
+     * Re-reads on-disk specs every call so a post-regen re-check is not stale. A contradiction names
+     * no spec, but the gate says which spec raised each: the files are those of the capture's specs.
+     */
+    const runPreExecGrounding = async (): Promise<{ corrections: string[]; attributedSpecFiles: string[] }> => {
+      if (!this.deps.preExecGrounding) return { corrections: [], attributedSpecFiles: [] };
+      const { specFiles, specSources, routes } = await this.deps.preExecGrounding.capture(workspace.specDir, signal);
       const result = checkPreExecGrounding({ specSources, routes });
       preExecAmbiguityCatches += result.preExecAmbiguityCatches;
       catalogGateInWindow += result.catalogGateInWindow;
       catalogGateAdvisory += result.catalogGateAdvisory;
       catalogGateFailClosed += result.catalogGateFailClosed;
-      return result.corrections;
+      return { corrections: result.corrections, attributedSpecFiles: attributeContradictions(result.corrections, result.origins, specFiles) };
     };
     /*
      * One-shot corrective regen before the static gate. Adopt the regen only if it
      * produced specs — an empty result must not discard the original specs.
      */
-    const groundingCorrections = await runPreExecGrounding();
+    const { corrections: groundingCorrections, attributedSpecFiles: groundingAttribution } = await runPreExecGrounding();
     if (groundingCorrections.length > 0) {
       this.deps.observer?.onStep("retry", "pre-exec grounding: corrective regen");
-      const corrected = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
-        ...baseEnrichment,
+      const corrected = await regenerate(signal, {
         selectorContradictions: groundingCorrections,
+        ...(groundingAttribution.length > 0 ? { attributedSpecFiles: groundingAttribution } : {}),
       });
       await enforceConfinement();
       if (corrected.specs.length > 0) {
         generated = corrected;
       }
     }
-    /* Pre-exec corrections still feed later FixLoop regens until the post-static-fix re-check refreshes them. */
+    /* Pre-exec corrections, and the files they were attributed to, still feed later FixLoop regens until the first of them consumes them. */
     let pendingSelectorContradictions: string[] = groundingCorrections;
+    let pendingAttributedSpecFiles: string[] = groundingAttribution;
 
     /*
      * Bounded repair of static-gate errors (MAX_STATIC_FIX_ROUNDS). Skipped when
@@ -1136,8 +1163,7 @@ export class RunQaUseCase {
       this.deps.observer?.onStep("retry", `static-fix round ${staticFixRounds}/${MAX_STATIC_FIX_ROUNDS}`);
       /* Repair regen reuses the same classificationDiff/intent as the initial generate(). */
       const staticGateErrorDetail = validation.errors.join("\n\n").slice(0, STATIC_GATE_ERROR_DETAIL_MAX_CHARS);
-      lastGenerated = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
-        ...baseEnrichment,
+      lastGenerated = await regenerate(signal, {
         fixCases: [{ name: "static-gate", status: "fail", detail: staticGateErrorDetail }],
       });
       await enforceConfinement();
@@ -1337,6 +1363,12 @@ export class RunQaUseCase {
           return p;
         });
       };
+      /*
+       * The specs of the latest lead generation: the FixLoop's next Lever-2 check reads their sources,
+       * by index, so the contradictions it finds were raised by these specs. (After a sidekick round
+       * the check reads none and finds none.)
+       */
+      let latestSpecs: string[] = lastGenerated.specs;
       const fixLoopGeneration: FixLoopGenerationPort = {
         /* Forward FixLoopGenerateInput so a retry prompt sees what failed. */
         generate: async (fixLoopInput) => {
@@ -1345,9 +1377,11 @@ export class RunQaUseCase {
            * Merge leftover pre-exec selector contradictions with FixLoop's post-failure
            * check — independent evidence; neither suppresses the other.
            */
-          const mergedSelectorContradictions = [
-            ...pendingSelectorContradictions,
-            ...(fixLoopInput.selectorContradictions ?? []),
+          const lever2Contradictions = fixLoopInput.selectorContradictions ?? [];
+          const mergedSelectorContradictions = [...pendingSelectorContradictions, ...lever2Contradictions];
+          /* The pre-exec ones come with the files they were attributed to when found; Lever-2's are attributed now, to the specs the check says raised them. */
+          const attributedSpecFiles = [
+            ...new Set([...pendingAttributedSpecFiles, ...attributeContradictions(lever2Contradictions, fixLoopInput.selectorContradictionOrigins, latestSpecs)]),
           ];
 
           /* Capability for THIS regen round. FixLoop still owns when to regenerate. */
@@ -1540,6 +1574,9 @@ export class RunQaUseCase {
                 const specs = mapSidekickSpecs(onDisk);
                 await enforceConfinement();
                 pendingSelectorContradictions = [];
+                pendingAttributedSpecFiles = [];
+                /* Paths only: the objective of this delegation is not the objective of any spec. */
+                delivered = mergeDeliveredSpecs(delivered, { specs }, "sidekick");
                 this.deps.observer?.onEvent({
                   type: "log.line",
                   level: "info",
@@ -1560,15 +1597,18 @@ export class RunQaUseCase {
             }
           }
 
-          const r = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
-            ...baseEnrichment,
+          const r = await regenerate(signal, {
             fixCases: fixLoopInput.fixCases,
             ...(mergedSelectorContradictions.length ? { selectorContradictions: mergedSelectorContradictions } : {}),
+            ...(attributedSpecFiles.length ? { attributedSpecFiles } : {}),
             ...(fixLoopInput.domSnapshot ? { domSnapshot: fixLoopInput.domSnapshot } : {}),
           });
           await enforceConfinement();
           /* Pre-exec corrections are one-shot — clear after the first FixLoop regen. */
           pendingSelectorContradictions = [];
+          pendingAttributedSpecFiles = [];
+          /* The next Lever-2 check reads this generation's sources: its contradictions will be raised by these specs. */
+          latestSpecs = r.specs;
           /* Forward just-generated specSources so the next Lever-2 check is not empty. */
           return {
             specs: r.specs,
@@ -1580,7 +1620,7 @@ export class RunQaUseCase {
         },
       };
       const fixLoopSelectorCheck: FixLoopSelectorCheckPort = {
-        check: (specSources, trees) => checkSpecSelectors(specSources, trees),
+        check: (specSources, trees) => ({ ...checkSpecSelectors(specSources, trees), origins: contradictionOrigins(specSources, trees) }),
       };
       const fixLoop = new FixLoop({
         execution: fixLoopExecution,
@@ -1696,10 +1736,7 @@ export class RunQaUseCase {
          * The method's AbortSignal parameter is shadowed here by the measure() result
          * `signal`. This generate() omits it rather than rename every `signal.*` read.
          */
-        const regen = await this.deps.generation.generate([], workspace.specDir, undefined, classificationDiff, {
-          ...baseEnrichment,
-          coverageGap: gap,
-        });
+        const regen = await regenerate(undefined, { coverageGap: gap });
         await enforceConfinement();
         if (regen.specs.length > 0) {
           const regenValidation = await this.deps.validation.validate(workspace.specDir, validateChangedFiles);
@@ -1831,10 +1868,7 @@ export class RunQaUseCase {
         retries++;
         this.deps.observer?.onStep("retry", `reviewer-correction round ${round + 1}/${MAX_REVIEW_ROUNDS}`);
         previousRoundCorrections = reviewResult.corrections;
-        const regen = await this.deps.generation.generate([], workspace.specDir, signal, classificationDiff, {
-          ...baseEnrichment,
-          reviewCorrections: reviewResult.corrections,
-        });
+        const regen = await regenerate(signal, { reviewCorrections: reviewResult.corrections });
         await enforceConfinement();
         if (regen.specs.length === 0) {
           /* A regen that produced no reviewable specs must not inherit the generator's self-approval. */

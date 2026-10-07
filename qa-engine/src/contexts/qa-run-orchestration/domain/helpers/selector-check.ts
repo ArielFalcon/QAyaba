@@ -390,3 +390,16 @@ export function checkSpecSelectors(
   }
   return { contradictions, absentKeys, anyVerifiedPresent, anyNonExtractable, anyUnverifiable };
 }
+
+/* A contradiction and the spec that raised it: the index of that spec among the sources that were checked. */
+export interface ContradictionOrigin {
+  contradiction: string;
+  specIndex: number;
+}
+
+/* The contradictions checkSpecSelectors finds, each with the spec that raised it. What a spec raises depends on its own selectors and on the trees alone, so each spec checked on its own, in the order given, makes checkSpecSelectors' list entry for entry; a contradiction two specs raise is two origins. */
+export function contradictionOrigins(specSources: string[], trees: string[][], treeLabel = "failure-point"): ContradictionOrigin[] {
+  return specSources.flatMap((source, specIndex) =>
+    checkSpecSelectors([source], trees, treeLabel).contradictions.map((contradiction) => ({ contradiction, specIndex })),
+  );
+}

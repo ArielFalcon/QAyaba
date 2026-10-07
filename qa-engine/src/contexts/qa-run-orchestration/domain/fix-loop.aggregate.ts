@@ -7,7 +7,7 @@ import type { CycleBudget } from "./cycle-budget.ts";
 import type { WallClockBudget } from "./wall-clock-budget.ts";
 import { adjudicate, type AdjudicatorEvidence, type AdjudicatorVerdict, ADJ_CLASS, ADJ_ACTION } from "./adjudicate.service.ts";
 import { decideProgress, classifyFailure, bestRound, isLikelyRealBug, type RoundResult } from "./helpers/progress-gate.ts";
-import type { SpecSelectorFindings } from "./helpers/selector-check.ts";
+import type { ContradictionOrigin, SpecSelectorFindings } from "./helpers/selector-check.ts";
 
 
 export interface FixLoopRun {
@@ -18,6 +18,8 @@ export interface FixLoopRun {
 export interface FixLoopGenerateInput {
   fixCases: QaCase[];
   selectorContradictions?: string[];
+  /* The spec that raised each of selectorContradictions, by its index among the spec sources the check read (the previous regeneration's). Absent when the check does not say. */
+  selectorContradictionOrigins?: ContradictionOrigin[];
   domSnapshot?: string;
   /* CycleBudget/WallClockBudget are forwarded unread into generate() — this aggregate never ticks or inspects them, and neither does the generation adapter (see this file's header comment). */
   cycleBudget: CycleBudget;
@@ -45,7 +47,8 @@ export interface FixLoopExecutionPort {
 }
 
 export interface FixLoopSelectorCheckPort {
-  check(specSources: string[], trees: string[][]): SpecSelectorFindings;
+  /* `origins`, when the check gives them, are the spec that raised each of the findings' contradictions. */
+  check(specSources: string[], trees: string[][]): SpecSelectorFindings & { origins?: ContradictionOrigin[] };
 }
 
 export interface FixLoopDeps {
@@ -187,6 +190,7 @@ export class FixLoop {
       const result = await this.deps.generation.generate({
         fixCases: failed,
         ...(selectorContradictions.length > 0 ? { selectorContradictions } : {}),
+        ...(selectorContradictions.length > 0 && lever2.origins ? { selectorContradictionOrigins: lever2.origins } : {}),
         ...(input.failureDomSnapshot ? { domSnapshot: input.failureDomSnapshot } : {}),
         cycleBudget: input.cycleBudget,
         wallClockBudget: input.wallClockBudget,

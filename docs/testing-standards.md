@@ -607,11 +607,59 @@ reviewer's limit put on the generator's field; and the reviewer's limit asked fo
 reviewer. The memo's own tests sit in a file of their own, apart from the factory's whole test file, which would
 run once per mutant and not fit the mutation timeout.
 
+carry-forward (2026-10-08, 2 workers on a loaded machine, 199 mutants, 82 of them compile errors) is a new preset
+over what lets a regeneration know the specs its run delivered: the canonical form of a spec path, the one fold that
+keeps each spec once with the newest flow and objective declared for it (a report that declares none leaves them),
+what a verdict declares (its specs joined to its metas by file), the merge after each pass (the lead refreshes, a
+sidekick adds paths only) and the attribution of a contradiction to the specs that raised it, run whole against
+their own tests; and, narrowed to the lines that wire them, the use case's declarations, the adapter's hand-over
+and its check that each spec is still a regular file of the spec directory, the lines in which the pre-exec gate
+and Lever-2 say which spec raised each contradiction (`contradictionOrigins`, the gate's origins, the FixLoop's
+hand-over of them), and the run's own lines (what it has delivered, the one regeneration every pass goes through,
+the merge after the first pass and the sidekick's, the attribution of each contradiction). The run's tests are a
+file of their own, apart from the run's whole test file, which would run once per mutant. **Before** is its first
+run (2026-10-07, 3 workers), over the first form of the attribution, which searched every spec's source for the
+selector a contradiction names: 184 mutants, 65 of them compile errors, 109 killed, 2 timed out (the loop that
+drops a leading `./`, made to run for ever, which is a kill) and 8 survived, none of them a behavior: three
+defaults of the sources read from a generation (`?? []` to a one-element list, whose text holds no selector), an
+optional chain on an enrichment that a regeneration always has, the default of the files a contradiction is
+attributed to (a name no file has, so the check drops it), an `undefined` test that the `""` test after it made
+redundant, and `entries[at]` for an index of -1. Each was restructured away rather than listed. A review then found
+that search to over-attribute: a spec that holds the same selector disambiguated, scoped to a parent or on a page
+where it is fine raised nothing and was named all the same, and the files attributed are the ones a regeneration
+is asked to change. The checks know which spec raised each contradiction, so they now say so (every pre-exec
+correction and every Lever-2 contradiction comes with the index of its spec, beside the unchanged strings) and the
+attribution reads only that. The preset took in the lines that do it. Its first run over them (3 workers, the
+machine under load) had 7 survivors, all older lines of the pre-exec gate that its ranges had taken in with the new
+ones (the filter of empty trees, the label of the trees, the guard before the catalog loop), and 6 timeouts of
+mutants that cannot loop, which load alone explains; the ranges were narrowed to the lines of the change.
+**After** is the run with 2 workers: 199 mutants, 82 of them compile errors, 117 killed, no timeout, none survived.
+Stryker makes no mutant for a spread, for a call dropped whole or for the choice of a literal that is a union member,
+so the wiring was also broken by hand, 64 mutants, 62 killed and 2 equivalent (listed below): the use case's two
+returns each without its declarations, the declarations read from what the manifest kept or from nothing, a
+rejected review declaring nothing; the adapter's two hand-overs dropped, every turn or none a regeneration, the
+probe anchored on the mirror, inverted, asked about the wrong field or reading the file instead of judging it
+(which a named pipe turns into a wait that the pipe watch ends), the attributed files not probed, and the
+declarations not handed back or handed back empty; the run's regeneration with its hand-over dropped or its merge
+dropped, each of its five callers (the corrective one, the static fix, the FixLoop, the coverage one and the
+reviewer's) going round it, the first pass and the sidekicks' merges dropped, a sidekick's synthetic objectives
+stored as the lead's, the pre-exec contradictions and their files not merged with Lever-2's, kept after a sidekick
+round or after a lead round, round 0 attributing against nothing, or a later round against the first pass's specs;
+the origins left out of the Lever-2 check or of the FixLoop's hand-over, left out of the gate's result (the
+ambiguity's or the catalog's), pointing at the first spec or at the next one, an ambiguity two specs raise told
+twice, and an attribution that ignores which contradictions it was asked for; the spec path resolving a parent
+segment, losing the root of an absolute path or keeping a repeated separator or a dot segment; and the merge keeping
+a sidekick's declarations, dropping the lead's, or dropping the paths the lead did not declare. The fix-loop preset
+was re-run once the aggregate handed the origins on (2026-10-08, 2 workers): 277 mutants, 70 of them compile
+errors, 197 killed, 2 timed out (the loop of its own copy of the path rule) and 8 survived, all of them documented
+below; the entry it had for the regeneration's `selectorContradictions` spread is gone, since a test that gives the
+regeneration neither contradictions nor origins when the check finds none kills the mutants of that condition.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
 | rule-learning | rule-governance.service, rule-fold | 117 / 4 / 7 — 94.53% (91.41%) | 114 / 0 / 0 — 100% (100%) | — |
-| fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 186 / 4 / 10 — 95% (93%) | — |
+| fix-loop | fix-loop.aggregate | 184 / 2 / 15 — 92.54% (91.54%) | 197 / 2 / 8 — 96.14% (95.17%) | — |
 | coordination | acceptance-report, pushback, orchestration-router, delegation-failure-class | 199 / 20 / 11 — 95.22% (86.52%) | 252 / 1 / 3 — 98.83% (98.44%) | — |
 | merge-guard | src/server/merge-guard.ts | 258 / 6 / 12 — 95.65% (93.48%) | 314 / 2 / 5 — 98.44% (97.82%) | — |
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
@@ -628,6 +676,7 @@ run once per mutant and not fit the mutation timeout.
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 509 / 2 / 5 — 99.03% (98.64%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
+| carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop and the run | 109 / 2 / 8 — 93.28% (91.6%) | 117 / 0 / 0 — 100% (100%) | — |
 
 ### Login discovery script (manual triangulation)
 
@@ -687,6 +736,12 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - `readStepLimits` — the label of the deadline's message, `"step limit read"` → `""` (StringLiteral): the
   warning still names the directory, the deadline and the cause; the label is log text.
 
+**carry-forward** (the run's wiring, broken by hand: the origin is a union of two literals, so Stryker makes no mutant for it)
+- the origin of the first pass's merge (`sidekickFirstPass ? "sidekick" : "lead"` → `"lead"`) and of the
+  FixLoop sidekick's merge (`"sidekick"` → `"lead"`): a sidekick's result is built in the run from its
+  files on disk and carries no declarations, so merged as the lead's it adds the same paths. The origin
+  guards a result that did carry them, which the merge's own tests pin: a sidekick pass keeps none.
+
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files
   are also covered by a directory prefix entry; they are listed so narrowing that prefix cannot
@@ -713,9 +768,6 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   non-MULTIPLE contradiction only together with an absent key, which already clears `allUnique`.
 - the missing-detail fallback `c.detail ?? ""` → a placeholder (StringLiteral): any placeholder text
   classifies the same ("other", not infra).
-- the regeneration's `selectorContradictions` spread — condition forced true / `>= 0`
-  (ConditionalExpression, EqualityOperator): the generation adapter treats an empty list like an
-  absent one.
 - `revalidate(input.specDir ?? "")` → a placeholder (StringLiteral): unreachable, the only caller
   always passes `specDir`.
 - `canFilter`'s `failedSpecFiles.length > 0` — forced true / `>= 0` (ConditionalExpression,
