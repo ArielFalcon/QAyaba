@@ -1,10 +1,10 @@
-/* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a reported name goes through here (the generation port's spec sources, the reviewer's inlining, the review DOM grounding, the manifest's file hashes, the sidekick's claimed files and the pre-exec capture), anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. The files the agent writes into the spec directory without naming them are another matter, and only the manifest, below, is read through here: the read gate's zero-assertion scan, the context and analysis maps and the fixtures file are read on their own. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
+/* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a reported name goes through here (the generation port's spec sources, the reviewer's inlining, the review DOM grounding, the manifest's file hashes, the sidekick's claimed files and the pre-exec capture), anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. The files the agent writes into the spec directory without naming them are read through here as well, once it has run: the manifest and the context map strictly (below), and the specs that the read gate scans and the grounding lists, which are listed without following a link (`listSpecFiles`) and read like a reported name. There is no analysis map to read: the agent writes `.qa/analysis.json` and no orchestrator code opens it. Not read through here: what setup seeds and compares in that directory (the fixtures file, the login setup, the Playwright config, the lock file, the install marker), what a run of the tests leaves under `.qa` (coverage dumps, fault-injection counters), and the fixtures file read for harness facts, which has an open of its own that neither follows a link nor waits on a pipe. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
    The path can still be swapped between that check and the open by a process the agent left running, and O_NOFOLLOW covers only the last component, so the descriptor is judged as well. Where the platform can name the file a descriptor really is (Linux, through procfs), that kernel path must lie inside the spec directory: it does not depend on any path being walked again, and it closes the window for every file the agent cannot move into the spec directory, which is every file outside the volume it shares with the orchestrator. Where the platform cannot (macOS), the descriptor's device and inode must equal those of the file validated before the open and again after it: that narrows the window to a process flipping the path at exactly the right instants, and does not close it. Hard links stay out of scope. A file is read whole or not at all.
-   The orchestrator also keeps files of its own in that directory (the manifest, in `.qa`), where the agent can plant a link at the file or at the directory above it. Those are read and written strictly, by `readOwnedSpecFile` and `writeOwnedSpecFile`: no symlink anywhere below the spec directory, a regular file at the end, and a write that goes through an exclusively created temporary file renamed over the target, never through a link.
+   The orchestrator also reads and keeps files of its own in that directory (the manifest and the context map, in `.qa`), where the agent can plant a link at the file or at the directory above it. Those are read and written strictly, by `readOwnedSpecFile` and `writeOwnedSpecFile`: no symlink anywhere below the spec directory, a regular file at the end, and a write that goes through an exclusively created temporary file renamed over the target, never through a link.
    Synchronous, and it lives in shared-infrastructure because the kernel holds no fs code and several contexts need it. */
 
 import { randomBytes } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, posix, resolve, sep } from "node:path";
 
 /* A spec is source a person would read; one larger than this is not read. */
@@ -180,6 +180,39 @@ export function readConfinedSpecBytes(root: SpecRoot, reported: string, maxBytes
 /* readConfinedSpecBytes, decoded as UTF-8. */
 export function readConfinedSpecFile(root: SpecRoot, reported: string, maxBytes?: number): string {
   return readConfinedSpecBytes(root, reported, maxBytes).toString("utf8");
+}
+
+/* ── the specs in a directory ──────────────────────────────────────────────────────────────────── */
+
+/* Every *.spec.ts below `dir`, relative to it. Installed packages and dot-directories are skipped, as Playwright skips them: they are not the suite's specs. The directory is one the agent writes into, so a symbolic link in it is never walked, whatever it points at, and `dir` is not one either: no name from outside it is listed, nothing is listed twice, and a link back up cannot make the walk run away. A file named like a spec is listed by its own name; what it points at is for the confined reader to refuse. */
+export function listSpecFiles(dir: string): string[] {
+  try {
+    /* A directory itself, not a link to one: judged by lstat of the path without a trailing separator, since `lstat("link/")` would follow the link. */
+    if (!lstatSync(resolve(dir)).isDirectory()) return [];
+    return walkSpecFiles(dir);
+  } catch {
+    return [];
+  }
+}
+
+/* Each entry is told apart by what it is itself, never by what a link points at, so a link is never descended into. */
+function walkSpecFiles(dir: string): string[] {
+  let results: string[] = [];
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+        results = results.concat(
+          walkSpecFiles(join(dir, entry.name)).map((rel) => join(entry.name, rel)),
+        );
+      } else if (entry.name.endsWith(".spec.ts")) {
+        results.push(entry.name);
+      }
+    }
+  } catch {
+    /* A directory that cannot be listed (a race, permissions) contributes what it had: it never aborts the whole scan. */
+  }
+  return results;
 }
 
 /* ── files the orchestrator keeps in the spec directory ────────────────────────────────────────── */

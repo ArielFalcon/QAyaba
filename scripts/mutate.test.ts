@@ -136,6 +136,7 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "bridges/pre-exec-grounding-port.adapter.test.ts",
     "infrastructure/static-gate.checks.test.ts",
     "bridges/pre-generation-grounding-port.adapter.test.ts",
+    "bridges/pre-generation-grounding-port.context-map.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }

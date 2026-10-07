@@ -1,14 +1,14 @@
 /* Never a fifth duplicate copy (process-kill.adapter.ts's own header: "the ONE killTree"). 2. */
 
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import { readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { ConfinedPathError, listSpecFiles, readConfinedSpecFile, readOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
 import {
   detectCodeProject,
@@ -68,42 +68,42 @@ export async function validateSpecs(
   return { ok: errors.length === 0, errors, infra: errors.length > 0 && allFailuresAreInfra };
 }
 
-/* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per file with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors (fail-safe — readdirSync throws → skip). */
+/* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per spec with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors.
+   The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
 function checkZeroAssertionSpecs(specDir: string): string[] {
+  const root: SpecRoot = { mirrorDir: specDir, specDir };
+  const flows = join(specDir, "flows");
+  const problem = flowsProblem(flows);
+  if (problem !== undefined) return [`[zero-assertions] flows: ${problem} — the generated specs are checked only in a real flows/ directory of the spec directory`];
   const errors: string[] = [];
-  const walk = (dir: string): void => {
-    let names: string[];
-    try {
-      names = readdirSync(dir);
-    } catch {
-      return;
+  for (const found of listSpecFiles(flows)) {
+    const spec = join("flows", found);
+    const read = readSpec(root, spec);
+    if ("problem" in read) {
+      errors.push(`[zero-assertions] ${spec}: spec cannot be checked (${read.problem}) — replace it with a regular file inside the spec directory`);
+    } else if (!/\bexpect\s*[.(]/.test(read.source)) {
+      errors.push(`[zero-assertions] ${spec}: spec has no expect() calls — remove it or add assertions`);
     }
-    for (const name of names) {
-      const full = join(dir, name);
-      let isDir = false;
-      try {
-        isDir = statSync(full).isDirectory();
-      } catch {
-        continue;
-      }
-      if (isDir) {
-        walk(full);
-      } else if (name.endsWith(".spec.ts")) {
-        let content: string;
-        try {
-          content = readFileSync(full, "utf8");
-        } catch {
-          continue;
-        }
-        const hasAssertion = /\bexpect\s*[.(]/.test(content);
-        if (!hasAssertion) {
-          errors.push(`[zero-assertions] ${name}: spec has no expect() calls — remove it or add assertions`);
-        }
-      }
-    }
-  };
-  walk(join(specDir, "flows"));
+  }
   return errors;
+}
+
+/* Why `flows` is not a directory the scan can walk, or undefined when it is one or is not there. By lstat, so that a link is not a directory. */
+function flowsProblem(flows: string): string | undefined {
+  try {
+    return lstatSync(flows).isDirectory() ? undefined : "is a link or a file, not a directory";
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? undefined : "cannot be examined";
+  }
+}
+
+/* The text of a spec, or why it cannot be had: the reason of a refusal is the module's own words, any other failure is told by its code alone, so nothing of what a file holds is ever quoted back to the agent. */
+function readSpec(root: SpecRoot, spec: string): { source: string } | { problem: string } {
+  try {
+    return { source: readConfinedSpecFile(root, spec) };
+  } catch (err) {
+    return { problem: err instanceof ConfinedPathError ? err.reason : String((err as NodeJS.ErrnoException).code) };
+  }
 }
 
 export function runCheck(

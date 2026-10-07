@@ -1,8 +1,8 @@
 /* PreGenerationGroundingPort: fail-open explorer + context.json + context pack. Never throws. */
 
 import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { join } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -10,6 +10,7 @@ import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
+import { listSpecFiles, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 
 const diffParser = new DiffParserService();
@@ -81,62 +82,41 @@ function isValidArchitectureContext(raw: unknown): raw is ArchitectureContext {
   return true;
 }
 
-/* Reads `${specDir}/.qa/context.json`, form-validates it, returns the map when valid. Missing/malformed/invalid → undefined (never throw, never a partial map). */
+/* Where the context map is, relative to the spec directory, and the most of it the orchestrator reads: a map is a few lines per route and per operation, so the cap is far above any real one, and a larger file is no map. */
+const CONTEXT_MAP_FILE = ".qa/context.json";
+export const MAX_CONTEXT_MAP_BYTES = 8 * 1024 * 1024;
+
+/* `${specDir}/.qa/context.json` is what the agent writes in context mode, in a directory it writes into, so it is read strictly (readOwnedSpecFile: no link anywhere on the way, a regular file within the cap, a pipe never waited on) and nothing it holds is ever quoted: a warning goes to logs and to Issues, so it names the file and says why in words of its own, never in the file's. Missing → undefined, silently: a first run, or an app that never ran context mode. Anything else that is not a valid map → undefined with a warning (never throw, never a partial map). */
 export function loadContextMapFromDisk(specDir: string): ArchitectureContext | undefined {
-  const ctxJsonPath = join(specDir, ".qa", "context.json");
-  let raw: string;
+  const ctxJsonPath = join(specDir, CONTEXT_MAP_FILE);
+  let read;
   try {
-    raw = readFileSync(ctxJsonPath, "utf8");
-  } catch {
-    return undefined; /* no committed context.json for this run (first run, or app never ran context mode) — graceful. */
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!isValidArchitectureContext(parsed)) {
-      console.warn(`[qa] WARNING: ${ctxJsonPath} exists but failed form-validation; contextMap stays absent this run (contracts component degrades gracefully).`);
-      return undefined;
-    }
-    return parsed;
+    read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, CONTEXT_MAP_FILE, MAX_CONTEXT_MAP_BYTES);
   } catch (err) {
-    console.warn(`[qa] WARNING: could not parse ${ctxJsonPath} (non-blocking, contextMap stays absent this run): ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[qa] WARNING: ${ctxJsonPath} could not be read (${(err as NodeJS.ErrnoException).code}); contextMap stays absent this run (non-blocking).`);
     return undefined;
   }
+  if ("absent" in read) return undefined;
+  if ("reason" in read) {
+    console.warn(`[qa] WARNING: ${ctxJsonPath} was not read (${read.reason}); contextMap stays absent this run (non-blocking).`);
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(read.bytes.toString("utf8"));
+  } catch {
+    console.warn(`[qa] WARNING: ${ctxJsonPath} is not valid JSON; contextMap stays absent this run (non-blocking).`);
+    return undefined;
+  }
+  if (!isValidArchitectureContext(parsed)) {
+    console.warn(`[qa] WARNING: ${ctxJsonPath} exists but failed form-validation; contextMap stays absent this run (contracts component degrades gracefully).`);
+    return undefined;
+  }
+  return parsed;
 }
 
-/* Every *.spec.ts under `dir`, relative to it. Installed packages and dot-directories are skipped, as
-   Playwright skips them: they are not the suite's specs. The directory is one the agent writes into, so a
-   symbolic link in it is never walked, whatever it points at, and `dir` is not one either: no name from
-   outside it is listed, nothing is listed twice, and a link back up cannot make the walk run away. A file
-   named like a spec is listed by its own name; what it points at is for the confined reader to refuse. */
-export function enumerateExistingSpecFiles(dir: string): string[] {
-  try {
-    /* A directory itself, not a link to one: judged by lstat of the path without a trailing separator, since `lstat("link/")` would follow the link. */
-    if (!lstatSync(resolve(dir)).isDirectory()) return [];
-    return walkSpecFiles(dir);
-  } catch {
-    return [];
-  }
-}
-
-/* Each entry is told apart by what it is itself, never by what a link points at, so a link is never descended into. */
-function walkSpecFiles(dir: string): string[] {
-  let results: string[] = [];
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-        results = results.concat(
-          walkSpecFiles(join(dir, entry.name)).map((rel) => join(entry.name, rel)),
-        );
-      } else if (entry.name.endsWith(".spec.ts")) {
-        results.push(entry.name);
-      }
-    }
-  } catch {
-    /* A directory that cannot be listed (a race, permissions) contributes what it had: it never aborts the whole scan. */
-  }
-  return results;
-}
+/* Every *.spec.ts under `dir`, relative to it, without following a link: the listing of the module that confines what the agent writes. */
+export const enumerateExistingSpecFiles = listSpecFiles;
 
 /* The fixtures file is repo content of unknown shape: it is scanned only when it is a small regular file. */
 export const MAX_FIXTURES_FILE_BYTES = 256 * 1024;
@@ -151,9 +131,9 @@ function skipFixtures(path: string, reason: string): undefined {
 function readFixtureFacts(specDir: string): HarnessFacts["fixtures"] {
   const path = join(specDir, FIXTURES_FILE);
   try {
-    /* Judged by what it is before it is opened: opening a named pipe for reading waits for a writer that never comes. */
+    /* Judged by what it is before it is opened: opening a named pipe for reading waits for a writer that never comes. The open does not wait either, should a pipe be put there after that look. */
     if (!lstatSync(path).isFile()) return skipFixtures(path, "not a regular file");
-    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     let source: string;
     try {
       const { size } = fstatSync(fd);

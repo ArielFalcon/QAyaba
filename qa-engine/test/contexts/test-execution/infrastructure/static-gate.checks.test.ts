@@ -313,9 +313,10 @@ test("defaultValidateDeps.checkManifest: an entry with criticality:\"urgent\" (n
 });
 
 /* The manifest is in a directory the agent writes into, and what this check says about it goes back to the agent as validation feedback. Read through a symlink the agent planted, it would hand the agent the first characters of any file the orchestrator can read, in the parse error. A link or a pipe at the manifest or at `.qa` is a refusal that names no content. */
-import { symlinkSync as _symlinkSync, existsSync as _existsSync } from "node:fs";
+import { chmodSync as _chmodSync, symlinkSync as _symlinkSync, existsSync as _existsSync } from "node:fs";
 import { execFileSync as _execFileSync } from "node:child_process";
 import { MAX_MANIFEST_BYTES as _MAX_MANIFEST_BYTES } from "@kernel/manifest/manifest-entry.ts";
+import { MAX_SPEC_SOURCE_BYTES as _MAX_SPEC_SOURCE_BYTES } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe as _withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 
 /* A refusal says why: something follows the label. */
@@ -434,6 +435,226 @@ test("defaultValidateDeps.checkManifest: a manifest with several violations repo
     assert.equal(res.ok, false);
     assert.equal(res.output.split("\n").length, 2, "one violation per line");
     assert.ok(res.output.split("\n").every((line) => line.length > 0));
+  });
+});
+
+/* ── the zero-assertion scan reads what the agent wrote under flows/ ───────────────────────────────
+   The scan runs in the orchestrator itself, synchronously, over files the agent controls. A link it followed handed it a file of
+   the agent's choosing, a named pipe held the whole orchestrator, a link to a device or to a directory above it was read or walked
+   without end. It reads through the confined reader and walks without following a link; a spec it cannot vouch for is a finding of
+   its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked
+   must not go on to be run. */
+
+const CHECKS_PASS: ValidateDeps = { typecheck: ok, lint: ok, listTests: ok, checkManifest: ok };
+const SPEC_WITH_EXPECT = `import { test, expect } from "@playwright/test";\ntest("t", async ({ page }) => { await expect(page).toHaveURL("/"); });\n`;
+const SPEC_WITHOUT_EXPECT = `import { test } from "@playwright/test";\ntest("t", async ({ page }) => { await page.goto("/"); });\n`;
+const SECRET_MARK = "TOPSECRET-TOKEN-1f3a";
+
+/* The finding about flows/ itself: it names the directory and says why, with something after the colon. */
+const FLOWS_FINDING = /\[zero-assertions\] flows: \S/;
+
+/* <tmp>/e2e/flows is where the specs are; <tmp>/outside is what the scan must not read or walk. */
+function withFlows(run: (e2e: string, flows: string, outside: string) => Promise<void>): Promise<void> {
+  const tmp = _mkdtempSync(_join(_tmpdir(), "qa-validate-flows-"));
+  const e2e = _join(tmp, "e2e");
+  const flows = _join(e2e, "flows");
+  const outside = _join(tmp, "outside");
+  _mkdirSync(flows, { recursive: true });
+  _mkdirSync(outside);
+  return run(e2e, flows, outside).finally(() => _rmSync(tmp, { recursive: true, force: true }));
+}
+
+const NO_NAMED_PIPES_FOR_SCAN = (() => {
+  const probe = _mkdtempSync(_join(_tmpdir(), "qa-validate-flows-fifo-probe-"));
+  try {
+    _execFileSync("mkfifo", [_join(probe, "p")]);
+    return false as const;
+  } catch {
+    return "mkfifo is not available on this platform, so the named-pipe case is not exercised";
+  } finally {
+    _rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
+/* A directory whose mode is 000 cannot be searched by an account that the mode binds: not by root, and not on a platform without modes. */
+const NO_MODE_RESTRICTIONS_FOR_SCAN = process.platform === "win32" || process.getuid?.() === 0 ? "the account that runs the tests is not bound by file modes, so the case that relies on them is not exercised" : false;
+
+test("a spec that is a symlink to a file outside the spec directory is a finding, though what it points at has assertions, and nothing of it is quoted", async () => {
+  await withFlows(async (e2e, flows, outside) => {
+    _writeFileSync(_join(outside, "leak.ts"), `${SPEC_WITH_EXPECT}// ${SECRET_MARK}\n`);
+    _symlinkSync(_join(outside, "leak.ts"), _join(flows, "linked.spec.ts"));
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false, "a spec that leaves the spec directory is not vouched for");
+    assert.equal(res.infra, false, "the agent can fix it, so it is not an infrastructure failure");
+    assert.ok(res.errors.some((e) => e.includes("linked.spec.ts")), `the finding names the spec: ${JSON.stringify(res.errors)}`);
+    assert.ok(!res.errors.join("\n").includes(SECRET_MARK), "no content of what the link points at is quoted back");
+  });
+});
+
+test("a spec that is a named pipe is a finding, and the scan does not wait on it", { skip: NO_NAMED_PIPES_FOR_SCAN }, async () => {
+  await withFlows(async (e2e, flows) => {
+    _execFileSync("mkfifo", [_join(flows, "pipe.spec.ts")]);
+
+    const res = await _withoutWaitingOnNamedPipe(_join(flows, "pipe.spec.ts"), () => validateSpecs(e2e, CHECKS_PASS));
+
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => e.includes("pipe.spec.ts")), `the finding names the spec: ${JSON.stringify(res.errors)}`);
+  });
+});
+
+test("a spec that cannot be read is a finding, not skipped", { skip: NO_MODE_RESTRICTIONS_FOR_SCAN }, async () => {
+  await withFlows(async (e2e, flows) => {
+    _writeFileSync(_join(flows, "locked.spec.ts"), SPEC_WITH_EXPECT);
+    _chmodSync(_join(flows, "locked.spec.ts"), 0o000);
+    try {
+      const res = await validateSpecs(e2e, CHECKS_PASS);
+
+      assert.equal(res.ok, false);
+      assert.ok(res.errors.some((e) => e.includes("locked.spec.ts") && e.includes("EACCES")), `the finding names the spec and the failure's code: ${JSON.stringify(res.errors)}`);
+    } finally {
+      _chmodSync(_join(flows, "locked.spec.ts"), 0o644);
+    }
+  });
+});
+
+test("a flows/ that cannot be examined is a finding, not a directory with nothing in it", { skip: NO_MODE_RESTRICTIONS_FOR_SCAN }, async () => {
+  await withFlows(async (e2e, flows) => {
+    _writeFileSync(_join(flows, "ok.spec.ts"), SPEC_WITH_EXPECT);
+    _chmodSync(e2e, 0o000);
+    try {
+      const res = await validateSpecs(e2e, CHECKS_PASS);
+
+      assert.equal(res.ok, false);
+      assert.equal(res.infra, false);
+      assert.ok(res.errors.some((e) => FLOWS_FINDING.test(e)), JSON.stringify(res.errors));
+    } finally {
+      _chmodSync(e2e, 0o755);
+    }
+  });
+});
+
+test("a spec larger than the cap is a finding, though it has assertions, and one of exactly the cap is checked", async () => {
+  await withFlows(async (e2e, flows) => {
+    const padded = (bytes: number): string => SPEC_WITH_EXPECT + `// ${"x".repeat(bytes - SPEC_WITH_EXPECT.length - 4)}\n`;
+    _writeFileSync(_join(flows, "exact.spec.ts"), padded(_MAX_SPEC_SOURCE_BYTES));
+    assert.equal((await validateSpecs(e2e, CHECKS_PASS)).ok, true, "exactly the cap is read and has its assertion");
+
+    _writeFileSync(_join(flows, "big.spec.ts"), padded(_MAX_SPEC_SOURCE_BYTES + 1));
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => e.includes("big.spec.ts")), `the finding names the spec: ${JSON.stringify(res.errors)}`);
+    assert.ok(!res.errors.some((e) => e.includes("exact.spec.ts")), "the one of exactly the cap is not a finding");
+  });
+});
+
+test("a link back up to an ancestor is not walked: a spec without assertions is flagged once, not once per level", async () => {
+  await withFlows(async (e2e, flows) => {
+    _writeFileSync(_join(flows, "trivial.spec.ts"), SPEC_WITHOUT_EXPECT);
+    _symlinkSync(e2e, _join(flows, "up"));
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.errors.filter((e) => e.includes("trivial.spec.ts")).length, 1);
+  });
+});
+
+test("a directory link inside flows/ is not walked, so what it leads to is neither read nor listed", async () => {
+  await withFlows(async (e2e, flows, outside) => {
+    _writeFileSync(_join(outside, "elsewhere.spec.ts"), SPEC_WITHOUT_EXPECT);
+    _symlinkSync(outside, _join(flows, "hop"));
+    _writeFileSync(_join(flows, "fine.spec.ts"), SPEC_WITH_EXPECT);
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.errors, []);
+  });
+});
+
+test("a flows/ that is a symlink is a finding, and nothing behind it is scanned or trusted", async () => {
+  await withFlows(async (e2e, flows, outside) => {
+    _rmSync(flows, { recursive: true });
+    _mkdirSync(_join(outside, "flows-real"));
+    _writeFileSync(_join(outside, "flows-real", "good.spec.ts"), SPEC_WITH_EXPECT);
+    _symlinkSync(_join(outside, "flows-real"), flows);
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    assert.equal(res.infra, false);
+    assert.ok(res.errors.some((e) => FLOWS_FINDING.test(e)), `the finding names flows/ and says why: ${JSON.stringify(res.errors)}`);
+  });
+});
+
+test("a flows/ that is a regular file is a finding", async () => {
+  await withFlows(async (e2e, flows) => {
+    _rmSync(flows, { recursive: true });
+    _writeFileSync(flows, "not a directory");
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => FLOWS_FINDING.test(e)), JSON.stringify(res.errors));
+  });
+});
+
+test("a spec directory with no flows/ has nothing to scan", async () => {
+  await withFlows(async (e2e, flows) => {
+    _rmSync(flows, { recursive: true });
+
+    assert.equal((await validateSpecs(e2e, CHECKS_PASS)).ok, true);
+  });
+});
+
+test("an assertion is a call of expect: one written with whitespace before its parenthesis counts, and a spec that only imports or names expect does not", async () => {
+  await withFlows(async (e2e, flows) => {
+    _writeFileSync(_join(flows, "spaced.spec.ts"), `import { test, expect } from "@playwright/test";\ntest("t", async ({ page }) => { await expect (page).toHaveURL("/"); await expect\n  .soft(page).toHaveURL("/"); });\n`);
+    assert.equal((await validateSpecs(e2e, CHECKS_PASS)).ok, true, "expect (page) and expect\\n.soft(page) are assertions");
+
+    _writeFileSync(_join(flows, "imports-only.spec.ts"), `import { test, expect } from "@playwright/test";\n// the expected page is the home page\ntest("t", async ({ page }) => { await page.goto("/"); });\n`);
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    assert.equal(res.errors.filter((e) => e.includes("imports-only.spec.ts")).length, 1, "importing expect, or the word expected, is not an assertion");
+  });
+});
+
+test("a link to a spec inside the spec directory is judged by what it points at", async () => {
+  await withFlows(async (e2e, flows) => {
+    _writeFileSync(_join(flows, "real.spec.ts"), SPEC_WITH_EXPECT);
+    _symlinkSync("real.spec.ts", _join(flows, "alias.spec.ts"));
+    assert.equal((await validateSpecs(e2e, CHECKS_PASS)).ok, true, "the link to a spec with assertions passes");
+
+    _writeFileSync(_join(flows, "real.spec.ts"), SPEC_WITHOUT_EXPECT);
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    assert.ok(res.errors.some((e) => e.includes("alias.spec.ts")), "the link to a spec without assertions is flagged under its own name");
+  });
+});
+
+test("every spec of flows/ is judged on its own: each one that cannot be vouched for is named, and the good ones are not", async () => {
+  await withFlows(async (e2e, flows, outside) => {
+    _mkdirSync(_join(flows, "nested"));
+    _writeFileSync(_join(flows, "good.spec.ts"), SPEC_WITH_EXPECT);
+    _writeFileSync(_join(flows, "bad.spec.ts"), SPEC_WITHOUT_EXPECT);
+    _writeFileSync(_join(flows, "nested", "deep.spec.ts"), SPEC_WITHOUT_EXPECT);
+    _writeFileSync(_join(outside, "leak.ts"), SPEC_WITH_EXPECT);
+    _symlinkSync(_join(outside, "leak.ts"), _join(flows, "linked.spec.ts"));
+
+    const res = await validateSpecs(e2e, CHECKS_PASS);
+
+    assert.equal(res.ok, false);
+    for (const named of ["bad.spec.ts", "deep.spec.ts", "linked.spec.ts"]) {
+      assert.equal(res.errors.filter((e) => e.includes(named)).length, 1, `${named} is named once: ${JSON.stringify(res.errors)}`);
+    }
+    assert.ok(!res.errors.some((e) => e.includes("good.spec.ts")));
+    const linked = res.errors.find((e) => e.includes("linked.spec.ts"))!;
+    assert.match(linked, /\([^)]{3,}\)/, "a spec that cannot be checked is said with its reason, in words of the gate's own");
+    assert.ok(!linked.includes("undefined"), linked);
   });
 });
 

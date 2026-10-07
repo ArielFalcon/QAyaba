@@ -9,6 +9,7 @@ import {
   PreGenerationGroundingPortAdapter,
   MAX_FIXTURES_FILE_BYTES,
 } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts";
+import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 
 const noPack = { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) };
 
@@ -184,12 +185,12 @@ test("a fixtures file of exactly the size cap is still read, and one byte more i
   );
 });
 
-/* Opening a named pipe for reading waits for a writer that never comes, so the file is judged by what it is before it is ever opened. */
+/* Opening a named pipe for reading waits for a writer that never comes, so the file is judged by what it is before it is ever opened, and the call runs under a watch: a read that waited would hold the thread for ever, and a test cannot time out a thread that is stuck. */
 test("a fixtures file that is a named pipe is skipped without being opened", async () => {
   await withSuite(
     (dir) => execFileSync("mkfifo", [join(dir, "fixtures.ts")]),
     async (dir) => {
-      const { result, warnings } = await groundWith(dir);
+      const { result, warnings } = await withoutWaitingOnNamedPipe(join(dir, "fixtures.ts"), () => groundWith(dir));
       assert.equal(result.harnessFacts?.fixtures, undefined);
       assert.ok(warnings.some((w) => /fixtures/i.test(w)));
     },

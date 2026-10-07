@@ -324,6 +324,41 @@ creation and the next look could reach, which the walk no longer has (a walk tha
 none absent, and its type says so). With them all 45 die. Tests that make named pipes run under a watch (see
 Named pipes), and a preset run and the hand mutants run in their own process group.
 
+The preset was widened a third time (2026-10-07, 3 workers, 424 mutants, 216 of them compile errors) for the
+reads that were left in the orchestrator itself, over files the agent writes. The read gate's zero-assertion
+scan did a `statSync`, which follows links, and a synchronous `readFileSync` of every spec under `flows/`: a
+named pipe held the whole orchestrator (reproduced against the earlier code: the call returned only when a
+second thread released the pipe), a link back up to an ancestor was walked once per level (sixteen findings for
+one spec), a spec that was a link to a file outside the spec directory was judged by that file's assertions,
+and a spec it could not read was skipped as if it were fine. The context map, `.qa/context.json`, was read with
+a bare `readFileSync`, so a link at it returned a map of the agent's choosing, a pipe held the run, and the
+warning for a file that did not parse interpolated the parser's message, which quotes the first characters of
+the file (a link to a non-JSON file put them in the log). The scan now lists without following a link, with the
+walk of the grounding's listing moved into the module so that both share it, and reads through the confined
+reader; the map goes through the strict read under a cap, and its warnings name the file and say why in words
+of their own. What the scan cannot vouch for is a finding of its own, and neither a warning nor a skip: the
+gate is fail-closed, the agent can fix it (so it is not an infrastructure failure, and it goes to the repair
+loop with the other findings), and a spec that was not checked must not go on to be run. A `flows/` that is a
+link, a file or cannot be examined is a finding too, since nothing under it was checked; a link to a directory
+inside it is not a spec and is not walked. No orchestrator code opens `.qa/analysis.json` (only the
+generator's prompt names it), so there was no read to confine there. The fixtures reader gained the
+non-blocking flag. **Before** of this widening is its first run: 424 mutants, 200 killed, 3 timeouts and 5
+survivors, and they were real gaps. A spec that only imports or names `expect` was never shown not to count as
+an assertion, nor one that writes whitespace before its call to count as one; the finding about `flows/`
+itself was never required to say why; and the warning for a map that is not JSON and the one for a JSON that
+is not a map were never required to differ. **After** is the re-run: 205 killed, 3 timeouts (the
+infinite-loop mutants of the read loop, as before) and no survivors, so the table's row is it. 30 mutants of
+what Stryker does not produce (the gate's reading of `flows/` and its findings, the context map's anchor, cap
+and warnings, the listing now in the module, and the fixtures reader's two protections against a pipe) were
+broken by hand: 28 die and 2 survive, documented below. The two are the point of the fixtures reader's
+design: the look at what the file is before it is opened, and the flags of the open, each keep a pipe from
+holding the thread, so either one alone is enough, and with both removed the pipe test fails within a
+fraction of a second under the watch, where it used to hang. What is still read bare is recorded in the
+module's header: what setup seeds and compares in the spec directory (the install marker under
+`e2e/node_modules` is the one that matters, since `git clean -fd -e node_modules` leaves it in place from one
+run to the next), what a run of the tests leaves under `.qa` (coverage dumps, fault-injection counters), and
+the login's stock check of `auth.setup.ts`.
+
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
 export scan and the reader that feeds it (`readFixtureFacts` and `readHarnessFacts`, a line range of the
@@ -551,7 +586,7 @@ run once per mutant and not fit the mutation timeout.
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
-| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read and write of the orchestrator's own files), manifest-fs (file hash, load, read, write), the read gate's manifest check, the listing of the existing specs | 36 / 0 / 1 — 97.3% (97.3%) | 161 / 12 / 0 — 100% (93.06%) | — |
+| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read and write of the orchestrator's own files, the listing of the specs), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map | 36 / 0 / 1 — 97.3% (97.3%) | 205 / 3 / 0 — 100% (98.56%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
@@ -598,6 +633,13 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   run still yields no fixture facts; the reason is log text.
 - `readFixtureFacts` — the `finally` block that closes the descriptor emptied (BlockStatement): a
   leaked descriptor is not observable from a test.
+- `readFixtureFacts` — the look before the open (`!lstatSync(path).isFile()` forced false,
+  ConditionalExpression) and the non-blocking flag of the open (not a mutation Stryker makes, so dropped by
+  hand): the open follows no link and waits on no pipe, so a directory ends in a read error and a pipe in an
+  empty read, each a skip with a warning, and the two protections guard against the same pipe, so either
+  one is enough. With both removed the pipe test fails within a fraction of a second under the watch, where
+  it used to hang. The preset was not re-run after the flag; the look is the one mutant it changes, and it
+  was run by hand.
 
 **redirect-advisory** (`route-catalog.ts`, `dom-snapshot.ts`, the split in `context-pack.ts`)
 - `splitRedirectSection` — the default of the first part of the split, `""` → another string
