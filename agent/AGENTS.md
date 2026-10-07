@@ -90,8 +90,8 @@ from accumulated junk:
    for the affected flow — never the whole suite or all of memory. If something does
    not touch the change, do not load it.
 2. **Reuse > create.** Before writing a new spec, find the existing one for that flow —
-   from what the prompt supplies, else by search — and update it. Create a new one only
-   if there is no equivalent. Do not duplicate coverage.
+   from what the prompt supplies, else by search — read it, and update it. Create a new
+   one only if there is no equivalent. Do not duplicate coverage.
 3. **Disciplined memory writes (`engram`) — OPERATIONAL context only, never
    test-authoring rules.** Save only reusable OPERATIONAL lessons: a fragile flow,
    an environment gotcha, an auth quirk, app topology — facts about the app under

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diffStat } from "@contexts/generation/domain/diff-stat.ts";
+import { DIFF_TIER_NAMES, DIFF_TIERS, diffStat, diffTier, type DiffStat } from "@contexts/generation/domain/diff-stat.ts";
 
 const HEADERS = (path: string): string[] => [
   `diff --git a/${path} b/${path}`,
@@ -82,4 +82,58 @@ test("a hunk header that carries trailing context still opens the hunk", () => {
 
 test("a diff with no trailing newline and a file header only still counts correctly", () => {
   assert.deepEqual(diffStat({ diff: [...HEADERS("a.ts"), "@@ -1 +1 @@", "+x"].join("\n"), changedFiles: ["a.ts"] }), { files: 1, added: 1, removed: 0 });
+});
+
+/* ── the tier a change falls in ── */
+
+/* A change of the given size: its files, and the lines it adds. */
+const sized = (files: number, lines: number, removed = 0): DiffStat => ({ files, added: lines, removed });
+
+test("a change at the limits of the tiny tier is tiny, and one file or one line past either limit is focused", () => {
+  const { maxFiles, maxLines } = DIFF_TIERS.tiny;
+  assert.equal(diffTier(sized(maxFiles, maxLines)), "tiny", "at both limits");
+  assert.equal(diffTier(sized(maxFiles - 1, maxLines - 1)), "tiny", "below both limits");
+  assert.equal(diffTier(sized(maxFiles + 1, maxLines)), "focused", "one file past");
+  assert.equal(diffTier(sized(maxFiles, maxLines + 1)), "focused", "one line past");
+});
+
+test("a change at the limits of the focused tier is focused, and one file or one line past either limit is broad", () => {
+  const { maxFiles, maxLines } = DIFF_TIERS.focused;
+  assert.equal(diffTier(sized(maxFiles, maxLines)), "focused", "at both limits");
+  assert.equal(diffTier(sized(maxFiles + 1, maxLines)), "broad", "one file past");
+  assert.equal(diffTier(sized(maxFiles, maxLines + 1)), "broad", "one line past");
+});
+
+test("each limit decides on its own: many files with one line, and one file with many lines, leave the tier they would otherwise fit", () => {
+  assert.equal(diffTier(sized(DIFF_TIERS.focused.maxFiles + 1, 1)), "broad", "files alone");
+  assert.equal(diffTier(sized(1, DIFF_TIERS.focused.maxLines + 1)), "broad", "lines alone");
+  assert.equal(diffTier(sized(DIFF_TIERS.tiny.maxFiles + 1, 1)), "focused", "files alone, past tiny");
+  assert.equal(diffTier(sized(1, DIFF_TIERS.tiny.maxLines + 1)), "focused", "lines alone, past tiny");
+});
+
+test("the lines of a tier are the lines a change adds plus the lines it removes", () => {
+  const { maxFiles, maxLines } = DIFF_TIERS.tiny;
+  assert.equal(diffTier(sized(maxFiles, 1, maxLines - 1)), "tiny", "split between the two sides, at the limit");
+  assert.equal(diffTier(sized(maxFiles, 1, maxLines)), "focused", "one past, with the excess on the removed side");
+  assert.equal(diffTier(sized(maxFiles, maxLines, 1)), "focused", "one past, with the excess on the added side");
+});
+
+test("an empty diff is tiny", () => {
+  assert.equal(diffTier({ files: 0, added: 0, removed: 0 }), "tiny");
+  assert.equal(diffTier(diffStat({ diff: "" })), "tiny");
+});
+
+test("the tiers are nested, and the declared names run from the smallest change to the largest", () => {
+  assert.ok(DIFF_TIERS.tiny.maxFiles <= DIFF_TIERS.focused.maxFiles, "a larger tier never admits fewer files");
+  assert.ok(DIFF_TIERS.tiny.maxLines <= DIFF_TIERS.focused.maxLines, "a larger tier never admits fewer lines");
+  const smallestToLargest = [sized(0, 0), sized(DIFF_TIERS.tiny.maxFiles + 1, 1), sized(DIFF_TIERS.focused.maxFiles + 1, 1)];
+  assert.deepEqual(smallestToLargest.map((stat) => DIFF_TIER_NAMES.indexOf(diffTier(stat))), [0, 1, 2]);
+});
+
+test("a tier is read from the size a diff really shows", () => {
+  const files = DIFF_TIERS.tiny.maxFiles + 1;
+  const paths = Array.from({ length: files }, (_, i) => `src/f${i}.ts`);
+  const diff = paths.flatMap((p) => [...HEADERS(p), "@@ -1 +1 @@", "+x"]).join("\n") + "\n";
+  assert.equal(diffTier(diffStat({ diff, changedFiles: paths })), "focused");
+  assert.equal(diffTier(diffStat({ diff: [...HEADERS("src/a.ts"), "@@ -1 +1 @@", "+x", ""].join("\n"), changedFiles: ["src/a.ts"] })), "tiny");
 });

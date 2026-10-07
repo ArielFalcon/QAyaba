@@ -286,6 +286,42 @@ list; the rendering of a block that names symbols is byte-identical (1,440 input
 earlier renderer). The lint source is unchanged, so the preset run above stands, and the 18 mutants of
 the new code all died on the first run.
 
+The scope budget of a diff first pass then learned the effort its size asks for (2026-10-07, default
+workers, 770 mutants, 254 of them compile errors, 12 minutes on a loaded machine): 506 killed, 6
+timeouts, 4 survivors, the same four documented below, and none in the diff size (43 killed, 8 compile
+errors) or in the lint. A change is tiny, focused or broad by two named limits that `diffTier` reads, so
+its mutants die on the boundary tests: a change at both limits, one file or one line past either, each
+limit on its own, the two sides of a change counted together and an empty diff. What the prompt then
+carries sits outside the preset, so it was broken by hand against its own tests, 49 mutants in all: the
+tier taken as always tiny, focused or broad, dropped, or read from a size that ignores the reported
+files, the diff's lines, the changed lines or the file count; the read of the existing specs ungated,
+always dropped or inverted, and its claim ungated, dropped, inverted, aimed at another fact or turned
+into a consult; the bound to the affected pages dropped, gated by the map, the blast radius or the
+listing, reverted to a verb of exploration or given a navigate directive; the authoring-skill line
+restored; the conventions read of a code run taken always, never, or dropped by one regeneration signal
+only, with the framework detection dropped beside it; and the effort data (a zero or fractional ceiling,
+a text with a figure, a directive word, a trust word or a minimum, a tier that does not admit the no-op,
+two tiers saying the same, the no-op clause or the ceiling's lead dropped or reworded, a claim declared
+for one tier only). The count is 49 because the first batch of 43 was followed by a second of six,
+written for the fixes it prompted: the no-op clause and the ceiling's lead turned into a floor or a
+neutral word, the clause reworded, a text that states a minimum, and a regeneration that keeps only the
+match clause. The first batch left five alive. Three shared one real gap: the bound gated by the map,
+the blast radius or the listing survived because the pins ran only on prompts that supplied none of
+them, so a loop now builds the prompt with each, and with all at once. One was the no-op clause of one
+tier's text drifting from the data that declares it, so the three texts are built from one clause that
+the test imports, and pins hold its wording and the ceiling's lead. The last was the words that follow
+the conventions read, which got a pin of their own. All 49 die after those changes.
+
+A review then found that, with a listing, the diff task no longer mentioned reading the one spec a run
+updates (the listing carries paths, a flow and an objective, never a spec's content). Protocol 2 of the
+shared layer now says to read the existing spec before it updates it, nine bytes more in each static
+layer, recorded as a raise. A pin holds it once per runtime in the shared layer, and a test holds it in
+that protocol in both mirrors; its four mutants (the read dropped in either mirror, reworded, or stated
+a second time in the generator role) all die, which makes 53 hand mutants for the slice. The diff
+size's tiers count raw files and changed lines, so generated files and lockfiles inflate a tier and a
+one-line change can have a wide blast radius: a limitation declared beside `DIFF_TIERS`, and harmless
+because a tier is only an upper bound on the effort and always admits the no-op.
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
@@ -335,7 +371,7 @@ triaged yet, so none is listed as a documented survivor. **After** is pending th
 | route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 63 / 0 / 0 — 100% (100%) | — |
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | — | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 494 / 6 / 4 — 99.21% (98.02%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 506 / 6 / 4 — 99.22% (98.06%) | — |
 
 ### Login discovery script (manual triangulation)
 

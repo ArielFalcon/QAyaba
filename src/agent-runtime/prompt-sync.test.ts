@@ -16,7 +16,9 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { DIFF_TIERS } from "@contexts/generation/domain/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
+import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
@@ -498,8 +500,8 @@ describe("prompt-sync drift guard", () => {
   interface OwnedRule {
     rule: string;
     pattern: RegExp;
-    /* The assembled prompt the rule is counted in: a code run, an e2e run whose page the prompt supplies a tree for, or an e2e run of an app that declares an OpenAPI contract. */
-    shape: "code" | "tree" | "openapi";
+    /* The assembled prompt the rule is counted in: the first pass of a code run or its regeneration; an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; or an e2e diff run whose change is broad. */
+    shape: "code" | "code-regen" | "tree" | "pack" | "openapi" | "broad";
     inStatic: number;
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
@@ -514,6 +516,23 @@ describe("prompt-sync drift guard", () => {
   const CONTRACT_LACK_RULE = phrasePattern("the prompt lacks a contract fact");
   const CONTRACT_FACTS_RULE = /\bfields\b[^.;)]*\benums\b[^.;)]*\berror responses\b/gi;
   const CONTRACT_IDENTITY_RULE = phrasePattern("an operation's id, method and path are not enough");
+  /* How to write a spec is taught by the authoring skill, which the generator role says to consult; an assembled e2e prompt never says it again. */
+  const AUTHORING_SKILL_CONSULT = /Consult\s+the\s+`?playwright-authoring`?\s+skill/gi;
+  /* A diff run works only on the pages the change affects, and its scope budget says so in every cell, whatever grounding the prompt carries. The verb names no exploration, so the bound never reads as a directive to browse; the one-size line it replaced told every diff run to expect a handful of specs. */
+  const AFFECTED_PAGES_BOUND = phrasePattern("ONLY on the page(s) the change affects");
+  const EXPLORE_AFFECTED_PAGES = phrasePattern("Explore ONLY the page(s) the change affects");
+  const HANDFUL_OF_SPECS = phrasePattern("A handful of focused specs is the right output here");
+  /* Only a broad diff states that its effort is not a suite rewrite: a smaller one is already bounded by its own ceiling. Every tier's effort is a ceiling that admits doing nothing. */
+  const SUITE_REWRITE_BOUND = phrasePattern("not a suite rewrite");
+  const EFFORT_NO_OP = phrasePattern("or none if nothing here is worth a test");
+  const EFFORT_CEILING = /Expected effort \((?:tiny|focused|broad) change\): at most\b/g;
+  /* The listing of the existing suite carries paths, a flow and an objective, never a spec's content, so the one spec a run updates is read first. The shared layer's reuse protocol owns that read; no assembled prompt repeats it. */
+  const READ_BEFORE_UPDATE = phrasePattern("read it, and update it");
+  /* A code run reads existing test files for the repo's conventions once, on its first pass; a regeneration works from the failing tests and the code under test, and keeps the compile check. */
+  const CONVENTIONS_READ = phrasePattern("existing test files for conventions");
+  const CONVENTIONS_MATCH = phrasePattern("Match them exactly");
+  const FRAMEWORK_DETECTION = phrasePattern("Detect the test framework from the repo's dependencies");
+  const COMPILE_CHECK = /cargo check --tests/gi;
   /* Engram's tool for ending a session. The runtime denies it to the generator and the explorer, so no prompt either reads names it. */
   const SESSION_SUMMARY_TOOL = /\bmem_session_summary\b/g;
   /* Memory is scoped to the run's mode by a topic-key prefix, and to its app by the project parameter. */
@@ -521,7 +540,15 @@ describe("prompt-sync drift guard", () => {
   /* A directive to search or consult memory. Only the static layers say when memory is consulted; an assembled prompt scopes the calls and starts none. */
   const MEMORY_SEARCH_DIRECTIVE = /\b(?:search|query|consult|recall|look up)\b[^.\n]*\b(?:memory|engram)\b/gi;
   const OWNED_RULES: readonly OwnedRule[] = [
-    { rule: "the compile check of a code run", pattern: /cargo check --tests/gi, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "the compile check of a code run", pattern: COMPILE_CHECK, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "the compile check of a code regeneration", pattern: COMPILE_CHECK, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
+    /* The conventions of the repo's tests are read once, on the first pass; the framework is detected on every pass. */
+    { rule: "reading existing test files for conventions (code first pass)", pattern: CONVENTIONS_READ, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "reading existing test files for conventions (code regeneration)", pattern: CONVENTIONS_READ, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "matching the conventions read exactly (code first pass)", pattern: CONVENTIONS_MATCH, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "matching the conventions read exactly (code regeneration)", pattern: CONVENTIONS_MATCH, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "detecting the test framework from the repo's dependencies (code first pass)", pattern: FRAMEWORK_DETECTION, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "detecting the test framework from the repo's dependencies (code regeneration)", pattern: FRAMEWORK_DETECTION, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the selector priority", pattern: /STARTS WITH the configured testIdAttribute name/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the dynamic DOM caveat", pattern: /STATIC snapshot of initial load/gi, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "not re-navigating a route the tree covers", pattern: /(?:do not|never)[^.\n]*(?:re-navigate|browser_navigate|browser_snapshot)/gi, shape: "tree", inStatic: 0, inAssembled: { atLeast: 1 } },
@@ -540,11 +567,25 @@ describe("prompt-sync drift guard", () => {
     { rule: "consulting memory only for an operational fact the prompt lacks", pattern: phrasePattern("Consult it only for an operational fact the prompt lacks"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "saving an operational lesson only when this run learned a new one", pattern: phrasePattern("only when this run learned a new one"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the project parameter on every engram call", pattern: phrasePattern("Always include the `project` parameter"), shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    { rule: "reading the existing spec of a flow before updating it", pattern: READ_BEFORE_UPDATE, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
     /* An OpenAPI contract is read for a contract fact the prompt lacks: the static layers hold the rule, and the assembled prompt of an app that declares a contract does not repeat it. */
     { rule: "reading a contract fact from the matching operation of the repo's OpenAPI spec", pattern: CONTRACT_READ_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "reading the contract only for a contract fact the prompt lacks", pattern: CONTRACT_LACK_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "the contract facts the read supplies: fields, enums and error responses", pattern: CONTRACT_FACTS_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
     { rule: "an operation's id, method and path not supplying its contract", pattern: CONTRACT_IDENTITY_RULE, shape: "openapi", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* The generator role owns consulting the authoring skill; the assembled working rules do not restate it. */
+    { rule: "consulting the authoring skill for the how of a spec", pattern: AUTHORING_SKILL_CONSULT, shape: "tree", inStatic: 1, inAssembled: { exactly: 0 } },
+    /* A diff run is bounded to the pages the change affects in every cell, with a tree, with a pack DOM, with neither and with a broad change; only the broad one says it is not a suite rewrite. */
+    { rule: "bounding a diff run to the pages the change affects (a tree supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (a pack DOM supplied)", pattern: AFFECTED_PAGES_BOUND, shape: "pack", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (no tree)", pattern: AFFECTED_PAGES_BOUND, shape: "openapi", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "bounding a diff run to the pages the change affects (a broad change)", pattern: AFFECTED_PAGES_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a broad change from a suite rewrite", pattern: SUITE_REWRITE_BOUND, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "keeping the effort of a tiny change from a suite rewrite, which its own ceiling already bounds", pattern: SUITE_REWRITE_BOUND, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "an effort that admits doing nothing (a tiny change)", pattern: EFFORT_NO_OP, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort that admits doing nothing (a broad change)", pattern: EFFORT_NO_OP, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a tiny change)", pattern: EFFORT_CEILING, shape: "tree", inStatic: 0, inAssembled: { exactly: 1 } },
+    { rule: "an effort stated as a ceiling (a broad change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The generator cannot call the session-summary tool, so no layer it reads names it. */
     { rule: "naming the session-summary tool the runtime denies the generator", pattern: SESSION_SUMMARY_TOOL, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
     /* The phrasings those rules replaced: orienting, searching and consulting memory whatever the prompt carries. */
@@ -591,6 +632,9 @@ describe("prompt-sync drift guard", () => {
       inStatic: 0,
       inAssembled: { exactly: 0 },
     },
+    /* The phrasings the scope budget replaced: a diff run told to explore its pages, and one size line for every diff. */
+    { rule: "telling a diff run to explore the pages the change affects", pattern: EXPLORE_AFFECTED_PAGES, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    { rule: "telling a diff run of any size to expect a handful of specs", pattern: HANDFUL_OF_SPECS, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
   ];
   const assembledInput = {
     repo: "org/app",
@@ -603,14 +647,22 @@ describe("prompt-sync drift guard", () => {
     mode: "diff",
     appName: "shop",
   };
-  const assembledFor = (shape: OwnedRule["shape"]): string =>
-    buildPrompt(
-      (shape === "code"
-        ? { ...assembledInput, target: "code" }
-        : shape === "openapi"
-        ? { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000", openapi: "api-definition.yaml" }
-        : { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000", domSnapshot: "route /cart:\n  button: Apply coupon" }) as Parameters<typeof buildPrompt>[0],
-    );
+  const FAILING_CASE = { name: "cart total", status: "fail", detail: "boom" };
+  /* One file past the largest change the focused tier admits, so the diff is broad. */
+  const BROAD_DIFF = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
+  const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
+  const assembledFor = (shape: OwnedRule["shape"]): string => {
+    const e2e = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
+    const inputs: Record<OwnedRule["shape"], object> = {
+      code: { ...assembledInput, target: "code" },
+      "code-regen": { ...assembledInput, target: "code", fixCases: [FAILING_CASE] },
+      openapi: { ...e2e, openapi: "api-definition.yaml" },
+      pack: { ...e2e, contextPack: PACK_WITH_LIVE_DOM },
+      broad: { ...e2e, diff: BROAD_DIFF },
+      tree: { ...e2e, domSnapshot: "route /cart:\n  button: Apply coupon" },
+    };
+    return buildPrompt(inputs[shape] as Parameters<typeof buildPrompt>[0]);
+  };
   const countOf = (text: string, pattern: RegExp): number => [...text.matchAll(pattern)].length;
 
   it("each craft rule is stated in the layer that owns it and nowhere else, in both runtimes", () => {
@@ -659,6 +711,49 @@ describe("prompt-sync drift guard", () => {
     }
   });
 
+  /* Every signal that turns a generation pass into a regeneration. */
+  const REGEN_SIGNALS: ReadonlyArray<[string, Record<string, unknown>]> = [
+    ["failing cases", { fixCases: [FAILING_CASE] }],
+    ["reviewer corrections", { reviewCorrections: ["[fragile-selector] cart.spec.ts: scope the coupon button to the cart form"] }],
+    ["a coverage gap", { coverageGap: "src/cart.ts: lines 10-14 were not executed" }],
+    ["selector contradictions", { selectorContradictions: ["button:Apply is NOT in the captured tree"] }],
+  ];
+
+  it("a code run reads existing test files for conventions on its first pass in every generation mode, and no regeneration of it does, whatever signal made it one", () => {
+    const codeModes = RUN_MODES.filter((mode) => mode !== "context");
+    assert.ok(codeModes.length > 0, "setup: the generation modes are known");
+    for (const mode of codeModes) {
+      assert.equal(countOf(generatorPromptFor({ mode, target: "code" }), CONVENTIONS_READ), 1, `${mode}: first pass`);
+      for (const [signal, extra] of REGEN_SIGNALS) {
+        const regeneration = generatorPromptFor({ mode, target: "code" }, extra);
+        assert.equal(countOf(regeneration, CONVENTIONS_READ), 0, `${mode} regeneration (${signal}): reads no conventions`);
+        assert.equal(countOf(regeneration, COMPILE_CHECK), 1, `${mode} regeneration (${signal}): keeps the compile check`);
+      }
+    }
+  });
+
+  it("a diff first pass bounds the run to the pages the change affects whatever else the prompt supplies", () => {
+    const supplied: ReadonlyArray<[string, Record<string, unknown>]> = [
+      ["nothing", {}],
+      ["a listing of the existing suite", { existingSpecFiles: ["flows/cart.spec.ts"] }],
+      ["an architecture map", { contextMap: { builtAtSha: "abc1234", routes: [{ path: "/cart" }], api: [], feBe: [] } }],
+      ["a structural signal that names symbols", { staticSignal: "## Structural blast radius\n- CartService.total", staticSignalHasSymbols: true }],
+      ["a pack with a live DOM and a captured tree", { contextPack: PACK_WITH_LIVE_DOM, domSnapshot: "route /cart:\n  button: Apply coupon" }],
+      ["everything at once", { existingSpecFiles: ["flows/cart.spec.ts"], contextMap: { builtAtSha: "abc1234", routes: [{ path: "/cart" }], api: [], feBe: [] }, staticSignal: "## Structural blast radius\n- CartService.total", staticSignalHasSymbols: true, contextPack: PACK_WITH_LIVE_DOM }],
+    ];
+    for (const [label, extra] of supplied) {
+      assert.equal(countOf(generatorPromptFor({ mode: "diff", target: "e2e" }, extra), AFFECTED_PAGES_BOUND), 1, `with ${label}`);
+    }
+  });
+
+  it("no assembled generator prompt consults the authoring skill, on a first pass or on any regeneration: the generator role owns that rule", () => {
+    for (const shape of GENERATOR_SHAPES) {
+      for (const [label, extra] of [["first pass", {}], ...REGEN_SIGNALS] as ReadonlyArray<[string, Record<string, unknown>]>) {
+        assert.equal(countOf(generatorPromptFor(shape, extra), AUTHORING_SKILL_CONSULT), 0, `${shape.mode}/${shape.target} ${label}: consults the authoring skill`);
+      }
+    }
+  });
+
   it("an app that declares an OpenAPI contract has its spec location given to the generator in every e2e mode, and no assembled prompt directs reading its operations", () => {
     const hint = "api-definition.yaml";
     for (const shape of GENERATOR_SHAPES) {
@@ -704,6 +799,15 @@ describe("prompt-sync drift guard", () => {
         assert.doesNotMatch(text, /\bCase [A-Z]\b/, `${where}: does not split by case`);
         assert.doesNotMatch(text, /\bsteps? \d+\b/i, `${where}: does not number a step`);
       }
+    }
+  });
+
+  it("the reuse protocol has the agent read the existing spec of a flow before it updates it, in both mirrors", () => {
+    for (const { shared } of MIRRORS) {
+      const protocols = parseSections(readFile(shared)).get(PROTOCOLS_SECTION) ?? "";
+      const reuse = /\*\*Reuse > create\.\*\*([\s\S]*?)(?=\n\d+\. \*\*)/.exec(protocols)?.[1] ?? "";
+      assert.ok(reuse.length > 0, `${shared}: has the reuse protocol`);
+      assert.equal(countOf(reuse, READ_BEFORE_UPDATE), 1, `${shared}: the reuse protocol reads the existing spec before it updates it`);
     }
   });
 

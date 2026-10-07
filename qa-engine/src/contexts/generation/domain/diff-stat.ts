@@ -31,3 +31,23 @@ export function diffStat(input: { diff: string; changedFiles?: readonly string[]
   const files = input.changedFiles?.length ? input.changedFiles.length : headerCount;
   return { files, added, removed };
 }
+
+/* The size classes a change falls in, smallest first. */
+export const DIFF_TIER_NAMES = ["tiny", "focused", "broad"] as const;
+export type DiffTier = (typeof DIFF_TIER_NAMES)[number];
+
+/* What the two smaller tiers admit: a change is in the smallest tier whose two limits both hold, with the changed lines counted as added plus removed. Anything larger is broad, which has no limit. */
+/* Declared limitation: the tiers count raw files and changed lines, so generated files and lockfiles inflate a tier and a one-line change can have a wide blast radius; a tier is only an upper bound on the effort and always admits the no-op. */
+export const DIFF_TIERS = {
+  tiny: { maxFiles: 2, maxLines: 40 },
+  focused: { maxFiles: 8, maxLines: 400 },
+} as const;
+
+function fits(stat: DiffStat, limits: { maxFiles: number; maxLines: number }): boolean {
+  return stat.files <= limits.maxFiles && stat.added + stat.removed <= limits.maxLines;
+}
+
+export function diffTier(stat: DiffStat): DiffTier {
+  if (fits(stat, DIFF_TIERS.tiny)) return "tiny";
+  return fits(stat, DIFF_TIERS.focused) ? "focused" : "broad";
+}

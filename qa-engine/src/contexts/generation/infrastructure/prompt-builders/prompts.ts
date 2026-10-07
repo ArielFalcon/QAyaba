@@ -15,7 +15,7 @@ import type {
 } from "@contexts/generation/application/ports/generation-ports.ts";
 import { ExplorationBriefAdapter, type BriefFns } from "../exploration-brief.adapter.ts";
 import { deriveClaimsFromPackText, withoutPackSection } from "../context-pack.ts";
-import { diffStat } from "@contexts/generation/domain/diff-stat.ts";
+import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
@@ -387,7 +387,8 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       : isCode
       ? [
           `- This is a CODE mode run: you are testing source-code logic, not a deployed web app.`,
-          `- Detect the test framework from the repo's dependencies. Read 2-3 existing test files for conventions. Match them exactly.`,
+          /* The conventions of the repo's tests are read once, on the first pass: a regeneration works from the failing tests and the code under test. */
+          `- Detect the test framework from the repo's dependencies.${isReGen ? "" : " Read 2-3 existing test files for conventions. Match them exactly."}`,
           `- Place generated tests alongside existing ones. Use the repo's existing test command. Do not install new dependencies.`,
           `- In your closing verdict JSON, include specMetas with {file, flow, objective, targets} for each spec so the orchestrator can write the manifest deterministically.`,
           `- Classify each affected symbol:`,
@@ -427,7 +428,6 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
                 `  against the real DOM, NEVER invented from code analysis alone.`,
                 ...RUNTIME_SIGNALS_LINES,
               ]),
-          `- Consult the playwright-authoring skill for robust specs and this app's capabilities.`,
           /* Where the contract is, as a fact; the static layers own the rule for reading it. */
           ...(openapiHint ? [`- OpenAPI contract(s) for this repo: ${openapiHint}.`] : []),
         ]),
@@ -1219,9 +1219,25 @@ interface TaskGuards {
   suiteListed: boolean;
 }
 
+/* What a diff of each size asks of the agent. The effort is a ceiling on the work and never a floor: no tier asks for a spec, and deciding that nothing here is worth a test is within every bound. `upperBound` counts focused specs for the whole change, or for each affected flow. The texts carry no figure and no word the lint counts, so the line adds nothing to the directive budget and declares no claim. */
+export interface EffortTier {
+  upperBound: { specs: number; per: "change" | "flow" };
+  admitsNoOp: true;
+  text: string;
+}
+
+/* The clause every tier ends with, so that what the data declares (the no-op is admitted) is what the text says. */
+export const EFFORT_NO_OP_CLAUSE = "or none if nothing here is worth a test";
+const effortText = (tier: DiffTier, bound: string): string => `Expected effort (${tier} change): at most ${bound}, ${EFFORT_NO_OP_CLAUSE}.`;
+
+export const EFFORT_BY_TIER: Record<DiffTier, EffortTier> = {
+  tiny: { upperBound: { specs: 2, per: "change" }, admitsNoOp: true, text: effortText("tiny", "one or two focused specs") },
+  focused: { upperBound: { specs: 4, per: "change" }, admitsNoOp: true, text: effortText("focused", "a few focused specs for the affected flows") },
+  broad: { upperBound: { specs: 1, per: "flow" }, admitsNoOp: true, text: effortText("broad", "one focused spec per affected flow, not a suite rewrite") },
+};
+
 /* The change's real size, from the changed files and the diff's own lines. */
-function sizeSentence(input: OpencodeRunInput): string {
-  const { files, added, removed } = diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles });
+function sizeSentence({ files, added, removed }: DiffStat): string {
   return `The change touches ${files} file${files === 1 ? "" : "s"} with +${added}/-${removed} lines,`;
 }
 
@@ -1269,6 +1285,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   }
 
   const intent = input.intent;
+  const stat = diffStat({ diff: input.diff, changedFiles: input.intent?.changedFiles });
   const text = [
     `Generate/update E2E tests for the flows affected by commit ${input.sha} of ${input.repo}.`,
     ``,
@@ -1298,17 +1315,20 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
           ``,
         ]),
     `## Scope budget (diff mode — do NOT over-work)`,
-    `The blast radius IS your budget. ${sizeSentence(input)} so keep generation fast and focused:`,
+    `The blast radius IS your budget. ${sizeSentence(stat)} so keep generation fast and focused:`,
     ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
-    `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
-    `- Explore ONLY the page(s) the change affects — not the whole app.`,
-    `A handful of focused specs is the right output here, not a suite rewrite.`,
+    /* The listing supplies the suite; the read of it is declared only where nothing lists it. */
+    ...(guards.suiteListed ? [] : [`- Read existing specs ONLY for the one or two flows this commit actually touches.`]),
+    /* The bound holds in every diff cell. It names no exploration: where the live page is navigated is the working rules' to say, and only without a pack DOM and a tree. */
+    `- Work ONLY on the page(s) the change affects — not the whole app.`,
+    EFFORT_BY_TIER[diffTier(stat)].text,
     ...buildServiceBlock(input),
   ].join("\n");
   const claims: PromptClaim[] = [claim.directs("state-outcome")];
   if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
   if (!guards.blastRadiusGrounded) claims.push(claim.directs("orient", "blast-radius"));
+  if (!guards.suiteListed) claims.push(claim.directs("read", "existing-suite"));
   return { text, claims };
 }
 
