@@ -26,7 +26,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { buildContextPack, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { formatDomCapture, formatDomSnapshot, type RouteSnapshot } from "@contexts/generation/infrastructure/dom-snapshot.ts";
-import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import { hasSymbolBlocks, renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import {
   countDirectives,
   findingKey,
@@ -59,7 +59,8 @@ export const DIMENSIONS = {
   grounding: ["none", "brief", "pack", "brief+pack"],
   target: ["e2e", "code"],
   contextMap: [false, true],
-  structuralSignal: [false, true],
+  /* What the structural signal holds: nothing, symbol blocks (impacted symbols and callers), or co-change files alone, which are no blast radius. */
+  structuralSignal: ["none", "symbols", "co-change"],
   authSeedUnauthored: [false, true],
   serviceLinks: [false, true],
   harnessFacts: [false, true],
@@ -85,7 +86,7 @@ export function isValidSpec(spec: CellSpec): boolean {
   const regenWithTree = spec.phase === "regen-fix" || spec.phase === "selector-fix";
   if (isContext) {
     if (spec.phase !== "first" || spec.tree !== "none" || spec.grounding !== "none") return false;
-    if (isCode || spec.structuralSignal || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
+    if (isCode || spec.structuralSignal !== "none" || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts) return false;
   }
   if (isCode) {
     if (spec.tree !== "none" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service) return false;
@@ -96,7 +97,14 @@ export function isValidSpec(spec: CellSpec): boolean {
   const hasBrief = spec.grounding === "brief" || spec.grounding === "brief+pack";
   const hasPack = spec.grounding === "pack" || spec.grounding === "brief+pack";
   /* The structural signal stands in only for a brief that distilled no blast radius. */
-  if (spec.structuralSignal && hasBrief && spec.briefBlast === "filled") return false;
+  if (spec.structuralSignal !== "none" && hasBrief && spec.briefBlast === "filled") return false;
+  /* A signal of co-change files alone bears on one decision, whether the prompt carries an explored blast radius, and the optional blocks do not change it: it meets every phase, tree and grounding of a diff run (the only run that has a signal at all), but not their cross product with the blocks. */
+  if (
+    spec.structuralSignal === "co-change" &&
+    (spec.mode !== "diff" || spec.contextMap || spec.authSeedUnauthored || spec.serviceLinks || spec.harnessFacts || spec.service || spec.packRedirect)
+  ) {
+    return false;
+  }
   if (spec.briefBlast === "empty" && !hasBrief) return false;
   /* A pack without a DOM is the contracts alone, which the architecture map supplies. */
   if (spec.packDom === false && !(hasPack && spec.contextMap)) return false;
@@ -122,10 +130,13 @@ export function allValidSpecs(): CellSpec[] {
   return [...everySpec()].filter(isValidSpec);
 }
 
+/* How a signal that holds something is named in a cell name and a bucket. */
+const SIGNAL_FLAG = { symbols: "signal", "co-change": "co-change" } as const;
+
 export function cellName(spec: CellSpec): string {
   const flags = [
     spec.contextMap ? "map" : "",
-    spec.structuralSignal ? "signal" : "",
+    spec.structuralSignal === "none" ? "" : SIGNAL_FLAG[spec.structuralSignal],
     spec.authSeedUnauthored ? "login" : "",
     spec.serviceLinks ? "links" : "",
     spec.harnessFacts ? "facts" : "",
@@ -260,11 +271,19 @@ async function buildPack(spec: CellSpec): Promise<string | undefined> {
   return text;
 }
 
-const STRUCTURAL_SIGNAL = renderBlastRadiusSignal({
-  impacted: [{ symbol: "CartService.applyCoupon", file: "src/app/cart/cart.service.ts" }],
-  callers: [{ symbol: "CartComponent.onApply", file: "src/app/cart/cart.component.ts" }],
-  coupled: [],
-});
+/* What the graph returned for the diff, per signal shape: the real renderer draws the block and the real predicate derives the flag the run sends with it. */
+const SIGNAL_SHAPES = {
+  symbols: {
+    impacted: [{ symbol: "CartService.applyCoupon", file: "src/app/cart/cart.service.ts" }],
+    callers: [{ symbol: "CartComponent.onApply", file: "src/app/cart/cart.component.ts" }],
+    coupled: [],
+  },
+  "co-change": {
+    impacted: [],
+    callers: [],
+    coupled: [{ file: "src/app/cart/cart.model.ts", couplingScore: 0.82, coChanges: 14 }],
+  },
+} as const;
 
 export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
   const isCode = spec.target === "code";
@@ -298,7 +317,11 @@ export async function buildInput(spec: CellSpec): Promise<OpencodeRunInput> {
     if (pack) input.contextPack = pack;
   }
   if (spec.contextMap) input.contextMap = CONTEXT_MAP;
-  if (spec.structuralSignal) input.staticSignal = STRUCTURAL_SIGNAL;
+  if (spec.structuralSignal !== "none") {
+    const shape = SIGNAL_SHAPES[spec.structuralSignal];
+    input.staticSignal = renderBlastRadiusSignal(shape);
+    if (hasSymbolBlocks(shape)) input.staticSignalHasSymbols = true;
+  }
   if (spec.authSeedUnauthored) input.authSeedUnauthored = true;
   if (spec.serviceLinks) input.serviceLinks = SERVICE_LINKS;
   if (spec.harnessFacts) input.harnessFacts = HARNESS_FACTS;
@@ -402,7 +425,7 @@ export function bucketOf(spec: CellSpec): string {
     spec.grounding,
     ...(spec.briefBlast === "empty" ? ["no-blast"] : []),
     ...(spec.packDom ? [] : ["contracts-only"]),
-    ...(spec.structuralSignal ? ["signal"] : []),
+    ...(spec.structuralSignal === "none" ? [] : [SIGNAL_FLAG[spec.structuralSignal]]),
     ...(spec.service ? ["service"] : []),
   ].join("/");
 }

@@ -20,6 +20,7 @@ export type FactId =
   | "landmarks"
   | "arch-map"
   | "structural-signal"
+  | "co-change"
   | "service-links"
   | "harness-facts"
   | "step-limit"
@@ -125,6 +126,7 @@ const SINGLE_SOURCE_FACTS: readonly FactId[] = [
   "existing-suite",
   "learned-rules",
   "exemplars",
+  "co-change",
 ];
 
 /* Imperative and prohibition markers. Counted for the directive budget and forbidden in facts-only sections. */
@@ -231,18 +233,21 @@ function ruleSingleProvider(cell: LintCell): LintFinding[] {
   return [...duplicated, ...hintsBesideTree];
 }
 
-/* R3: never direct a read of a fact that is already provided; never consult a fact nothing provides. */
+/* Facts whose provision makes a read or an orientation of the key fact redundant. A structural signal with symbol blocks names the code the change reaches, which is what orienting towards the blast radius would find. Co-change files are a fact of their own and appear in no entry. */
+const SATISFIED_BY: Partial<Record<FactId, readonly FactId[]>> = { "blast-radius": ["structural-signal"] };
+
+/* R3: never direct a read of a fact that is already provided, itself or by an equivalent; never consult a fact nothing provides. The equivalence is only for a read or an orientation: a consult needs the fact itself. */
 function ruleDirectivesAgainstProviders(cell: LintCell): LintFinding[] {
   const findings: LintFinding[] = [];
   for (const section of cell.sections) {
     for (const claim of section.claims) {
       if (claim.kind !== "directs" || !claim.target) continue;
-      const providers = providersOf(cell, claim.target);
       if (claim.action === "read" || claim.action === "orient") {
+        const providers = uniqueSorted([claim.target, ...(SATISFIED_BY[claim.target] ?? [])].flatMap((fact) => providersOf(cell, fact)));
         for (const provider of providers) {
           findings.push({ rule: "R3", fact: claim.target, sections: uniqueSorted([section.id, provider]) });
         }
-      } else if (claim.action === "consult" && providers.length === 0) {
+      } else if (claim.action === "consult" && providersOf(cell, claim.target).length === 0) {
         findings.push({ rule: "R3", fact: claim.target, sections: [section.id] });
       }
     }

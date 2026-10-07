@@ -776,6 +776,7 @@ test("buildProduction(rewritten) does NOT wire grounding on the code target, eve
 
 test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory collaborator is supplied — the rendered advisory block reaches OpencodeRunInput.staticSignal", async () => {
   const seenStaticSignals: Array<string | undefined> = [];
+  const seenSymbolFlags: Array<boolean | undefined> = [];
   const cfg = fakeConfig({
     mode: "diff",
     codebaseMemory: {
@@ -805,6 +806,7 @@ test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory co
     generationUseCase: {
       generate: async (input) => {
         seenStaticSignals.push(input.staticSignal);
+        seenSymbolFlags.push(input.staticSignalHasSymbols);
         return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
       },
     },
@@ -822,7 +824,55 @@ test("buildProduction(rewritten) wires structuralSignal when a codebaseMemory co
 
   assert.ok(seenStaticSignals.length > 0, "generationUseCase.generate must have been invoked");
   assert.match(seenStaticSignals[0] ?? "", /Structural blast radius/, "the composed advisory block must reach OpencodeRunInput.staticSignal when the collaborator is wired and the repo resolves to an indexed project");
+  assert.equal(seenSymbolFlags[0], true, "the graph returned an impacted symbol, so the prompt is told the signal names symbols");
   assert.equal(outcome.verdict, "pass");
+});
+
+test("buildProduction(rewritten): a graph that knows only co-change files for the diff gives a signal with no symbol flag on OpencodeRunInput", async () => {
+  const seen: Array<{ signal: string | undefined; flag: boolean | undefined; hasFlagKey: boolean }> = [];
+  const cfg = fakeConfig({
+    mode: "diff",
+    codebaseMemory: {
+      cli: async (tool: string, jsonArg: string) => {
+        if (tool === "list_projects") return { code: 0, stdout: JSON.stringify({ projects: [{ name: "org-app", root_path: "/mirrors/org/app" }] }), stderr: "" };
+        const parsed = JSON.parse(jsonArg) as { query: string };
+        if (parsed.query.includes("FILE_CHANGES_WITH")) {
+          return {
+            code: 0,
+            stdout: JSON.stringify({ columns: ["f_path", "g_path", "coupling_score", "co_changes"], rows: [["src/x.ts", "src/y.ts", "0.8", "5"]], total: 1 }),
+            stderr: "",
+          };
+        }
+        return { code: 0, stdout: JSON.stringify({ columns: ["a_file", "a_name", "b_name", "b_file", "r1_conf"], rows: [], total: 0 }), stderr: "" };
+      },
+    },
+    vcs: {
+      blastRadius: async (sha) => BlastRadius.of(sha, ["src/x.ts"]),
+      message: async () => "feat: add x",
+      diff: async () => "diff --git a/src/x.ts b/src/x.ts\n+ handleX();",
+    },
+    generationUseCase: {
+      generate: async (input) => {
+        seen.push({ signal: input.staticSignal, flag: input.staticSignalHasSymbols, hasFlagKey: "staticSignalHasSymbols" in input });
+        return { specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED };
+      },
+    },
+  });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+
+  await port.run({
+    app: "app",
+    sha: Sha.of("abc1234"),
+    source: "manual",
+    mode: "diff",
+    target: "e2e",
+    runId: "composition-root-structural-signal-co-change-only",
+  });
+
+  assert.ok(seen.length > 0, "generationUseCase.generate must have been invoked");
+  assert.ok((seen[0]?.signal ?? "").includes("src/y.ts"), "the co-change file is in the signal: the block is not dropped");
+  assert.equal(seen[0]?.hasFlagKey, false, "and it names no symbol, so the flag is absent");
+  assert.doesNotMatch(seen[0]?.signal ?? "", /blast radius|call graph/i, "and the block does not present itself as an exploration of what the change reaches");
 });
 
 test("buildProduction(rewritten) leaves structuralSignal undefined when codebaseMemory is absent (no section, backward compatible)", async () => {

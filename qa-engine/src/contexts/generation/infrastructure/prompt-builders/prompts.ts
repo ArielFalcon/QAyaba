@@ -663,12 +663,13 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
 
   /* A brief that carries a blast radius already has it distilled; the advisory structural copy of it only appears when there is none. */
   const staticSignalContent = input.staticSignal && isGenerationMode && !blastRadiusSupplied ? input.staticSignal : "";
-  const staticSignalClaims: PromptClaim[] = staticSignalContent
-    ? [claim.provides("structural-signal"), claim.frames("structural-signal", "unverified")]
-    : [];
+  /* Only a signal that names symbols is an explored blast radius. One of co-change files alone says which files tend to move together, so it claims nothing explored; a signal that arrives without the flag cannot prove it names symbols and is read the same way. */
+  const staticSignalHasSymbols = staticSignalContent !== "" && input.staticSignalHasSymbols === true;
+  const signalFact = staticSignalHasSymbols ? "structural-signal" : "co-change";
+  const staticSignalClaims: PromptClaim[] = staticSignalContent ? [claim.provides(signalFact), claim.frames(signalFact, "unverified")] : [];
 
-  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries one (a brief with a blast radius, or the structural signal); otherwise it only forbids the re-skim. */
-  const blastRadiusGrounded = blastRadiusSupplied || staticSignalContent !== "";
+  /* A re-generation turn must not re-orient. What it says about the blast radius holds only when the prompt carries an explored one (a brief with a blast radius, or a structural signal that names symbols); otherwise it only forbids the re-skim. */
+  const blastRadiusGrounded = blastRadiusSupplied || staticSignalHasSymbols;
   const regenDisciplineContent = isReGen
     ? [
         `## Re-generation turn — do NOT re-orient`,
@@ -701,7 +702,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
         ].join("\n")
       : "";
 
-  const task = buildTask(input, { mapInjected, blastRadiusSupplied, suiteListed });
+  const task = buildTask(input, { mapInjected, blastRadiusGrounded, suiteListed });
 
   /* Local sanitize wrapper (this function's own scope — NOT the DIFFERENT s() declared inside renderArchitectureContext further down this file) so untrusted cross-repo strings (data leaving/entering the model boundary) are redacted before reaching the prompt. */
   const s = (x: unknown): string => sanitizeText(String(x ?? "")).text;
@@ -786,7 +787,7 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     ...(() => {
       if (!suiteListed) return [];
       const manifestContent = [
-        `## existing-suite-manifest (${existingSuiteFiles.length} spec file(s) — do NOT rewrite flows already covered here)`,
+        `## ${PROMPT_HEADINGS.existingSuiteManifest} (${existingSuiteFiles.length} spec file(s) — do NOT rewrite flows already covered here)`,
         ...existingSuiteFiles.map((f) => `- ${f}`),
       ].join("\n");
       return [section("existing-suite-manifest", "semi-stable", manifestContent, { priority: 2, claims: [claim.provides("existing-suite")] })];
@@ -1212,8 +1213,8 @@ function buildRegenTask(input: OpencodeRunInput): TaskParts {
 interface TaskGuards {
   /* The architecture map is rendered in this prompt. */
   mapInjected: boolean;
-  /* A brief carrying a blast radius is rendered in this prompt. */
-  blastRadiusSupplied: boolean;
+  /* The prompt carries an explored blast radius: a brief that carries one, or a structural signal that names symbols. */
+  blastRadiusGrounded: boolean;
   /* The listing of the specs that already exist is rendered in this prompt. */
   suiteListed: boolean;
 }
@@ -1298,7 +1299,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
         ]),
     `## Scope budget (diff mode — do NOT over-work)`,
     `The blast radius IS your budget. ${sizeSentence(input)} so keep generation fast and focused:`,
-    ...(guards.blastRadiusSupplied ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
+    ...(guards.blastRadiusGrounded ? [] : [`- Read ONLY the changed symbols and their direct callers/callees (find_referencing_symbols).`]),
     `- Do NOT read the whole repository, the entire e2e suite, or unrelated flows/files.`,
     `- Read existing specs ONLY for the one or two flows this commit actually touches.`,
     `- Explore ONLY the page(s) the change affects — not the whole app.`,
@@ -1307,7 +1308,7 @@ function buildTask(input: OpencodeRunInput, guards: TaskGuards): TaskParts {
   ].join("\n");
   const claims: PromptClaim[] = [claim.directs("state-outcome")];
   if (!guards.mapInjected) claims.push(claim.directs("read", "arch-map"), claim.frames("arch-map", "unverified"));
-  if (!guards.blastRadiusSupplied) claims.push(claim.directs("orient", "blast-radius"));
+  if (!guards.blastRadiusGrounded) claims.push(claim.directs("orient", "blast-radius"));
   return { text, claims };
 }
 

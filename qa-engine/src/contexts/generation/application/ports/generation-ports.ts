@@ -129,6 +129,8 @@ export interface OpencodeRunInput {
   authSeedUnauthored?: boolean;
   /* Static signal: deterministic pre-computed analysis rendered as a prompt section. Empty string or absent = no section added. Signal-only, fail-open. */
   staticSignal?: string;
+  /* True when the static signal names symbols (impacted or callers): only then does it stand for an explored blast radius. Absent = a signal of co-change files alone (or no signal), which names no blast radius. */
+  staticSignalHasSymbols?: boolean;
   diffArchetypes?: string[];
   /* Fed into prompts.ts's matchExemplars/renderExemplarsForPrompt loop to render a "Skill exemplars" section. Absent or empty = no section (never fabricated). Restoration-only: no live production caller populates this yet (mirrors diffArchetypes' own still-open wiring gap into the rewritten engine). */
   structuralPatterns?: StructuralPattern[];

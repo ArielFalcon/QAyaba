@@ -39,9 +39,11 @@ export const ARTIFACT_REFERENCES: readonly ArtifactReference[] = [
   { artifact: "app-login", pattern: named(PROMPT_HEADINGS.appLogin), provider: { section: APP_LOGIN_SECTION_ID } },
   { artifact: "harness-facts", pattern: named(PROMPT_HEADINGS.harnessFacts), provider: { section: HARNESS_FACTS_SECTION_ID } },
   { artifact: "diff", pattern: /\bthe diff\b/i, provider: { facts: ["diff"] } },
-  /* Facts the harness supplies only when it has them: the step limit its runtime enforces, the listing of the specs that exist, the rules learned from past runs and the test templates that match the diff's shape. The patterns are the words a directive uses to point at each; none occurs in a static layer or in a section that does not provide it. */
+  /* Facts the harness supplies only when it has them: the step limit its runtime enforces, the listing of the specs that exist, the rules learned from past runs and the test templates that match the diff's shape. The patterns are the words a directive uses to point at each (the listing's own section is also named by its title); none occurs in a static layer or in a section that does not provide it. */
   { artifact: "step-limit", pattern: /\bstep limit\b/i, provider: { section: STEP_LIMIT_SECTION_ID } },
-  { artifact: "existing-suite", pattern: /\bsuite (?:listed|listing)\b/i, provider: { facts: ["existing-suite"] } },
+  { artifact: "existing-suite", pattern: new RegExp(`\\bsuite (?:listed|listing)\\b|${escape(PROMPT_HEADINGS.existingSuiteManifest)}`, "i"), provider: { facts: ["existing-suite"] } },
   { artifact: "learned-rules", pattern: /\b(?:learned|proven|experimental) rules\b/i, provider: { facts: ["learned-rules"] } },
   { artifact: "exemplars", pattern: /\btest templates\b|\bexemplars?\b/i, provider: { facts: ["exemplars"] } },
+  /* The block a structural signal of co-change files alone renders under its own title. */
+  { artifact: "co-change", pattern: new RegExp(escape(PROMPT_HEADINGS.coChangeFiles), "i"), provider: { facts: ["co-change"] } },
 ];

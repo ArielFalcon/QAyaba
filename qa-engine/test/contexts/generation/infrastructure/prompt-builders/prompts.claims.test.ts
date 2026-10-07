@@ -10,6 +10,9 @@ import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts"
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { lintCell, type FactId, type LintSection, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { renderLearnedRules } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
+import type { RetrievedRule } from "@contexts/qa-run-orchestration/application/ports/index.ts";
 import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
 setExplorationBriefCollaborators({
@@ -91,11 +94,21 @@ test("the structural signal, service links and the diff each declare what they p
     confidence: 0.9,
   };
   const assembled = buildPromptAssembled(
-    mkInput({ staticSignal: "## Structural blast radius\n- a", serviceLinks: [link as never] }),
+    mkInput({ staticSignal: "## Structural blast radius\n- a", staticSignalHasSymbols: true, serviceLinks: [link as never] }),
   );
   assert.deepEqual(provided(assembled, "static-signal"), ["structural-signal"]);
   assert.deepEqual(provided(assembled, "service-links"), ["service-links"]);
   assert.deepEqual(provided(assembled, "diff"), ["diff"]);
+});
+
+test("a structural signal of co-change files alone declares the co-change fact, not the structural signal, and frames only that fact", () => {
+  const coChange = buildPromptAssembled(mkInput({ staticSignal: renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] }) }));
+  assert.deepEqual(provided(coChange, "static-signal"), ["co-change"]);
+  const framed = (coChange.claims["static-signal"] ?? []).flatMap((c: PromptClaim) => (c.kind === "frames" ? [`${c.fact}:${c.as}`] : []));
+  assert.deepEqual(framed, ["co-change:unverified"]);
+  const symbols = buildPromptAssembled(mkInput({ staticSignal: "## Structural blast radius\n- a", staticSignalHasSymbols: true }));
+  const symbolsFramed = (symbols.claims["static-signal"] ?? []).flatMap((c: PromptClaim) => (c.kind === "frames" ? [`${c.fact}:${c.as}`] : []));
+  assert.deepEqual(symbolsFramed, ["structural-signal:unverified"]);
 });
 
 function sectionText(a: AssembledPrompt, id: string): string {
@@ -129,13 +142,12 @@ const providersOf = (a: AssembledPrompt, fact: FactId): string[] =>
 const directsRead = (a: AssembledPrompt, id: string, target: FactId): boolean =>
   (a.claims[id] ?? []).some((c) => c.kind === "directs" && c.action === "read" && c.target === target);
 
-const LEARNED_RULES = [
-  "## Proven rules from past QA runs",
-  "These proven rules were earned from real failures.",
-  "### Rule (selector, confidence=0.9)",
-  "- Trigger: a coupon button",
-  "- Action: scope it to the cart form",
-].join("\n");
+/* The rules as the run retrieves them (a proven one and an experimental one), rendered by the production renderer: the prompt carries its text, never a hand-written copy of it. */
+const RETRIEVED_RULES: readonly RetrievedRule[] = [
+  { id: "rule-proven", trigger: "a coupon button", action: "scope it to the cart form", errorClass: "selector", status: "active", confidence: "high" },
+  { id: "rule-experimental", trigger: "a total that re-queries", action: "assert once the re-query settles", errorClass: "timing", status: "candidate", confidence: "low" },
+];
+const LEARNED_RULES = renderLearnedRules(RETRIEVED_RULES);
 const FORM_PATTERN: NonNullable<OpencodeRunInput["structuralPatterns"]> = [{ kind: "form", hasOnSubmit: true, hasValidation: true }];
 const SUITE_LISTING = ["flows/cart.spec.ts", "flows/login.spec.ts — flow: login, objective: the user signs in"];
 
@@ -184,6 +196,28 @@ test("the manual e2e first pass sends the agent to the existing suite only when 
     assert.deepEqual(providersOf(listed, "existing-suite"), ["existing-suite-manifest"]);
     assert.deepEqual(findingsOf(listed), []);
   }
+});
+
+test("the suite listing's section is titled with the name the lint knows it by, so a reference to it by name is checked", () => {
+  const a = buildPromptAssembled(mkInput({ existingSpecFiles: SUITE_LISTING }));
+  assert.equal(PROMPT_HEADINGS.existingSuiteManifest, "existing-suite-manifest", "the lint knows the section by its id");
+  assert.ok(sectionText(a, "existing-suite-manifest").startsWith(`## ${PROMPT_HEADINGS.existingSuiteManifest} (`), "the title is the named constant");
+  const dangling = lintCell(
+    { name: "seeded", regen: false, sections: [...lintSectionsOf(buildPromptAssembled(mkInput())), { id: "extra", layer: "assembled", text: `See the ${PROMPT_HEADINGS.existingSuiteManifest} above.`, claims: [] }] },
+    { artifactReferences: ARTIFACT_REFERENCES },
+  );
+  assert.deepEqual(dangling.map((f) => [f.rule, f.artifact]), [["R13", "existing-suite"]], "with no listing in the prompt the reference by name dangles");
+});
+
+test("a signal of co-change files alone is titled with the name the lint knows it by: a reference to it by name is met by the block and dangles without it", () => {
+  const block = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.8, coChanges: 5 }] });
+  const withBlock = buildPromptAssembled(mkInput({ staticSignal: block }));
+  assert.ok(sectionText(withBlock, "static-signal").startsWith(`## ${PROMPT_HEADINGS.coChangeFiles} (`), "the title is the named constant");
+  const referring: LintSection = { id: "extra", layer: "assembled", text: `See the ${PROMPT_HEADINGS.coChangeFiles} above.`, claims: [] };
+  const lintWithReference = (a: AssembledPrompt) =>
+    lintCell({ name: "seeded", regen: false, sections: [...lintSectionsOf(a), referring] }, { artifactReferences: ARTIFACT_REFERENCES });
+  assert.deepEqual(lintWithReference(withBlock), [], "the block provides the co-change files the reference points at");
+  assert.deepEqual(lintWithReference(buildPromptAssembled(mkInput())).map((f) => [f.rule, f.artifact]), [["R13", "co-change"]], "with no block in the prompt the reference dangles");
 });
 
 test("an empty listing supplies nothing, so the manual first pass still reads the suite; a code run's manual task never declares that read", () => {

@@ -182,6 +182,12 @@ export interface GenerationEnrichment {
    */
   staticSignal?: string;
   /**
+   * True when `staticSignal` names symbols (impacted or callers). Only such a signal stands for
+   * an explored blast radius; one that holds co-change files alone does not. Present only
+   * alongside `staticSignal`, and only when true — absent is never a fabricated false.
+   */
+  staticSignalHasSymbols?: boolean;
+  /**
    * Curriculum-ranked authoring templates. Absent lets the prompt builder fall
    * back to its local derivation.
    */
@@ -539,12 +545,21 @@ export interface ReviewDomGroundingPort {
 }
 
 /**
+ * The advisory block and whether it names symbols. An empty `text` is no signal, and then
+ * `hasSymbols` is false: nothing is claimed.
+ */
+export interface StructuralSignalResult {
+  text: string;
+  hasSymbols: boolean;
+}
+
+/**
  * Advisory blast-radius markdown for GenerationEnrichment.staticSignal.
  * Absent: no staticSignal. Throw is fail-open at the caller. Unavailable
- * query degrades to "" — never a fabricated claim.
+ * query degrades to an empty `text` — never a fabricated claim.
  */
 export interface StructuralSignalPort {
-  render(repoDir: string, changed: BlastRadius): Promise<string>;
+  render(repoDir: string, changed: BlastRadius): Promise<StructuralSignalResult>;
 }
 
 /** Port-local structural mirrors of service-topology types (no cross-context import). */

@@ -10,6 +10,7 @@ import {
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { lintCell, type LintSection } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import type { OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
 setExplorationBriefCollaborators({
@@ -115,7 +116,7 @@ test("a regeneration refers only to the blast radius, tree and diff its prompt c
   }
 });
 
-test("the re-generation section speaks of a distilled blast radius only when the prompt carries one", () => {
+test("the re-generation section speaks of a distilled blast radius only when the prompt carries one: a brief with one, or a structural signal that names symbols", () => {
   const fix = { fixCases: [{ name: "cart total", status: "fail" as const, detail: "boom" }] };
   const brief: ExplorationBrief = {
     builtForSha: "abc1234",
@@ -124,10 +125,12 @@ test("the re-generation section speaks of a distilled blast radius only when the
   };
   const without = buildPromptAssembled(mkInput(fix));
   const withBrief = buildPromptAssembled(mkInput({ ...fix, contextBrief: brief }));
-  const withSignal = buildPromptAssembled(mkInput({ ...fix, staticSignal: "structural signal: CartService.total" }));
+  const withSignal = buildPromptAssembled(mkInput({ ...fix, staticSignal: "structural signal: CartService.total", staticSignalHasSymbols: true }));
+  const withCoChange = buildPromptAssembled(mkInput({ ...fix, staticSignal: renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] }) }));
   const emptyBrief = buildPromptAssembled(mkInput({ ...fix, contextBrief: { ...brief, blastRadius: [] } }));
   const size = (a: AssembledPrompt): number | undefined => a.sectionSizes["regen-discipline"];
   assert.ok((size(withBrief) ?? 0) > (size(without) ?? 0), "a brief with a blast radius adds the statement");
-  assert.equal(size(withSignal), size(withBrief), "the structural signal supports it as well");
+  assert.equal(size(withSignal), size(withBrief), "the structural signal supports it as well, when it names symbols");
+  assert.equal(size(withCoChange), size(without), "a signal of co-change files alone supports nothing");
   assert.equal(size(emptyBrief), size(without), "a brief with no blast radius supports nothing");
 });

@@ -686,10 +686,13 @@ export class RunQaUseCase {
      * the matching graph.
      */
     let blastRadiusSignal = "";
+    let blastRadiusSignalHasSymbols = false;
     /* A brief that carries a blast radius already has it distilled, so the graph is not queried and a second, advisory copy never reaches the prompt. A brief that distilled none supplies nothing, so the signal stands in. */
     if (this.deps.structuralSignal && !groundingContextBrief?.blastRadius.length) {
       try {
-        blastRadiusSignal = await this.deps.structuralSignal.render(workspace.specDir, runBlastRadius);
+        const rendered = await this.deps.structuralSignal.render(workspace.specDir, runBlastRadius);
+        blastRadiusSignal = rendered.text;
+        blastRadiusSignalHasSymbols = rendered.hasSymbols;
       } catch (err) {
         console.error("[qa] WARNING: structural blast-radius signal failed (non-fatal, generation continues without it):", err);
       }
@@ -738,7 +741,10 @@ export class RunQaUseCase {
       ...(groundingContextMap ? { contextMap: groundingContextMap } : {}),
       ...(groundingContextBrief ? { contextBrief: groundingContextBrief } : {}),
       ...(groundingHarnessFacts ? { harnessFacts: groundingHarnessFacts } : {}),
-      ...(blastRadiusSignal ? { staticSignal: blastRadiusSignal } : {}),
+      /* The flag travels with its signal and only when true: a co-change-only signal carries none, never a fabricated false. */
+      ...(blastRadiusSignal
+        ? { staticSignal: blastRadiusSignal, ...(blastRadiusSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }
+        : {}),
       ...(selectedExemplars.length ? { skillExemplars: selectedExemplars } : {}),
       ...(resolvedServiceLinks.length ? { serviceLinks: resolvedServiceLinks } : {}),
       ...(resolvedContractDrift.length ? { contractDrift: resolvedContractDrift } : {}),

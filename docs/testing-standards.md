@@ -251,6 +251,41 @@ blind to fenced text). The first tests killed 51. The two that survived were the
 the suite-listing and exemplar patterns, because no phrase of theirs began with a capital; each now has
 one, and both are killed.
 
+The lint then learned that a structural signal with symbol blocks is the blast radius (R3 counts it as
+meeting a read or an orientation of it, never a consult) and gained a fact of its own for the
+co-change files a signal can hold alone (2026-10-06, default workers, 753 mutants, 249 of them compile
+errors, 17 minutes on a loaded machine): 494 killed, 6 timeouts, 4 survivors, the same four documented
+below, and none in the lint (298 killed, 1 timeout). The equivalence is one table that only R3's read
+and orientation branch reads, so its mutants die on what it must not do: a consult is not met by the
+signal, co-change files meet nothing, the table is one way, and a section that provides both facts is
+reported once per provider. What decides whether a prompt claims a blast radius sits outside the
+preset, so it was broken by hand against its own tests, 87 mutants in all: the builder's (the flag
+read as always or never true, or true without a signal; the claims swapped or unframed; grounding by
+the old rule, by the brief alone, by the signal alone or by both; the lookup's text and its claim
+ungated, dropped or inverted; a signal rendered beside a brief's blast radius), the renderer's (the
+title, the introduction and the truncation marker of each shape taken always, never or swapped;
+call-graph or blast-radius words in the co-change introduction; the symbol predicate read from one
+list or with the co-change files counted), the reference table's and the artifact names' (the name of
+the co-change block included), the flag's two hops from the port to the prompt input (never sent,
+always sent, sent as false, sent without its signal), the symbol predicate's (the wrong connective,
+either list alone), the provider claims of the listing, the exemplars and the rules, and the matrix's
+(each condition of the co-change shape, the flag, the bucket). Five survived at first. Three were real
+gaps: the lookup's text was gated by nothing a test could see, only its claim (two mutants), so the
+size of the task now has to follow the grounding; and the heading constant of the listing could be
+renamed without a test noticing, so it is pinned to the id of its section. The other two are
+equivalents of code outside any preset and are not on the list below: the adapter's symbol flag read
+from the impacted list alone (callers are only queried for an impacted anchor, so the two lists cannot
+differ), and the matrix's exclusion of any signal from the context run (the co-change shape is already
+limited to diff runs).
+
+A review of the first version found that a block of co-change files alone was still titled "Structural
+blast radius" and introduced as derived from the call graph: words a model reads as a finished
+exploration, in a prompt whose claims keep the lookup, and block text the lint cannot see. The block
+now carries a title and an introduction of its own and a truncation marker that names the co-change
+list; the rendering of a block that names symbols is byte-identical (1,440 inputs compared with the
+earlier renderer). The lint source is unchanged, so the preset run above stands, and the 18 mutants of
+the new code all died on the first run.
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
@@ -300,7 +335,7 @@ triaged yet, so none is listed as a documented survivor. **After** is pending th
 | route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 63 / 0 / 0 — 100% (100%) | — |
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | — | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 491 / 6 / 4 — 99.2% (98%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 494 / 6 / 4 — 99.21% (98.02%) | — |
 
 ### Login discovery script (manual triangulation)
 

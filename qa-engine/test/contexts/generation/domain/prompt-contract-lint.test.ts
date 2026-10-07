@@ -17,7 +17,7 @@ import {
   type PromptClaim,
 } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
-import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { ASSEMBLED_ARTIFACT_NAMES, PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 
 function sec(
   id: string,
@@ -556,6 +556,19 @@ test("the trust lexicon matches the plain and the past form of trust but not a l
   assert.equal(hasTrustLanguage("a trustworthy tree"), false);
 });
 
+test("static text that names the section of the suite listing or of the co-change files is reported like any other assembled artifact, and a phrase that merely resembles the name is not", () => {
+  const options = { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES };
+  const named = (text: string): LintSection => ({ id: "static/role.md", layer: "static", text, claims: [] });
+  const cases: Array<[name: string, lookalike: string]> = [
+    [PROMPT_HEADINGS.existingSuiteManifest, "Read the existing suite manifest first."],
+    [PROMPT_HEADINGS.coChangeFiles, "Files that change together in a pull request are reviewed together."],
+  ];
+  for (const [name, lookalike] of cases) {
+    assert.deepEqual(lintCell(cell([named(`Read the ${name} first.`)]), options).map((f) => [f.rule, ...f.sections]), [["R8", "static/role.md"]], name);
+    assert.deepEqual(lintCell(cell([named(lookalike)]), options), [], `${name}: a look-alike`);
+  }
+});
+
 /* ── a reference to an assembled artifact needs the artifact ── */
 
 const TREE_REFERENCE: ArtifactReference = {
@@ -689,11 +702,11 @@ test("the polarity lexicons detect their phrases case-insensitively and repeated
   }
 });
 
-/* ── the step limit, the suite listing, the learned rules and the exemplars: one provider each, framed at most once, and referred to only where carried ── */
+/* ── the step limit, the suite listing, the learned rules, the exemplars and the co-change files: one provider each, framed at most once, and referred to only where carried ── */
 
-const ONCE_PROVIDED_FACTS = ["step-limit", "existing-suite", "learned-rules", "exemplars"] as const;
+const ONCE_PROVIDED_FACTS = ["step-limit", "existing-suite", "learned-rules", "exemplars", "co-change"] as const;
 
-test("each of the step limit, the existing suite, the learned rules and the exemplars has one provider: a second is reported with both sections", () => {
+test("each of the step limit, the existing suite, the learned rules, the exemplars and the co-change files has one provider: a second is reported with both sections", () => {
   for (const fact of ONCE_PROVIDED_FACTS) {
     const duplicated = lintCell(cell([sec("b", [provides(fact)]), sec("a", [provides(fact)]), sec("c")]));
     assert.deepEqual(duplicated.map((f) => [f.rule, f.fact, ...f.sections]), [["R2", fact, "a", "b"]], fact);
@@ -716,6 +729,44 @@ test("directing a read or an orientation of the existing suite while a section l
     const findings = lintCell(cell([sec("task", [directs(action, "existing-suite")]), sec("existing-suite-manifest", [provides("existing-suite")])]));
     assert.deepEqual(findings.map((f) => [f.rule, f.fact, ...f.sections]), [["R3", "existing-suite", "existing-suite-manifest", "task"]], action);
     assert.deepEqual(lintCell(cell([sec("task", [directs(action, "existing-suite")])])), [], `${action}: nothing lists the suite`);
+  }
+});
+
+/* ── the structural signal with symbols is the blast radius: a read or an orientation of it is redundant, a consult is not ── */
+
+test("a read or an orientation of the blast radius while a section provides the structural signal is a contradiction naming both", () => {
+  for (const action of ["read", "orient"] as const) {
+    const findings = lintCell(cell([sec("task", [directs(action, "blast-radius")]), sec("static-signal", [provides("structural-signal")])]));
+    assert.deepEqual(findings.map((f) => [f.rule, f.fact, ...f.sections]), [["R3", "blast-radius", "static-signal", "task"]], action);
+  }
+});
+
+test("the blast radius and the structural signal each contradict the directive when both are provided, one finding per provider", () => {
+  const findings = lintCell(
+    cell([sec("task", [directs("orient", "blast-radius")]), sec("context-brief", [provides("blast-radius")]), sec("static-signal", [provides("structural-signal")])]),
+  );
+  assert.deepEqual(
+    findings.map((f) => [f.rule, f.fact, ...f.sections]),
+    [["R3", "blast-radius", "context-brief", "task"], ["R3", "blast-radius", "static-signal", "task"]],
+  );
+});
+
+test("the equivalence holds for a read or an orientation only: a consult of the blast radius is not satisfied by the structural signal", () => {
+  const consult = lintCell(cell([sec("task", [directs("consult", "blast-radius")]), sec("static-signal", [provides("structural-signal")])]));
+  assert.deepEqual(consult.map((f) => [f.rule, f.fact, ...f.sections]), [["R3", "blast-radius", "task"]], "dangling: nothing provides the blast radius itself");
+  const met = lintCell(cell([sec("task", [directs("consult", "blast-radius")]), sec("context-brief", [provides("blast-radius")])]));
+  assert.deepEqual(met, [], "a section that provides the blast radius still meets a consult of it");
+});
+
+test("the equivalence is one way: a read of the structural signal is not made redundant by a section that provides the blast radius", () => {
+  for (const action of ["read", "orient"] as const) {
+    assert.deepEqual(lintCell(cell([sec("task", [directs(action, "structural-signal")]), sec("context-brief", [provides("blast-radius")])])), [], action);
+  }
+});
+
+test("co-change files satisfy nothing: a read or an orientation of the blast radius beside a co-change-only signal is clean", () => {
+  for (const action of ["read", "orient"] as const) {
+    assert.deepEqual(lintCell(cell([sec("task", [directs(action, "blast-radius")]), sec("static-signal", [provides("co-change")])])), [], action);
   }
 });
 
@@ -748,14 +799,25 @@ const NEW_REFERENCE_CASES: readonly ReferenceCase[] = [
   {
     artifact: "existing-suite",
     provider: sec("existing-suite-manifest", [provides("existing-suite")]),
-    refers: ["Skim the suite listing above first.", "Every spec in the suite listed above is covered.", "Suite listing above: it is complete."],
-    unrelated: ["The test suite is large.", "Keep a listing of the routes."],
+    refers: [
+      "Skim the suite listing above first.",
+      "Every spec in the suite listed above is covered.",
+      "Suite listing above: it is complete.",
+      `Check the ${PROMPT_HEADINGS.existingSuiteManifest} above before adding a spec.`,
+    ],
+    unrelated: ["The test suite is large.", "Keep a listing of the routes.", "An existing suite manifest is not a section here."],
   },
   {
     artifact: "learned-rules",
     provider: sec("learned-rules", [provides("learned-rules")]),
     refers: ["Apply the learned rules.", "The proven rules below take priority.", "Experimental rules are only hints."],
     unrelated: ["The working rules above apply.", "Rules learned elsewhere do not count."],
+  },
+  {
+    artifact: "co-change",
+    provider: sec("static-signal", [provides("co-change")]),
+    refers: [`The ${PROMPT_HEADINGS.coChangeFiles} above are only a hint.`, `Skim the ${PROMPT_HEADINGS.coChangeFiles.toUpperCase()} first.`],
+    unrelated: ["Files that change together in a pull request.", "Keep the history of the repository clean."],
   },
   {
     artifact: "exemplars",
@@ -765,7 +827,7 @@ const NEW_REFERENCE_CASES: readonly ReferenceCase[] = [
   },
 ];
 
-test("a section that points at the step limit, the suite listing, the learned rules or the exemplars needs that artifact in the cell", () => {
+test("a section that points at the step limit, the suite listing, the learned rules, the exemplars or the co-change files needs that artifact in the cell", () => {
   const references = { artifactReferences: ARTIFACT_REFERENCES };
   for (const { artifact, provider, refers } of NEW_REFERENCE_CASES) {
     for (let round = 0; round < 3; round++) {

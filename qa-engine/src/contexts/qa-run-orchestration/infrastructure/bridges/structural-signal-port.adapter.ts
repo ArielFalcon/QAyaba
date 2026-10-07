@@ -3,8 +3,8 @@
 import type { BlastRadius } from "@kernel/blast-radius.ts";
 import type { CodeGraphPort } from "@kernel/ports/code-graph.port.ts";
 import type { LocalSymbolRef, CoupledFile } from "@kernel/code/index.ts";
-import type { StructuralSignalPort } from "../../application/ports/index.ts";
-import { renderBlastRadiusSignal, type ScoredSymbolRef } from "./blast-radius-signal.ts";
+import type { StructuralSignalPort, StructuralSignalResult } from "../../application/ports/index.ts";
+import { hasSymbolBlocks, renderBlastRadiusSignal, type ScoredSymbolRef } from "./blast-radius-signal.ts";
 
 const ADVISORY_DEPTH = 3;
 
@@ -48,9 +48,9 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
     private readonly repoDir: string,
   ) {}
 
-  async render(_repoDir: string, changed: BlastRadius): Promise<string> {
+  async render(_repoDir: string, changed: BlastRadius): Promise<StructuralSignalResult> {
     /* Short-circuit before ANY query — mirrors CodeGraphPort's own early-return contract (impactedSymbols' own "Early-return ok([]) on changed.isEmpty() WITHOUT spawning" design note). An empty BlastRadius (non-diff mode, or a diff-mode run with no changed files) has nothing to ask the graph about. */
-    if (changed.isEmpty) return "";
+    if (changed.isEmpty) return { text: "", hasSymbols: false };
 
     const repoDir = this.repoDir;
     const impacted: ScoredSymbolRef[] = await safeImpacted(this.codeGraph, repoDir, changed);
@@ -72,6 +72,6 @@ export class StructuralSignalPortAdapter implements StructuralSignalPort {
       callers.push(ref);
     }
 
-    return renderBlastRadiusSignal({ impacted, callers, coupled });
+    return { text: renderBlastRadiusSignal({ impacted, callers, coupled }), hasSymbols: hasSymbolBlocks({ impacted, callers }) };
   }
 }

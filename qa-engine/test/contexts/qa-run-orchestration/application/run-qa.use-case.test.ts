@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunQaUseCase } from "@contexts/qa-run-orchestration/application/run-qa.use-case.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { FixLoop } from "@contexts/qa-run-orchestration/domain/fix-loop.aggregate.ts";
 import { MAX_STATIC_FIX_ROUNDS } from "@contexts/qa-run-orchestration/domain/helpers/derive-cycle-backstop.ts";
 import { ERROR_CLASS } from "@contexts/qa-run-orchestration/domain/helpers/error-class.ts";
@@ -4458,7 +4459,7 @@ test("structuralSignalBytes/serviceLinksCount/contractDriftCount survive into th
   const { ports } = stubPorts({});
   ports.runHistory.save = async (outcome) => { savedGateSignals = outcome.gateSignals; };
   const structuralSignal: StructuralSignalPort = {
-    render: async () => "## Structural blast radius (deterministic — from the code graph, advisory)\nsome content",
+    render: async () => ({ text: "## Structural blast radius (deterministic — from the code graph, advisory)\nsome content", hasSymbols: false }),
   };
   const link = {
     from: { repo: "org/front", file: "src/api.ts", symbol: "getOrder" },
@@ -4516,7 +4517,7 @@ test("an early-exit terminal (static-gate invalid) never reaches the mainline te
   let savedGateSignals: RunOutcome["gateSignals"] | undefined;
   const { ports } = stubPorts({ validate: async () => ({ ok: false, errors: ["[lint] no-wait-for-timeout"] }) });
   ports.runHistory.save = async (outcome) => { savedGateSignals = outcome.gateSignals; };
-  const structuralSignal: StructuralSignalPort = { render: async () => "some content" };
+  const structuralSignal: StructuralSignalPort = { render: async () => ({ text: "some content", hasSymbols: false }) };
   const serviceLinks: ServiceLinksPort = { resolve: async () => ({ links: [{ from: { repo: "a", file: "b", symbol: "c" }, to: { repo: "d", file: "e", symbol: "f" }, transport: "http" as const, confidence: 1, source: "openapi" }], drift: [] }) };
   const useCase = new RunQaUseCase({ ...ports, structuralSignal, serviceLinks, config: baseConfig });
 
@@ -4819,7 +4820,7 @@ test("4b.4: a present structuralSignal port is called exactly once before the fi
   const capturedStaticSignals: (string | undefined)[] = [];
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
-    render: async () => { renderCallCount++; return "## Structural blast radius (deterministic — from the code graph, advisory)\nsome content"; },
+    render: async () => { renderCallCount++; return { text: "## Structural blast radius (deterministic — from the code graph, advisory)\nsome content", hasSymbols: false }; },
   };
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
     capturedStaticSignals.push(enrichment?.staticSignal);
@@ -4856,7 +4857,7 @@ test("4b.4: an ABSENT structuralSignal port leaves baseEnrichment with NO static
 test("4b.4: an empty render() result (no signal to report) leaves baseEnrichment with NO staticSignal key either", async () => {
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
-  const structuralSignal: StructuralSignalPort = { render: async () => "" };
+  const structuralSignal: StructuralSignalPort = { render: async () => ({ text: "", hasSymbols: false }) };
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
     return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
@@ -4897,7 +4898,7 @@ test("the structural signal port is not invoked when grounding produced a brief 
     blastRadius: [{ symbol: "CheckoutService.pay", file: "src/checkout.ts", role: "pays" }],
   };
   const calls: string[] = [];
-  const structuralSignal: StructuralSignalPort = { render: async () => { calls.push("render"); return "## Structural blast radius\ncontent"; } };
+  const structuralSignal: StructuralSignalPort = { render: async () => { calls.push("render"); return { text: "## Structural blast radius\ncontent", hasSymbols: false }; } };
   const capturedSignals: Array<string | undefined> = [];
   const build = (ground: () => Promise<Record<string, unknown>>) => {
     const { ports } = stubPorts({ ground });
@@ -4953,7 +4954,7 @@ test("4b.5 CRITICAL-1: a diff-mode run with classificationIntent.changedFiles fe
     }),
   });
   const structuralSignal: StructuralSignalPort = {
-    render: async (_repoDir, changed) => { recordedChangedFiles = changed.changedFiles; return ""; },
+    render: async (_repoDir, changed) => { recordedChangedFiles = changed.changedFiles; return { text: "", hasSymbols: false }; },
   };
   const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
 
@@ -4971,7 +4972,7 @@ test("4b.5: a non-diff mode run (classificationIntent never populated) still cal
     classify: async () => { throw new Error("classify() must never be called outside diff mode"); },
   });
   const structuralSignal: StructuralSignalPort = {
-    render: async (_repoDir, changed) => { renderCallCount++; recordedChangedFiles = changed.changedFiles; return ""; },
+    render: async (_repoDir, changed) => { renderCallCount++; recordedChangedFiles = changed.changedFiles; return { text: "", hasSymbols: false }; },
   };
   const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
 
@@ -4990,7 +4991,7 @@ test("structuralSignal.render() IS called when input.triggerRepo is set (graph i
   let renderCallCount = 0;
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
-    render: async () => { renderCallCount++; return "## Structural blast radius\nsome content"; },
+    render: async () => { renderCallCount++; return { text: "## Structural blast radius\nsome content", hasSymbols: false }; },
   };
   const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
 
@@ -5003,7 +5004,7 @@ test("baseEnrichment carries staticSignal on a cross-repo run when structuralSig
   const capturedEnrichments: (Record<string, unknown> | undefined)[] = [];
   const { ports } = stubPorts({});
   const structuralSignal: StructuralSignalPort = {
-    render: async () => "## Structural blast radius\nsome content",
+    render: async () => ({ text: "## Structural blast radius\nsome content", hasSymbols: false }),
   };
   ports.generation.generate = async (_objectives, _specDir, _signal, _diff, enrichment) => {
     capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
@@ -5016,6 +5017,87 @@ test("baseEnrichment carries staticSignal on a cross-repo run when structuralSig
   assert.ok(capturedEnrichments.length > 0, "generate() must have been called at least once");
   for (const captured of capturedEnrichments) {
     assert.equal(captured?.staticSignal, "## Structural blast radius\nsome content");
+  }
+});
+
+/* Only a signal that names symbols stands for an explored blast radius: the port says which kind it rendered, and the flag must reach the generation of every pass, because every regeneration speaks of the blast radius too. */
+
+test("a signal the port reports as naming symbols carries that flag on the first generation and on a review-correction regeneration", async () => {
+  const capturedEnrichments: Array<Record<string, unknown> | undefined> = [];
+  const { ports } = stubPorts({
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    review: (() => {
+      let round = 0;
+      return async () => {
+        round++;
+        if (round === 1) return { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true };
+        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      };
+    })(),
+  });
+  const structuralSignal: StructuralSignalPort = {
+    render: async () => ({ text: "## Structural blast radius\n- `save` (src/Foo.java)", hasSymbols: true }),
+  };
+  const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: { needsReview: true } });
+
+  await useCase.run({ ...baseInput, runId: "signal-flag-symbols" });
+
+  assert.ok(capturedEnrichments.length >= 2, "the first generation plus at least one review-correction regeneration");
+  for (const captured of capturedEnrichments) {
+    assert.equal(captured?.staticSignalHasSymbols, true);
+    assert.equal(typeof captured?.staticSignal, "string", "the flag travels with its signal");
+  }
+});
+
+test("a co-change-only signal reaches every generation with no symbol flag at all: absent, never false", async () => {
+  const capturedEnrichments: Array<Record<string, unknown> | undefined> = [];
+  const { ports } = stubPorts({
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+    review: (() => {
+      let round = 0;
+      return async () => {
+        round++;
+        if (round === 1) return { approved: false, corrections: ["fix the thing"], blockingCount: 1, parsed: true };
+        return { approved: true, corrections: [], blockingCount: 0, parsed: true };
+      };
+    })(),
+  });
+  const structuralSignal: StructuralSignalPort = {
+    render: async () => ({ text: renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] }), hasSymbols: false }),
+  };
+  const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: { needsReview: true } });
+
+  await useCase.run({ ...baseInput, runId: "signal-flag-co-change" });
+
+  assert.ok(capturedEnrichments.length >= 2);
+  for (const captured of capturedEnrichments) {
+    assert.equal(typeof captured?.staticSignal, "string", "the co-change block itself still reaches the prompt");
+    assert.equal(captured && "staticSignalHasSymbols" in captured, false, "the flag is absent, not merely false");
+  }
+});
+
+test("a symbol flag never travels without a signal: an empty render drops both", async () => {
+  const capturedEnrichments: Array<Record<string, unknown> | undefined> = [];
+  const { ports } = stubPorts({
+    generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
+      capturedEnrichments.push(enrichment as Record<string, unknown> | undefined);
+      return scriptedGeneration({ specs: ["a.spec.ts"], approved: true });
+    },
+  });
+  const structuralSignal: StructuralSignalPort = { render: async () => ({ text: "", hasSymbols: true }) };
+  const useCase = new RunQaUseCase({ ...ports, structuralSignal, config: baseConfig });
+
+  await useCase.run({ ...baseInput, runId: "signal-flag-without-signal" });
+
+  assert.ok(capturedEnrichments.length > 0);
+  for (const captured of capturedEnrichments) {
+    assert.equal(captured && ("staticSignalHasSymbols" in captured || "staticSignal" in captured), false);
   }
 });
 

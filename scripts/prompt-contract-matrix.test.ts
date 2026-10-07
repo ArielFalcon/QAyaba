@@ -31,6 +31,7 @@ import {
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { HARNESS_FACTS_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -62,7 +63,7 @@ test("only combinations that can reach the agent are in the matrix", () => {
   assert.ok(valid.every((s) => s.target !== "code" || (s.tree === "none" && !s.contextMap && !s.authSeedUnauthored && !s.harnessFacts && !s.service)));
   assert.ok(valid.every((s) => s.mode !== "context" || !s.harnessFacts));
   assert.ok(valid.every((s) => s.tree === "none" || s.phase === "regen-fix" || s.phase === "selector-fix"));
-  assert.ok(valid.every((s) => !s.structuralSignal || s.grounding === "none" || s.grounding === "pack" || s.briefBlast === "empty"));
+  assert.ok(valid.every((s) => s.structuralSignal === "none" || s.grounding === "none" || s.grounding === "pack" || s.briefBlast === "empty"));
   assert.ok(valid.every((s) => s.briefBlast === "filled" || s.grounding === "brief" || s.grounding === "brief+pack"));
   assert.ok(valid.every((s) => s.packDom || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.contextMap)));
   assert.ok(valid.every((s) => !s.packRedirect || ((s.grounding === "pack" || s.grounding === "brief+pack") && s.packDom)));
@@ -116,6 +117,73 @@ test("the shapes the matrix adds are really assembled: a pack with no DOM, a bri
   const withService = await buildInput(spec({ service: true }));
   assert.equal(withService.service?.repo !== undefined, true);
   assert.equal((await buildInput(spec({}))).service, undefined);
+});
+
+/* ── the structural signal has three shapes ── */
+
+const coChangeSpecs = (): CellSpec[] => allValidSpecs().filter((s) => s.structuralSignal === "co-change");
+
+test("the structural signal is none, one that names symbols, or one of co-change files alone", () => {
+  assert.deepEqual([...DIMENSIONS.structuralSignal].sort(), ["co-change", "none", "symbols"]);
+});
+
+test("a signal of co-change files alone is a narrow shape: diff runs with none of the optional blocks, across every phase, target and grounding that can carry it", () => {
+  const specs = coChangeSpecs();
+  assert.ok(specs.length > 0 && specs.length < allValidSpecs().filter((s) => s.structuralSignal === "symbols").length / 10, "a few dozen shapes, not a second copy of the signal's cross product");
+  assert.ok(specs.every((s) => s.mode === "diff" && !s.contextMap && !s.authSeedUnauthored && !s.serviceLinks && !s.harnessFacts && !s.service && !s.packRedirect));
+  assert.deepEqual([...new Set(specs.map((s) => s.phase))].sort(), [...DIMENSIONS.phase].sort(), "a first pass and every regeneration phase");
+  assert.deepEqual([...new Set(specs.map((s) => s.target))].sort(), [...DIMENSIONS.target].sort());
+  assert.deepEqual([...new Set(specs.map((s) => s.grounding))].sort(), [...DIMENSIONS.grounding].sort());
+  assert.deepEqual([...new Set(specs.map((s) => s.tree))].sort(), [...DIMENSIONS.tree].sort());
+});
+
+test("the signal shapes are really assembled: symbols give the structural signal and drop the lookup, co-change files give the co-change fact and keep it, none gives neither", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const base = coChangeSpecs().find((s) => s.phase === "first" && s.target === "e2e" && s.grounding === "none")!;
+  const claimsOf = async (s: CellSpec) => Object.values(buildPromptAssembled(await buildInput(s), { budgetBytes: 0 }).claims).flat();
+  const provides = (claims: Awaited<ReturnType<typeof claimsOf>>, fact: string) => claims.some((c) => c.kind === "provides" && c.fact === fact);
+  const looksUp = (claims: Awaited<ReturnType<typeof claimsOf>>) => claims.some((c) => c.kind === "directs" && c.action === "orient" && c.target === "blast-radius");
+
+  const symbols = await claimsOf({ ...base, structuralSignal: "symbols" });
+  assert.ok(provides(symbols, "structural-signal") && !provides(symbols, "co-change"));
+  assert.equal(looksUp(symbols), false, "a signal with symbols is an explored blast radius");
+
+  const coChange = await claimsOf(base);
+  assert.ok(provides(coChange, "co-change") && !provides(coChange, "structural-signal"));
+  assert.equal(looksUp(coChange), true, "co-change files are no blast radius");
+
+  const none = await claimsOf({ ...base, structuralSignal: "none" });
+  assert.ok(!provides(none, "co-change") && !provides(none, "structural-signal"));
+  assert.equal(looksUp(none), true);
+});
+
+test("no cell with a signal of co-change files alone titles it as the structural signal is titled, while its twin with symbols does", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const assembledOf = async (spec: CellSpec) => buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
+  const titleOf = (assembled: Awaited<ReturnType<typeof assembledOf>>): string =>
+    splitAssembledSections(assembled).find((section) => section.id === "static-signal")?.text.split("\n")[0] ?? "";
+  for (const spec of coChangeSpecs()) {
+    const symbols = await assembledOf({ ...spec, structuralSignal: "symbols" });
+    const coChange = await assembledOf(spec);
+    const symbolsTitle = titleOf(symbols);
+    assert.ok(symbolsTitle.length > 0, `${cellName(spec)}: setup, the twin carries the structural signal`);
+    assert.equal(symbols.text.includes(symbolsTitle), true, cellName(spec));
+    assert.equal(coChange.text.includes(symbolsTitle), false, `${cellName(spec)}: the co-change block borrows no title`);
+    assert.notEqual(titleOf(coChange), symbolsTitle, cellName(spec));
+  }
+});
+
+test("a regeneration with a signal of co-change files alone never says the blast radius was explored, and one with symbols does", async () => {
+  setExplorationBriefCollaborators({ parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief });
+  const explored = ARTIFACT_REFERENCES.find((r) => r.artifact === "blast-radius")!.pattern;
+  const regens = coChangeSpecs().filter((s) => s.phase !== "first");
+  assert.ok(regens.length > 0);
+  for (const spec of regens) {
+    const withCoChange = buildPromptAssembled(await buildInput(spec), { budgetBytes: 0 });
+    assert.equal(explored.test(withCoChange.text), false, cellName(spec));
+    const withSymbols = buildPromptAssembled(await buildInput({ ...spec, structuralSignal: "symbols" }), { budgetBytes: 0 });
+    assert.equal(explored.test(withSymbols.text), true, `${cellName(spec)} with symbols`);
+  }
 });
 
 test("the redirect shape is really assembled: the pack lists the page a redirect reached as a section of its own, outside the live DOM", async () => {

@@ -26,10 +26,21 @@ const SAMPLE_STRIDE = 23;
 /* A brief and a pack in one prompt with no tree: the shape whose brief frames only established facts. */
 const isBriefWithPack = (s: CellSpec): boolean => s.grounding === "brief+pack" && s.mode === "diff" && s.target === "e2e" && s.tree === "none";
 
+/* A signal of co-change files alone is a few dozen combinations the stride mostly skips: the first one of each phase and target keeps the decision it bears on (is a blast radius explored?) in the sample, on a first pass and on every regeneration. */
+const firstCoChangeOfEachPhaseAndTarget = (all: readonly CellSpec[]): CellSpec[] => {
+  const seen = new Set<string>();
+  return all.filter((s) => {
+    const key = `${s.phase}/${s.target}`;
+    if (s.structuralSignal !== "co-change" || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 const sampleSpecs = (): CellSpec[] => {
   const all = allValidSpecs();
   const chosen = new Map<string, CellSpec>();
-  for (const spec of [...all.filter((_, i) => i % SAMPLE_STRIDE === 0), ...all.filter(isBriefWithPack).slice(0, 4)]) chosen.set(cellName(spec), spec);
+  for (const spec of [...all.filter((_, i) => i % SAMPLE_STRIDE === 0), ...all.filter(isBriefWithPack).slice(0, 4), ...firstCoChangeOfEachPhaseAndTarget(all)]) chosen.set(cellName(spec), spec);
   /* A value the stride skipped (a rare one, like the context mode) is brought in by the first combination that has it. */
   for (const dimension of Object.keys(DIMENSIONS) as Array<keyof typeof DIMENSIONS>) {
     for (const value of DIMENSIONS[dimension] as readonly unknown[]) {
@@ -51,6 +62,13 @@ test("the sample exercises every value of every dimension, and both static layer
     }
   }
   assert.deepEqual([...new Set((await cellsOnce()).map((c) => c.layer))].sort(), ["codex", "opencode"]);
+});
+
+test("the sample carries a signal of co-change files alone on a first pass and on every kind of regeneration, in both targets", () => {
+  const coChange = sampleSpecs().filter((s) => s.structuralSignal === "co-change");
+  assert.ok(coChange.some((s) => s.phase === "first"), "a first pass");
+  for (const phase of DIMENSIONS.phase.filter((p) => p !== "first")) assert.ok(coChange.some((s) => s.phase === phase), `${phase} regeneration`);
+  for (const target of DIMENSIONS.target) assert.ok(coChange.some((s) => s.target === target), target);
 });
 
 test("a sample of the reachable combinations is clean against the recorded baseline", async () => {

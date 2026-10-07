@@ -9,6 +9,7 @@ import {
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { PACK_HEADINGS } from "@contexts/generation/infrastructure/context-pack.ts";
 import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { countDirectives, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import type { ArchitectureContext, OpencodeRunInput, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
 
@@ -157,12 +158,14 @@ test("FE-BE links belong to the architecture map when the brief carries none, an
 
 /* ── orientation guards are per fact ── */
 
-test("the symbol-reference orientation is dropped only when a brief with a blast radius supplies it", () => {
+test("the symbol-reference orientation is dropped only when the prompt carries an explored blast radius: a brief with one, or a structural signal that names symbols", () => {
   const table: Array<[string, Partial<OpencodeRunInput>, boolean]> = [
     ["a brief with a blast radius", { contextBrief: BRIEF }, false],
+    ["a structural signal that names symbols", { staticSignal: "## Structural blast radius\n- `save` (src/Foo.java)", staticSignalHasSymbols: true }, false],
     ["a brief with an empty blast radius", { contextBrief: { ...BRIEF, blastRadius: [] } }, true],
+    ["a brief with an empty blast radius and a signal that names symbols", { contextBrief: { ...BRIEF, blastRadius: [] }, staticSignal: "## Structural blast radius\n- `save` (src/Foo.java)", staticSignalHasSymbols: true }, false],
     ["a pack with only a DOM", { contextPack: DOM_PACK }, true],
-    ["only the advisory structural signal", { staticSignal: "## Structural blast radius\n- a" }, true],
+    ["a structural signal of co-change files alone", { staticSignal: renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] }) }, true],
     ["nothing", {}, true],
   ];
   for (const [label, extra, orients] of table) {

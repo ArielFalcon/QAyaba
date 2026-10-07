@@ -126,8 +126,10 @@ export class GenerationPortAdapter implements GenerationPort {
       ...(enrichment?.contextMap ? { contextMap: enrichment.contextMap } : {}),
       ...(enrichment?.contextBrief ? { contextBrief: enrichment.contextBrief } : {}),
       ...(enrichment?.harnessFacts ? { harnessFacts: enrichment.harnessFacts } : {}),
-      /* Structural-blast-radius advisory. Absent → omitted. */
-      ...(enrichment?.staticSignal ? { staticSignal: enrichment.staticSignal } : {}),
+      /* Structural-blast-radius advisory, with the flag that says it names symbols. Absent → omitted; the flag never travels without its signal. */
+      ...(enrichment?.staticSignal
+        ? { staticSignal: enrichment.staticSignal, ...(enrichment.staticSignalHasSymbols ? { staticSignalHasSymbols: true } : {}) }
+        : {}),
       /* Curriculum-ranked exemplars. Absent/empty → omitted, never []. */
       ...(enrichment?.skillExemplars?.length ? { skillExemplars: enrichment.skillExemplars.map((e) => ({ ...e })) } : {}),
       /* Service links / contract drift. Absent/empty → omitted, never []. */

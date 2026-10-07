@@ -10,6 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
+import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { Objective } from "@kernel/objective.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
 import { callEfficiencyTracker } from "@contexts/generation/infrastructure/sse/call-efficiency-tracker.ts";
@@ -697,6 +698,40 @@ test("generate() with absent/empty enrichment.contractDrift OMITS the key entire
 
     await adapter.generate([], "/mirrors/org/app/e2e");
     assert.equal("contractDrift" in (capturedInput ?? {}), false, "absent enrichment must OMIT contractDrift entirely");
+  } finally {
+    GenerateTestsUseCase.prototype.generate = originalGenerate;
+  }
+});
+
+/* The structural signal and the flag that says it names symbols travel together: the prompt reads the flag to decide whether the signal stands for an explored blast radius. A flag never travels without its signal, and an absent flag stays absent (a co-change-only signal), never false. */
+
+test("generate() maps the structural signal and its symbol flag onto OpencodeRunInput together, and omits the flag for a signal that names no symbols", async () => {
+  const ports = fakeGenerationPorts();
+  let capturedInput: OpencodeRunInput | undefined;
+  const originalGenerate = GenerateTestsUseCase.prototype.generate;
+  GenerateTestsUseCase.prototype.generate = async function (input: OpencodeRunInput, opts) {
+    capturedInput = input;
+    return originalGenerate.call(this, input, opts);
+  };
+  try {
+    const useCase = new GenerateTestsUseCase(ports);
+    const adapter = new GenerationPortAdapter(useCase, {
+      repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e",
+      namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "",
+    });
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: "## Structural blast radius\n- `save`", staticSignalHasSymbols: true });
+    assert.equal(capturedInput?.staticSignal, "## Structural blast radius\n- `save`");
+    assert.equal(capturedInput?.staticSignalHasSymbols, true);
+
+    const coChangeOnly = renderBlastRadiusSignal({ impacted: [], callers: [], coupled: [{ file: "src/Other.java", couplingScore: 0.82, coChanges: 14 }] });
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignal: coChangeOnly });
+    assert.equal(capturedInput?.staticSignal, coChangeOnly);
+    assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a signal without the flag leaves it absent, never false");
+
+    await adapter.generate([], "/mirrors/org/app/e2e", undefined, "the-diff", { staticSignalHasSymbols: true });
+    assert.equal("staticSignalHasSymbols" in (capturedInput ?? {}), false, "a flag without a signal is dropped");
+    assert.equal("staticSignal" in (capturedInput ?? {}), false);
   } finally {
     GenerateTestsUseCase.prototype.generate = originalGenerate;
   }

@@ -37,11 +37,11 @@ test("composes a populated CodeGraphPort into the SAME block the pure renderer w
   });
 
   const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const out = await adapter.render("/repo", changed);
+  const { text } = await adapter.render("/repo", changed);
 
   const expected = renderBlastRadiusSignal({ impacted, callers, coupled });
-  assert.equal(out, expected, "adapter output must match the pure renderer given the same three result sets");
-  assert.notEqual(out, "", "a populated composition must not degrade to an empty string");
+  assert.equal(text, expected, "adapter output must match the pure renderer given the same three result sets");
+  assert.notEqual(text, "", "a populated composition must not degrade to an empty string");
 });
 
 test("calls impactedSymbols with depth=3 and coChangeCoupling with the changed file list", async () => {
@@ -137,9 +137,10 @@ test("every method returning err(CodeGraphUnavailable) degrades to an empty stri
   });
 
   const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const out = await adapter.render("/repo", changed);
+  const { text, hasSymbols } = await adapter.render("/repo", changed);
 
-  assert.equal(out, "", "a fully-unavailable graph must render an empty string — never a fabricated section");
+  assert.equal(text, "", "a fully-unavailable graph must render an empty string — never a fabricated section");
+  assert.equal(hasSymbols, false, "and it names no symbols");
 });
 
 test("an empty BlastRadius degrades to an empty string without ever calling the graph", async () => {
@@ -150,9 +151,10 @@ test("an empty BlastRadius degrades to an empty string without ever calling the 
   });
 
   const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const out = await adapter.render("/repo", BlastRadius.of(Sha.of("abc1234"), []));
+  const { text, hasSymbols } = await adapter.render("/repo", BlastRadius.of(Sha.of("abc1234"), []));
 
-  assert.equal(out, "");
+  assert.equal(text, "");
+  assert.equal(hasSymbols, false);
   assert.equal(called, false, "an empty BlastRadius must short-circuit before ever querying the graph");
 });
 
@@ -162,9 +164,10 @@ test("a thrown error from the underlying CodeGraphPort degrades to an empty stri
   });
 
   const adapter = new StructuralSignalPortAdapter(codeGraph, "/repo");
-  const out = await adapter.render("/repo", changed);
+  const { text, hasSymbols } = await adapter.render("/repo", changed);
 
-  assert.equal(out, "", "an unexpected throw must degrade to an empty string, not propagate past render()");
+  assert.equal(text, "", "an unexpected throw must degrade to an empty string, not propagate past render()");
+  assert.equal(hasSymbols, false);
 });
 
 test("the constructor's static repoDir (mirrorDir) wins over whatever repoDir the caller passes — the graph is indexed at the repo root, not workspace.specDir's e2e subfolder", async () => {
@@ -181,4 +184,36 @@ test("the constructor's static repoDir (mirrorDir) wins over whatever repoDir th
   for (const seen of seenRepoDirs) {
     assert.equal(seen, "/mirrors/org/app", "every CodeGraphPort call must use the adapter's own constructor-injected repoDir, never the call-site parameter");
   }
+});
+
+/* A block that holds co-change files alone names the files that tend to move together, never the code the change reaches: only a block with symbols stands for an explored blast radius, and the prompt needs to be told which it is. */
+
+test("the result says whether the block names symbols: impacted symbols, with or without callers, make it true", async () => {
+  const impacted = [{ file: "src/Impacted.java", symbol: "run" }];
+  const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
+
+  const alone = new StructuralSignalPortAdapter(fakeCodeGraph({ impactedSymbols: async () => ok(impacted) }), "/repo");
+  assert.equal((await alone.render("/repo", changed)).hasSymbols, true, "impacted symbols alone");
+
+  const withCallers = new StructuralSignalPortAdapter(
+    fakeCodeGraph({
+      impactedSymbols: async () => ok(impacted),
+      callersOf: async () => ok([{ file: "src/Caller.java", symbol: "call" }]),
+      coChangeCoupling: async () => ok(coupled),
+    }),
+    "/repo",
+  );
+  const result = await withCallers.render("/repo", changed);
+  assert.equal(result.hasSymbols, true, "impacted symbols with callers and co-change files");
+  assert.ok(result.text.includes("`call`") && result.text.includes("`run`"), "the flag describes a block that really names them");
+});
+
+test("co-change files alone render a block but leave the symbol flag false", async () => {
+  const coupled = [{ file: "src/Coupled.java", couplingScore: 0.8, coChanges: 5 }];
+  const adapter = new StructuralSignalPortAdapter(fakeCodeGraph({ coChangeCoupling: async () => ok(coupled) }), "/repo");
+
+  const { text, hasSymbols } = await adapter.render("/repo", changed);
+
+  assert.ok(text.includes("src/Coupled.java"), "the co-change file is rendered: the block is not empty");
+  assert.equal(hasSymbols, false, "co-change files are no blast radius");
 });
