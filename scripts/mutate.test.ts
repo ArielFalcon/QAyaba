@@ -176,6 +176,23 @@ test("the step-limit preset mutates the resolver, the lines that read, judge and
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the route-capturability preset mutates the route classification, the pack's filter, cut and ranking call, and the whole ranking of the map's routes, against their own tests", () => {
+  const preset = PRESETS["route-capturability"];
+  assert.ok(preset, "the route-capturability preset exists");
+  const sources = preset.mutate.map(sourcePathOf);
+  for (const module of ["shared-kernel/route-capturability", "generation/domain/route-ranking", "generation/infrastructure/context-pack"]) {
+    assert.ok(sources.some((s) => s.endsWith(`${module}.ts`)), `${module} is mutated`);
+  }
+  assert.ok(
+    preset.mutate.includes("qa-engine/src/contexts/generation/domain/route-ranking.ts"),
+    "the ranking is mutated whole, never narrowed to a range",
+  );
+  for (const module of ["route-capturability", "route-ranking", "context-pack"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "the preset stays in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",

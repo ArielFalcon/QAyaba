@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildContextPack, deriveClaimsFromPackText, withoutPackSection, MAX_LISTED_UNCAPTURABLE, PACK_HEADINGS, type ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import { countDirectives, hasTrustLanguage, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
 import { MAX_ROUTES, type CaptureDomDeps } from "@contexts/generation/infrastructure/dom-snapshot.ts";
+import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking.ts";
 import type { ExplorationBrief, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { ChangedElement } from "@kernel/diff-parser/changed-element.ts";
 
@@ -290,6 +291,136 @@ test("buildContextPack: a route's text is cleaned of secrets before it is listed
   assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes("/reset/"));
 });
 
+/* ── The routes of the map, ranked by the change before the cut ── */
+
+const { source: SOURCE_FIELD, implementationFiles: IMPLEMENTATION_FIELD, spec: SPEC_FIELD } = ROUTE_LINK_FIELDS;
+const CHANGED_FILE = "src/pages/last.ts";
+/* Two more routes than the capture takes: the last of them is behind the cut. */
+const BEHIND_THE_CUT = plainRoutes(MAX_ROUTES + 2);
+const LAST_ROUTE = BEHIND_THE_CUT[BEHIND_THE_CUT.length - 1]!;
+
+/* The map is data read from a file, so entries are built as plain records and the map type is claimed once. */
+const mapWith = (routes: readonly Record<string, unknown>[], api: readonly Record<string, unknown>[] = [], feBe: readonly Record<string, unknown>[] = []): ArchitectureContext =>
+  ({ builtAtSha: "abc1234", routes, api, feBe }) as unknown as ArchitectureContext;
+const entriesOf = (paths: readonly string[], links: Record<string, Record<string, unknown>> = {}): Record<string, unknown>[] => paths.map((path) => ({ path, ...links[path] }));
+const linkedLast = (field: string, value: unknown): ArchitectureContext => mapWith(entriesOf(BEHIND_THE_CUT, { [LAST_ROUTE]: { [field]: value } }));
+
+test("buildContextPack: a map route linked to a changed file is captured though the cut would leave it out, ahead of the routes the file puts first", async () => {
+  const captured: string[][] = [];
+  await buildContextPack({ contextMap: linkedLast(SOURCE_FIELD, CHANGED_FILE), routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], [LAST_ROUTE, ...BEHIND_THE_CUT.slice(0, MAX_ROUTES - 1)]);
+});
+
+test("buildContextPack: each way a route can be linked reaches the capture from behind the cut", async () => {
+  const joined = mapWith(entriesOf(BEHIND_THE_CUT), [{ operationId: "op", method: "GET", path: "/op", [SPEC_FIELD]: CHANGED_FILE }], [{ route: LAST_ROUTE, operationId: "op" }]);
+  for (const [name, contextMap] of [
+    ["implementation files", linkedLast(IMPLEMENTATION_FIELD, [CHANGED_FILE])],
+    ["the declaring source", linkedLast(SOURCE_FIELD, CHANGED_FILE)],
+    ["the spec of a joined operation", joined],
+  ] as const) {
+    const captured: string[][] = [];
+    await buildContextPack({ contextMap, routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+    assert.equal(captured[0]?.[0], LAST_ROUTE, name);
+  }
+});
+
+test("buildContextPack: with no changed file the map's links rank nothing and the capture follows the file", async () => {
+  const captured: string[][] = [];
+  await buildContextPack({ contextMap: linkedLast(SOURCE_FIELD, CHANGED_FILE), routes: BEHIND_THE_CUT, ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], BEHIND_THE_CUT.slice(0, MAX_ROUTES));
+});
+
+test("buildContextPack: without a routes input the capture holds the brief's routes and nothing else, and nothing is listed as left out", async () => {
+  const captured: string[][] = [];
+  const logs: string[] = [];
+  const input = { brief: MINIMAL_BRIEF, contextMap: linkedLast(SOURCE_FIELD, CHANGED_FILE), prChangedFiles: [CHANGED_FILE], ...PACK_INPUT };
+  const result = await buildContextPack(input, capturingDeps(captured, (message) => logs.push(message)));
+  assert.deepEqual(captured[0], ["/checkout"]);
+  assert.equal(sectionOf(result.text, PACK_HEADINGS.notCapturable), "", "no route is listed as left out");
+  assert.equal(logs.some((message) => /not capturable/i.test(message)), false, "and none is logged as left out");
+});
+
+test("buildContextPack: brief routes that fill the cut keep it, however well a map route is linked to the change", async () => {
+  const captured: string[][] = [];
+  const briefPaths = plainRoutes(MAX_ROUTES).map((path) => `/brief${path}`);
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: briefPaths.map((path) => ({ path, verified: false })) };
+  await buildContextPack({ brief, contextMap: linkedLast(SOURCE_FIELD, CHANGED_FILE), routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], briefPaths);
+});
+
+test("buildContextPack: the routes a brief's operations join follow the brief's own, unranked, and come before the routes ranked by the change", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = {
+    ...MINIMAL_BRIEF,
+    routes: [{ path: "/b", verified: false }],
+    feBe: [{ route: "/m1", operationId: "op1" }, { route: "/m2", operationId: "op2" }],
+  };
+  const contextMap = mapWith(
+    entriesOf(["/m1", "/m2", "/d0", "/d1"], { "/m2": { [SOURCE_FIELD]: CHANGED_FILE }, "/d1": { [SOURCE_FIELD]: CHANGED_FILE } }),
+    [{ operationId: "op1", method: "GET", path: "/op1" }, { operationId: "op2", method: "GET", path: "/op2" }],
+    [{ route: "/m1", operationId: "op1" }, { route: "/m2", operationId: "op2" }],
+  );
+  await buildContextPack({ brief, contextMap, routes: ["/d0", "/d1"], prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], ["/b", "/m1", "/m2", "/d1", "/d0"].slice(0, MAX_ROUTES));
+});
+
+test("buildContextPack: a route the brief names is captured where the brief names it, and takes one slot, not two", async () => {
+  const captured: string[][] = [];
+  const brief: ExplorationBrief = { ...MINIMAL_BRIEF, routes: [{ path: "/b", verified: false }] };
+  const contextMap = mapWith(entriesOf(["/a", "/b", "/c"], { "/c": { [SOURCE_FIELD]: CHANGED_FILE } }));
+  await buildContextPack({ brief, contextMap, routes: ["/a", "/b", "/c"], prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], ["/b", "/c", "/a"]);
+});
+
+test("buildContextPack: ranking leaves the filter before the cut as it was: a linked route that names no page takes no slot and is listed apart", async () => {
+  const captured: string[][] = [];
+  const template = "/product/:id/view";
+  const routes = [...plainRoutes(MAX_ROUTES + 1), template];
+  const contextMap = mapWith(entriesOf(routes, { [template]: { [SOURCE_FIELD]: CHANGED_FILE } }));
+  const result = await buildContextPack({ contextMap, routes, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.deepEqual(captured[0], plainRoutes(MAX_ROUTES));
+  assert.ok(sectionOf(result.text, PACK_HEADINGS.notCapturable).includes(template), "the template is listed under its own heading");
+});
+
+test("buildContextPack: a malformed link field in the map keeps the pack, and the valid links still rank", async () => {
+  const captured: string[][] = [];
+  const contextMap = mapWith(
+    entriesOf(BEHIND_THE_CUT, { [BEHIND_THE_CUT[0]!]: { [IMPLEMENTATION_FIELD]: 7 }, [BEHIND_THE_CUT[1]!]: { [SOURCE_FIELD]: { not: "a path" } } }),
+    [{ operationId: "op", method: "GET", path: "/op", [SPEC_FIELD]: CHANGED_FILE }, { operationId: "broken", method: "GET", path: "/broken", [SPEC_FIELD]: [CHANGED_FILE] }],
+    [{ route: LAST_ROUTE, operationId: "op" }, { route: BEHIND_THE_CUT[2]!, operationId: "broken" }],
+  );
+  const result = await buildContextPack({ contextMap, routes: BEHIND_THE_CUT, prChangedFiles: [CHANGED_FILE], ...PACK_INPUT }, capturingDeps(captured));
+  assert.ok(result.text?.includes(PACK_HEADINGS.liveDom), "the pack is there, with its live DOM");
+  assert.equal(captured[0]?.[0], LAST_ROUTE, "the validly linked route is promoted");
+  assert.deepEqual(captured[0]?.slice(1), BEHIND_THE_CUT.slice(0, MAX_ROUTES - 1), "and the rest keep the file's order");
+});
+
+const STAGED_ROOT = "e2e/.qa/service-context/org__orders-svc";
+const specOf = (declared: string): ArchitectureContext =>
+  mapWith(entriesOf(BEHIND_THE_CUT), [{ operationId: "op", method: "GET", path: "/op", [SPEC_FIELD]: declared }], [{ route: LAST_ROUTE, operationId: "op" }]);
+
+test("buildContextPack: on a cross-repo run a declared path under the staged root is compared with the service's changed files", async () => {
+  const captured: string[][] = [];
+  const input = { contextMap: specOf(`${STAGED_ROOT}/contracts/api/orders.yaml`), routes: BEHIND_THE_CUT, prChangedFiles: ["api/orders.yaml"], ...PACK_INPUT };
+
+  await buildContextPack({ ...input, stagedRoots: [STAGED_ROOT] }, capturingDeps(captured));
+  await buildContextPack({ ...input, stagedRoots: ["e2e/.qa/service-context/another-svc"] }, capturingDeps(captured));
+
+  assert.equal(captured[0]?.[0], LAST_ROUTE, "under the root of the triggering service");
+  assert.deepEqual(captured[1], BEHIND_THE_CUT.slice(0, MAX_ROUTES), "under the root of another service");
+});
+
+test("buildContextPack: on a cross-repo run a path outside the staged root is not compared, though a single repo would match it", async () => {
+  const captured: string[][] = [];
+  const input = { contextMap: specOf("api/orders.yaml"), routes: BEHIND_THE_CUT, prChangedFiles: ["api/orders.yaml"], ...PACK_INPUT };
+
+  await buildContextPack({ ...input, stagedRoots: [STAGED_ROOT] }, capturingDeps(captured));
+  await buildContextPack(input, capturingDeps(captured));
+
+  assert.deepEqual(captured[0], BEHIND_THE_CUT.slice(0, MAX_ROUTES), "cross-repo");
+  assert.equal(captured[1]?.[0], LAST_ROUTE, "single repo");
+});
+
 /* ── The pages a redirect reached: a section of their own, outside the live DOM ── */
 
 /* What a capture reports when a route redirected: the grounded routes, then, after a blank line, the page reached under a heading of its own. */
@@ -308,6 +439,13 @@ test("buildContextPack: the page a redirect reached is its own section, outside 
   assert.ok(live.includes("button: Apply coupon") && live.includes("route /orders:"), "the live DOM holds the captured route and says the other was redirected");
   assert.equal(live.includes("textbox: Email"), false, "the reached page's tree is not under the live DOM");
   assert.ok(advisory.includes("textbox: Email") && advisory.includes("/login"), "it is in the section of its own, with the page it reached");
+});
+
+test("buildContextPack: every advisory section a capture holds is kept as it came, in order, with nothing between them", async () => {
+  const first = advisoryOf();
+  const second = advisoryOf("  link: Forgot password");
+  const result = await buildContextPack({ routes: ["/cart", "/orders"], ...PACK_INPUT }, capturing(["route /cart:", "  button: Apply coupon", "", first, second].join("\n")));
+  assert.ok(result.text?.includes(`${first}\n${second}`), "the sections are joined as the capture had them");
 });
 
 test("buildContextPack: blank lines at the end of the capture leave no gap after the redirect section", async () => {

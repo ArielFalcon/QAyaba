@@ -203,16 +203,18 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "route-capturability": {
-    description: "route capturability: which route strings name one page a browser can open, the filter that runs before the capture slice, and the list of routes left out",
+    description: "route capturability: which route strings name one page a browser can open, which of the map's routes the changed files point at and so come first, the filter and the cut the pack applies to the candidates, and the list of routes left out",
     mutate: [
       "qa-engine/src/shared-kernel/route-capturability.ts",
-      /* Only the lines that filter the candidates, cut them, log and list what was left out. */
-      `${GEN}/infrastructure/context-pack.ts:125-134`,
-      `${GEN}/infrastructure/context-pack.ts:199-201`,
-      `${GEN}/infrastructure/context-pack.ts:238-247`,
+      `${GEN}/domain/route-ranking.ts`,
+      /* Only the lines that rank the derived routes, filter the candidates, cut them, log and list what was left out. */
+      `${GEN}/infrastructure/context-pack.ts:129-138`,
+      `${GEN}/infrastructure/context-pack.ts:201-209`,
+      `${GEN}/infrastructure/context-pack.ts:246-255`,
     ],
     tests: [
       "qa-engine/test/shared-kernel/route-capturability.test.ts",
+      `${GEN_TEST}/domain/route-ranking.test.ts`,
       `${GEN_TEST}/infrastructure/context-pack.test.ts`,
       `${GEN_TEST}/infrastructure/dom-snapshot.test.ts`,
     ],
@@ -226,8 +228,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       /* Only the lines that state a degraded route, build the advisory block and the capture, and warn about a gated app: the tree rendering they call is older code. */
       `${GEN}/infrastructure/dom-snapshot.ts:227-231`,
       `${GEN}/infrastructure/dom-snapshot.ts:251-287`,
-      `${GEN}/infrastructure/context-pack.ts:171-174`,
-      `${GEN}/infrastructure/context-pack.ts:207-208`,
+      `${GEN}/infrastructure/context-pack.ts:175-178`,
+      `${GEN}/infrastructure/context-pack.ts:215-216`,
     ],
     tests: [
       `${GEN_TEST}/infrastructure/route-catalog.test.ts`,
@@ -249,7 +251,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/regen-turn.ts`,
       `${GEN}/domain/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:130-179`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:131-180`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,

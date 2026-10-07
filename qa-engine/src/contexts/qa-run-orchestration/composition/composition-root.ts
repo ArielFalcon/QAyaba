@@ -1,7 +1,7 @@
 /* Composition root: the only qa-engine module allowed to import concrete adapters from sibling contexts (arch-lint VCS-write gate). Wires qa-run-orchestration ports to real bridge adapters. PIPELINE_ENGINE is consulted only so a stale operator value gets a deprecation warning, never a different code path.
 buildShadow always uses this engine with shadow-log publication and in-memory history — zero side effects on the watched repo or production history. */
 
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunPipelinePort, ObserverPort, RunHistoryPort, ConfinementPort, MirrorGcPort, CurriculumPort, ContextMapCapturePort } from "../application/ports/index.ts";
 import type { AuthDeclaration, AuthSessionPort } from "../application/ports/auth-session.port.ts";
@@ -230,6 +230,13 @@ export function resolveSidekickTimeoutMs(cfg: Pick<CompositionConfig, "sidekickT
   return cfg.sidekickTimeoutMs ?? DEFAULT_SIDEKICK_TIMEOUT_MS;
 }
 
+/* Where a map may name the staged snapshot of the triggering service: from the working copy and from the e2e dir, each only when the snapshot lies inside it. The shell stages it under the e2e dir; which of the two a context run records is not settled, so both are offered. An empty list says no directory holds the snapshot, and the run is still a cross-repo run. */
+function stagedRootsOf(workingCopyDir: string, e2eDir: string, stagedDir: string): string[] {
+  const inside = (root: string): boolean => root !== "" && root !== ".." && !root.startsWith("../");
+  const roots = [relative(workingCopyDir, stagedDir), relative(e2eDir, stagedDir)].map((root) => root.split(sep).join("/")).filter(inside);
+  return [...new Set(roots)];
+}
+
 /* Bridge adapters from a CompositionConfig. buildShadow reuses this and swaps publication + runHistory. */
 
 export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorAdapterDeps, "publication" | "runHistory"> & {
@@ -305,6 +312,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
           testIdAttribute: cfg.testIdAttribute,
           contextMap: cfg.contextMap,
           prChangedFiles: cfg.prChangedFiles,
+          ...(cfg.triggerService ? { stagedRoots: stagedRootsOf(cfg.mirrorDir, join(cfg.mirrorDir, cfg.e2eRelDir), cfg.triggerService.mirrorDir) } : {}),
         },
         cfg.groundingCollaborators ?? {},
       )

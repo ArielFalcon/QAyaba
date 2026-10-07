@@ -23,6 +23,8 @@ export interface RouteEntry {
   name?: string;
   component?: string;
   source?: string;
+  /* The files that implement the page. Optional and unchecked by the map's form validation: route ranking reads it only after checking its shape. */
+  implementationFiles?: string[];
 }
 export interface ApiOperation {
   operationId: string;

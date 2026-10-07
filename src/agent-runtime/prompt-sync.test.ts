@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { DIFF_TIERS } from "@contexts/generation/domain/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings";
+import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking";
 import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
@@ -58,6 +59,10 @@ const SKILL_FILE_PAIRS: Array<[string, string]> = [
   [
     "agents/skill/test-value-review/SKILL.md",
     "agent/skills/test-value-review/SKILL.md",
+  ],
+  [
+    "agents/skill/architecture-mapping/SKILL.md",
+    "agent/skills/architecture-mapping/SKILL.md",
   ],
 ];
 
@@ -879,6 +884,22 @@ describe("agent-guidance-runtime-semantics drift guard", () => {
       /duplicate/i.test(content) && /implementation/i.test(content),
       "test-value-review/SKILL.md must reject tests that duplicate the implementation as the expectation.",
     );
+  });
+
+  /* The context run records the map; the pack's route ranking reads three of its fields. The skill that teaches the map names the same fields the reader takes, so a run that follows it records links the ranking can use. Codex inlines the skill into every generator prompt, so what this change adds to it stays within a small budget per mirror. */
+  const MAP_FIELDS_ADDED_BY_RANKING = [ROUTE_LINK_FIELDS.implementationFiles, ROUTE_LINK_FIELDS.spec];
+  const MAP_FIELDS_ADDED_BUDGET_BYTES = 200;
+
+  it("architecture-mapping/SKILL.md documents every map field the route ranking reads, and the two it added stay within their budget (both mirrors)", () => {
+    for (const rel of ["agents/skill/architecture-mapping/SKILL.md", "agent/skills/architecture-mapping/SKILL.md"]) {
+      const lines = readFile(rel).split("\n");
+      const documenting = (field: string): string[] => lines.filter((line) => line.includes(`\`${field}\``));
+      for (const field of Object.values(ROUTE_LINK_FIELDS)) {
+        assert.ok(documenting(field).length > 0, `${rel} documents \`${field}\``);
+      }
+      const addedBytes = MAP_FIELDS_ADDED_BY_RANKING.flatMap(documenting).reduce((sum, line) => sum + Buffer.byteLength(`${line}\n`, "utf8"), 0);
+      assert.ok(addedBytes <= MAP_FIELDS_ADDED_BUDGET_BYTES, `${rel}: the lines on ${MAP_FIELDS_ADDED_BY_RANKING.join(" and ")} take ${addedBytes} B, over ${MAP_FIELDS_ADDED_BUDGET_BYTES}`);
+    }
   });
 
   /* The authoring skill is loaded by more than one role (the generator and the worker), so it cannot lean on one role's prompt: it names no role prompt and no step of one. */

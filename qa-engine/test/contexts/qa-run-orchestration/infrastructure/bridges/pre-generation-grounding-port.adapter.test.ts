@@ -10,6 +10,7 @@ import {
   PreGenerationGroundingPortAdapter,
   enumerateExistingSpecFiles,
 } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts";
+import { MAX_ROUTES } from "@contexts/generation/infrastructure/dom-snapshot.ts";
 
 /* enumerateExistingSpecFiles: glob *.spec.ts (pure fs, real tmpdir).
  */
@@ -720,6 +721,60 @@ test("ground(): prChangedFiles is derived from the threaded diff when static ctx
     );
     await adapter.ground(dir, undefined, "diff --git a/src/app/checkout.ts b/src/app/checkout.ts\n+++ b/src/app/checkout.ts\n");
     assert.deepEqual(seen, ["src/app/checkout.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* A cross-repo run compares the map's declared paths with the triggering service's changed files only where the service's snapshot was staged: the roots reach the pack exactly as the composition gave them, and a single-repo run sends none. An empty list is still a cross-repo run (no path can be under any root). */
+test("ground(): the staged roots of a cross-repo run reach the pack as given, and a single-repo run sends none", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-staged-roots-"));
+  try {
+    const seen: Array<{ stagedRoots?: string[] }> = [];
+    const collaborators = {
+      buildContextPack: async (input: { stagedRoots?: string[] }) => {
+        seen.push(input);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    };
+    const roots = ["e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"];
+    const diff = "diff --git a/api/orders.yaml b/api/orders.yaml\n+++ b/api/orders.yaml\n";
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir, stagedRoots: roots }, collaborators).ground(dir, undefined, diff);
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir, stagedRoots: [] }, collaborators).ground(dir, undefined, diff);
+    await new PreGenerationGroundingPortAdapter({ e2eDir: dir }, collaborators).ground(dir, undefined, diff);
+
+    assert.deepEqual(seen[0]?.stagedRoots, roots);
+    assert.deepEqual(seen[1]?.stagedRoots, [], "no root to name is still a cross-repo run");
+    assert.equal("stagedRoots" in (seen[2] ?? {}), false, "a single-repo run sends no key at all");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The chain a run exercises through the port, with the real pack in the middle: the diff names the changed files, the map links one route to one of them, and the capture is offered that route first. */
+test("ground(): a route the map links to a file the diff changes is offered to the DOM capture ahead of the routes the file puts first", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-route-ranking-"));
+  try {
+    const captured: string[][] = [];
+    const paths = ["/a", "/b", "/c", "/d", "/e", "/f"];
+    const contextMap = { builtAtSha: "abc1234", routes: paths.map((path) => (path === "/f" ? { path, source: "src/pages/f.ts" } : { path })), api: [], feBe: [] };
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir, baseUrl: "http://localhost:3000", contextMap },
+      {
+        contextPackDeps: {
+          captureDomForRoutes: async (routes) => {
+            captured.push(routes);
+            return "button: Pay";
+          },
+          domDeps: { render: async () => [] },
+          log: () => {},
+        },
+      },
+    );
+
+    await adapter.ground(dir, undefined, "diff --git a/src/pages/f.ts b/src/pages/f.ts\n+++ b/src/pages/f.ts\n");
+
+    assert.deepEqual(captured[0], ["/f", ...paths.slice(0, MAX_ROUTES - 1)], "the linked route first, the others in the order of the file");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

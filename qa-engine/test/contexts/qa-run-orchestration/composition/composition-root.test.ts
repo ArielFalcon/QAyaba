@@ -1123,6 +1123,64 @@ test("buildProduction(rewritten) leaves OpencodeRunInput.service entirely absent
   assert.equal(outcome.verdict, "pass");
 });
 
+/* The context pack ranks the map's routes by the run's changed files. On a cross-repo run those are the triggering service's files, so a declared path counts only where that service's snapshot was staged: inside the working copy, under the e2e dir. A map may name that root from the working copy or from the e2e dir, so the composition derives both from the directories it already holds. A same-repo run has no such root. */
+
+/** The staged roots the pack received on a run of `overrides`, or "absent" when the pack's input carried no such key. */
+async function stagedRootsSeenByThePack(overrides: Partial<CompositionConfig>): Promise<unknown> {
+  const seen: Array<Record<string, unknown>> = [];
+  const cfg = fakeConfig({
+    mode: "diff",
+    groundingCollaborators: {
+      buildContextPack: async (input) => {
+        seen.push(input as unknown as Record<string, unknown>);
+        return { text: undefined, domBytes: 0, contractBytes: 0 };
+      },
+    },
+    ...overrides,
+  });
+  const port = buildProduction({ [PIPELINE_ENGINE]: "rewritten" }, cfg);
+  await port.run({ app: "app", sha: Sha.of("abc1234"), source: "manual", mode: "diff", target: "e2e", runId: "composition-root-staged-roots" });
+  assert.ok(seen.length > 0, "the pre-generation grounding must have built a context pack");
+  return "stagedRoots" in seen[0]! ? seen[0]!.stagedRoots : "absent";
+}
+
+test("buildProduction(rewritten) gives the context pack the staged roots of the triggering service, as the working copy and as the e2e dir name them", async () => {
+  const roots = await stagedRootsSeenByThePack({
+    mirrorDir: "/mirrors/org__front",
+    e2eRelDir: "e2e",
+    triggerService: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__front/e2e/.qa/service-context/org__orders-svc" },
+  });
+  assert.deepEqual(roots, ["e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
+});
+
+test("buildProduction(rewritten) names the e2e dir's own root from where the e2e dir really is, not from a fixed name", async () => {
+  const roots = await stagedRootsSeenByThePack({
+    mirrorDir: "/mirrors/org__front",
+    e2eRelDir: "tests/e2e",
+    triggerService: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__front/tests/e2e/.qa/service-context/org__orders-svc" },
+  });
+  assert.deepEqual(roots, ["tests/e2e/.qa/service-context/org__orders-svc", ".qa/service-context/org__orders-svc"]);
+});
+
+test("buildProduction(rewritten) names no root a staged snapshot does not lie inside, and the run stays a cross-repo run", async () => {
+  const insideTheCopyOnly = await stagedRootsSeenByThePack({
+    mirrorDir: "/mirrors/org__front",
+    e2eRelDir: "e2e",
+    triggerService: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__front/other/service-context/org__orders-svc" },
+  });
+  const outsideTheCopy = await stagedRootsSeenByThePack({
+    mirrorDir: "/mirrors/org__front",
+    e2eRelDir: "e2e",
+    triggerService: { repo: "org/orders-svc", mirrorDir: "/mirrors/org__orders-svc" },
+  });
+  assert.deepEqual(insideTheCopyOnly, ["other/service-context/org__orders-svc"], "only the working copy holds it");
+  assert.deepEqual(outsideTheCopy, [], "no directory holds it: nothing to name, but the key is still there");
+});
+
+test("buildProduction(rewritten) gives the context pack no staged roots on a same-repo run", async () => {
+  assert.equal(await stagedRootsSeenByThePack({}), "absent");
+});
+
 /* CompositionConfig.services is advisory, prompt-context ONLY (reaches GenerationPortAdapter's
    ctx.services -> OpencodeRunInput.services and NOTHING else: no verdict/gate/coverage/publish path
    reads it). Present -> every declared service ref reaches the generation input. Absent/empty ->

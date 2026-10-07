@@ -20,6 +20,7 @@ export interface PreGenerationGroundingStaticContext {
   testIdAttribute?: string; /* config-declared convention (e.g. "data-cy") — forwarded to DOM capture */
   contextMap?: ArchitectureContext; /* the FE<->BE architecture map (context.json), if loaded */
   prChangedFiles?: string[]; /* union of changed files, for contract filtering */
+  stagedRoots?: string[]; /* cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it (present even when empty) — the pack ranks a route only by the spec of an operation it joins, under these roots */
 }
 
 export interface PreGenerationGroundingCollaborators {
@@ -267,6 +268,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
           testIdAttribute: this.ctx.testIdAttribute,
           ...(brief ? { brief } : {}),
           ...(deterministicRoutes?.length ? { routes: deterministicRoutes } : {}),
+          ...(this.ctx.stagedRoots ? { stagedRoots: this.ctx.stagedRoots } : {}),
           ...(changedElements?.length ? { changedElements } : {}),
         },
         deps,

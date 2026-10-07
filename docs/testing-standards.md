@@ -363,6 +363,25 @@ is the re-run over the corrected ranges (2026-10-06, default workers, 87 mutants
 errors): no survivors. The sections block now also holds the row of the pages a redirect reached, and
 its mutants are killed too.
 
+The preset was then extended (2026-10-07, 4 workers) with `route-ranking.ts` whole, which decides which
+of the map's routes the changed files point at (the three link fields, how a declared path meets a
+changed file, and the staged roots of a cross-repo run), and with the lines of the pack that call it,
+run against the ranking's own tests and the pack's. **Before** is its first run: 211 mutants, 68 of them
+compile errors, 137 killed and 6 survived. Four were gaps in the tests: the filter that drops a changed
+file naming nothing (three mutants: every route of the fixture was linked alike, so promoting all of
+them left the order as it was, which no assertion could see) and the default of the routes input (a
+stray route is dropped as free text before the cut, so only the list of routes left out and its log show
+it; the first test written for it looked at the capture alone, and the re-run showed it still survived).
+Two were default empty arrays no test could tell from any other value, so they were restructured away:
+the list-of-paths guard has no fallback list now, and the pack skips the ranking when there are no
+changed files. **After** is the re-run once those were fixed: 209 mutants, 67 of them compile errors, 142
+killed, none survived or timed out. A review then found three things in the ranking, each given a failing
+test before its fix: across repos a route's own files and its declaring source ranked it when they lay
+under a staged root, though they belong to the other repo; a path the map lists twice kept only its last
+entry, so a bare later one erased the links of an earlier one; and a changed file or staged root that was
+not text threw. The re-run after those fixes: 215 mutants, 66 of them compile errors, 149 killed, none
+survived or timed out.
+
 redirect-advisory (2026-10-06, default workers) is a new preset over the lines that say why a route
 degraded and where a redirect led (`route-catalog.ts`: the degrade reasons, the redirect target, the
 catalog and the two log warnings; `dom-snapshot.ts`: the state line of a degraded route, the advisory
@@ -372,8 +391,14 @@ run: 173 mutants, 38 of them compile errors, 127 killed and 8 survived. All 8 ar
 separator between the routes a warning, a note or the advisory block names, the one between a degrade
 reason and the path it names, the one that tells two lists of nodes apart in the key that groups the
 routes reaching one page, the one between several advisory sections of a split capture, and the default
-of the first part of that split (a split always yields one part). No test pins them and none is
-triaged yet, so none is listed as a documented survivor. **After** is pending that triage.
+of the first part of that split (a split always yields one part). They were triaged on 2026-10-07 (4
+workers), after the pack's lines moved and the preset's ranges were re-anchored: a run before any test
+changed reproduced the same 173 / 127 / 8 / 38. Two were behaviors and got tests: the key that groups the
+routes reaching one page now has a pair of trees that read alike once their nodes are joined without a
+separator, and the pack's split has a capture with two advisory sections that must come out as they
+went in. The other six are the separators of log and prompt text and the default no split can read, and
+are listed under the documented survivors. **After** is the re-run: 173 mutants, 38 of them compile
+errors, 129 killed, 6 survived (all documented), none timed out.
 
 step-limit (2026-10-07, default workers, 73 mutants, 26 of them compile errors, 45 seconds) is a new preset
 over the lines that read a step limit and the lines that route it: `enforcedStepLimit` (a safe positive
@@ -408,8 +433,8 @@ except the wiring that picks the real read when no test supplies one, a delibera
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
 | precondition-verdict | auth-precondition, precondition-terminal, error-class (class entries and resolution), process-audit (precondition finding) | 4 / 0 / 1 — 80% (80%) | 9 / 0 / 0 — 100% (100%) | — |
 | login-evidence | login-evidence (classifier, scrubber, note) | 79 / 0 / 21 — 79% (79%) | 141 / 0 / 0 — 100% (100%) | — |
-| route-capturability | route-capturability, the context pack's candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 63 / 0 / 0 — 100% (100%) | — |
-| redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | — | — |
+| route-capturability | route-capturability, route-ranking (link fields, path matching, staged roots), the context pack's ranking call, candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 149 / 0 / 0 — 100% (100%) | — |
+| redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | 129 / 0 / 6 — 95.56% (95.56%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 506 / 6 / 4 — 99.22% (98.06%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits | 43 / 0 / 4 — 91.49% (91.49%) | 47 / 0 / 0 — 100% (100%) | — |
@@ -449,6 +474,17 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   run still yields no fixture facts; the reason is log text.
 - `readFixtureFacts` — the `finally` block that closes the descriptor emptied (BlockStatement): a
   leaked descriptor is not observable from a test.
+
+**redirect-advisory** (`route-catalog.ts`, `dom-snapshot.ts`, the split in `context-pack.ts`)
+- `splitRedirectSection` — the default of the first part of the split, `""` → another string
+  (StringLiteral): a split always yields at least one part, so the default is never read.
+- `degradedRouteWarning` — the `" "` between a degrade reason and the path a redirect led to, and the
+  `", "` between the routes the warning names (StringLiteral ×2): every route, reason and path is still
+  named; the separator is log text.
+- `gatedAppAdvisory` — the `", "` between the routes that reached a page and the `"; "` between the
+  pages the note names (StringLiteral ×2): the same, log text.
+- `formatRedirectAdvisory` — the `", "` between the routes a block says were asked for (StringLiteral):
+  every route is still named; the separator is wording, not data.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

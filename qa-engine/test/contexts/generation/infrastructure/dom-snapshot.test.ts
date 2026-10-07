@@ -538,6 +538,12 @@ test("formatRedirectAdvisory renders the same path reached with a different tree
   assert.ok(block.includes("textbox: Email") && block.includes("button: Another"));
 });
 
+test("formatRedirectAdvisory tells two trees apart by their nodes, not by the text the nodes add up to", () => {
+  const withNodes = (route: string, nodes: string[]): RouteSnapshot => loginPage(route, { nodes, attrs: [] });
+  const block = formatRedirectAdvisory([withNodes("/orders", ["ab", "c"]), withNodes("/reports", ["a", "bc"])]);
+  assert.ok(block.includes("  ab") && block.includes("  bc"), "each route's page is rendered with its own nodes");
+});
+
 test("formatRedirectAdvisory renders a public redirect too: the page a root route moved to", () => {
   const block = formatRedirectAdvisory([{ route: "/", nodes: ["heading: Welcome home"], settled: true, finalUrl: "http://dev.example.com/home" }]);
   assert.ok(block.includes("heading: Welcome home") && block.includes("/home"));

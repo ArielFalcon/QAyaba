@@ -8,6 +8,7 @@ import type { ChangedElement } from "../../../shared-kernel/diff-parser/changed-
 import { partitionRoutes, type UncapturableRoute } from "../../../shared-kernel/route-capturability.ts";
 import { claim, type FactId, type PromptClaim } from "../domain/prompt-contract-lint.ts";
 import { PACK_HEADINGS } from "../domain/prompt-headings.ts";
+import { rankRoutesByChange } from "../domain/route-ranking.ts";
 
 export { PACK_HEADINGS };
 
@@ -52,6 +53,9 @@ export interface ContextPackInput {
 
   /* Before this field, candidateRoutes was populated ONLY from a brief (briefRoutePaths / contextMapRoutes gated on brief.feBe) — with the explorer pass unwired by design in production, there was NO brief-less route path at all, so the pack was structurally empty on every real run. */
   routes?: string[];
+
+  /* Cross-repo runs only: where the triggering service's snapshot was staged, as the map may name it. Present (even empty) means prChangedFiles are the service's own files, so a route is ranked only by the spec of an operation it joins, under these roots. */
+  stagedRoots?: string[];
 }
 
 export interface ContextPackAssembly {
@@ -194,7 +198,11 @@ export async function buildContextPack(
       if (briefOps.has(link.operationId) && link.route) contextMapRoutes.add(link.route);
     }
   }
-  const deterministicRoutes = new Set<string>(input.routes ?? []);
+  /* Only the routes the orchestrator derived itself are ranked by the change: the brief's own and the ones its operations join were chosen for this change already, and keep their place in front. With no changed file there is nothing to rank by. */
+  const derivedRoutes = [...new Set(input.routes ?? [])];
+  const deterministicRoutes = input.prChangedFiles
+    ? rankRoutesByChange(derivedRoutes, input.contextMap, { changedFiles: input.prChangedFiles, ...(input.stagedRoots ? { stagedRoots: input.stagedRoots } : {}) })
+    : derivedRoutes;
   /* A route that names no single page is dropped, and a route named twice counted once, BEFORE the cut: neither may take the slot of a route behind it. */
   const { capturable, uncapturable } = partitionRoutes([...briefRoutePaths, ...contextMapRoutes, ...deterministicRoutes]);
   const briefRoutes = capturable.slice(0, MAX_ROUTES);

@@ -39,6 +39,7 @@ Read `Routes` arrays with serena `find_symbol`. For each route:
 - `path` → the URL pattern (concatenate parent + child paths with `/`)
 - `component` → the class name (e.g. `CheckoutPageComponent`)
 - `source` → the file declaring it
+- `implementationFiles` (optional) → the files that implement the page
 
 ### File-based (standalone components with Route config)
 ```typescript
@@ -69,6 +70,7 @@ For each operation, extract:
 - `method` → `GET`, `POST`, `PUT`, `DELETE`, `PATCH`
 - `path` → the URL template (e.g. `/orders/{id}`)
 - `service` → the owning microservice (derive from the spec file path or `tags`)
+- `spec` → the OpenAPI file declaring it
 
 ### YAML reading pattern
 ```yaml
