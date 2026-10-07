@@ -209,7 +209,8 @@ by a test, because the test that tells the reasons apart did not exercise that c
 conditions of the ternaries, the call that drops a trailing separator, which backslashes are replaced, the
 separator of the prefix check, the arguments of the two containment checks, the open flags, and what each
 site passes as the root) was broken by hand, 24 mutants: 14 of the module and 10 of the wiring at the
-sites. 21 died and 3 are documented below. The first batch showed one real gap: a review DOM adapter
+sites. 21 died and 3 survived (the one on the open flags is killed since, as the next paragraph says; the
+other two are documented below). The first batch showed one real gap: a review DOM adapter
 anchored on its spec directory instead of the mirror survived all its tests, because every case that left
 the mirror did so through a symlink in the last segment, which a separate rule refuses. Each site now has
 a case that leaves the mirror through a symlinked parent, and the composition root has one that reads
@@ -217,6 +218,43 @@ through the adapter it wires. Two more were found by reading the code rather tha
 has a case: a path with a trailing separator makes lstat follow a symlinked spec directory, so the
 separator is dropped first, and a path with two backslashes must have both read as separators, not only
 the first.
+
+The preset was then widened (2026-10-07, 3 workers on a loaded machine, 126 mutants, 57 of them compile
+errors) when the reader's descriptor was tied to the file it validated and three more sites went through
+it; a review of that found a window that stayed open and a read that could truncate. O_NOFOLLOW covers
+only the last component, so a directory above the file swapped for a symlink between the check and the
+open made the open read a file outside the spec directory: reproduced against the earlier reader, which
+returned the outside file's bytes. The read now opens through a seam (the open, the judgement of the
+descriptor, the read, and the kernel's own path of the descriptor), validates the path again after the
+open, and requires a regular file whose device and inode are those of the file validated before the open
+and of the one validated after it. That is not enough against a process that loops: each lstat follows
+the directories above the file, so an attacker that alternates the path between two states can have the
+realpath see one state and the lstats, the open and the second look the other, and every identity then
+agrees on a file outside the spec directory. A scripted run of exactly that interleaving returned the
+outside file's bytes from the reader that had only the identities, and still returns them where there is
+no kernel path. Where there is one (Linux, through procfs) the descriptor's own path must lie inside the
+spec directory, which no walk of a path can fake, and the same run is refused: for every file the agent
+cannot move into the spec directory, that is every file outside the volume it shares with the
+orchestrator, the window is closed. Where Node cannot ask (macOS has no F_GETPATH) the identities are all
+there is, and the window is narrowed to a process that flips the path at exactly the right instants, not
+closed. The read is also a loop now, up to the size judged on the descriptor, and a file that ends
+earlier is refused as a short read instead of being returned truncated. The preset gained the seam tests,
+which make each swap and each partial read at the seam with real files, and the tests of three more
+sites: the manifest's file hashes, the sidekick's claimed files and the pre-exec capture (it still
+mutates only the reader). **After** is this run: 66 killed, 3 timeouts and no survivors, so the table's
+row is it; the timeouts are the infinite-loop mutants of the read loop (its body emptied, and the test
+for the end of the file disabled or inverted). 49 mutants were broken by hand (the new conditions and
+flags, the earlier ones against the new code, and the wiring of the three sites): 48 die and 1 survives,
+documented below. A second one survived the first batch, a kernel-path check judged against the whole
+mirror instead of the spec directory, because the paths the cases gave as the kernel's answer were spelled
+through os.tmpdir(), behind a symlink on macOS, and were refused for their spelling and not for lying
+outside; they are built from real paths now, and one case puts the kernel's answer inside the mirror and
+outside the spec directory. The open flags are no longer survivors: one test records the flags the open
+receives, and the case that swaps a named pipe in checks the non-blocking flag before it puts the pipe in
+place, so that a reader that would wait on it fails there instead of hanging the run. The Linux branch
+cannot run on the machine that recorded these results: the factory that builds it is tested with an
+injected readlink on every platform, and two cases that open real descriptors (the kernel path is the
+real path; a real swap is refused for it) are skipped off Linux and run in CI.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
@@ -445,7 +483,7 @@ run once per mutant and not fit the mutation timeout.
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
-| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path) | 36 / 0 / 1 — 97.3% (97.3%) | 37 / 0 / 0 — 100% (100%) | — |
+| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path) | 36 / 0 / 1 — 97.3% (97.3%) | 66 / 3 / 0 — 100% (95.65%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
@@ -548,13 +586,11 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
   (ConditionalExpression, EqualityOperator): `bestRunSoFar` already includes every executed
   non-infra run, ties going to the later one.
 
-**spec-path-confinement** (`spec-path-confinement.ts` and the composition root's wiring, broken by hand: the first has no mutator in Stryker, the other is outside the preset)
-- `readConfinedSpecBytes` — `O_NOFOLLOW` dropped from the open flags: the descriptor is opened on a real
-  path that has no symlink left in it, so the flag only refuses a symlink swapped in between the check and
-  the open, a race no test can win. It stays as defense in depth.
-- `readConfinedSpecBytes` — the whole allocated buffer returned instead of the bytes read: a regular file
-  within the cap is read whole in one call, so the two differ only on a short read, which a local file
-  does not give.
+**spec-path-confinement** (`spec-path-confinement.ts` and the composition root's wiring, broken by hand: Stryker generates no mutants for some of what it holds, and the wiring is outside the preset)
+- `readConfinedSpecBytes` — the check that the second look found a file (`!("file" in rechecked)`)
+  removed: it does not compile, because the identity is read from a result that is a union, and at run
+  time the operand after it refuses on the same input, since a refused look has no identity for the
+  descriptor's to equal.
 - the composition root's review DOM grounding anchored on the e2e directory instead of the mirror: the
   only target that builds that adapter is the e2e one, whose spec directory is that directory, so both
   anchors name the same place.

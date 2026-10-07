@@ -215,6 +215,7 @@ const CLEAN_SPEC_SOURCE = `await page.goto("/owners"); await page.getByRole("hea
 test("RunQaUseCase: PreExecGroundingPort wired — a captured ambiguity is counted in preExecAmbiguityCatches", async () => {
   const { ports } = stubPorts({
     capture: async () => ({
+      specFiles: ["a.spec.ts"],
       specSources: [AMBIGUOUS_SPEC_SOURCE],
       routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
     }),
@@ -234,6 +235,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — corrections feed the ONE-SHOT
   const generateCalls: Array<{ enrichment?: { selectorContradictions?: readonly string[] } }> = [];
   const { ports } = stubPorts({
     capture: async () => ({
+      specFiles: ["a.spec.ts"],
       specSources: [AMBIGUOUS_SPEC_SOURCE],
       routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
     }),
@@ -261,6 +263,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — a PERSISTING ambiguity after 
        duplicate-node tree every call, so the ambiguity PERSISTS after the one-shot repair.
      */
     capture: async () => ({
+      specFiles: ["a.spec.ts"],
       specSources: [AMBIGUOUS_SPEC_SOURCE],
       routes: [{ route: "/owners", nodes: ["heading: Owners", "heading: Owners"] }],
     }),
@@ -282,6 +285,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corr
    */
   const { ports } = stubPorts({
     capture: async () => ({
+      specFiles: ["a.spec.ts"],
       specSources: [FABRICATED_TESTID_SPEC_SOURCE],
       routes: [{ route: "/owners", nodes: [], status: "captured", settled: true, testIds: new Map() }],
     }),
@@ -299,6 +303,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — catalog-gate fail-closed corr
 test("RunQaUseCase: PreExecGroundingPort wired — a clean capture (no ambiguity) leaves the run green, zero counters", async () => {
   const { ports } = stubPorts({
     capture: async () => ({
+      specFiles: ["a.spec.ts"],
       specSources: [CLEAN_SPEC_SOURCE],
       routes: [{ route: "/owners", nodes: ["heading: Owners"] }],
     }),
@@ -326,7 +331,7 @@ test("RunQaUseCase: PreExecGroundingPort wired — a FixLoop regen (post-executi
     capture: async () => {
       captureCalls++;
       const nodes = captureCalls === 1 ? ["heading: Owners", "heading: Owners"] : ["heading: Owners"];
-      return { specSources: [AMBIGUOUS_SPEC_SOURCE], routes: [{ route: "/owners", nodes }] };
+      return { specFiles: ["a.spec.ts"], specSources: [AMBIGUOUS_SPEC_SOURCE], routes: [{ route: "/owners", nodes }] };
     },
     generate: async (_objectives, _specDir, _signal, _diff, enrichment) => {
       generateCalls.push({ enrichment });

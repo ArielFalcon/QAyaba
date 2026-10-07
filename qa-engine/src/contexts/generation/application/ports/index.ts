@@ -4,10 +4,12 @@ import type { Objective } from "@kernel/objective.ts";
 import type { QaCase, SpecMeta } from "@kernel/qa-case.ts";
 import type { OpencodeRunInput, ReviewInput, ParallelWorkerInput, ExplorationBrief } from "./generation-ports.ts";
 import type { ManifestEntry } from "@kernel/manifest/manifest-entry.ts";
+import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 export type { ManifestEntry };
 export interface ManifestRepositoryPort {
   read(specDir: string): Promise<ManifestEntry[]>;
-  reconcile(specDir: string, entries: readonly ManifestEntry[]): Promise<ManifestEntry[]>;
+  /* The entries' files are the names the agent reported, relative to `root.specDir`: they are resolved against the whole root, so one that leaves it is a phantom like one that is not on disk. */
+  reconcile(root: SpecRoot, entries: readonly ManifestEntry[]): Promise<ManifestEntry[]>;
 }
 
 /** Free-form LLM text → structured deliverable. Fail-closed on an unparseable verdict. parsed is FALSE only on a parse miss, not a deliberate no-op. specMetas drives the disk-reconciled manifest upsert (disk over the agent's word). noopReason is the generator's stated reason for writing nothing (never inferred from `approved`); outputTail is the end of the agent's output. Both are already redacted and bounded to the note limit. */

@@ -127,6 +127,39 @@ test("the review DOM grounding reads the delivered specs through the confined re
   }
 });
 
+/* The pre-exec grounding reads the suite's specs through the confined reader too, anchored on the run's mirror wired from the composition config: a symlinked spec reads as an empty string and its target is not what the capture is given. */
+test("the pre-exec grounding reads the suite through the confined reader, anchored on the run's mirror", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-composition-pre-exec-"));
+  try {
+    const mirror = join(dir, "mirror");
+    mkdirSync(join(mirror, "e2e"), { recursive: true });
+    writeFileSync(join(mirror, "e2e", "ok.spec.ts"), "// ok");
+    writeFileSync(join(dir, "secret.txt"), "TOP SECRET");
+    symlinkSync(join(dir, "secret.txt"), join(mirror, "e2e", "leak.spec.ts"));
+    mkdirSync(join(dir, "elsewhere", "e2e"), { recursive: true });
+    writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), "// planted");
+    symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
+    const fed: string[][] = [];
+    const bridges = wireBridges(fakeConfig({
+      mirrorDir: mirror,
+      baseUrl: "https://dev.example.com",
+      preExecGroundingCollaborators: { captureRouteTrees: async (input) => { fed.push([...input.specContents]); return []; } },
+    }));
+
+    const inside = await bridges.preExecGrounding!.capture(join(mirror, "e2e"));
+    const throughSymlinkedParent = await bridges.preExecGrounding!.capture(join(mirror, "hop", "e2e"));
+
+    assert.equal(inside.specSources[inside.specFiles.indexOf("ok.spec.ts")], "// ok");
+    assert.equal(inside.specSources[inside.specFiles.indexOf("leak.spec.ts")], "", "a symlink out of the mirror reads as empty");
+    assert.deepEqual(throughSymlinkedParent.specSources, [""], "a spec directory that is a real directory outside the mirror reads as empty");
+    assert.equal(fed.length, 2, "the capture ran for both suites");
+    assert.ok(fed.flat().includes("// ok"), "and was given the spec that is inside");
+    assert.ok(!fed.flat().some((source) => source.includes("TOP SECRET") || source.includes("planted")), "but neither of the others");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /* ── buildProduction: always wires the rewritten engine ───────────────────────────────────────── */
 
 test("buildProduction returns a RewrittenOrchestratorAdapter when PIPELINE_ENGINE is absent", () => {
@@ -1280,10 +1313,12 @@ test("buildProduction(rewritten) wires preExecGrounding into the run when target
     writeFileSync(join(mirrorDir, "e2e", "home.spec.ts"), "test('home', async ({ page }) => { await page.goto('/home'); });");
 
     let captureCalled = false;
+    /* The static mirrorDir is the directory checkout() returns, as in production: the adapter's confined reads are anchored on it. */
     const cfg = fakeConfig({
       target: "e2e",
       isCode: false,
       baseUrl: "https://dev.example.com",
+      mirrorDir,
       checkout: async () => mirrorDir,
       preExecGroundingCollaborators: {
         captureRouteTrees: async () => {
@@ -1373,6 +1408,7 @@ test("buildProduction(rewritten) end-to-end: a duplicate page-rooted selector in
       target: "e2e",
       isCode: false,
       baseUrl: "https://dev.example.com",
+      mirrorDir,
       checkout: async () => mirrorDir,
       generationUseCase: {
         generate: async () => ({

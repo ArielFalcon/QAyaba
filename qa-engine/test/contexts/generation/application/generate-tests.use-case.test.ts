@@ -4,6 +4,7 @@ import { GenerateTestsUseCase } from "@contexts/generation/application/generate-
 import type { GenerationPorts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
 import type { OpencodeRunInput, ReviewInput } from "@contexts/generation/application/ports/generation-ports.ts";
+import type { SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { PromptRenderingAdapter } from "@contexts/generation/infrastructure/prompt-rendering.adapter.ts";
 import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -514,6 +515,49 @@ test("manifest.reconcile is called with [] when the deliverable carries specs bu
   assert.ok(reconcileArgs !== undefined, "reconcile was called");
   assert.deepEqual(reconcileArgs, [], "no specMetas -> no manifest entries synthesized from specs[] alone");
   assert.deepEqual(out.specs, ["flows/checkout.spec.ts"]);
+});
+
+/* The manifest's files are the names the agent reported, relative to the run's spec directory: they are resolved against the whole root, the mirror that anchors the confinement and the spec directory they are relative to, never against a bare directory. */
+test("manifest.reconcile receives the run's spec root: the mirror, and the spec directory the reported files are relative to", async () => {
+  const roots: SpecRoot[] = [];
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async () => ({
+        prompt: async () => ({ output: '{"specs":["flows/checkout.spec.ts"]}' }),
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "P", sectionSizes: {} }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "", sectionSizes: {} }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/checkout.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: true, issues: [] }),
+    },
+    manifest: {
+      read: async () => [],
+      reconcile: async (root, entries) => {
+        roots.push(root);
+        return [...entries] as ManifestEntry[];
+      },
+    },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+  };
+  const useCase = new GenerateTestsUseCase(ports);
+
+  for (const [mirrorDir, e2eRelDir] of [["/m", "e2e"], ["/work/app", "tests"]] as const) {
+    await useCase.generate({ repo: "r", sha: "s", diff: "d", mirrorDir, e2eRelDir, namespace: "ns", needsReview: false, target: "e2e", mode: "diff", appName: "a" });
+  }
+
+  assert.deepEqual(roots, [
+    { mirrorDir: "/m", specDir: "/m/e2e" },
+    { mirrorDir: "/work/app", specDir: "/work/app/tests" },
+  ]);
 });
 
 /* ── manifest-enrichment fix: entries are built from specMetas, stamped with changeRef ─────────

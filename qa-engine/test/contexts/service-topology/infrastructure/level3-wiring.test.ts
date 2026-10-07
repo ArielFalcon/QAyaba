@@ -118,7 +118,7 @@ function makeGenerationPorts(capturedInput: { value: OpencodeRunInput | undefine
     },
     manifest: {
       read: async () => [],
-      reconcile: async (_d: string, e: readonly ManifestEntry[]) => [...e] as ManifestEntry[],
+      reconcile: async (_root, e: readonly ManifestEntry[]) => [...e] as ManifestEntry[],
     },
     budget: {
       capDiff: (d: string) => d,

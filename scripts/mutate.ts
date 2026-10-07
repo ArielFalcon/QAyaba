@@ -323,13 +323,19 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     concurrency: 2,
   },
   "spec-path-confinement": {
-    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor), with the three sites that read a delivered spec through it",
+    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole), with the six sites that read or probe a reported path through it",
     mutate: ["qa-engine/src/shared-infrastructure/spec-path-confinement.ts"],
     tests: [
       "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
+      "qa-engine/test/shared-infrastructure/spec-path-confinement.seam.test.ts",
+      /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
       `${ORCH_TEST}/infrastructure/bridges/generation-port.adapter.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/review-dom-grounding-port.adapter.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
+      /* The manifest's file hashes, the sidekick's claimed files and the pre-exec capture. */
+      `${GEN_TEST}/infrastructure/manifest-fs.test.ts`,
+      "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
+      `${ORCH_TEST}/infrastructure/bridges/pre-exec-grounding-port.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

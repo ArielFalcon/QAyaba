@@ -335,6 +335,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ? new PreExecGroundingPortAdapter(
         {
           e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
+          mirrorDir: cfg.mirrorDir,
           baseUrl: cfg.baseUrl,
           testIdAttribute: cfg.testIdAttribute,
         },

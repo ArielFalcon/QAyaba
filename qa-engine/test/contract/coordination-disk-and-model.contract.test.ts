@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existingWritableFiles } from "@contexts/qa-run-orchestration/application/coordination/existing-writable-files.ts";
@@ -27,12 +28,12 @@ test("existingWritableFiles keeps only in-scope paths that exist on disk", () =>
   }
 });
 
-test("existingWritableFiles' fs access is injectable — a fake existsSync decides disk presence with zero real I/O", () => {
-  const seen: string[] = [];
+test("existingWritableFiles' fs access is injectable — a fake isConfinedFile decides disk presence with zero real I/O", () => {
+  const seen: Array<[string, string]> = [];
   const fakeDeps = {
-    existsSync: (path: string) => {
-      seen.push(path);
-      return path.endsWith("ok.spec.ts");
+    isConfinedFile: (cwd: string, rel: string) => {
+      seen.push([cwd, rel]);
+      return rel.endsWith("ok.spec.ts");
     },
   };
   const kept = existingWritableFiles(
@@ -42,9 +43,86 @@ test("existingWritableFiles' fs access is injectable — a fake existsSync decid
     fakeDeps,
   );
   assert.deepEqual(kept, [{ path: "e2e/ok.spec.ts" }]);
-  /* Only in-scope candidates are ever probed — the out-of-scope src/hack.ts never reaches existsSync. */
-  assert.deepEqual(seen, ["/mirrors/app/e2e/ok.spec.ts", "/mirrors/app/e2e/missing.spec.ts"]);
+  /* Only in-scope candidates are ever probed, by the mirror and the path relative to it — the out-of-scope src/hack.ts never reaches the probe. */
+  assert.deepEqual(seen, [["/mirrors/app", "e2e/ok.spec.ts"], ["/mirrors/app", "e2e/missing.spec.ts"]]);
 });
+
+/* A sidekick's claim of a changed file is an agent-reported path: it counts as on disk only when it names a regular file that really lies inside the mirror, not one a symlink it planted leads out of it. */
+function withMirror(run: (m: { tmp: string; mirror: string }) => void): void {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-claims-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    mkdirSync(join(mirror, "e2e"), { recursive: true });
+    mkdirSync(join(mirror, "tests"), { recursive: true });
+    mkdirSync(join(tmp, "outside"));
+    writeFileSync(join(tmp, "outside", "secret.txt"), "TOP SECRET");
+    writeFileSync(join(mirror, "e2e", "ok.spec.ts"), "// ok");
+    writeFileSync(join(mirror, "tests", "unit.test.ts"), "// unit");
+    run({ tmp, mirror });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+test("existingWritableFiles does not count a claim that is a symlink out of the mirror as on disk, whether it is a file or a directory", () => {
+  withMirror(({ tmp, mirror }) => {
+    symlinkSync(join(tmp, "outside", "secret.txt"), join(mirror, "e2e", "leak.spec.ts"));
+    symlinkSync(join(tmp, "outside"), join(mirror, "e2e", "hop"));
+    const kept = existingWritableFiles(
+      mirror,
+      [{ path: "e2e/ok.spec.ts" }, { path: "e2e/leak.spec.ts" }, { path: "e2e/hop/secret.txt" }],
+      ["e2e/"],
+    );
+    assert.deepEqual(kept, [{ path: "e2e/ok.spec.ts" }]);
+  });
+});
+
+test("existingWritableFiles counts a claim whose symlink stays inside the mirror, from any writable root of it", () => {
+  withMirror(({ mirror }) => {
+    symlinkSync("ok.spec.ts", join(mirror, "e2e", "alias.spec.ts"));
+    const kept = existingWritableFiles(
+      mirror,
+      [{ path: "e2e/alias.spec.ts" }, { path: "tests/unit.test.ts" }, { path: "e2e/ok.spec.ts" }],
+      ["e2e/", "tests/"],
+    );
+    assert.deepEqual(kept, [{ path: "e2e/alias.spec.ts" }, { path: "tests/unit.test.ts" }, { path: "e2e/ok.spec.ts" }]);
+  });
+});
+
+test("existingWritableFiles does not count a claim that is a directory as a file on disk", () => {
+  withMirror(({ mirror }) => {
+    mkdirSync(join(mirror, "e2e", "flows.spec.ts"));
+    const kept = existingWritableFiles(mirror, [{ path: "e2e/flows.spec.ts" }, { path: "e2e/ok.spec.ts" }], ["e2e/"]);
+    assert.deepEqual(kept, [{ path: "e2e/ok.spec.ts" }]);
+  });
+});
+
+test("existingWritableFiles does not count a named pipe as a file on disk, and never opens it", { skip: canMakeNamedPipes() ? false : "mkfifo is not available on this platform, so the named-pipe case is not exercised" }, () => {
+  withMirror(({ mirror }) => {
+    execFileSync("mkfifo", [join(mirror, "e2e", "pipe.spec.ts")]);
+    const kept = existingWritableFiles(mirror, [{ path: "e2e/pipe.spec.ts" }, { path: "e2e/ok.spec.ts" }], ["e2e/"]);
+    assert.deepEqual(kept, [{ path: "e2e/ok.spec.ts" }]);
+  });
+});
+
+test("existingWritableFiles probes and returns a claim written with backslashes as the same path with slashes", () => {
+  withMirror(({ mirror }) => {
+    const kept = existingWritableFiles(mirror, [{ path: "e2e\\ok.spec.ts" }], ["e2e/"]);
+    assert.deepEqual(kept, [{ path: "e2e/ok.spec.ts" }]);
+  });
+});
+
+function canMakeNamedPipes(): boolean {
+  const dir = mkdtempSync(join(tmpdir(), "qa-claims-fifo-probe-"));
+  try {
+    execFileSync("mkfifo", [join(dir, "probe")]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 test("classifyDelegationFailure: failed and blocked statuses are always a contract failure", () => {
   assert.equal(classifyDelegationFailure("failed", 0, 0), "failed");

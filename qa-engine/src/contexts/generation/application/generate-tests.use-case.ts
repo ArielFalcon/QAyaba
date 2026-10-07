@@ -109,7 +109,7 @@ export class GenerateTestsUseCase {
       changeRef: { sha: input.sha, type: changeType },
       ...(m.sha256 ? { sha256: m.sha256 } : {}),
     }));
-    const reconciledEntries = input.target === "code" ? rawEntries : await manifest.reconcile(specDir, rawEntries);
+    const reconciledEntries = input.target === "code" ? rawEntries : await manifest.reconcile({ mirrorDir: input.mirrorDir, specDir }, rawEntries);
 
     const end = classifyGenerationEnd({
       specCount: deliverable.specs.length,
