@@ -5,6 +5,7 @@ import type { GenerationPort, GenerationEnrichment, GenerationOutput, RetrievedR
 import { GenerateTestsUseCase } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, CommitIntent as GenerationCommitIntent } from "@contexts/generation/application/ports/generation-ports.ts";
 import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
+import type { SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 
 /* The barrel's CommitIntent (ports/index.ts) is kernel-resident/structural — `type` is a plain `string` there (this bridge, not the barrel, is where cross-context types are allowed). Generation's OWN CommitIntent narrows `type` to its CommitType union. The value ALWAYS originates from ChangeAnalysisPortAdapter's classifyCommit() call (commit-classification.ts's own CommitType union is structurally identical to generation's), so this is a same-shape re-assertion at the bridge boundary, never a fabricated narrowing. */
 function toGenerationIntent(intent: GenerationEnrichment["intent"]): GenerationCommitIntent | undefined {
@@ -81,8 +82,8 @@ export interface GenerationPortStaticContext {
 }
 
 export interface GenerationPortCollaborators {
-  /* Optional: re-reads a just-generated spec file's source text. Absent -> specSources omitted. */
-  readSpecSource?: (absolutePath: string) => Promise<string>;
+  /* Optional: re-reads a just-generated spec file's source text. `reported` is the path as the agent reported it, relative to the root's spec directory: the collaborator must confine it (the composition root defaults to the confined reader), and it throws when the path is refused, as loudly as a missing file. Absent -> specSources omitted. */
+  readSpecSource?: (root: SpecRoot, reported: string) => string;
 }
 
 export class GenerationPortAdapter implements GenerationPort {
@@ -158,10 +159,8 @@ export class GenerationPortAdapter implements GenerationPort {
     };
 
     if (this.collaborators.readSpecSource && generated.specs.length > 0) {
-      const sources = await Promise.all(
-        generated.specs.map((spec) => this.collaborators.readSpecSource!(`${specDir}/${spec}`)),
-      );
-      result.specSources = sources;
+      const root: SpecRoot = { mirrorDir: this.ctx.mirrorDir, specDir };
+      result.specSources = generated.specs.map((spec) => this.collaborators.readSpecSource!(root, spec));
     }
 
     return result;

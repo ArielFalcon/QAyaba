@@ -11,13 +11,14 @@ import {
   buildProduction,
   buildShadow,
   resolveSidekickTimeoutMs,
+  wireBridges,
   type CompositionConfig,
 } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
 import { RewrittenOrchestratorAdapter } from "@contexts/qa-run-orchestration/infrastructure/rewritten-orchestrator.adapter.ts";
 import { PIPELINE_ENGINE } from "@contexts/qa-run-orchestration/composition/pipeline-engine-flag.ts";
 import { Sha } from "@kernel/sha.ts";
 import { BlastRadius } from "@kernel/blast-radius.ts";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BoundaryProfile } from "@contexts/service-topology/domain/index.ts";
@@ -52,6 +53,8 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
     generationUseCase: {
       generate: async () => ({ specs: ["a.spec.ts"], approved: true, reviewed: false, end: GENERATION_END.DELIVERED }),
     },
+    /* The delivered specs exist nowhere on disk in this suite, which wires ports and reads no files: Lever-2's spec reader is a fake like every other collaborator here. The composition root's own default, the confined reader, is exercised against real files in seam-parity.contract.test.ts. */
+    readSpecSource: () => "",
     reviewRuntime: {
       runtime: { openSession: async () => ({ prompt: async () => ({ output: "{}" }), dispose: async () => {} }) },
       rendering: { renderReviewer: () => ({ text: "", sectionSizes: {} }) },
@@ -97,6 +100,32 @@ function fakeConfig(overrides: Partial<CompositionConfig> = {}): CompositionConf
   };
   return { ...base, ...overrides };
 }
+
+/* The review DOM grounding captures the routes of the specs the generator delivered. They are read through the confined reader, and the anchor it holds them to is the run's mirror: wired here from the composition config, so a spec directory that is a real directory but lives outside the mirror yields nothing. */
+test("the review DOM grounding reads the delivered specs through the confined reader, anchored on the run's mirror", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-composition-review-dom-"));
+  try {
+    const mirror = join(dir, "mirror");
+    mkdirSync(join(mirror, "e2e"), { recursive: true });
+    writeFileSync(join(mirror, "e2e", "ok.spec.ts"), `await page.goto("/ok");`);
+    mkdirSync(join(dir, "elsewhere", "e2e"), { recursive: true });
+    writeFileSync(join(dir, "elsewhere", "e2e", "planted.spec.ts"), `await page.goto("/planted");`);
+    symlinkSync(join(dir, "elsewhere"), join(mirror, "hop"));
+    const captured: string[][] = [];
+    const bridges = wireBridges(fakeConfig({
+      mirrorDir: mirror,
+      baseUrl: "https://dev.example.com",
+      reviewDomGroundingCollaborators: { captureDom: async (input) => { captured.push([...input.specContents]); return undefined; } },
+    }));
+
+    await bridges.reviewDomGrounding!.capture(join(mirror, "e2e"), ["ok.spec.ts"]);
+    await bridges.reviewDomGrounding!.capture(join(mirror, "hop", "e2e"), ["planted.spec.ts"]);
+
+    assert.deepEqual(captured, [[`await page.goto("/ok");`], [""]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 /* ── buildProduction: always wires the rewritten engine ───────────────────────────────────────── */
 

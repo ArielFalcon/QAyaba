@@ -115,6 +115,21 @@ test("the patch-app-yaml preset mutates the config patcher, against its own test
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the spec-path-confinement preset mutates the confined reader, against its own tests and the tests of the three sites that read a delivered spec through it", () => {
+  const preset = PRESETS["spec-path-confinement"];
+  assert.ok(preset, "the spec-path-confinement preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/shared-infrastructure/spec-path-confinement.ts"]);
+  for (const tests of [
+    "shared-infrastructure/spec-path-confinement.test.ts",
+    "bridges/generation-port.adapter.test.ts",
+    "bridges/review-dom-grounding-port.adapter.test.ts",
+    "prompt-builders/prompts.test.ts",
+  ]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("the login-evidence preset mutates the classifier, the scrubber and the note in one module, against their own tests", () => {
   const preset = PRESETS["login-evidence"];
   assert.ok(preset, "the login-evidence preset exists");

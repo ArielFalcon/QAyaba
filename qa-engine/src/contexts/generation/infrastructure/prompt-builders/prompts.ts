@@ -1,7 +1,7 @@
 /* Assembles the per-run TASK + CONTEXT the agent receives. The "how" lives in agents/agent/*.md. Diffs are capped then secret-scrubbed; never import src/. */
 
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readConfinedSpecFile, type SpecRoot } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { sanitizeText, assertNoSecretLeak, type SanitizeMode } from "../sanitize-text.ts";
 import { capText, capDiff, extractDiffFilePath } from "../prompt-cap.ts";
 import type { QaCase } from "@kernel/qa-case.ts";
@@ -1385,12 +1385,14 @@ const REVIEW_SPECS_MAX_BYTES = 40_000;
 
 export function renderReviewSpecs(input: ReviewInput): string {
   const rel = (s: string) => (input.e2eRelDir ? `${input.e2eRelDir}/${s}` : s);
+  /* The specs are the names the generator reported: each is read through the confined reader, so one that leaves the spec directory is judged from the placeholder below, never from what it points at. */
+  const root: SpecRoot = { mirrorDir: input.mirrorDir, specDir: join(input.mirrorDir, input.e2eRelDir) };
   const contents: string[] = [];
   let totalBytes = 0;
   for (const s of input.specs) {
     let content: string;
     try {
-      content = readFileSync(join(input.mirrorDir, input.e2eRelDir, s), "utf8");
+      content = readConfinedSpecFile(root, s);
     } catch (err) {
       /* A spec the independent reviewer NEVER sees can otherwise ship inside an approved batch — that silently bypasses the quality gate. Surface it loudly (CLAUDE.md: never swallow), like the byte-cap branch below does for its own mode switch. */
       console.warn(`[qa] WARNING: could not read spec '${rel(s)}' for review (${err instanceof Error ? err.message : String(err)}) — it will be judged from a placeholder, NOT its real content.`);

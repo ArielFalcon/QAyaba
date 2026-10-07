@@ -6,7 +6,6 @@
 
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
-import { readFile } from "node:fs/promises";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
@@ -829,7 +828,6 @@ export function buildRewrittenCompositionConfig(
 
     vcs,
     generationUseCase,
-    readSpecSource: (absolutePath: string) => readFile(absolutePath, "utf8"),
     reviewRuntime: {
       runtime: runtimeAdapter,
       rendering,

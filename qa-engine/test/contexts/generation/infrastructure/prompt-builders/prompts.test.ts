@@ -1,8 +1,8 @@
 /* setExplorationBriefCollaborators is a local test double — this suite cannot import src/ at
    typecheck (qa-engine rootDir). It only needs the same "FE↔BE links" marker prompts.ts suppresses. */
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,6 +14,7 @@ import {
   buildReviewerPromptAssembled,
   buildExplorerPrompt,
   buildContextTask,
+  renderReviewSpecs,
   setExplorationBriefCollaborators,
   PROMPT_HEADINGS,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
@@ -1961,4 +1962,97 @@ test("qa-worker budget fix: buildWorkerPromptAssembled selects the budget role b
   } finally {
     process.chdir(originalCwd);
   }
+});
+
+/* The reviewer judges the specs the generator delivered, inlined from disk. The generator names them in its verdict, so a name can lead anywhere the agent pointed it: a spec that leaves the spec directory is never inlined, and the reviewer gets a block with no code in it instead. */
+function withReviewedMirror(run: (dirs: { tmp: string; mirror: string; specDir: string }) => void): void {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-review-specs-confinement-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    const specDir = join(mirror, "e2e");
+    mkdirSync(join(specDir, "flows"), { recursive: true });
+    writeFileSync(join(specDir, "flows", "ok.spec.ts"), "// inside the spec directory\n");
+    writeFileSync(join(tmp, "secret.txt"), "TOP SECRET");
+    run({ tmp, mirror, specDir });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+const reviewOf = (mirror: string, specs: string[]): ReviewInput => ({ diff: "diff --git a/x b/x\n+const x = 1;", specs, mirrorDir: mirror, e2eRelDir: "e2e", appName: "demo", mode: "diff" });
+
+/* A spec's block is its heading followed directly by a fenced code block; a refused one is the heading alone. */
+function isInlined(text: string, heading: string): boolean {
+  const at = text.indexOf(`### ${heading}\n`);
+  assert.notEqual(at, -1, `${heading} has no block in the reviewer's specs`);
+  return text.slice(at + `### ${heading}\n`.length).startsWith("```");
+}
+
+test("a delivered spec that leaves the spec directory is not inlined for the reviewer: it keeps its block without code, and the refusal is warned about by path", () => {
+  withReviewedMirror(({ tmp, mirror, specDir }) => {
+    symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "leak.spec.ts"));
+    const warnings: string[] = [];
+    const warn = mock.method(console, "warn", (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); });
+    try {
+      const text = renderReviewSpecs(reviewOf(mirror, ["flows/ok.spec.ts", "flows/leak.spec.ts"]));
+
+      assert.equal(isInlined(text, "e2e/flows/ok.spec.ts"), true, "a spec inside the spec directory is inlined");
+      assert.equal(isInlined(text, "e2e/flows/leak.spec.ts"), false, "a symlink out of the spec directory is not");
+      assert.ok(text.includes("// inside the spec directory"));
+      assert.ok(!text.includes("TOP SECRET"), "what the symlink points at never reaches the reviewer");
+      assert.ok(warnings.some((w) => w.includes("e2e/flows/leak.spec.ts")), "the refusal is surfaced, naming the spec");
+      assert.ok(!warnings.some((w) => w.includes("e2e/flows/ok.spec.ts")), "a spec that was read is not warned about");
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+test("a delivered spec path that climbs out of the spec directory, or names a file that is not there, is not inlined for the reviewer either", () => {
+  withReviewedMirror(({ mirror }) => {
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const text = renderReviewSpecs(reviewOf(mirror, ["../../secret.txt", "flows/missing.spec.ts"]));
+
+      assert.equal(isInlined(text, "e2e/../../secret.txt"), false);
+      assert.equal(isInlined(text, "e2e/flows/missing.spec.ts"), false);
+      assert.ok(!text.includes("TOP SECRET"), "a path that climbs out of the spec directory is not read");
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+test("every spec of the reviewer is withheld when the spec directory's real path leaves the mirror through a symlinked parent", () => {
+  withReviewedMirror(({ tmp, mirror }) => {
+    mkdirSync(join(tmp, "elsewhere", "e2e"), { recursive: true });
+    writeFileSync(join(tmp, "elsewhere", "e2e", "planted.spec.ts"), "// planted outside the mirror\n");
+    symlinkSync(join(tmp, "elsewhere"), join(mirror, "hop"));
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const text = renderReviewSpecs({ ...reviewOf(mirror, ["planted.spec.ts"]), e2eRelDir: "hop/e2e" });
+
+      assert.equal(isInlined(text, "hop/e2e/planted.spec.ts"), false, "the anchor is the mirror: a real directory that lives outside it is refused");
+      assert.ok(!text.includes("planted outside the mirror"));
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+test("every spec of the reviewer is withheld when the spec directory itself is a symlink out of the mirror", () => {
+  withReviewedMirror(({ tmp, mirror }) => {
+    mkdirSync(join(tmp, "elsewhere"));
+    writeFileSync(join(tmp, "elsewhere", "planted.spec.ts"), "// planted outside the mirror\n");
+    symlinkSync(join(tmp, "elsewhere"), join(mirror, "e2e-out"));
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      const text = renderReviewSpecs({ ...reviewOf(mirror, ["planted.spec.ts"]), e2eRelDir: "e2e-out" });
+
+      assert.equal(isInlined(text, "e2e-out/planted.spec.ts"), false);
+      assert.ok(!text.includes("planted outside the mirror"));
+    } finally {
+      warn.mock.restore();
+    }
+  });
 });

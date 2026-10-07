@@ -4,12 +4,14 @@
    this test. */
 import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { RunOutcome as KernelRunOutcome } from "@kernel/run-outcome.ts";
-import { wireBridges } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
+import { GENERATION_END } from "@kernel/generation-end.ts";
+import { wireBridges, type CompositionConfig } from "@contexts/qa-run-orchestration/composition/composition-root.ts";
+import { ConfinedPathError } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 
 import { toLegacyRunOutcome, type RunHistorySqliteAdapterDeps, SqliteRunHistoryAdapter } from "../../../src/server/run-history-sqlite-adapter.ts";
 import { buildRewrittenCompositionConfig, type RewrittenEngineFactoryDeps } from "../../../src/server/rewritten-engine-factory.ts";
@@ -181,7 +183,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     diff: "DELIBERATELY static '' — see this fn's own header 'difference #2': GenerationPortAdapter/ReviewPortAdapter both resolve the REAL per-run diff dynamically from ChangeAnalysisPort.classify() instead, since no per-run diff exists yet at composition-build time.",
     baseUrl: "supplied ONLY when app.dev?.baseUrl is present (asserted below as a present-when-given case) — legitimately absent for code-mode apps (no dev: block).",
     testIdAttribute: "supplied ONLY when app.e2e?.testIdAttribute is present (asserted below as a present-when-given case) — deliberately NO 'data-testid' default applied here (the seed playwright.config.ts already defaults it); legitimately absent when the app declares none.",
-    readSpecSource: "IS supplied (a plain fs readFile) — asserted below as a present case. Wires the file-read collaborator FixLoop's Lever-2 selector-contradiction check needs (GenerationPortAdapter's optional collaborator, see that adapter's own header) so Lever-2 actually receives specSources on the real production path instead of [] forever.",
+    readSpecSource: "DELIBERATELY absent — the shell passes no spec reader. The composition root defaults to the confined reader (asserted below by reading real specs through the wired GenerationPort), so FixLoop's Lever-2 selector-contradiction check still receives specSources on the real production path, and a path the agent reported is never read by a bare fs call that follows a symlink out of the spec directory.",
     setupCollaborators: "IS supplied (e2e + code) — asserted below as a present case; listed here only because this describe-block enumerates the type's full optional-field set before splitting into present/allowlisted.",
     cleanupCollaborators: "IS supplied (e2e only, matching composition-root.ts's own `!cfg.isCode` gate) — asserted below as a present case.",
     groundingCollaborators: "IS supplied ({} — resolves to the real production default per this factory's own header) — asserted below as a present case.",
@@ -254,7 +256,7 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     return { getAgentDeps: () => ({}) as unknown as AgentDeps };
   }
 
-  test("buildRewrittenCompositionConfig supplies every non-optional CompositionConfig field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", async () => {
+  test("buildRewrittenCompositionConfig supplies every non-optional CompositionConfig field, and every optional field is either present-when-expected or documented in OPTIONAL_ALLOWLIST", () => {
     const cfg = buildRewrittenCompositionConfig(
       fakeAppConfig(),
       fakeFactoryDeps(),
@@ -323,12 +325,10 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.notEqual(cfg.indexStatus, undefined, `indexStatus (lastIndexedSha sidecar) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codebaseMemory, undefined, `codebaseMemory (structural-signal CLI client, default mode signal) dropped at ${dyingLayer}`);
     assert.notEqual(cfg.codeGraphRepoDir, undefined, `codeGraphRepoDir (classify-source mirror) dropped at ${dyingLayer}`);
-    /* readSpecSource IS wired — assert it's a real file-read collaborator, not just a truthy stub,
-       by reading this very test file back through it.
+    /* The shell supplies no spec reader: a bare readFile of an agent-reported path would follow a symlink the
+       agent planted. The composition root's default (the confined reader) is asserted by the next test.
      */
-    assert.equal(typeof cfg.readSpecSource, "function", `readSpecSource dropped at ${dyingLayer} (Lever-2 selector-contradiction check starves without it)`);
-    const readBack = await cfg.readSpecSource!(import.meta.url.replace("file://", ""));
-    assert.ok(readBack.includes("seam-parity.contract.test.ts"), `readSpecSource at ${dyingLayer} did not return real file content`);
+    assert.equal(cfg.readSpecSource, undefined, `readSpecSource is supplied at ${dyingLayer}: the shell must pass none, so the composition root's confined reader is the only one`);
 
     /* Deliberately-absent-at-this-call optional fields (see OPTIONAL_ALLOWLIST for why). */
     assert.equal(cfg.diff, "", "diff is deliberately static '' at composition time — see OPTIONAL_ALLOWLIST.diff");
@@ -336,6 +336,35 @@ describe("seam-parity: COMPOSITION (CompositionConfig vs buildRewrittenCompositi
     assert.equal(cfg.prChangedFiles, undefined, "prChangedFiles is deliberately absent at composition time — see OPTIONAL_ALLOWLIST.prChangedFiles");
     assert.equal(cfg.historyFilePath, undefined, "historyFilePath is the opt-OUT alternative to runHistory — absent by default, see OPTIONAL_ALLOWLIST.historyFilePath");
     assert.equal(cfg.observer, undefined, "observer is absent because this call omitted the 5th argument — see OPTIONAL_ALLOWLIST.observer");
+  });
+
+  /* The spec reader is the composition root's own: the shell hands it none (asserted above), so what Lever-2 reads
+     is whatever the root defaults to, observed here through the wired GenerationPort with real files. */
+  test("the composition root reads the delivered specs through the confined reader: a spec inside the spec directory is a source, and a symlink that leaves it is refused", async () => {
+    const mirrorRoot = mkdtempSync(join(tmpdir(), "qa-seam-confined-reader-"));
+    try {
+      const cfg = buildRewrittenCompositionConfig(fakeAppConfig(), { ...fakeFactoryDeps(), mirrorRoot }, S("namespace"), { mode: "diff" });
+      const specDir = join(cfg.mirrorDir, cfg.e2eRelDir);
+      mkdirSync(join(specDir, "flows"), { recursive: true });
+      writeFileSync(join(specDir, "flows", "inside.spec.ts"), "// inside the spec directory\n");
+      writeFileSync(join(mirrorRoot, "secret.txt"), "TOP SECRET");
+      symlinkSync(join(mirrorRoot, "secret.txt"), join(specDir, "flows", "leak.spec.ts"));
+
+      const delivering = (specs: string[]): CompositionConfig => ({
+        ...cfg,
+        generationUseCase: { generate: async () => ({ specs, approved: true, reviewed: false, end: GENERATION_END.DELIVERED }) },
+      });
+
+      const inside = await wireBridges(delivering(["flows/inside.spec.ts"])).generation.generate([], specDir);
+      assert.deepEqual(inside.specSources, ["// inside the spec directory\n"]);
+
+      await assert.rejects(
+        wireBridges(delivering(["flows/leak.spec.ts"])).generation.generate([], specDir),
+        (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/leak.spec.ts",
+      );
+    } finally {
+      rmSync(mirrorRoot, { recursive: true, force: true });
+    }
   });
 
   test("every documented OPTIONAL_ALLOWLIST field is a REAL optional field on the type (guards against a stale allowlist entry after a refactor)", () => {

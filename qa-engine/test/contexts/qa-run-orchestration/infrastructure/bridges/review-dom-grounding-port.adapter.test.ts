@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReviewDomGroundingPortAdapter } from "@contexts/qa-run-orchestration/infrastructure/bridges/review-dom-grounding-port.adapter.ts";
@@ -16,7 +16,7 @@ test("capture(): reads each spec's on-disk content and forwards it to captureDom
 
     const capturedInputs: unknown[] = [];
     const adapter = new ReviewDomGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com", testIdAttribute: "data-cy" },
+      { e2eDir: "/mirrors/org/app/e2e", mirrorDir: dir, baseUrl: "https://dev.example.com", testIdAttribute: "data-cy" },
       {
         captureDom: async (input) => {
           capturedInputs.push(input);
@@ -43,7 +43,7 @@ test("capture(): an unreadable spec file contributes an empty string, never thro
   try {
     const capturedInputs: unknown[] = [];
     const adapter = new ReviewDomGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+      { e2eDir: "/mirrors/org/app/e2e", mirrorDir: dir, baseUrl: "https://dev.example.com" },
       {
         captureDom: async (input) => {
           capturedInputs.push(input);
@@ -65,7 +65,7 @@ test("capture(): an unreadable spec file contributes an empty string, never thro
 test("capture(): absent baseUrl short-circuits to undefined without calling captureDom", async () => {
   let called = false;
   const adapter = new ReviewDomGroundingPortAdapter(
-    { e2eDir: "/mirrors/org/app/e2e" },
+    { e2eDir: "/mirrors/org/app/e2e", mirrorDir: "/mirrors/org/app" },
     { captureDom: async () => { called = true; return "should not be reached"; } },
   );
 
@@ -78,7 +78,7 @@ test("capture(): absent baseUrl short-circuits to undefined without calling capt
 test("capture(): an empty specs list short-circuits to undefined without calling captureDom", async () => {
   let called = false;
   const adapter = new ReviewDomGroundingPortAdapter(
-    { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+    { e2eDir: "/mirrors/org/app/e2e", mirrorDir: "/mirrors/org/app", baseUrl: "https://dev.example.com" },
     { captureDom: async () => { called = true; return "should not be reached"; } },
   );
 
@@ -93,7 +93,7 @@ test("capture(): a captureDom throw is non-fatal — resolves undefined, never r
   try {
     writeFileSync(join(dir, "a.spec.ts"), `await page.goto("/x");`);
     const adapter = new ReviewDomGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+      { e2eDir: "/mirrors/org/app/e2e", mirrorDir: dir, baseUrl: "https://dev.example.com" },
       { captureDom: async () => { throw new Error("Playwright render crashed"); } },
     );
 
@@ -111,7 +111,7 @@ test("capture(): an already-aborted signal skips the capture entirely — resolv
     writeFileSync(join(dir, "a.spec.ts"), `await page.goto("/x");`);
     let called = false;
     const adapter = new ReviewDomGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+      { e2eDir: "/mirrors/org/app/e2e", mirrorDir: dir, baseUrl: "https://dev.example.com" },
       { captureDom: async () => { called = true; return "should not be reached"; } },
     );
     const controller = new AbortController();
@@ -131,7 +131,7 @@ test("capture(): an in-flight abort unblocks the caller promptly, even when capt
   try {
     writeFileSync(join(dir, "a.spec.ts"), `await page.goto("/x");`);
     const adapter = new ReviewDomGroundingPortAdapter(
-      { e2eDir: "/mirrors/org/app/e2e", baseUrl: "https://dev.example.com" },
+      { e2eDir: "/mirrors/org/app/e2e", mirrorDir: dir, baseUrl: "https://dev.example.com" },
       { captureDom: () => new Promise(() => {}) }, /* never resolves — simulates a hung render */
     );
     const controller = new AbortController();
@@ -146,5 +146,77 @@ test("capture(): an in-flight abort unblocks the caller promptly, even when capt
     assert.equal(result, undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The specs come from the generator's verdict, so a name can lead anywhere the agent pointed it. What a spec that leaves the spec directory points at is never handed to the capture: it contributes an empty string, exactly like a spec that cannot be read. */
+test("capture(): a spec that is a symlink out of the spec directory, or climbs out of it, contributes an empty string, never its target's content", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-review-dom-confinement-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    const specDir = join(mirror, "e2e");
+    mkdirSync(join(specDir, "flows"), { recursive: true });
+    writeFileSync(join(tmp, "secret.txt"), `await page.goto("/leaked");`);
+    writeFileSync(join(specDir, "flows", "ok.spec.ts"), `await page.goto("/ok");`);
+    symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "leak.spec.ts"));
+
+    const capturedInputs: Array<{ specContents: string[] }> = [];
+    const adapter = new ReviewDomGroundingPortAdapter(
+      { e2eDir: specDir, mirrorDir: mirror, baseUrl: "https://dev.example.com" },
+      { captureDom: async (input) => { capturedInputs.push(input as { specContents: string[] }); return undefined; } },
+    );
+
+    await adapter.capture(specDir, ["flows/ok.spec.ts", "flows/leak.spec.ts", "../../secret.txt"]);
+
+    assert.deepEqual(capturedInputs[0]?.specContents, [`await page.goto("/ok");`, "", ""]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("capture(): every spec contributes an empty string when the spec directory's real path leaves the mirror through a symlinked parent", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-review-dom-confinement-anchor-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    mkdirSync(mirror);
+    mkdirSync(join(tmp, "elsewhere", "e2e"), { recursive: true });
+    writeFileSync(join(tmp, "elsewhere", "e2e", "planted.spec.ts"), `await page.goto("/planted");`);
+    symlinkSync(join(tmp, "elsewhere"), join(mirror, "hop"));
+    const specDir = join(mirror, "hop", "e2e");
+
+    const capturedInputs: Array<{ specContents: string[] }> = [];
+    const adapter = new ReviewDomGroundingPortAdapter(
+      { e2eDir: specDir, mirrorDir: mirror, baseUrl: "https://dev.example.com" },
+      { captureDom: async (input) => { capturedInputs.push(input as { specContents: string[] }); return undefined; } },
+    );
+
+    await adapter.capture(specDir, ["planted.spec.ts"]);
+
+    assert.deepEqual(capturedInputs[0]?.specContents, [""], "the anchor is the mirror: a spec directory that is a real directory but lives outside it is refused");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("capture(): every spec contributes an empty string when the spec directory is a symlink out of the mirror", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-review-dom-confinement-dir-"));
+  try {
+    const mirror = join(tmp, "mirror");
+    mkdirSync(mirror);
+    mkdirSync(join(tmp, "elsewhere"));
+    writeFileSync(join(tmp, "elsewhere", "planted.spec.ts"), `await page.goto("/planted");`);
+    symlinkSync(join(tmp, "elsewhere"), join(mirror, "e2e"));
+
+    const capturedInputs: Array<{ specContents: string[] }> = [];
+    const adapter = new ReviewDomGroundingPortAdapter(
+      { e2eDir: join(mirror, "e2e"), mirrorDir: mirror, baseUrl: "https://dev.example.com" },
+      { captureDom: async (input) => { capturedInputs.push(input as { specContents: string[] }); return undefined; } },
+    );
+
+    await adapter.capture(join(mirror, "e2e"), ["planted.spec.ts"]);
+
+    assert.deepEqual(capturedInputs[0]?.specContents, [""]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
   }
 });

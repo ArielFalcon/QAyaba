@@ -38,6 +38,7 @@ import type { BoundaryProfileProviderPort } from "@contexts/service-topology/app
 import { CrossRepoImpactPortAdapter } from "../infrastructure/bridges/cross-repo-impact-port.adapter.ts";
 import { GitMirrorReadAdapter } from "@contexts/change-analysis/infrastructure/git-mirror-read.adapter.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import { readConfinedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 import { GenerateTestsUseCase, type GenerationResult, type GenerateOpts } from "@contexts/generation/application/generate-tests.use-case.ts";
 import type { OpencodeRunInput, ArchitectureContext } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -91,6 +92,7 @@ export interface CompositionConfig {
   generationUseCase: {
     generate(input: OpencodeRunInput, opts?: GenerateOpts): Promise<GenerationResult>;
   };
+  /* Override of the spec reader behind Lever-2's specSources. The shell passes none: absent, the composition root reads through the confined reader, the one that never follows a path an agent reported out of the spec directory. */
   readSpecSource?: GenerationPortCollaborators["readSpecSource"];
 
   /* ReviewPort collaborator — the SAME 3 generation-owned primitives the bridge composes standalone. */
@@ -255,7 +257,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
       ...(cfg.triggerService ? { service: cfg.triggerService } : {}),
       ...(cfg.services?.length ? { services: cfg.services } : {}),
     },
-    { ...(cfg.readSpecSource ? { readSpecSource: cfg.readSpecSource } : {}) },
+    { readSpecSource: cfg.readSpecSource ?? readConfinedSpecFile },
   );
 
   const review = new ReviewPortAdapter(cfg.reviewRuntime as ReviewPortRuntime, {
@@ -311,6 +313,7 @@ export function wireBridges(cfg: CompositionConfig): Omit<RewrittenOrchestratorA
     ? new ReviewDomGroundingPortAdapter(
         {
           e2eDir: join(cfg.mirrorDir, cfg.e2eRelDir),
+          mirrorDir: cfg.mirrorDir,
           baseUrl: cfg.baseUrl,
           testIdAttribute: cfg.testIdAttribute,
         },

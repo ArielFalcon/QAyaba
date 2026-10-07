@@ -9,7 +9,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { GenerationPortAdapter, renderLearnedRules, renderLearnedRulesForReviewer } from "@contexts/qa-run-orchestration/infrastructure/bridges/generation-port.adapter.ts";
+import { ConfinedPathError, readConfinedSpecFile, type SpecRoot } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { renderBlastRadiusSignal } from "@contexts/qa-run-orchestration/infrastructure/bridges/blast-radius-signal.ts";
 import { Objective } from "@kernel/objective.ts";
 import { GENERATION_END } from "@kernel/generation-end.ts";
@@ -140,10 +144,15 @@ test("generate() surfaces approved:false with a note when the reviewer rejects (
   assert.equal(result.note, "missing assertion");
 });
 
-test("generate() populates specSources from an injected file-read collaborator (absent by default)", async () => {
+test("generate() populates specSources from an injected file-read collaborator (absent by default), handing it the run's spec root and each reported path", async () => {
   const ports = fakeGenerationPorts();
+  ports.verdicts.parseGenerator = () => ({ specs: ["flows/checkout.spec.ts", "login.spec.ts"], note: "ok" });
   const useCase = new GenerateTestsUseCase(ports);
-  const readSpecSource = async (path: string): Promise<string> => `// source of ${path}`;
+  const calls: Array<{ root: SpecRoot; reported: string }> = [];
+  const readSpecSource = (root: SpecRoot, reported: string): string => {
+    calls.push({ root, reported });
+    return `// source of ${reported}`;
+  };
   const adapter = new GenerationPortAdapter(
     useCase,
     { repo: "org/app", appName: "app", mirrorDir: "/mirrors/org/app", e2eRelDir: "e2e", namespace: "qa-bot-abc1234", needsReview: false, target: "e2e", mode: "diff", diff: "" },
@@ -152,8 +161,75 @@ test("generate() populates specSources from an injected file-read collaborator (
 
   const result = await adapter.generate([], "/mirrors/org/app/e2e");
 
-  assert.deepEqual(result.specSources, ["// source of /mirrors/org/app/e2e/flows/checkout.spec.ts"]);
+  assert.deepEqual(result.specSources, ["// source of flows/checkout.spec.ts", "// source of login.spec.ts"]);
+  const root = { mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app/e2e" };
+  assert.deepEqual(calls, [
+    { root, reported: "flows/checkout.spec.ts" },
+    { root, reported: "login.spec.ts" },
+  ]);
 });
+
+test("generate() roots the spec reads at the spec directory of the call, which for a code run is the mirror itself", async () => {
+  const roots: SpecRoot[] = [];
+  const adapter = new GenerationPortAdapter(
+    new GenerateTestsUseCase(fakeGenerationPorts()),
+    { ...STATIC_CONTEXT, needsReview: false },
+    { readSpecSource: (root) => { roots.push(root); return ""; } },
+  );
+
+  await adapter.generate(CHECKOUT, "/mirrors/org/app");
+
+  assert.deepEqual(roots, [{ mirrorDir: "/mirrors/org/app", specDir: "/mirrors/org/app" }]);
+});
+
+/* The reader the composition root defaults to. The agent writes the spec files and names them in its verdict, so what it reports can be a symlink it planted: the adapter must surface that as the typed error, never hand the target's content on as a spec source. */
+function withMirror(run: (dirs: { tmp: string; mirror: string; specDir: string }) => Promise<void>): Promise<void> {
+  const tmp = mkdtempSync(join(tmpdir(), "qa-gen-port-confinement-"));
+  const mirror = join(tmp, "mirror");
+  const specDir = join(mirror, "e2e");
+  mkdirSync(join(specDir, "flows"), { recursive: true });
+  writeFileSync(join(tmp, "secret.txt"), "TOP SECRET");
+  return run({ tmp, mirror, specDir }).finally(() => rmSync(tmp, { recursive: true, force: true }));
+}
+
+test("generate() reads the delivered specs through the confined reader: a file inside the spec directory is a source", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    writeFileSync(join(specDir, "flows", "checkout.spec.ts"), "// the real spec\n");
+    const adapter = new GenerationPortAdapter(
+      new GenerateTestsUseCase(fakeGenerationPorts()),
+      { ...STATIC_CONTEXT, mirrorDir: mirror, needsReview: false },
+      { readSpecSource: readConfinedSpecFile },
+    );
+
+    const result = await adapter.generate(CHECKOUT, specDir);
+
+    assert.deepEqual(result.specSources, ["// the real spec\n"]);
+  }));
+
+test("generate() fails with the typed error, naming the reported path, when a delivered spec is a symlink that leaves the spec directory", () =>
+  withMirror(async ({ tmp, mirror, specDir }) => {
+    symlinkSync(join(tmp, "secret.txt"), join(specDir, "flows", "checkout.spec.ts"));
+    const adapter = new GenerationPortAdapter(
+      new GenerateTestsUseCase(fakeGenerationPorts()),
+      { ...STATIC_CONTEXT, mirrorDir: mirror, needsReview: false },
+      { readSpecSource: readConfinedSpecFile },
+    );
+
+    await assert.rejects(adapter.generate(CHECKOUT, specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "flows/checkout.spec.ts");
+  }));
+
+test("generate() fails with the typed error when a delivered spec climbs out of the spec directory", () =>
+  withMirror(async ({ mirror, specDir }) => {
+    const ports = fakeGenerationPorts();
+    ports.verdicts.parseGenerator = () => ({ specs: ["../../secret.txt"], note: "ok" });
+    const adapter = new GenerationPortAdapter(
+      new GenerateTestsUseCase(ports),
+      { ...STATIC_CONTEXT, mirrorDir: mirror, needsReview: false },
+      { readSpecSource: readConfinedSpecFile },
+    );
+
+    await assert.rejects(adapter.generate(CHECKOUT, specDir), (err: unknown) => err instanceof ConfinedPathError && err.path === "../../secret.txt");
+  }));
 
 test("generate() omits specSources when no readSpecSource collaborator is injected", async () => {
   const ports = fakeGenerationPorts();

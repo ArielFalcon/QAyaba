@@ -316,6 +316,17 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     /* Both adapter tests drive real git repositories per case. */
     concurrency: 2,
   },
+  "spec-path-confinement": {
+    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor), with the three sites that read a delivered spec through it",
+    mutate: ["qa-engine/src/shared-infrastructure/spec-path-confinement.ts"],
+    tests: [
+      "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
+      `${ORCH_TEST}/infrastructure/bridges/generation-port.adapter.test.ts`,
+      `${ORCH_TEST}/infrastructure/bridges/review-dom-grounding-port.adapter.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "run-decision": {
     description: "run decision: verdict → side effect (pr/issue/shadow-log/quarantine/none)",
     mutate: [`${ORCH}/domain/run-decision.service.ts`, `${ORCH}/domain/run-decision.ts`],
