@@ -264,6 +264,28 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
+  "step-limit": {
+    description: "step limit: the cap each role runs under, read live from the runtime (the agent-list read, the judgment of a cap, the OpenCode mapping and its warnings, the facades' routing by provider) and the baked reader's order of names",
+    mutate: [
+      "src/agent-runtime/step-limit.ts",
+      /* Only the lines that read, judge and route a limit: the rest of these modules is other code. */
+      "src/agent-runtime/opencode-strategy.ts:85-102",
+      "src/agent-runtime/opencode-strategy.ts:158-166",
+      "src/agent-runtime/facades.ts:49-51",
+      "src/agent-runtime/facades.ts:103-115",
+      "src/integrations/opencode-client.ts:201-202",
+      "src/integrations/opencode-client.ts:314-316",
+      "src/integrations/opencode-client.ts:324-334",
+    ],
+    tests: [
+      "src/agent-runtime/step-limit.test.ts",
+      "src/agent-runtime/opencode-strategy.test.ts",
+      "src/agent-runtime/facades.test.ts",
+      "src/integrations/opencode-agents.test.ts",
+      "src/integrations/opencode-client.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
   "merge-guard": {
     description: "self-maintainer auto-merge gates: protected paths, change/rate limits",
     mutate: ["src/server/merge-guard.ts"],

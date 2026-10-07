@@ -3,13 +3,15 @@
    dangerous ways that erodes silently are (a) adding an MCP server that can execute the
    authoritative test suite or reach the orchestrator's write path, and (b) flipping a read-only
    judge/assistant/reflector to writable or MCP-capable. Both should force a pause.
-   array and a `steps` field. Neither exists in the OpenCode 1.17.7 SDK's `AgentConfig` — verified
+   array. It does not exist in the OpenCode 1.17.7 SDK's `AgentConfig` — verified
    against `node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts`, which declares `tools?:
    {[key:string]: boolean}`, `maxSteps?: number`, `permission?`, `mode?`, and NO `mcp` key. The old
-   test was certifying a security posture the runtime never enforced (the fictional fields were
-   silently ignored by OpenCode). This version:
+   test was certifying a security posture the runtime never enforced (the fictional field was
+   silently ignored by OpenCode). The step cap goes by two names: `steps` (declared by the v2
+   `AgentConfig`, and what `GET /agent` returns) and the legacy `maxSteps`, which the server maps into
+   it. This version:
    (a) pins the config against the SDK's real `AgentConfig` type at compile time (below);
-   (b) asserts the fiction is gone (no per-agent `mcp` arrays, no `steps` keys);
+   (b) asserts the fiction is gone (no per-agent `mcp` arrays) and that an agent names its step cap once;
    (c) asserts the REAL denial mechanism — `tools.<key>: false` — covers every MCP toolset for
    read-only/tool-less roles.
    Empirical grounding (done in-slice, not assumed): started a real `opencode serve` (v1.17.13,
@@ -208,6 +210,20 @@ function agentTools(agent: unknown): Record<string, unknown> {
   return tools && typeof tools === "object" ? (tools as Record<string, unknown>) : {};
 }
 
+/* The names an agent's step cap goes by: `steps`, which the SDK's v2 AgentConfig declares and the server
+   returns, and the legacy `maxSteps`, which the server maps into it (`steps` first). */
+const STEP_CAP_FIELDS = ["steps", "maxSteps"] as const;
+
+/* What is wrong with the step cap an agent declares, or undefined: both names at once (the server reads
+   `steps` and ignores `maxSteps`, so one of the two numbers is dead) or no numeric cap at all. */
+function stepCapProblem(agent: unknown): string | undefined {
+  const cfg = agent as Record<string, unknown>;
+  const declared = STEP_CAP_FIELDS.filter((field) => field in cfg);
+  if (declared.length > 1) return `declares both ${declared.join(" and ")}`;
+  const [only] = declared;
+  return only !== undefined && typeof cfg[only] === "number" ? undefined : `declares no numeric step cap (${STEP_CAP_FIELDS.join(" or ")})`;
+}
+
 /* Type-level tripwire: every declared agent must structurally satisfy the SDK's REAL
    AgentConfig type. This forces a compile error the moment someone re-introduces a field the SDK
    does not recognize as a KNOWN key with the wrong shape (e.g. `mode: "invalid-value"`), or a wrong
@@ -235,7 +251,7 @@ test("every agent in opencode.json structurally satisfies the SDK's AgentConfig 
   assertAgentConfigShape(agents);
 });
 
-test("the fiction is gone: no per-agent `mcp` array and no `steps` field remain", () => {
+test("the fiction is gone: no per-agent `mcp` array remains", () => {
   const { agents } = loadAgentConfig();
   for (const [name, agent] of Object.entries(agents)) {
     const cfg = agent as Record<string, unknown>;
@@ -246,13 +262,15 @@ test("the fiction is gone: no per-agent `mcp` array and no `steps` field remain"
         `OpenCode 1.17.7 AgentConfig and is silently ignored by the runtime — it is inert and must not ` +
         `be reintroduced as a stand-in for real tool denial.`,
     );
-    assert.equal(
-      "steps" in cfg,
-      false,
-      `agent "${name}" still declares a "steps" field. The SDK field is "maxSteps" — "steps" is not ` +
-        `read by OpenCode 1.17.7 and is inert.`,
-    );
   }
+});
+
+test("an agent names its step cap once: `steps`, or the legacy `maxSteps` the server maps into it", () => {
+  assert.equal(stepCapProblem({ steps: 40 }), undefined);
+  assert.equal(stepCapProblem({ maxSteps: 30 }), undefined);
+  assert.match(stepCapProblem({ steps: 40, maxSteps: 30 })!, /both steps and maxSteps/, "the server reads steps and ignores maxSteps, so naming both hides one of them");
+  assert.match(stepCapProblem({})!, /no numeric step cap/);
+  assert.match(stepCapProblem({ steps: "40" })!, /no numeric step cap/);
 });
 
 test("no dead top-level compaction/tool_output keys remain in opencode.json", () => {
@@ -261,11 +279,10 @@ test("no dead top-level compaction/tool_output keys remain in opencode.json", ()
   assert.equal("tool_output" in raw, false, "top-level 'tool_output' is not part of AgentConfig/opencode.json's real schema and was inert");
 });
 
-test("every agent declares maxSteps (the real step-cap field)", () => {
+test("every agent in opencode.json declares one numeric step cap", () => {
   const { agents } = loadAgentConfig();
   for (const [name, agent] of Object.entries(agents)) {
-    const cfg = agent as Record<string, unknown>;
-    assert.equal(typeof cfg.maxSteps, "number", `agent "${name}" must declare a numeric "maxSteps"`);
+    assert.equal(stepCapProblem(agent), undefined, `agent "${name}": ${stepCapProblem(agent)}`);
   }
 });
 

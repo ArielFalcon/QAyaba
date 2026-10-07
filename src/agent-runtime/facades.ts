@@ -2,12 +2,14 @@ import type { AgentDeps, AgentSession } from "../integrations/opencode-client";
 import type { LiveActivity } from "../integrations/opencode-client";
 import type { RunEventBody } from "../contract/events";
 import {
+  AGENT_ROLES,
   AgentFacade,
   AgentModelInfo,
   AgentProvider,
   AgentProviderHealth,
   AgentRuntimeConfig,
   AgentRuntimeStrategy,
+  StepLimits,
   assignmentForRole,
   roleForLegacyAgent,
 } from "./types";
@@ -41,6 +43,11 @@ export class SingleAgentFacade implements AgentFacade {
   async listModels(provider?: AgentProvider): Promise<AgentModelInfo[]> {
     if (provider && provider !== this.strategy.provider) return [];
     return (await this.strategy.listModels()).map((m) => ({ ...m, provider: this.strategy.provider }));
+  }
+
+  /* Every role runs on the one strategy; a strategy that reports no limit makes no statement. */
+  async stepLimits(directory: string): Promise<StepLimits> {
+    return (await this.strategy.stepLimits?.(directory)) ?? {};
   }
 
   startEventStream(
@@ -86,6 +93,25 @@ export class DualAgentFacade implements AgentFacade {
     const providers: AgentProvider[] = provider ? [provider] : ["opencode", "codex"];
     const lists = await Promise.all(providers.map(async (p) => (await this.strategies[p].listModels()).map((m) => ({ ...m, provider: p }))));
     return lists.flat();
+  }
+
+  /*
+   * A role takes its limit from the provider it is assigned to, never from another provider that also reports
+   * one for it. Each provider that runs a role is read once, however many roles it runs; one that runs none is
+   * not read; one that reports no limit leaves its roles absent.
+   */
+  async stepLimits(directory: string): Promise<StepLimits> {
+    const providers: AgentProvider[] = ["opencode", "codex"];
+    const limits: StepLimits = {};
+    await Promise.all(
+      providers.map(async (provider) => {
+        const runs = new Set<string>(AGENT_ROLES.filter((role) => assignmentForRole(this.config, role).provider === provider));
+        if (runs.size === 0) return;
+        const enforced = (await this.strategies[provider].stepLimits?.(directory)) ?? {};
+        Object.assign(limits, Object.fromEntries(Object.entries(enforced).filter(([role]) => runs.has(role))));
+      }),
+    );
+    return limits;
   }
 
   async startEventStream(

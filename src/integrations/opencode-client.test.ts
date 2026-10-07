@@ -1296,6 +1296,26 @@ test("maxStepsFromConfig reads the configured step limit of the acting agent", (
   assert.equal(maxStepsFromConfig("qa-reviewer", path), 10);
 });
 
+test("maxStepsFromConfig reads the limit under either name: steps, else the legacy maxSteps", (t) => {
+  const { path, cleanup } = writeAgentsConfig({
+    agent: { "qa-steps": { steps: 40 }, "qa-legacy": { maxSteps: 30 }, "qa-both": { steps: 40, maxSteps: 30 }, "qa-null-steps": { steps: null, maxSteps: 30 } },
+  });
+  t.after(cleanup);
+  assert.equal(maxStepsFromConfig("qa-steps", path), 40);
+  assert.equal(maxStepsFromConfig("qa-legacy", path), 30);
+  assert.equal(maxStepsFromConfig("qa-both", path), 40, "steps wins, as it does in the server's own reading");
+  assert.equal(maxStepsFromConfig("qa-null-steps", path), 30, "a null steps is no steps");
+});
+
+test("maxStepsFromConfig reports a steps that is not a number, naming the agent, and does not fall back to maxSteps", (t) => {
+  const errors = t.mock.method(console, "error", () => {});
+  const { path, cleanup } = writeAgentsConfig({ agent: { "qa-y": { steps: "many", maxSteps: 30 } } });
+  t.after(cleanup);
+  for (let turn = 0; turn < 3; turn++) assert.equal(maxStepsFromConfig("qa-y", path), undefined);
+  assert.equal(errors.mock.callCount(), 1, "one report, not one per turn");
+  assert.match(String(errors.mock.calls[0]!.arguments[0]), /qa-y/);
+});
+
 test("maxStepsFromConfig is undefined for an unknown agent, an agent with no limit, or a non-numeric limit", (t) => {
   const { path, cleanup } = writeAgentsConfig({ agent: { "qa-generator": { maxSteps: 50 }, "qa-x": {}, "qa-y": { maxSteps: "many" } } });
   t.after(cleanup);

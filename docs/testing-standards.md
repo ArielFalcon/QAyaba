@@ -353,6 +353,23 @@ routes reaching one page, the one between several advisory sections of a split c
 of the first part of that split (a split always yields one part). No test pins them and none is
 triaged yet, so none is listed as a documented survivor. **After** is pending that triage.
 
+step-limit (2026-10-07, default workers, 73 mutants, 26 of them compile errors, 45 seconds) is a new preset
+over the lines that read a step limit and the lines that route it: `enforcedStepLimit` (a safe positive
+integer, else none), the agent-list read of `listAgentCaps` (the request for a directory, the order of a
+cap's two names, what a failed read or a reply that is no list throws), the two lines of the baked config
+reader that choose between the same two names, the OpenCode strategy's mapping of each role to its agent
+with the warning for a role left without a limit, and the two facades' routing of each role to the provider
+it is assigned to. It runs against their own tests and the config reader's; the agent-list read is driven
+through the real v2 SDK client with only the network faked. **Before** is its first run: 43 killed and 4
+survived, all four in what a failure or a warning says rather than in what it decides: the text for a role
+listed without a cap (dropped, or told as an unusable cap) and the status of a failed reply (made up for a
+reply that never came). Each is data a test can pin, so none was listed: the warning carries its agent's
+name and never a value for a missing cap, and a read that never got a reply carries no status. **After** is
+the re-run; it has no documented survivors. The compile errors are mutants the type system refuses, such as
+a dropped optional chain on a value that can be absent. Nothing else of the slice is outside the preset
+except the wiring that picks the real read when no test supplies one, a deliberately uncovered boundary
+(it would reach the network).
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -372,6 +389,7 @@ triaged yet, so none is listed as a documented survivor. **After** is pending th
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | — | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 506 / 6 / 4 — 99.22% (98.06%) | — |
+| step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits | 43 / 0 / 4 — 91.49% (91.49%) | 47 / 0 / 0 — 100% (100%) | — |
 
 ### Login discovery script (manual triangulation)
 

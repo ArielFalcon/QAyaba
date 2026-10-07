@@ -6,6 +6,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { Agent as OpenCodeAgent } from "@opencode-ai/sdk/v2";
 
 import { RunMode } from "../types";
 import { parseExplorationBrief, coerceExplorationBrief, renderExplorationBrief } from "../qa/exploration-brief";
@@ -98,7 +99,7 @@ export {
 export type { AgentDeps, AgentSession, AgentOpenDescriptor, AgentTurnEvent, UsageSnapshot };
 
 interface AgentsConfig {
-  agent?: Record<string, { maxSteps?: unknown } | undefined>;
+  agent?: Record<string, { steps?: unknown; maxSteps?: unknown } | undefined>;
   model_fallback?: Record<string, unknown>;
 }
 
@@ -181,21 +182,27 @@ function getFallbackModel(agent: string): string | undefined {
 }
 
 /*
- * The acting agent's step limit from opencode.json (`agent.<id>.maxSteps`) — the same limit the
- * OpenCode server enforces — so a turn's exhaustion is reported against the real budget, never a
+ * The acting agent's step limit from opencode.json: `agent.<id>.steps`, else the legacy
+ * `agent.<id>.maxSteps` — the order in which the OpenCode server maps them into the one cap it
+ * enforces — so a turn's exhaustion is reported against the budget the file declares, never a
  * hardcoded copy. Undefined when the file, the agent or a limit is absent; a file that cannot be
  * parsed, or a limit that is not a number, is reported on the error log (once per version of the
  * file) and reads as absent.
+ *
+ * This is the local copy of a limit the server enforces from ITS configuration, which can differ
+ * (a bind-mounted file, a project's own opencode.json): it serves the exhaustion report alone and is
+ * not a source for any prompt. A number a prompt states comes from `listAgentCaps`.
  */
 export function maxStepsFromConfig(
   agent: string,
   configPath: string = DEFAULT_AGENTS_CONFIG_PATH(),
 ): number | undefined {
   const entry = readAgentsConfigEntry(configPath);
-  const limit: unknown = entry?.config?.agent?.[agent]?.maxSteps;
+  const declared = entry?.config?.agent?.[agent];
+  const limit: unknown = declared?.steps ?? declared?.maxSteps;
   if (limit === undefined) return undefined;
   if (typeof limit !== "number") {
-    reportUnusableSetting(entry!, configPath, `agent.${agent}.maxSteps`, `maxSteps for '${agent}' is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
+    reportUnusableSetting(entry!, configPath, `agent.${agent}.steps`, `the step limit of '${agent}' (steps, or the legacy maxSteps) is not a number (${JSON.stringify(limit)}); step-budget telemetry reports an unknown limit`);
     return undefined;
   }
   return limit;
@@ -224,9 +231,9 @@ async function getSharedClient() {
 }
 
 /*
- * Separate v2 SDK client, used ONLY for the live event subscription (observability
- * path). Sessions/verdict stay on the v1 blocking client above — the deliberate
- * split: events→v2 scoped subscribe (advisory-only, zero
+ * Separate v2 SDK client, used for the live event subscription (observability path) and the
+ * read-only agent list (`listAgentCaps`), whose element type only v2 declares. Sessions/verdict stay
+ * on the v1 blocking client above — the deliberate split: events and reads→v2 (advisory-only, zero
  * verdict risk), generation/verdict→v1 blocking prompt (the determinism keystone).
  */
 let sharedEventClient: ReturnType<typeof import("@opencode-ai/sdk/v2").createOpencodeClient> | undefined;
@@ -277,6 +284,54 @@ export function createRawEventStreamOpener(deps: EventStreamOpenerDeps): RawEven
   };
 }
 setRawEventStreamOpener(createRawEventStreamOpener({ getEventClient }));
+
+
+/* What the agent-list primitive needs from the SDK, injected so its request and its reading are testable over a faked network. */
+export interface AgentListDeps {
+  getClient(): Promise<Pick<Awaited<ReturnType<typeof getEventClient>>, "app">>;
+}
+
+export const defaultAgentListDeps: AgentListDeps = { getClient: getEventClient };
+
+/*
+ * An agent the server resolved and the cap it enforces, as the server sent it: undefined when the
+ * agent is listed without one, any other value for the caller to judge (a cap is only a limit when
+ * `enforcedStepLimit` says so).
+ */
+export interface AgentCap {
+  name: string;
+  cap: unknown;
+}
+
+/*
+ * An agent as the server answers it. `steps` is the cap: the server maps a configured `maxSteps`
+ * into it, and answers null (not an absent key) for a configured agent with no cap. The legacy
+ * `maxSteps` is not on the SDK's v2 `Agent`; it is read only when `steps` is absent, for a server
+ * that still answers the old name.
+ */
+type AgentOnTheWire = Pick<OpenCodeAgent, "name" | "steps"> & { maxSteps?: unknown };
+
+function describeFailure(error: unknown): string {
+  return error instanceof Error ? error.message : JSON.stringify(error);
+}
+
+/*
+ * The agents the OpenCode server resolves for `directory` — its own configuration merged with the
+ * directory's — each with the step cap it enforces there: `GET /agent?directory=…`, the same directory
+ * a session is created in. A failure to read, or a reply that is not a list of agents, throws; what to
+ * do about it is the caller's decision, never an empty list.
+ */
+export async function listAgentCaps(directory: string, deps: AgentListDeps = defaultAgentListDeps): Promise<ReadonlyArray<AgentCap>> {
+  const client = await deps.getClient();
+  const res = await client.app.agents({ directory });
+  if (res.error) {
+    const status = res.response?.status;
+    throw new Error(`OpenCode app.agents failed${status === undefined ? "" : ` (HTTP ${status})`}: ${describeFailure(res.error)}`);
+  }
+  if (!Array.isArray(res.data)) throw new Error(`OpenCode app.agents returned no list of agents: ${JSON.stringify(res.data)}`);
+  const agents: ReadonlyArray<AgentOnTheWire> = res.data;
+  return agents.map((agent) => ({ name: agent.name, cap: agent.steps ?? agent.maxSteps }));
+}
 
 
 export function getOpenSessions(): ReturnType<typeof engineGetOpenSessions> {

@@ -146,6 +146,21 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
+test("the step-limit preset mutates the resolver, the lines that read, judge and route a limit and the agent-list read, against their own tests", () => {
+  const preset = PRESETS["step-limit"];
+  assert.ok(preset, "the step-limit preset exists");
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
+    "src/agent-runtime/step-limit.ts",
+    "src/agent-runtime/opencode-strategy.ts",
+    "src/agent-runtime/facades.ts",
+    "src/integrations/opencode-client.ts",
+  ]);
+  for (const module of ["step-limit", "opencode-strategy", "facades", "opencode-agents", "opencode-client"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s tests run against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
 test("a mutant run executes only the preset's own test files, under the tracked-tree write guard", () => {
   const preset: MutationPreset = {
     description: "x",

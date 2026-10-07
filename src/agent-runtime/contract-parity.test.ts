@@ -8,6 +8,8 @@
    - startEventStream: OpenCode has a live SSE bus; Codex is exec-per-prompt (no-op stream,
      activity inline via mapCodexExecEvent).
    - cleanupOrphans: OpenCode has long-lived sessions; Codex is one-shot, no sessions to clean.
+   - stepLimits: OpenCode reports the per-turn step cap it enforces; Codex has none to report — omitting
+     stepLimits rather than fabricating a number.
  */
 
 import { describe, it } from "node:test";
@@ -34,6 +36,11 @@ const ALLOWED_ASYMMETRIES: Record<string, string> = {
   cleanupOrphans:
     "OpenCode has long-lived sessions that can leak; Codex exec is one-shot with no sessions. " +
     "cleanupOrphans is legitimately absent on CodexRuntimeStrategy.",
+  stepLimits:
+    "OpenCode enforces a cap on the steps of a prompt turn and can report it per directory. Nothing in the " +
+    "Codex strategy's configuration or its exec arguments caps the steps of a turn, so it has no limit to " +
+    "report: a number from it would be made up. stepLimits is legitimately absent on CodexRuntimeStrategy, " +
+    "its roles carry no limit, and no prompt states one for them.",
 };
 
 /* ---------------------------------------------------------------------------
@@ -90,6 +97,12 @@ const OBSERVABLE_CONTRACT: Array<{ name: string; probe: (s: AgentRuntimeStrategy
     /* restart: both strategies must support restart (graceful API-key rotation / recovery). */
     name: "restart",
     probe: (s) => typeof s.restart === "function",
+  },
+  {
+    /* stepLimits: the per-turn step limit each role runs under, read live from the runtime. Codex makes
+       no statement (documented asymmetry); OpenCode's own implementation is pinned by its strategy tests. */
+    name: "stepLimits",
+    probe: (s) => typeof s.stepLimits === "function",
   },
   {
     /* infra-error classification: both strategies must throw AgentUnavailableError for auth/credits

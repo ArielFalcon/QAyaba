@@ -3,7 +3,9 @@ import { join } from "node:path";
 import {
   defaultAgentDeps,
   disposeSharedClient,
+  listAgentCaps,
   startActivitySink,
+  type AgentCap,
   type LiveActivity,
   type AgentDeps,
   type AgentOpenDescriptor,
@@ -11,13 +13,16 @@ import {
 } from "../integrations/opencode-client";
 import type { RunEventBody } from "../contract/events";
 import type { UsageSnapshot } from "../qa/usage";
+import { enforcedStepLimit } from "./step-limit";
 import {
   AGENT_NAME_FOR_ROLE,
+  AGENT_ROLES,
   type AgentModelInfo,
   type AgentProviderHealth,
   type AgentRole,
   type AgentRuntimeSession,
   type AgentRuntimeStrategy,
+  type StepLimits,
 } from "./types";
 
 interface OpenCodeRuntimeStrategyOptions {
@@ -30,6 +35,8 @@ interface OpenCodeRuntimeStrategyOptions {
   ) => Promise<void>;
   dispose?: () => void;
   configPath?: string;
+  /* The agents the server resolves for a directory, each with its cap: the live read unless a test supplies one. */
+  listAgentCaps?: (directory: string) => Promise<ReadonlyArray<AgentCap>>;
 }
 
 /* Used only when opencode.json is missing; keep aligned with agents/opencode.json. */
@@ -47,6 +54,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
   private readonly startEvents: NonNullable<OpenCodeRuntimeStrategyOptions["startEvents"]>;
   private readonly disposeClient: () => void;
   private readonly configPath: string;
+  private readonly listCaps: NonNullable<OpenCodeRuntimeStrategyOptions["listAgentCaps"]>;
 
   constructor(opts: OpenCodeRuntimeStrategyOptions = {}) {
     this.env = opts.env ?? process.env;
@@ -54,6 +62,7 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     this.startEvents = opts.startEvents ?? startActivitySink;
     this.disposeClient = opts.dispose ?? disposeSharedClient;
     this.configPath = opts.configPath ?? join(process.cwd(), "agents", "opencode.json");
+    this.listCaps = opts.listAgentCaps ?? ((directory) => listAgentCaps(directory));
   }
 
   async health(): Promise<AgentProviderHealth> {
@@ -65,6 +74,31 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
 
   async listModels(): Promise<AgentModelInfo[]> {
     return modelsFromOpenCodeConfig(this.configPath);
+  }
+
+  /*
+   * What the server enforces, never what a local file says: one read of the agents it resolves for `directory`,
+   * each role taking the cap of its own agent. A role whose agent is not listed, is listed without a cap or lists
+   * one that is not a safe positive integer is absent, with a warning that names it; a read that fails answers no
+   * limit for any role, with one warning. The caller reads once per run.
+   */
+  async stepLimits(directory: string): Promise<StepLimits> {
+    let listed: ReadonlyArray<AgentCap>;
+    try {
+      listed = await this.listCaps(directory);
+    } catch (err) {
+      console.warn(`[qa] step limits for ${directory} are unavailable (${err instanceof Error ? err.message : String(err)}); no prompt states a limit`);
+      return {};
+    }
+    const capOf = new Map<string, unknown>(listed.map(({ name, cap }) => [name, cap]));
+    const limits: StepLimits = {};
+    for (const role of AGENT_ROLES) {
+      const agent = AGENT_NAME_FOR_ROLE[role];
+      const limit = enforcedStepLimit(capOf.get(agent));
+      if (limit === undefined) console.warn(noLimitWarning(role, agent, capOf));
+      else limits[role] = limit;
+    }
+    return limits;
   }
 
   async openSession(
@@ -114,6 +148,21 @@ export class OpenCodeRuntimeStrategy implements AgentRuntimeStrategy {
     this.depsPromise ??= this.depsFactory();
     return this.depsPromise;
   }
+}
+
+/*
+ * Why a role has no step limit, for the operator, from the caps the server listed by agent name: its agent is
+ * not listed (the warning then names the agents the server does list), is listed without a cap, or lists a cap
+ * that cannot be a limit (the warning then carries it).
+ */
+function noLimitWarning(role: AgentRole, agent: string, capOf: ReadonlyMap<string, unknown>): string {
+  const cap = capOf.get(agent);
+  const problem = !capOf.has(agent)
+    ? `does not list its agent '${agent}' (it lists ${JSON.stringify([...capOf.keys()])})`
+    : cap === undefined
+      ? `lists its agent '${agent}' without a cap`
+      : `lists its agent '${agent}' with a cap that is not a positive integer (${JSON.stringify(cap)})`;
+  return `[qa] no step limit for role '${role}': the OpenCode runtime ${problem}; its prompts state no limit`;
 }
 
 async function supervisorHealth(env: Record<string, string | undefined>, provider: "opencode"): Promise<AgentProviderHealth | undefined> {

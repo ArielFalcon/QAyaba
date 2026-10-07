@@ -54,10 +54,19 @@ export interface AgentModelInfo {
 
 export interface AgentRuntimeSession extends AgentSession {}
 
+/* The step limit each role runs under, in steps per prompt turn. A role the runtime enforces no limit for is absent: nothing is defaulted. */
+export type StepLimits = Partial<Record<AgentRole, number>>;
+
 export interface AgentRuntimeStrategy {
   provider: AgentProvider;
   health(): Promise<AgentProviderHealth>;
   listModels(): Promise<AgentModelInfo[]>;
+  /**
+   * The step limit the runtime enforces for each role it runs, read live for `directory` (the runtime's own
+   * configuration, merged with the directory's). Optional: a runtime that enforces no limit it can report
+   * makes no statement, and its roles are absent.
+   */
+  stepLimits?(directory: string): Promise<StepLimits>;
   /** Usage is observation-only (never a verdict input). Each prompt emits an AgentTurnEvent so agent_turns persist with a real run_id. */
   openSession(
     role: AgentRole,
@@ -88,6 +97,8 @@ export interface AgentFacade {
   deps(): AgentFacadeDeps;
   getStatus(): Promise<{ mode: AgentMode; providers: AgentProviderHealth[] }>;
   listModels(provider?: AgentProvider): Promise<AgentModelInfo[]>;
+  /** The step limit each role runs under, from the provider the role is assigned to; a role whose provider reports none is absent. */
+  stepLimits(directory: string): Promise<StepLimits>;
   startEventStream?(
     onActivity: (a: LiveActivity) => void,
     signal?: AbortSignal,
@@ -112,6 +123,9 @@ export const AGENT_NAME_FOR_ROLE: Readonly<Record<AgentRole, string>> = {
   explorer: EXPLORER_AGENT_NAME,
   proposer: "qa-proposer",
 };
+
+/* Every role, in the order of the one table above: a role cannot exist without an agent name, and cannot be left out of this list. */
+export const AGENT_ROLES: readonly AgentRole[] = Object.keys(AGENT_NAME_FOR_ROLE) as AgentRole[];
 
 const ROLE_FOR_AGENT_NAME: ReadonlyMap<string, AgentRole> = new Map(
   (Object.entries(AGENT_NAME_FOR_ROLE) as Array<[AgentRole, string]>).map(([role, name]) => [name, role]),
