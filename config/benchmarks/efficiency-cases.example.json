@@ -2,14 +2,16 @@
   {
     "name": "example-app-a-single-commit",
     "app": "example-app-a",
-    "sha": "0000000000000000000000000000000000000a"
+    "sha": "0000000000000000000000000000000000000a",
+    "tier": "tiny"
   },
   {
     "name": "example-app-a-commit-range",
     "app": "example-app-a",
     "sha": "0000000000000000000000000000000000000b",
     "baseSha": "0000000000000000000000000000000000000c",
-    "mode": "diff"
+    "mode": "diff",
+    "tier": "focused"
   },
   {
     "name": "example-app-b-guided",
@@ -25,5 +27,11 @@
     "sha": "0000000000000000000000000000000000000e",
     "mode": "manual",
     "guidance": "Name a change that has no user-visible behavior. The right outcome is no specs and a declared no-op with its reason (skipped), never a run that exhausts its steps."
+  },
+  {
+    "name": "example-app-b-complete",
+    "app": "example-app-b",
+    "sha": "0000000000000000000000000000000000000f",
+    "mode": "complete"
   }
 ]

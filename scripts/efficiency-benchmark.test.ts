@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
 import { loadEfficiencyBenchmarkCases } from "./efficiency-benchmark.ts";
 
 test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed benchmark covering a plain, a ranged and a guided case", () => {
@@ -15,6 +16,8 @@ test("loadEfficiencyBenchmarkCases: the tracked example set is a well-formed ben
   assert.ok(cases.some((c) => c.baseSha !== undefined), "one example shows a commit range");
   assert.ok(cases.some((c) => c.guidance !== undefined), "one example shows guidance");
   assert.ok(cases.some((c) => c.name.includes("no-op")), "one example is a deliberate no-op, the case a step-exhausted run must never be mistaken for");
+  assert.ok(cases.some((c) => c.tier !== undefined), "one example shows the optional tier");
+  assert.ok(cases.some((c) => c.mode === "complete"), "one example is a complete-mode case, the kind the operator note asks for besides the diff cases");
   for (const c of cases) assert.match(c.sha, /^[0-9a-f]{7,40}$/);
 });
 
@@ -123,4 +126,44 @@ test("loadEfficiencyBenchmarkCases: an empty baseSha means no range, as the serv
   const path = join(dir, "efficiency-cases.json");
   writeFileSync(path, JSON.stringify([{ name: "no-range", app: "demo", sha: "abc1234", baseSha: "" }]));
   assert.deepEqual(loadEfficiencyBenchmarkCases(path).map((c) => c.name), ["no-range"]);
+});
+
+test("loadEfficiencyBenchmarkCases: the optional tier accepts every size class, and a case that declares none has none", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "efficiency-cases.json");
+  writeFileSync(path, JSON.stringify([
+    ...DIFF_TIER_NAMES.map((tier) => ({ name: `case-${tier}`, app: "demo", sha: "abc1234", tier })),
+    { name: "case-undeclared", app: "demo", sha: "abc1234" },
+  ]));
+  assert.deepEqual(loadEfficiencyBenchmarkCases(path).map((c) => c.tier), [...DIFF_TIER_NAMES, undefined]);
+});
+
+test("loadEfficiencyBenchmarkCases: a tier that is not a size class is rejected, naming the case, the value and the size classes", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "efficiency-cases.json");
+  for (const bad of ["tinny", "TINY", ""]) {
+    writeFileSync(path, JSON.stringify([{ name: "typo", app: "demo", sha: "abc1234", tier: bad }]));
+    assert.throws(
+      () => loadEfficiencyBenchmarkCases(path),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : "";
+        assert.match(message, /case 'typo'/, `tier ${JSON.stringify(bad)}: names the case`);
+        assert.ok(message.includes(JSON.stringify(bad)), `tier ${JSON.stringify(bad)}: carries the offending value`);
+        for (const name of DIFF_TIER_NAMES) assert.ok(message.includes(name), `tier ${JSON.stringify(bad)}: lists the size class ${name}`);
+        return true;
+      },
+    );
+  }
+});
+
+test("loadEfficiencyBenchmarkCases: a tier that is not even a string fails the form check", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "efficiency-benchmark-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "efficiency-cases.json");
+  for (const bad of [2, null, ["tiny"], { name: "tiny" }]) {
+    writeFileSync(path, JSON.stringify([{ name: "typo", app: "demo", sha: "abc1234", tier: bad }]));
+    assert.throws(() => loadEfficiencyBenchmarkCases(path), /must be a JSON array of EfficiencyBenchmarkCase objects/, JSON.stringify(bad));
+  }
 });

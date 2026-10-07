@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
 import { readRegistry, runBenchmark } from "./efficiency-benchmark.ts";
 
 interface FakeService {
@@ -110,6 +111,16 @@ test("each case is submitted with its own sha, range start, mode, target and gui
   assert.equal("baseSha" in service.posts[1]!, false);
   assert.equal(service.posts[2]!.guidance, "test the search box");
   assert.equal(service.posts[2]!.target, "code");
+});
+
+test("a case's declared tier is the benchmark's own bookkeeping: the service never receives it", async (t) => {
+  const { casesPath, resultsDir } = workspace(t, [{ name: "tiny-case", app: "demo", sha: "aaaaaaa", tier: DIFF_TIER_NAMES[0] }]);
+  const service = fakeService();
+
+  const result = await runBenchmark("after", { casesPath, resultsDir, service: { fetch: service.fetch, baseUrl: "http://svc", pollMs: 1 } });
+
+  assert.deepEqual(result.completed.map((c) => c.caseName), ["tiny-case"]);
+  assert.equal("tier" in service.posts[0]!, false);
 });
 
 test("every run id is remembered under the label, keyed by case name", async (t) => {

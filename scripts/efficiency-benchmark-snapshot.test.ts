@@ -16,6 +16,7 @@ import {
 } from "./efficiency-benchmark.ts";
 import { PRE_GENERATION_GROUNDING_STEP_DETAIL } from "@kernel/run-step.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
+import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
 import type { AgentTurnRecord } from "../src/server/history.ts";
 
@@ -72,7 +73,37 @@ test("the guardrails are read from the run's recorded outcome and result", () =>
   const { guardrails } = measureRun("run-1", source())!;
   assert.deepEqual(guardrails, {
     verdict: "pass", specsProduced: 1, staticPass: true, executePass: true, coverageRatio: 0.8, reviewerApproved: true, errorClass: null,
+    preExecAmbiguityCatches: null, deterministicSelectorBlocks: null, catalogGateFailClosed: null,
   });
+});
+
+test("the three gate-signal guardrails are read from the run's recorded gate signals", () => {
+  const { guardrails } = measureRun("run-1", source({
+    outcome: outcome({ preExecAmbiguityCatches: 3, deterministicSelectorBlocks: 1, catalogGateFailClosed: 2 }),
+  }))!;
+  assert.equal(guardrails.preExecAmbiguityCatches, 3);
+  assert.equal(guardrails.deterministicSelectorBlocks, 1);
+  assert.equal(guardrails.catalogGateFailClosed, 2);
+});
+
+test("a gate signal the run never recorded stays null, never a fabricated zero, while a recorded zero stays zero", () => {
+  const absent = measureRun("run-1", source({ outcome: outcome() }))!.guardrails;
+  assert.equal(absent.preExecAmbiguityCatches, null);
+  assert.equal(absent.deterministicSelectorBlocks, null);
+  assert.equal(absent.catalogGateFailClosed, null);
+
+  const oneRecorded = measureRun("run-1", source({ outcome: outcome({ catalogGateFailClosed: 0 }) }))!.guardrails;
+  assert.equal(oneRecorded.catalogGateFailClosed, 0, "the gate ran and found nothing to fail closed on");
+  assert.equal(oneRecorded.preExecAmbiguityCatches, null, "its neighbours stay unknown");
+  assert.equal(oneRecorded.deterministicSelectorBlocks, null);
+});
+
+test("with no outcome row at all the gate signals are unknown, not zero", () => {
+  const noOutcome: RunDataSource = { events: () => events, outcome: () => undefined, record: () => record(), turns: () => [] };
+  const { guardrails } = measureRun("run-1", noOutcome)!;
+  assert.equal(guardrails.preExecAmbiguityCatches, null);
+  assert.equal(guardrails.deterministicSelectorBlocks, null);
+  assert.equal(guardrails.catalogGateFailClosed, null);
 });
 
 test("the error class the run ended with is a guardrail, so runs can be compared by class", () => {
@@ -398,8 +429,8 @@ const measuredTurn = (round: number, overrides: Partial<AgentTurnRecord> = {}): 
 test("each generator turn is measured on its own, with the content-provided and the path-provided reads apart", () => {
   const measured = measureRun("run-1", source({ turns: [measuredTurn(0), measuredTurn(1)] }))!;
   assert.deepEqual(measured.turns, [
-    { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2 },
-    { round: 1, promptBytes: 5001, totalCalls: 11, callsBeforeFirstWrite: 7, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2 },
+    { round: 0, promptBytes: 5000, totalCalls: 10, callsBeforeFirstWrite: 6, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, stepsUsed: null, maxSteps: null },
+    { round: 1, promptBytes: 5001, totalCalls: 11, callsBeforeFirstWrite: 7, redundantReadCount: 2, promptProvidedReadCount: 1, pathProvidedReadCount: 3, codeRead: 4, memory: 2, stepsUsed: null, maxSteps: null },
   ]);
 });
 
@@ -407,8 +438,55 @@ test("a figure a turn did not record stays null, never a fabricated zero", () =>
   const bare = generatorTurn("done", { round: 0, promptBytes: 900 });
   const measured = measureRun("run-1", source({ turns: [bare] }))!;
   assert.deepEqual(measured.turns, [
-    { round: 0, promptBytes: 900, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null },
+    { round: 0, promptBytes: 900, totalCalls: null, callsBeforeFirstWrite: null, redundantReadCount: null, promptProvidedReadCount: null, pathProvidedReadCount: null, codeRead: null, memory: null, stepsUsed: null, maxSteps: null },
   ]);
+});
+
+test("each generator turn carries the steps it used and the step limit it was held to", () => {
+  const measured = measureRun("run-1", source({
+    turns: [measuredTurn(0, { stepsUsed: 12, maxSteps: 40 }), measuredTurn(1, { stepsUsed: 40, maxSteps: 40 })],
+  }))!;
+  assert.deepEqual(measured.turns?.map((t) => [t.stepsUsed, t.maxSteps]), [[12, 40], [40, 40]]);
+});
+
+test("a turn that recorded only one of steps used and the step limit keeps the other null", () => {
+  const measured = measureRun("run-1", source({
+    turns: [measuredTurn(0, { stepsUsed: 7 }), measuredTurn(1, { maxSteps: 25 })],
+  }))!;
+  assert.deepEqual(measured.turns?.map((t) => [t.stepsUsed, t.maxSteps]), [[7, null], [null, 25]]);
+});
+
+/* ── sessions ── */
+
+const inSession = (sessionId: string, overrides: Partial<AgentTurnRecord> = {}): AgentTurnRecord =>
+  generatorTurn("done", { sessionId, ...overrides });
+
+test("a run's sessions are the distinct sessions that recorded a turn: in total, and for the generator alone", () => {
+  const turns = [
+    inSession("gen-1"),
+    inSession("gen-1", { round: 1, isRepair: true }),
+    inSession("gen-2"),
+    inSession("rev-1", { role: "qa-reviewer" }),
+    inSession("plan-1", { objective: PLANNER_OBJECTIVE }),
+  ];
+  const measured = measureRun("run-1", source({ turns }))!;
+  assert.equal(measured.sessions?.total, 4, "gen-1, gen-2, rev-1 and plan-1; a repair turn shares its session");
+  assert.equal(measured.sessions?.generator, 2, "gen-1 and gen-2: the planner's objective turn is not the generator's");
+});
+
+test("a run in a single session has one session, and a run with no generator turn has none for the generator", () => {
+  const single = measureRun("run-1", source({ turns: [inSession("only"), inSession("only", { round: 1 })] }))!;
+  assert.equal(single.sessions?.total, 1);
+  assert.equal(single.sessions?.generator, 1);
+
+  const reviewerOnly = measureRun("run-1", source({ turns: [inSession("rev-1", { role: "qa-reviewer" })] }))!;
+  assert.equal(reviewerOnly.sessions?.total, 1);
+  assert.equal(reviewerOnly.sessions?.generator, 0, "turns were recorded and none of them is the generator's");
+});
+
+test("a run with no recorded turn has unknown sessions, never zero", () => {
+  const measured = measureRun("run-1", source({ turns: [] }))!;
+  assert.equal("sessions" in measured, false);
 });
 
 test("only the generator's own turns are measured: not the planner's objective turn and not another role's", () => {
@@ -439,4 +517,44 @@ test("a snapshot carries the per-turn figures as numbers only", (t) => {
   const written = readFileSync(join(dir, "after.snapshot.json"), "utf8");
   assert.equal(readSnapshot(dir, "after")?.cases.checkout?.data?.turns?.[0]?.pathProvidedReadCount, 3);
   assert.doesNotMatch(written, /promptText|outputText/);
+});
+
+/* ── the tier a case declares ── */
+
+const [SMALLEST_TIER, MIDDLE_TIER] = DIFF_TIER_NAMES;
+const at = () => "2026-09-28T12:00:00.000Z";
+
+test("a snapshot records the tier each case declares, and none for a case that declares none", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "declared-small", "run-1");
+  registerRun(dir, "after", "declared-middle", "run-2");
+  registerRun(dir, "after", "declares-nothing", "run-3");
+  const declared = new Map([["declared-small", SMALLEST_TIER], ["declared-middle", MIDDLE_TIER]]);
+
+  const snapshot = takeSnapshot("after", dir, () => source(), at, declared);
+
+  assert.equal(snapshot.cases["declared-small"]?.tier, SMALLEST_TIER);
+  assert.equal(snapshot.cases["declared-middle"]?.tier, MIDDLE_TIER);
+  assert.equal("tier" in snapshot.cases["declares-nothing"]!, false, "an undeclared tier is left off, never defaulted");
+});
+
+test("a case's declared tier is kept even when its run's data is gone or the run had not finished", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "pruned", "run-1");
+  registerRun(dir, "after", "going", "run-2");
+  const gone: RunDataSource = { events: () => [], outcome: () => undefined, record: () => undefined, turns: () => [] };
+  const sources: Record<string, RunDataSource> = { "run-1": gone, "run-2": inFlightSource() };
+
+  const snapshot = takeSnapshot("after", dir, (runId) => sources[runId]!, at, new Map([["pruned", SMALLEST_TIER], ["going", MIDDLE_TIER]]));
+
+  assert.deepEqual(snapshot.cases.pruned, { runId: "run-1", data: null, tier: SMALLEST_TIER });
+  assert.deepEqual(snapshot.cases.going, { runId: "run-2", data: null, notFinished: true, tier: MIDDLE_TIER });
+});
+
+test("the declared tier survives writing the snapshot and reading it back", (t) => {
+  const dir = resultsDir(t);
+  registerRun(dir, "after", "checkout", "run-1");
+  writeSnapshot(dir, takeSnapshot("after", dir, () => source(), at, new Map([["checkout", MIDDLE_TIER]])));
+
+  assert.equal(readSnapshot(dir, "after")?.cases.checkout?.tier, MIDDLE_TIER);
 });

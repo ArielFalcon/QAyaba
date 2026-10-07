@@ -11,6 +11,10 @@
  *   register <label> <case> <runId>      attach an already-finished run to a case of the label
  *   snapshot <label>                     freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json
  *   report <A> <B>                       compare two labels' snapshots
+ *
+ * Telemetry only: nothing here gates a run, changes a verdict or alters an exit status. A figure a
+ * run did not record is unknown (null, shown n/a), never a zero, and unknown figures stay out of
+ * every aggregate. The operator procedure is docs/efficiency-benchmark.md.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,6 +23,7 @@ import type { RunMode, TestTarget } from "@kernel/run-mode.ts";
 import type { RunEventBody } from "@kernel/contract/events.ts";
 import { QueueStatusSchema } from "@kernel/contract/commands.ts";
 import { classifyRunEfficiency, type CoarseRunEfficiency } from "@contexts/generation/domain/coarse-run-efficiency.ts";
+import { DIFF_TIER_NAMES, type DiffTier } from "@contexts/generation/domain/diff-stat.ts";
 import { CALL_BUCKETS } from "@contexts/generation/domain/tool-call-taxonomy.ts";
 import { delegateRun } from "../src/server/run-delegate.ts";
 import { PLANNER_OBJECTIVE, type RunOutcome, type RunRecord } from "../src/types.ts";
@@ -44,6 +49,8 @@ export interface EfficiencyBenchmarkCase {
   readonly mode?: RunMode;
   readonly target?: TestTarget;
   readonly guidance?: string;
+  /** The size class the operator declares for the case's diff (see `DIFF_TIERS`). The benchmark never checks it against the real diff and never sends it to the service: it only groups the report. */
+  readonly tier?: DiffTier;
 }
 
 /* The same commit-id rule the service applies to a run's sha and baseSha. */
@@ -51,6 +58,11 @@ const HEX_COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
 const RUN_MODES: ReadonlySet<string> = new Set<RunMode>(["diff", "complete", "exhaustive", "manual", "context"]);
 const TEST_TARGETS: ReadonlySet<string> = new Set<TestTarget>(["e2e", "code"]);
+const SIZE_CLASSES: ReadonlySet<string> = new Set<string>(DIFF_TIER_NAMES);
+
+function isDiffTier(value: unknown): value is DiffTier {
+  return typeof value === "string" && SIZE_CLASSES.has(value);
+}
 
 function isEfficiencyBenchmarkCase(raw: unknown): raw is EfficiencyBenchmarkCase {
   if (typeof raw !== "object" || raw === null) return false;
@@ -62,6 +74,7 @@ function isEfficiencyBenchmarkCase(raw: unknown): raw is EfficiencyBenchmarkCase
   if (c.mode !== undefined && !RUN_MODES.has(c.mode)) return false;
   if (c.target !== undefined && !TEST_TARGETS.has(c.target)) return false;
   if (c.guidance !== undefined && typeof c.guidance !== "string") return false;
+  if (c.tier !== undefined && typeof c.tier !== "string") return false;
   return true;
 }
 
@@ -85,7 +98,7 @@ export function loadEfficiencyBenchmarkCases(
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed) || !parsed.every(isEfficiencyBenchmarkCase)) {
     throw new Error(
-      `${path} must be a JSON array of EfficiencyBenchmarkCase objects (name/app/sha required; baseSha/mode/target/guidance optional)`,
+      `${path} must be a JSON array of EfficiencyBenchmarkCase objects (name/app/sha required; baseSha/mode/target/guidance/tier optional)`,
     );
   }
   const seen = new Set<string>();
@@ -97,8 +110,20 @@ export function loadEfficiencyBenchmarkCases(
     if (c.baseSha !== undefined && c.baseSha !== "" && !HEX_COMMIT_ID.test(c.baseSha)) {
       throw new Error(`${path}: case '${c.name}' has an invalid baseSha ${JSON.stringify(c.baseSha)} — it must be 7–40 hex characters`);
     }
+    /* A mistyped tier must stop the benchmark: read as undeclared it would silently drop the case from every tier-grouped comparison. */
+    if (c.tier !== undefined && !isDiffTier(c.tier)) {
+      throw new Error(`${path}: case '${c.name}' has an invalid tier ${JSON.stringify(c.tier)} — it must be one of ${DIFF_TIER_NAMES.join(", ")}`);
+    }
   }
   return parsed;
+}
+
+/** The tier each case of a cases file declares; nothing is declared when the file does not exist (runs registered by hand name cases it never had). A file that exists but is malformed throws, as it does for `run`. */
+function declaredTiersOf(casesPath: string): ReadonlyMap<string, DiffTier> {
+  if (!existsSync(casesPath)) return new Map();
+  const declared = new Map<string, DiffTier>();
+  for (const c of loadEfficiencyBenchmarkCases(casesPath)) if (c.tier !== undefined) declared.set(c.name, c.tier);
+  return declared;
 }
 
 /* ── labels and their run registry ─────────────────────────────────────────────────── */
@@ -241,9 +266,13 @@ export interface CaseGuardrails {
   reviewerApproved: boolean | null;
   /** The error class the run ended with; null when it had none. A run that ended before the class was recorded reads as unknown in the report. */
   errorClass: string | null;
+  /* The gate signals the run recorded (`RunOutcome.gateSignals`). Each is null when that signal never ran for the run: an absent count is unknown, never a zero. A recorded zero stays zero. */
+  preExecAmbiguityCatches: number | null;
+  deterministicSelectorBlocks: number | null;
+  catalogGateFailClosed: number | null;
 }
 
-/** One generator turn, in numbers only. A figure the turn did not record is null, never a fabricated zero. The two prompt-provided read counts are kept apart: one is decided by content the prompt contained, the other by a path the prompt listed. */
+/** One generator turn, in numbers only. A figure the turn did not record is null, never a fabricated zero. The two prompt-provided read counts are kept apart: one is decided by content the prompt contained, the other by a path the prompt listed. `stepsUsed` is null unless the turn's steps were observed completely, and `maxSteps` is null when the turn had no limit. */
 export interface TurnMeasurement {
   round: number;
   promptBytes: number | null;
@@ -254,12 +283,24 @@ export interface TurnMeasurement {
   pathProvidedReadCount: number | null;
   codeRead: number | null;
   memory: number | null;
+  stepsUsed: number | null;
+  maxSteps: number | null;
+}
+
+/** The distinct agent sessions of a run that recorded at least one turn. */
+export interface SessionCounts {
+  /** Every role's sessions. */
+  total: number;
+  /** The generator's own (main and repair turns; not the planner's objective turn). */
+  generator: number;
 }
 
 export interface CaseMeasurement {
   coarse: CoarseRunEfficiency;
   /** The generator's turns one by one. Absent for a run with no generator turn and for a snapshot taken before turns were measured. */
   turns?: TurnMeasurement[];
+  /** Absent when the run recorded no turn at all (none was made, or they were pruned) and for a snapshot taken before sessions were counted: unknown, never zero. */
+  sessions?: SessionCounts;
   /** Whether a generator turn hit the step limit; null for Codex (no step budget), for a run with no generator turn, and while any generator turn's exhaustion is unknown. */
   exhausted: boolean | null;
   guardrails: CaseGuardrails;
@@ -271,6 +312,8 @@ export interface SnapshotEntry {
   data: CaseMeasurement | null;
   /** The run was still going when the snapshot was taken, so nothing was measured: snapshot again once it has finished. */
   notFinished?: true;
+  /** The tier the case declared when the snapshot was taken; absent when it declared none. Kept even when `data` is null: it describes the case, not the run. */
+  tier?: DiffTier;
 }
 
 /** Numbers and ids only — never prompt, output or event text. */
@@ -319,7 +362,17 @@ function turnMeasurement(t: AgentTurnRecord): TurnMeasurement {
     pathProvidedReadCount: t.pathProvidedReadCount ?? null,
     codeRead: t.callBuckets?.[CALL_BUCKETS.CODE_READ] ?? null,
     memory: t.callBuckets?.[CALL_BUCKETS.MEMORY] ?? null,
+    stepsUsed: t.stepsUsed ?? null,
+    maxSteps: t.maxSteps ?? null,
   };
+}
+
+const distinctSessions = (turns: AgentTurnRecord[]): number => new Set(turns.map((t) => t.sessionId)).size;
+
+/* A run with no recorded turn has unknown sessions: either it made none or its turns were pruned, and the two cannot be told apart. */
+function sessionCounts(turns: AgentTurnRecord[], generatorTurns: AgentTurnRecord[]): SessionCounts | undefined {
+  if (turns.length === 0) return undefined;
+  return { total: distinctSessions(turns), generator: distinctSessions(generatorTurns) };
 }
 
 /*
@@ -355,9 +408,11 @@ export function measureRun(runId: string, source: RunDataSource): CaseMeasuremen
   if (events.length === 0) return null;
   const turns = source.turns(runId);
   const generatorTurns = generatorTurnsOf(turns);
+  const sessions = sessionCounts(turns, generatorTurns);
   return {
     coarse: classifyRunEfficiency(events),
     ...(generatorTurns.length > 0 ? { turns: generatorTurns.map(turnMeasurement) } : {}),
+    ...(sessions ? { sessions } : {}),
     exhausted: generatorExhausted(outcome, turns),
     guardrails: {
       verdict: outcome?.verdict ?? record?.verdict ?? null,
@@ -367,25 +422,35 @@ export function measureRun(runId: string, source: RunDataSource): CaseMeasuremen
       coverageRatio: outcome?.gateSignals.coverageRatio ?? null,
       reviewerApproved: outcome?.gateSignals.reviewerApproved ?? null,
       errorClass: outcome?.errorClass ?? null,
+      preExecAmbiguityCatches: outcome?.gateSignals.preExecAmbiguityCatches ?? null,
+      deterministicSelectorBlocks: outcome?.gateSignals.deterministicSelectorBlocks ?? null,
+      catalogGateFailClosed: outcome?.gateSignals.catalogGateFailClosed ?? null,
     },
   };
 }
 
 const snapshotFile = (resultsDir: string, label: string): string => join(resultsDir, `${label}.snapshot.json`);
 
-/** Measures every run registered under the label; a run whose data is gone yields a null entry. */
+/** Measures every run registered under the label; a run whose data is gone yields a null entry. A case that declared a tier keeps it on its entry, whatever became of its run's data. */
 export function takeSnapshot(
   label: string,
   resultsDir: string,
   sourceFor: (runId: string) => RunDataSource,
   now: () => string = () => new Date().toISOString(),
+  declaredTiers: ReadonlyMap<string, DiffTier> = new Map(),
 ): EfficiencySnapshot {
   const cases: Record<string, SnapshotEntry> = {};
   for (const [caseName, runId] of Object.entries(readRegistry(resultsDir, label))) {
     const source = sourceFor(runId);
     const record = source.record(runId);
     const notFinished = record !== undefined && !runFinished(source.outcome(runId), record);
-    cases[caseName] = { runId, data: measureRun(runId, source), ...(notFinished ? { notFinished: true as const } : {}) };
+    const tier = declaredTiers.get(caseName);
+    cases[caseName] = {
+      runId,
+      data: measureRun(runId, source),
+      ...(notFinished ? { notFinished: true as const } : {}),
+      ...(tier !== undefined ? { tier } : {}),
+    };
   }
   return { label, takenAt: now(), cases };
 }
@@ -435,7 +500,8 @@ export function writeSnapshot(resultsDir: string, snapshot: EfficiencySnapshot):
 
 /* ── report ────────────────────────────────────────────────────────────────────────── */
 
-export type CaseView = { status: "missing"; notFinished?: true } | { status: "measured"; data: CaseMeasurement };
+/** One side of a case in a comparison. A measured side carries the case's declared `tier`, left off when it declared none or one no size class names. */
+export type CaseView = { status: "missing"; notFinished?: true } | { status: "measured"; data: CaseMeasurement; tier?: DiffTier };
 
 export interface ReportRow {
   caseName: string;
@@ -445,20 +511,44 @@ export interface ReportRow {
   guardrailChanges: string[];
 }
 
+/** How much of the step limit a label's generator turns used. A turn whose ratio is unknown is counted in `unknown` and takes no part in the mean. */
+export interface StepUse {
+  /** Mean of stepsUsed / maxSteps over the turns whose ratio is known; null when none is. */
+  meanRatio: number | null;
+  known: number;
+  unknown: number;
+}
+
 export interface Comparison {
   labelA: string;
   labelB: string;
   rows: ReportRow[];
+  stepUse: { a: StepUse; b: StepUse };
 }
 
 function viewOf(snapshot: EfficiencySnapshot, caseName: string): CaseView {
   const entry = snapshot.cases[caseName];
-  if (entry?.data) return { status: "measured", data: entry.data };
+  if (entry?.data) return { status: "measured", data: entry.data, ...(isDiffTier(entry.tier) ? { tier: entry.tier } : {}) };
   return entry?.notFinished ? { status: "missing", notFinished: true } : { status: "missing" };
+}
+
+/* A turn's steps used over the limit it was held to; null when either is unknown. A limit that is not a positive whole number is no limit (a runtime enforces none), so it never yields an infinite or negative ratio. A snapshot taken before steps were recorded has neither figure. */
+function stepUseRatio(stepsUsed: number | null | undefined, maxSteps: number | null | undefined): number | null {
+  if (stepsUsed == null) return null;
+  const limit = maxSteps ?? 0;
+  return Number.isInteger(limit) && limit > 0 ? stepsUsed / limit : null;
+}
+
+function stepUseOf(snapshot: EfficiencySnapshot): StepUse {
+  const ratios = Object.values(snapshot.cases).flatMap((entry) => (entry.data?.turns ?? []).map((t) => stepUseRatio(t.stepsUsed, t.maxSteps)));
+  const known = ratios.filter((ratio): ratio is number => ratio !== null);
+  const meanRatio = known.length === 0 ? null : known.reduce((sum, ratio) => sum + ratio, 0) / known.length;
+  return { meanRatio, known: known.length, unknown: ratios.length - known.length };
 }
 
 const GUARDRAIL_NAMES: ReadonlyArray<keyof CaseGuardrails> = [
   "verdict", "specsProduced", "staticPass", "executePass", "coverageRatio", "reviewerApproved", "errorClass",
+  "preExecAmbiguityCatches", "deterministicSelectorBlocks", "catalogGateFailClosed",
 ];
 
 /* A guardrail an older snapshot never recorded is unknown (undefined), and unknown on either side is not evidence of a change. */
@@ -476,30 +566,44 @@ export function compareSnapshots(a: EfficiencySnapshot, b: EfficiencySnapshot): 
         : [];
     return { caseName, a: left, b: right, guardrailChanges };
   });
-  return { labelA: a.label, labelB: b.label, rows };
+  return { labelA: a.label, labelB: b.label, rows, stepUse: { a: stepUseOf(a), b: stepUseOf(b) } };
 }
 
-const val = (v: number | string | null): string => (v === null ? "n/a" : String(v));
+/* A figure an older snapshot never recorded is undefined: unknown, like a recorded null. */
+const val = (v: number | string | null | undefined): string => (v === null || v === undefined ? "n/a" : String(v));
 const yesNo = (v: boolean | null, yes: string, no: string): string => (v === null ? "n/a" : v ? yes : no);
+const ratioText = (ratio: number | null): string => (ratio === null ? "n/a" : ratio.toFixed(2));
 
 function windowLine(w: CoarseRunEfficiency["firstPass"]): string {
   return `calls ${w.totalCalls} · before 1st write ${w.callsBeforeFirstWrite} · writes ${w.writeCount} · commands ${w.commandCount} · subagents ${w.subagentCount}`;
 }
 
 function turnLine(t: TurnMeasurement): string {
-  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)}`;
+  return `turn round ${t.round}: prompt ${val(t.promptBytes)} B · calls ${val(t.totalCalls)} · before 1st write ${val(t.callsBeforeFirstWrite)} · redundant reads ${val(t.redundantReadCount)} · reads provided by content ${val(t.promptProvidedReadCount)} · by path ${val(t.pathProvidedReadCount)} · code reads ${val(t.codeRead)} · memory ${val(t.memory)} · steps used ${val(t.stepsUsed)} · max steps ${val(t.maxSteps)} · step use ${ratioText(stepUseRatio(t.stepsUsed, t.maxSteps))}`;
 }
 
-function measuredLines(data: CaseMeasurement): string[] {
+const UNDECLARED_TIER = "undeclared";
+
+function caseLine(data: CaseMeasurement, tier: DiffTier | undefined): string {
+  const sessions = data.sessions ? `sessions total ${data.sessions.total} · generator ${data.sessions.generator}` : "sessions n/a";
+  return `tier ${tier ?? UNDECLARED_TIER} · ${sessions}`;
+}
+
+function measuredLines(data: CaseMeasurement, tier: DiffTier | undefined): string[] {
   const g = data.guardrails;
   return [
+    caseLine(data, tier),
     ...(data.turns ?? []).map(turnLine),
     `first pass: ${windowLine(data.coarse.firstPass)}`,
     `whole run excl. grounding: ${windowLine(data.coarse.wholeRunExcludingGrounding)}`,
     `grounding: ${data.coarse.grounding.totalCalls === 0 ? "n/a (explorer unobserved)" : `calls ${data.coarse.grounding.totalCalls}`}`,
     `generator: step limit ${yesNo(data.exhausted, "hit", "not hit")}`,
-    `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")} · error class ${g.errorClass === undefined ? "unknown" : (g.errorClass ?? "none")}`,
+    `guardrails: verdict ${val(g.verdict)} · specs ${val(g.specsProduced)} · static ${yesNo(g.staticPass, "pass", "fail")} · execute ${yesNo(g.executePass, "pass", "fail")} · coverage ${g.coverageRatio === null ? "unknown" : g.coverageRatio} · reviewer ${yesNo(g.reviewerApproved, "approved", "rejected")} · error class ${g.errorClass === undefined ? "unknown" : (g.errorClass ?? "none")} · pre-exec ambiguity catches ${val(g.preExecAmbiguityCatches)} · deterministic selector blocks ${val(g.deterministicSelectorBlocks)} · catalog gate fail-closed ${val(g.catalogGateFailClosed)}`,
   ];
+}
+
+function stepUseLine(label: string, stepUse: StepUse): string {
+  return `  ${label}: mean ${ratioText(stepUse.meanRatio)} · known ${stepUse.known} · unknown ${stepUse.unknown}`;
 }
 
 /** A plain-text side-by-side report, one block per case. */
@@ -513,11 +617,13 @@ export function renderReport(comparison: Comparison): string {
         continue;
       }
       lines.push(`  ${label}:`);
-      for (const line of measuredLines(view.data)) lines.push(`    ${line}`);
+      for (const line of measuredLines(view.data, view.tier)) lines.push(`    ${line}`);
     }
     if (row.guardrailChanges.length > 0) lines.push(`  guardrails changed: ${row.guardrailChanges.join(", ")}`);
     lines.push("");
   }
+  lines.push("step use of the generator's turns (steps used / max steps; a turn whose ratio is unknown is left out of the mean and counted):");
+  lines.push(stepUseLine(comparison.labelA, comparison.stepUse.a), stepUseLine(comparison.labelB, comparison.stepUse.b), "");
   return lines.join("\n");
 }
 
@@ -527,7 +633,7 @@ const USAGE = [
   "usage: npm run efficiency-benchmark -- <command>",
   "  run <label> [--timeout-minutes N] submit every case in config/benchmarks/efficiency-cases.json, one at a time, through the service's queue; N is how long to wait for each case (default 30)",
   "  register <label> <case> <runId>    attach an already-finished run to a case of the label",
-  "  snapshot <label>                   freeze the label's runs into config/benchmarks/efficiency-results/<label>.snapshot.json",
+  "  snapshot <label>                   freeze the label's runs, and the tier each case declares, into config/benchmarks/efficiency-results/<label>.snapshot.json",
   "  report <labelA> <labelB>           compare two labels' snapshots",
   "run inside the orchestrator container: it needs the service's control API and its run history.",
 ].join("\n");
@@ -635,7 +741,8 @@ export async function main(argv: string[], opts: MainOptions = {}): Promise<numb
         out(`no runs registered under label '${label}' — use \`run ${label}\` or \`register ${label} <case> <runId>\` first`);
         return 1;
       }
-      const snapshot = takeSnapshot(label, resultsDir, opts.sourceFor ?? (await historySource()), opts.now);
+      const declaredTiers = declaredTiersOf(opts.casesPath ?? defaultEfficiencyBenchmarkCasesPath());
+      const snapshot = takeSnapshot(label, resultsDir, opts.sourceFor ?? (await historySource()), opts.now, declaredTiers);
       writeSnapshot(resultsDir, snapshot);
       const entries = Object.values(snapshot.cases);
       const measured = entries.filter((e) => e.data !== null).length;

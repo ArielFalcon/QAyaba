@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DIFF_TIER_NAMES } from "@contexts/generation/domain/diff-stat.ts";
 import { main, readRegistry, readSnapshot, registerRun, writeSnapshot, takeSnapshot, type RunDataSource } from "./efficiency-benchmark.ts";
 import type { RunOutcome, RunRecord } from "../src/types.ts";
 
@@ -46,7 +47,7 @@ test("register with a missing argument or an unsafe label is refused", async (t)
 test("snapshot freezes the label's registered runs and says how many cases have data", async (t) => {
   const h = harness(t);
   registerRun(h.resultsDir, "baseline", "checkout", "run-1");
-  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, out: h.out, sourceFor: () => source(), now: () => "2026-09-28T12:00:00.000Z" });
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => source(), now: () => "2026-09-28T12:00:00.000Z" });
   assert.equal(code, 0);
   assert.notEqual(readSnapshot(h.resultsDir, "baseline")!.cases.checkout!.data, null);
   assert.match(h.lines.join("\n"), /1 case.*measured/);
@@ -56,10 +57,51 @@ test("snapshot says how many runs had not finished, so they are not mistaken for
   const h = harness(t);
   registerRun(h.resultsDir, "baseline", "checkout", "run-1");
   const going: RunDataSource = { ...source(), outcome: () => undefined, record: () => ({ id: "r", app: "demo", sha: "abc1234", target: "e2e", mode: "diff", status: "running", cases: [], logs: [], at: "t" }) as RunRecord };
-  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, out: h.out, sourceFor: () => going, now: () => "2026-09-28T12:00:00.000Z" });
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => going, now: () => "2026-09-28T12:00:00.000Z" });
   assert.equal(code, 0);
   assert.match(h.lines.join("\n"), /1 not finished/);
   assert.equal(readSnapshot(h.resultsDir, "baseline")!.cases.checkout!.notFinished, true);
+});
+
+test("snapshot records the tier each case declares in the cases file, and none for a case the file does not name", async (t) => {
+  const h = harness(t);
+  writeFileSync(h.casesPath, JSON.stringify([
+    { name: "checkout", app: "demo", sha: "abc1234", tier: DIFF_TIER_NAMES[0] },
+    { name: "search", app: "demo", sha: "def5678" },
+  ]));
+  registerRun(h.resultsDir, "baseline", "checkout", "run-1");
+  registerRun(h.resultsDir, "baseline", "search", "run-2");
+  registerRun(h.resultsDir, "baseline", "registered-by-hand", "run-3");
+
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => source(), now: () => "2026-09-28T12:00:00.000Z" });
+
+  assert.equal(code, 0);
+  const { cases } = readSnapshot(h.resultsDir, "baseline")!;
+  assert.equal(cases.checkout?.tier, DIFF_TIER_NAMES[0]);
+  assert.equal(cases.search?.tier, undefined, "the case is in the file but declares no tier");
+  assert.equal(cases["registered-by-hand"]?.tier, undefined, "the case is not in the file");
+});
+
+test("snapshot works without a cases file: runs registered by hand declare no tier", async (t) => {
+  const h = harness(t);
+  registerRun(h.resultsDir, "baseline", "checkout", "run-1");
+
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => source(), now: () => "2026-09-28T12:00:00.000Z" });
+
+  assert.equal(code, 0);
+  assert.equal(readSnapshot(h.resultsDir, "baseline")!.cases.checkout!.tier, undefined);
+});
+
+test("snapshot fails loudly on a cases file that declares a tier no size class names, and writes nothing", async (t) => {
+  const h = harness(t);
+  writeFileSync(h.casesPath, JSON.stringify([{ name: "checkout", app: "demo", sha: "abc1234", tier: "tinny" }]));
+  registerRun(h.resultsDir, "baseline", "checkout", "run-1");
+
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => source() });
+
+  assert.equal(code, 1);
+  assert.match(h.lines.join("\n"), /case 'checkout'.*"tinny"/);
+  assert.equal(existsSync(join(h.resultsDir, "baseline.snapshot.json")), false);
 });
 
 test("snapshot of a label with nothing registered is an error, not an empty snapshot", async (t) => {
@@ -76,7 +118,7 @@ test("snapshot that would shrink an existing one exits 1 and says why", async (t
   writeSnapshot(h.resultsDir, takeSnapshot("baseline", h.resultsDir, () => source(), () => "2026-09-28T12:00:00.000Z"));
   const gone: RunDataSource = { events: () => [], outcome: () => undefined, record: () => undefined, turns: () => [] };
 
-  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, out: h.out, sourceFor: () => gone });
+  const code = await main(["snapshot", "baseline"], { resultsDir: h.resultsDir, casesPath: h.casesPath, out: h.out, sourceFor: () => gone });
 
   assert.equal(code, 1);
   assert.match(h.lines.join("\n"), /refusing to overwrite snapshot 'baseline'/);
@@ -91,6 +133,27 @@ test("report prints both labels' cases from their snapshots", async (t) => {
   const code = await main(["report", "baseline", "after"], { resultsDir: h.resultsDir, out: h.out });
   assert.equal(code, 0);
   assert.match(h.lines.join("\n"), /case: checkout/);
+});
+
+test("report exits 0 and reads every figure it could not observe as unknown: the telemetry never gates", async (t) => {
+  const h = harness(t);
+  const unobserved: RunDataSource = {
+    ...source(),
+    turns: () => [{
+      runId: "r", sessionId: "s1", role: "qa-generator", round: 0, isRepair: false, ts: "t", objective: null, promptText: "p", outputText: "o", promptBytes: 1,
+      tokensInput: null, tokensOutput: null, tokensReasoning: null, tokensCacheRead: null, tokensCacheWrite: null, cost: null,
+    }],
+  };
+  for (const label of ["baseline", "after"]) {
+    registerRun(h.resultsDir, label, "checkout", `${label}-run`);
+    writeSnapshot(h.resultsDir, takeSnapshot(label, h.resultsDir, () => unobserved, () => "2026-09-28T12:00:00.000Z"));
+  }
+
+  const code = await main(["report", "baseline", "after"], { resultsDir: h.resultsDir, out: h.out });
+
+  assert.equal(code, 0);
+  assert.match(h.lines.join("\n"), /step use n\/a/);
+  assert.match(h.lines.join("\n"), /mean n\/a/);
 });
 
 test("report names the label whose snapshot is missing instead of comparing against nothing", async (t) => {
