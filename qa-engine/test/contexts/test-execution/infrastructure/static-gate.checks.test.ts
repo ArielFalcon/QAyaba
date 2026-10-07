@@ -312,6 +312,131 @@ test("defaultValidateDeps.checkManifest: an entry with criticality:\"urgent\" (n
   }
 });
 
+/* The manifest is in a directory the agent writes into, and what this check says about it goes back to the agent as validation feedback. Read through a symlink the agent planted, it would hand the agent the first characters of any file the orchestrator can read, in the parse error. A link or a pipe at the manifest or at `.qa` is a refusal that names no content. */
+import { symlinkSync as _symlinkSync, existsSync as _existsSync } from "node:fs";
+import { execFileSync as _execFileSync } from "node:child_process";
+import { MAX_MANIFEST_BYTES as _MAX_MANIFEST_BYTES } from "@kernel/manifest/manifest-entry.ts";
+import { withoutWaitingOnNamedPipe as _withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
+
+/* A refusal says why: something follows the label. */
+const REASONED = /unreadable or missing: \S/;
+
+const SECRET_TEXT = "API_KEY=hunter2-not-json";
+const VALID_MANIFEST = JSON.stringify([{ id: "checkout", objective: "o", flow: "checkout", targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" } }]);
+
+function withManifestDir(run: (dir: string, outside: string) => Promise<void>): Promise<void> {
+  const tmp = _mkdtempSync(_join(_tmpdir(), "qa-validate-checkmanifest-planted-"));
+  const dir = _join(tmp, "e2e");
+  const outside = _join(tmp, "outside");
+  _mkdirSync(dir);
+  _mkdirSync(outside);
+  _writeFileSync(_join(outside, "secret.env"), SECRET_TEXT);
+  _writeFileSync(_join(outside, "valid.json"), VALID_MANIFEST);
+  return run(dir, outside).finally(() => _rmSync(tmp, { recursive: true, force: true }));
+}
+
+test("defaultValidateDeps.checkManifest: a manifest.json that is a symlink is ok:false and its output never carries what the link points at, whatever that is", async () => {
+  await withManifestDir(async (dir, outside) => {
+    _mkdirSync(_join(dir, ".qa"));
+    for (const target of ["secret.env", "valid.json"]) {
+      _symlinkSync(_join(outside, target), _join(dir, ".qa", "manifest.json"));
+      const res = await defaultValidateDeps.checkManifest(dir);
+      assert.equal(res.ok, false, `${target}: even a valid manifest behind a link is not read`);
+      assert.doesNotMatch(res.output, /API_KEY|hunter2/, `${target}: nothing of the target in the output`);
+      assert.match(res.output, REASONED);
+      _rmSync(_join(dir, ".qa", "manifest.json"));
+    }
+  });
+});
+
+test("defaultValidateDeps.checkManifest: a .qa directory that is a symlink is ok:false, though the manifest behind it is valid", async () => {
+  await withManifestDir(async (dir, outside) => {
+    _mkdirSync(_join(outside, "qa"));
+    _writeFileSync(_join(outside, "qa", "manifest.json"), VALID_MANIFEST);
+    _symlinkSync(_join(outside, "qa"), _join(dir, ".qa"));
+
+    const res = await defaultValidateDeps.checkManifest(dir);
+
+    assert.equal(res.ok, false);
+    assert.match(res.output, REASONED);
+  });
+});
+
+test("defaultValidateDeps.checkManifest: a manifest.json that is a directory, or a .qa that is a regular file, is ok:false and says why", async () => {
+  await withManifestDir(async (dir) => {
+    _mkdirSync(_join(dir, ".qa", "manifest.json"), { recursive: true });
+    const asDirectory = await defaultValidateDeps.checkManifest(dir);
+    _rmSync(_join(dir, ".qa"), { recursive: true });
+    _writeFileSync(_join(dir, ".qa"), "not a directory");
+    const asFile = await defaultValidateDeps.checkManifest(dir);
+
+    for (const res of [asDirectory, asFile]) {
+      assert.equal(res.ok, false);
+      assert.match(res.output, REASONED);
+    }
+  });
+});
+
+/* The pipe is watched: a check that opened it would wait for a writer for ever, and a test cannot time out a thread that is stuck, so the watch releases it and the test fails there instead. */
+test("defaultValidateDeps.checkManifest: a manifest.json that is a named pipe is ok:false, and the check does not wait on it", async (t) => {
+  const probe = _mkdtempSync(_join(_tmpdir(), "qa-validate-fifo-probe-"));
+  try {
+    _execFileSync("mkfifo", [_join(probe, "p")]);
+  } catch {
+    t.skip("mkfifo is not available on this platform, so the named-pipe case is not exercised");
+    return;
+  } finally {
+    _rmSync(probe, { recursive: true, force: true });
+  }
+  await withManifestDir(async (dir) => {
+    _mkdirSync(_join(dir, ".qa"));
+    _execFileSync("mkfifo", [_join(dir, ".qa", "manifest.json")]);
+
+    const res = await _withoutWaitingOnNamedPipe(_join(dir, ".qa", "manifest.json"), () => defaultValidateDeps.checkManifest(dir));
+
+    assert.equal(res.ok, false);
+    assert.match(res.output, REASONED);
+  });
+});
+
+test("defaultValidateDeps.checkManifest: a manifest larger than the cap is ok:false, and one of exactly the cap is read", async () => {
+  await withManifestDir(async (dir) => {
+    _mkdirSync(_join(dir, ".qa"));
+    const entry = { id: "checkout", objective: "o", flow: "checkout", targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" }, owner: "" };
+    const text = JSON.stringify([entry]);
+    const padded = (bytes: number): string => text.replace('"owner":""', `"owner":"${"x".repeat(bytes - text.length)}"`);
+
+    _writeFileSync(_join(dir, ".qa", "manifest.json"), padded(_MAX_MANIFEST_BYTES + 1));
+    assert.equal((await defaultValidateDeps.checkManifest(dir)).ok, false, "one byte over");
+    _writeFileSync(_join(dir, ".qa", "manifest.json"), padded(_MAX_MANIFEST_BYTES));
+    assert.equal((await defaultValidateDeps.checkManifest(dir)).ok, true, "exactly the cap");
+  });
+});
+
+test("defaultValidateDeps.checkManifest: a missing .qa directory is ok:false with no content in the output, and nothing is created", async () => {
+  await withManifestDir(async (dir) => {
+    const res = await defaultValidateDeps.checkManifest(dir);
+
+    assert.equal(res.ok, false);
+    assert.match(res.output, REASONED);
+    assert.equal(_existsSync(_join(dir, ".qa")), false);
+  });
+});
+
+test("defaultValidateDeps.checkManifest: a manifest with several violations reports each on a line of its own", async () => {
+  await withManifestDir(async (dir) => {
+    _mkdirSync(_join(dir, ".qa"));
+    const entry = { id: "checkout", objective: "o", flow: "checkout", targets: ["CheckoutService.pay"], changeRef: { sha: "s", type: "feat" } };
+    _writeFileSync(_join(dir, ".qa", "manifest.json"), JSON.stringify([{ ...entry, objective: "" }, { ...entry, id: "other", flow: "" }]));
+
+    const res = await defaultValidateDeps.checkManifest(dir);
+
+    assert.equal(res.ok, false);
+    assert.equal(res.output.split("\n").length, 2, "one violation per line");
+    assert.ok(res.output.split("\n").every((line) => line.length > 0));
+  });
+});
+
 /* ══════════════════════════════════════════════════════════════════════════════════════════════
    Part 2 — validateManifest (moved from src/qa/metadata.test.ts)
    ══════════════════════════════════════════════════════════════════════════════════════════════

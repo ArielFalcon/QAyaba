@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -64,6 +64,89 @@ test("enumerateExistingSpecFiles: an empty directory yields []", () => {
     assert.deepEqual(enumerateExistingSpecFiles(dir), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* The listing is of the suite's own specs, in a directory the agent writes into. A symbolic link planted there is never walked, whatever it points at: no name from outside is listed, nothing is listed twice, and a link back up cannot make the walk run away. */
+
+test("enumerateExistingSpecFiles: a symlink to a directory is not followed, whether it points outside the spec directory or inside it", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-link-"));
+  try {
+    const dir = join(root, "e2e");
+    const outside = join(root, "outside");
+    mkdirSync(join(dir, "flows"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    writeFileSync(join(outside, "customer-export.spec.ts"), "// somewhere else");
+    symlinkSync(outside, join(dir, "hop"));
+    symlinkSync(join(dir, "flows"), join(dir, "alias"));
+
+    assert.deepEqual(enumerateExistingSpecFiles(dir), ["flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a symlink back up to an ancestor does not make the walk descend into itself", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-loop-"));
+  try {
+    const dir = join(root, "e2e");
+    mkdirSync(join(dir, "flows"), { recursive: true });
+    writeFileSync(join(dir, "flows", "checkout.spec.ts"), "// spec");
+    symlinkSync(dir, join(dir, "flows", "up"));
+
+    assert.deepEqual(enumerateExistingSpecFiles(dir), ["flows/checkout.spec.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a spec directory that is itself a symlink lists nothing, with or without a trailing separator", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-rootlink-"));
+  try {
+    const real = join(root, "real");
+    mkdirSync(real);
+    writeFileSync(join(real, "home.spec.ts"), "// spec");
+    const link = join(root, "e2e");
+    symlinkSync(real, link);
+
+    assert.deepEqual(enumerateExistingSpecFiles(link), []);
+    assert.deepEqual(enumerateExistingSpecFiles(`${link}/`), []);
+    assert.deepEqual(enumerateExistingSpecFiles(real), ["home.spec.ts"], "the directory it points at is listed as itself");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/* A directory whose mode is 000 cannot be listed by an account that the mode binds: not by root, and not on a platform without modes. */
+const NO_MODE_RESTRICTIONS = process.platform === "win32" || process.getuid?.() === 0 ? "the account that runs the tests is not bound by directory modes, so the case that relies on them is not exercised" : false;
+
+test("enumerateExistingSpecFiles: a directory that cannot be listed contributes nothing and does not stop the scan of the others", { skip: NO_MODE_RESTRICTIONS }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-locked-"));
+  try {
+    mkdirSync(join(dir, "open"));
+    mkdirSync(join(dir, "locked"));
+    writeFileSync(join(dir, "open", "a.spec.ts"), "// spec");
+    writeFileSync(join(dir, "locked", "b.spec.ts"), "// spec");
+    chmodSync(join(dir, "locked"), 0o000);
+    try {
+      assert.deepEqual(enumerateExistingSpecFiles(dir), ["open/a.spec.ts"]);
+    } finally {
+      chmodSync(join(dir, "locked"), 0o755);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("enumerateExistingSpecFiles: a regular file given as the directory yields []", () => {
+  const root = mkdtempSync(join(tmpdir(), "qa-grounding-notdir-"));
+  try {
+    writeFileSync(join(root, "e2e"), "not a directory");
+
+    assert.deepEqual(enumerateExistingSpecFiles(join(root, "e2e")), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

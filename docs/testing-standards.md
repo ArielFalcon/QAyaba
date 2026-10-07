@@ -61,6 +61,22 @@ every concurrent test. Write fixtures under `mkdtempSync(join(tmpdir(), "…"))`
 `finally`. The guard cannot see child processes (git, a spawned node), so point those at a temp dir too.
 The history DB and the JSON logs already get a per-process temp dir.
 
+## Named pipes
+
+A test that makes a named pipe, to show that code leaves it alone, must not be able to hang. Opening a
+pipe for reading waits for a writer, and a thread waiting inside a system call cannot be timed out from
+the test it runs on (the timer that would do it runs on that thread), so a run against code that does
+open the pipe, such as a test written first and run against the code it replaces, or a regression, would
+never end and its process would stay behind. Run the call under
+`withoutWaitingOnNamedPipe(path, run)` (`qa-engine/test/support/named-pipe-watch.ts`): a second thread
+opens the pipe for writing, without waiting, as soon as anything has it open for reading, which releases
+the reader and records that it was there, so the test fails on its assertion within a fraction of a
+second. The code under test is protected in its own right: it opens a path an agent can plant with
+`O_NONBLOCK`, as the confined reader does, or judges it by lstat before opening it, so a single
+regression does not block either. Skip a pipe case, and say why, where `mkfifo` is missing. Anything that
+kills a test command (a RED probe, a hand-mutation script) runs it through `scripts/run-in-group.mjs`,
+so that the file processes `node --test` starts die with it.
+
 ## The web console harness
 
 `src/server/web-console/console-harness.ts` loads `web/public/js` into a `node:vm` context with a
@@ -255,6 +271,58 @@ place, so that a reader that would wait on it fails there instead of hanging the
 cannot run on the machine that recorded these results: the factory that builds it is tested with an
 injected readlink on every platform, and two cases that open real descriptors (the kernel path is the
 real path; a real swap is refused for it) are skipped off Linux and run in CI.
+
+The preset was widened once more (2026-10-07, 3 workers, 361 mutants, 188 of them compile errors) for the
+files the orchestrator keeps in the spec directory. The manifest, `.qa/manifest.json`, is its own file in a
+directory the agent writes into, and everything that reached it followed whatever had been planted there.
+`reconcileManifest` checked, read, made the directory and wrote with calls that follow links, so a symlink at
+the file made the write replace any file the orchestrator can write (reproduced against the earlier code: a
+file outside the mirror came out holding the manifest) and one at `.qa` put the manifest in a directory of
+the agent's choosing; `readManifest` returned what a link pointed at and opened a named pipe, which waits for
+a writer that never comes; the read gate's manifest check did the same and, since its output goes back to the
+agent as validation feedback, quoted the first characters of the linked file in its JSON error; and the
+listing of the existing specs followed a symlinked directory, so it listed names outside the spec directory,
+listed one twice and ran away along a link back up (fifteen levels in the reproduction). The module gained a
+strict read and a strict write for such files. The path is walked one lstat at a time, so no link anywhere
+below the spec directory is followed whatever it points at, and the file is a regular file or absent; the
+bytes then come through the confined reader, so a swap after the check is refused too; and a write goes into
+a temporary file made exclusively and without following a link, in the same directory, and is renamed over
+the target, which replaces a link and never writes through another name for the same inode. Where the
+platform can say where a descriptor is, the temporary file must be there, the path is walked again once the
+file exists, and what was made is removed on every failure, a failure to close its descriptor included: the
+close is part of the write seam, and one that fails neither skips the removal nor replaces the failure in
+flight, and a file whose close failed is removed, never put in place. What an interrupted write leaves in
+`e2e/.qa` is kept out of the publish, which stages the whole `e2e/` tree (a test with a real repository and
+the real writer shows it). A manifest that cannot be read strictly is no
+manifest, said aloud, for a read; the write throws instead of merging into it or replacing it. The preset
+now also mutates the manifest's file hash, load, read and write, the read gate's manifest check and the
+listing, against their own tests and the new ones, which use real links, a real second name for an inode,
+real pipes and real directory modes, and make each swap themselves at the seam of the write. **Before** of
+this widening is its first run: 389 mutants, 166 killed, 3 timeouts and 23 survivors, and they were real
+gaps. A path that cannot be examined (a directory whose mode forbids the search) was never exercised, so the
+reason of its refusal and its difference from an absence went unread. The second look of a write was never
+shown to make nothing, nor to compare the directory it finds with the one it validated (an ancestor of the
+spec directory swapped for a link to another directory of the mirror). A refusal was never required to say
+anything, and neither was the gate's output, nor to put each violation on a line of its own. An entry of an
+on-disk manifest that has no id, or is not an object, was never shown to be dropped when the manifest is
+rewritten. Machinery that no input could tell from nothing was removed instead of covered: the filter of
+empty and dot segments of a path (`join` drops them), the look at a link before a directory (by lstat a link
+is neither one), the look again after a directory is made, the refusal of an unreadable directory above the
+file (the file's own check refuses the same path for the same reason), and a catch whose empty body returned
+what the function returns anyway. **After** is the re-run: 161 killed, 12 timeouts and no survivors, so the
+table's row is it. Three of the timeouts are the infinite-loop mutants of the read loop, as before; the other
+nine are mutants of the walk that outran the time limit on a loaded machine (the limit follows the dry run,
+and other work started after it), and each of them is killed when its tests run alone. 45 mutants of what
+Stryker does not produce (the flags and the mode of the temporary file, the arguments handed to the seam, the
+second look, the close, the cap, the pattern that keeps a temporary file out of the publish, and the wiring of
+the manifest, the gate and the listing) were broken by hand. The first batch left
+three alive and each was real: the write of the manifest through a followed path survived because the strict
+read refuses every plant before the write is reached, so only a second name for another file's inode tells
+the two apart (a test with a real hard link does now); a listing that aborts on a directory it cannot read
+(a test with a real mode does now); and a branch of the write that only a directory vanishing between its
+creation and the next look could reach, which the walk no longer has (a walk that makes the directories finds
+none absent, and its type says so). With them all 45 die. Tests that make named pipes run under a watch (see
+Named pipes), and a preset run and the hand mutants run in their own process group.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
@@ -483,7 +551,7 @@ run once per mutant and not fit the mutation timeout.
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
-| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path) | 36 / 0 / 1 — 97.3% (97.3%) | 66 / 3 / 0 — 100% (95.65%) | — |
+| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read and write of the orchestrator's own files), manifest-fs (file hash, load, read, write), the read gate's manifest check, the listing of the existing specs | 36 / 0 / 1 — 97.3% (97.3%) | 161 / 12 / 0 — 100% (93.06%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |

@@ -1,8 +1,8 @@
 /* PreGenerationGroundingPort: fail-open explorer + context.json + context pack. Never throws. */
 
 import type { PreGenerationGroundingPort, GroundingResult, HarnessFacts } from "../../application/ports/index.ts";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { buildContextPack, defaultContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ContextPackDeps } from "@contexts/generation/infrastructure/context-pack.ts";
 import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@contexts/generation/application/ports/generation-ports.ts";
@@ -104,26 +104,36 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
 }
 
 /* Every *.spec.ts under `dir`, relative to it. Installed packages and dot-directories are skipped, as
-   Playwright skips them: they are not the suite's specs. */
+   Playwright skips them: they are not the suite's specs. The directory is one the agent writes into, so a
+   symbolic link in it is never walked, whatever it points at, and `dir` is not one either: no name from
+   outside it is listed, nothing is listed twice, and a link back up cannot make the walk run away. A file
+   named like a spec is listed by its own name; what it points at is for the confined reader to refuse. */
 export function enumerateExistingSpecFiles(dir: string): string[] {
+  try {
+    /* A directory itself, not a link to one: judged by lstat of the path without a trailing separator, since `lstat("link/")` would follow the link. */
+    if (!lstatSync(resolve(dir)).isDirectory()) return [];
+    return walkSpecFiles(dir);
+  } catch {
+    return [];
+  }
+}
+
+/* Each entry is told apart by what it is itself, never by what a link points at, so a link is never descended into. */
+function walkSpecFiles(dir: string): string[] {
   let results: string[] = [];
   try {
-    for (const entry of readdirSync(dir)) {
-      const full = join(dir, entry);
-      try {
-        if (statSync(full).isDirectory()) {
-          if (entry === "node_modules" || entry.startsWith(".")) continue;
-          results = results.concat(
-            enumerateExistingSpecFiles(full).map((rel) => join(entry, rel)),
-          );
-        } else if (entry.endsWith(".spec.ts")) {
-          results.push(entry);
-        }
-      } catch {
-        /* A single entry failing stat (race, permissions) is skipped — never aborts the whole scan. */
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+        results = results.concat(
+          walkSpecFiles(join(dir, entry.name)).map((rel) => join(entry.name, rel)),
+        );
+      } else if (entry.name.endsWith(".spec.ts")) {
+        results.push(entry.name);
       }
     }
   } catch {
+    /* A directory that cannot be listed (a race, permissions) contributes what it had: it never aborts the whole scan. */
   }
   return results;
 }

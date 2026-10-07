@@ -53,6 +53,12 @@ export const ManifestSchema = z.array(ManifestEntrySchema);
 
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
 
+/** Where the manifest is, relative to the spec directory: one place for the write path and the read gate, so the two never look at different files. */
+export const MANIFEST_FILE = ".qa/manifest.json";
+
+/** The most of a manifest the orchestrator reads, by the write path and the read gate alike: an entry is a few hundred bytes, so this is far above any real manifest, and a larger file is refused instead of read. */
+export const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+
 export interface ManifestValidation {
   ok: boolean;
   errors: string[];

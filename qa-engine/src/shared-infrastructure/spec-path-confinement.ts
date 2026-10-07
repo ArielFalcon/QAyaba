@@ -1,9 +1,11 @@
-/* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a name goes through here, anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
+/* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a reported name goes through here (the generation port's spec sources, the reviewer's inlining, the review DOM grounding, the manifest's file hashes, the sidekick's claimed files and the pre-exec capture), anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. The files the agent writes into the spec directory without naming them are another matter, and only the manifest, below, is read through here: the read gate's zero-assertion scan, the context and analysis maps and the fixtures file are read on their own. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
    The path can still be swapped between that check and the open by a process the agent left running, and O_NOFOLLOW covers only the last component, so the descriptor is judged as well. Where the platform can name the file a descriptor really is (Linux, through procfs), that kernel path must lie inside the spec directory: it does not depend on any path being walked again, and it closes the window for every file the agent cannot move into the spec directory, which is every file outside the volume it shares with the orchestrator. Where the platform cannot (macOS), the descriptor's device and inode must equal those of the file validated before the open and again after it: that narrows the window to a process flipping the path at exactly the right instants, and does not close it. Hard links stay out of scope. A file is read whole or not at all.
+   The orchestrator also keeps files of its own in that directory (the manifest, in `.qa`), where the agent can plant a link at the file or at the directory above it. Those are read and written strictly, by `readOwnedSpecFile` and `writeOwnedSpecFile`: no symlink anywhere below the spec directory, a regular file at the end, and a write that goes through an exclusively created temporary file renamed over the target, never through a link.
    Synchronous, and it lives in shared-infrastructure because the kernel holds no fs code and several contexts need it. */
 
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readlinkSync, realpathSync } from "node:fs";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { randomBytes } from "node:crypto";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join, posix, resolve, sep } from "node:path";
 
 /* A spec is source a person would read; one larger than this is not read. */
 export const MAX_SPEC_SOURCE_BYTES = 256 * 1024;
@@ -31,17 +33,42 @@ export interface SpecReadDeps {
   fdPath(fd: number): string | undefined;
 }
 
-/* The real calls for a platform. Linux names a descriptor through procfs; a failure to read that link is thrown, never answered with undefined, so the weaker check does not stand in for the stronger one where the stronger one exists. */
+/* The same for a write: the exclusive creation of the temporary file, the kernel's path of it, the close of its descriptor, the rename over the target, and the name. */
+export interface SpecWriteDeps {
+  open(path: string, flags: number, mode: number): number;
+  fdPath(fd: number): string | undefined;
+  close(fd: number): void;
+  rename(from: string, to: string): void;
+  randomSuffix(): string;
+}
+
+/* The kernel's own path of an open descriptor, where the platform offers one: Linux, through procfs. A failure to read that link is thrown, never answered with undefined, so the weaker check does not stand in for the stronger one where the stronger one exists. */
+function fdPathFor(platform: NodeJS.Platform, readlink: (path: string) => string): (fd: number) => string | undefined {
+  return platform === "linux" ? (fd) => readlink(`/proc/self/fd/${fd}`) : () => undefined;
+}
+
+/* The real calls for a platform. */
 export function specReadDepsFor(platform: NodeJS.Platform, readlink: (path: string) => string = readlinkSync): SpecReadDeps {
   return {
     open: (path, flags) => openSync(path, flags),
     fstat: (fd) => fstatSync(fd, { bigint: true }),
     read: (fd, buffer, offset, length, position) => readSync(fd, buffer, offset, length, position),
-    fdPath: platform === "linux" ? (fd) => readlink(`/proc/self/fd/${fd}`) : () => undefined,
+    fdPath: fdPathFor(platform, readlink),
+  };
+}
+
+export function specWriteDepsFor(platform: NodeJS.Platform, readlink: (path: string) => string = readlinkSync): SpecWriteDeps {
+  return {
+    open: (path, flags, mode) => openSync(path, flags, mode),
+    fdPath: fdPathFor(platform, readlink),
+    close: (fd) => closeSync(fd),
+    rename: (from, to) => renameSync(from, to),
+    randomSuffix: () => randomBytes(8).toString("hex"),
   };
 }
 
 export const defaultSpecReadDeps: SpecReadDeps = specReadDepsFor(process.platform);
+export const defaultSpecWriteDeps: SpecWriteDeps = specWriteDepsFor(process.platform);
 
 /* A reported path that the confinement refused. `path` is the path exactly as it was reported. */
 export class ConfinedPathError extends Error {
@@ -53,6 +80,9 @@ export class ConfinedPathError extends Error {
     this.name = new.target.name;
   }
 }
+
+/* What a refusal says when the file a descriptor is, or the directory it was made in, is not the one that was validated. */
+const CHANGED = "changed between check and open";
 
 interface FileIdentity {
   dev: bigint;
@@ -70,6 +100,14 @@ function inside(parent: string, child: string): boolean {
   return child === parent || child.startsWith(parent + sep);
 }
 
+/* Why a path is refused before the filesystem is asked, or undefined. The path has its separators normalized already. */
+function lexicalRefusal(normalized: string): string | undefined {
+  if (normalized === "") return "the path is empty";
+  if (isAbsolute(normalized)) return "the path is absolute";
+  if (normalized.split("/").includes("..")) return "the path has a parent-directory segment";
+  return undefined;
+}
+
 /* The real spec directory, once it is known to be an ordinary directory of the mirror. A symlinked spec directory is refused even when it points inside the mirror, and its trailing separator is dropped first: a path ending in one makes lstat follow the link and report its target. */
 function confineSpecDir(root: SpecRoot): { dir: string } | { reason: string } {
   const specDir = resolve(root.specDir);
@@ -85,9 +123,8 @@ function confineSpecDir(root: SpecRoot): { dir: string } | { reason: string } {
 /* The real path of the regular file `reported` names inside the spec directory, with its identity and the real spec directory it was found in, or why it is refused. Nothing is opened: a named pipe or a device is judged by lstat alone. */
 function confine(root: SpecRoot, reported: string): Confined {
   const normalized = reported.replaceAll("\\", "/");
-  if (normalized === "") return { reason: "the path is empty" };
-  if (isAbsolute(normalized)) return { reason: "the path is absolute" };
-  if (normalized.split("/").includes("..")) return { reason: "the path has a parent-directory segment" };
+  const refused = lexicalRefusal(normalized);
+  if (refused !== undefined) return { reason: refused };
 
   const spec = confineSpecDir(root);
   if ("reason" in spec) return spec;
@@ -123,7 +160,7 @@ export function readConfinedSpecBytes(root: SpecRoot, reported: string, maxBytes
     /* The descriptor must be a regular file, the one that was validated before the open and the one that validates again after it. The second look matters where there is no kernel path: a swap can land between the realpath and the lstat of the first one, and then the open and that lstat agree on the wrong file. */
     const rechecked = confine(root, reported);
     if (!opened.isFile() || !("file" in rechecked) || !sameFile(opened, checked) || !sameFile(opened, rechecked)) {
-      throw new ConfinedPathError(reported, "changed between check and open");
+      throw new ConfinedPathError(reported, CHANGED);
     }
     const size = Number(opened.size);
     if (size > maxBytes) throw new ConfinedPathError(reported, `the file is larger than ${maxBytes} bytes`);
@@ -143,4 +180,117 @@ export function readConfinedSpecBytes(root: SpecRoot, reported: string, maxBytes
 /* readConfinedSpecBytes, decoded as UTF-8. */
 export function readConfinedSpecFile(root: SpecRoot, reported: string, maxBytes?: number): string {
   return readConfinedSpecBytes(root, reported, maxBytes).toString("utf8");
+}
+
+/* ── files the orchestrator keeps in the spec directory ────────────────────────────────────────── */
+
+type Kind = "absent" | "directory" | "file" | "other" | "unreadable";
+
+/* What a path is, by lstat, which describes a symbolic link itself and not what it points at: a link is neither a directory nor a regular file, so it is "other", like a pipe or a device. */
+function kindOf(path: string): Kind {
+  try {
+    const stats = lstatSync(path);
+    if (stats.isDirectory()) return "directory";
+    return stats.isFile() ? "file" : "other";
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unreadable";
+  }
+}
+
+type Located = { dir: string; file: string; present: boolean };
+type Owned = Located | { absent: true } | { reason: string };
+
+/* Walks `rel` below the real spec directory one lstat at a time: every directory above the file must be an ordinary directory and the file, if it is there, a regular file, so a symlink anywhere on the way is refused whatever it points at. The directories are real because the spec directory is and none of them is a link. With `create`, a directory that is missing is made, so nothing is absent: `mkdir` does not follow a link, and a name taken meanwhile is an error. Only the directories are ever created; the file is not. */
+function walkOwned(root: SpecRoot, rel: string, create: true): Located | { reason: string };
+function walkOwned(root: SpecRoot, rel: string, create: false): Owned;
+function walkOwned(root: SpecRoot, rel: string, create: boolean): Owned {
+  const normalized = rel.replaceAll("\\", "/");
+  const refused = lexicalRefusal(normalized);
+  if (refused !== undefined) return { reason: refused };
+  const spec = confineSpecDir(root);
+  if ("reason" in spec) return spec;
+
+  /* The directories above the file, one by one, and the file's own name. `join` drops an empty or `.` segment, so `a//b` and `./a/b` are `a/b`. */
+  const parents = posix.dirname(normalized).split("/");
+  const name = posix.basename(normalized);
+  let dir = spec.dir;
+  for (const segment of parents) {
+    const next = join(dir, segment);
+    const kind = kindOf(next);
+    if (kind === "absent") {
+      if (!create) return { absent: true };
+      mkdirSync(next);
+    } else if (kind !== "directory") {
+      return { reason: "a directory above the file cannot be examined, is a symbolic link or is not a directory" };
+    }
+    dir = next;
+  }
+  const file = join(dir, name);
+  const kind = kindOf(file);
+  if (kind === "unreadable") return { reason: "the path cannot be examined" };
+  if (kind === "absent" || kind === "file") return { dir, file, present: kind === "file" };
+  return { reason: "the file is a symbolic link or not a regular file" };
+}
+
+export type OwnedSpecRead = { bytes: Buffer } | { absent: true } | { reason: string };
+
+/* The bytes of a file the orchestrator keeps at `rel` below the spec directory, read strictly (see the header) and through the confined reader, so that a swap after the check is refused too. Absent when the file or a directory above it is not there; a refusal is a reason, never the bytes of what a link points at. A failure to read a file that is there is thrown as it is. */
+export function readOwnedSpecFile(root: SpecRoot, rel: string, maxBytes: number, deps: SpecReadDeps = defaultSpecReadDeps): OwnedSpecRead {
+  const owned = walkOwned(root, rel, false);
+  if ("reason" in owned) return owned;
+  if ("absent" in owned || !owned.present) return { absent: true };
+  try {
+    return { bytes: readConfinedSpecBytes(root, rel, maxBytes, deps) };
+  } catch (err) {
+    if (err instanceof ConfinedPathError) return { reason: err.reason };
+    throw err;
+  }
+}
+
+/* Best-effort removal of a file this write made: the failure being thrown is the one that matters. */
+function discard(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    /* already gone, or never made there */
+  }
+}
+
+/* Replaces the file at `rel` below the spec directory with `text`, strictly (see the header), creating the directories above it. The text goes into a temporary file created in the same directory, exclusively and without following a link, and the temporary file is renamed over the target: a rename replaces a link at the target instead of following it, so nothing is ever written through one. Where the platform names the file a descriptor is, the temporary file must be where it was asked for; the path is walked once more after it is made, so that a directory swapped meanwhile is refused too. Throws ConfinedPathError for a refusal and the failure itself for any other; a temporary file that was made is removed on every failure, from where the platform says it is and else from where it was asked for. */
+export function writeOwnedSpecFile(root: SpecRoot, rel: string, text: string, deps: SpecWriteDeps = defaultSpecWriteDeps): void {
+  const owned = walkOwned(root, rel, true);
+  if ("reason" in owned) throw new ConfinedPathError(rel, owned.reason);
+  const temp = join(owned.dir, `${basename(owned.file)}.${deps.randomSuffix()}.tmp`);
+  const fd = deps.open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  let kernelPath: string | undefined;
+  let written = false;
+  let closing: { failure: unknown } | undefined;
+  try {
+    kernelPath = deps.fdPath(fd);
+    if (kernelPath !== undefined && kernelPath !== temp) {
+      throw new ConfinedPathError(rel, "the temporary file was created outside the spec directory");
+    }
+    const again = walkOwned(root, rel, false);
+    if (!("dir" in again) || again.dir !== owned.dir) throw new ConfinedPathError(rel, CHANGED);
+    writeFileSync(fd, text);
+    written = true;
+  } finally {
+    /* A close that fails must neither skip the removal nor replace the failure in flight. A file whose close failed may not have been written out, so it is removed, not put in place. */
+    try {
+      deps.close(fd);
+    } catch (failure) {
+      closing = { failure };
+    }
+    if (!written || closing) {
+      discard(temp);
+      if (kernelPath !== undefined) discard(kernelPath);
+    }
+  }
+  if (closing) throw closing.failure;
+  try {
+    deps.rename(temp, owned.file);
+  } catch (err) {
+    discard(temp);
+    throw err;
+  }
 }

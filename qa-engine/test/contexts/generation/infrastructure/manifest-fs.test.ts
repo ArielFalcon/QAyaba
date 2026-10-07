@@ -5,12 +5,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, lstatSync, mkdirSync, writeFileSync, existsSync, symlinkSync, linkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { readManifest, reconcileManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import type { ManifestEntry } from "@contexts/generation/application/ports/index.ts";
-import type { SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
+import { MAX_MANIFEST_BYTES } from "@kernel/manifest/manifest-entry.ts";
+import { ConfinedPathError, type SpecRoot } from "../../../../src/shared-infrastructure/spec-path-confinement.ts";
+import { withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
 
 function makeSpecDir(): string {
   return mkdtempSync(join(tmpdir(), "qa-engine-manifest-fs-"));
@@ -470,16 +473,27 @@ test("reconcileManifest stamps a symlink to another file inside the spec directo
   });
 });
 
-test("reconcileManifest drops every entry that names a file when the spec directory of the root leaves the mirror, and keeps one that names none", async () => {
+test("reconcileManifest drops every entry that names a file when the spec directory of the root leaves the mirror, and writes nothing there", async () => {
   await withMirror(async ({ tmp, mirror }) => {
     mkdirSync(join(tmp, "elsewhere", "flows"), { recursive: true });
     writeFileSync(join(tmp, "elsewhere", "flows", "real.spec.ts"), "// planted outside the mirror\n");
     const warnings = collectWarnings();
 
-    const out = await reconcileManifest({ mirrorDir: mirror, specDir: join(tmp, "elsewhere") }, [entryFor("planted", "flows/real.spec.ts"), entryFor("fileless")]);
+    const out = await reconcileManifest({ mirrorDir: mirror, specDir: join(tmp, "elsewhere") }, [entryFor("planted", "flows/real.spec.ts")]);
 
-    assert.deepEqual(out.map((e) => e.id), ["fileless"], "the file exists, but its spec directory is not the mirror's");
+    assert.deepEqual(out, [], "the file exists, but its spec directory is not the mirror's");
     assert.ok(warnings.some((w) => w.includes("phantom") && w.includes("flows/real.spec.ts")));
+    assert.equal(existsSync(join(tmp, "elsewhere", ".qa")), false);
+  });
+});
+
+test("reconcileManifest refuses to write into a spec directory that leaves the mirror, even for an entry that names no file", async () => {
+  await withMirror(async ({ tmp, mirror }) => {
+    mkdirSync(join(tmp, "elsewhere"));
+
+    await assert.rejects(reconcileManifest({ mirrorDir: mirror, specDir: join(tmp, "elsewhere") }, [entryFor("fileless")]), (err: unknown) => err instanceof ConfinedPathError);
+
+    assert.equal(existsSync(join(tmp, "elsewhere", ".qa")), false);
   });
 });
 
@@ -488,5 +502,203 @@ test("reconcileManifest writes the manifest under the spec directory of the root
     await reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]);
     assert.equal(existsSync(manifestPath(specDir)), true);
     assert.equal(existsSync(join(mirror, ".qa", "manifest.json")), false);
+  });
+});
+
+/* ── the manifest itself is in a directory the agent writes into ───────────────────────────────────
+   `.qa/manifest.json` is the orchestrator's own file, but the agent can plant a symlink or a named pipe at the file or at `.qa`.
+   Followed, a read hands the orchestrator a file of the agent's choosing and a write clobbers one. So it is read and written
+   strictly: nothing at or above it may be a link, and a write replaces the file through a temporary file, never through a link.
+   A refused read is "no manifest", said aloud; a refused write is thrown, since a manifest that was not written is not a manifest. */
+
+const canMakeNamedPipes = (): boolean => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-manifest-fifo-probe-"));
+  try {
+    execFileSync("mkfifo", [join(dir, "probe")]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+const NO_NAMED_PIPES = canMakeNamedPipes() ? false : "mkfifo is not available on this platform, so the named-pipe cases are not exercised";
+
+const refusedAsManifest = (err: unknown): boolean => err instanceof ConfinedPathError && err.path === ".qa/manifest.json";
+const LEAKED = JSON.stringify([{ id: "leaked", file: "a.spec.ts", flow: "leaked flow", objective: "leaked objective" }]);
+
+test("readManifest takes a manifest reached through a symlink, at the file or at its directory, for no manifest, says so, and never returns what the link points at", async () => {
+  await withMirror(async ({ tmp, specDir }) => {
+    writeFileSync(join(tmp, "outside", "entries.json"), LEAKED);
+    mkdirSync(join(tmp, "outside", "qa"));
+    writeFileSync(join(tmp, "outside", "qa", "manifest.json"), LEAKED);
+    const warnings = collectWarnings();
+
+    symlinkSync(join(tmp, "outside", "qa"), join(specDir, ".qa"));
+    assert.deepEqual(await readManifest(specDir), [], "the directory is a symlink");
+    rmSync(join(specDir, ".qa"));
+    mkdirSync(join(specDir, ".qa"));
+    symlinkSync(join(tmp, "outside", "entries.json"), manifestPath(specDir));
+    assert.deepEqual(await readManifest(specDir), [], "the file is a symlink");
+
+    assert.equal(warnings.filter((w) => w.includes("manifest")).length, 2, "each refusal is said aloud");
+  });
+});
+
+test("readManifest takes a manifest that is a symlink to another file inside the spec directory for no manifest as well", async () => {
+  await withMirror(async ({ specDir }) => {
+    mkdirSync(join(specDir, ".qa"));
+    writeFileSync(join(specDir, "copy.json"), LEAKED);
+    symlinkSync(join(specDir, "copy.json"), manifestPath(specDir));
+    collectWarnings();
+
+    assert.deepEqual(await readManifest(specDir), []);
+  });
+});
+
+/* The named-pipe cases run under a watch: a read that opened the pipe would wait for a writer for ever, and a test cannot time out a thread that is stuck, so the watch releases it and the test fails there instead. */
+test("readManifest does not wait on a named pipe at the manifest", { skip: NO_NAMED_PIPES }, async () => {
+  await withMirror(async ({ specDir }) => {
+    mkdirSync(join(specDir, ".qa"));
+    execFileSync("mkfifo", [manifestPath(specDir)]);
+    collectWarnings();
+
+    assert.deepEqual(await withoutWaitingOnNamedPipe(manifestPath(specDir), () => readManifest(specDir)), []);
+  });
+});
+
+test("readManifest takes a manifest that is a directory, or whose directory is a regular file, for no manifest and says so", async () => {
+  await withMirror(async ({ specDir }) => {
+    const warnings = collectWarnings();
+    mkdirSync(manifestPath(specDir), { recursive: true });
+    assert.deepEqual(await readManifest(specDir), []);
+    rmSync(join(specDir, ".qa"), { recursive: true });
+    writeFileSync(join(specDir, ".qa"), "not a directory");
+    assert.deepEqual(await readManifest(specDir), []);
+    assert.equal(warnings.filter((w) => w.includes("manifest")).length, 2);
+  });
+});
+
+test("readManifest says nothing about a manifest that is simply not there, with or without its directory", async () => {
+  await withMirror(async ({ specDir }) => {
+    const warnings = collectWarnings();
+    assert.deepEqual(await readManifest(specDir), []);
+    mkdirSync(join(specDir, ".qa"));
+    assert.deepEqual(await readManifest(specDir), []);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("readManifest takes a manifest larger than the cap for no manifest and says so, and reads one of exactly the cap", async () => {
+  await withMirror(async ({ specDir }) => {
+    mkdirSync(join(specDir, ".qa"));
+    const entries = JSON.stringify([{ id: "big", file: "a.spec.ts", flow: "f", objective: "o", pad: "" }]);
+    const padded = (bytes: number): string => entries.replace('"pad":""', `"pad":"${"x".repeat(bytes - entries.length)}"`);
+    const warnings = collectWarnings();
+
+    writeFileSync(manifestPath(specDir), padded(MAX_MANIFEST_BYTES + 1));
+    assert.deepEqual(await readManifest(specDir), [], "one byte over");
+    assert.equal(warnings.filter((w) => w.includes("manifest")).length, 1);
+
+    writeFileSync(manifestPath(specDir), padded(MAX_MANIFEST_BYTES));
+    assert.equal((await readManifest(specDir)).length, 1, "exactly the cap");
+  });
+});
+
+test("reconcileManifest never writes through a symlink at the manifest: the file it points at is intact and the refusal is thrown", async () => {
+  await withMirror(async ({ tmp, specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    writeFileSync(join(tmp, "outside", "victim.txt"), "PRECIOUS");
+    symlinkSync(join(tmp, "outside", "victim.txt"), manifestPath(specDir));
+
+    await assert.rejects(reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]), refusedAsManifest);
+
+    assert.equal(readFileSync(join(tmp, "outside", "victim.txt"), "utf8"), "PRECIOUS");
+    assert.equal(lstatSync(manifestPath(specDir)).isSymbolicLink(), true, "the plant is left as it was");
+    assert.deepEqual(readdirSync(join(specDir, ".qa")), ["manifest.json"], "and no temporary file is left");
+  });
+});
+
+test("reconcileManifest never writes through a symlink at the directory of the manifest, and nothing is made outside", async () => {
+  await withMirror(async ({ tmp, specDir, root }) => {
+    symlinkSync(join(tmp, "outside"), join(specDir, ".qa"));
+
+    await assert.rejects(reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]), refusedAsManifest);
+
+    assert.deepEqual(readdirSync(join(tmp, "outside")), ["secret.txt"]);
+  });
+});
+
+test("reconcileManifest throws, and writes nothing, for a manifest that is a directory, a named pipe, or in a directory that is a regular file", async () => {
+  await withMirror(async ({ specDir, root }) => {
+    mkdirSync(manifestPath(specDir), { recursive: true });
+    await assert.rejects(reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]), refusedAsManifest, "a directory");
+    assert.equal(lstatSync(manifestPath(specDir)).isDirectory(), true);
+    rmSync(join(specDir, ".qa"), { recursive: true });
+
+    writeFileSync(join(specDir, ".qa"), "not a directory");
+    await assert.rejects(reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]), refusedAsManifest, "a regular file in place of the directory");
+    assert.equal(readFileSync(join(specDir, ".qa"), "utf8"), "not a directory");
+  });
+});
+
+test("reconcileManifest throws for a manifest that is a named pipe, which it never opens", { skip: NO_NAMED_PIPES }, async () => {
+  await withMirror(async ({ specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    execFileSync("mkfifo", [manifestPath(specDir)]);
+
+    await assert.rejects(withoutWaitingOnNamedPipe(manifestPath(specDir), () => reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")])), refusedAsManifest);
+
+    assert.equal(lstatSync(manifestPath(specDir)).isFIFO(), true);
+  });
+});
+
+test("reconcileManifest leaves out of the manifest it rewrites a prior entry that is not an object or has no id, and keeps the ones that have one", async () => {
+  await withMirror(async ({ specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    const kept = { id: "kept", flow: "kept", objective: "o", targets: ["t"], changeRef: { sha: "s", type: "feat" } };
+    writeFileSync(manifestPath(specDir), JSON.stringify([null, 5, "text", { flow: "no id" }, { id: 7, flow: "id that is not a string" }, kept]));
+
+    const out = await reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]);
+
+    assert.deepEqual(out.map((e) => e.id), ["kept", "real"]);
+    assert.deepEqual((JSON.parse(readFileSync(manifestPath(specDir), "utf8")) as Array<{ id: string }>).map((e) => e.id), ["kept", "real"]);
+  });
+});
+
+test("reconcileManifest throws rather than merge into a manifest it will not read, and does not replace it", async () => {
+  await withMirror(async ({ specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    const oversize = "x".repeat(MAX_MANIFEST_BYTES + 1);
+    writeFileSync(manifestPath(specDir), oversize);
+
+    await assert.rejects(reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]), refusedAsManifest);
+
+    assert.equal(readFileSync(manifestPath(specDir), "utf8").length, oversize.length, "an unreadable manifest is not overwritten with one that has lost its entries");
+  });
+});
+
+/* The read of a manifest refuses a link before the write is reached, so nothing above makes the write strict on its own: this is the case only a write that goes through a temporary file tells apart from one that opens the manifest, a second name for another file's inode. */
+test("reconcileManifest replaces a manifest that is a second name for another file's inode, and leaves that file as it was", async () => {
+  await withMirror(async ({ tmp, specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    linkSync(join(tmp, "outside", "secret.txt"), manifestPath(specDir));
+
+    await reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]);
+
+    assert.equal(readFileSync(join(tmp, "outside", "secret.txt"), "utf8"), "TOP SECRET", "a write that went through the inode would have replaced it");
+    assert.deepEqual((JSON.parse(readFileSync(manifestPath(specDir), "utf8")) as Array<{ id: string }>).map((e) => e.id), ["real"]);
+  });
+});
+
+test("reconcileManifest replaces the manifest as a whole and leaves no temporary file in its directory", async () => {
+  await withMirror(async ({ specDir, root }) => {
+    mkdirSync(join(specDir, ".qa"));
+    writeFileSync(manifestPath(specDir), JSON.stringify([entryFor("old", "flows/real.spec.ts")], null, 2) + " ".repeat(2000));
+
+    await reconcileManifest(root, [entryFor("real", "flows/real.spec.ts")]);
+
+    assert.deepEqual((JSON.parse(readFileSync(manifestPath(specDir), "utf8")) as Array<{ id: string }>).map((e) => e.id), ["old", "real"], "the file is the merge, with nothing left of the longer old text");
+    assert.deepEqual(readdirSync(join(specDir, ".qa")), ["manifest.json"]);
   });
 });

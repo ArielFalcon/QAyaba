@@ -115,19 +115,27 @@ test("the patch-app-yaml preset mutates the config patcher, against its own test
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the spec-path-confinement preset mutates the confined reader, against its own tests and the tests of the six sites that read or probe a reported path through it", () => {
+test("the spec-path-confinement preset mutates the confined reader and the strict read and write, with the manifest IO, the manifest check of the read gate and the listing of the specs, against their own tests and the tests of the sites that go through them", () => {
   const preset = PRESETS["spec-path-confinement"];
   assert.ok(preset, "the spec-path-confinement preset exists");
-  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/shared-infrastructure/spec-path-confinement.ts"]);
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
+    "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
+    "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+  ]);
   for (const tests of [
     "shared-infrastructure/spec-path-confinement.test.ts",
     "shared-infrastructure/spec-path-confinement.seam.test.ts",
+    "shared-infrastructure/spec-path-confinement.owned.test.ts",
     "bridges/generation-port.adapter.test.ts",
     "bridges/review-dom-grounding-port.adapter.test.ts",
     "prompt-builders/prompts.test.ts",
     "infrastructure/manifest-fs.test.ts",
     "contract/coordination-disk-and-model.contract.test.ts",
     "bridges/pre-exec-grounding-port.adapter.test.ts",
+    "infrastructure/static-gate.checks.test.ts",
+    "bridges/pre-generation-grounding-port.adapter.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }

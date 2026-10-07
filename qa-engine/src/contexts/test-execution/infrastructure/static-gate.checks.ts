@@ -4,10 +4,11 @@ import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
-import { validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
+import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifestShape, type ManifestValidation } from "@kernel/manifest/manifest-entry.ts";
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import { readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
 import {
   detectCodeProject,
@@ -140,12 +141,16 @@ export const defaultValidateDeps: ValidateDeps = {
   lint: (e2eDir) => runCheck("npx", ["eslint", "."], e2eDir),
   listTests: (e2eDir) => runCheck("npx", ["playwright", "test", "--list"], e2eDir),
   checkManifest: async (e2eDir) => {
+    const unreadable = (why: string): CheckResult => ({ ok: false, output: `e2e/.qa/manifest.json unreadable or missing: ${why}` });
     try {
-      const raw = JSON.parse(readFileSync(join(e2eDir, ".qa", "manifest.json"), "utf8"));
-      const v = validateManifest(raw);
+      /* What this check reports goes back to the agent as validation feedback, and the manifest is in a directory the agent writes into: it is read strictly, so that a link or a pipe planted there is refused with a reason that names no content, instead of being followed and quoted back in a parse error. */
+      const read = readOwnedSpecFile({ mirrorDir: e2eDir, specDir: e2eDir }, MANIFEST_FILE, MAX_MANIFEST_BYTES);
+      if ("reason" in read) return unreadable(read.reason);
+      if ("absent" in read) return unreadable("it does not exist");
+      const v = validateManifest(JSON.parse(read.bytes.toString("utf8")));
       return { ok: v.ok, output: v.errors.join("\n") };
     } catch (e) {
-      return { ok: false, output: `e2e/.qa/manifest.json unreadable or missing: ${String(e)}` };
+      return unreadable(String(e));
     }
   },
 };

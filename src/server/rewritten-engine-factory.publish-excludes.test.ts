@@ -11,12 +11,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, unlinkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildConfinement, buildVcsPublish } from "./rewritten-engine-factory";
 import { realGit } from "../integrations/repo-mirror";
 import { closeGitDir, indexedGitlinks, makeEmbeddedRepo } from "../../qa-engine/test/shared-infrastructure/process-sandbox/git-fixtures";
+import { defaultSpecWriteDeps, writeOwnedSpecFile } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
 
 /* The bare git subcommand of an argv, skipping leading `-c <key> <value>` pairs (buildVcsPublish's
    commit/push decorations prepend -c flags) — mirrors rewritten-engine-factory.test.ts's own
@@ -149,6 +150,33 @@ test("e2e target: e2e/.auth/ session files are never published", async () => {
     assert.ok(
       !paths.some((p) => p.startsWith("e2e/.auth/")),
       `auth session files must be excluded — committed paths: ${JSON.stringify(paths)}`,
+    );
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+/* The manifest is written through a temporary file renamed over it, so a run that dies between the two leaves the temporary file in e2e/.qa, and the publish stages the whole e2e/ tree. The file is made by the real writer, with a rename that never happens, so the name is the one production gives it. */
+test("e2e target: a temporary file left by an interrupted manifest write is never staged, and the manifest itself is", async () => {
+  const repo = initRepo();
+  try {
+    writeFile(repo, "e2e/checkout.spec.ts", "test('x', () => {});\n");
+    const root = { mirrorDir: repo, specDir: join(repo, "e2e") };
+    writeOwnedSpecFile(root, ".qa/manifest.json", "[]\n");
+    writeOwnedSpecFile(root, ".qa/manifest.json", "[{\"id\":\"half-written", { ...defaultSpecWriteDeps, rename: () => {} });
+    assert.ok(readdirSync(join(repo, "e2e", ".qa")).some((name) => name.endsWith(".tmp")), "the interrupted write left its temporary file");
+
+    const { git } = realGitNoPush(repo);
+    const vcsWrite = buildVcsPublish(false, "diff", git);
+    const result = await vcsWrite.publish({ mirrorDir: repo, branch: "qa-bot/tmptest1", sha: "tmptest1" });
+
+    assert.equal(result.changed, true);
+    const paths = committedPaths(repo);
+    assert.ok(paths.includes("e2e/checkout.spec.ts"));
+    assert.ok(paths.includes("e2e/.qa/manifest.json"), `the manifest is published — committed paths: ${JSON.stringify(paths)}`);
+    assert.ok(
+      !paths.some((p) => p.endsWith(".tmp")),
+      `a temporary file of an interrupted write must be excluded — committed paths: ${JSON.stringify(paths)}`,
     );
   } finally {
     rmSync(repo, { recursive: true, force: true });

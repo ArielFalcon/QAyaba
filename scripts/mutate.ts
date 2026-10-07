@@ -251,7 +251,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/regen-turn.ts`,
       `${GEN}/domain/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
-      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:131-180`,
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:141-190`,
     ],
     tests: [
       `${GEN_TEST}/domain/prompt-contract-lint.test.ts`,
@@ -323,19 +323,32 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     concurrency: 2,
   },
   "spec-path-confinement": {
-    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole), with the six sites that read or probe a reported path through it",
-    mutate: ["qa-engine/src/shared-infrastructure/spec-path-confinement.ts"],
+    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole) and the strict read and write of the files the orchestrator keeps in the spec directory (no link on the way, a temporary file renamed over the target), with the sites that read, probe, write or list through them: the manifest's IO and its read gate, and the listing of the specs that never walks a link",
+    mutate: [
+      "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
+      /* The manifest's file hashes, its strict read (a refusal is "no manifest") and its write (a refusal is thrown). */
+      `${GEN}/infrastructure/manifest-fs.ts:7-46`,
+      `${GEN}/infrastructure/manifest-fs.ts:79-92`,
+      /* The read gate's manifest check, whose output goes back to the agent. */
+      "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:143-155",
+      /* The listing of the existing specs. */
+      `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:111-139`,
+    ],
     tests: [
       "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.seam.test.ts",
+      "qa-engine/test/shared-infrastructure/spec-path-confinement.owned.test.ts",
       /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
       `${ORCH_TEST}/infrastructure/bridges/generation-port.adapter.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/review-dom-grounding-port.adapter.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.test.ts`,
-      /* The manifest's file hashes, the sidekick's claimed files and the pre-exec capture. */
+      /* The manifest's file hashes and write, the sidekick's claimed files and the pre-exec capture. */
       `${GEN_TEST}/infrastructure/manifest-fs.test.ts`,
       "qa-engine/test/contract/coordination-disk-and-model.contract.test.ts",
       `${ORCH_TEST}/infrastructure/bridges/pre-exec-grounding-port.adapter.test.ts`,
+      /* The read gate's manifest check and the listing of the specs. */
+      "qa-engine/test/contexts/test-execution/infrastructure/static-gate.checks.test.ts",
+      `${ORCH_TEST}/infrastructure/bridges/pre-generation-grounding-port.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

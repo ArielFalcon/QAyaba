@@ -155,7 +155,7 @@ export function roleToAgentName(role: AgentRole): string {
 
 
 const E2E_PUBLISH_ADD = ["e2e"];
-const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.auth/"];
+const E2E_PUBLISH_EXCLUDES = ["node_modules/", "e2e/.qa/coverage/", "e2e/.qa/measured.json", "e2e/.qa/service-context/", "e2e/.qa/*.tmp", "e2e/.auth/"];
 const CODE_PUBLISH_ADD = ["."];
 
 const CONTEXT_PUBLISH_ADD = ["e2e/.qa/context.json"];
