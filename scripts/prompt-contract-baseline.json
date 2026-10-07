@@ -1121,12 +1121,20 @@
       "bytes": 4076,
       "directives": 6
     },
+    "diff/code/first/tree-none/brief/no-blast/co-change": {
+      "bytes": 4439,
+      "directives": 6
+    },
     "diff/code/first/tree-none/brief/no-blast/signal": {
       "bytes": 4489,
       "directives": 7
     },
     "diff/code/first/tree-none/none": {
       "bytes": 3309,
+      "directives": 4
+    },
+    "diff/code/first/tree-none/none/co-change": {
+      "bytes": 3672,
       "directives": 4
     },
     "diff/code/first/tree-none/none/signal": {
@@ -1141,12 +1149,20 @@
       "bytes": 3743,
       "directives": 11
     },
+    "diff/code/regen-coverage/tree-none/brief/no-blast/co-change": {
+      "bytes": 4106,
+      "directives": 11
+    },
     "diff/code/regen-coverage/tree-none/brief/no-blast/signal": {
       "bytes": 4266,
       "directives": 12
     },
     "diff/code/regen-coverage/tree-none/none": {
       "bytes": 2976,
+      "directives": 9
+    },
+    "diff/code/regen-coverage/tree-none/none/co-change": {
+      "bytes": 3339,
       "directives": 9
     },
     "diff/code/regen-coverage/tree-none/none/signal": {
@@ -1161,12 +1177,20 @@
       "bytes": 3909,
       "directives": 11
     },
+    "diff/code/regen-fix/tree-none/brief/no-blast/co-change": {
+      "bytes": 4272,
+      "directives": 11
+    },
     "diff/code/regen-fix/tree-none/brief/no-blast/signal": {
       "bytes": 4432,
       "directives": 12
     },
     "diff/code/regen-fix/tree-none/none": {
       "bytes": 3142,
+      "directives": 9
+    },
+    "diff/code/regen-fix/tree-none/none/co-change": {
+      "bytes": 3505,
       "directives": 9
     },
     "diff/code/regen-fix/tree-none/none/signal": {
@@ -1181,12 +1205,20 @@
       "bytes": 3748,
       "directives": 12
     },
+    "diff/code/regen-review/tree-none/brief/no-blast/co-change": {
+      "bytes": 4111,
+      "directives": 12
+    },
     "diff/code/regen-review/tree-none/brief/no-blast/signal": {
       "bytes": 4271,
       "directives": 13
     },
     "diff/code/regen-review/tree-none/none": {
       "bytes": 2981,
+      "directives": 10
+    },
+    "diff/code/regen-review/tree-none/none/co-change": {
+      "bytes": 3344,
       "directives": 10
     },
     "diff/code/regen-review/tree-none/none/signal": {
@@ -1213,6 +1245,10 @@
       "bytes": 6612,
       "directives": 9
     },
+    "diff/e2e/first/tree-none/brief+pack/no-blast/co-change": {
+      "bytes": 5643,
+      "directives": 8
+    },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only": {
       "bytes": 6522,
       "directives": 12
@@ -1222,11 +1258,11 @@
       "directives": 12
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal": {
-      "bytes": 6935,
+      "bytes": 6842,
       "directives": 13
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/contracts-only/signal/service": {
-      "bytes": 7623,
+      "bytes": 7530,
       "directives": 13
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/service": {
@@ -1234,11 +1270,11 @@
       "directives": 9
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal": {
-      "bytes": 7025,
+      "bytes": 6932,
       "directives": 10
     },
     "diff/e2e/first/tree-none/brief+pack/no-blast/signal/service": {
-      "bytes": 7713,
+      "bytes": 7620,
       "directives": 10
     },
     "diff/e2e/first/tree-none/brief+pack/service": {
@@ -1249,16 +1285,20 @@
       "bytes": 6312,
       "directives": 12
     },
+    "diff/e2e/first/tree-none/brief/no-blast/co-change": {
+      "bytes": 5412,
+      "directives": 11
+    },
     "diff/e2e/first/tree-none/brief/no-blast/service": {
       "bytes": 7000,
       "directives": 12
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal": {
-      "bytes": 6725,
+      "bytes": 6632,
       "directives": 13
     },
     "diff/e2e/first/tree-none/brief/no-blast/signal/service": {
-      "bytes": 7413,
+      "bytes": 7320,
       "directives": 13
     },
     "diff/e2e/first/tree-none/brief/service": {
@@ -1269,21 +1309,29 @@
       "bytes": 5753,
       "directives": 10
     },
+    "diff/e2e/first/tree-none/none/co-change": {
+      "bytes": 4645,
+      "directives": 9
+    },
     "diff/e2e/first/tree-none/none/service": {
       "bytes": 6441,
       "directives": 10
     },
     "diff/e2e/first/tree-none/none/signal": {
-      "bytes": 6166,
+      "bytes": 6073,
       "directives": 11
     },
     "diff/e2e/first/tree-none/none/signal/service": {
-      "bytes": 6854,
+      "bytes": 6761,
       "directives": 11
     },
     "diff/e2e/first/tree-none/pack": {
       "bytes": 6132,
       "directives": 8
+    },
+    "diff/e2e/first/tree-none/pack/co-change": {
+      "bytes": 4955,
+      "directives": 7
     },
     "diff/e2e/first/tree-none/pack/contracts-only": {
       "bytes": 5963,
@@ -1294,11 +1342,11 @@
       "directives": 10
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal": {
-      "bytes": 6376,
+      "bytes": 6283,
       "directives": 11
     },
     "diff/e2e/first/tree-none/pack/contracts-only/signal/service": {
-      "bytes": 7064,
+      "bytes": 6971,
       "directives": 11
     },
     "diff/e2e/first/tree-none/pack/service": {
@@ -1306,11 +1354,11 @@
       "directives": 8
     },
     "diff/e2e/first/tree-none/pack/signal": {
-      "bytes": 6545,
+      "bytes": 6452,
       "directives": 9
     },
     "diff/e2e/first/tree-none/pack/signal/service": {
-      "bytes": 7233,
+      "bytes": 7140,
       "directives": 9
     },
     "diff/e2e/regen-coverage/tree-none/brief": {
@@ -1332,6 +1380,10 @@
     "diff/e2e/regen-coverage/tree-none/brief+pack/no-blast": {
       "bytes": 6210,
       "directives": 16
+    },
+    "diff/e2e/regen-coverage/tree-none/brief+pack/no-blast/co-change": {
+      "bytes": 4864,
+      "directives": 15
     },
     "diff/e2e/regen-coverage/tree-none/brief+pack/no-blast/contracts-only": {
       "bytes": 5829,
@@ -1369,6 +1421,10 @@
       "bytes": 5619,
       "directives": 15
     },
+    "diff/e2e/regen-coverage/tree-none/brief/no-blast/co-change": {
+      "bytes": 4342,
+      "directives": 14
+    },
     "diff/e2e/regen-coverage/tree-none/brief/no-blast/service": {
       "bytes": 6307,
       "directives": 15
@@ -1389,6 +1445,10 @@
       "bytes": 5060,
       "directives": 13
     },
+    "diff/e2e/regen-coverage/tree-none/none/co-change": {
+      "bytes": 3575,
+      "directives": 12
+    },
     "diff/e2e/regen-coverage/tree-none/none/service": {
       "bytes": 5748,
       "directives": 13
@@ -1404,6 +1464,10 @@
     "diff/e2e/regen-coverage/tree-none/pack": {
       "bytes": 5730,
       "directives": 15
+    },
+    "diff/e2e/regen-coverage/tree-none/pack/co-change": {
+      "bytes": 4176,
+      "directives": 14
     },
     "diff/e2e/regen-coverage/tree-none/pack/contracts-only": {
       "bytes": 5270,
@@ -1453,6 +1517,10 @@
       "bytes": 7868,
       "directives": 19
     },
+    "diff/e2e/regen-fix/tree-failure/brief+pack/no-blast/co-change": {
+      "bytes": 6522,
+      "directives": 18
+    },
     "diff/e2e/regen-fix/tree-failure/brief+pack/no-blast/contracts-only": {
       "bytes": 7282,
       "directives": 19
@@ -1489,6 +1557,10 @@
       "bytes": 7072,
       "directives": 19
     },
+    "diff/e2e/regen-fix/tree-failure/brief/no-blast/co-change": {
+      "bytes": 5795,
+      "directives": 18
+    },
     "diff/e2e/regen-fix/tree-failure/brief/no-blast/service": {
       "bytes": 7760,
       "directives": 19
@@ -1509,6 +1581,10 @@
       "bytes": 6592,
       "directives": 18
     },
+    "diff/e2e/regen-fix/tree-failure/none/co-change": {
+      "bytes": 5107,
+      "directives": 17
+    },
     "diff/e2e/regen-fix/tree-failure/none/service": {
       "bytes": 7280,
       "directives": 18
@@ -1524,6 +1600,10 @@
     "diff/e2e/regen-fix/tree-failure/pack": {
       "bytes": 7388,
       "directives": 18
+    },
+    "diff/e2e/regen-fix/tree-failure/pack/co-change": {
+      "bytes": 5834,
+      "directives": 17
     },
     "diff/e2e/regen-fix/tree-failure/pack/contracts-only": {
       "bytes": 6802,
@@ -1573,6 +1653,10 @@
       "bytes": 7131,
       "directives": 17
     },
+    "diff/e2e/regen-fix/tree-live/brief+pack/no-blast/co-change": {
+      "bytes": 5603,
+      "directives": 16
+    },
     "diff/e2e/regen-fix/tree-live/brief+pack/no-blast/contracts-only": {
       "bytes": 7090,
       "directives": 17
@@ -1609,6 +1693,10 @@
       "bytes": 6880,
       "directives": 17
     },
+    "diff/e2e/regen-fix/tree-live/brief/no-blast/co-change": {
+      "bytes": 5603,
+      "directives": 16
+    },
     "diff/e2e/regen-fix/tree-live/brief/no-blast/service": {
       "bytes": 7568,
       "directives": 17
@@ -1629,6 +1717,10 @@
       "bytes": 6400,
       "directives": 16
     },
+    "diff/e2e/regen-fix/tree-live/none/co-change": {
+      "bytes": 4915,
+      "directives": 15
+    },
     "diff/e2e/regen-fix/tree-live/none/service": {
       "bytes": 7088,
       "directives": 16
@@ -1644,6 +1736,10 @@
     "diff/e2e/regen-fix/tree-live/pack": {
       "bytes": 6651,
       "directives": 16
+    },
+    "diff/e2e/regen-fix/tree-live/pack/co-change": {
+      "bytes": 4915,
+      "directives": 15
     },
     "diff/e2e/regen-fix/tree-live/pack/contracts-only": {
       "bytes": 6610,
@@ -1693,6 +1789,10 @@
       "bytes": 6795,
       "directives": 16
     },
+    "diff/e2e/regen-fix/tree-none/brief+pack/no-blast/co-change": {
+      "bytes": 5449,
+      "directives": 15
+    },
     "diff/e2e/regen-fix/tree-none/brief+pack/no-blast/contracts-only": {
       "bytes": 6514,
       "directives": 17
@@ -1729,6 +1829,10 @@
       "bytes": 6304,
       "directives": 17
     },
+    "diff/e2e/regen-fix/tree-none/brief/no-blast/co-change": {
+      "bytes": 5027,
+      "directives": 16
+    },
     "diff/e2e/regen-fix/tree-none/brief/no-blast/service": {
       "bytes": 6992,
       "directives": 17
@@ -1749,6 +1853,10 @@
       "bytes": 5745,
       "directives": 15
     },
+    "diff/e2e/regen-fix/tree-none/none/co-change": {
+      "bytes": 4260,
+      "directives": 14
+    },
     "diff/e2e/regen-fix/tree-none/none/service": {
       "bytes": 6433,
       "directives": 15
@@ -1764,6 +1872,10 @@
     "diff/e2e/regen-fix/tree-none/pack": {
       "bytes": 6315,
       "directives": 15
+    },
+    "diff/e2e/regen-fix/tree-none/pack/co-change": {
+      "bytes": 4761,
+      "directives": 14
     },
     "diff/e2e/regen-fix/tree-none/pack/contracts-only": {
       "bytes": 5955,
@@ -1813,6 +1925,10 @@
       "bytes": 6140,
       "directives": 17
     },
+    "diff/e2e/regen-review/tree-none/brief+pack/no-blast/co-change": {
+      "bytes": 4794,
+      "directives": 16
+    },
     "diff/e2e/regen-review/tree-none/brief+pack/no-blast/contracts-only": {
       "bytes": 5866,
       "directives": 16
@@ -1849,6 +1965,10 @@
       "bytes": 5656,
       "directives": 16
     },
+    "diff/e2e/regen-review/tree-none/brief/no-blast/co-change": {
+      "bytes": 4379,
+      "directives": 15
+    },
     "diff/e2e/regen-review/tree-none/brief/no-blast/service": {
       "bytes": 6344,
       "directives": 16
@@ -1869,6 +1989,10 @@
       "bytes": 5097,
       "directives": 14
     },
+    "diff/e2e/regen-review/tree-none/none/co-change": {
+      "bytes": 3612,
+      "directives": 13
+    },
     "diff/e2e/regen-review/tree-none/none/service": {
       "bytes": 5785,
       "directives": 14
@@ -1884,6 +2008,10 @@
     "diff/e2e/regen-review/tree-none/pack": {
       "bytes": 5660,
       "directives": 16
+    },
+    "diff/e2e/regen-review/tree-none/pack/co-change": {
+      "bytes": 4106,
+      "directives": 15
     },
     "diff/e2e/regen-review/tree-none/pack/contracts-only": {
       "bytes": 5307,
@@ -1933,6 +2061,10 @@
       "bytes": 7282,
       "directives": 16
     },
+    "diff/e2e/selector-fix/tree-failure/brief+pack/no-blast/co-change": {
+      "bytes": 5936,
+      "directives": 15
+    },
     "diff/e2e/selector-fix/tree-failure/brief+pack/no-blast/contracts-only": {
       "bytes": 6696,
       "directives": 16
@@ -1969,6 +2101,10 @@
       "bytes": 6486,
       "directives": 16
     },
+    "diff/e2e/selector-fix/tree-failure/brief/no-blast/co-change": {
+      "bytes": 5209,
+      "directives": 15
+    },
     "diff/e2e/selector-fix/tree-failure/brief/no-blast/service": {
       "bytes": 7174,
       "directives": 16
@@ -1989,6 +2125,10 @@
       "bytes": 6006,
       "directives": 15
     },
+    "diff/e2e/selector-fix/tree-failure/none/co-change": {
+      "bytes": 4521,
+      "directives": 14
+    },
     "diff/e2e/selector-fix/tree-failure/none/service": {
       "bytes": 6694,
       "directives": 15
@@ -2004,6 +2144,10 @@
     "diff/e2e/selector-fix/tree-failure/pack": {
       "bytes": 6802,
       "directives": 15
+    },
+    "diff/e2e/selector-fix/tree-failure/pack/co-change": {
+      "bytes": 5248,
+      "directives": 14
     },
     "diff/e2e/selector-fix/tree-failure/pack/contracts-only": {
       "bytes": 6216,
@@ -2053,6 +2197,10 @@
       "bytes": 6516,
       "directives": 14
     },
+    "diff/e2e/selector-fix/tree-live/brief+pack/no-blast/co-change": {
+      "bytes": 4988,
+      "directives": 13
+    },
     "diff/e2e/selector-fix/tree-live/brief+pack/no-blast/contracts-only": {
       "bytes": 6475,
       "directives": 14
@@ -2089,6 +2237,10 @@
       "bytes": 6265,
       "directives": 14
     },
+    "diff/e2e/selector-fix/tree-live/brief/no-blast/co-change": {
+      "bytes": 4988,
+      "directives": 13
+    },
     "diff/e2e/selector-fix/tree-live/brief/no-blast/service": {
       "bytes": 6953,
       "directives": 14
@@ -2109,6 +2261,10 @@
       "bytes": 5785,
       "directives": 13
     },
+    "diff/e2e/selector-fix/tree-live/none/co-change": {
+      "bytes": 4300,
+      "directives": 12
+    },
     "diff/e2e/selector-fix/tree-live/none/service": {
       "bytes": 6473,
       "directives": 13
@@ -2124,6 +2280,10 @@
     "diff/e2e/selector-fix/tree-live/pack": {
       "bytes": 6036,
       "directives": 13
+    },
+    "diff/e2e/selector-fix/tree-live/pack/co-change": {
+      "bytes": 4300,
+      "directives": 12
     },
     "diff/e2e/selector-fix/tree-live/pack/contracts-only": {
       "bytes": 5995,
@@ -2173,6 +2333,10 @@
       "bytes": 6186,
       "directives": 13
     },
+    "diff/e2e/selector-fix/tree-none/brief+pack/no-blast/co-change": {
+      "bytes": 4840,
+      "directives": 12
+    },
     "diff/e2e/selector-fix/tree-none/brief+pack/no-blast/contracts-only": {
       "bytes": 6092,
       "directives": 16
@@ -2209,6 +2373,10 @@
       "bytes": 5882,
       "directives": 16
     },
+    "diff/e2e/selector-fix/tree-none/brief/no-blast/co-change": {
+      "bytes": 4605,
+      "directives": 15
+    },
     "diff/e2e/selector-fix/tree-none/brief/no-blast/service": {
       "bytes": 6570,
       "directives": 16
@@ -2229,6 +2397,10 @@
       "bytes": 5323,
       "directives": 14
     },
+    "diff/e2e/selector-fix/tree-none/none/co-change": {
+      "bytes": 3838,
+      "directives": 13
+    },
     "diff/e2e/selector-fix/tree-none/none/service": {
       "bytes": 6011,
       "directives": 14
@@ -2244,6 +2416,10 @@
     "diff/e2e/selector-fix/tree-none/pack": {
       "bytes": 5706,
       "directives": 12
+    },
+    "diff/e2e/selector-fix/tree-none/pack/co-change": {
+      "bytes": 4152,
+      "directives": 11
     },
     "diff/e2e/selector-fix/tree-none/pack/contracts-only": {
       "bytes": 5533,
