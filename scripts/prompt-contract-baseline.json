@@ -6,7 +6,7 @@
   },
   "staticLayers": {
     "opencode": 19136,
-    "codex": 33907
+    "codex": 34023
   },
   "buckets": {
     "complete/code/first/tree-none/brief": {
@@ -4655,9 +4655,8 @@
     }
   },
   "lastIncrease": {
-    "reason": "the one spec a run updates must be read first: Protocol 2 of the shared layer now says to read the existing spec of a flow before updating it, because the suite listing carries paths, flows and objectives, never a spec's content",
+    "reason": "documents the map fields route ranking reads",
     "budgets": [
-      "static:opencode",
       "static:codex"
     ]
   }
