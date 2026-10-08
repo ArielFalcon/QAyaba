@@ -10,7 +10,8 @@ interface CorruptedRunResult {
 }
 
 type RunCorrupted = (args: { dir: string; baseUrl: string; namespace: string }) => Promise<CorruptedRunResult>;
-type CountInjected = (e2eDir: string, namespace: string) => number;
+/* How many responses the corrupted re-run corrupted, or undefined when that could not be told (a counter it left could not be read). */
+type CountInjected = (e2eDir: string, namespace: string) => number | undefined;
 
 export class FaultInjectionOracleAdapter implements ValueOraclePort {
   constructor(
@@ -34,7 +35,11 @@ export class FaultInjectionOracleAdapter implements ValueOraclePort {
     if (run.verdict === "infra-error") {
       return { valueScore: null, mutantCount: null, killedCount: null, details: "fault-injection re-run inconclusive (infra)" };
     }
-    if (this.countInjected(repoDir, fiNamespace) === 0) {
+    const injected = this.countInjected(repoDir, fiNamespace);
+    if (injected === undefined) {
+      return { valueScore: null, mutantCount: null, killedCount: null, details: "the corrupted re-run's counters could not all be read — fault-injection is inconclusive (no score)" };
+    }
+    if (injected === 0) {
       return {
         valueScore: null,
         mutantCount: null,

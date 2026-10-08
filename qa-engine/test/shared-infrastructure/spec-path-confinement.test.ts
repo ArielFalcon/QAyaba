@@ -10,6 +10,7 @@ import {
   MAX_SPEC_SOURCE_BYTES,
   readConfinedSpecBytes,
   readConfinedSpecFile,
+  readFailureReason,
   resolveConfinedSpecFile,
   type SpecRoot,
 } from "../../src/shared-infrastructure/spec-path-confinement.ts";
@@ -379,4 +380,25 @@ test("a read releases its descriptor, whether it returns or rejects", { skip: NO
     }
     assert.ok(open() - before < 20, `${open() - before} descriptors were left open by 400 reads`);
   });
+});
+
+/* ── why a read failed ─────────────────────────────────────────────────────────────────────────── */
+
+/* What a read refused or failed on goes to logs and to validation findings, which an agent reads: it names the file and says why, and quotes nothing the file holds. An error's own message can: a parser's quotes the first characters of what it was given. */
+test("a read failure is told by the refusal's own reason or by the code of the call that failed, and never by an error's message", () => {
+  assert.equal(readFailureReason(new ConfinedPathError("a.spec.ts", "short read")), "short read");
+  assert.equal(readFailureReason(new ConfinedPathError("b.spec.ts", "the file is larger than 5 bytes")), "the file is larger than 5 bytes");
+  assert.equal(readFailureReason(Object.assign(new Error("EACCES: permission denied, open '/mirror/e2e/flows/a.spec.ts'"), { code: "EACCES" })), "EACCES");
+  assert.equal(readFailureReason(Object.assign(new Error("EISDIR: illegal operation on a directory, read"), { code: "EISDIR" })), "EISDIR");
+});
+
+test("a failure that has no code is told by one fixed reason, which is neither undefined nor any part of its message", () => {
+  const fixed = readFailureReason(new SyntaxError('Unexpected token \'S\', "SECRETv1 hunter2" is not valid JSON'));
+
+  assert.notEqual(fixed, "");
+  assert.doesNotMatch(fixed, /undefined|SECRETv1|hunter2/);
+  const odd: unknown[] = [new RangeError("another message"), new TypeError("x"), "a string that was thrown", 42, null, undefined, {}, { code: 5 }, { code: "" }, Object.assign(new Error("no code"), { code: undefined })];
+  for (const failure of odd) {
+    assert.equal(readFailureReason(failure), fixed, `a failure of ${String(failure)} is told in the same words`);
+  }
 });

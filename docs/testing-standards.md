@@ -71,7 +71,11 @@ never end and its process would stay behind. Run the call under
 `withoutWaitingOnNamedPipe(path, run)` (`qa-engine/test/support/named-pipe-watch.ts`): a second thread
 opens the pipe for writing, without waiting, as soon as anything has it open for reading, which releases
 the reader and records that it was there, so the test fails on its assertion within a fraction of a
-second. The code under test is protected in its own right: it opens a path an agent can plant with
+second. It releases a writer too: code that appends to a file an agent replaced with a pipe (a setup
+step that adds a line to a file it first read) waits for a reader the same way, so when nothing is
+reading, the watch opens the read end, which never waits, and a read that finds the pipe empty but not
+closed has a writer on the other end; the watch drains what it sends and records it. The code under test
+is protected in its own right: it opens a path an agent can plant with
 `O_NONBLOCK`, as the confined reader does, or judges it by lstat before opening it, so a single
 regression does not block either. Skip a pipe case, and say why, where `mkfifo` is missing. Anything that
 kills a test command (a RED probe, a hand-mutation script) runs it through `scripts/run-in-group.mjs`,
@@ -358,6 +362,126 @@ module's header: what setup seeds and compares in the spec directory (the instal
 `e2e/node_modules` is the one that matters, since `git clean -fd -e node_modules` leaves it in place from one
 run to the next), what a run of the tests leaves under `.qa` (coverage dumps, fault-injection counters), and
 the login's stock check of `auth.setup.ts`.
+
+The preset was widened a fourth time (2026-10-08, 3 workers, 676 mutants, 336 of them compile errors) for
+exactly those reads, each a synchronous read in the orchestrator over a path the agent can plant, shown
+against the earlier code by scripts that a kill timeout ends. `git clean -fd -e node_modules` leaves
+`e2e/node_modules/.install-hash` in place from one run to the next, and setup read it with a bare
+`readFileSync`, so one named pipe there held the whole orchestrator on every later run; the same pipe at the
+fixtures file, the ignore file, the login setup, the Playwright config or the lock file held it too; a
+`node_modules` that was a link made setup trust a marker from outside the project (no install ran); a link at
+the fixtures file had the capture block (7,453 bytes onto a file of 9) appended to a file outside the project
+and one at the ignore file had `.auth/` appended; and a marker the orchestrator could not read (mode 000) made
+every later setup fail on the rewrite. The login's stock check of `auth.setup.ts`, asked after the agent has
+run, waited on a pipe the same way. What a run of the tests leaves was read bare: a pipe in a coverage dump,
+a native report or a fault-injection counter held the orchestrator (the counter through the real factory and
+oracle), a link at the namespace directory or at a report put a file outside the mirror in the coverage
+signal, a 192 MiB report was read whole, and a directory where a file was expected threw out of readers whose
+header said they never throw. The zero-assertion scan skipped a link to a directory and a directory it could
+not list, though tsc, ESLint and Playwright can follow the link to specs that nothing had checked, and the two
+sites that told a failed read by `String(err.code)` said "undefined" for a failure that has no code.
+
+Setup now reads and replaces every file of the project through the strict read and write: a file it cannot
+vouch for fails the setup, aloud, as an infra-error (the error names the file and the module's reason, never
+a byte of what the file holds), the lock is vetted before an install is started, and a marker that is only
+unreadable still means "install again", is said, and is replaced through a temporary file, which a mode on the
+old one cannot stop. The login's stock check reads strictly and fails the login the same way. The dumps, the
+native reports and the fault-injection counters go through one reader (`run-output-reader`, below), which the
+module's new `listOwnedSpecDir` serves, and which uses a set of them whole or not at all. `scanSpecTree` says
+what the walk of the specs could not walk, and the
+read gate makes each of those a finding of its own. `readFailureReason` tells a failed read by the
+confinement's reason, the call's code or one fixed reason, never an error's message. The module's header says
+exactly what goes through it and what does not.
+
+**Before** of this widening is its first complete run: 680 mutants, 311 killed, 13 timeouts and 20 survivors.
+Fifteen of the survivors were real gaps. The wiring of the real strict calls into the setup adapter survived
+as two functions that return nothing, because every case handed the adapter its own; a fixtures file that
+holds the capture marker anywhere but at the start of a line was never shown to be left alone; a stock
+Playwright config was never shown to follow the shipped seed, nor to be left as it is when the seed is not
+shipped, nor a stock copy that already is the seed to be left in place and not replaced by an equal file; a
+project whose seed ships no login was never shown to be left without one; the keys a config lacks were never
+told from the keys it has, the warning never had to name the file and the keys apart, and a config that lacks
+none was never shown to go unwarned; a link that cannot be examined was given an empty reason; and the
+install marker was compared after a check that the comparison made redundant (removed, not covered). The
+other five are the equivalents and the wording documented below. **After** is the final run, on the code
+rebased onto the main of that day: 332 killed, 3 timeouts and those 5 survivors, so the table's row is it. The
+three timeouts are the infinite-loop mutants of the read loop, as before (its body emptied, and the test for
+the end of the file disabled or inverted). An earlier run of the same code, while other mutation runs loaded
+the machine (it took 166 minutes, this one 32), classed 24 more mutants of the module as timeouts; each of
+them is killed when its tests run alone. The preset leaves out the three cases of the setup adapter's tests
+that compile the shipped seed with `tsc` (about twenty seconds each; they live in a file of their own): they
+would outrun the limit on every mutant, and the byte level tests of the files setup writes judge the same
+lines. 60 mutants of what Stryker does not produce were broken by hand against the final code, each run in
+its own process group, with a control that changes nothing (31 for this preset, 4 for the watch below and 25
+for the next preset's readers). The 31 are the walk that follows a link to a directory, does not name one, takes a link it cannot examine for one that leads
+nowhere, or leaves out a directory it cannot list; the owned listing that follows a link on the way, is not
+cut, or never releases its directory handle; a failure told by its numeric code, or by its message when it has
+no code; the read gate that lists with the plain listing, tells a failed read by `String(code)`, names a path
+it could not walk without its place under `flows/`, or makes it an infrastructure failure; the context map's
+warning told by `String(code)`; setup reading the marker under the lock's cap, the lock under a source file's
+and the source files under the marker's, telling a refused write with the path as the module has it, taking a
+refused marker for a stale one, choosing the install by a probe of the lock and not by a read, a real read
+that ignores the cap it is handed, a real replacement that writes through a followed path, a login seed copied
+from the project's own file, a stock copy put back as it was, and an unreadable marker that is not said or is
+said by `String(code)`; and the login's stock check that takes a missing spec directory for a refusal, reads
+without a cap, takes a refused login for stock or for the app's own, or is anchored on nothing. All 60 die
+and the control survives, which shows that a mutant dies by the behavior it changed and not because the
+harness fails.
+
+Two supports of the tests changed with it. The watch of `test/support/named-pipe-watch.ts` releases a writer
+now as well as a reader: a test written first against code that appends to a planted pipe (the fixtures file,
+the ignore file) would otherwise have hung once the watch had released the code's read, which the first run of
+the new tests would have done; and it no longer takes a regular file at the watched path for a reader (opening
+one for writing succeeds with nobody reading it). Four mutants of the watch broken by hand all die: a writer
+that is not released, one that is released and not reported, and a regular file taken for a writer or for a
+reader. The preset's first run failed its initial test run: Stryker inserts `// @ts-nocheck` into every
+JavaScript and TypeScript file of its sandbox, so the stock check of a shipped seed, a sha256 of its text,
+passed outside the sandbox and failed inside it; the generated configuration turns that off, since the tests
+run through tsx and the checker reads the project's own files.
+
+run-output-readers (2026-10-08, 3 workers, 162 mutants, 91 of them compile errors) is a new preset over what a
+run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a
+native report (`run-output-reader`, which never waits on a pipe, never follows a link, never throws and says
+what it left out without naming or quoting it), the coverage dumps and the reports of a code run built on it (V8,
+lcov, Istanbul, JaCoCo) with the collector that reads the reports of every kind together, the fault-injection
+counters and the lines of the oracle that read their count. It runs against the readers' own tests, the
+collector's, which drives the real readers, the oracle's, and a test of the counter through the factory that
+wires it, kept apart from the factory's whole test file because that file's many tests would each run once per
+mutant. **Before** is its first run: 149 mutants, 55 killed and 26 survived, and they were real gaps. Most were
+the words a warning is made of: a label for each directory and report, which a test could only pin as wording,
+so the warnings carry none now and name the directory or the report by its path, and the reasons given for a
+file left out, which were never required to say anything or to differ from each other. The rest was the cut of
+what a warning names, which no test crossed: how many names it gives, how much of one, the count of the rest
+and the separator between them; a listing cut at the entry cap against one that holds exactly the cap, at the
+cap the production code uses; a budget met exactly against one passed by a byte; a dump that is valid JSON on
+both sides of its cap; and the order in which the files of a directory are read.
+
+A review of that commit then found what no mutant could show, a flaw in the behavior the tests pinned: a dump
+over 64 MiB, a listing over 2,048 entries or a directory over its budget was left out while the rest was read,
+and the warning said the signal was measured from the rest. The coverage of some of the dumps is lower than the
+run's, a ratio the run never made, and under `enforce` it returned `fail`, blocked a valid change and started
+the one regeneration, where `unknown` never blocks and a measurement is never made up. The cases that show it
+run the real collector, assembler and decision under `enforce`: a dump that blocks alone, planted beside a dump
+over the cap, one that is not JSON, a link, a named pipe, one that cannot be read, or more dumps than the reader
+looks at, must give `unknown` (each of them gave `fail` before the change). A set is used whole or not at all
+now: any file of a directory that cannot be used, or more entries than the cap, leaves the whole directory
+unused. The same holds where the parts are merged. The reports of a code run (lcov, Istanbul, JaCoCo) are read
+together, once per collection, and one that cannot be used empties them all, since a kind missing from the merge
+leaves the others measuring only what they cover (an lcov report that blocks beside a JaCoCo report over the
+cap, a link, or an Istanbul report that is not JSON gave `fail`, and gives `unknown`). The count of the
+fault-injection counters is unknown when one of them cannot be used, a part of a count being no count, which
+the oracle reads as no score and says apart from "no response was there to corrupt": the preset took in the
+lines of the oracle that read the count, and the wiring of the collector. A warning names no file now, since
+the agent chooses the name: it says how many files could not be used and, for each reason, how many, so that
+a name cannot forge a log line or fill one. **After** is the final run: 71 killed, no timeouts and no survivors,
+so the table's row is it. 25 mutants of what Stryker does not produce (the directory each reader looks at, what
+the strict read is anchored on, the caps it is handed, the listing's cap, the order of the reads, a report that
+cannot be used being made up for by the next one, a failed read that throws out of the reader, a dump that cannot
+be used going unsaid, a set used from the rest, a directory cut at the cap used up to it, a directory that cannot
+be used taken for an empty one, the reports of the kinds that could be read used, an unknown count taken for none
+or summed from the counters that could be read, the oracle scoring a suite whose count it could not tell or
+taking it for none, and the factory's counter that never counts or always counts) were broken by hand: all 25
+die.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
@@ -785,7 +909,8 @@ spec-path-confinement's `:86-117`.
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
-| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read and write of the orchestrator's own files, the listing of the specs), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map | 36 / 0 / 1 — 97.3% (97.3%) | 205 / 3 / 0 — 100% (98.56%) | — |
+| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing and write of the orchestrator's own files, the walk of the specs), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads and replacements in the project, the login's stock check | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%) | — |
+| run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all), coverage-dump-reader (V8 dumps, lcov, Istanbul, JaCoCo), target-coverage-collector, fault-injection-counter-reader, fault-injection-oracle (its reading of the count) | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
@@ -911,6 +1036,17 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - the composition root's review DOM grounding anchored on the e2e directory instead of the mirror: the
   only target that builds that adapter is the e2e one, whose spec directory is that directory, so both
   anchors name the same place.
+- the walk of the specs (`walkSpecFiles`) — the test that an entry is a symbolic link, forced true
+  (ConditionalExpression): an entry that is no directory, no spec and no link is looked at by `stat` and
+  found to be no directory, so it is left out as before; the test only spares the walk one `stat` per
+  file.
+- setup's `ensureFailureCapture` — the test that the block's closing marker was found, forced false, and
+  its `-1` made `+1` (ConditionalExpression, UnaryOperator): the slice taken instead ends at an arbitrary
+  place, and every earlier revision of the block ends with the closing marker that is not there, so none
+  of them can hash to it and the file is left alone, as before.
+- setup's `ensurePlaywrightEnvKeys` — the two sentences that follow the list of keys in the warning,
+  emptied (StringLiteral, twice): wording. The tests pin what the warning names (the file, each missing
+  key) and that a config lacking none is not warned about, not its prose.
 
 **write-confinement** (`write-confinement.service.ts`)
 All rest on git's own status/quoting invariants; the module is a protected security surface, so its

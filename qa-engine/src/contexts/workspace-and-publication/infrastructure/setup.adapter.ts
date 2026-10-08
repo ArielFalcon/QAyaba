@@ -1,12 +1,26 @@
-/* E2E project setup: bootstrap the seed if missing, then install deps. This adapter never reads env — seedDir is injected. FAILURE_CAPTURE_BLOCK is data appended into the watched app's fixtures (runs in that app's Playwright process), not code this module executes. */
+/* E2E project setup: bootstrap the seed if missing, then install deps. This adapter never reads env — seedDir is injected. FAILURE_CAPTURE_BLOCK is data appended into the watched app's fixtures (runs in that app's Playwright process), not code this module executes.
+   The project directory is one the agent writes into, and part of it (node_modules, so the install marker) outlives a run: every file of it that setup reads or replaces (the fixtures file, the ignore file, the login setup, the Playwright config, the lock file, the install marker) goes through the strict read and write of spec-path-confinement, never a bare fs call. A file it cannot vouch for (a link, a named pipe, a directory, a file over its cap) fails the setup aloud, which the pipeline reports as an infra-error: it is never waited on, followed or skipped. The seed is the orchestrator's own and is read plainly. */
 import { createHash } from "node:crypto";
-import { existsSync, cpSync, readFileSync, writeFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { existsSync, cpSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
+import {
+  ConfinedPathError,
+  MAX_SPEC_SOURCE_BYTES,
+  readFailureReason,
+  readOwnedSpecFile,
+  writeOwnedSpecFile,
+  type OwnedSpecRead,
+  type SpecRoot,
+} from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 export const DEFAULT_E2E_INSTALL_TIMEOUT_MS = 600_000;
+
+/* The install marker holds one hash; the lock file is the largest thing an install is judged by, and a real one is a few megabytes at most. */
+export const MAX_INSTALL_MARKER_BYTES = 1024;
+export const MAX_LOCK_FILE_BYTES = 32 * 1024 * 1024;
 
 /* The install runs the repo's own lifecycle scripts, which can write without limit; nothing reads its output beyond the exit status, so only a small newest tail is kept. */
 const E2E_INSTALL_OUTPUT_KEEP_CHARS = 16_000;
@@ -188,22 +202,30 @@ export interface SetupOptions {
 export interface SetupAdapterFsDeps {
   exists(path: string): boolean;
   cp(src: string, dest: string, opts?: { recursive?: boolean; filter?: (src: string) => boolean }): void;
+  /* The orchestrator's own seed files; never a file of the project. */
   read(path: string): string;
-  readBytes(path: string): Buffer;
-  write(path: string, content: string): void;
-  append(path: string, content: string): void;
   mkdir(path: string): void;
+  /* The files of the project the agent can write into, read and replaced strictly below the project directory (see the header). */
+  readOwned(root: SpecRoot, rel: string, maxBytes: number): OwnedSpecRead;
+  writeOwned(root: SpecRoot, rel: string, text: string): void;
 }
 
 export const nodeFsDeps: SetupAdapterFsDeps = {
   exists: existsSync,
   cp: (src, dest, opts) => cpSync(src, dest, opts),
   read: (path) => readFileSync(path, "utf8"),
-  readBytes: (path) => readFileSync(path),
-  write: writeFileSync,
-  append: appendFileSync,
   mkdir: (path) => mkdirSync(path, { recursive: true }),
+  readOwned: (root, rel, maxBytes) => readOwnedSpecFile(root, rel, maxBytes),
+  writeOwned: (root, rel, text) => writeOwnedSpecFile(root, rel, text),
 };
+
+/* What setup keeps in the project directory, as paths below it. */
+const FIXTURES_FILE = "fixtures.ts";
+const GITIGNORE_FILE = ".gitignore";
+const AUTH_SETUP_FILE = "auth.setup.ts";
+const PLAYWRIGHT_CONFIG_FILE = "playwright.config.ts";
+const LOCK_FILE = "package-lock.json";
+const INSTALL_MARKER_FILE = "node_modules/.install-hash";
 
 export interface SetupAdapterDeps {
   fs: SetupAdapterFsDeps;
@@ -256,50 +278,75 @@ export class SetupAdapter {
     this.deps.fs.mkdir(join(e2eDir, "flows"));
   }
 
+  /* The project directory is its own root: nothing below it is read or written through a link, and nothing outside it. */
+  private projectRoot(e2eDir: string): SpecRoot {
+    return { mirrorDir: e2eDir, specDir: e2eDir };
+  }
+
+  /* The bytes of a file of the project, or undefined when it is not there. A file setup cannot vouch for fails the setup, naming the file as `e2eDir` has it and saying why; any other failure to read it is thrown as it is. */
+  private readProject(e2eDir: string, rel: string, maxBytes: number): Buffer | undefined {
+    const read = this.deps.fs.readOwned(this.projectRoot(e2eDir), rel, maxBytes);
+    if ("absent" in read) return undefined;
+    if ("reason" in read) throw new ConfinedPathError(join(e2eDir, rel), read.reason);
+    return read.bytes;
+  }
+
+  private readProjectText(e2eDir: string, rel: string): string | undefined {
+    return this.readProject(e2eDir, rel, MAX_SPEC_SOURCE_BYTES)?.toString("utf8");
+  }
+
+  /* Replaces a file of the project whole, through a temporary file renamed over it, so that nothing is written through a link; a refusal names the file as `e2eDir` has it. */
+  private writeProject(e2eDir: string, rel: string, text: string): void {
+    try {
+      this.deps.fs.writeOwned(this.projectRoot(e2eDir), rel, text);
+    } catch (err) {
+      if (err instanceof ConfinedPathError) throw new ConfinedPathError(join(e2eDir, rel), err.reason);
+      throw err;
+    }
+  }
+
   /**
    * Appends the failure-capture block to a repo's fixtures.ts that has none, and upgrades in place a
    * block that is still byte-for-byte an earlier appended revision. Every other line — and a block
    * someone edited — is left as-is.
    */
   ensureFailureCapture(e2eDir: string): void {
-    const path = join(e2eDir, "fixtures.ts");
-    if (!this.deps.fs.exists(path)) return;
-    const src = this.deps.fs.read(path);
+    const src = this.readProjectText(e2eDir, FIXTURES_FILE);
+    if (src === undefined) return;
     const start = src.indexOf(`\n// ${FAILURE_CAPTURE_MARKER}`);
     if (start === -1) {
-      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.addCaptureBlock(path, src);
+      if (!src.includes(FAILURE_CAPTURE_MARKER)) this.addCaptureBlock(e2eDir, src);
       return;
     }
     const endMarker = src.indexOf(FAILURE_CAPTURE_END_MARKER, start);
     if (endMarker === -1) return;
     const end = endMarker + FAILURE_CAPTURE_END_MARKER.length;
     if (!EARLIER_FAILURE_CAPTURE_BLOCKS.has(sha256(src.slice(start, end)))) return;
-    this.deps.fs.write(path, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
+    this.writeProject(e2eDir, FIXTURES_FILE, src.slice(0, start) + FAILURE_CAPTURE_BLOCK + src.slice(end));
   }
 
   /* Appends the block to a fixtures.ts that has none, or puts it in place of the block appended without markers. */
-  private addCaptureBlock(path: string, src: string): void {
+  private addCaptureBlock(e2eDir: string, src: string): void {
     const { firstLine, length, sha256: unmarkedHash } = UNMARKED_FAILURE_CAPTURE_BLOCK;
     const at = src.indexOf(firstLine);
     if (at === -1) {
-      this.deps.fs.append(path, FAILURE_CAPTURE_BLOCK);
+      this.writeProject(e2eDir, FIXTURES_FILE, src + FAILURE_CAPTURE_BLOCK);
       return;
     }
     if (sha256(src.slice(at, at + length)) !== unmarkedHash) return;
-    this.deps.fs.write(path, src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length));
+    this.writeProject(e2eDir, FIXTURES_FILE, src.slice(0, at) + FAILURE_CAPTURE_BLOCK + src.slice(at + length));
   }
 
   /** Keeps the Playwright session directory out of the suite PR. Idempotent. */
   ensureSessionGitignore(e2eDir: string): void {
-    const path = join(e2eDir, ".gitignore");
     const line = ".auth/";
-    if (!this.deps.fs.exists(path)) {
-      this.deps.fs.write(path, `${line}\n`);
+    const src = this.readProjectText(e2eDir, GITIGNORE_FILE);
+    if (src === undefined) {
+      this.writeProject(e2eDir, GITIGNORE_FILE, `${line}\n`);
       return;
     }
-    const src = this.deps.fs.read(path);
     if (src.split("\n").some((entry) => entry.trim() === line)) return;
-    this.deps.fs.append(path, src.endsWith("\n") || src.length === 0 ? `${line}\n` : `\n${line}\n`);
+    this.writeProject(e2eDir, GITIGNORE_FILE, src + (src.endsWith("\n") || src.length === 0 ? `${line}\n` : `\n${line}\n`));
   }
 
   /**
@@ -307,15 +354,14 @@ export class SetupAdapter {
    * shipped seed revision). A login rewritten for the app is the repo's own and is left as-is.
    */
   ensureAuthSetup(e2eDir: string): void {
-    const src = join(this.deps.seedDir, "auth.setup.ts");
-    if (!this.deps.fs.exists(src)) return;
-    const dest = join(e2eDir, "auth.setup.ts");
-    if (!this.deps.fs.exists(dest)) {
-      this.deps.fs.cp(src, dest);
+    const seed = join(this.deps.seedDir, AUTH_SETUP_FILE);
+    if (!this.deps.fs.exists(seed)) return;
+    const existing = this.readProjectText(e2eDir, AUTH_SETUP_FILE);
+    if (existing === undefined) {
+      this.writeProject(e2eDir, AUTH_SETUP_FILE, this.deps.fs.read(seed));
       return;
     }
-    const existing = this.deps.fs.read(dest);
-    if (isStockAuthSetup(existing)) this.followSeed("auth.setup.ts", dest, existing);
+    if (isStockAuthSetup(existing)) this.followSeed(AUTH_SETUP_FILE, e2eDir, existing);
   }
 
   /**
@@ -324,58 +370,59 @@ export class SetupAdapter {
    * managed env-passthrough key gets a warning naming it.
    */
   ensurePlaywrightEnvKeys(e2eDir: string): void {
-    const path = join(e2eDir, "playwright.config.ts");
-    if (!this.deps.fs.exists(path)) return;
-    const src = this.deps.fs.read(path);
+    const src = this.readProjectText(e2eDir, PLAYWRIGHT_CONFIG_FILE);
+    if (src === undefined) return;
     if (PLAYWRIGHT_CONFIG_SEED_REVISIONS.has(sha256(src))) {
-      this.followSeed("playwright.config.ts", path, src);
+      this.followSeed(PLAYWRIGHT_CONFIG_FILE, e2eDir, src);
       return;
     }
     const missing = PLAYWRIGHT_CONFIG_MANAGED_KEYS.filter((key) => !src.includes(key));
     if (missing.length === 0) return;
     console.warn(
-      `[qa] ${path} is missing managed env-passthrough key(s) [${missing.join(", ")}] and is not a ` +
+      `[qa] ${join(e2eDir, PLAYWRIGHT_CONFIG_FILE)} is missing managed env-passthrough key(s) [${missing.join(", ")}] and is not a ` +
         `shipped seed revision — the repo owns it, so it will NOT be overwritten. Add the missing ` +
         `key(s) manually if this repo wants them.`,
     );
   }
 
-  /* Copies the current seed `name` over the stock copy at `dest` unless it already is the current seed. */
-  private followSeed(name: string, dest: string, stockCopy: string): void {
+  /* Puts the current seed `name` in place of the stock copy of it in the project, unless that already is the current seed. */
+  private followSeed(name: string, e2eDir: string, stockCopy: string): void {
     const seed = join(this.deps.seedDir, name);
-    if (!this.deps.fs.exists(seed) || this.deps.fs.read(seed) === stockCopy) return;
-    this.deps.fs.cp(seed, dest);
+    if (!this.deps.fs.exists(seed)) return;
+    const current = this.deps.fs.read(seed);
+    if (current === stockCopy) return;
+    this.writeProject(e2eDir, name, current);
   }
 
   private getLockHash(e2eDir: string): string | null {
-    const lockPath = join(e2eDir, "package-lock.json");
-    if (!this.deps.fs.exists(lockPath)) return null;
-    return createHash("sha256").update(this.deps.fs.readBytes(lockPath)).digest("hex");
+    const lock = this.readProject(e2eDir, LOCK_FILE, MAX_LOCK_FILE_BYTES);
+    return lock === undefined ? null : createHash("sha256").update(lock).digest("hex");
   }
 
+  /* The install is current when the marker the last install left holds the hash of the lock. A marker setup cannot vouch for (a link, a named pipe, a directory, one over its cap, or a node_modules that is a link) fails the setup: it is never trusted, never waited on and never skipped over, since it survives from one run to the next. A marker that is only unreadable says nothing, and the install that follows replaces it. */
   private isInstallCurrent(e2eDir: string): boolean {
-    const nodeModules = join(e2eDir, "node_modules");
-    const markerPath = join(nodeModules, ".install-hash");
-    if (!this.deps.fs.exists(nodeModules) || !this.deps.fs.exists(markerPath)) return false;
-    const currentHash = this.getLockHash(e2eDir);
-    if (!currentHash) return false;
+    let marker: Buffer | undefined;
     try {
-      return this.deps.fs.read(markerPath).trim() === currentHash;
-    } catch {
+      marker = this.readProject(e2eDir, INSTALL_MARKER_FILE, MAX_INSTALL_MARKER_BYTES);
+    } catch (err) {
+      if (err instanceof ConfinedPathError) throw err;
+      console.warn(`[qa] WARNING: ${join(e2eDir, INSTALL_MARKER_FILE)} could not be read (${readFailureReason(err)}); the e2e dependencies are installed again.`);
       return false;
     }
+    if (marker === undefined) return false;
+    return marker.toString("utf8").trim() === this.getLockHash(e2eDir);
   }
 
   private markInstallCurrent(e2eDir: string): void {
     const hash = this.getLockHash(e2eDir);
     if (!hash) return;
-    this.deps.fs.mkdir(join(e2eDir, "node_modules"));
-    this.deps.fs.write(join(e2eDir, "node_modules", ".install-hash"), hash);
+    this.writeProject(e2eDir, INSTALL_MARKER_FILE, hash);
   }
 
   /* `npm ci` when there is a lockfile; otherwise `npm install`. scrubEnv({ extraAllowed: /^DEV_/ }) keeps the app's DEV_* login creds while dropping the orchestrator's own secrets. A hung install must not block the sequential queue: the runner times out with timedOut:true (never rejects), so this method throws on that signal. */
   private async install(e2eDir: string, opts?: SetupOptions): Promise<void> {
-    const useCi = this.deps.fs.exists(join(e2eDir, "package-lock.json"));
+    /* The lock is read here (strictly) and not probed, so that an install is never started over a lock that setup could not vouch for: a runner handed a named pipe for it would wait on it until its own timeout. */
+    const useCi = this.getLockHash(e2eDir) !== null;
     const timeoutMs = opts?.timeoutMs ?? DEFAULT_E2E_INSTALL_TIMEOUT_MS;
     const result = await this.deps.runner.run({
       command: "npm",

@@ -2,8 +2,7 @@
    always-present class methods, not injectable no-ops. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,22 +40,24 @@ function realAdapter(seedDir = REAL_SEED_DIR): SetupAdapter {
 }
 
 /* A minimal, fully-stubbed fs fake for the orchestration-layer (setup()) tests below — no real disk
-   touched. `hasPackageJson` controls the bootstrap/no-bootstrap branch; every other exists() probe
-   (node_modules, .install-hash, package-lock.json) defaults to false so isInstallCurrent() is always
-   false and install() always runs, matching the original tests' fixtures (a fresh /mirror/e2e with no
-   real cache marker on disk).
+   touched. `hasPackageJson` controls the bootstrap/no-bootstrap branch; every file of the project
+   (node_modules, .install-hash, package-lock.json, fixtures...) is absent, so isInstallCurrent() is
+   always false and install() always runs, matching the original tests' fixtures (a fresh /mirror/e2e
+   with no real cache marker on disk). `onReadOwned` sees each file of the project setup looks for.
  */
-function orchestrationFs(opts: { hasPackageJson: boolean; onBootstrap?: (dest: string) => void; onEnsureSpecDir?: (path: string) => void }): SetupAdapterFsDeps {
+function orchestrationFs(opts: { hasPackageJson: boolean; onBootstrap?: (dest: string) => void; onEnsureSpecDir?: (path: string) => void; onReadOwned?: (rel: string) => void }): SetupAdapterFsDeps {
   return {
     exists: (path) => (path.endsWith("package.json") ? opts.hasPackageJson : false),
     cp: (_src, dest) => opts.onBootstrap?.(dest),
     read: () => "",
-    readBytes: () => Buffer.from(""),
-    write: () => {},
-    append: () => {},
     mkdir: (path) => {
       if (path.endsWith("flows")) opts.onEnsureSpecDir?.(path);
     },
+    readOwned: (_root, rel) => {
+      opts.onReadOwned?.(rel);
+      return { absent: true };
+    },
+    writeOwned: () => {},
   };
 }
 
@@ -309,33 +310,26 @@ test("ensureFailureCapture: missing fixtures.ts is a no-op (new onboards get blo
   }
 });
 
-test("setup() calls ensureFailureCapture after ensureSpecDir", async () => {
+test("setup() calls ensureFailureCapture after ensureSpecDir, and does not throw when fixtures.ts is absent", async () => {
   const seq: string[] = [];
   const fs = orchestrationFs({
     hasPackageJson: true,
     onEnsureSpecDir: () => seq.push("ensureSpecDir"),
-  });
-  const spiedFs: SetupAdapterFsDeps = {
-    ...fs,
-    read: (path) => {
-      if (path.endsWith("fixtures.ts")) seq.push("ensureFailureCapture");
-      return "";
+    onReadOwned: (rel) => {
+      if (rel === "fixtures.ts") seq.push("ensureFailureCapture");
     },
-  };
+  });
   const runner = fakeRunner(async () => {
     seq.push("install");
     return okResult();
   });
-  await new SetupAdapter({ fs: spiedFs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
   const specIdx = seq.indexOf("ensureSpecDir");
   const captureIdx = seq.indexOf("ensureFailureCapture");
   assert.ok(specIdx !== -1, "ensureSpecDir was not called");
-  /* fixtures.ts does not exist under this fake (exists() always false for non-package.json paths), so
-     ensureFailureCapture returns before reaching read() — assert the ORDER contract structurally
-     instead: ensureSpecDir must run, and setup() must not throw when fixtures.ts is absent.
-   */
-  assert.equal(captureIdx, -1, "read() is never reached when fixtures.ts does not exist (no-op path)");
-  assert.ok(seq.includes("install"), "setup() must complete through install");
+  assert.ok(captureIdx !== -1, "ensureFailureCapture was not called");
+  assert.ok(specIdx < captureIdx, "ensureFailureCapture must run after ensureSpecDir");
+  assert.ok(captureIdx < seq.indexOf("install"), "and before the install");
 });
 
 /* A repo's e2e/playwright.config.ts follows the current seed only while it is byte-for-byte a shipped
@@ -345,22 +339,17 @@ test("setup() calls ensureFailureCapture after ensureSpecDir", async () => {
 
 test("setup() calls ensurePlaywrightEnvKeys unconditionally, alongside ensureFailureCapture, before the install-current check", async () => {
   const seq: string[] = [];
-  const fs = orchestrationFs({ hasPackageJson: true });
-  const spiedFs: SetupAdapterFsDeps = {
-    ...fs,
-    exists: (path) => {
-      if (path.endsWith("playwright.config.ts")) {
-        seq.push("ensurePlaywrightEnvKeys");
-        return false; /* no-op path — file absent */
-      }
-      return fs.exists(path);
+  const fs = orchestrationFs({
+    hasPackageJson: true,
+    onReadOwned: (rel) => {
+      if (rel === "playwright.config.ts") seq.push("ensurePlaywrightEnvKeys"); /* the file is absent: the no-op path */
     },
-  };
+  });
   const runner = fakeRunner(async () => {
     seq.push("install");
     return okResult();
   });
-  await new SetupAdapter({ fs: spiedFs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
+  await new SetupAdapter({ fs, runner, seedDir: "/seed" }).setup("/mirror/e2e");
   assert.ok(seq.includes("ensurePlaywrightEnvKeys"), "ensurePlaywrightEnvKeys was not reached");
   assert.ok(seq.indexOf("ensurePlaywrightEnvKeys") < seq.indexOf("install"), "ensurePlaywrightEnvKeys must run before install");
 });
@@ -909,75 +898,8 @@ test("setup.adapter.ts FAILURE_CAPTURE_BLOCK contains page.on('console'/'pageerr
   );
 });
 
-/* The capture block is appended into a repo's own fixtures.ts, which the static gate type-checks
-   with the repo's e2e tsconfig — the seed's is strict. A block that does not type-check there turns
-   every run of that repo invalid. Playwright is not installed in this template, so its types are a
-   hand-written stand-in covering exactly the API the block touches; @types/node is the real one. */
-const PLAYWRIGHT_TYPES_STAND_IN = `export interface Request { resourceType(): string; url(): string }
-export interface Response { status(): number; url(): string; request(): Request }
-export interface ConsoleMessage { type(): string; text(): string }
-export interface Locator { ariaSnapshot(options?: { timeout?: number }): Promise<string> }
-export interface Page {
-  on(event: "response", listener: (response: Response) => unknown): this;
-  on(event: "console", listener: (message: ConsoleMessage) => unknown): this;
-  on(event: "pageerror", listener: (error: Error) => unknown): this;
-  url(): string;
-  locator(selector: string): Locator;
-}
-export type TestStatus = "passed" | "failed" | "timedOut" | "skipped" | "interrupted";
-export interface TestInfo { status?: TestStatus; expectedStatus: TestStatus; titlePath: string[]; project: { name: string }; file: string; retry: number }
-export interface TestType<Args> {
-  (title: string, body: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
-  beforeEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
-  afterEach(hook: (args: Args, testInfo: TestInfo) => Promise<void> | void): void;
-  extend<T extends object>(fixtures: object): TestType<Args & T>;
-}
-export declare const test: TestType<{ page: Page }>;
-export declare const expect: (actual: unknown) => { toBe(expected: unknown): void };
-`;
-
+/* The capture block is type-checked under the seed's tsconfig in setup.adapter.type-check.test.ts, which runs the compiler. */
 const REPO_FIXTURES = 'import { test as base, expect } from "@playwright/test";\nexport const test = base.extend<{}>({});\nexport { expect };\n';
-
-/* Runs ensureFailureCapture on a repo whose fixtures.ts is `fixtures`, then type-checks it with the seed's tsconfig. */
-function typeCheckAfterCapture(fixtures: string): { exitCode: number; output: string; after: string } {
-  const dir = mkdtempSync(join(tmpdir(), "qa-setup-capture-tsc-"));
-  try {
-    const repoRoot = join(REAL_SEED_DIR, "..", "..");
-    copyFileSync(join(REAL_SEED_DIR, "tsconfig.json"), join(dir, "tsconfig.json"));
-    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "module" }));
-    mkdirSync(join(dir, "node_modules", "@types"), { recursive: true });
-    symlinkSync(join(repoRoot, "node_modules", "@types", "node"), join(dir, "node_modules", "@types", "node"), "dir");
-    const playwright = join(dir, "node_modules", "@playwright", "test");
-    mkdirSync(playwright, { recursive: true });
-    writeFileSync(join(playwright, "package.json"), JSON.stringify({ name: "@playwright/test", types: "index.d.ts" }));
-    writeFileSync(join(playwright, "index.d.ts"), PLAYWRIGHT_TYPES_STAND_IN);
-    writeFileSync(join(dir, "fixtures.ts"), fixtures);
-
-    realAdapter().ensureFailureCapture(dir);
-    const after = readFileSync(join(dir, "fixtures.ts"), "utf8");
-
-    const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-    try {
-      return { exitCode: 0, output: execFileSync(process.execPath, [tsc, "-p", join(dir, "tsconfig.json")], { encoding: "utf8" }), after };
-    } catch (err) {
-      const e = err as { status?: number; stdout?: string; stderr?: string };
-      return { exitCode: e.status ?? 1, output: `${e.stdout ?? ""}${e.stderr ?? ""}`, after };
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-test("a repo fixtures.ts with the capture block appended type-checks under the seed's strict tsconfig", () => {
-  const { exitCode, output, after } = typeCheckAfterCapture(REPO_FIXTURES);
-  assert.ok(after.includes(FAILURE_CAPTURE_MARKER), "precondition: the block was appended");
-  assert.equal(exitCode, 0, `the appended fixtures.ts must type-check under the seed tsconfig:\n${output}`);
-});
-
-test("a repo that received an earlier, untyped capture block type-checks after setup", () => {
-  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.rev3.txt"));
-  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
-});
 
 /* Every capture block a repo received, appended or in the seed's fixtures.ts, is recorded as a
    failure-capture.revN.txt fixture; the newest is the block shipped today. Only a block that is still
@@ -1013,11 +935,6 @@ test("ensureFailureCapture replaces in place the capture block appended without 
   const later = "export const helperAddedLater = 1;\n";
   const after = afterEnsure("fixtures.ts", REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt") + later, (adapter, dir) => adapter.ensureFailureCapture(dir));
   assert.equal(after, REPO_FIXTURES + FAILURE_CAPTURE_BLOCK + later);
-});
-
-test("a repo that received the capture block without markers type-checks after setup", () => {
-  const { exitCode, output } = typeCheckAfterCapture(REPO_FIXTURES + shippedRevision("failure-capture.unmarked.txt"));
-  assert.equal(exitCode, 0, `the upgraded fixtures.ts must type-check under the seed tsconfig:\n${output}`);
 });
 
 test("ensureFailureCapture leaves an edited copy of the block appended without markers as it is, appending nothing", () => {

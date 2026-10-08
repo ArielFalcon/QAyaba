@@ -26,10 +26,10 @@ function canMakeNamedPipes(): boolean {
 
 const NO_NAMED_PIPES = canMakeNamedPipes() ? false : "mkfifo is not available on this platform, so the named-pipe watch is not exercised";
 
-/* What the child does with a pipe: `read` opens it for reading, as code that waits on it would, and so blocks its thread until the watch releases it. */
+/* What the child does with a pipe: `read` opens it for reading and `write` for writing, as code that waits on it would, and so blocks its thread until the watch releases it. `file` puts a regular file with bytes in it where the pipe was, which nothing waits on and the watch has no business with. */
 const CHILD = `
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { watchNamedPipe } from ${JSON.stringify(WATCH_MODULE)};
@@ -38,12 +38,18 @@ const pipe = join(dir, "pipe");
 execFileSync("mkfifo", [pipe]);
 const watch = watchNamedPipe(pipe);
 if (process.argv[1] === "read") readFileSync(pipe);
+if (process.argv[1] === "write") appendFileSync(pipe, "a few bytes that nobody is there to read");
+if (process.argv[1] === "file") {
+  rmSync(pipe);
+  writeFileSync(pipe, "bytes in a regular file");
+  await new Promise((resolve) => setTimeout(resolve, 400));
+}
 console.log("seen=" + watch.stop());
 rmSync(dir, { recursive: true, force: true });
 `;
 
 /* Runs the child; a child that does not finish (the watch did not release it) is killed, and that is the answer. */
-function runChild(mode: "read" | "leave"): { hung: boolean; stdout: string } {
+function runChild(mode: "read" | "write" | "file" | "leave"): { hung: boolean; stdout: string } {
   const run = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", CHILD, mode], {
     cwd: ROOT,
     encoding: "utf8",
@@ -58,6 +64,21 @@ test("a thread blocked opening a named pipe for reading is released by the watch
 
   assert.equal(run.hung, false, "the watch did not release a reader that waits on a named pipe");
   assert.match(run.stdout, /seen=true/);
+});
+
+/* A write waits for a reader as a read waits for a writer: code that appends to a pipe, such as a setup step that adds a line to a file the agent replaced with one, holds its thread the same way. */
+test("a thread blocked opening a named pipe for writing is released by the watch, which says something was there", { skip: NO_NAMED_PIPES }, () => {
+  const run = runChild("write");
+
+  assert.equal(run.hung, false, "the watch did not release a writer that waits on a named pipe");
+  assert.match(run.stdout, /seen=true/);
+});
+
+test("a regular file with bytes in it is not taken for a writer on a pipe", { skip: NO_NAMED_PIPES }, () => {
+  const run = runChild("file");
+
+  assert.equal(run.hung, false);
+  assert.match(run.stdout, /seen=false/);
 });
 
 test("code that leaves a named pipe alone is not seen, and nothing is released", { skip: NO_NAMED_PIPES }, () => {

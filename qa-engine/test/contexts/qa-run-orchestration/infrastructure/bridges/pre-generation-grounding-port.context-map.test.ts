@@ -9,6 +9,7 @@ import {
   MAX_CONTEXT_MAP_BYTES,
   loadContextMapFromDisk,
 } from "@contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts";
+import { defaultSpecReadDeps } from "../../../../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../../../../support/named-pipe-watch.ts";
 
 const VALID_CONTEXT = {
@@ -237,6 +238,27 @@ test("a context map that is JSON but not an object is no map", async () => {
     for (const text of ["null", "[]", "42", '"text"']) {
       writeContext(e2e, text);
       assert.equal(load(e2e).map, undefined, text);
+    }
+  });
+});
+
+/* A failure that is not a call's own has no code: the warning must not say "undefined", and an error's message can quote what was read. */
+test("a context map whose read fails with no code is no map, said by a fixed reason: not 'undefined', and not the failure's message", async () => {
+  await withSuite((e2e) => {
+    writeContext(e2e, JSON.stringify(VALID_CONTEXT));
+    const open = mock.method(defaultSpecReadDeps, "open", () => {
+      throw new TypeError(`a failure that is not a call's own, quoting ${SECRET_MARK}`);
+    });
+    try {
+      const { map, warnings } = load(e2e);
+
+      assert.equal(map, undefined);
+      const warning = warnings.find((w) => w.includes(contextPath(e2e)));
+      assert.ok(warning, JSON.stringify(warnings));
+      assert.ok(!warning.includes("undefined"), warning);
+      assert.ok(!warning.includes(SECRET_MARK) && !warning.includes("not a call's own"), "the failure's message is not quoted");
+    } finally {
+      open.mock.restore();
     }
   });
 });

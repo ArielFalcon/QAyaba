@@ -6,7 +6,7 @@
 
 import { join } from "node:path";
 import { qayabaDataDir, qayabaRoot } from "../paths";
-import { readdirSync, readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, realpathSync, lstatSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import type { AppConfig } from "../orchestrator/config-loader";
 import { resolveValueOraclePolicy } from "../orchestrator/schemas";
@@ -50,6 +50,7 @@ import { CodeExecutionStrategy } from "@contexts/test-execution/infrastructure/c
 import { CodeValidationStrategy } from "@contexts/test-execution/infrastructure/code-validation.strategy";
 import { StrykerMutationOracleAdapter } from "@contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter";
 import { FaultInjectionOracleAdapter } from "@contexts/objective-signal/infrastructure/fault-injection-oracle.adapter";
+import { countInjectedResponses } from "@contexts/objective-signal/infrastructure/fault-injection-counter-reader";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter";
 import { GitHubPrAdapter } from "@contexts/workspace-and-publication/infrastructure/github-pr.adapter";
 import { GitHubIssueAdapter } from "@contexts/workspace-and-publication/infrastructure/github-issue.adapter";
@@ -748,23 +749,6 @@ export function buildRewrittenCompositionConfig(
      * it does not define fails the whole re-run, leaving the value score inconclusive.
      */
     runE2E(dir, { baseUrl, namespace, faultInject: true }, e2eExecuteDeps);
-  const countInjectedFaultInjectionResponses = (e2eDir: string, namespace: string): number => {
-    try {
-      const dir = join(e2eDir, ".qa", "fault-injection", namespace);
-      let total = 0;
-      for (const f of readdirSync(dir)) {
-        try {
-          total += Number((JSON.parse(readFileSync(join(dir, f), "utf8")) as { corrupted?: unknown }).corrupted) || 0;
-        } catch {
-          /* unreadable dump — skip */
-        }
-      }
-      return total;
-    } catch {
-      return 0;  /* no marker dir — nothing was corrupted */
-    }
-  };
-
 
   const mutationOracleDeps = { spawn, detectCodeProject, scrubEnv, processKill: new ProcessKillAdapter() };
 
@@ -778,7 +762,7 @@ export function buildRewrittenCompositionConfig(
     ? new NullValueOracleAdapter()
     : isCode
       ? new StrykerMutationOracleAdapter(mutationOracleDeps)
-      : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, countInjectedFaultInjectionResponses, app.dev?.baseUrl ?? "");
+      : new FaultInjectionOracleAdapter(runCorruptedFaultInjection, countInjectedResponses, app.dev?.baseUrl ?? "");
 
   /*
    * checkout(sha) resolves the real per-run mirrorDir and stages every declared sibling service's

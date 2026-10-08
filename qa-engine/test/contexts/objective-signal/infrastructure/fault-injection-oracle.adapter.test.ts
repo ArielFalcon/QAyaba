@@ -74,6 +74,18 @@ test("returns null when no JSON responses were intercepted (not applicable — n
   assert.match(r.details, /not applicable to this app's flows/);
 });
 
+test("returns null, and says it could not be told, when the counters could not all be read: not the claim that no response was there to corrupt", async () => {
+  const rerun = async () => ({ verdict: "pass", cases: [{ name: "a", status: "pass" as const }] });
+  const unknown = await new FaultInjectionOracleAdapter(rerun, () => undefined, BASE_URL).measure(br, "/m/repo", "qa-bot-abc", ["a"]);
+  const none = await new FaultInjectionOracleAdapter(rerun, () => 0, BASE_URL).measure(br, "/m/repo", "qa-bot-abc", ["a"]);
+
+  assert.equal(unknown.valueScore, null);
+  assert.equal(unknown.mutantCount, null, "not measured must be null, never a fabricated zero mutant count");
+  assert.equal(unknown.killedCount, null, "not measured must be null, never a fabricated zero killed count");
+  assert.ok(unknown.details.length > 0, "and it says why");
+  assert.notEqual(unknown.details, none.details, "what could not be told is not what was told to be nothing");
+});
+
 test("returns null when the corrupted re-run executed none of the baseline-passing specs", async () => {
   const adapter = new FaultInjectionOracleAdapter(
     async () => ({ verdict: "fail", cases: [{ name: "other", status: "fail" as const }] }),

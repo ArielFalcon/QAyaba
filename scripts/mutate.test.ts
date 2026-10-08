@@ -15,6 +15,7 @@ import {
   rangeProblemOf,
   runOptionsFrom,
   sourcePathOf,
+  strykerConfigFor,
   summarize,
   testCommandFor,
   type MutationPreset,
@@ -115,7 +116,7 @@ test("the patch-app-yaml preset mutates the config patcher, against its own test
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the spec-path-confinement preset mutates the confined reader and the strict read and write, with the manifest IO, the manifest check of the read gate and the listing of the specs, against their own tests and the tests of the sites that go through them", () => {
+test("the spec-path-confinement preset mutates the confined reader and the strict read, listing and write, with the manifest IO, the read gate, what setup reads and replaces and the login's stock check, against their own tests and the tests of the sites that go through them", () => {
   const preset = PRESETS["spec-path-confinement"];
   assert.ok(preset, "the spec-path-confinement preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
@@ -123,11 +124,14 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "qa-engine/src/contexts/generation/infrastructure/manifest-fs.ts",
     "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
+    "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
+    "qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts",
   ]);
   for (const tests of [
     "shared-infrastructure/spec-path-confinement.test.ts",
     "shared-infrastructure/spec-path-confinement.seam.test.ts",
     "shared-infrastructure/spec-path-confinement.owned.test.ts",
+    "shared-infrastructure/spec-path-confinement.listing.test.ts",
     "bridges/generation-port.adapter.test.ts",
     "bridges/review-dom-grounding-port.adapter.test.ts",
     "prompt-builders/prompts.test.ts",
@@ -137,6 +141,33 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "infrastructure/static-gate.checks.test.ts",
     "bridges/pre-generation-grounding-port.adapter.test.ts",
     "bridges/pre-generation-grounding-port.context-map.test.ts",
+    "infrastructure/setup.adapter.confinement.test.ts",
+    "infrastructure/setup.adapter.test.ts",
+    "infrastructure/auth-session.adapter.confinement.test.ts",
+    "infrastructure/auth-session.adapter.test.ts",
+  ]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the run-output-readers preset mutates the strict capped readers of what a run of the tests leaves, the coverage dumps and reports and their collector, the fault-injection counters and the oracle's reading of the count, against their own tests and the factory's wiring of the counter", () => {
+  const preset = PRESETS["run-output-readers"];
+  assert.ok(preset, "the run-output-readers preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), [
+    "qa-engine/src/contexts/objective-signal/infrastructure/run-output-reader.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts",
+  ]);
+  for (const tests of [
+    "infrastructure/coverage-dump-reader.test.ts",
+    "infrastructure/coverage-dump-reader.confinement.test.ts",
+    "infrastructure/fault-injection-counter-reader.test.ts",
+    "infrastructure/fault-injection-oracle.adapter.test.ts",
+    "infrastructure/target-coverage-collector.test.ts",
+    "rewritten-engine-factory.fault-injection.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }
@@ -379,6 +410,16 @@ test("the checker type-checks the mutated file without its line range, with the 
   ) as { extends: string; files: string[] };
   assert.deepEqual(shell.files, ["/repo/src/server/auth.ts"]);
   assert.equal(shell.extends, "/repo/tsconfig.json");
+});
+
+/* By default Stryker inserts `// @ts-nocheck` into every JavaScript and TypeScript file of its sandbox, so a test of a file's exact bytes (the stock check of a shipped seed is a sha256 of its text) passed outside the sandbox and failed inside it, in the first run of the preset that held one. The tests run through tsx, which does not type-check, and the checker reads the project's own files, so nothing needs the comment. */
+test("the sandbox keeps every file as it is: no type-check directive is inserted into the files the tests read", () => {
+  const preset: MutationPreset = { description: "x", mutate: ["qa-engine/src/x.ts"], tests: ["t.ts"], thresholds: { high: 90, low: 80, break: null } };
+
+  const config = strykerConfigFor("x", preset, { tsconfigFile: "/tmp/tsconfig.json", concurrency: 2, incremental: false }) as { disableTypeChecks: unknown; checkers: unknown };
+
+  assert.equal(config.disableTypeChecks, false);
+  assert.deepEqual(config.checkers, ["typescript"], "the checker still judges every mutant");
 });
 
 test("the score counts killed and timed-out mutants over valid ones; compile errors and ignored mutants are not valid", () => {

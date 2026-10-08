@@ -11,7 +11,7 @@ import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
 import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
-import { listSpecFiles, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
+import { listSpecFiles, readFailureReason, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
 
 const diffParser = new DiffParserService();
@@ -94,7 +94,7 @@ export function loadContextMapFromDisk(specDir: string): ArchitectureContext | u
   try {
     read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, CONTEXT_MAP_FILE, MAX_CONTEXT_MAP_BYTES);
   } catch (err) {
-    console.warn(`[qa] WARNING: ${ctxJsonPath} could not be read (${(err as NodeJS.ErrnoException).code}); contextMap stays absent this run (non-blocking).`);
+    console.warn(`[qa] WARNING: ${ctxJsonPath} could not be read (${readFailureReason(err)}); contextMap stays absent this run (non-blocking).`);
     return undefined;
   }
   if ("absent" in read) return undefined;

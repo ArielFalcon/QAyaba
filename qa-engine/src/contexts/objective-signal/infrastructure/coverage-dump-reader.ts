@@ -1,58 +1,57 @@
-/* Coverage dump readers. Fail-open: absent or corrupt files degrade to [] — never throw. An empty report is unmeasured → unknown → never blocks publish. */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+/* Coverage dump readers. Fail-open: an absent, unusable or corrupt dump or report degrades to an empty result — never throws, never waits, never leaves the mirror. An empty report is unmeasured → unknown → never blocks publish. What a run of the tests leaves is the agent's to shape, so every read goes through run-output-reader (the strict read under a cap; what cannot be used is said aloud, quoting nothing of it). The dumps of a run, and the reports of a run, are each used whole or not at all: the coverage of some of them is a ratio of a part of what the run did, lower than the real one, and under enforce it would block a valid change, so when any of them cannot be used none of them is used and the result is empty. */
 import { join } from "node:path";
 import type { V8DumpFile } from "./v8-browser-coverage.adapter.ts";
 import type { CoverageFile } from "./lcov-coverage.adapter.ts";
 import type { IstanbulFile } from "./c8-coverage.adapter.ts";
 import type { JacocoFile } from "./jacoco-coverage.adapter.ts";
+import { readFirstReport, readRunOutputDir, type RunOutputLimits } from "./run-output-reader.ts";
 
-export async function readV8Dumps(e2eDir: string, namespace: string): Promise<V8DumpFile[]> {
-  const dir = join(e2eDir, ".qa", "coverage", namespace);
-  if (!existsSync(dir)) return [];
-  const out: V8DumpFile[] = [];
-  for (const f of readdirSync(dir)) {
-    if (!f.endsWith(".json")) continue;
-    const path = join(dir, f);
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8"));
-      out.push({ path, entries: Array.isArray(parsed) ? parsed : [] });
-    } catch {
-      /* Corrupt dump — skip it, never throw (fail-open). */
-      continue;
-    }
-  }
-  return out;
+/* A V8 dump carries every script a page loaded, with its source map: megabytes for a real app. A dump past the cap, the dumps of one run together past the budget and a directory past the entry cap are far beyond any suite, and are not read: they leave the whole set unused. */
+export const MAX_V8_DUMP_BYTES = 64 * 1024 * 1024;
+export const MAX_V8_DUMPS_TOTAL_BYTES = 512 * 1024 * 1024;
+export const MAX_V8_DUMP_FILES = 2_048;
+export const V8_DUMP_LIMITS: RunOutputLimits = { maxFileBytes: MAX_V8_DUMP_BYTES, maxTotalBytes: MAX_V8_DUMPS_TOTAL_BYTES, maxFiles: MAX_V8_DUMP_FILES };
+
+/* A native report (lcov, Istanbul JSON, JaCoCo XML) is one file; a real one is tens of megabytes at most. */
+export const MAX_COVERAGE_REPORT_BYTES = 64 * 1024 * 1024;
+
+export async function readV8Dumps(e2eDir: string, namespace: string, limits: RunOutputLimits = V8_DUMP_LIMITS): Promise<V8DumpFile[]> {
+  const rel = `.qa/coverage/${namespace}`;
+  const dumps = readRunOutputDir(
+    { mirrorDir: e2eDir, specDir: e2eDir },
+    rel,
+    (name) => name.endsWith(".json"),
+    (name, bytes) => {
+      const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+      return { path: join(e2eDir, rel, name), entries: Array.isArray(parsed) ? parsed : [] };
+    },
+    limits,
+  );
+  return dumps ?? [];
 }
 
-export async function readLcovFiles(repoDir: string, _namespace: string): Promise<CoverageFile[]> {
-  const lcovPaths = ["coverage/lcov.info", "lcov.info", "coverage/lcov/lcov.info"];
-  for (const rel of lcovPaths) {
-    const p = join(repoDir, rel);
-    if (existsSync(p)) return [{ path: p, text: readFileSync(p, "utf8") }];
-  }
-  return [];
+const text = (path: string, bytes: Buffer): CoverageFile => ({ path, text: bytes.toString("utf8") });
+
+/* Where each kind of report is looked for, in the order. The first that is there stands for the whole report of its kind. */
+const LCOV_REPORTS = ["coverage/lcov.info", "lcov.info", "coverage/lcov/lcov.info"];
+const ISTANBUL_REPORTS = ["coverage/coverage-final.json"];
+const JACOCO_REPORTS = ["target/site/jacoco/jacoco.xml", "build/reports/jacoco/test/jacocoTestReport.xml", "target/jacoco.xml"];
+
+export interface NativeReports {
+  lcov: CoverageFile[];
+  istanbul: IstanbulFile[];
+  jacoco: JacocoFile[];
 }
 
-export async function readIstanbulFiles(repoDir: string, _namespace: string): Promise<IstanbulFile[]> {
-  const p = join(repoDir, "coverage", "coverage-final.json");
-  if (!existsSync(p)) return [];
-  try {
-    return [{ path: p, json: JSON.parse(readFileSync(p, "utf8")) }];
-  } catch {
-    /* corrupt report — degrade to [], never throw (fail-open). */
-    return [];
-  }
-}
-
-export async function readJacocoFiles(repoDir: string, _namespace: string): Promise<JacocoFile[]> {
-  const jacocoPaths = [
-    "target/site/jacoco/jacoco.xml",
-    "build/reports/jacoco/test/jacocoTestReport.xml",
-    "target/jacoco.xml",
-  ];
-  for (const rel of jacocoPaths) {
-    const p = join(repoDir, rel);
-    if (existsSync(p)) return [{ path: p, text: readFileSync(p, "utf8") }];
-  }
-  return [];
+/* The native reports a code run leaves in `repoDir`, of every kind together. A kind with no report contributes nothing; but when a report that is there cannot be used (refused, over the cap, unreadable, not what it should be), none of the kinds is used: the kinds are merged into one measurement of the change, and the part that survives would measure only what the others did. */
+export async function readNativeReports(repoDir: string): Promise<NativeReports> {
+  const root = { mirrorDir: repoDir, specDir: repoDir };
+  const lcov = readFirstReport(root, LCOV_REPORTS, MAX_COVERAGE_REPORT_BYTES, text);
+  const istanbul = readFirstReport(root, ISTANBUL_REPORTS, MAX_COVERAGE_REPORT_BYTES, (path, bytes): IstanbulFile => ({
+    path,
+    json: JSON.parse(bytes.toString("utf8")),
+  }));
+  const jacoco = readFirstReport(root, JACOCO_REPORTS, MAX_COVERAGE_REPORT_BYTES, text);
+  if (lcov === undefined || istanbul === undefined || jacoco === undefined) return { lcov: [], istanbul: [], jacoco: [] };
+  return { lcov, istanbul, jacoco };
 }

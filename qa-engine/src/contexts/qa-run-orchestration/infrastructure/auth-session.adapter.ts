@@ -7,11 +7,12 @@
  * env-overlay reader) and every execute/DOM-capture caller must be given this SAME authDir.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { AUTH_MATERIAL_FILES } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import { ConfinedPathError, MAX_SPEC_SOURCE_BYTES, readOwnedSpecFile } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { partitionRoutes } from "../../../shared-kernel/route-capturability.ts";
 import { AUTH_RESOLUTION_METHOD, type AuthSession, type AuthSessionPort, type AuthSessionRequest } from "../application/ports/auth-session.port.ts";
 import { AuthPreconditionError } from "../domain/auth-precondition.ts";
@@ -67,6 +68,9 @@ export const AUTH_SETUP_ENV = {
 } as const;
 
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/* The login the stock seed ships as, in the spec directory. */
+const AUTH_SETUP_FILE = "auth.setup.ts";
 
 /* What a submit that could not be confirmed leaves before execute: no seed runs after it, so there is nothing of the seed's to say. */
 const UNCONFIRMED_LOGIN_MESSAGE = "auth setup was not retried: a login was already submitted and its outcome could not be confirmed";
@@ -223,9 +227,12 @@ export class AuthSessionAdapter implements AuthSessionPort {
     }
   }
 
-  /* The same predicate setup uses to decide whether it may replace the file: only a shipped seed is stock. */
+  /* The same predicate setup uses to decide whether it may replace the file: only a shipped seed is stock, and a file that is not there is the seed to come. It is asked after the agent has run, about a file in a directory the agent writes into, so the file is read strictly: one the read cannot vouch for (a link, a named pipe, a directory, one over the cap) fails the login, aloud, as an infra-error; it is never waited on, followed or taken for stock or for the app's own. A file that is only unreadable fails the login with the failure itself. */
   private isStock(specDir: string): boolean {
-    const path = join(specDir, "auth.setup.ts");
-    return !existsSync(path) || isStockAuthSetup(readFileSync(path, "utf8"));
+    if (!existsSync(specDir)) return true;
+    const read = readOwnedSpecFile({ mirrorDir: specDir, specDir }, AUTH_SETUP_FILE, MAX_SPEC_SOURCE_BYTES);
+    if ("absent" in read) return true;
+    if ("reason" in read) throw new ConfinedPathError(join(specDir, AUTH_SETUP_FILE), read.reason);
+    return isStockAuthSetup(read.bytes.toString("utf8"));
   }
 }

@@ -8,7 +8,7 @@ import { MANIFEST_FILE, MAX_MANIFEST_BYTES, validateManifest as validateManifest
 import { BoundedOutputTail } from "@kernel/process-sandbox/bounded-output-tail.ts";
 import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
-import { ConfinedPathError, listSpecFiles, readConfinedSpecFile, readOwnedSpecFile, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
+import { readConfinedSpecFile, readFailureReason, readOwnedSpecFile, scanSpecTree, type SpecRoot } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { CheckResult, ValidationResult } from "../application/ports/index.ts";
 import {
   detectCodeProject,
@@ -69,14 +69,15 @@ export async function validateSpecs(
 }
 
 /* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per spec with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors.
-   The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
+   The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. So is a path it could not walk (a link to a directory, which tsc, ESLint and Playwright may follow to specs that nothing here checked, and a directory it could not list). A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
 function checkZeroAssertionSpecs(specDir: string): string[] {
   const root: SpecRoot = { mirrorDir: specDir, specDir };
   const flows = join(specDir, "flows");
   const problem = flowsProblem(flows);
   if (problem !== undefined) return [`[zero-assertions] flows: ${problem} — the generated specs are checked only in a real flows/ directory of the spec directory`];
   const errors: string[] = [];
-  for (const found of listSpecFiles(flows)) {
+  const tree = scanSpecTree(flows);
+  for (const found of tree.specs) {
     const spec = join("flows", found);
     const read = readSpec(root, spec);
     if ("problem" in read) {
@@ -84,6 +85,9 @@ function checkZeroAssertionSpecs(specDir: string): string[] {
     } else if (!/\bexpect\s*[.(]/.test(read.source)) {
       errors.push(`[zero-assertions] ${spec}: spec has no expect() calls — remove it or add assertions`);
     }
+  }
+  for (const unwalked of tree.unwalked) {
+    errors.push(`[zero-assertions] ${join("flows", unwalked.path)} ${unwalked.reason} — the specs behind it are not checked: replace it with a real directory inside flows/ that can be listed`);
   }
   return errors;
 }
@@ -97,12 +101,12 @@ function flowsProblem(flows: string): string | undefined {
   }
 }
 
-/* The text of a spec, or why it cannot be had: the reason of a refusal is the module's own words, any other failure is told by its code alone, so nothing of what a file holds is ever quoted back to the agent. */
+/* The text of a spec, or why it cannot be had: the reason of a refusal is the module's own words, any other failure is told by its code alone or, with none, by a fixed reason, so nothing of what a file holds is ever quoted back to the agent. */
 function readSpec(root: SpecRoot, spec: string): { source: string } | { problem: string } {
   try {
     return { source: readConfinedSpecFile(root, spec) };
   } catch (err) {
-    return { problem: err instanceof ConfinedPathError ? err.reason : String((err as NodeJS.ErrnoException).code) };
+    return { problem: readFailureReason(err) };
   }
 }
 
