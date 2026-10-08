@@ -556,12 +556,13 @@ test("the trust lexicon matches the plain and the past form of trust but not a l
   assert.equal(hasTrustLanguage("a trustworthy tree"), false);
 });
 
-test("static text that names the section of the suite listing or of the co-change files is reported like any other assembled artifact, and a phrase that merely resembles the name is not", () => {
+test("static text that names the section of the suite listing, of the co-change files or of the step limit is reported like any other assembled artifact, and a phrase that merely resembles the name is not", () => {
   const options = { assembledArtifactNames: ASSEMBLED_ARTIFACT_NAMES };
   const named = (text: string): LintSection => ({ id: "static/role.md", layer: "static", text, claims: [] });
   const cases: Array<[name: string, lookalike: string]> = [
     [PROMPT_HEADINGS.existingSuiteManifest, "Read the existing suite manifest first."],
     [PROMPT_HEADINGS.coChangeFiles, "Files that change together in a pull request are reviewed together."],
+    [PROMPT_HEADINGS.stepLimit, "The step limit of a role is set by its runtime."],
   ];
   for (const [name, lookalike] of cases) {
     assert.deepEqual(lintCell(cell([named(`Read the ${name} first.`)]), options).map((f) => [f.rule, ...f.sections]), [["R8", "static/role.md"]], name);

@@ -17,6 +17,8 @@ export const PROMPT_HEADINGS = {
   existingSuiteManifest: "existing-suite-manifest",
   /* The files that changed in the same commits as the changed files: what a structural signal holding no symbol is titled with. */
   coChangeFiles: "Files that historically change together",
+  /* The cap the runtime enforces for the turn: titles the statement of a generator, an explorer and a reviewer prompt alike. */
+  stepLimit: "Step limit",
 } as const;
 
 /* The context pack's sections. */
@@ -44,6 +46,7 @@ export const ASSEMBLED_ARTIFACT_NAMES: readonly string[] = [
   PROMPT_HEADINGS.harnessFacts,
   PROMPT_HEADINGS.existingSuiteManifest,
   PROMPT_HEADINGS.coChangeFiles,
+  PROMPT_HEADINGS.stepLimit,
   /* The phrases a directive uses for the brief and for grounding it points back at. */
   "the brief",
   "the grounding above",

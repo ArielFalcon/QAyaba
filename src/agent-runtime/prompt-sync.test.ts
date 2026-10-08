@@ -18,9 +18,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DIFF_TIERS } from "@contexts/generation/domain/diff-stat";
 import { classifyGenerationEnd } from "@contexts/generation/domain/generation-end";
-import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings";
+import { PACK_HEADINGS, PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings";
 import { ROUTE_LINK_FIELDS } from "@contexts/generation/domain/route-ranking";
-import { ASSEMBLED_ARTIFACT_NAMES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
+import type { MilestoneOutcome } from "@contexts/generation/domain/step-limit";
+import { ASSEMBLED_ARTIFACT_NAMES, MILESTONE_OUTCOME_PHRASES, buildContextTask, buildExplorerPrompt, buildPrompt } from "@contexts/generation/infrastructure/prompt-builders/prompts";
 import { GENERATION_END } from "@kernel/generation-end";
 import { parseVerdict } from "../integrations/verdict-parse";
 import { checkGeneratorVerdict } from "../integrations/verdict-validate";
@@ -290,6 +291,17 @@ describe("prompt-sync drift guard", () => {
     );
   });
 
+  it("the honest outcomes of a milestone use the words of the verdict contract the static layers define, so that a decision reaches the verdict and not silence", () => {
+    /* A milestone that offers a way to end without a spec (a first pass's no-op, a regeneration's reason that none applies) sends the agent to the one place the static contract has for it: the closing verdict and its no-op reason. */
+    for (const rel of GENERATOR_PROMPTS) {
+      const text = readFile(rel);
+      assert.match(text, /\bverdict\b/i, `${rel} names its closing block the verdict`);
+      assert.match(text, /`noop\.reason`/, `${rel} defines the no-op reason`);
+    }
+    assert.match(MILESTONE_OUTCOME_PHRASES["reason-none-applies"], /\bverdict\b/i);
+    assert.match(MILESTONE_OUTCOME_PHRASES["no-op"], /\bno-op\b/i);
+  });
+
   it("every section of agent/roles/qa-generator.md, Procedure included, matches agents/agent/qa-generator.md byte for byte", () => {
     const codexGenerator = parseSections(readFile("agent/roles/qa-generator.md"));
     const opencodeGenerator = parseSections(readFile("agents/agent/qa-generator.md"));
@@ -505,11 +517,13 @@ describe("prompt-sync drift guard", () => {
   interface OwnedRule {
     rule: string;
     pattern: RegExp;
-    /* The assembled prompt the rule is counted in: the first pass of a code run or its regeneration; an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; or an e2e diff run whose change is broad. */
-    shape: "code" | "code-regen" | "tree" | "pack" | "openapi" | "broad";
+    /* The assembled prompt the rule is counted in: the first pass of a code run or its regeneration; an e2e diff run whose page the prompt supplies a tree for, or a pack with a live DOM; an e2e diff run of an app that declares an OpenAPI contract and supplies no tree; an e2e diff run whose change is broad; a regeneration of an e2e diff run; a complete run's first pass, which analyzes and writes no tests, or its regeneration, which writes them; or a context run, which maps the architecture. */
+    shape: "code" | "code-regen" | "tree" | "pack" | "openapi" | "broad" | "regen" | "complete" | "complete-regen" | "context";
     inStatic: number;
     /* Exactly this many statements in the assembled prompt of its shape, or at least this many. */
     inAssembled: { exactly: number } | { atLeast: number };
+    /* The same count in the prompt of that shape built with a step limit, when it differs from the one without: a rule that is about the limit or its milestone. Absent: the limit changes nothing about this rule. */
+    withLimit?: { exactly: number } | { atLeast: number };
   }
   const LAST_ACTION_RULE = phrasePattern("verdict is your LAST action");
   const DECIDED_NO_OP_RULE = phrasePattern("decided nothing here is worth a test");
@@ -544,6 +558,19 @@ describe("prompt-sync drift guard", () => {
   const TOPIC_KEY_PREFIX_RULE = /prefix (?:every |all )?`?topic_key/gi;
   /* A directive to search or consult memory. Only the static layers say when memory is consulted; an assembled prompt scopes the calls and starts none. */
   const MEMORY_SEARCH_DIRECTIVE = /\b(?:search|query|consult|recall|look up)\b[^.\n]*\b(?:memory|engram)\b/gi;
+  /* The words the builder renders the statement of the limit and each outcome of a milestone with, so the pins read the production table and re-type no wording. */
+  const STEP_LIMIT_STATEMENT = new RegExp(`^## ${PROMPT_HEADINGS.stepLimit}$`, "gm");
+  const outcomePattern = (outcome: MilestoneOutcome): RegExp => phrasePattern(MILESTONE_OUTCOME_PHRASES[outcome]);
+  /* The shapes by what their turn does: a diff first pass writes tests, a regeneration writes them, and a complete run's first pass and a context run write none. */
+  const FIRST_PASS_SHAPES = ["code", "tree", "pack", "openapi", "broad"] as const;
+  const REGENERATION_SHAPES = ["code-regen", "regen", "complete-regen"] as const;
+  const WRITES_NONE_SHAPES = ["complete", "context"] as const;
+  /* One rule per shape: counted `counts.*` times in the prompt built with a limit, never in the one built without. */
+  const limitRules = (rule: string, pattern: RegExp, counts: { firstPass: number; regeneration: number; writesNone: number }): OwnedRule[] => [
+    ...FIRST_PASS_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.firstPass } })),
+    ...REGENERATION_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.regeneration } })),
+    ...WRITES_NONE_SHAPES.map((shape): OwnedRule => ({ rule, pattern, shape, inStatic: 0, inAssembled: { exactly: 0 }, withLimit: { exactly: counts.writesNone } })),
+  ];
   const OWNED_RULES: readonly OwnedRule[] = [
     { rule: "the compile check of a code run", pattern: COMPILE_CHECK, shape: "code", inStatic: 0, inAssembled: { exactly: 1 } },
     { rule: "the compile check of a code regeneration", pattern: COMPILE_CHECK, shape: "code-regen", inStatic: 0, inAssembled: { exactly: 1 } },
@@ -593,6 +620,12 @@ describe("prompt-sync drift guard", () => {
     { rule: "an effort stated as a ceiling (a broad change)", pattern: EFFORT_CEILING, shape: "broad", inStatic: 0, inAssembled: { exactly: 1 } },
     /* The generator cannot call the session-summary tool, so no layer it reads names it. */
     { rule: "naming the session-summary tool the runtime denies the generator", pattern: SESSION_SUMMARY_TOOL, shape: "tree", inStatic: 0, inAssembled: { exactly: 0 } },
+    /* The step limit the runtime enforces is stated once by every generator prompt built with one, whatever the turn, and by none built without; the milestone is a turn that writes tests' alone, a first pass offering the first test file or the reasoned no-op and a regeneration the first correction or the reason none applies. The static layers state neither: the limit is the runtime's and the milestone is the turn's. */
+    ...limitRules("stating the step limit the runtime enforces", STEP_LIMIT_STATEMENT, { firstPass: 1, regeneration: 1, writesNone: 1 }),
+    ...limitRules("asking a first pass for its first test file by the midpoint of the limit", outcomePattern("first-spec"), { firstPass: 1, regeneration: 0, writesNone: 0 }),
+    ...limitRules("offering a first pass the reasoned no-op by the midpoint of the limit, and a regeneration never", outcomePattern("no-op"), { firstPass: 1, regeneration: 0, writesNone: 0 }),
+    ...limitRules("asking a regeneration for its first correction by the midpoint of the limit", outcomePattern("first-correction"), { firstPass: 0, regeneration: 1, writesNone: 0 }),
+    ...limitRules("letting a regeneration give the reason none applies by the midpoint of the limit, which a first pass is never offered", outcomePattern("reason-none-applies"), { firstPass: 0, regeneration: 1, writesNone: 0 }),
     /* The phrasings those rules replaced: orienting, searching and consulting memory whatever the prompt carries. */
     {
       rule: "orienting or searching before every look-up, whatever the prompt carries",
@@ -656,7 +689,7 @@ describe("prompt-sync drift guard", () => {
   /* One file past the largest change the focused tier admits, so the diff is broad. */
   const BROAD_DIFF = Array.from({ length: DIFF_TIERS.focused.maxFiles + 1 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts\n+x\n`).join("");
   const PACK_WITH_LIVE_DOM = `## ${PACK_HEADINGS.pack}\n\n### ${PACK_HEADINGS.liveDom} (x)\n  heading: Cart`;
-  /* Every shape is a turn that writes tests: a diff first pass, or a regeneration. */
+  /* The shapes a turn that writes tests takes (a diff first pass, or a regeneration) and the two that do not (a complete run's first pass, which analyzes, and a context run, which maps the architecture). */
   const e2eInput = { ...assembledInput, target: "e2e", baseUrl: "http://localhost:3000" };
   const SHAPE_INPUTS: Record<OwnedRule["shape"], object> = {
     code: { ...assembledInput, target: "code" },
@@ -665,6 +698,10 @@ describe("prompt-sync drift guard", () => {
     pack: { ...e2eInput, contextPack: PACK_WITH_LIVE_DOM },
     broad: { ...e2eInput, diff: BROAD_DIFF },
     tree: { ...e2eInput, domSnapshot: "route /cart:\n  button: Apply coupon" },
+    regen: { ...e2eInput, fixCases: [FAILING_CASE] },
+    complete: { ...e2eInput, mode: "complete" },
+    "complete-regen": { ...e2eInput, mode: "complete", fixCases: [FAILING_CASE] },
+    context: { ...e2eInput, mode: "context" },
   };
   /* The cap a runtime that enforces one hands the generator's prompt. A rule has one owner whether or not the runtime states a cap, so every shape is built both ways and each pin is counted in both. */
   const STATED_STEP_LIMIT = 40;
@@ -679,15 +716,16 @@ describe("prompt-sync drift guard", () => {
       ["OpenCode", ["agents/AGENTS.md", "agents/agent/qa-generator.md"].map(readFile).join("\n")],
       ["Codex", ["agent/AGENTS.md", "agent/roles/qa-generator.md"].map(readFile).join("\n")],
     ];
-    for (const { rule, pattern, shape, inStatic, inAssembled } of OWNED_RULES) {
+    for (const { rule, pattern, shape, inStatic, inAssembled, withLimit } of OWNED_RULES) {
       for (const [runtime, text] of staticLayers) {
         assert.equal(countOf(text, pattern), inStatic, `${runtime} static layer: ${rule} is stated ${inStatic} time(s)`);
       }
       for (const stepLimit of STEP_LIMIT_VARIANTS) {
         const found = countOf(assembledFor(shape, stepLimit), pattern);
         const build = stepLimit === undefined ? "without a step limit" : "with a step limit";
-        if ("exactly" in inAssembled) assert.equal(found, inAssembled.exactly, `assembled ${shape} prompt ${build}: ${rule} is stated ${inAssembled.exactly} time(s)`);
-        else assert.ok(found >= inAssembled.atLeast, `assembled ${shape} prompt ${build}: ${rule} is stated at least ${inAssembled.atLeast} time(s)`);
+        const expected = stepLimit !== undefined && withLimit ? withLimit : inAssembled;
+        if ("exactly" in expected) assert.equal(found, expected.exactly, `assembled ${shape} prompt ${build}: ${rule} is stated ${expected.exactly} time(s)`);
+        else assert.ok(found >= expected.atLeast, `assembled ${shape} prompt ${build}: ${rule} is stated at least ${expected.atLeast} time(s)`);
       }
     }
   });

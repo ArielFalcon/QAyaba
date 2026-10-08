@@ -153,7 +153,7 @@ test("the login-evidence preset mutates the classifier, the scrubber and the not
   assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
 });
 
-test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size, the harness-facts scan and its reader, against their own tests and a sample of the matrix", () => {
+test("the prompt-contract preset mutates the lint, the regeneration predicate, the diff size, the harness-facts scan and its reader, and the step milestone, against their own tests and a sample of the matrix", () => {
   const preset = PRESETS["prompt-contract"];
   assert.ok(preset, "the prompt-contract preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
@@ -161,10 +161,18 @@ test("the prompt-contract preset mutates the lint, the regeneration predicate, t
     "qa-engine/src/contexts/generation/domain/regen-turn.ts",
     "qa-engine/src/contexts/generation/domain/diff-stat.ts",
     "qa-engine/src/contexts/generation/domain/harness-facts.ts",
+    "qa-engine/src/contexts/generation/domain/step-limit.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
   ]);
   for (const module of ["prompt-contract-lint", "regen-turn", "diff-stat", "harness-facts"]) {
     assert.ok(preset.tests.some((t) => t.endsWith(`${module}.test.ts`)), `${module}'s own tests run against every mutant`);
+  }
+  /* Both end in step-limit.test.ts, so the suffix check above would let either stand in for the other. */
+  for (const tests of [
+    "qa-engine/test/contexts/generation/domain/step-limit.test.ts",
+    "qa-engine/test/contexts/generation/infrastructure/prompt-builders/prompts.step-limit.test.ts",
+  ]) {
+    assert.ok(preset.tests.includes(tests), `${tests} runs against every mutant`);
   }
   assert.ok(
     preset.tests.some((t) => t.endsWith("pre-generation-grounding-port.harness-facts.test.ts")),

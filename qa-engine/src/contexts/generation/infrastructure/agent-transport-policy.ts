@@ -337,10 +337,11 @@ export function createAgentDeps(raw: RawAgentTransport, collab: AgentDepsCollabo
                       ? measureOrNull("call metrics", () => collab.takeTurnCalls!(id, text, promptOpts?.providedPaths))
                       : null;
                     const callMetrics = flushed && !observed ? { ...flushed, stepsUsed: null, observationComplete: false } : flushed;
-                    const stepBudget = collab.maxStepsFor
+                    /* A prompt that states its limit is judged by the number it stated; one that states none, by the agent's configured limit when there is a way to read one. */
+                    const stepBudget = promptOpts?.stepLimit !== undefined || collab.maxStepsFor
                       ? measureOrNull("step budget", () =>
                           buildTurnStepBudget({
-                            maxSteps: collab.maxStepsFor!(agent) ?? null,
+                            maxSteps: promptOpts?.stepLimit ?? collab.maxStepsFor?.(agent) ?? null,
                             stepsUsed: callMetrics?.stepsUsed ?? null,
                             finalStepText: finalText,
                           }),

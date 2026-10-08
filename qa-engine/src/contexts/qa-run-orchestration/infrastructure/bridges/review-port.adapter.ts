@@ -80,7 +80,8 @@ export class ReviewPortAdapter implements ReviewPort {
       });
       let output: string;
       try {
-        const out = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes });
+        /* The turn is judged by the limit the prompt states. */
+        const out = await session.prompt(assembled.text, { sectionSizes: assembled.sectionSizes, ...(stepLimit !== undefined ? { stepLimit } : {}) });
         output = out.output;
       } finally {
         await session.dispose();

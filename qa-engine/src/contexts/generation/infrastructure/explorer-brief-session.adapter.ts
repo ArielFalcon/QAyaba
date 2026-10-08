@@ -123,7 +123,8 @@ export class ExplorerBriefSessionAdapter {
             }
           : {}),
       });
-      const { output } = await session.prompt(prompt, { textOnly: true });
+      /* The turn is judged by the limit the prompt states. */
+      const { output } = await session.prompt(prompt, { textOnly: true, ...(stepLimit !== undefined ? { stepLimit } : {}) });
       return this.deps.parseBrief(output) ?? undefined;
     } catch (err) {
       console.warn(`[qa] WARNING: explorer pass failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);

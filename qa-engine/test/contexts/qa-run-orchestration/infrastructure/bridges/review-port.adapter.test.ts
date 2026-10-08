@@ -374,3 +374,45 @@ test("review() carries no limit key when there is no resolver, or when the resol
   assert.equal(seen.length, 2);
   for (const input of seen) assert.equal("stepLimit" in input, false);
 });
+
+/* The prompt that states the reviewer's limit is sent with that limit as an option, so the review turn is classified against the number the prompt stated. */
+
+function runtimeRecordingOptions(sent: Array<Record<string, unknown> | undefined>): AgentRuntimePort {
+  return {
+    openSession: async () => ({
+      prompt: async (_text, opts) => {
+        sent.push(opts as Record<string, unknown> | undefined);
+        return { output: "verdict-json" };
+      },
+      dispose: async () => {},
+    }),
+  };
+}
+
+test("review() sends its prompt with the reviewer's limit as an option, on every review, beside the options it already carried", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const rendering: PromptRenderingPort = { ...fakeRendering(), renderReviewer: () => ({ text: "reviewer-prompt", sectionSizes: { "reviewer-specs": 12 } }) };
+  const adapter = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering, verdicts: approving }, REVIEW_CONTEXT, {
+    stepLimitFor: async (role) => (role === "reviewer" ? 17 : 41),
+  });
+
+  await adapter.review("/mirrors/org/app/e2e", cases);
+  await adapter.review("/mirrors/org/app/e2e", cases, undefined, { priorCorrections: ["fix the assertion"] });
+
+  assert.deepEqual(sent.map((opts) => opts?.stepLimit), [17, 17]);
+  assert.deepEqual(sent[0]?.sectionSizes, { "reviewer-specs": 12 });
+});
+
+test("review() sends its prompt with no limit key when there is no resolver, or when the resolver has none", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const noResolver = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT);
+  const noLimit = new ReviewPortAdapter({ runtime: runtimeRecordingOptions(sent), rendering: fakeRendering(), verdicts: approving }, REVIEW_CONTEXT, {
+    stepLimitFor: async () => undefined,
+  });
+
+  await noResolver.review("/mirrors/org/app/e2e", cases);
+  await noLimit.review("/mirrors/org/app/e2e", cases);
+
+  assert.equal(sent.length, 2);
+  for (const opts of sent) assert.equal("stepLimit" in (opts ?? {}), false);
+});

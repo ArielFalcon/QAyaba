@@ -287,6 +287,52 @@ test("explore(): with no resolver, or none for the explorer, the prompt input ca
   for (const input of inputs) assert.equal("stepLimit" in input, false);
 });
 
+/* The prompt that states the explorer's limit is sent with that limit as an option, so the turn is classified against the number the prompt stated. */
+
+test("explore(): the prompt is sent with the explorer's limit as an option, beside the text-only option it already carried", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const session: AgentSession = {
+    prompt: async (_text, opts) => {
+      sent.push(opts as Record<string, unknown> | undefined);
+      return { output: "{}" };
+    },
+    dispose: async () => {},
+  };
+  const adapter = new ExplorerBriefSessionAdapter(staticCtx, {
+    runtime: fakeRuntime(session),
+    parseBrief: () => null,
+    stepLimitFor: async (role) => (role === "explorer" ? 9 : 41),
+  });
+
+  await adapter.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.stepLimit, 9);
+  assert.equal(sent[0]?.textOnly, true);
+});
+
+test("explore(): with no resolver, or none for the explorer, the prompt is sent with no limit key", async () => {
+  const sent: Array<Record<string, unknown> | undefined> = [];
+  const session: AgentSession = {
+    prompt: async (_text, opts) => {
+      sent.push(opts as Record<string, unknown> | undefined);
+      return { output: "{}" };
+    },
+    dispose: async () => {},
+  };
+  const noResolver = new ExplorerBriefSessionAdapter(staticCtx, { runtime: fakeRuntime(session), parseBrief: () => null });
+  const noLimit = new ExplorerBriefSessionAdapter(staticCtx, { runtime: fakeRuntime(session), parseBrief: () => null, stepLimitFor: async () => undefined });
+
+  await noResolver.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+  await noLimit.explore({ specDir: "/mirrors/org__demo/e2e", sha: "deadbeef" });
+
+  assert.equal(sent.length, 2);
+  for (const opts of sent) {
+    assert.equal("stepLimit" in (opts ?? {}), false);
+    assert.equal(opts?.textOnly, true);
+  }
+});
+
 test("explore(): a resolver that fails keeps the pass fail-open (no brief, no throw) and no session is spent on it", async () => {
   const opens: unknown[] = [];
   const adapter = new ExplorerBriefSessionAdapter(staticCtx, {

@@ -231,7 +231,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN}/domain/suite-entry.ts`,
       `${GEN}/domain/suite-listing.ts`,
       /* Only the lines that declare a generation's specs, hand them on and probe them: the rest of these modules is other code. */
-      `${GEN}/application/generate-tests.use-case.ts:127-128`,
+      `${GEN}/application/generate-tests.use-case.ts:128-129`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:104-109`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:135-136`,
       `${ORCH}/infrastructure/bridges/generation-port.adapter.ts:177-177`,
@@ -315,12 +315,13 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "prompt-contract": {
-    description: "prompt contract: the claims lint, the regeneration predicate, the diff size, the harness-facts export scan and the reader that feeds it, with a sample of the matrix that lints the reachable generator prompts",
+    description: "prompt contract: the claims lint, the regeneration predicate, the diff size, the harness-facts export scan and the reader that feeds it, the step milestone, with a sample of the matrix that lints the reachable generator prompts",
     mutate: [
       `${GEN}/domain/prompt-contract-lint.ts`,
       `${GEN}/domain/regen-turn.ts`,
       `${GEN}/domain/diff-stat.ts`,
       `${GEN}/domain/harness-facts.ts`,
+      `${GEN}/domain/step-limit.ts`,
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:122-171`,
     ],
     tests: [
@@ -328,10 +329,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${GEN_TEST}/domain/regen-turn.test.ts`,
       `${GEN_TEST}/domain/diff-stat.test.ts`,
       `${GEN_TEST}/domain/harness-facts.test.ts`,
+      `${GEN_TEST}/domain/step-limit.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/pre-generation-grounding-port.harness-facts.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.regen.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.scaffold.test.ts`,
       `${GEN_TEST}/infrastructure/prompt-builders/prompts.harness-facts.test.ts`,
+      `${GEN_TEST}/infrastructure/prompt-builders/prompts.step-limit.test.ts`,
       "scripts/prompt-contract-matrix.sample.test.ts",
     ],
     thresholds: DEFAULT_THRESHOLDS,

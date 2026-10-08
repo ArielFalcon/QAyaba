@@ -32,7 +32,8 @@ import {
   setExplorationBriefCollaborators,
 } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
 import { ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/infrastructure/prompt-builders/prompts.ts";
-import { HARNESS_FACTS_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, hasTrustLanguage, lintCell } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { STEP_MILESTONE_SECTION_ID, isTestWritingTurn } from "@contexts/generation/domain/step-limit.ts";
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { ARTIFACT_REFERENCES } from "@contexts/generation/domain/prompt-artifact-references.ts";
 import { coerceExplorationBrief, parseExplorationBrief, renderExplorationBrief } from "../src/qa/exploration-brief.ts";
@@ -262,6 +263,34 @@ test("cells with harness facts carry the facts-only section, linted as data with
     assert.equal(section?.claims.some((c) => c.kind === "directs" || c.kind === "frames"), false, cell.key);
   }
   assert.ok(cells.filter((c) => !c.spec.harnessFacts).every((c) => !c.lint.sections.some((s) => s.id === HARNESS_FACTS_SECTION_ID)));
+});
+
+test("cells that state a step limit carry the facts-only step-limit section, linted as data with no directive or framing, and cells that state none carry no such section", async () => {
+  const cells = await matrixOnce();
+  const limited = cells.filter((c) => c.stepLimit !== undefined);
+  assert.ok(limited.length > 0 && limited.length < cells.length, "the matrix has cells with and without a limit");
+  for (const cell of limited) {
+    const section = cell.lint.sections.find((s) => s.id === STEP_LIMIT_SECTION_ID);
+    assert.ok(section?.factsOnly, `${cell.key}: the step-limit section is present and marked facts-only`);
+    assert.ok(section.text.includes(String(MATRIX_STEP_LIMIT)), `${cell.key}: it carries the limit`);
+    assert.equal(section.claims.some((c) => c.kind === "directs" || c.kind === "frames"), false, cell.key);
+  }
+  assert.ok(cells.filter((c) => c.stepLimit === undefined).every((c) => !c.lint.sections.some((s) => s.id === STEP_LIMIT_SECTION_ID || s.id === STEP_MILESTONE_SECTION_ID)));
+});
+
+test("a limited cell carries the milestone exactly when its turn writes tests, as a directive section the lint counts: neither facts-only nor captured data", async () => {
+  const cells = await matrixOnce();
+  const limited = cells.filter((c) => c.stepLimit !== undefined);
+  const writes = (spec: CellSpec): boolean => isTestWritingTurn({ mode: spec.mode, ...(spec.phase !== "first" ? { coverageGap: "a gap" } : {}) });
+  assert.ok(limited.some((c) => writes(c.spec)) && limited.some((c) => !writes(c.spec)), "the matrix has limited cells of both kinds");
+  for (const cell of limited) {
+    const section = cell.lint.sections.find((s) => s.id === STEP_MILESTONE_SECTION_ID);
+    assert.equal(section !== undefined, writes(cell.spec), cell.key);
+    if (section) {
+      assert.equal(section.factsOnly, undefined, `${cell.key}: not facts-only`);
+      assert.equal(section.verbatim, undefined, `${cell.key}: not captured data, so its directive words are counted`);
+    }
+  }
 });
 
 /* ── no tolerated violations ── */

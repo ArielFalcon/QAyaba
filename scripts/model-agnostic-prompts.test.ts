@@ -39,7 +39,8 @@ import { recordFixFailure } from "../src/server/maintainer-memory.ts";
 import { buildRunChatContext, buildRunContext } from "../src/server/chat.ts";
 import { LlmProfileProposerAdapter, PROPOSER_MODEL } from "../src/server/onboarding/llm-profile-proposer.adapter.ts";
 import type { RunRecord } from "../src/types.ts";
-import { DIMENSIONS, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
+import { PROMPT_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
+import { DIMENSIONS, MATRIX_STEP_LIMIT, allValidSpecs, buildInput, cellName, type CellSpec } from "./prompt-contract-matrix.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -431,44 +432,52 @@ const wireBriefRenderer = (): void => setExplorationBriefCollaborators({ parseEx
 
 const repoOf = (subject: string): string => `org/${subject}-app`;
 
+/* The limits a runtime may report for a role: none, or one. The prompts of the roles that state a limit are built both ways. */
+const STEP_LIMITS: ReadonlyArray<number | undefined> = [undefined, MATRIX_STEP_LIMIT];
+const limitSuffix = (limit: number | undefined): string => (limit === undefined ? "" : " with a step limit");
+
 async function generatorPrompts(subject: string): Promise<PromptText[]> {
   wireBriefRenderer();
   return Promise.all(
-    coveringSpecs(validSpecs()).map(async (spec) => ({
-      source: `generator prompt ${cellName(spec)}`,
-      text: buildPromptAssembled({ ...(await buildInput(spec)), repo: repoOf(subject) }, { budgetBytes: 0 }).text,
-    })),
+    coveringSpecs(validSpecs()).flatMap((spec) =>
+      STEP_LIMITS.map(async (limit) => ({
+        source: `generator prompt ${cellName(spec)}${limitSuffix(limit)}`,
+        text: buildPromptAssembled({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }, { budgetBytes: 0 }).text,
+      })),
+    ),
   );
 }
 
 async function explorerPrompts(subject: string): Promise<PromptText[]> {
   wireBriefRenderer();
   return Promise.all(
-    coveringSpecs(validSpecs()).map(async (spec) => ({
-      source: `explorer prompt ${cellName(spec)}`,
-      text: buildExplorerPrompt({ ...(await buildInput(spec)), repo: repoOf(subject) }),
-    })),
+    coveringSpecs(validSpecs()).flatMap((spec) =>
+      STEP_LIMITS.map(async (limit) => ({
+        source: `explorer prompt ${cellName(spec)}${limitSuffix(limit)}`,
+        text: buildExplorerPrompt({ ...(await buildInput(spec, limit)), repo: repoOf(subject) }),
+      })),
+    ),
   );
 }
 
 async function reviewerPrompts(subject: string): Promise<PromptText[]> {
   return withReviewMirror(subject, (review) => {
+    const grounded: Partial<ReviewInput> = {
+      baseUrl: "http://localhost:3000",
+      domSnapshot: "heading: Cart",
+      learnedRules: "## Learned rules\n- prefer role locators",
+      priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"],
+      executionResult: renderExecutionResult({ verdict: "pass", cases: [{ name: "cart shows the total", httpStatus: 200 }] }),
+    };
     const variants: Array<[string, ReviewInput]> = [
       ["diff", review()],
       ["code diff", review({ target: "code" })],
       ["manual", review({ mode: "manual", guidance: "cover the coupon form" })],
       ["complete", review({ mode: "complete" })],
       ["exhaustive", review({ mode: "exhaustive" })],
-      [
-        "grounded",
-        review({
-          baseUrl: "http://localhost:3000",
-          domSnapshot: "heading: Cart",
-          learnedRules: "## Learned rules\n- prefer role locators",
-          priorCorrections: ["[fragile-selector] cart.spec.ts: scope the button"],
-          executionResult: renderExecutionResult({ verdict: "pass", cases: [{ name: "cart shows the total", httpStatus: 200 }] }),
-        }),
-      ],
+      ["grounded", review(grounded)],
+      ["diff with a step limit", review({ stepLimit: MATRIX_STEP_LIMIT })],
+      ["grounded with a step limit", review({ ...grounded, stepLimit: MATRIX_STEP_LIMIT })],
     ];
     return variants.map(([name, input]) => ({ source: `reviewer prompt ${name}`, text: buildReviewerPromptAssembled(input).text }));
   });
@@ -718,6 +727,24 @@ test("the prompts the harness sends to an agent, of every kind, name no model", 
     assert.ok(found.length > 0, `${kind}: has prompts to scan`);
     const findings = found.flatMap((p) => scanText(p.source, p.text, terms));
     assert.equal(findings.length, 0, `model references in the ${kind} prompts:\n${describeFindings(findings)}`);
+  }
+});
+
+/* Only a prompt for a role whose runtime enforces a step limit states one, so the generator, the explorer and the reviewer are scanned with a limit as well as without; every other kind states none. */
+const STATES_A_STEP_LIMIT = (text: string): boolean => text.includes(`## ${PROMPT_HEADINGS.stepLimit}`);
+const LIMIT_STATING_KINDS: readonly string[] = ["generator", "explorer", "reviewer"];
+
+test("the generator, explorer and reviewer prompts are scanned with the step limit they state as well as without it, and no other kind of prompt states one", async () => {
+  for (const { kind, prompts } of PROMPT_KINDS) {
+    const found = await prompts("shop");
+    const stating = found.filter((p) => STATES_A_STEP_LIMIT(p.text));
+    if (LIMIT_STATING_KINDS.includes(kind)) {
+      assert.ok(stating.length > 0, `${kind}: some prompts state a limit`);
+      assert.ok(stating.length < found.length, `${kind}: and some do not`);
+      assert.ok(stating.every((p) => p.text.includes(String(MATRIX_STEP_LIMIT))), `${kind}: each states the limit it was built with`);
+    } else {
+      assert.equal(stating.length, 0, `${kind}: states no limit`);
+    }
   }
 });
 

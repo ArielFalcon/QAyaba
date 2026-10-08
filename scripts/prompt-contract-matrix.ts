@@ -34,6 +34,7 @@ import {
   countDirectives,
   findingKey,
   HARNESS_FACTS_SECTION_ID,
+  STEP_LIMIT_SECTION_ID,
   lintCell,
   type LintCell,
   type LintFinding,
@@ -407,7 +408,7 @@ export function assembledLintSections(assembled: AssembledPrompt): LintSection[]
     text,
     claims: assembled.claims[id] ?? [],
     ...(VERBATIM_SECTION_IDS.has(id) ? { verbatim: true } : {}),
-    ...(id === HARNESS_FACTS_SECTION_ID ? { factsOnly: true } : {}),
+    ...(id === HARNESS_FACTS_SECTION_ID || id === STEP_LIMIT_SECTION_ID ? { factsOnly: true } : {}),
   }));
 }
 

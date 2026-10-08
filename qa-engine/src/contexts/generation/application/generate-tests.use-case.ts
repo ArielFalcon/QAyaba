@@ -74,19 +74,20 @@ export class GenerateTestsUseCase {
       const result = await session.prompt(assembled.text, {
         sectionSizes: assembled.sectionSizes,
         ...(assembled.providedPaths ? { providedPaths: assembled.providedPaths } : {}),
+        ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}),
         finalStepOnly: true,
         onTurnStats: (stats) => { mainTurn = stats; },
       });
       generatorOutput = result.output;
 
-      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request. */
+      /* A session that ran out of steps is never asked to re-emit its verdict: it cannot act on the request. The repair runs in the same session under the same limit, so it is sent the number the prompt it repairs stated. */
       if (repair && mainTurn?.exhausted !== true) {
         const genCheck = repair.checkGenerator(generatorOutput);
         if (!genCheck.valid) {
           opts?.onRepair?.();
           const repairResult = await session.prompt(
             repair.instruction("generator", genCheck.issues, { priorResponseTail: generatorOutput }),
-            { isRepair: true, finalStepOnly: true, onTurnStats: (stats) => { repairTurn = stats; } },
+            { isRepair: true, ...(input.stepLimit !== undefined ? { stepLimit: input.stepLimit } : {}), finalStepOnly: true, onTurnStats: (stats) => { repairTurn = stats; } },
           );
           generatorOutput = repairResult.output;
         }
@@ -168,7 +169,10 @@ export class GenerateTestsUseCase {
     });
     let reviewJudgment;
     try {
-      const reviewOut = await reviewerSession.prompt(reviewerAssembled.text, { sectionSizes: reviewerAssembled.sectionSizes });
+      const reviewOut = await reviewerSession.prompt(reviewerAssembled.text, {
+        sectionSizes: reviewerAssembled.sectionSizes,
+        ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}),
+      });
       let reviewText = reviewOut.output;
 
       let v = verdicts.parseReview(reviewText);
@@ -176,7 +180,7 @@ export class GenerateTestsUseCase {
         opts?.onRepair?.();
         const repaired = await reviewerSession.prompt(
           repair.instruction("reviewer", v.issues, { priorResponseTail: reviewText }),
-          { isRepair: true },
+          { isRepair: true, ...(reviewerInput.stepLimit !== undefined ? { stepLimit: reviewerInput.stepLimit } : {}) },
         );
         reviewText = repaired.output;
         v = verdicts.parseReview(reviewText);

@@ -516,6 +516,87 @@ prompt that states the limit against the baseline of before this change: the rec
 reason, and what it names is the 1,161 limited buckets and the global ceiling, never a bucket without a
 limit or a static layer.
 
+The prompts then learned to state the limit (2026-10-08, 3 workers, 802 mutants, 268 of them compile errors,
+38 minutes at a load average of 10 to 43): a generator prompt built for a runtime that enforces
+one closes with a `step-limit` section, a fact of its own that carries the number and nothing else, and a turn
+that writes tests (the diff and manual first passes and every regeneration) adds a `step-milestone` section
+after it, which names the step by which the first test file, or the reasoned no-op, should exist on a first
+pass, and on a regeneration the first correction or the reason, given in the verdict, that none applies. A
+regeneration can have nothing to correct (lines the run cannot reach, a failure the app causes, a correction
+that is wrong), and a milestone that only asked for an edit would push it toward one it has no ground for; the
+reason goes to the verdict's existing no-op reason, which the static contract owns and the milestone does not
+name, and the harness classifies a regeneration that delivers no spec exactly as it did. That step is half the
+limit, from one named fraction and one pure function in `step-limit.ts`, the module the preset gained with its
+own tests and the prompt-builder tests of the sections. Which turns write tests is decided there too, and the
+builder renders the data it returns (`{ midpoint, outcomes }`) and adds none, so the tests assert that data,
+the section ids, the claims and the lint's findings, never a sentence. The explorer prompt gained a
+`## Step limit` block before its output block and the reviewer a `reviewer-step-limit` section before its
+verdict contract, neither with a milestone since neither writes tests, and none of them holds a directive
+word. A prompt that states a limit also sends it as the `stepLimit` option of its `session.prompt` (the
+generator's, the in-generate reviewer's, the review port's and the explorer's), and the transport policy judges
+exhaustion against that number, and against the agent's configured limit only when the prompt stated none; a
+verdict repair runs in the same session under the same limit, so it is sent the number of the prompt it
+repairs, with its text unchanged. Each OpenCode `/limit` bucket grew by its sections, 46 bytes on a turn that
+writes no tests, 127 on a regeneration and 119 on a first pass that writes tests, and no directive. The Codex
+buckets, both static layers and the global ceiling did not move, and the matrix ceiling went from 9,415 to
+9,542 bytes. The record was refused without a reason and taken with the owner's one; what it names is the
+1,161 limited buckets and the ceiling.
+
+The preset: 526 killed, 3 timeouts, 5 survivors, the five fixtures-reader ones documented below, and none in
+the lint or in `step-limit.ts` (18 killed, 14 compile errors); the three timeouts are in the harness-facts
+scan, which did not change. Its first run, before the review fix below, was made on a machine at a load average
+of 30 to 57 (801 mutants, 59 minutes) and timed 67 mutants out where a quiet machine timed out 2, so the
+new module's five timeouts were re-tested by hand against the preset's own test command. Four died. The fifth,
+the milestone's section id emptied, lived, because every test reads the id from its constant and an emptied id
+is still the same id; a test now holds that no section of a limited prompt is nameless, and it dies. The names
+list gained the statement's heading (static text that names it is reported, and the lower-case phrase is not).
+
+A review of the slice then found that a regeneration's milestone had no honest end when no correction applies,
+and that a verdict repair, which runs in the same session under the same limit, was judged against the baked
+limit. The first is data: the outcomes of a regeneration became the first correction and the reason none
+applies, so the domain tests changed first (1 of 10 failed for the missing outcome), then the sentence the
+builder renders from them; the second made the two repair prompts send the number their prompt stated, with
+two use-case tests turned round (2 of 6 failed) and a transport test that a repair sent a limit is judged
+against it and one sent none against the configured limit. The baseline was recorded again from the one before
+this change, with the owner's reason widened to the honest outcome; the preset above and the step-limit preset
+(85 mutants, 36 compile errors, 48 killed, one documented survivor, a log label) were run after it.
+
+The builder's sections, the milestone's rendering, the explorer's and the reviewer's blocks, the transport
+classification, the sites that send the option, the matrix script's facts-only mark, the names list and the
+model-name guard's reach into the limit variants are outside every preset, so they were broken by hand against
+their own tests: 80 mutants first, 86 after the review fix, run through `scripts/run-in-group.mjs` with the
+sources checked by hash afterwards. The statement: its heading dropped or glued to its sentence, the
+number plus or minus one, a directive word, a sentence that points at the tree above, never rendered, rendered
+with no limit, the wrong role, priority or id for its section, its claim dropped, aimed at another fact or also
+given to the milestone, and the statement restated inside the milestone's section. The milestone: the midpoint
+plus one or taken from twice the limit, computed with no limit, as if every turn were a diff run or without the
+regeneration signals, the wrong role, priority or id, one outcome only, the outcomes reversed or glued, the
+phrases swapped between a first pass and a regeneration, a regeneration offered the no-op, a first pass asked
+for a correction, and no outcome at all; and, for the regeneration's second outcome, its phrase equal to the
+no-op's or to the first correction's, turned into a directive, carrying a model name, or telling the agent to
+write nothing. The explorer's block: never, always, off by one, without its blank line, missing from either of
+its two prompts, carrying a milestone. The reviewer's section: after the verdict contract, its claim dropped,
+the wrong role, id or number, never or always, nameless. A model name in each of the texts a limited prompt
+adds, which only the guard's limit variants can see. The transport policy: the configured limit preferred to
+the stated one or the stated one ignored, also when the prompt is a repair, a budget only with a configured
+reader or only with both, and the stated limit alone. The sites that send the option, the four prompts and the
+two verdict repairs: the option dropped, carried with no value, sent when no limit was resolved, taken from
+the other role, or off by one. The matrix: the step limit no longer facts-only, the milestone made facts-only.
+The names list: the heading dropped. Six lived in the first pass and four are now killed, each by a behavior
+test: the two outcomes of a first pass rendered in reverse and glued together (the tests held that each
+outcome is there, not in which order or set apart), the milestone's emptied id (found among the timeouts
+above, and the reviewer section's emptied id, added after it, died on the same kind of test), and a
+reviewer's verdict repair sent with the limit, which held until the review fix turned the rule round: the
+two tests of the repairs now hold that they are sent the stated number, and the mutants of the old rule were
+replaced by seven of the new (dropped, carried with no value, the other role's, off by one). One lived in the
+second pass: a phrase for the regeneration's second outcome that told the agent to write nothing, a wording
+the tests read from the phrase table; a prompt-sync test now holds the words of the two honest outcomes to the
+verdict contract the static layers define (the closing verdict, the no-op reason), and it dies. Two are not
+on the list below: the statement's quantifier ("at most" for "exactly"), which is wording and, like the rest of
+the sentence, is pinned by no test, and a non-null assertion for an optional call in the transport policy, an
+equivalent (a stated limit never reaches the right of the `??`, and a prompt that states none has already met
+the condition that a reader exists).
+
 route-capturability (2026-10-04, default workers) is a new preset over the pure classification of a route
 string (a template, free text, an interpolation or another host names no page a browser can open) and the
 lines of the context pack that filter the candidates before the capture slice, log and list what was left
@@ -713,7 +794,7 @@ spec-path-confinement's `:86-117`.
 | route-capturability | route-capturability, route-ranking (link fields, path matching, staged roots), the context pack's ranking call, candidate filter and list of routes left out | 67 / 0 / 15 — 81.71% (81.71%) | 149 / 0 / 0 — 100% (100%) | — |
 | redirect-advisory | route-catalog (degrade reason, redirect target, warnings), dom-snapshot (state line, advisory block, capture), the context pack's split of the advisory block | 127 / 0 / 8 — 94.07% (94.07%) | 129 / 0 / 6 — 95.56% (95.56%) | — |
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
-| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 509 / 2 / 5 — 99.03% (98.64%) | — |
+| prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, step-limit, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 526 / 3 / 5 — 99.06% (98.5%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
 | carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 278 / 0 / 0 — 100% (100%) | — |
 

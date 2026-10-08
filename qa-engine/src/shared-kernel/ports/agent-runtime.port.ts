@@ -58,6 +58,8 @@ export interface AgentPromptOpts {
   providedPaths?: readonly string[];
   /** Called once per resolved prompt with that turn's stats, by runtimes that can measure them. A fault in the callback is logged and never disturbs the prompt. */
   onTurnStats?: (stats: AgentTurnStats) => void;
+  /** The step limit this prompt states, as the runtime enforces it for the session's role. The turn it starts is classified against this number, so the figure a prompt states and the one its turn is judged by are the same. Absent: the prompt states none, and the agent's configured limit stands. */
+  stepLimit?: number;
 }
 
 export interface AgentSession {

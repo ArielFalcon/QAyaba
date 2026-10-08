@@ -1070,3 +1070,118 @@ test("the in-generate reviewer's input carries no limit when the generation was 
   assert.ok(reviewInput, "the reviewer was rendered");
   assert.equal("stepLimit" in reviewInput, false);
 });
+
+/* A prompt that states a step limit is sent with that limit as an option, so the turn it starts is classified against the number the prompt stated. The generator's prompt and the in-generate reviewer's each carry their own; a verdict repair says nothing of it but runs in the same session under the same limit, so it is sent with the number of the prompt it repairs. */
+type SentOptions = Array<Record<string, unknown> | undefined>;
+
+/* Which role answers its first prompt with no verdict, so that it is asked once more. */
+async function optionsSentFor(input: Partial<OpencodeRunInput>, repairing?: "generator" | "reviewer"): Promise<{ generator: SentOptions; reviewer: SentOptions }> {
+  const sent: Record<string, SentOptions> = { primary: [], reviewer: [] };
+  let reviews = 0;
+  const ports: GenerationPorts = {
+    runtime: {
+      openSession: async (role) => ({
+        prompt: async (_text, opts) => {
+          (sent[role] ??= []).push(opts as Record<string, unknown> | undefined);
+          return { output: "SESSION_OUTPUT" };
+        },
+        dispose: () => {},
+      }),
+    },
+    rendering: {
+      render: () => "",
+      renderMain: () => ({ text: "GEN_PROMPT", sectionSizes: { task: 10 } }),
+      renderWorker: () => ({ text: "", sectionSizes: {} }),
+      renderReviewer: () => ({ text: "REV_PROMPT", sectionSizes: { "reviewer-specs": 10 } }),
+      renderExplorer: () => "",
+      specFileForFlow: (flow) => `flows/${flow}.spec.ts`,
+    },
+    verdicts: {
+      parseGenerator: () => ({ specs: ["flows/a.spec.ts"], parsed: true }),
+      parseReview: () => ({ approved: true, corrections: [], valid: repairing !== "reviewer" || reviews++ > 0, issues: [], parsed: true }),
+    },
+    manifest: { read: async () => [], reconcile: async (_d, e) => [...e] as ManifestEntry[] },
+    budget: { capDiff: (d) => d, capText: (t) => t, budgetForRole: () => 0 },
+    ...(repairing
+      ? {
+          repair: {
+            checkGenerator: () => ({ valid: repairing !== "generator", issues: ["no verdict"] }),
+            instruction: () => "REPAIR_PROMPT",
+          },
+        }
+      : {}),
+  };
+  await new GenerateTestsUseCase(ports).generate({
+    repo: "r", sha: "s", diff: "d", mirrorDir: "/m", e2eRelDir: "e2e", namespace: "ns",
+    needsReview: false, target: "e2e", mode: "diff", appName: "a",
+    ...input,
+  });
+  return { generator: sent["primary"] ?? [], reviewer: sent["reviewer"] ?? [] };
+}
+
+test("the generator's prompt is sent with the limit its input states, beside the options it already carried", async () => {
+  const { generator } = await optionsSentFor({ stepLimit: 41 });
+
+  assert.equal(generator.length, 1);
+  assert.equal(generator[0]?.stepLimit, 41);
+  assert.equal(generator[0]?.finalStepOnly, true, "the options it carried are still there");
+  assert.deepEqual(generator[0]?.sectionSizes, { task: 10 });
+});
+
+test("a generator prompt whose input states no limit is sent with no limit key", async () => {
+  const { generator } = await optionsSentFor({});
+
+  assert.equal(generator.length, 1);
+  assert.equal("stepLimit" in (generator[0] ?? {}), false);
+});
+
+test("the in-generate reviewer's prompt is sent with the reviewer's own limit, never the generator's", async () => {
+  const { generator, reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41, reviewerStepLimit: 17 });
+
+  assert.equal(generator[0]?.stepLimit, 41);
+  assert.equal(reviewer.length, 1);
+  assert.equal(reviewer[0]?.stepLimit, 17);
+  assert.deepEqual(reviewer[0]?.sectionSizes, { "reviewer-specs": 10 });
+});
+
+test("the in-generate reviewer's prompt carries no limit when none was handed for it, whatever the generator's is", async () => {
+  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41 });
+
+  assert.equal(reviewer.length, 1);
+  assert.equal("stepLimit" in (reviewer[0] ?? {}), false);
+});
+
+test("a verdict repair runs in the same session under the same limit, so it is sent with the limit of the prompt it repairs, beside the options it already carried", async () => {
+  const { generator } = await optionsSentFor({ stepLimit: 41 }, "generator");
+
+  assert.equal(generator.length, 2, "the prompt and its repair");
+  assert.equal(generator[0]?.stepLimit, 41);
+  assert.equal(generator[1]?.isRepair, true);
+  assert.equal(generator[1]?.stepLimit, 41);
+  assert.equal(generator[1]?.finalStepOnly, true, "the options it carried are still there");
+});
+
+test("a generator repair whose input states no limit is sent with no limit key either", async () => {
+  const { generator } = await optionsSentFor({}, "generator");
+
+  assert.equal(generator.length, 2, "the prompt and its repair");
+  assert.equal(generator[1]?.isRepair, true);
+  assert.equal("stepLimit" in (generator[1] ?? {}), false);
+});
+
+test("the in-generate reviewer's verdict repair is sent with the reviewer's own limit, as the review it repairs is, never the generator's", async () => {
+  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41, reviewerStepLimit: 17 }, "reviewer");
+
+  assert.equal(reviewer.length, 2, "the review and its repair");
+  assert.equal(reviewer[0]?.stepLimit, 17);
+  assert.equal(reviewer[1]?.isRepair, true);
+  assert.equal(reviewer[1]?.stepLimit, 17);
+});
+
+test("the in-generate reviewer's verdict repair carries no limit when none was handed for the reviewer, whatever the generator's is", async () => {
+  const { reviewer } = await optionsSentFor({ needsReview: true, stepLimit: 41 }, "reviewer");
+
+  assert.equal(reviewer.length, 2, "the review and its repair");
+  assert.equal(reviewer[1]?.isRepair, true);
+  assert.equal("stepLimit" in (reviewer[1] ?? {}), false);
+});

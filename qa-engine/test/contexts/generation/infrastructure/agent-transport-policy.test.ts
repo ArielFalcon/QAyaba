@@ -1222,3 +1222,94 @@ test("createAgentDeps: finalStepOnly on a turn whose final step wrote no text re
   assert.equal(returned, "");
   assert.match(persisted[0]!.outputText, /a\.spec\.ts/, "the persisted output still holds the whole turn");
 });
+
+/* A prompt that states the step limit its runtime enforces passes it as an option, and the turn it starts is classified against that number: the figure a prompt states and the one its turn is judged by are one. A prompt that states none keeps the agent's configured limit. */
+
+test("createAgentDeps: a turn whose prompt stated its limit is classified against that limit, not against the configured one", async () => {
+  const seen: TurnStats[] = [];
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "all specs written" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }) },
+    { stepLimit: 40, onTurnStats: (stats) => seen.push(stats) },
+  );
+  assert.equal(persisted[0]!.stepBudget?.maxSteps, 40);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, true, "40 steps reach the 40 the prompt stated, though the configured 50 would call the turn unfinished");
+  assert.equal(seen[0]?.maxSteps, 40, "the caller is handed the same figure");
+  assert.equal(seen[0]?.exhausted, true);
+});
+
+test("createAgentDeps: the same turn without a stated limit is classified against the configured one", async () => {
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "all specs written" }],
+    { maxStepsFor: () => 50, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }) },
+    undefined,
+  );
+  assert.equal(persisted[0]!.stepBudget?.maxSteps, 50);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, false);
+});
+
+test("createAgentDeps: a stated limit above the configured one is the one that counts, so a turn past the configured one is not exhausted", async () => {
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "all specs written" }],
+    { maxStepsFor: () => 30, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }) },
+    { stepLimit: 50 },
+  );
+  assert.equal(persisted[0]!.stepBudget?.maxSteps, 50);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, false);
+});
+
+test("createAgentDeps: a stated limit classifies the turn even where no configured limit is injected, and without one such a transport has no budget", async () => {
+  const stated = await promptWithStats([{ type: "text", text: "done" }], { takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }) }, { stepLimit: 40 });
+  assert.equal(stated.persisted[0]!.stepBudget?.maxSteps, 40);
+  assert.equal(stated.persisted[0]!.stepBudget?.exhausted, true);
+  const unstated = await promptWithStats([{ type: "text", text: "done" }], { takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }) }, undefined);
+  assert.equal(unstated.persisted[0]!.stepBudget, null);
+});
+
+test("createAgentDeps: a stated limit does not depend on the configured limit being readable", async () => {
+  const { persisted } = await promptWithStats(
+    [{ type: "text", text: "done" }],
+    { maxStepsFor: () => { throw new Error("config unreadable"); }, takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 12 }) },
+    { stepLimit: 40 },
+  );
+  assert.equal(persisted[0]!.stepBudget?.maxSteps, 40);
+  assert.equal(persisted[0]!.stepBudget?.exhausted, false);
+});
+
+test("createAgentDeps: the stated limit belongs to the prompt that stated it: a later prompt of the session that states none keeps the configured limit", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({ createSession: async () => ({ id: "sess-two" }), promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }) });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 12 }),
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-two" } });
+  await session.prompt("states its limit", { stepLimit: 40 });
+  await session.prompt("states none");
+  assert.deepEqual(persisted.map((turn) => turn.stepBudget?.maxSteps), [40, 50]);
+});
+
+test("createAgentDeps: a verdict repair sent with the limit of the prompt it repairs is classified against that limit, as that prompt is, and one sent with none against the configured limit", async () => {
+  resetCircuit();
+  const raw = makeRawTransport({ createSession: async () => ({ id: "sess-three" }), promptSession: async () => ({ parts: [{ type: "text", text: "done" }] }) });
+  const persisted: AgentTurnEvent[] = [];
+  const deps = createAgentDeps(raw, {
+    defaultPromptTimeoutMs: 5000,
+    getFallbackModel: () => undefined,
+    persistTurn: (t) => persisted.push(t),
+    maxStepsFor: () => 50,
+    takeTurnCalls: () => ({ ...SAMPLE_CALL_METRICS, stepsUsed: 40 }),
+  });
+  const session = await deps.open("qa-generator", "/tmp", { descriptor: { runId: "run-three" } });
+  await session.prompt("the prompt", { stepLimit: 40 });
+  await session.prompt("its repair", { isRepair: true, stepLimit: 40 });
+  await session.prompt("a repair that was sent with none", { isRepair: true });
+  assert.deepEqual(
+    persisted.map((turn) => [turn.isRepair, turn.stepBudget?.maxSteps, turn.stepBudget?.exhausted]),
+    [[false, 40, true], [true, 40, true], [true, 50, false]],
+  );
+});

@@ -19,7 +19,8 @@ import { diffStat, diffTier, type DiffStat, type DiffTier } from "@contexts/gene
 import { PACK_HEADINGS } from "@contexts/generation/domain/prompt-headings.ts";
 import { PROMPT_HEADINGS, ASSEMBLED_ARTIFACT_NAMES } from "@contexts/generation/domain/prompt-headings.ts";
 import { isReGenTurn } from "@contexts/generation/domain/regen-turn.ts";
-import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { claim, APP_LOGIN_SECTION_ID, HARNESS_FACTS_SECTION_ID, STEP_LIMIT_SECTION_ID, type FactId, type PromptClaim } from "@contexts/generation/domain/prompt-contract-lint.ts";
+import { STEP_MILESTONE_SECTION_ID, stepMilestone, type MilestoneOutcome, type StepMilestone } from "@contexts/generation/domain/step-limit.ts";
 import type { HarnessFacts } from "@contexts/generation/domain/harness-facts.ts";
 import { matchExemplars, renderExemplarsForPrompt } from "@kernel/scenario-catalog.ts";
 import { detectStructuralPatterns } from "@kernel/structural-pattern.ts";
@@ -70,6 +71,27 @@ function renderCommitMessage(intent: CommitIntent | undefined, includeBody: bool
   const subject = intent?.message ?? "";
   const body = includeBody ? intent?.body : undefined;
   return sanitizeText(body ? `${subject}\n\n${capText(body)}` : subject).text;
+}
+
+/* The reviewer's statement of its own cap is a section of its own, apart from the generator's. */
+export const REVIEWER_STEP_LIMIT_SECTION_ID = "reviewer-step-limit";
+
+/* The cap the runtime enforces for the turn, stated as a fact: the number and nothing else. It bounds the turn the prompt is sent for, never the session. A generator, an explorer and a reviewer prompt state it the same way. */
+function renderStepLimit(limit: number): string {
+  return [`## ${PROMPT_HEADINGS.stepLimit}`, `This turn runs at most ${limit} steps.`].join("\n");
+}
+
+/* What each outcome of a milestone asks of the agent, in the words the milestone joins. The verdict's own reason field is the static contract's to name: a regeneration that finds no correction to make says so in the verdict. */
+export const MILESTONE_OUTCOME_PHRASES: Readonly<Record<MilestoneOutcome, string>> = {
+  "first-spec": "write the first test file",
+  "no-op": "decide the no-op and state why",
+  "first-correction": "write the first correction",
+  "reason-none-applies": "state in the verdict why none applies",
+};
+
+/* The milestone of a turn that writes tests: the step by which something should be written, and what meets it. It renders the data of `stepMilestone` and adds none of its own. */
+function renderStepMilestone({ midpoint, outcomes }: StepMilestone): string {
+  return `By step ${midpoint}: ${outcomes.map((outcome) => MILESTONE_OUTCOME_PHRASES[outcome]).join(", or ")}.`;
 }
 
 const ACCEPTANCE_CRITERION_RULE =
@@ -267,6 +289,7 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
         ? [``, `## Cross-repo (microservice)`, `Related service: ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
         : []),
       ``,
+      ...explorerStepLimitLines(input),
       `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
     ].join("\n");
   }
@@ -290,8 +313,14 @@ export function buildExplorerPrompt(input: OpencodeRunInput): string {
       ? [``, `## Cross-repo change (microservice)`, `The change is in ${input.service.repo} (a READ-ONLY staged snapshot — contracts + this commit's changed files, not the full source — is at ${input.service.mirrorDir}). Map the FRONTEND flows that exercise it.`]
       : []),
     ``,
+    ...explorerStepLimitLines(input),
     `## Output — set builtForSha to ${input.sha}; end with ONLY the ExplorationBrief JSON (schema in your role prompt).`,
   ].join("\n");
+}
+
+/* The explorer states the cap its session runs under in a block just before its output block, set apart by a blank line; no cap, no block. It names no milestone: it writes no tests. */
+function explorerStepLimitLines(input: OpencodeRunInput): string[] {
+  return input.stepLimit !== undefined ? [renderStepLimit(input.stepLimit), ``] : [];
 }
 
 /* Assembles the dynamic message for the agent. The "how" lives in agents/agent/qa-generator.md and the skills; only the task + context go here. The diff/guidance are sanitized (cheap defense in depth). Return type is unchanged (string). Use buildPromptAssembled() to get the sectionSizes map for telemetry. `hasInjectedGrounding` is a coarse boolean — the injected grounding (Context Pack ≤6 routes / failure DOM ≤4 routes) may NOT cover the route a regen must touch. To avoid suppressing navigation into a blind/wrong fix, every grounded regen branch carries this explicit anti-blinding escape. */
@@ -778,6 +807,10 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
     return renderExemplarsForPrompt(deduped);
   })();
 
+  const stepLimitContent = input.stepLimit !== undefined ? renderStepLimit(input.stepLimit) : "";
+  const milestone = input.stepLimit !== undefined ? stepMilestone(input, input.stepLimit) : undefined;
+  const stepMilestoneContent = milestone ? renderStepMilestone(milestone) : "";
+
   const assembled = assemble([
     section("working-rules", "stable-prefix", workingRulesContent, { priority: 1, cacheable: true, claims: workingRulesClaims }),
     ...(regenDisciplineContent ? [section("regen-discipline", "stable-prefix", regenDisciplineContent, { priority: 2 })] : []),
@@ -811,6 +844,9 @@ export function buildPromptAssembled(input: OpencodeRunInput, opts: BuildPromptA
       const diffContent = isGenerationMode ? buildDiffSection(input) : "";
       return diffContent ? [section("diff", "task", diffContent, { priority: 2, shedAs: "semi-stable", claims: [claim.provides("diff")] })] : [];
     })(),
+    /* The cap the runtime enforces for this turn, when the host resolved one: a fact of its own, then, on a turn that writes tests, the step by which it should have written something. Both close the prompt. */
+    ...(stepLimitContent ? [section(STEP_LIMIT_SECTION_ID, "critical-recap", stepLimitContent, { priority: 1, claims: [claim.provides("step-limit")] })] : []),
+    ...(stepMilestoneContent ? [section(STEP_MILESTONE_SECTION_ID, "critical-recap", stepMilestoneContent, { priority: 2 })] : []),
   ], { budgetBytes: opts.budgetBytes ?? roleWindowBytes("qa-generator") });
   return { ...assembled, providedPaths: providedPathsOf(input, assembled.sectionSizes) };
 }
@@ -1561,6 +1597,8 @@ export function buildReviewerPromptAssembled(input: ReviewInput): AssembledPromp
     ...(learnedRulesContent ? [section("reviewer-learned-rules", "volatile", learnedRulesContent, { priority: 3 })] : []),
     /* VOLATILE: prior-round corrections (priority 4 — convergence context; lowest priority in VOLATILE so it does not crowd out the spec contents or DOM grounding on budget overflow). */
     ...(priorCorrectionsContent ? [section("reviewer-prior-corrections", "volatile", priorCorrectionsContent, { priority: 4 })] : []),
+    /* The cap the reviewer's session runs under, when the host resolved one: a fact of its own, placed before the verdict contract so that the contract still ends the prompt. */
+    ...(input.stepLimit !== undefined ? [section(REVIEWER_STEP_LIMIT_SECTION_ID, "critical-recap", renderStepLimit(input.stepLimit), { priority: 0, claims: [claim.provides("step-limit")] })] : []),
     section("reviewer-output-contract", "critical-recap", outputContractContent, { priority: 1 }),
   ], { budgetBytes: roleWindowBytes("qa-reviewer") });
 }
