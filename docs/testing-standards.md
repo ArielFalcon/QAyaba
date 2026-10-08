@@ -655,6 +655,45 @@ errors, 197 killed, 2 timed out (the loop of its own copy of the path rule) and 
 below; the entry it had for the regeneration's `selectorContradictions` spread is gone, since a test that gives the
 regeneration neither contradictions nor origins when the check finds none kills the mutants of that condition.
 
+The preset then took in the listing of the suite for a regeneration (2026-10-08, 2 workers): `suite-entry` (the
+one-line form in which the grounding folds a spec of the suite, and the path read back from it), `suite-listing`
+(the entries the suite and this run's deliveries make, which of them a turn must change, the cap on the others, the
+text of each entry, and whether the turn asks the objective again) and the one grounding line that folds the suite
+through `suite-entry`, against their own tests and the adapter's. Its first run over them had 438 mutants, 128 of
+them compile errors, 298 killed and 12 survivors, all in `suite-listing`. Seven were defaults no behavior could
+tell from their absence (the `?? []` of the runs of a text, of the error text of a case, of the files attributed
+and of the corrections of the re-ask, and the filter of empty tokens: a name made only of full stops names no
+spec) and were restructured away. The other five were behaviors no test had pinned, now pinned: a delivery that
+declares only a flow, or only an objective, refreshing the suite's line; an entry with space at either end; and a
+flagged correction that names a spec under correction beside one that is not. A review then had the listing change
+in three ways, each pinned by tests. An entry hands out only its text and two facts: the canonical path of a spec,
+which the turn's signals are matched against, stays inside `buildSuiteListing`, and the decision to ask the
+objective again, which needs it, is made there and is a field of the listing. A sanitizer that throws makes the
+listing throw. And where a failing case names its file nothing else widens the turn: not a correction, an error
+text, a contradiction or a coverage gap. The grounding's fold of a manifest entry that lacks a flow or an objective
+is pinned too: the missing one is left out, where the template it replaced printed the word `undefined`. The run
+after that: 414 mutants, 136 compile errors, 278 killed, no timeout, none survived. The pure parts were also broken
+by hand, 70 mutants, 68 killed and 2 not behaviors (listed below): the cut made before the sanitizer, the
+sanitizer given the unfolded text, left out for any of the three kinds of text or a throw of it swallowed; a cut by
+code unit, without its mark or one character long; an entry handing out its path; the lead's objective flag raised
+for a suite line, a refreshed line or a path-only delivery; this run's specs not first or last; the cap counting the
+editable entries, the left-out count over all entries, the editable entries capped; a later line of the suite for a
+file winning, the delivered list not folded, a delivery shown by its path alone, never refreshing the line or always
+keeping it; a failing file matched by its exact path only or against the files appended before it, a path naming an
+entry by its base name alone, by a bare suffix, only by the folders above it or only by a name alone; everything
+beside the failing files widening the turn, or a correction, an error text, a coverage gap or a contradiction on its
+own; a correction, a case without a file or contradictions that name no spec adding nothing, attributed files a
+turn's work without a contradiction, coverage marking every spec or none, an unnamed item marking nothing; attributed
+files matched by name or not in canonical form; an appended failing file not editable, delivered or with a lead
+objective; a passed case counted as failing or a flaky one not; the re-ask answering no for an empty set, reading a
+tag in the middle of a correction, only one of the two tags or a tag by case, no correction or every correction
+disputing, a flagged correction that names no spec flagging none or one that names any spec asking, and a spec without
+a lead objective asking nothing; the tokens keeping a sentence's full stop or left out of canonical form; the folded
+line with the objective first, its path read to the last separator or with the separator; and the grounding's fold
+without what the manifest holds, with the flow only or with the old template. The grounding line moved the ranges of
+two other presets down by the import it gained: the prompt-contract preset's grounding range is now `:122-171` and
+spec-path-confinement's `:86-117`.
+
 | Preset | Module(s) | Before: killed / timeout / survived — score (killed-only) | After: killed / timeout / survived — score (killed-only) | `break` |
 |---|---|---|---|---|
 | keystone | objective-signal decide/assemble/render | 108 / 5 / 4 — 96.58% (92.31%) | 112 / 1 / 0 — 100% (99.12%) | 80 |
@@ -676,7 +715,7 @@ regeneration neither contradictions nor origins when the check finds none kills 
 | patch-app-yaml | patch-app-yaml | 181 / 2 / 42 — 81.33% (80.44%) | 203 / 0 / 1 — 99.51% (99.51%) | — |
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 509 / 2 / 5 — 99.03% (98.64%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
-| carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop and the run | 109 / 2 / 8 — 93.28% (91.6%) | 117 / 0 / 0 — 100% (100%) | — |
+| carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 278 / 0 / 0 — 100% (100%) | — |
 
 ### Login discovery script (manual triangulation)
 
@@ -736,11 +775,15 @@ Each is a genuine equivalent mutant: no test can observe it without asserting th
 - `readStepLimits` — the label of the deadline's message, `"step limit read"` → `""` (StringLiteral): the
   warning still names the directory, the deadline and the cause; the label is log text.
 
-**carry-forward** (the run's wiring, broken by hand: the origin is a union of two literals, so Stryker makes no mutant for it)
+**carry-forward** (broken by hand, where Stryker makes no mutant: the origin of a merge is a union of two literals, and a cap is a number)
 - the origin of the first pass's merge (`sidekickFirstPass ? "sidekick" : "lead"` → `"lead"`) and of the
   FixLoop sidekick's merge (`"sidekick"` → `"lead"`): a sidekick's result is built in the run from its
   files on disk and carries no declarations, so merged as the lead's it adds the same paths. The origin
   guards a result that did carry them, which the merge's own tests pin: a sidekick pass keeps none.
+- the value of `LISTING_MAX_DO_NOT_REWRITE` (30 to 31) and of `LISTING_MAX_ENTRY_CHARS` (400 to 401): Stryker
+  makes no mutant for a number and the tests import both constants, as the standards ask, so a different value
+  moves the expectations with it. What the numbers mean is pinned (at the cap nothing is left out, one over it one
+  is; a text of exactly the limit is untouched, one over it is cut with its mark); the numbers are the design's.
 
 **merge-guard** (`src/server/merge-guard.ts`)
 - `sanitize-text.ts` and `publication-port.adapter.ts` entries → `""` (StringLiteral ×2): both files

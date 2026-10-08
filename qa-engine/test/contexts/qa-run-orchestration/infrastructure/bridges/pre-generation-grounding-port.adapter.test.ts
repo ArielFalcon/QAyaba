@@ -202,6 +202,40 @@ test("ground(): existingSpecFiles is enriched with flow/objective from e2e/.qa/m
   }
 });
 
+/* The manifest is read as it is on disk, so an entry written by hand, or by an older run, may lack a flow or an objective. The line says what the manifest holds and no more: a missing flow or objective is left out of it, never printed as the word "undefined". */
+test("ground(): a manifest entry that lacks a flow or an objective is folded without it, never as the word undefined", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "qa-grounding-partial-manifest-"));
+  try {
+    for (const name of ["both", "flow-only", "objective-only", "neither"]) writeFileSync(join(dir, `${name}.spec.ts`), "// spec");
+    mkdirSync(join(dir, ".qa"), { recursive: true });
+    writeFileSync(
+      join(dir, ".qa", "manifest.json"),
+      JSON.stringify([
+        { id: "both", file: "both.spec.ts", flow: "checkout", objective: "verify the total" },
+        { id: "flow-only", file: "flow-only.spec.ts", flow: "checkout" },
+        { id: "objective-only", file: "objective-only.spec.ts", objective: "verify the total" },
+        { id: "neither", file: "neither.spec.ts" },
+      ]),
+    );
+    const adapter = new PreGenerationGroundingPortAdapter(
+      { e2eDir: dir },
+      { buildContextPack: async () => ({ text: undefined, domBytes: 0, contractBytes: 0 }) },
+    );
+
+    const result = await adapter.ground("/tmp/qa-golden/e2e");
+
+    assert.deepEqual([...(result.existingSpecFiles ?? [])].sort(), [
+      "both.spec.ts — flow: checkout, objective: verify the total",
+      "flow-only.spec.ts — flow: checkout",
+      "neither.spec.ts",
+      "objective-only.spec.ts — objective: verify the total",
+    ]);
+    assert.ok(!(result.existingSpecFiles ?? []).some((line) => line.includes("undefined")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("ground(): existingSpecFiles stays a PLAIN filename when no manifest entry matches it (never fabricated)", async () => {
   const dir = mkdtempSync(join(tmpdir(), "qa-grounding-nomanifest-"));
   try {

@@ -9,6 +9,7 @@ import type { ArchitectureContext, CommitIntent, ExplorationBrief } from "@conte
 import { readManifest } from "@contexts/generation/infrastructure/manifest-fs.ts";
 import { sanitizeText } from "@contexts/generation/infrastructure/sanitize-text.ts";
 import { extractExportedNames, isSafeAttributeName } from "@contexts/generation/domain/harness-facts.ts";
+import { formatSuiteEntry } from "@contexts/generation/domain/suite-entry.ts";
 import { DiffParserService } from "@kernel/diff-parser/diff-parser.service.ts";
 import { listSpecFiles, readOwnedSpecFile } from "../../../../shared-infrastructure/spec-path-confinement.ts";
 import { raceWithAbort, isAbortError } from "./abort-race.ts";
@@ -193,8 +194,8 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
     try {
       const found = enumerateExistingSpecFiles(this.ctx.e2eDir);
       if (found.length > 0) {
-        /* Fold flow/objective from the manifest into each existingSpecFiles string (`path — flow: X, objective: Y`). Filename-only would hide duplicate flows; the field stays string[] so metadata cannot be a separate typed field. Never fabricated. */
-        let byFile = new Map<string, { flow: string; objective: string }>();
+        /* Fold flow/objective from the manifest into each existingSpecFiles string (formatSuiteEntry: `path — flow: X, objective: Y`). Filename-only would hide duplicate flows; the field stays string[] so metadata cannot be a separate typed field. Never fabricated: the manifest is read as it is on disk, so an entry that lacks a flow or an objective (a legacy or hand-edited one) is folded without it and never says `undefined`. */
+        let byFile = new Map<string, { flow?: string; objective?: string }>();
         try {
           const entries = await readManifest(this.ctx.e2eDir);
           byFile = new Map(
@@ -205,10 +206,7 @@ export class PreGenerationGroundingPortAdapter implements PreGenerationGrounding
         } catch (err) {
           console.warn(`[qa] WARNING: manifest read failed (non-blocking, existingSpecFiles stays plain): ${err instanceof Error ? err.message : String(err)}`);
         }
-        result.existingSpecFiles = found.map((f) => {
-          const meta = byFile.get(f);
-          return meta ? `${f} — flow: ${meta.flow}, objective: ${meta.objective}` : f;
-        });
+        result.existingSpecFiles = found.map((file) => formatSuiteEntry({ file, ...byFile.get(file) }));
       }
     } catch (err) {
       console.warn(`[qa] WARNING: existing-spec enumeration failed (non-blocking): ${err instanceof Error ? err.message : String(err)}`);
