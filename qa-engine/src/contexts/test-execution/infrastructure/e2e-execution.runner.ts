@@ -106,7 +106,9 @@ export interface E2eRunOutput {
   report: unknown;
   logs: string;
   ran: boolean;
+  /* How the child ended, when the runner knows: its exit status, or the signal that ended it (then there is no status). A runner that tells neither is not accused of anything. */
   exitCode?: number;
+  signal?: string;
 }
 
 export interface E2eExecuteDeps {
@@ -136,6 +138,13 @@ export interface E2eRunResult {
   cases: QaCase[];
   logs: string;
   note?: string;
+}
+
+/* Why a report that says every test passed is not believed, or undefined when how the child ended gives no reason to doubt it. Both the status and the signal come from the process, never from the report or the logs, so they are safe to say. */
+function untrustedExit(out: E2eRunOutput): string | undefined {
+  if (out.signal !== undefined) return `the Playwright child was ended by ${out.signal} although its report says every test passed: a run that did not finish is not a pass.`;
+  if (out.exitCode !== undefined && out.exitCode !== 0) return `the Playwright child exited with status ${out.exitCode} although its report says every test passed: Playwright exits with a failure status when a test failed, so the report is not believed.`;
+  return undefined;
 }
 
 function isReportShaped(report: unknown): boolean {
@@ -248,6 +257,19 @@ export async function runE2E(
     };
   }
 
+  /* The report is written by the test process, so a report that says every test passed cannot be told from a forged one by what it holds. How the child ended can: Playwright exits with a failure status when a test failed, and a child that a signal ended never finished reporting. A pass that the child did not exit 0 for is a run that cannot be trusted: infrastructure, and none of its cases is handed on. A failure stays a failure whatever the status; the status only takes a pass away. */
+  const distrust = parsed.verdict === "pass" ? untrustedExit(out) : undefined;
+  if (distrust !== undefined) {
+    return {
+      sha: opts.namespace,
+      verdict: "infra-error",
+      passed: false,
+      cases: [],
+      logs: `${sanitized.text}\n[qa] ${distrust}`.trim(),
+      note: distrust,
+    };
+  }
+
   if (parsed.verdict === "fail" && allFailuresAreRunnerInfra(parsed.cases)) {
     return {
       sha: opts.namespace,
@@ -322,10 +344,10 @@ export interface FailureDump {
   runtimeErrors?: { type: string; text: string }[];
 }
 
-/* What the Playwright child leaves in the two directories this module makes for a run: the JSON report and the failure-capture dumps. The child runs the repo's specs, which are code the agent wrote, and it knows both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the fixture wrote. Both are read through the strict read of spec-path-confinement, under these caps, which are far beyond any real run: a Playwright report holds a few kilobytes per test, and an aria snapshot of a very large page a few megabytes. */
-export const MAX_PLAYWRIGHT_REPORT_BYTES = 128 * 1024 * 1024;
+/* What the Playwright child leaves in the two directories this module makes for a run: the JSON report and the failure-capture dumps. The child runs the repo's specs, which are code the agent wrote, and it knows both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the fixture wrote. Both are read through the strict read of spec-path-confinement, under these caps, which are far beyond any real run: a Playwright report holds a few kilobytes per test (a thousand tests that fail on all three attempts with a 4 KB message each make 12 MiB, and nothing real is larger), and an aria snapshot of a very large page a few megabytes. They are parsed in the orchestrator's one thread, and a document of nothing but empty arrays costs some fifteen times its size in heap and about a second of parse for every 12 MiB (one of 128 MiB took 11 s and 2 GiB), so the caps are also what a freeze or an out-of-memory can cost: at these, about a second and a quarter of a gigabyte for the report, and the same for all the dumps together. A worker thread with a heap limit would bound the heap and not the cost of handing the result back, so the smaller cap is the whole defense. */
+export const MAX_PLAYWRIGHT_REPORT_BYTES = 16 * 1024 * 1024;
 export const MAX_FAILURE_DUMP_BYTES = 8 * 1024 * 1024;
-export const MAX_FAILURE_DUMPS_TOTAL_BYTES = 128 * 1024 * 1024;
+export const MAX_FAILURE_DUMPS_TOTAL_BYTES = 32 * 1024 * 1024;
 export const MAX_FAILURE_DUMP_FILES = 4_096;
 export const FAILURE_DUMP_LIMITS: RunOutputLimits = {
   maxFileBytes: MAX_FAILURE_DUMP_BYTES,
@@ -519,6 +541,8 @@ export function createDefaultE2eExecuteDeps(
   defaultTimeoutMs: number = DEFAULT_E2E_TIMEOUT_MS,
   authDir: string,
   actionTimeoutMs?: string,
+  /* The read of the report the child left, a seam so that a test can see when it is made. */
+  readReport: (jsonPath: string) => PlaywrightReportRead = readPlaywrightReport,
 ): E2eExecuteDeps {
   if (!authDir) {
     throw new Error(
@@ -574,12 +598,13 @@ export function createDefaultE2eExecuteDeps(
         child.stdout.on("data", (d: string) => events.feed(d));
         child.stderr.on("data", (d: string) => stderr.append(d));
         child.on("error", (err) => { try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
-        child.on("close", (code) => {
-          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. */
-          const read = readPlaywrightReport(jsonPath);
+        child.on("close", (code, signal) => {
+          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. A run that is settled already (it timed out or the operator cancelled, and the child was killed) is waited for by nobody, so its report is not read: parsing one made slow on purpose would only hold the orchestrator after the deadline. */
+          const read = settled ? undefined : readReport(jsonPath);
           try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
+          if (read === undefined) return;
           const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
-          settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined }));
+          settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined, ...(signal ? { signal } : {}) }));
         });
       }),
   };

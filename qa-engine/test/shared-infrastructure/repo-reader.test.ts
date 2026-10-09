@@ -5,7 +5,8 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RepoReader } from "../../src/shared-infrastructure/repo-reader.ts";
+import { REPO_READER_LIMITS, RepoReader } from "../../src/shared-infrastructure/repo-reader.ts";
+import { REPO_WALK_LIMITS } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../support/named-pipe-watch.ts";
 
 const SECRET_MARK = "SECRETv1-hunter2";
@@ -219,4 +220,93 @@ test("the warning is one line however many files were left out, and it is said o
     assert.ok(first[0]!.length < 500, "bounded");
     assert.deepEqual(second, [], "what was said is not said again");
   });
+});
+
+/* ── the total a repository may cost ───────────────────────────────────────────────────────────── */
+
+/* A cap on each file says nothing of how many there are: two hundred thousand files of 4 MiB each are as many gigabytes read in the orchestrator's one thread. A repository is read up to a total of bytes. */
+const ten = "x".repeat(10);
+const withTenFiles = (f: Fixture, names: string[]): void => {
+  for (const name of names) writeFileSync(join(f.repo, `${name}.java`), ten);
+};
+
+test("a repository is read up to a total of bytes, and the files after that are not read: the file that crosses the total is read, and the rest are counted", async () => {
+  await withFixture((f) => {
+    withTenFiles(f, ["a", "b", "c", "d", "e"]);
+    const reader = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 25 });
+
+    const values = ["a", "b", "c", "d", "e"].map((name) => reader.listedText(`${name}.java`, 1024));
+    const { warnings } = capturing(() => reader.warn("org/repo"));
+
+    assert.deepEqual(values, [ten, ten, ten, undefined, undefined], "30 bytes are read to pass 25, and no more");
+    assert.equal(warnings.length, 1, "said once for the repository");
+    assert.match(warnings[0]!, /org\/repo/);
+    assert.ok(/\b2 file/.test(warnings[0]!), `how many were left out: ${warnings[0]}`);
+    assert.ok(/total/.test(warnings[0]!), `and that it was the total: ${warnings[0]}`);
+    assert.ok(!/\ba\.java|b\.java|e\.java/.test(warnings[0]!), "no file is named");
+  });
+});
+
+test("a total of exactly the bytes read leaves the next file unread, and one byte more reads it", async () => {
+  await withFixture((f) => {
+    withTenFiles(f, ["a", "b", "c", "d"]);
+    const at = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 30 });
+    const past = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 31 });
+
+    const atValues = ["a", "b", "c", "d"].map((name) => at.listedText(`${name}.java`, 1024));
+    const pastValues = ["a", "b", "c", "d"].map((name) => past.listedText(`${name}.java`, 1024));
+
+    assert.deepEqual(atValues, [ten, ten, ten, undefined], "30 bytes have been read: that is the total");
+    assert.deepEqual(pastValues, [ten, ten, ten, ten], "30 of 31 have: one more file is read");
+    assert.deepEqual(capturing(() => past.warn("org/repo")).warnings, []);
+  });
+});
+
+test("an optional file counts against the total like any other, and is counted when it is not read for it", async () => {
+  await withFixture((f) => {
+    withTenFiles(f, ["a", "b"]);
+    writeFileSync(join(f.repo, "openapi.yaml"), "openapi: 3\n");
+    const reader = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 20 });
+
+    const listed = ["a", "b"].map((name) => reader.listedText(`${name}.java`, 1024));
+    const optional = reader.optionalText("openapi.yaml", 1024);
+    const { warnings } = capturing(() => reader.warn("org/repo"));
+
+    assert.deepEqual(listed, [ten, ten]);
+    assert.equal(optional, undefined, "the total is spent");
+    assert.ok(/\b1 file/.test(warnings[0] ?? ""), `and it is counted, which a file that is not there is not: ${JSON.stringify(warnings)}`);
+  });
+});
+
+test("the total is of one repository: another reader has its own, and what a reader reads is not the other's", async () => {
+  await withFixture((f) => {
+    withTenFiles(f, ["a", "b"]);
+    const first = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 10 });
+    const second = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 10 });
+
+    assert.equal(first.listedText("a.java", 1024), ten);
+    assert.equal(first.listedText("b.java", 1024), undefined);
+    assert.equal(second.listedText("a.java", 1024), ten, "the other repository's reader has read nothing yet");
+  });
+});
+
+test("a file that is refused, gone or over its cap costs the total nothing: only bytes that were read are counted", async () => {
+  await withFixture((f) => {
+    withTenFiles(f, ["a", "b"]);
+    writeFileSync(join(f.repo, "big.java"), "x".repeat(2000));
+    symlinkSync(join(f.outside, "nothing"), join(f.repo, "linked.java"));
+    const reader = new RepoReader(f.repo, { maxEntries: 100, maxFiles: 100, maxTotalBytes: 15 });
+
+    const values = [reader.listedText("big.java", 100), reader.listedText("linked.java", 100), reader.listedText("gone.java", 100), reader.listedText("a.java", 1024), reader.listedText("b.java", 1024)];
+
+    assert.deepEqual(values, [undefined, undefined, undefined, ten, ten], "three were refused for their own reasons, and both of the ten-byte files were read");
+  });
+});
+
+test("the production total is a few hundred megabytes: far beyond any repository's sources and what a reader can be made to read is bounded", () => {
+  const MIB = 1024 * 1024;
+
+  assert.ok(REPO_READER_LIMITS.maxTotalBytes >= 64 * MIB && REPO_READER_LIMITS.maxTotalBytes <= 512 * MIB, `${REPO_READER_LIMITS.maxTotalBytes} bytes`);
+  assert.equal(REPO_READER_LIMITS.maxEntries, REPO_WALK_LIMITS.maxEntries);
+  assert.equal(REPO_READER_LIMITS.maxFiles, REPO_WALK_LIMITS.maxFiles);
 });

@@ -235,9 +235,10 @@ test("the code-run-reads preset mutates only the lines of a code run's manifest 
   assert.ok(preset, "the code-run-reads preset exists");
   assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
     "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
+    "qa-engine/src/contexts/test-execution/infrastructure/code-setup.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
   ]);
-  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of both files is other code, so every entry is a line range");
+  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of these files is other code, so every entry is a line range");
   for (const tests of [
     "infrastructure/code-execution.detect.confinement.test.ts",
     "infrastructure/code-execution.runner.test.ts",

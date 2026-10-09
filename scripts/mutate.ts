@@ -419,11 +419,12 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:147-159",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:86-117`,
-      /* Setup: the caps, the strict copy of the seed and the wiring of the real strict calls, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
-      `${PUB_INFRA}/setup.adapter.ts:25-26`,
-      `${PUB_INFRA}/setup.adapter.ts:220-265`,
-      `${PUB_INFRA}/setup.adapter.ts:315-490`,
-      `${PUB_INFRA}/setup.adapter.ts:494-495`,
+      /* Setup: the caps, the strict copy of the seed (the mark of a project last) and the wiring of the real strict calls, the entries of .qa that are removed when they are not ordinary, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
+      `${PUB_INFRA}/setup.adapter.ts:25-27`,
+      `${PUB_INFRA}/setup.adapter.ts:223-275`,
+      `${PUB_INFRA}/setup.adapter.ts:285-288`,
+      `${PUB_INFRA}/setup.adapter.ts:331-524`,
+      `${PUB_INFRA}/setup.adapter.ts:528-529`,
       /* The login's stock check: a strict read whose refusal fails the login. */
       `${ORCH}/infrastructure/auth-session.adapter.ts:73-73`,
       `${ORCH}/infrastructure/auth-session.adapter.ts:231-237`,
@@ -486,13 +487,16 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "e2e-run-reads": {
-    description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back",
+    description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back and that distrust a pass the child did not exit 0 for (the status or the signal that ended it) and leave the report of a run that is settled unread",
     mutate: [
+      /* Why a pass is not believed, and what the runner makes of it. */
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:143-148",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:260-271",
       /* The caps, the report's read, the dump's decoding and the dumps' read. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:325-392",
-      /* What the runner does when the child is gone: reads the report, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:577-579",
-      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:581-583",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:347-414",
+      /* What the runner does when the child is gone: reads the report unless the run is settled, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:601-603",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:605-608",
     ],
     tests: [
       "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
@@ -544,9 +548,15 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     thresholds: DEFAULT_THRESHOLDS,
   },
   "code-run-reads": {
-    description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is no manifest, said with the reason and nothing the file held) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
+    description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is a refusal, said with the reason and nothing the file held, which the project carries: a run of it is infrastructure and the setup of it fails) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
     mutate: [
-      `${TE_INFRA}/code-execution.runner.ts:48-74`,
+      /* The manifest: what is a refusal, the strict read, the project that carries a refusal, and what a run and a setup make of it. */
+      `${TE_INFRA}/code-execution.runner.ts:44-47`,
+      `${TE_INFRA}/code-execution.runner.ts:54-81`,
+      `${TE_INFRA}/code-execution.runner.ts:92-94`,
+      `${TE_INFRA}/code-execution.runner.ts:100-100`,
+      `${TE_INFRA}/code-execution.runner.ts:378-387`,
+      `${TE_INFRA}/code-setup.ts:40-41`,
       `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:16-17`,
       /* The write of the config (not what the config holds, which is other code) and the read of the report. */
       `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:57-58`,

@@ -94,11 +94,11 @@ test("readV8Coverage: a dump the parse cannot decode within its bounds leaves th
 });
 
 /* Measured with esbuild bundles and V8's own precise coverage: a dump of a 3.4 MiB bundle (typescript, minified) with its source map and ranges is 19 MiB, and one of a 0.6 MiB bundle 3 MiB. Decoding ran at about 100 MiB a second. */
-test("the production limits hold a suite of a hundred dumps of the largest size measured, one dump of three times that, and are no more than a minute of decoding", () => {
+test("the production limits hold a suite of fifty dumps of the largest size measured and one dump of half as much again, and are no more than a minute of decoding", () => {
   const largestMeasured = 19 * 1024 * 1024;
 
-  assert.ok(V8_DUMP_LIMITS.maxTotalBytes >= 100 * largestMeasured, "the budget holds a hundred of them");
-  assert.ok(V8_DUMP_LIMITS.maxFileBytes >= 3 * largestMeasured, "a dump holds three times the largest");
+  assert.ok(V8_DUMP_LIMITS.maxTotalBytes >= 50 * largestMeasured, "the budget holds fifty of them");
+  assert.ok(V8_DUMP_LIMITS.maxFileBytes >= 1.5 * largestMeasured, "a dump holds half as much again as the largest");
   assert.ok(V8_DUMP_LIMITS.maxTotalBytes <= 100 * 1024 * 1024 * 60, "and is a minute at 100 MiB a second");
   assert.equal(V8_DUMP_LIMITS.maxTotalBytes, MAX_V8_DUMPS_TOTAL_BYTES);
 });

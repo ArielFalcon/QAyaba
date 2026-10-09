@@ -10,6 +10,7 @@ import {
   ConfinedPathError,
   MAX_SPEC_SOURCE_BYTES,
   ensureOwnedSpecDir,
+  purgeRefusedDirectory,
   purgeRefusedPath,
   readFailureReason,
   readOwnedSpecFile,
@@ -215,6 +216,8 @@ export interface SetupAdapterFsDeps {
   writeOwned(root: SpecRoot, rel: string, text: string | Uint8Array): void;
   /* Removes what refuses the strict read of a file of the project, without opening or following it (see purgeRefusedPath). */
   purgeRefused(root: SpecRoot, rel: string, maxBytes: number): PurgeResult;
+  /* Removes what is not an ordinary directory where the project should have one of the orchestrator's own (see purgeRefusedDirectory). */
+  purgeRefusedDirectory(root: SpecRoot, rel: string): PurgeResult;
 }
 
 /* Names a refusal by the path setup asked for, which is what an operator looks for, instead of the path below the project directory that the strict calls were given. */
@@ -227,7 +230,10 @@ function namedAt<T>(path: string, run: () => T): T {
   }
 }
 
-/* The seed is the orchestrator's own and read plainly; the project directory it is copied into is the agent's. Every directory and file goes in through the strict calls of spec-path-confinement, so that a link where a directory or a file of the project belongs is never written through (a directory or a file that is a link is refused, loudly), and a project directory that is itself a link is refused. */
+/* The file whose presence says that a directory is a project: a directory that has it is not seeded again. */
+const PROJECT_MARK_FILE = "package.json";
+
+/* The seed is the orchestrator's own and read plainly; the project directory it is copied into is the agent's. Every directory and file goes in through the strict calls of spec-path-confinement, so that a link where a directory or a file of the project belongs is never written through (a directory or a file that is a link is refused, loudly), and a project directory that is itself a link is refused. The mark of a project is written last: a copy that fails half way (a link in the way) must leave a directory that is not taken for seeded, or no later setup would copy the rest. */
 function copySeedStrictly(seedDir: string, e2eDir: string, filter: (src: string) => boolean = () => true): void {
   if (!filter(seedDir)) return;
   try {
@@ -247,11 +253,14 @@ function copySeedStrictly(seedDir: string, e2eDir: string, filter: (src: string)
         namedAt(join(e2eDir, entryRel), () => ensureOwnedSpecDir(root, entryRel));
         copy(src, entryRel);
       } else if (entry.isFile()) {
+        if (rel === "" && entry.name === PROJECT_MARK_FILE) continue;
         namedAt(join(e2eDir, entryRel), () => writeOwnedSpecFile(root, entryRel, readFileSync(src)));
       }
     }
   };
   copy(seedDir, "");
+  const mark = join(seedDir, PROJECT_MARK_FILE);
+  if (filter(mark) && existsSync(mark)) namedAt(join(e2eDir, PROJECT_MARK_FILE), () => writeOwnedSpecFile(root, PROJECT_MARK_FILE, readFileSync(mark)));
 }
 
 export const nodeFsDeps: SetupAdapterFsDeps = {
@@ -262,6 +271,7 @@ export const nodeFsDeps: SetupAdapterFsDeps = {
   readOwned: (root, rel, maxBytes) => readOwnedSpecFile(root, rel, maxBytes),
   writeOwned: (root, rel, text) => writeOwnedSpecFile(root, rel, text),
   purgeRefused: (root, rel, maxBytes) => purgeRefusedPath(root, rel, maxBytes),
+  purgeRefusedDirectory: (root, rel) => purgeRefusedDirectory(root, rel),
 };
 
 /* What setup keeps in the project directory, as paths below it. */
@@ -271,6 +281,11 @@ const AUTH_SETUP_FILE = "auth.setup.ts";
 const PLAYWRIGHT_CONFIG_FILE = "playwright.config.ts";
 const LOCK_FILE = "package-lock.json";
 const INSTALL_MARKER_FILE = "node_modules/.install-hash";
+
+/* What the runs make in the project that is the orchestrator's own and that the project's .gitignore keeps git from cleaning. The measured file is small; one past this is not what a run wrote. */
+const SYSTEM_OWNED_DIRECTORIES = [".qa/coverage", ".qa/fault-injection"] as const;
+const SYSTEM_OWNED_FILES = [".qa/measured.json"] as const;
+const MAX_MEASURED_FILE_BYTES = 1024 * 1024;
 
 export interface SetupAdapterDeps {
   fs: SetupAdapterFsDeps;
@@ -288,6 +303,7 @@ export class SetupAdapter {
     this.ensureAuthSetup(e2eDir);
     this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
+    this.purgeSystemOwned(e2eDir);
     if (this.installIsCurrent(e2eDir)) {
       console.log("[qa] e2e dependencies up to date; skipping npm ci");
       return;
@@ -309,7 +325,7 @@ export class SetupAdapter {
   }
 
   private hasProject(e2eDir: string): boolean {
-    return this.deps.fs.exists(join(e2eDir, "package.json"));
+    return this.deps.fs.exists(join(e2eDir, PROJECT_MARK_FILE));
   }
 
   private bootstrap(e2eDir: string): void {
@@ -322,6 +338,24 @@ export class SetupAdapter {
   /* The directory the generated specs go into. One that is a link out of the project, a named pipe or a file fails the setup: it is made through no link, and the agent's specs are never written through one. */
   ensureSpecDir(e2eDir: string): void {
     this.deps.fs.mkdir(join(e2eDir, "flows"));
+  }
+
+  /* What the runs leave in the project and the orchestrator reads back: the directories of the coverage dumps and of the fault-injection counters, and the measured file. The project's .gitignore keeps git from cleaning them (`git clean -fd` leaves what it ignores), so what the agent plants in their place outlives the run: a link or a named pipe where a directory belongs refuses the strict read of everything a later run leaves in it, and the coverage or the score is unknown for good. Whatever is not an ordinary directory (or file) there is removed, without being opened or followed, and said; the run makes the directory again. What these protect is a signal, so a removal that cannot be made is said and does not fail the setup. */
+  private purgeSystemOwned(e2eDir: string): void {
+    const root = this.projectRoot(e2eDir);
+    const owned: Array<{ rel: string; what: string; purge: () => PurgeResult }> = [
+      ...SYSTEM_OWNED_DIRECTORIES.map((rel) => ({ rel, what: "an ordinary directory", purge: () => this.deps.fs.purgeRefusedDirectory(root, rel) })),
+      ...SYSTEM_OWNED_FILES.map((rel) => ({ rel, what: "an ordinary file", purge: () => this.deps.fs.purgeRefused(root, rel, MAX_MEASURED_FILE_BYTES) })),
+    ];
+    for (const { rel, what, purge } of owned) {
+      try {
+        const purged = purge();
+        if ("nothing" in purged) continue;
+        console.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} stood where ${join(e2eDir, rel)} is made, and was not ${what}; it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened or followed, and the run makes it again.`);
+      } catch (err) {
+        console.warn(`[qa] WARNING: ${join(e2eDir, rel)} could not be checked or cleared (${readFailureReason(err)}); what a run leaves there may be unusable, and the coverage or the score that depends on it is unknown.`);
+      }
+    }
   }
 
   /* The project directory is its own root: nothing below it is read or written through a link, and nothing outside it. */

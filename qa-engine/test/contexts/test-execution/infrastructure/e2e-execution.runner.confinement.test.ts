@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   FAILURE_DUMP_LIMITS,
   MAX_FAILURE_DUMP_BYTES,
@@ -16,6 +16,7 @@ import {
   readPlaywrightReport,
   runE2E,
   type E2eExecuteDeps,
+  type E2eRunOutput,
 } from "@contexts/test-execution/infrastructure/e2e-execution.runner.ts";
 import { ProcessKillAdapter } from "../../../../src/shared-infrastructure/process-sandbox/process-kill.adapter.ts";
 import { watchNamedPipe, withoutWaitingOnNamedPipe } from "../../../support/named-pipe-watch.ts";
@@ -156,6 +157,16 @@ test("a report over the production cap is refused without being read", async () 
   });
 });
 
+test("the cap on a report holds the largest report a real suite makes and stays far below what a parse cannot take: a thousand tests that fail on all three attempts, each with a 4 KB message, fit", async () => {
+  const MIB = 1024 * 1024;
+  const failing = (i: number) => ({ title: `case ${i}`, ok: false, tests: [{ results: [0, 1, 2].map(() => ({ status: "failed", error: { message: "x".repeat(4096) }, duration: 1234 })) }] });
+  const report = JSON.stringify({ suites: [{ title: "big.spec.ts", specs: Array.from({ length: 1000 }, (_, i) => failing(i)) }], stats: { expected: 0, unexpected: 1000 } });
+
+  assert.ok(report.length > 10 * MIB && report.length < MAX_PLAYWRIGHT_REPORT_BYTES, `${report.length} bytes against a cap of ${MAX_PLAYWRIGHT_REPORT_BYTES}`);
+  /* A document of empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB, so a cap in the hundreds of megabytes is a freeze and an out-of-memory in waiting. */
+  assert.ok(MAX_PLAYWRIGHT_REPORT_BYTES <= 16 * MIB, `${MAX_PLAYWRIGHT_REPORT_BYTES} bytes`);
+});
+
 test("a report that is not JSON is no result, said without quoting what it holds", async () => {
   await withDir((dir) => {
     writeFileSync(join(dir, "report.json"), `${SECRET} { not json`);
@@ -285,6 +296,120 @@ test("the logs of a run whose report was refused say that it was, with the reaso
     assert.ok("reason" in control && control.reason.length > 0, "the control: a directory is refused with a reason");
     assert.ok(output.logs.includes((control as { reason: string }).reason), `the logs give the reason: ${output.logs}`);
     assert.ok(!output.logs.includes(SECRET));
+  });
+});
+
+/* ── how the child ended ──────────────────────────────────────────────────────────────────────── */
+
+/* The report is written by the test process, so a report that says every test passed cannot be told from a forged one by what it holds. How the child ended can: Playwright exits non-zero when a test failed, and a child ended by a signal never finished reporting. */
+const PASSING_RUN: E2eRunOutput = { report: JSON.parse(PASSING_REPORT), logs: "", ran: true };
+const runWith = (out: E2eRunOutput) => runE2E("/spec", { baseUrl: "http://localhost", namespace: "ns" }, { runSuite: async () => out });
+
+test("a report that says every test passed, from a child that exited with a failure status, is no pass: it is infrastructure and says why", async () => {
+  for (const exitCode of [1, 2, 137]) {
+    const run = await runWith({ ...PASSING_RUN, exitCode });
+
+    assert.equal(run.verdict, "infra-error", `exit ${exitCode}`);
+    assert.equal(run.passed, false);
+    assert.ok(run.logs.includes(String(exitCode)), `the logs give the status: ${run.logs}`);
+  }
+});
+
+test("a report that says every test passed, from a child that a signal ended, is no pass", async () => {
+  const run = await runWith({ ...PASSING_RUN, signal: "SIGKILL" });
+
+  assert.equal(run.verdict, "infra-error");
+  assert.equal(run.passed, false);
+  assert.ok(run.logs.includes("SIGKILL"), `the logs give the signal: ${run.logs}`);
+});
+
+test("a report that says every test passed, from a child that exited 0 or whose status nobody gave, is a pass as it was", async () => {
+  assert.equal((await runWith({ ...PASSING_RUN, exitCode: 0 })).verdict, "pass");
+  assert.equal((await runWith(PASSING_RUN)).verdict, "pass", "a runner that tells nothing of the exit is not accused of one");
+});
+
+test("a report of failures is a fail whatever the exit status: the status only takes a pass away", async () => {
+  const failing = { report: FAILING_REPORT, logs: "", ran: true };
+
+  assert.equal((await runWith({ ...failing, exitCode: 1 })).verdict, "fail");
+  assert.equal((await runWith({ ...failing, exitCode: 0 })).verdict, "fail", "a failure the child did not exit for is still a failure");
+  assert.equal((await runWith({ ...failing, signal: "SIGTERM" })).verdict, "fail");
+});
+
+test("the child that exits with a failure status after writing a passing report makes a run that is not a pass, through the real runner", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); process.exit(1);`, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+
+    const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
+
+    assert.equal(run.verdict, "infra-error");
+    assert.equal(run.passed, false);
+  });
+});
+
+test("the child that a signal ends after writing a passing report makes a run that is not a pass, through the real runner", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); process.kill(process.pid, "SIGKILL");`, async (root) => {
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"));
+
+    const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
+
+    assert.equal(run.verdict, "infra-error");
+    assert.equal(run.passed, false);
+  });
+});
+
+/* Resolves once the runner has removed the directory it made for the run, which it does when the child is gone. */
+async function untilRunnerCleanedUp(root: string): Promise<void> {
+  const reportPath = await until(() => (existsSync(join(root, "report-path.txt")) ? readFileSync(join(root, "report-path.txt"), "utf8") : undefined));
+  const deadline = Date.now() + 15_000;
+  while (existsSync(dirname(reportPath))) {
+    if (Date.now() > deadline) throw new Error("the runner never cleaned up after the child");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+test("the report of a child that exited is read once, by the path the runner handed it", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); fs.writeFileSync(path.join(__dirname, "report-path.txt"), out);`, async (root) => {
+    const reads: string[] = [];
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+
+    const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns" }, deps);
+
+    assert.equal(run.verdict, "pass");
+    assert.equal(reads.length, 1);
+    assert.equal(basename(reads[0]!), "report.json");
+  });
+});
+
+test("the report of a child that outlived the deadline of the run is not read: nobody waits for it, and a report made slow to parse costs nothing once the run is over", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); announce();`, async (root) => {
+    const reads: string[] = [];
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+
+    /* A deadline far enough for the stand-in to start and write its report on a machine that is running the whole suite, and near enough for the test not to wait long. */
+    const run = await runE2E(root, { baseUrl: "http://localhost", namespace: "ns", timeoutMs: 4_000 }, deps);
+    await untilRunnerCleanedUp(root);
+
+    assert.equal(run.verdict, "infra-error", "the run timed out");
+    assert.match(run.logs, /timed out/);
+    assert.deepEqual(reads, [], "the child was killed and closed, and its report was left alone");
+  });
+});
+
+test("the report of a child that the operator cancelled is not read either", { timeout: 60_000 }, async () => {
+  await withStandInPlaywright(`fs.writeFileSync(out, ${JSON.stringify(PASSING_REPORT)}); announce();`, async (root) => {
+    const reads: string[] = [];
+    const deps = createDefaultE2eExecuteDeps(new ProcessKillAdapter(), 30_000, join(root, "auth"), undefined, (path) => { reads.push(path); return readPlaywrightReport(path); });
+    const controller = new AbortController();
+
+    const running = runE2E(root, { baseUrl: "http://localhost", namespace: "ns", signal: controller.signal }, deps);
+    await until(() => (existsSync(join(root, "report-path.txt")) ? true : undefined));
+    controller.abort();
+    const run = await running;
+    await untilRunnerCleanedUp(root);
+
+    assert.equal(run.verdict, "infra-error");
+    assert.deepEqual(reads, []);
   });
 });
 
@@ -531,6 +656,8 @@ test("the production limits are the ones the cases above rely on", () => {
   assert.equal(FAILURE_DUMP_LIMITS.maxFiles, MAX_FAILURE_DUMP_FILES);
   assert.equal(FAILURE_DUMP_LIMITS.maxTotalBytes, MAX_FAILURE_DUMPS_TOTAL_BYTES);
   assert.ok(MAX_FAILURE_DUMPS_TOTAL_BYTES >= MAX_FAILURE_DUMP_BYTES, "the budget holds at least one dump of the largest size");
+  /* Every dump is parsed in the orchestrator's one thread, and a dump of nothing but empty arrays takes a second for every 12 MiB, so what all of them may hold together is what a freeze can last. A failed case leaves one dump of some hundreds of kilobytes. */
+  assert.ok(MAX_FAILURE_DUMPS_TOTAL_BYTES <= 32 * 1024 * 1024, `${MAX_FAILURE_DUMPS_TOTAL_BYTES} bytes`);
 });
 
 /* What the harvest comes to for the run: a dump the test process planted never changes the verdict, and the failed case it would have grounded runs without grounding. */

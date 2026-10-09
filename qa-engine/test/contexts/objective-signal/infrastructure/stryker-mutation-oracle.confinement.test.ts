@@ -242,6 +242,8 @@ test("a report that is no JSON, or lacks a metric, or holds one that is no numbe
   });
 });
 
-test("the cap a report is read under is far beyond any report and no more than a memory the orchestrator can hold", () => {
-  assert.ok(MAX_MUTATION_REPORT_BYTES >= 64 * 1024 * 1024 && MAX_MUTATION_REPORT_BYTES <= 1024 * 1024 * 1024, `${MAX_MUTATION_REPORT_BYTES} bytes`);
+test("the cap a report is read under holds the report of a run of tens of thousands of mutants and no more than a parse in the orchestrator's one thread can take", () => {
+  const MIB = 1024 * 1024;
+  /* Stryker writes some 250 bytes for each mutant and the source of each file it mutated: 20,000 mutants, which no run of ten minutes reaches, are about 5 MB. A document of nothing but empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB (128 MiB of it took 11 s and 2 GiB). */
+  assert.ok(MAX_MUTATION_REPORT_BYTES >= 8 * MIB && MAX_MUTATION_REPORT_BYTES <= 16 * MIB, `${MAX_MUTATION_REPORT_BYTES} bytes`);
 });

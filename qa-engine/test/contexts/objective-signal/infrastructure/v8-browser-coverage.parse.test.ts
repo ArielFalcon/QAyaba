@@ -377,6 +377,42 @@ test("a source root and a source keep the separators inside them, and only the o
   assert.deepEqual(covered(["a.ts", "x"], "app/lib/", ["src/a.ts", "app/lib/a.ts"]), ["app/lib/a.ts"], "and one that ends in one");
 });
 
+/* ── the time the decoding is given ────────────────────────────────────────────────────────────── */
+
+/* A bundle of one generated line whose source map holds `segments` segments, all of them at column 0 of the first source: the shape a source map made to be slow to decode takes. */
+const slowBundle = (segments: number) => BUNDLED(covering(range(0, 10)), MAP({ sources: ["../src/a.ts"], mappings: "AAAA,".repeat(segments) }), "x".repeat(10));
+
+test("the decoding asks as it goes whether the time it was given is spent, so a source map of segments made to be slow does not decode for ever", () => {
+  let asked = 0;
+  const spentAfter = (asks: number) => () => ++asked > asks;
+
+  assert.throws(() => defaultParseV8Coverage(slowBundle(100_000) as never, ["src/a.ts"], spentAfter(3)), "it stops in the middle of the segments of the one entry there is");
+  assert.ok(asked >= 4 && asked < 100, `${asked} questions for a hundred thousand segments: often enough to stop within moments, and not once for each`);
+});
+
+test("a decoding that is never short of time gives what it always gave, and does not ask for a deadline it was not handed", () => {
+  const never = () => false;
+
+  assert.deepEqual(filesOf(slowBundle(20_000), ["src/a.ts"]), { "src/a.ts": [1] });
+  assert.deepEqual([...defaultParseV8Coverage(slowBundle(20_000) as never, ["src/a.ts"], never).get("src/a.ts")!], [1]);
+});
+
+test("an entry is not started once the time is spent, so a dump of many scripts stops between them as well", () => {
+  const entries = [...OWN(covering(range(0, 3))), ...OWN(covering(range(0, 3))), ...OWN(covering(range(0, 3)))];
+  let started = 0;
+
+  assert.throws(() => defaultParseV8Coverage(entries as never, ["src/svc.ts"], () => ++started > 1));
+  assert.ok(started <= 3, `${started} questions for three entries`);
+});
+
+test("a script that is no changed file is not decoded and so costs no time: the deadline is not asked about what is skipped", () => {
+  const unrelated = [{ url: "https://dev.example/vendor/other.js", source: SOURCE, functions: covering(range(0, 3)) }];
+  let asked = 0;
+
+  assert.equal(defaultParseV8Coverage(unrelated as never, ["src/svc.ts"], () => { asked += 1; return false; }).size, 0);
+  assert.ok(asked <= 1, `${asked}`);
+});
+
 test("an entry with no URL is skipped", () => {
   assert.equal(defaultParseV8Coverage([{ url: "", source: SOURCE, functions: covering(range(0, 3)) }] as never, ["svc.ts", ""]).size, 0);
 });

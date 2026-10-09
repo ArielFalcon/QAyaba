@@ -13,8 +13,8 @@ const DEFAULT_MUTATION_TIMEOUT_MS = 600_000;
 /* What is kept of each output stream of a Stryker run. Only the last few hundred chars are ever reported, and the run executes the repo's own tests, so its output is untrusted and may be unbounded. */
 export const MUTATION_OUTPUT_KEEP_CHARS = 8_000;
 
-/* Stryker's JSON report holds a record for every mutant with where it is and what it became: some megabytes for a real repository, and far from this. The report is left by a run of the repository's own tests, which the agent wrote. */
-export const MAX_MUTATION_REPORT_BYTES = 128 * 1024 * 1024;
+/* Stryker's JSON report holds a record for every mutant with where it is and what it became (some 250 bytes each, and the source of each file mutated): a few megabytes for a real repository, 5 MB for 20,000 mutants, which no run of ten minutes reaches. The report is left by a run of the repository's own tests, which the agent wrote, and it is parsed in the orchestrator's one thread: a document of empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB (128 MiB took 11 s and 2 GiB), so the cap is also what a freeze can cost. */
+export const MAX_MUTATION_REPORT_BYTES = 16 * 1024 * 1024;
 
 export function resolveStrykerCommand(): { cmd: string; args: string[] } {
   const root = process.env.QAYABA_ROOT ?? process.cwd();

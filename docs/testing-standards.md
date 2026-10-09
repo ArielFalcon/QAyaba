@@ -600,7 +600,10 @@ are bounded (a dump past a bound is not decoded, which leaves the set unused); a
 map are taken one at a time in one pass over the string, with no list of lines or of segments. Decoding runs at
 about 100 MiB a second (114 MiB of the large shape in 1.1 s, where it took 2.9 s), six dumps of 19 MiB cost
 441 MiB at the most where they cost 581, and the total budget is raised from 512 MiB to 2 GiB: it bounds the
-time (about twenty seconds, a hundred dumps of the largest size measured) and no longer the memory. A range
+time (about twenty seconds, a hundred dumps of the largest size measured) and no longer the memory (the next
+slice found that a budget of bytes is no bound of time, since a source map made to be slow decodes at a fifth of
+that speed: it gave the decoding a clock, lowered the budget to 1 GiB and the cap on a dump to 32 MiB; see the
+note after the table). A range
 with an offset that is not a whole number reaches no byte (V8 reports whole numbers). **Before** is its first
 run: 283 mutants, 140 killed, 31 timeouts and 41 survivors; most were the arithmetic of the numbers of a source
 map (a number of several digits, a negative one, a character that is no digit, the column that starts again at
@@ -1226,6 +1229,19 @@ the widened spec-path-confinement preset was cut at 84% with 19 survivors seen a
 After cells are what each had before the slice, or say so, and the survivors of the widened spec-path-confinement
 preset are open work. The hand mutants of the slice were run on earlier states of the code, each survivor got a
 test and died when its own mutant was run again, and the whole sets were not run again on the final code.
+
+Slice 13f (2026-10-09), the follow-up that bounds what the size caps of 13e left open, **ran no mutation at all**:
+no Stryker preset and no hand mutant was run on its code, so the rows above say nothing of it. What it changes in
+the code the presets cover, and what holds it, is only its tests (strict test first, each shown red for its own
+reason before the change): the caps and budgets (the Playwright report and the oracle's report 16 MiB, the V8
+dump 32 MiB and the dumps of a run 1 GiB, the native coverage report 32 MiB, the failure dumps of a run 32 MiB, and
+a total of 256 MiB read of one repository by a `RepoReader`), the clock the decoding of the V8 dumps is asked
+about as it goes (`TimeSpent`, 4,096 segments between two looks; 10 s for all the dumps of a run), the exit
+status of the Playwright child (a pass that the child did not exit 0 for is infrastructure), the report that is
+not read once the run is settled, `purgeRefusedDirectory` and its use on the coverage and fault-injection
+directories and the measured file in `.qa`, the package.json that is written last by the seed copy, and the
+manifest refusal of a code run. The line ranges of the presets that cover the changed files were moved to the
+code and are the ones to run first.
 
 ### Login discovery script (manual triangulation)
 

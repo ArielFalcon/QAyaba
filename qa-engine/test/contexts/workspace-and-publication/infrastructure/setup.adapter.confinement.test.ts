@@ -86,6 +86,8 @@ const adapterOver = (runner: SandboxedBinaryRunner, seedDir = REAL_SEED_DIR): Se
 /* A refusal is the module's own error: it names the file as setup asked for it and says why. */
 const refusedAt = (path: string) => (err: unknown): boolean => err instanceof ConfinedPathError && err.path === path && err.reason !== "";
 
+/* The marker as setup asks for it, below the project: the one path whose removal the cases that count them are about. */
+const MARKER_REL = "node_modules/.install-hash";
 const markerOf = (e2e: string): string => join(e2e, "node_modules", ".install-hash");
 const lockOf = (e2e: string): string => join(e2e, "package-lock.json");
 
@@ -213,7 +215,7 @@ test("a refusal with nothing to remove fails the setup, after one look and no mo
     mkdirSync(join(p.e2e, "node_modules"));
     execFileSync("mkfifo", [markerOf(p.e2e)]);
     let purges = 0;
-    const fs = { ...nodeFsDeps, purgeRefused: () => { purges += 1; return { nothing: true } as const; } };
+    const fs = { ...nodeFsDeps, purgeRefused: (_root: unknown, rel: string) => { if (rel === MARKER_REL) purges += 1; return { nothing: true } as const; } };
     const { runner, installs } = runnerThat();
 
     await withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(markerOf(p.e2e))));
@@ -230,7 +232,7 @@ test("a refusal that survives a removal fails the setup, after one removal and n
     execFileSync("mkfifo", [markerOf(p.e2e)]);
     let purges = 0;
     /* A removal that says the name is free while the pipe is still there, as one that something plants again would: the marker is refused a second time. */
-    const fs = { ...nodeFsDeps, purgeRefused: () => { purges += 1; return { removed: "node_modules/.install-hash", how: "unlinked" } as const; } };
+    const fs = { ...nodeFsDeps, purgeRefused: (_root: unknown, rel: string) => { if (rel !== MARKER_REL) return { nothing: true } as const; purges += 1; return { removed: MARKER_REL, how: "unlinked" } as const; } };
     const { runner, installs } = runnerThat();
 
     const { warnings } = await capturing(() => withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(markerOf(p.e2e)))));
@@ -264,7 +266,7 @@ test("a lock file that is a named pipe is not removed: only the marker and the n
     writeFileSync(markerOf(p.e2e), LOCK_HASH);
     execFileSync("mkfifo", [lockOf(p.e2e)]);
     let purges = 0;
-    const fs = { ...nodeFsDeps, purgeRefused: (...args: Parameters<typeof nodeFsDeps.purgeRefused>) => { purges += 1; return nodeFsDeps.purgeRefused(...args); } };
+    const fs = { ...nodeFsDeps, purgeRefused: (...args: Parameters<typeof nodeFsDeps.purgeRefused>) => { if (args[1] === MARKER_REL) purges += 1; return nodeFsDeps.purgeRefused(...args); } };
     const { runner } = runnerThat();
 
     await withoutWaitingOnNamedPipe(lockOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(lockOf(p.e2e))));
@@ -868,5 +870,135 @@ test("a flows/ that is a regular file fails the setup", async () => {
     writeFileSync(join(p.e2e, "flows"), "not a directory");
 
     assert.throws(() => adapterOver(runnerThat().runner).ensureSpecDir(p.e2e), (err: unknown) => err instanceof ConfinedPathError);
+  });
+});
+
+test("package.json is the last file the seed copy writes: a copy that fails half way leaves a project that is not taken for seeded, and the next setup copies again", async () => {
+  await withUnseededProject(async (p) => {
+    /* "zz-assets" sorts after "package.json", so a copy that writes the files in the order of their names has written package.json by the time it reaches the link. */
+    mkdirSync(join(p.seed, "zz-assets"));
+    writeFileSync(join(p.seed, "zz-assets", "notes.txt"), "a note\n");
+    mkdirSync(join(p.outside, "elsewhere"));
+    symlinkSync(join(p.outside, "elsewhere"), join(p.e2e, "zz-assets"));
+    const { runner } = runnerThat();
+
+    await assert.rejects(() => adapterOver(runner, p.seed).setup(p.e2e), refusedAt(join(p.e2e, "zz-assets")));
+    const left = existsSync(join(p.e2e, "package.json"));
+    rmSync(join(p.e2e, "zz-assets"));
+    await capturing(() => adapterOver(runner, p.seed).setup(p.e2e));
+
+    assert.equal(left, false, "a project with a package.json looks seeded to every later setup, which would never copy the rest");
+    assert.equal(readFileSync(join(p.e2e, "zz-assets", "notes.txt"), "utf8"), "a note\n", "and with the link gone the next setup copies it all");
+    assert.equal(readFileSync(join(p.e2e, "package.json"), "utf8"), '{"name":"seed"}');
+  });
+});
+
+/* ── what a run leaves in .qa ──────────────────────────────────────────────────────────────────── */
+
+/* `.qa/coverage`, `.qa/fault-injection` and `.qa/measured.json` are the orchestrator's, made by the runs, and the project's .gitignore keeps git from cleaning them, so what the agent plants there outlives the run: a link or a named pipe in the place of a directory refuses the strict read of every dump or counter that a later run leaves in it, and the coverage and the score are unknown for good. Setup removes what is not an ordinary directory (or file) there, without opening it or following it, and says so. */
+const qaPath = (e2e: string, name: string): string => join(e2e, ".qa", name);
+
+test("a link where the coverage directory belongs is removed by setup, never followed, and said aloud, so the next run can make the directory again", async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+    mkdirSync(join(p.outside, "elsewhere", "ns"), { recursive: true });
+    writeFileSync(join(p.outside, "elsewhere", "ns", "dump.json"), "[]");
+    mkdirSync(join(p.e2e, ".qa"));
+    symlinkSync(join(p.outside, "elsewhere"), qaPath(p.e2e, "coverage"));
+
+    const { warnings } = await capturing(() => adapterOver(runnerThat().runner).setup(p.e2e));
+
+    assert.throws(() => lstatSync(qaPath(p.e2e, "coverage")), (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOENT", "the link is gone");
+    assert.equal(readFileSync(join(p.outside, "elsewhere", "ns", "dump.json"), "utf8"), "[]", "and what it pointed at is as it was");
+    assert.ok(warnings.some((w) => w.includes(qaPath(p.e2e, "coverage"))), `the removal is said, with the path: ${JSON.stringify(warnings)}`);
+  });
+});
+
+test("a named pipe where the fault-injection directory belongs is removed by setup without being opened or waited on", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+    mkdirSync(join(p.e2e, ".qa"));
+    execFileSync("mkfifo", [qaPath(p.e2e, "fault-injection")]);
+
+    const { warnings } = await capturing(() => withoutWaitingOnNamedPipe(qaPath(p.e2e, "fault-injection"), () => adapterOver(runnerThat().runner).setup(p.e2e)));
+
+    assert.throws(() => lstatSync(qaPath(p.e2e, "fault-injection")), (err: unknown) => (err as NodeJS.ErrnoException).code === "ENOENT");
+    assert.ok(warnings.some((w) => w.includes(qaPath(p.e2e, "fault-injection"))));
+  });
+});
+
+test("a link or a directory where the measured file belongs is removed or set aside, and what a link pointed at is not touched", async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+    mkdirSync(join(p.e2e, ".qa"));
+    symlinkSync(p.victim, qaPath(p.e2e, "measured.json"));
+
+    await capturing(() => adapterOver(runnerThat().runner).setup(p.e2e));
+    const afterLink = existsSync(qaPath(p.e2e, "measured.json"));
+    mkdirSync(qaPath(p.e2e, "measured.json"));
+    await capturing(() => adapterOver(runnerThat().runner).setup(p.e2e));
+
+    assert.equal(afterLink, false);
+    assert.equal(existsSync(qaPath(p.e2e, "measured.json")), false, "a directory is set aside beside where it was");
+    assert.ok(readdirSync(join(p.e2e, ".qa")).some((name) => name.startsWith("measured.json.refused-")));
+    assert.equal(readFileSync(p.victim, "utf8"), PRECIOUS);
+  });
+});
+
+test("ordinary directories and an ordinary measured file are left exactly as they are, with what is in them, and setup says nothing of them", async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+    mkdirSync(join(p.e2e, ".qa", "coverage", "ns"), { recursive: true });
+    mkdirSync(join(p.e2e, ".qa", "fault-injection", "ns"), { recursive: true });
+    writeFileSync(join(p.e2e, ".qa", "coverage", "ns", "dump.json"), "[]");
+    writeFileSync(qaPath(p.e2e, "measured.json"), '{"stability":1}');
+
+    const { warnings } = await capturing(() => adapterOver(runnerThat().runner).setup(p.e2e));
+
+    assert.equal(readFileSync(join(p.e2e, ".qa", "coverage", "ns", "dump.json"), "utf8"), "[]");
+    assert.equal(readFileSync(qaPath(p.e2e, "measured.json"), "utf8"), '{"stability":1}');
+    assert.deepEqual(readdirSync(join(p.e2e, ".qa")).sort(), ["coverage", "fault-injection", "measured.json"], "and nothing is made beside them");
+    assert.deepEqual(warnings.filter((w) => w.includes(".qa")), []);
+  });
+});
+
+test("a project with no .qa has nothing to remove and setup makes nothing of it", async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+
+    await capturing(() => adapterOver(runnerThat().runner).setup(p.e2e));
+
+    assert.equal(existsSync(join(p.e2e, ".qa")), false);
+  });
+});
+
+test("an entry that cannot be removed does not fail the setup, since what it protects is a signal: it is said aloud with the failure's code and nothing else", async () => {
+  await withProject(async (p) => {
+    installed(p.e2e);
+    mkdirSync(join(p.e2e, ".qa"));
+    symlinkSync(p.victim, qaPath(p.e2e, "coverage"));
+    const denied = (): never => { throw Object.assign(new Error(`denied ${SECRET_MARK}`), { code: "EPERM" }); };
+    const fs = { ...nodeFsDeps, purgeRefusedDirectory: denied };
+    const adapter = new SetupAdapter({ fs, runner: runnerThat().runner, seedDir: REAL_SEED_DIR });
+
+    const { warnings } = await capturing(() => adapter.setup(p.e2e));
+
+    assert.equal(lstatSync(qaPath(p.e2e, "coverage")).isSymbolicLink(), true, "it is still there");
+    const said = warnings.filter((w) => w.includes(qaPath(p.e2e, "coverage")));
+    assert.ok(said.length >= 1 && said.every((w) => w.includes("EPERM") && !w.includes(SECRET_MARK)), `said by its code, quoting nothing of the failure: ${JSON.stringify(said)}`);
+  });
+});
+
+test("a project directory that is itself a link has nothing removed from the directory it points at", async () => {
+  await withProject(async (p) => {
+    mkdirSync(join(p.outside, "project", ".qa"), { recursive: true });
+    writeFileSync(join(p.outside, "project", "package.json"), "{}");
+    symlinkSync(p.victim, join(p.outside, "project", ".qa", "coverage"));
+    rmSync(p.e2e, { recursive: true });
+    symlinkSync(join(p.outside, "project"), p.e2e);
+
+    await assert.rejects(() => adapterOver(runnerThat().runner).setup(p.e2e));
+
+    assert.equal(lstatSync(join(p.outside, "project", ".qa", "coverage")).isSymbolicLink(), true, "nothing was removed behind the link");
   });
 });

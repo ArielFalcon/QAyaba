@@ -2,10 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConfinedPathError, defaultSpecPurgeDeps, purgeRefusedPath, type SpecPurgeDeps, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
+import { ConfinedPathError, defaultSpecPurgeDeps, purgeRefusedDirectory, purgeRefusedPath, type SpecPurgeDeps, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../support/named-pipe-watch.ts";
 
 const PRECIOUS = "PRECIOUS: a file outside the project that nothing may remove or touch\n";
@@ -271,5 +271,144 @@ test("the directory set aside gets a name of its own each time, so two of them n
 
     assert.equal(names.size, 3);
     assert.ok([...names].every((name) => name.startsWith(".install-hash.refused-")));
+  });
+});
+
+/* ── a directory the orchestrator owns ─────────────────────────────────────────────────────────── */
+
+/* `.qa/coverage` and `.qa/fault-injection` are made by the runs, ignored by git and so left in place by `git clean -fd`: whatever the agent plants there outlives the run, and a link or a named pipe in the place of the directory refuses every later read of what a run leaves in it, for good. They are the orchestrator's, so what is not an ordinary directory goes, and an ordinary one is what is wanted and stays. */
+const COVERAGE = ".qa/coverage";
+
+test("an ordinary directory the orchestrator owns stays as it is, with everything in it: it is what is wanted, so it is never set aside", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.project, COVERAGE, "ns"), { recursive: true });
+    writeFileSync(join(f.project, COVERAGE, "ns", "dump.json"), "[]");
+
+    const purged = purgeRefusedDirectory(f.root, COVERAGE, deps);
+
+    assert.deepEqual(purged, { nothing: true });
+    assert.equal(readFileSync(join(f.project, COVERAGE, "ns", "dump.json"), "utf8"), "[]");
+    assert.deepEqual(readdirSync(join(f.project, ".qa")), ["coverage"], "and nothing is made beside it");
+  });
+});
+
+test("a directory that is not there, or whose parent is not, has nothing to remove and nothing is made", async () => {
+  await withFixture((f) => {
+    const noQa = purgeRefusedDirectory(f.root, COVERAGE, deps);
+    mkdirSync(join(f.project, ".qa"));
+    const noDirectory = purgeRefusedDirectory(f.root, COVERAGE, deps);
+
+    assert.deepEqual([noQa, noDirectory], [{ nothing: true }, { nothing: true }]);
+    assert.deepEqual(readdirSync(join(f.project, ".qa")), []);
+  });
+});
+
+test("a link where the directory belongs is unlinked, never followed: the directory it points at, and everything in it, is as it was", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.outside, "elsewhere", "ns"), { recursive: true });
+    writeFileSync(join(f.outside, "elsewhere", "ns", "dump.json"), "[]");
+    mkdirSync(join(f.project, ".qa"));
+    symlinkSync(join(f.outside, "elsewhere"), join(f.project, COVERAGE));
+
+    const purged = purgeRefusedDirectory(f.root, COVERAGE, deps);
+
+    assert.deepEqual(purged, { removed: COVERAGE, how: "unlinked" });
+    assert.ok(isGone(join(f.project, COVERAGE)));
+    assert.equal(readFileSync(join(f.outside, "elsewhere", "ns", "dump.json"), "utf8"), "[]");
+    assert.equal(readFileSync(f.victim, "utf8"), PRECIOUS);
+  });
+});
+
+test("a link to nothing where the directory belongs is unlinked as well", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.project, ".qa"));
+    symlinkSync(join(f.outside, "no-such-directory"), join(f.project, COVERAGE));
+
+    const purged = purgeRefusedDirectory(f.root, COVERAGE, deps);
+
+    assert.deepEqual(purged, { removed: COVERAGE, how: "unlinked" });
+    assert.ok(isGone(join(f.project, COVERAGE)));
+  });
+});
+
+test("a named pipe where the directory belongs is unlinked, never opened and never waited on", { skip: NO_NAMED_PIPES }, async () => {
+  await withFixture(async (f) => {
+    mkdirSync(join(f.project, ".qa"));
+    execFileSync("mkfifo", [join(f.project, COVERAGE)]);
+
+    const purged = await withoutWaitingOnNamedPipe(join(f.project, COVERAGE), () => purgeRefusedDirectory(f.root, COVERAGE, deps));
+
+    assert.deepEqual(purged, { removed: COVERAGE, how: "unlinked" });
+    assert.ok(isGone(join(f.project, COVERAGE)));
+  });
+});
+
+test("a regular file where the directory belongs is unlinked", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.project, ".qa"));
+    writeFileSync(join(f.project, COVERAGE), "not a directory");
+
+    assert.deepEqual(purgeRefusedDirectory(f.root, COVERAGE, deps), { removed: COVERAGE, how: "unlinked" });
+    assert.ok(isGone(join(f.project, COVERAGE)));
+  });
+});
+
+test("a link above the directory is the entry that goes, and nothing behind it is touched", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.outside, "qa", "coverage"), { recursive: true });
+    writeFileSync(join(f.outside, "qa", "coverage", "dump.json"), "[]");
+    symlinkSync(join(f.outside, "qa"), join(f.project, ".qa"));
+
+    const purged = purgeRefusedDirectory(f.root, COVERAGE, deps);
+
+    assert.deepEqual(purged, { removed: ".qa", how: "unlinked" });
+    assert.ok(isGone(join(f.project, ".qa")));
+    assert.equal(readFileSync(join(f.outside, "qa", "coverage", "dump.json"), "utf8"), "[]");
+  });
+});
+
+test("the removal of a directory the orchestrator owns is judged like any other: a spec directory that is a link is refused, and so are an absolute path, a parent segment and an empty path", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.outside, "project", ".qa"), { recursive: true });
+    symlinkSync(join(f.outside, "project"), join(f.mirror, "linked-project"));
+    symlinkSync(f.victim, join(f.outside, "project", ".qa", "coverage"));
+
+    assert.throws(() => purgeRefusedDirectory({ mirrorDir: f.mirror, specDir: join(f.mirror, "linked-project") }, COVERAGE, deps), ConfinedPathError);
+    for (const rel of [f.outside, "../outside", ".qa/../../outside", ""]) {
+      assert.throws(() => purgeRefusedDirectory(f.root, rel, deps), ConfinedPathError, JSON.stringify(rel));
+    }
+    assert.ok(!isGone(join(f.outside, "project", ".qa", "coverage")), "what is behind the link was not reached");
+    assert.deepEqual([".", "./", "./."].map((rel) => purgeRefusedDirectory(f.root, rel, deps)), [{ nothing: true }, { nothing: true }, { nothing: true }], "and the spec directory itself is an ordinary directory");
+  });
+});
+
+test("a removal that fails is thrown, and one that finds the entry already gone is not a failure", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.project, ".qa"));
+    symlinkSync(f.victim, join(f.project, COVERAGE));
+    const failing: SpecPurgeDeps = { ...deps, unlink: () => { throw Object.assign(new Error("denied"), { code: "EPERM" }); } };
+    const gone: SpecPurgeDeps = { ...deps, unlink: () => { throw Object.assign(new Error("gone"), { code: "ENOENT" }); } };
+
+    assert.throws(() => purgeRefusedDirectory(f.root, COVERAGE, failing), (err: unknown) => (err as NodeJS.ErrnoException).code === "EPERM");
+    assert.deepEqual(purgeRefusedDirectory(f.root, COVERAGE, gone), { removed: COVERAGE, how: "unlinked" });
+  });
+});
+
+test("an ordinary directory costs the filesystem a look and nothing else: no call removes or renames anything", async () => {
+  await withFixture((f) => {
+    mkdirSync(join(f.project, COVERAGE), { recursive: true });
+    const calls: string[] = [];
+    const watched: SpecPurgeDeps = {
+      lstat: (path) => { calls.push(`lstat ${path}`); return defaultSpecPurgeDeps.lstat(path); },
+      unlink: (path) => { calls.push(`unlink ${path}`); },
+      rename: (from) => { calls.push(`rename ${from}`); },
+      randomSuffix: () => "x",
+    };
+
+    purgeRefusedDirectory(f.root, COVERAGE, watched);
+
+    /* The walk starts from the real spec directory, which is not the spelling of the temporary directory on every platform. */
+    const real = realpathSync(f.project);
+    assert.deepEqual(calls, [`lstat ${join(real, ".qa")}`, `lstat ${join(real, COVERAGE)}`]);
   });
 });

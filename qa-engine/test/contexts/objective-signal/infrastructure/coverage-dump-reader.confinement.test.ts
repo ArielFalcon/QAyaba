@@ -9,6 +9,8 @@ import {
   MAX_COVERAGE_REPORT_BYTES,
   MAX_V8_DUMP_BYTES,
   MAX_V8_DUMP_FILES,
+  MAX_V8_DUMPS_TOTAL_BYTES,
+  V8_DECODE_BUDGET_MS,
   readNativeReports,
   readV8Coverage,
 } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
@@ -370,6 +372,85 @@ test("every kind of dump that is left out gives its own reason, in words of the 
     assert.ok([...reasons.keys()].every((reason) => reason.length > 0), "each is said");
     assert.ok(/\b4 file/.test(warnings[0]!), warnings[0]);
   });
+});
+
+/* ── the time the dumps of a run are given ─────────────────────────────────────────────────────── */
+
+/* A clock that moves `step` milliseconds each time it is looked at, with the time a run is given. */
+const steppedClock = (step: number, budgetMs: number) => {
+  let now = 0;
+  return { now: () => (now += step), budgetMs };
+};
+const covering = (): Map<string, Set<number>> => new Map([["src/svc.ts", new Set([1])]]);
+
+test("the dumps of a run are decoded in the time they are given: a run that spends it leaves the set unused, decodes no dump after that and says that it was the time", async () => {
+  await withRun(async (r) => {
+    for (const name of ["a.json", "b.json", "c.json", "d.json"]) writeDump(r.e2e, name);
+    let decoded = 0;
+
+    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, () => { decoded += 1; return covering(); }, steppedClock(40, 100)));
+
+    assert.deepEqual(value, [], "the dumps decoded before the time ran out are not used beside the ones after");
+    assert.equal(decoded, 2, "the third dump finds the time spent before it is parsed, and so does the fourth");
+    const timeWarnings = warnings.filter((w) => /\btime\b/.test(w));
+    assert.equal(timeWarnings.length, 1, `the time is said once: ${JSON.stringify(warnings)}`);
+    assert.ok(timeWarnings[0]!.includes(dumpDirOf(r.e2e)) && timeWarnings[0]!.includes("100 ms"), timeWarnings[0]);
+  });
+});
+
+test("the decoding is handed the time and asks it as it goes: what it asks is whether the run has spent what it was given since the first dump was looked at", async () => {
+  await withRun(async (r) => {
+    writeDump(r.e2e, "a.json");
+    let now = 0;
+    let spent: (() => boolean) | undefined;
+
+    await readV8Coverage(r.e2e, NS, CHANGED, undefined, (_entries, _changed, asked) => { spent = asked; return covering(); }, { now: () => now, budgetMs: 100 });
+    const before = spent!();
+    now = 100;
+    const atTheBudget = spent!();
+    now = 101;
+    const past = spent!();
+
+    assert.deepEqual([before, atTheBudget, past], [false, false, true], "spent when more than the time has passed, not when exactly that has");
+  });
+});
+
+test("a run that is given enough time uses every dump, as it did", async () => {
+  await withRun(async (r) => {
+    for (const name of ["a.json", "b.json", "c.json", "d.json"]) writeDump(r.e2e, name);
+
+    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, covering, steppedClock(1, 10_000)));
+
+    assert.equal(value.length, 4);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("a dump whose source map is made to be slow to decode is given up on once the time is spent, with the real decoding, and leaves the set unused", async () => {
+  await withRun(async (r) => {
+    const slow = JSON.stringify([{ url: "https://dev/bundle.js", source: "x".repeat(10), functions: [{ ranges: [{ startOffset: 0, endOffset: 10, count: 1 }] }], map: { version: 3, sources: ["../src/svc.ts"], mappings: "AAAA,".repeat(100_000) } }]);
+    writeDump(r.e2e, "a-fine.json");
+    writeDump(r.e2e, "b-slow.json", slow);
+
+    /* One millisecond for each look at the clock and three for the run. */
+    const { value, warnings } = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, steppedClock(1, 3)));
+    const unhurried = await capturing(() => readV8Coverage(r.e2e, NS, CHANGED, undefined, undefined, steppedClock(0, 3)));
+
+    assert.deepEqual(value, [], "the fine dump beside it is not used");
+    assert.ok(warnings.some((w) => /\btime\b/.test(w)), `and the time is said: ${JSON.stringify(warnings)}`);
+    assert.equal(unhurried.value.length, 2, "while a clock that does not move reads both");
+  });
+});
+
+test("the limits on the dumps of a run keep a freeze to some seconds: the time they are given is a few seconds, and the dump that is parsed in the thread is some tens of megabytes at the most", () => {
+  const MIB = 1024 * 1024;
+  const largestMeasured = 19 * MIB;
+
+  assert.ok(V8_DECODE_BUDGET_MS >= 2_000 && V8_DECODE_BUDGET_MS <= 15_000, `${V8_DECODE_BUDGET_MS} ms`);
+  /* A dump of nothing but empty arrays costs some fifteen times its size in heap and a second of parse for every 12 MiB. */
+  assert.ok(MAX_V8_DUMP_BYTES >= largestMeasured * 1.5 && MAX_V8_DUMP_BYTES <= 32 * MIB, `${MAX_V8_DUMP_BYTES} bytes`);
+  assert.ok(MAX_V8_DUMPS_TOTAL_BYTES >= 50 * largestMeasured && MAX_V8_DUMPS_TOTAL_BYTES <= 1024 * MIB, `${MAX_V8_DUMPS_TOTAL_BYTES} bytes`);
+  assert.ok(MAX_COVERAGE_REPORT_BYTES <= 32 * MIB, `${MAX_COVERAGE_REPORT_BYTES} bytes`);
 });
 
 /* ── the native reports ────────────────────────────────────────────────────────────────────────── */

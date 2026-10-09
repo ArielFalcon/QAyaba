@@ -1,5 +1,5 @@
 /* src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts CoverageCollectorPort over V8/Chromium browser coverage dumps (.json files in .qa/coverage/<ns>/). The missing DI seam: the read of the dumps is injected (no hard-coded readdirSync/readFileSync), so this is unit-testable without disk and fail-open by contract (no dumps → empty report, never a throw). The injected read hands back what each dump covers (the lines of the changed files), not the dump: a dump holds every script a page loaded with its source map, megabytes of it, and the dumps of a suite are many, so each is reduced as it is read and none is kept.
-   A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. */
+   A dump is written by code the agent wrote, so what decoding it costs is bounded by its size and never by how its numbers are chosen: ranges that each cover the whole script, a script of nothing but line breaks or a source map of a million segments cost the script's length or the dump's size, once, and a dump past a bound is not decoded at all. How fast the segments of a source map decode still varies with their shape (a fifth of the usual speed on a map made to be slow), so the decoding is also asked, as it goes, whether the time it was given is spent (`TimeSpent`), and stops when it is. */
 import type { CoverageCollectorPort, CoverageReport } from "../application/ports/index.ts";
 
 interface RawSourceMap {
@@ -192,9 +192,17 @@ function linesThatRan(ran: Uint8Array, starts: Int32Array): number[] {
   return lines;
 }
 
-/* Hands each line of a changed file that the covered bytes of a script come from, by its source map, to `cover`. `files[i]` is the changed file the map's source `i` is, or null. */
-function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | null>, starts: Int32Array, ran: Uint8Array, cover: (file: string, line: number) => void): void {
+/* Whether the time the decoding was given is spent. It is asked as the decoding goes, so that a dump made to be slow to decode costs that time at the most and not what its numbers say. */
+export type TimeSpent = () => boolean;
+
+/* How many segments of a source map are decoded between two looks at the time: a millisecond or so of decoding, however the map is made. */
+const SEGMENTS_BETWEEN_LOOKS_AT_THE_TIME = 4096;
+
+/* Hands each line of a changed file that the covered bytes of a script come from, by its source map, to `cover`. `files[i]` is the changed file the map's source `i` is, or null. Throws when the time is spent. */
+function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | null>, starts: Int32Array, ran: Uint8Array, cover: (file: string, line: number) => void, spent?: TimeSpent): void {
+  let segments = 0;
   for (const seg of decodeMappings(map.mappings)) {
+    if (++segments % SEGMENTS_BETWEEN_LOOKS_AT_THE_TIME === 0 && spent?.()) throw new RangeError();
     const lineStart = starts[seg.genLine];
     if (lineStart === undefined) continue;
     if (ran[lineStart + seg.genCol] !== 1) continue;
@@ -204,8 +212,8 @@ function coverOriginalLines(map: RawSourceMap, files: ReadonlyArray<string | nul
   }
 }
 
-/* What the entries of one dump cover of the changed files. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above. */
-export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[]): Map<string, Set<number>> {
+/* What the entries of one dump cover of the changed files. A script is reduced only when it is a changed file or maps to one. Throws on a dump that cannot be decoded within the bounds above, or before the time `spent` speaks of is. */
+export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[], spent?: TimeSpent): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>();
   /* The one place a covered line is kept: the lines of a file are bounded however many scripts and segments claim them. */
   const cover = (file: string, line: number): void => {
@@ -225,11 +233,12 @@ export function defaultParseV8Coverage(entries: V8Entry[], changedFiles: string[
     const mapped = !directFile && typeof map?.mappings === "string" && Array.isArray(map.sources);
     const files = mapped ? map.sources.map((s) => resolveUrlToRepoFile(sourcePathOf(s, map.sourceRoot), changedFiles)) : [];
     if (!directFile && !files.some((f) => f !== null)) continue;
+    if (spent?.()) throw new RangeError();
 
     const ran = bytesThatRan(source.length, entry.functions);
     const starts = lineStartOffsets(source);
     if (directFile) for (const line of linesThatRan(ran, starts)) cover(directFile, line);
-    else coverOriginalLines(map!, files, starts, ran, cover);
+    else coverOriginalLines(map!, files, starts, ran, cover, spent);
   }
   return out;
 }
