@@ -43,6 +43,24 @@ test("e2e target: collects from real V8 dumps under .qa/coverage/<namespace>", a
   });
 });
 
+test("e2e target: a bundle's dumps are read through its source map, and what each dump covers adds up", async () => {
+  await withTmpDir(async (e2eDir) => {
+    const dumpDir = join(e2eDir, ".qa", "coverage", "qa-abc");
+    mkdirSync(dumpDir, { recursive: true });
+    /* Line 1 of the bundle is from src/a.ts line 1, and line 2 from src/a.ts line 2. */
+    const map = { version: 3, sources: ["../src/a.ts"], mappings: "AAAA;AACA" };
+    const dump = (from: number, to: number): string =>
+      JSON.stringify([{ url: "https://dev/assets/main.js", source: "a();\nb();\n", functions: [{ ranges: [{ startOffset: from, endOffset: to, count: 1 }] }], map }]);
+    writeFileSync(join(dumpDir, "t1.json"), dump(0, 5));
+    writeFileSync(join(dumpDir, "t2.json"), dump(5, 10));
+
+    const collector = makeTargetCoverageCollector({ target: "e2e", repoDir: e2eDir, e2eDir, changedFiles: ["src/a.ts"] });
+    const report = await collector.collect(e2eDir, "qa-abc");
+
+    assert.deepEqual(report.covered.map((c) => [c.file, [...c.lines].sort()]), [["src/a.ts", [1, 2]]], "the first test ran line 1 and the second line 2");
+  });
+});
+
 test("e2e target: no dumps -> empty report (never blocks, unknown)", async () => {
   await withTmpDir(async (e2eDir) => {
     const collector = makeTargetCoverageCollector({ target: "e2e", repoDir: e2eDir, e2eDir, changedFiles: ["src/svc.ts"] });

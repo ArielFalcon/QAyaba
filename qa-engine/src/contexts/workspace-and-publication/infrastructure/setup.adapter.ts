@@ -1,18 +1,21 @@
 /* E2E project setup: bootstrap the seed if missing, then install deps. This adapter never reads env — seedDir is injected. FAILURE_CAPTURE_BLOCK is data appended into the watched app's fixtures (runs in that app's Playwright process), not code this module executes.
-   The project directory is one the agent writes into, and part of it (node_modules, so the install marker) outlives a run: every file of it that setup reads or replaces (the fixtures file, the ignore file, the login setup, the Playwright config, the lock file, the install marker) goes through the strict read and write of spec-path-confinement, never a bare fs call. A file it cannot vouch for (a link, a named pipe, a directory, a file over its cap) fails the setup aloud, which the pipeline reports as an infra-error: it is never waited on, followed or skipped. The seed is the orchestrator's own and is read plainly. */
+   The project directory is one the agent writes into, and part of it (node_modules, so the install marker) outlives a run: every file of it that setup reads or replaces (the fixtures file, the ignore file, the login setup, the Playwright config, the lock file, the install marker) goes through the strict read and write of spec-path-confinement, never a bare fs call. A file it cannot vouch for (a link, a named pipe, a directory, a file over its cap) fails the setup aloud, which the pipeline reports as an infra-error: it is never waited on, followed or skipped. The one exception is what would fail every later run for good: the install marker and the node_modules above it survive a clean, so what refuses them is removed (a name unlinked, a directory set aside) without being opened or followed, said aloud, and the marker is read once more. The seed is the orchestrator's own and is read plainly; it is copied in, and flows/ made, through the same strict calls, so that nothing is made or written through a link. */
 import { createHash } from "node:crypto";
-import { existsSync, cpSync, readFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { isStockAuthSetup } from "../../../shared-infrastructure/e2e-seed/auth-setup-seed.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import type { SandboxedBinaryRunner } from "../../../shared-infrastructure/process-sandbox/sandboxed-binary-runner.ts";
 import {
   ConfinedPathError,
   MAX_SPEC_SOURCE_BYTES,
+  ensureOwnedSpecDir,
+  purgeRefusedPath,
   readFailureReason,
   readOwnedSpecFile,
   writeOwnedSpecFile,
   type OwnedSpecRead,
+  type PurgeResult,
   type SpecRoot,
 } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
@@ -201,22 +204,64 @@ export interface SetupOptions {
 
 export interface SetupAdapterFsDeps {
   exists(path: string): boolean;
+  /* Copies the orchestrator's seed into the project directory: the seed is read plainly, and everything it is copied into goes in through the strict calls (see copySeedStrictly). */
   cp(src: string, dest: string, opts?: { recursive?: boolean; filter?: (src: string) => boolean }): void;
   /* The orchestrator's own seed files; never a file of the project. */
   read(path: string): string;
+  /* Makes a directory of the project that is not there, and refuses one that is a link or no directory. */
   mkdir(path: string): void;
   /* The files of the project the agent can write into, read and replaced strictly below the project directory (see the header). */
   readOwned(root: SpecRoot, rel: string, maxBytes: number): OwnedSpecRead;
-  writeOwned(root: SpecRoot, rel: string, text: string): void;
+  writeOwned(root: SpecRoot, rel: string, text: string | Uint8Array): void;
+  /* Removes what refuses the strict read of a file of the project, without opening or following it (see purgeRefusedPath). */
+  purgeRefused(root: SpecRoot, rel: string, maxBytes: number): PurgeResult;
+}
+
+/* Names a refusal by the path setup asked for, which is what an operator looks for, instead of the path below the project directory that the strict calls were given. */
+function namedAt<T>(path: string, run: () => T): T {
+  try {
+    return run();
+  } catch (err) {
+    if (err instanceof ConfinedPathError) throw new ConfinedPathError(path, err.reason);
+    throw err;
+  }
+}
+
+/* The seed is the orchestrator's own and read plainly; the project directory it is copied into is the agent's. Every directory and file goes in through the strict calls of spec-path-confinement, so that a link where a directory or a file of the project belongs is never written through (a directory or a file that is a link is refused, loudly), and a project directory that is itself a link is refused. */
+function copySeedStrictly(seedDir: string, e2eDir: string, filter: (src: string) => boolean = () => true): void {
+  if (!filter(seedDir)) return;
+  try {
+    lstatSync(e2eDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    mkdirSync(e2eDir, { recursive: true });
+  }
+  const root: SpecRoot = { mirrorDir: e2eDir, specDir: e2eDir };
+  namedAt(e2eDir, () => ensureOwnedSpecDir(root, "."));
+  const copy = (from: string, rel: string): void => {
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      const src = join(from, entry.name);
+      if (!filter(src)) continue;
+      const entryRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        namedAt(join(e2eDir, entryRel), () => ensureOwnedSpecDir(root, entryRel));
+        copy(src, entryRel);
+      } else if (entry.isFile()) {
+        namedAt(join(e2eDir, entryRel), () => writeOwnedSpecFile(root, entryRel, readFileSync(src)));
+      }
+    }
+  };
+  copy(seedDir, "");
 }
 
 export const nodeFsDeps: SetupAdapterFsDeps = {
   exists: existsSync,
-  cp: (src, dest, opts) => cpSync(src, dest, opts),
+  cp: (src, dest, opts) => copySeedStrictly(src, dest, opts?.filter),
   read: (path) => readFileSync(path, "utf8"),
-  mkdir: (path) => mkdirSync(path, { recursive: true }),
+  mkdir: (path) => namedAt(path, () => ensureOwnedSpecDir({ mirrorDir: dirname(path), specDir: dirname(path) }, basename(path))),
   readOwned: (root, rel, maxBytes) => readOwnedSpecFile(root, rel, maxBytes),
   writeOwned: (root, rel, text) => writeOwnedSpecFile(root, rel, text),
+  purgeRefused: (root, rel, maxBytes) => purgeRefusedPath(root, rel, maxBytes),
 };
 
 /* What setup keeps in the project directory, as paths below it. */
@@ -243,7 +288,7 @@ export class SetupAdapter {
     this.ensureAuthSetup(e2eDir);
     this.ensureSessionGitignore(e2eDir);
     this.ensurePlaywrightEnvKeys(e2eDir);
-    if (this.isInstallCurrent(e2eDir)) {
+    if (this.installIsCurrent(e2eDir)) {
       console.log("[qa] e2e dependencies up to date; skipping npm ci");
       return;
     }
@@ -274,7 +319,8 @@ export class SetupAdapter {
     });
   }
 
-  private ensureSpecDir(e2eDir: string): void {
+  /* The directory the generated specs go into. One that is a link out of the project, a named pipe or a file fails the setup: it is made through no link, and the agent's specs are never written through one. */
+  ensureSpecDir(e2eDir: string): void {
     this.deps.fs.mkdir(join(e2eDir, "flows"));
   }
 
@@ -394,12 +440,36 @@ export class SetupAdapter {
     this.writeProject(e2eDir, name, current);
   }
 
+  /* isInstallCurrent, with one way out of a marker that the strict read refuses. node_modules survives `git clean -fd -e node_modules` from one run to the next, so what the agent planted at the marker (or at node_modules itself) would refuse the read on every later run, for good, and end the app's QA. The entry that refuses it is removed without being opened or followed (see purgeRefusedPath), said aloud, and the marker is read once more: with none the install is not skipped, so it runs. A second refusal, a removal that fails and a refusal of anything but the marker fail the setup. */
+  private installIsCurrent(e2eDir: string): boolean {
+    try {
+      return this.isInstallCurrent(e2eDir);
+    } catch (err) {
+      if (!(err instanceof ConfinedPathError) || err.path !== join(e2eDir, INSTALL_MARKER_FILE) || !this.purgeMarker(e2eDir, err)) throw err;
+      return this.isInstallCurrent(e2eDir);
+    }
+  }
+
+  /* Whether something was removed. */
+  private purgeMarker(e2eDir: string, refusal: ConfinedPathError): boolean {
+    let purged: PurgeResult;
+    try {
+      purged = this.deps.fs.purgeRefused(this.projectRoot(e2eDir), INSTALL_MARKER_FILE, MAX_INSTALL_MARKER_BYTES);
+    } catch (err) {
+      console.warn(`[qa] WARNING: ${refusal.path} could not be vouched for (${refusal.reason}) and could not be removed (${readFailureReason(err)}); setup fails.`);
+      return false;
+    }
+    if ("nothing" in purged) return false;
+    console.warn(`[qa] WARNING: ${join(e2eDir, purged.removed)} could not be vouched for (${refusal.reason}); it was ${purged.how === "unlinked" ? "removed" : "set aside"} without being opened, and the install is checked once more.`);
+    return true;
+  }
+
   private getLockHash(e2eDir: string): string | null {
     const lock = this.readProject(e2eDir, LOCK_FILE, MAX_LOCK_FILE_BYTES);
     return lock === undefined ? null : createHash("sha256").update(lock).digest("hex");
   }
 
-  /* The install is current when the marker the last install left holds the hash of the lock. A marker setup cannot vouch for (a link, a named pipe, a directory, one over its cap, or a node_modules that is a link) fails the setup: it is never trusted, never waited on and never skipped over, since it survives from one run to the next. A marker that is only unreadable says nothing, and the install that follows replaces it. */
+  /* The install is current when the marker the last install left holds the hash of the lock. A marker setup cannot vouch for (a link, a named pipe, a directory, one over its cap, or a node_modules that is not a directory) is refused with a ConfinedPathError at the marker's path (installIsCurrent decides what follows): it is never trusted, never waited on and never skipped over, since it survives from one run to the next. A marker that is only unreadable says nothing, and the install that follows replaces it. */
   private isInstallCurrent(e2eDir: string): boolean {
     let marker: Buffer | undefined;
     try {

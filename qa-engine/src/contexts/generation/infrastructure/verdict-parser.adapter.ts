@@ -1,6 +1,6 @@
 /* Fail-closed on an unparseable verdict. Reviewer path forwards blockingCount + parsed so a parse miss is not treated as a rejection. */
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { sep } from "node:path";
+import { scanSpecTree } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import type { VerdictParserPort, GeneratorDeliverable, ReviewJudgment } from "../application/ports/index.ts";
 import type { SpecMeta } from "@kernel/qa-case.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "../domain/generation-end.ts";
@@ -12,27 +12,9 @@ function forNote(text: string, keep: "start" | "end"): string {
   return (keep === "start" ? redacted.slice(0, GENERATION_NOTE_MAX_CHARS) : redacted.slice(-GENERATION_NOTE_MAX_CHARS)).trim();
 }
 
-/* Every *.spec.ts under specDir as a suite-relative, "/"-separated path — installed packages and dot-directories excluded, as Playwright excludes them. Unreadable directories are skipped. */
-export function listSuiteSpecFiles(specDir: string): string[] {
-  const found: string[] = [];
-  const walk = (rel: string): void => {
-    let entries;
-    try {
-      entries = readdirSync(join(specDir, rel), { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const path = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        if (entry.name !== "node_modules" && !entry.name.startsWith(".")) walk(path);
-      } else if (entry.name.endsWith(".spec.ts")) {
-        found.push(path);
-      }
-    }
-  };
-  walk("");
-  return found;
+/* Every *.spec.ts under specDir as a suite-relative, "/"-separated path — installed packages and dot-directories excluded, as Playwright excludes them. The suite is a directory the agent writes into, so it is walked by the one walk of the specs (spec-path-confinement): no link followed and no more entries looked at than its cap, which a caller that must not miss a spec cannot rely on and one that resolves a name can: what was not walked is not listed. */
+export function listSuiteSpecFiles(specDir: string, maxEntries?: number): string[] {
+  return scanSpecTree(specDir, maxEntries).specs.map((path) => path.split(sep).join("/"));
 }
 
 /* A reported spec as its suite-relative path: a bare file name that is not itself a suite path becomes the one suite spec with that name. A path, an unknown name or a name several specs share is kept as reported. */

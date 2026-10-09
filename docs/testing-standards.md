@@ -439,6 +439,54 @@ JavaScript and TypeScript file of its sandbox, so the stock check of a shipped s
 passed outside the sandbox and failed inside it; the generated configuration turns that off, since the tests
 run through tsx and the checker reads the project's own files.
 
+The preset was widened a fifth time (2026-10-09) for the sites the last widening recorded as left, each shown
+against the earlier code by a script that a kill timeout ends. Setup copied the seed into the
+project with a bare `cpSync` and made `flows/` with a bare `mkdirSync`, and both follow a link: a link at a
+directory of the project made the seed's files come out in the directory it pointed at (outside the project,
+in the reproduction), a link at a file of the seed was replaced without a word, and a `flows/` that was a link
+was taken for the directory the generated specs go into. The install marker that the last widening made fail
+the setup when it cannot be vouched for outlives a clean (`git clean -fd -e node_modules`), so whatever the
+agent planted at it, or at the `node_modules` above it (a named pipe, a directory, a link), made every later
+setup fail, for good. And the
+walk of the specs was not capped: a `flows/` as large as the disk lets it be was read whole into a list in
+memory, by the read gate and by the listing of the suite (60,000 entries in the reproduction, where nothing
+bounds it). The module gained `ensureOwnedSpecDir` (every directory of a path made one lstat at a time, so
+nothing is made through a link), `purgeRefusedPath` (a name is unlinked and a directory is renamed to another
+name in the directory it is in, neither opened nor followed, nothing outside the spec directory is touched,
+and a file the strict read would take is left where it is) and a walk of the specs that reads each directory
+entry by entry and looks at no more than 20,000 entries in all: a directory cut there, and every directory
+reached once the cap is spent, is named as unwalked, which the read gate refuses as a finding of its own; and
+the walk of the files of a repository (`walkRepoFiles`, for the next preset). Setup copies the seed in through
+them, makes `flows/` through them, and on a marker that refuses the read it removes what refuses it, once,
+without opening or following it, says so aloud and reads again: a second refusal, a removal that fails and a
+refusal of anything but the marker still fail the setup. The verdict parser lists the suite through the same
+walk. The preset took in the seed's copy and the directories of setup, the removal of what refuses the marker,
+the verdict parser's listing and the new tests of each.
+
+**Mutation was not re-run for this widening.** A run of the widened preset (933 mutants) was started on the code
+of this slice and cut by the machine at 84% (787 tested, 19 survivors seen and not looked at yet, 39 timeouts
+on a machine loaded far past what the limit follows), and no run was made on the code of this commit, so the
+table's After for this row is the one it had before the slice and says nothing of the new code. That code is
+held by its tests and by 33 mutants of what Stryker does not produce, broken by hand against earlier states of
+it, each in its own process group, with a control that changes nothing: the purge that looks at an entry by
+`stat`, deletes a directory with what is in it, sets it aside in the root of the spec directory, takes a dot
+segment for the entry, does not check the spec directory, walks through a link on the way or leaves a file
+over the cap; the directory made without its directories, with a path that climbs out or with the spec
+directory unchecked; setup trying the purge again after a second refusal, copying the seed with a bare copy
+of a file or of the tree, making a directory of the seed or `flows/` with a bare `mkdir`, not checking the
+project directory, purging for any refusal and not only the marker's, and taking a marker the strict read
+refuses for one that could not be read; the walk of the specs that does not count the entries it looks at,
+does not say it was cut, does not name the directory it cut, never releases a handle or is not cut at the cap
+it is given; the walk of a repository that takes a link for a file, enters a link or a directory to skip,
+visits the entries in the order the filesystem gives them, does not count what is neither a file, a directory
+nor a link, takes one file past its cap, walks a root that is a link or says of it what it says of a file, or
+does not say it was cut; and the verdict parser listing the suite with no cap of its own. 27 died at once.
+Six survived the first batch and each was real: a dot segment named the entry to remove, a path that climbs
+out was made, a directory was made with the spec directory unchecked, the purge was tried a second time, a
+directory of the seed was made with a bare `mkdir`, and the project directory was not checked before the seed
+was copied into it. Each has a test now and died when its own mutant was run again; the whole set was not run
+again on the final code.
+
 run-output-readers (2026-10-08, 3 workers, 162 mutants, 91 of them compile errors) is a new preset over what a
 run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a
 native report (`run-output-reader`, which never waits on a pipe, never follows a link, never throws and says
@@ -482,6 +530,170 @@ be used taken for an empty one, the reports of the kinds that could be read used
 or summed from the counters that could be read, the oracle scoring a suite whose count it could not tell or
 taking it for none, and the factory's counter that never counts or always counts) were broken by hand: all 25
 die.
+
+The preset was widened (2026-10-09) when the reader moved to `shared-infrastructure` and was split in two. `scanRunOutputDir` lists a directory entry by entry up to a cap, reads the files `accept` takes
+under the caps and says nothing, leaving to the caller what a file that cannot be used means; `readRunOutputDir`
+is the whole-or-nothing read of this preset's readers, built on it, with the warnings it always had. The e2e
+runner is the scan's second caller: each failure-capture dump grounds its own case, so a dump that cannot be
+used leaves that case without grounding and the rest are used, where a set that measures a whole cannot be
+used in part (a directory cut at the cap is read up to the cap when the caller asks for it). The preset took
+in the module at its new path, a test of its own (a set used whole is not read at all when the directory holds
+more entries than the cap, and is when it holds exactly the cap; a scan that does not read a cut directory
+says so and leaves everything unread, and one that does reads what it looked at) and the runner's
+confinement tests, which drive the scan. **Before** of this widening is its first run: 185 mutants, 73 killed
+and 3 survivors, all on the cut of a listing: a scan that does not read a cut directory reading it, the answer
+it gives for one (nothing used, nothing left out, cut), and the whole-or-nothing read asking for the part by
+part read of a cut directory. The test of the module's own was written for those three. **Mutation was not
+re-run for this widening**: the re-run was started on the code of this commit and stopped before it ended, so
+the table's After for this row is the one it had before the slice, and the three survivors are not shown dead
+by a run.
+
+e2e-run-reads (2026-10-09, 3 workers, 114 mutants, 77 of them compile errors) is a new preset over the lines of the
+e2e runner that read back what the Playwright child leaves in the two directories the runner makes for it, the
+JSON report and the failure-capture dumps. The child runs the repo's specs, which the agent wrote, and it knows
+both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the
+fixture wrote. Before, a named pipe held the whole single-threaded orchestrator on every e2e run, a link to a
+passing report that the test process had written elsewhere was taken for the run's result, a report or a dump of
+hundreds of megabytes was read whole, a dump that was not JSON had its first characters quoted in the log by
+the parser's message, and twenty thousand dump-named files made twenty thousand lines of log. Both are read
+strictly under a cap now. A report that cannot be used (a pipe, a link, a directory, one over its cap, one
+that cannot be read, one that is not JSON) is a run with no result, which is infrastructure and never a pass,
+said in the logs with the module's reason and nothing the report held. A dump that cannot be used leaves its
+case without grounding, and the directory says once by how many and why, naming no file: each failure dump
+grounds its own case, so these are scanned part by part, where the readers above use a set whole or not at
+all. The preset takes in only the lines that do this (the caps, the report's read, the dump's decoding and
+read, and what the runner does once the child is gone), against the runner's own tests and a file of cases
+that run the real runner against a stand-in `playwright` that leaves a pipe or a link after it has written
+the report. **Before** is its first run: 118 mutants, 29 killed, 3 timeouts and 10 survivors, and they were
+real gaps: the anchors of the name a dump has, the empty fallbacks of a dump whose project or title is not
+text, what the warning counts, the line that the logs of a refused report end in, and the removal of the
+temporary directory. **After** is the re-run on the code of this commit: 114 mutants (the removal of the
+temporary directory is a line that was there before, and is out of the range now), 35 killed, 2 timeouts and
+no survivors, so the table's row is it. The two timeouts are the mutants that take away what settles the run
+(the event that says the child is gone, and the call that resolves), so that it never ends. A run before the
+last test was added had two more, which were the arithmetic of the dump cap: the budget case made as many files
+as the budget holds of the cap it was given, so a cap of a few bytes made it loop for good; it asserts the
+cap is a megabyte or more and that the budget holds a bounded number of them before it makes any, and those
+two mutants die by assertion. 9 mutants of what Stryker does not produce were broken by hand against the
+runner (unchanged since), each in its own process group, with a control that changes nothing: a report read
+after the directory it is in is removed, read with no cap, taken for a result when it was refused, read bare,
+a report that is not JSON or is not there taken for an empty result, and the dumps read with no cap on their
+entries, on one dump or on all together. 8 died at once (the bare read dies because the run hangs on the pipe,
+which the harness counts as killed) and the control survived; the one on the total of the dumps survived the
+first batch, because its case took the number of files from the very cap it should have held, and died once
+the case used the exported constant. One thing is not bounded and cannot be: the report is written by code
+the agent wrote, so it can be forged. Only what is read of it is bounded.
+
+v8-coverage-decode (2026-10-09, 3 workers, 233 mutants, 60 of them compile errors) is a new preset over what a V8 browser coverage dump says of the changed
+files. The fixture writes one dump for each test: every script the page loaded, with its source map and the
+ranges V8 reports, 3 MiB for a 0.6 MiB bundle and 19 MiB for a 3.4 MiB one (measured with esbuild bundles of
+packages installed here and V8's own precise coverage), and it is written by the agent's tests, so it is the
+agent's to shape. Before, the reader kept the parsed contents of every dump of a run until the last was read
+(about five times the dump's size each: 581 MiB for six dumps of 19 MiB, and some 2.5 GiB at the budget of
+512 MiB of text), a valid suite of 24 dumps of 24 MiB passed that budget and left the whole set unused
+(unknown, never a measurement), and the ranges were painted byte by byte, the script's length for each range:
+twenty thousand ranges that each cover a script of a megabyte took eleven seconds, and a hundred thousand over
+two megabytes more than a minute. Each dump is reduced to the lines of the changed files inside its read now
+and none is kept; the ranges are applied from the last back so that every byte is decided once; a script is
+decoded only when it is a changed file or maps to one; the lines of a script and the lines of a changed file
+are bounded (a dump past a bound is not decoded, which leaves the set unused); and the segments of a source
+map are taken one at a time in one pass over the string, with no list of lines or of segments. Decoding runs at
+about 100 MiB a second (114 MiB of the large shape in 1.1 s, where it took 2.9 s), six dumps of 19 MiB cost
+441 MiB at the most where they cost 581, and the total budget is raised from 512 MiB to 2 GiB: it bounds the
+time (about twenty seconds, a hundred dumps of the largest size measured) and no longer the memory. A range
+with an offset that is not a whole number reaches no byte (V8 reports whole numbers). **Before** is its first
+run: 283 mutants, 140 killed, 31 timeouts and 41 survivors; most were the arithmetic of the numbers of a source
+map (a number of several digits, a negative one, a character that is no digit, the column that starts again at
+every line, a segment of five fields), the boundaries of the URL match (the longest match, a name that only
+ends the same way, a tie, backslashes, the separators around a source root), and code that another condition
+made redundant, which was removed (the guard of an empty segment, the checks of an empty script and an empty
+URL, the column of the source, which nothing reads, and the normalization of a source path that the match by
+the end of a path makes unnecessary). **After** is the re-run on the code of this commit: 233 mutants, 142
+killed, 31 timeouts and no survivors, so the table's row is it. The timeouts are mutants of the loops of the
+decoding (the step or the end test of one changed so that it never ends), and the machine was loaded while
+they ran (a load of 22 on 8 CPUs), so they were not run again alone. 11 mutants of what Stryker does not
+produce were broken by hand against an earlier state of the decoding, each in its own process group, with a
+control that changes nothing: the ranges applied first to last, a byte decided again by the ranges after it,
+an offset that is not a whole number reaching bytes, a script or a file allowed one line past its cap, the
+last segment of a source map not decoded, a script that is no changed file decoded, a generated line past the
+last read, a dump that is no list handed to the decoding, the dumps held to the old memory budget and what a
+dump covers replacing what the others covered. 10 died at once; the one on the cap of covered lines of a file
+survived the first batch, because the cap was checked in two places and the test reached one, and it is
+checked in one place now (the others were not run again on the final code).
+
+repo-reads (2026-10-09, 3 workers, 181 mutants, 73 of them compile errors) is a new preset over what the orchestrator reads of the mirror of a repository
+and writes of what it stages from one, directories the agent can write into: the topology resolvers read the
+sources and the OpenAPI document of every repository of a system, and the staging of a service's context copies
+the service's contracts and the files its commit changed into the front's working copy. Before, each of those
+was a bare call. A named pipe in any mirror held the whole single-threaded orchestrator (a source file, the
+OpenAPI document, a file the service's commit changed), two links back to the root of a mirror made the walk
+run away, a link to a file outside every mirror had its target read, and a link a commit adds to a service
+put the file behind it in the context the agent is given (the secret came out in the staged files); the
+staging emptied and wrote its directory through whatever was planted above it, so a `.qa` that was a link out
+of the working copy had four files written where it points. The files of a mirror are listed by one walk
+(`walkRepoFiles`: no link followed, what is neither a file, a directory nor a link counted, entries and files
+held to a cap, the names in order) and read one by one through the strict, capped read; what cannot be used
+is skipped, as a resolver skips what it cannot parse, and said once for the repository by `RepoReader`, in
+words of its own, naming no file and quoting no byte. The staging reads through the same two, omits a file it
+refuses with `refused: ` and the module's reason, and empties, makes and writes through the strict calls
+rooted at the working copy, which throw (the staging fails aloud) where the working copy is the one at fault.
+The preset takes in the reader, the walk's one resolver-side file, the lines of the three resolvers that list
+and read through them and the lines of the staging that list, read, empty and write (the rest of each is other
+code, so every entry of those files is a line range), against their own tests and the ones the resolvers and
+the staging already had. **Before** is its first run: 181 mutants, 9 killed, 96 timeouts and 3 survivors, and
+the timeouts were the machine and not the mutants: every mutant ran the whole set, each staging case built a
+real git repository (six git processes), and with other work loading the machine the staging cases alone took
+31 s where they take 0.4 s now, so every mutant outran the 15 s limit and was classed a timeout, which hid
+whatever it would have shown (even the mutants of the reader, whose own tests take a fraction of a second).
+Git is the one injected boundary of the staging, so the cases fake it (the commit reports the files the
+fixture holds, which is all the staging takes from it) and the whole set runs in about four seconds; the
+preset no longer needs the lower concurrency it was given for the git processes. The three survivors were real gaps: a first staging was never shown to remove nothing, the removal
+was never shown to be a removal that tolerates a path that is not there, and the reason given for a file that
+was gone when it was read was never required to say anything. A fourth gap came out of reading the staging: a
+link to nothing at the staging directory is not "there" to a path that is followed, so it was neither removed
+nor made and every later staging failed on it, for good; the check is by `lstat` now, which finds the link and
+has it replaced. **Mutation was not re-run for this preset** on the code of this commit (the re-run was
+started and stopped before it reached it), so the table's After for this row says so, and the fixes of the
+three survivors and of the faster cases are held by their tests only. 19 mutants of what Stryker does not
+produce were broken by hand against earlier states of the code (the walk of a repository's files has its own,
+listed with the spec-path-confinement preset above), each in its own process group, with a control that
+changes nothing: the reader that does not count a file that is gone, says again what it said before, does not
+count a failure to read, counts an optional file that is not there, or does not say what a walk could not do
+or the entries that are neither a file, a directory nor a link; the three resolvers reading a source or the
+OpenAPI document with no cap, not saying what they could not read, or walking the vendor directories; and the
+staging making its directory, writing a file, reading a file or removing a directory with a bare call that
+follows a link, with no look at the way to what it removes, walking the installed packages, telling a refused
+file like one that could not be read, or reading with no cap. 14 died at once and the control survived. Five
+survived the first batch and each was real (the staging's bare `mkdir`, its bare write, the look at the way
+to what it removes, the reason of a refusal and its read cap); each has a case now and died when its own
+mutant was run again. The whole set was not run again on the final code.
+
+code-run-reads (2026-10-09, 3 workers, 52 mutants, 33 of them compile errors) is a new preset over what a code run reads of its repository's working copy
+and writes into it, which the agent writes into: the manifest that names the test command (`package.json`
+and its kin), the config of the mutation oracle and the report it leaves. Before, the manifest was read bare
+(a named pipe held the orchestrator, reproduced), the oracle's config was written through whatever was planted
+at `stryker.conf.json` (a link made the write replace a file outside the mirror), and the report was read bare
+(a named pipe held the orchestrator). The manifest is read strictly and under a cap now, and one that cannot
+be used is no manifest, said with the module's reason and nothing the file held; the config is written
+through a temporary file renamed over the target, and a write the strict call refuses leaves the run
+unmeasured without starting Stryker; the report is read strictly and under a cap, and one that cannot be used
+is a run that produced none. The preset takes in only the lines that do this (the cap, the read of the
+manifest, the write of the config and the read of the report; what the config holds is other code),
+against their own tests and the existing ones of the runner and the oracle. **Before** is its first run: 76
+mutants, 9 killed, 1 timeout and 32 survivors, and they were gaps in what the tests required, not in the code:
+the words of the warnings, the reason of the refusal, the arithmetic of the report's cap, and a report that
+lacks a metric or holds one that is not a number. The words stay unpinned, so a warning says what it says
+through one helper and a test requires the reason it carries; a report that lacks a metric is none, and each
+metric is required to be a number; the config's literal (its keys and values) was taken out of the range, as
+other code. **After** is the re-run on the code of this commit: 52 mutants (the config's literal is out of the
+range), 13 killed, 6 timeouts and no survivors, so the table's row is it. The timeouts are the mutants of the
+check that each metric of the report is a number: with it weakened a report that lacks one gets through, the
+handler of the child's close then throws on it, and the measurement never settles. 7 mutants of what Stryker
+does not produce were broken by hand against an earlier state of the code, each in its own process group,
+with a control that changes nothing: the manifest read with no cap, a refusal of it not said, the manifest read
+bare, the oracle's config written bare through a link, its report read with no cap or bare, and a report that
+was refused not said. All 7 died at once (the bare reads die because the run hangs on the pipe, which the
+harness counts as killed), and the control survived; the whole set was not run again on the final code.
 
 prompt-contract (2026-09-30, 4 workers) is a new preset over the prompt-contract lint (its claims, its
 fourteen rules and its lexicons), the single regeneration predicate, the diff size, the harness-facts
@@ -960,8 +1172,12 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | coordination-events | src/server/coordination-events.ts | 156 / 13 / 16 — 91.35% (84.32%) | 132 / 8 / 1 — 99.29% (93.62%) | — |
 | local-login | src/server/auth.ts (local-login policy range) | 63 / 2 / 4 — 94.2% (91.3%) | 59 / 0 / 0 — 100% (100%) | — |
 | write-confinement | write-confinement.service | 149 / 14 / 20 — 89.07% (81.42%) | 147 / 17 / 19 — 89.62% (80.33%) | — |
-| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing and write of the orchestrator's own files, the walk of the specs), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads and replacements in the project, the login's stock check | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%) | — |
-| run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all), coverage-dump-reader (V8 dumps, lcov, Istanbul, JaCoCo), target-coverage-collector, fault-injection-counter-reader, fault-injection-oracle (its reading of the count) | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%) | — |
+| spec-path-confinement | spec-path-confinement (the reader of an agent-reported path, the strict read, listing, directory, write and removal of the orchestrator's own files, the walk of the specs and its cap, the walk of a repository's files), manifest-fs (file hash, load, read, write), the read gate's manifest check and zero-assertion scan, the context map, setup's reads, copies and replacements in the project and its removal of a refused marker, the login's stock check, the verdict parser's listing of the suite | 36 / 0 / 1 — 97.3% (97.3%) | 332 / 3 / 5 — 98.53% (97.65%), before this slice: not re-run on its code | — |
+| run-output-readers | run-output-reader (the strict, capped read of a directory of output and of a report, used whole or not at all, or scanned part by part), coverage-dump-reader (V8 dumps reduced as they are read, lcov, Istanbul, JaCoCo), target-coverage-collector, fault-injection-counter-reader, fault-injection-oracle (its reading of the count) | 55 / 0 / 26 — 67.9% (67.9%) | 71 / 0 / 0 — 100% (100%), before this slice: not re-run on its code | — |
+| e2e-run-reads | the lines of the e2e runner that read back the Playwright report and the failure-capture dumps (the caps, the strict read of each, what the runner does once the child is gone) | 29 / 3 / 10 — 76.19% (69.05%) | 35 / 2 / 0 — 100% (94.59%) | — |
+| v8-coverage-decode | v8-browser-coverage.adapter (the decoding of a V8 dump into the lines of the changed files, bounded by the dump's size; the adapter that adds up the dumps) | 140 / 31 / 41 — 80.66% (66.04%) | 142 / 31 / 0 — 100% (82.08%) | — |
+| repo-reads | repo-reader, repo-walk, the lines of the three boundary resolvers that read through them, the staging of a service's context (its listing, its strict read, the strict calls into the working copy) | 9 / 96 / 3 — 97.22% (8.33%), most timeouts from a loaded machine | not re-run on this code | — |
+| code-run-reads | the lines of the code runner that read the repository's manifest and of the mutation oracle that write its config and read its report | 9 / 1 / 32 — 23.81% (21.43%) | 13 / 6 / 0 — 100% (68.42%) | — |
 | run-decision | run-decision.service, run-decision | 31 / 0 / 2 — 93.94% (93.94%) | 27 / 0 / 0 — 100% (100%) | — |
 | agent-efficiency | tool-call-taxonomy, call-sequence, provided-context, step-exhaustion, coarse-run-efficiency, turn-efficiency-summary, call-efficiency-tracker, call-fingerprint | 226 / 7 / 55 — 80.9% (78.47%) | 306 / 14 / 0 — 100% (95.63%) | — |
 | generation-end | generation-end, generation-end-terminal, learning-gates | 68 / 0 / 11 — 86.08% (86.08%) | 73 / 0 / 0 — 100% (100%) | — |
@@ -973,6 +1189,14 @@ The re-run: 307 killed, no timeout, none survived, 100%.
 | prompt-contract | prompt-contract-lint, regen-turn, diff-stat, harness-facts, step-limit, suite-listing-render, the fixtures reader | 259 / 5 / 60 — 81.48% (79.94%) | 556 / 2 / 5 — 99.11% (98.76%) | — |
 | step-limit | step-limit, the agent-list read and the baked reader's two names (opencode-client), the OpenCode strategy's limits and warning, the facades' limits, the factory's per-run memo | 43 / 0 / 4 — 91.49% (91.49%) | 48 / 0 / 1 — 97.96% (97.96%) | — |
 | carry-forward | spec-path, delivered-spec (the fold), declared-specs, delivered-specs (the merge), contradiction-attribution, suite-entry, suite-listing, suite-listing-render, and the lines that wire them in the use case, the generation adapter, the checks that give each contradiction its origin, the FixLoop, the run and the grounding's fold of the suite | 109 / 2 / 8 — 93.28% (91.6%) | 307 / 0 / 0 — 100% (100%) | — |
+
+Slice 13e (2026-10-09) did not finish its mutation records. v8-coverage-decode, code-run-reads and
+e2e-run-reads were run to the end on the code of its commit and their rows are those runs. spec-path-confinement,
+run-output-readers and repo-reads were **not re-run** on it (a run was started and stopped, and the first run of
+the widened spec-path-confinement preset was cut at 84% with 19 survivors seen and not looked at), so their
+After cells are what each had before the slice, or say so, and the survivors of the widened spec-path-confinement
+preset are open work. The hand mutants of the slice were run on earlier states of the code, each survivor got a
+test and died when its own mutant was run again, and the whole sets were not run again on the final code.
 
 ### Login discovery script (manual triangulation)
 

@@ -10,6 +10,7 @@ import {
   MAX_SPEC_SOURCE_BYTES,
   defaultSpecReadDeps,
   defaultSpecWriteDeps,
+  ensureOwnedSpecDir,
   readOwnedSpecFile,
   specWriteDepsFor,
   writeOwnedSpecFile,
@@ -730,5 +731,90 @@ test("every refusal of an owned file says why in its own words, apart from the o
     for (const reason of refusals) assert.notEqual(reason, "");
     assert.equal(new Set(refusals.slice(0, 4)).size, 4, `two refusals share a reason: ${JSON.stringify(refusals)}`);
     assert.equal(refusals[4], refusals[1], "a write is refused for the reason a read of the same file is");
+  });
+});
+
+/* ── ensuring a directory ──────────────────────────────────────────────────────────────────────── */
+
+test("ensuring a directory makes every directory of the path, however deep, and leaves one that is there with what is in it", () => {
+  withSuite((s) => {
+    ensureOwnedSpecDir(s.root, "a/b/c");
+    assert.equal(lstatSync(join(s.specDir, "a", "b", "c")).isDirectory(), true);
+
+    writeFileSync(join(s.specDir, "a", "b", "c", "kept.txt"), "kept");
+    ensureOwnedSpecDir(s.root, "a/b/c");
+    ensureOwnedSpecDir(s.root, "a/b");
+
+    assert.equal(readFileSync(join(s.specDir, "a", "b", "c", "kept.txt"), "utf8"), "kept");
+    assert.deepEqual(readdirSync(join(s.specDir, "a", "b")), ["c"]);
+  });
+});
+
+test("ensuring a directory spelled with empty and dot segments makes the directory those segments name, and the spec directory is its own", () => {
+  withSuite((s) => {
+    ensureOwnedSpecDir(s.root, "./a//b/./c/");
+    assert.deepEqual(readdirSync(join(s.specDir, "a", "b")), ["c"]);
+
+    for (const rel of [".", "./", "./."]) ensureOwnedSpecDir(s.root, rel);
+    assert.deepEqual(readdirSync(s.specDir), ["a"], "and makes nothing else");
+  });
+});
+
+test("ensuring a directory through a symlink anywhere on the way makes nothing, whatever the symlink points at", () => {
+  withSuite((s) => {
+    mkdirSync(join(s.specDir, "inside"));
+    for (const [name, target] of [["out", s.outside], ["in", join(s.specDir, "inside")]] as const) {
+      symlinkSync(target, join(s.specDir, name));
+      assert.throws(() => ensureOwnedSpecDir(s.root, name), refusedAs(name), `${name}: the directory asked for is a symlink`);
+      assert.throws(() => ensureOwnedSpecDir(s.root, `${name}/deeper/still`), refusedAs(`${name}/deeper/still`), `${name}: a directory on the way is a symlink`);
+    }
+    assert.deepEqual(readdirSync(s.outside).sort(), ["manifest.json", "victim.txt"], "nothing is made outside");
+    assert.deepEqual(readdirSync(join(s.specDir, "inside")), [], "nor in the directory it points at inside");
+    assert.equal(lstatSync(join(s.specDir, "out")).isSymbolicLink(), true, "the symlinks are as they were: they are not this call's to remove");
+  });
+});
+
+test("ensuring a directory is refused when the directory asked for, or one on the way, is a regular file, and the file is left as it is", () => {
+  withSuite((s) => {
+    writeFileSync(join(s.specDir, "taken"), "a file");
+    assert.throws(() => ensureOwnedSpecDir(s.root, "taken"), refusedAs("taken"));
+    assert.throws(() => ensureOwnedSpecDir(s.root, "taken/below"), refusedAs("taken/below"));
+
+    assert.equal(readFileSync(join(s.specDir, "taken"), "utf8"), "a file");
+  });
+});
+
+test("ensuring a directory is refused for a named pipe in its place, which is not opened", { skip: NO_NAMED_PIPES }, async () => {
+  await withSuiteAsync(async (s) => {
+    execFileSync("mkfifo", [join(s.specDir, "pipe")]);
+
+    await withoutWaitingOnNamedPipe(join(s.specDir, "pipe"), () => assert.throws(() => ensureOwnedSpecDir(s.root, "pipe"), refusedAs("pipe")));
+
+    assert.equal(lstatSync(join(s.specDir, "pipe")).isFIFO(), true);
+  });
+});
+
+test("ensuring a directory is refused when the spec directory is a symlink, leaves the mirror or is missing, and makes nothing", () => {
+  withSuite((s) => {
+    symlinkSync(s.specDir, join(s.mirror, "e2e-link"));
+    for (const root of [
+      { mirrorDir: s.mirror, specDir: join(s.mirror, "e2e-link") },
+      { mirrorDir: join(s.tmp, "elsewhere-mirror"), specDir: s.specDir },
+      { mirrorDir: s.mirror, specDir: join(s.mirror, "no-such-dir") },
+    ]) {
+      assert.throws(() => ensureOwnedSpecDir(root, "sub"), refusedAs("sub"), JSON.stringify(root));
+    }
+    assert.deepEqual(readdirSync(s.specDir), [], "the spec directory was not touched");
+    assert.deepEqual(readdirSync(s.mirror).sort(), ["e2e", "e2e-link"], "and nothing was made beside it");
+  });
+});
+
+test("ensuring a directory is refused for an empty, absolute or parent-bearing path, and makes nothing", () => {
+  withSuite((s) => {
+    for (const rel of ["", s.outside, "/escaped", "../escaped", "a/../../escaped"]) {
+      assert.throws(() => ensureOwnedSpecDir(s.root, rel), refusedAs(rel), JSON.stringify(rel));
+    }
+    assert.deepEqual(readdirSync(s.mirror), ["e2e"], "nothing beside the spec directory");
+    assert.deepEqual(readdirSync(s.specDir), [], "nor in it");
   });
 });

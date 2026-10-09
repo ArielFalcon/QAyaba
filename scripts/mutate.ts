@@ -68,6 +68,10 @@ const PUB_TEST = "qa-engine/test/contexts/workspace-and-publication/domain";
 const PUB_INFRA = "qa-engine/src/contexts/workspace-and-publication/infrastructure";
 const OS_INFRA = "qa-engine/src/contexts/objective-signal/infrastructure";
 const OS_INFRA_TEST = "qa-engine/test/contexts/objective-signal/infrastructure";
+const TOPO = "qa-engine/src/contexts/service-topology/infrastructure";
+const TOPO_TEST = "qa-engine/test/contexts/service-topology/infrastructure";
+const TE_INFRA = "qa-engine/src/contexts/test-execution/infrastructure";
+const TE_INFRA_TEST = "qa-engine/test/contexts/test-execution/infrastructure";
 
 const DEFAULT_THRESHOLDS: MutationThresholds = { high: 90, low: 80, break: null };
 
@@ -404,7 +408,7 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
     concurrency: 2,
   },
   "spec-path-confinement": {
-    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole), the strict read, listing and write of the files the orchestrator keeps in the spec directory (no link on the way, a capped listing, a temporary file renamed over the target) and the walk of the specs that never follows a link and names what it could not walk, with the sites that read, probe, write or list through them: the manifest's IO, the read gate's manifest check and zero-assertion scan, the context map, what setup reads and replaces in the project (the fixtures, ignore, login and config files, the lock and the install marker) and the login's stock check",
+    description: "spec path confinement: the one reader of a path an agent reported (the real-path anchor, the refusal of symlinks, parent segments, absolute paths and named pipes, the size cap, the released descriptor, the descriptor tied to the validated file by its identity and by the kernel's path, the file read whole), the strict read, listing, directory and write of the files the orchestrator keeps in the spec directory (no link on the way, a capped listing, a temporary file renamed over the target), the removal of what refuses a read (a name unlinked or a directory set aside, never opened or followed, never outside the spec directory) and the walk of the specs that never follows a link, looks at no more than a cap of entries in all and names what it could not walk, and the walk of the files of a repository that follows no link, counts what is no file, directory or link and is held to a cap of entries and of files, with the sites that read, probe, write, list or remove through them: the manifest's IO, the read gate's manifest check and zero-assertion scan, the context map, what setup reads, copies and replaces in the project (the seed, flows/, the fixtures, ignore, login and config files, the lock and the install marker, which it removes once when the strict read refuses it), the login's stock check and the verdict parser's listing of the suite",
     mutate: [
       "qa-engine/src/shared-infrastructure/spec-path-confinement.ts",
       /* The manifest's file hashes, its strict read (a refusal is "no manifest") and its write (a refusal is thrown). */
@@ -415,20 +419,24 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/src/contexts/test-execution/infrastructure/static-gate.checks.ts:147-159",
       /* The context map: a strict read, and warnings that say nothing of what the file holds. */
       `${ORCH}/infrastructure/bridges/pre-generation-grounding-port.adapter.ts:86-117`,
-      /* Setup: the caps, the strict read and replacement of each file of the project (a refusal fails the setup), the lock vetted before an install is started, and the wiring of the real strict calls. */
-      `${PUB_INFRA}/setup.adapter.ts:22-23`,
-      `${PUB_INFRA}/setup.adapter.ts:213-220`,
-      `${PUB_INFRA}/setup.adapter.ts:281-420`,
-      `${PUB_INFRA}/setup.adapter.ts:424-425`,
+      /* Setup: the caps, the strict copy of the seed and the wiring of the real strict calls, the strict read and replacement of each file of the project (a refusal fails the setup), the removal of what refuses the install marker, and the lock vetted before an install is started. */
+      `${PUB_INFRA}/setup.adapter.ts:25-26`,
+      `${PUB_INFRA}/setup.adapter.ts:220-265`,
+      `${PUB_INFRA}/setup.adapter.ts:315-490`,
+      `${PUB_INFRA}/setup.adapter.ts:494-495`,
       /* The login's stock check: a strict read whose refusal fails the login. */
       `${ORCH}/infrastructure/auth-session.adapter.ts:73-73`,
       `${ORCH}/infrastructure/auth-session.adapter.ts:231-237`,
+      /* The verdict parser's listing of the suite: the one walk of the specs, with its cap. */
+      `${GEN}/infrastructure/verdict-parser.adapter.ts:15-18`,
     ],
     tests: [
       "qa-engine/test/shared-infrastructure/spec-path-confinement.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.seam.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.owned.test.ts",
       "qa-engine/test/shared-infrastructure/spec-path-confinement.listing.test.ts",
+      "qa-engine/test/shared-infrastructure/spec-path-confinement.purge.test.ts",
+      "qa-engine/test/shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
       /* Lever-2's spec sources, the reviewer's inlining and the review DOM grounding. */
       `${ORCH_TEST}/infrastructure/bridges/generation-port.adapter.test.ts`,
       `${ORCH_TEST}/infrastructure/bridges/review-dom-grounding-port.adapter.test.ts`,
@@ -446,13 +454,15 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       "qa-engine/test/contexts/workspace-and-publication/infrastructure/setup.adapter.test.ts",
       `${ORCH_TEST}/infrastructure/auth-session.adapter.confinement.test.ts`,
       `${ORCH_TEST}/infrastructure/auth-session.adapter.test.ts`,
+      /* The verdict parser's listing of the suite. */
+      `${GEN_TEST}/infrastructure/verdict-parser.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },
   "run-output-readers": {
     description: "what a run of the tests leaves for the orchestrator to read: the strict, capped read of a directory of output and of a native report (never waits on a pipe, never follows a link, never throws, says how many files it left out and why without naming or quoting them, and uses a set of dumps, reports or counters whole or not at all, so that the coverage or the count of a part is never taken for the run's), the coverage dumps and reports, the collector that reads the reports of every kind together, the fault-injection counters and the oracle's reading of the count (an unknown count gives no score), the counter also through the composition root that wires it (whose own lines are broken by hand)",
     mutate: [
-      `${OS_INFRA}/run-output-reader.ts`,
+      "qa-engine/src/shared-infrastructure/run-output-reader.ts",
       `${OS_INFRA}/coverage-dump-reader.ts`,
       `${OS_INFRA}/target-coverage-collector.ts`,
       `${OS_INFRA}/fault-injection-counter-reader.ts`,
@@ -460,6 +470,8 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA}/fault-injection-oracle.adapter.ts:38-49`,
     ],
     tests: [
+      /* The reader's own cases: what a directory that is cut at the entry cap is, to a set used whole and to one scanned. */
+      "qa-engine/test/shared-infrastructure/run-output-reader.test.ts",
       `${OS_INFRA_TEST}/coverage-dump-reader.test.ts`,
       `${OS_INFRA_TEST}/coverage-dump-reader.confinement.test.ts`,
       `${OS_INFRA_TEST}/fault-injection-counter-reader.test.ts`,
@@ -468,6 +480,84 @@ export const PRESETS: Readonly<Record<string, MutationPreset>> = {
       `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
       /* Apart from rewritten-engine-factory.test.ts, whose many tests would all run once per mutant. */
       "src/server/rewritten-engine-factory.fault-injection.test.ts",
+      /* The scan that the e2e runner reads the failure dumps with: it uses what it can and keeps going, where the readers above use a set whole or not at all. */
+      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "e2e-run-reads": {
+    description: "what the e2e runner reads back from the Playwright child, which runs code the agent wrote: the JSON report (a strict, capped read that never waits on a pipe or follows a link, and a report that cannot be used is a run with no result, infrastructure and never a pass, said with the reason and nothing the report held) and the failure-capture dumps (each read strictly under a cap, each that cannot be used left out so that its case runs without grounding, said once for the directory with a count and a reason and no file's name or content), with the lines of the runner that read them back",
+    mutate: [
+      /* The caps, the report's read, the dump's decoding and the dumps' read. */
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:325-392",
+      /* What the runner does when the child is gone: reads the report, before the directory it is in is removed (a line apart, which is the removal and not a read), and says why when it could not. */
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:577-579",
+      "qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts:581-583",
+    ],
+    tests: [
+      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.confinement.test.ts",
+      "qa-engine/test/contexts/test-execution/infrastructure/e2e-execution.runner.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "v8-coverage-decode": {
+    description: "what a V8 browser coverage dump says of the changed files, which the agent's tests wrote: the lines of a changed file that have a byte that ran (a script served at the file's URL, or a bundle read through its source map), decoded in time and memory bounded by the dump's size and not by its numbers (ranges painted from the last back so that every byte is decided once, the lines of a script and the lines of a file bounded, the source map's segments taken one at a time, a script that is no changed file never decoded) and the adapter that adds up what each dump covered",
+    mutate: [`${OS_INFRA}/v8-browser-coverage.adapter.ts`],
+    tests: [
+      `${OS_INFRA_TEST}/v8-browser-coverage.parse.test.ts`,
+      `${OS_INFRA_TEST}/v8-browser-coverage.adapter.test.ts`,
+      /* The read that reduces each dump as it is read, and the collector the factory builds over it. */
+      `${OS_INFRA_TEST}/coverage-dump-reader.test.ts`,
+      `${OS_INFRA_TEST}/target-coverage-collector.test.ts`,
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "repo-reads": {
+    description: "what the orchestrator reads of the mirror of a repository and writes of what it stages from one, directories the agent can write into: the walk of the files of a repository's tree and the reader that skips what it cannot use and says it once without a name or a byte of a file (no link followed, no named pipe opened, entries and sizes bounded), the three boundary resolvers that read the sources and the OpenAPI document of every repository of a system through it, and the staging of a service's context (the service's files listed, read and omitted with a reason when refused, the staging directory emptied and written through the strict calls rooted at the working copy)",
+    mutate: [
+      "qa-engine/src/shared-infrastructure/repo-reader.ts",
+      `${TOPO}/repo-walk.ts`,
+      /* The loops that list and read each repository's sources, and the OpenAPI documents. */
+      `${TOPO}/event-resolver.adapter.ts:49-59`,
+      `${TOPO}/http-backend-resolver.adapter.ts:65-76`,
+      `${TOPO}/http-backend-resolver.adapter.ts:83-88`,
+      `${TOPO}/http-backend-resolver.adapter.ts:130-130`,
+      `${TOPO}/openapi-http-resolver.adapter.ts:269-289`,
+      /* The staging: the reset of the directory, what is staged and what is read, the listing, the manifest and the default strict calls. */
+      "src/server/service-context.ts:137-138",
+      "src/server/service-context.ts:150-152",
+      "src/server/service-context.ts:159-167",
+      "src/server/service-context.ts:174-174",
+      "src/server/service-context.ts:193-204",
+      "src/server/service-context.ts:232-233",
+      "src/server/service-context.ts:245-282",
+    ],
+    tests: [
+      "qa-engine/test/shared-infrastructure/repo-reader.test.ts",
+      `${TOPO_TEST}/resolvers.confinement.test.ts`,
+      `${TOPO_TEST}/event-resolver.adapter.test.ts`,
+      `${TOPO_TEST}/http-backend-resolver.adapter.test.ts`,
+      `${TOPO_TEST}/openapi-http-resolver.adapter.test.ts`,
+      "src/server/service-context.confinement.test.ts",
+      "src/server/service-context.test.ts",
+    ],
+    thresholds: DEFAULT_THRESHOLDS,
+  },
+  "code-run-reads": {
+    description: "what a code run reads of its repository's working copy and writes into it, which the agent writes into: the manifest that names the test command (a strict, capped read that never waits on a pipe or follows a link; one that cannot be used is no manifest, said with the reason and nothing the file held) and the mutation oracle's config (replaced through a temporary file, never written through a link, and a config that cannot be written leaves the run unmeasured without starting Stryker) and report (a strict, capped read; one that cannot be used is a run that produced none)",
+    mutate: [
+      `${TE_INFRA}/code-execution.runner.ts:48-74`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:16-17`,
+      /* The write of the config (not what the config holds, which is other code) and the read of the report. */
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:57-58`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:74-75`,
+      `${OS_INFRA}/stryker-mutation-oracle.adapter.ts:77-100`,
+    ],
+    tests: [
+      `${TE_INFRA_TEST}/code-execution.detect.confinement.test.ts`,
+      `${TE_INFRA_TEST}/code-execution.runner.test.ts`,
+      `${OS_INFRA_TEST}/stryker-mutation-oracle.confinement.test.ts`,
+      `${OS_INFRA_TEST}/stryker-mutation-oracle.adapter.test.ts`,
     ],
     thresholds: DEFAULT_THRESHOLDS,
   },

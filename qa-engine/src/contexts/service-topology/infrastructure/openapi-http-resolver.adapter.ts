@@ -1,6 +1,5 @@
-/* OpenAPI-anchored FE↔BE HTTP link resolver. App-specific patterns come from the injected HttpBoundaryProfile. Per-repo errors degrade to an empty result for that repo — never throws. from.symbol walks the AST to the enclosing method; falls back to a backward-scan heuristic if tree-sitter fails to load. */
-import { readFileSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+/* OpenAPI-anchored FE↔BE HTTP link resolver. App-specific patterns come from the injected HttpBoundaryProfile. Per-repo errors degrade to an empty result for that repo — never throws. from.symbol walks the AST to the enclosing method; falls back to a backward-scan heuristic if tree-sitter fails to load. The OpenAPI documents and the front's sources are read through one RepoReader for each repository (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository. */
+import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
 import type {
@@ -10,8 +9,9 @@ import type {
 import { CallSiteCatalog, type CallSiteOccurrence } from "./call-site-catalog.ts";
 import { compilePrefixTemplate, compileRepoTemplate, type PrefixMatch } from "./boundary-template.ts";
 import { compileFileGlob } from "./glob-suffix.ts";
-import { walkRepoFiles } from "./repo-walk.ts";
+import { MAX_TOPOLOGY_OPENAPI_BYTES, MAX_TOPOLOGY_SOURCE_BYTES, SKIP_VENDOR_DIRS } from "./repo-walk.ts";
 import { parseOpenApiYaml, findOp, segs, isParam, type IngressOp } from "./openapi-ingress.ts";
+import { RepoReader } from "../../../shared-infrastructure/repo-reader.ts";
 
 const CONST_RE = /(?:export\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(['"`])((?:\\.|(?!\2).)*)\2/g;
 
@@ -23,12 +23,10 @@ interface EgressCallSite {
   enclosingMethod: string | null;
 }
 
-/** Build a const-resolution map from all *.api.ts files. Cross-file const refs use the last-seen value. */
-function buildConstMap(apiFiles: string[]): Record<string, string> {
+/** Build a const-resolution map from all *.api.ts files (their text, by path below the repository, in the order of their names). Cross-file const refs use the last-seen value. */
+function buildConstMap(apiFiles: ReadonlyMap<string, string>): Record<string, string> {
   const consts: Record<string, string> = {};
-  for (const f of apiFiles) {
-    let text: string;
-    try { text = readFileSync(f, "utf8"); } catch { continue; }
+  for (const text of apiFiles.values()) {
     CONST_RE.lastIndex = 0;
     for (let m; (m = CONST_RE.exec(text)) !== null;) {
       const name = m[1];
@@ -212,8 +210,7 @@ async function buildEnclosingMethodMap(
  *  selected by `frontCallSite.kind` (looked up in the in-core CallSiteCatalog) and the concrete
  *  receiver from config. Async because tree-sitter initialization is async (WASM load). */
 async function extractEgress(
-  apiFiles: string[],
-  mirrorDir: string,
+  apiFiles: ReadonlyMap<string, string>,
   consts: Record<string, string>,
   frontCallSite: HttpBoundaryProfile["frontCallSite"],
 ): Promise<EgressCallSite[]> {
@@ -221,11 +218,7 @@ async function extractEgress(
   if (!extractor) return []; /* unknown call-site kind in config — fail-open, no match */
 
   const result: EgressCallSite[] = [];
-  for (const full of apiFiles) {
-    let text: string;
-    try { text = readFileSync(full, "utf8"); } catch { continue; }
-    const relFile = full.slice(mirrorDir.length + 1);
-
+  for (const [relFile, text] of apiFiles) {
     const callSites: CallSiteOccurrence[] = extractor(text, frontCallSite);
 
     const enclosingMap = await buildEnclosingMethodMap(text, callSites.map((c) => c.index));
@@ -274,18 +267,26 @@ export class OpenApiHttpResolver implements ServiceBoundaryResolverPort {
     const knownServices = new Set<string>();
     const repoOfService = new Map<string, RepoRef>();
     for (const repo of system) {
-      const openapiPath = join(repo.mirrorDir, this.profile.openApiPath);
-      let content: string;
-      try { content = readFileSync(openapiPath, "utf8"); } catch { continue; }
+      const reader = new RepoReader(repo.mirrorDir);
+      const content = reader.optionalText(this.profile.openApiPath, MAX_TOPOLOGY_OPENAPI_BYTES);
+      reader.warn(repo.repo);
+      if (content === undefined) continue;
       const service = this.serviceOfRepo(repo);
       knownServices.add(service);
       repoOfService.set(service, repo);
       ingress.push(...parseOpenApiYaml(service, content));
     }
 
-    const apiFiles = walkRepoFiles(front.mirrorDir, (name) => this.isFrontEgressFile(name));
+    /* Each source is read once, in the order of the names: the const map and the call sites are both made from the same text. */
+    const frontReader = new RepoReader(front.mirrorDir);
+    const apiFiles = new Map<string, string>();
+    for (const rel of frontReader.files((name) => this.isFrontEgressFile(name), SKIP_VENDOR_DIRS)) {
+      const text = frontReader.listedText(rel, MAX_TOPOLOGY_SOURCE_BYTES);
+      if (text !== undefined) apiFiles.set(rel, text);
+    }
+    frontReader.warn(front.repo);
     const consts = buildConstMap(apiFiles);
-    const egress = await extractEgress(apiFiles, front.mirrorDir, consts, this.profile.frontCallSite);
+    const egress = await extractEgress(apiFiles, consts, this.profile.frontCallSite);
 
     const links: ServiceLink[] = [];
     const drift: ContractDrift[] = [];

@@ -1,12 +1,12 @@
 /* The one reader of a path an agent reported. The agent writes the suite's spec files and names them in its verdict, so a reported name is untrusted input: it can be absolute, climb out with `..`, or be a symlink or a named pipe the agent planted. Every orchestrator read or probe of such a reported name goes through here (the generation port's spec sources and the specs it hands a regeneration, the reviewer's inlining, the review DOM grounding, the manifest's file hashes, the sidekick's claimed files and the pre-exec capture), anchored on the real location of the mirror, and none of them follows a link out of the spec directory or reads anything but the regular file it validated. A file is judged by lstat before it is opened, so a named pipe or a device is not opened on purpose.
    The path can still be swapped between that check and the open by a process the agent left running, and O_NOFOLLOW covers only the last component, so the descriptor is judged as well. Where the platform can name the file a descriptor really is (Linux, through procfs), that kernel path must lie inside the spec directory: it does not depend on any path being walked again, and it closes the window for every file the agent cannot move into the spec directory, which is every file outside the volume it shares with the orchestrator. Where the platform cannot (macOS), the descriptor's device and inode must equal those of the file validated before the open and again after it: that narrows the window to a process flipping the path at exactly the right instants, and does not close it. Hard links stay out of scope. A file is read whole or not at all.
-   The orchestrator also reads, lists and keeps files in that directory that no verdict names, where the agent can plant a link at the file or at the directory above it, a named pipe, or a file or a directory of any size. Those are read, listed and written strictly, by `readOwnedSpecFile`, `listOwnedSpecDir` and `writeOwnedSpecFile`: no symlink anywhere below the spec directory, a regular file at the end of a path (an ordinary directory, listed entry by entry up to a cap, for a directory), a read under a cap, and a write that goes through an exclusively created temporary file renamed over the target, never through a link. A directory is judged by its path before it is opened and is not looked at again, since only its names are taken: a swap in that window can show the names of another directory, never what an entry holds, because every entry is then read through the strict read of its own.
-   Exactly what goes through here. The reported names above. The manifest and the context map, in `.qa`. What setup reads and replaces in the project directory: the fixtures file, the ignore file, the login setup, the Playwright config, the lock file and the install marker (which `git clean -fd -e node_modules` leaves in place from one run to the next). The login's stock check of `auth.setup.ts`. What a run of the tests leaves for the orchestrator to read: the coverage dumps under `.qa/coverage`, the native coverage reports of a code run (lcov, Istanbul, JaCoCo) and the fault-injection counters under `.qa/fault-injection`. The specs that the read gate scans and the grounding lists, which are listed without following a link (`scanSpecTree`, `listSpecFiles`) and read like a reported name; what the walk could not walk (a link to a directory, a directory it could not list) is named, and the read gate refuses it. There is no analysis map to read: the agent writes `.qa/analysis.json` and no orchestrator code opens it. Not read through here: the fixtures file read for harness facts, which has an open of its own that neither follows a link nor waits on a pipe; the failure-capture dumps and the Playwright report that the e2e runner reads back from the temporary directories it makes for a run of the tests; and the files of other repositories' mirrors that the staging of a service's context and the topology resolvers read.
+   The orchestrator also reads, lists and keeps files in that directory that no verdict names, where the agent can plant a link at the file or at the directory above it, a named pipe, or a file or a directory of any size. Those are read, listed, made and written strictly, by `readOwnedSpecFile`, `listOwnedSpecDir`, `ensureOwnedSpecDir` and `writeOwnedSpecFile` (and what keeps one of them from being read for good, because it survives from one run to the next, is removed without being opened or followed by `purgeRefusedPath`): no symlink anywhere below the spec directory, a regular file at the end of a path (an ordinary directory, listed entry by entry up to a cap, for a directory), a read under a cap, and a write that goes through an exclusively created temporary file renamed over the target, never through a link. A directory is judged by its path before it is opened and is not looked at again, since only its names are taken: a swap in that window can show the names of another directory, never what an entry holds, because every entry is then read through the strict read of its own.
+   Exactly what goes through here. The reported names above. The manifest and the context map, in `.qa`. What setup reads and replaces in the project directory: the fixtures file, the ignore file, the login setup, the Playwright config, the lock file and the install marker (which `git clean -fd -e node_modules` leaves in place from one run to the next). The login's stock check of `auth.setup.ts`. What a run of the tests leaves for the orchestrator to read: the coverage dumps under `.qa/coverage`, the native coverage reports of a code run (lcov, Istanbul, JaCoCo), the fault-injection counters under `.qa/fault-injection`, the Playwright report and the failure-capture dumps that the e2e runner reads back from the temporary directories it makes for a run of the tests, and the report of the mutation oracle. What a code run reads of the working copy (the manifest that names its test command) and writes into it (the oracle's config). The specs that the read gate scans and the grounding lists, which are listed without following a link and looking at no more than a cap of entries (`scanSpecTree`, `listSpecFiles`) and read like a reported name; what the walk could not walk (a link to a directory, a directory it could not list, a directory it was cut in) is named, and the read gate refuses it. The files of a repository's mirror that the topology resolvers read (`walkRepoFiles`, then the strict read of each) and that the staging of a service's context lists, reads and stages, into the front's working copy, which is written through the strict calls too. There is no analysis map to read: the agent writes `.qa/analysis.json` and no orchestrator code opens it. Not read through here: the fixtures file read for harness facts, which has an open of its own that neither follows a link nor waits on a pipe.
    Synchronous, and it lives in shared-infrastructure because the kernel holds no fs code and several contexts need it. */
 
 import { randomBytes } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, type Dirent } from "node:fs";
-import { basename, isAbsolute, join, posix, resolve, sep } from "node:path";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, readlinkSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync, type Dir, type Dirent } from "node:fs";
+import { basename, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 
 /* A spec, a fixtures file, a login script or a config file is source a person would read; one larger than this is not read. */
 export const MAX_SPEC_SOURCE_BYTES = 256 * 1024;
@@ -204,12 +204,14 @@ export interface SpecTree {
   unwalked: UnwalkedPath[];
 }
 
+/* The most directory entries one walk looks at, all the directories it walks together: a suite is some hundreds of specs and the files that go with them, so this is far beyond any real one. */
+export const MAX_SPEC_WALK_ENTRIES = 20_000;
 const LINK_TO_DIRECTORY = "is a link to a directory, which is never walked";
 const LINK_UNEXAMINED = "is a link that cannot be examined";
 const DIRECTORY_UNLISTED = "is a directory that cannot be listed";
 
-/* Every *.spec.ts below `dir`, relative to it, and what could not be walked. Installed packages and dot-directories are skipped, as Playwright skips them: they are not the suite's specs. The directory is one the agent writes into, so a symbolic link in it is never walked, whatever it points at, and `dir` is not one either: no name from outside it is listed, nothing is listed twice, and a link back up cannot make the walk run away. A link to a directory is named as unwalked, since a tool that does follow it (tsc, ESLint, Playwright) would reach specs that nothing here checks, and so is a link that cannot be examined and a directory that cannot be listed; a link to nothing, or to a file that is no spec, leads to nothing to run and is left out. A file named like a spec is listed by its own name; what it points at is for the confined reader to refuse. A `dir` that is not a real directory (missing, a file, a link) has nothing to walk and is for the caller to judge. */
-export function scanSpecTree(dir: string): SpecTree {
+/* Every *.spec.ts below `dir`, relative to it, and what could not be walked. Installed packages and dot-directories are skipped, as Playwright skips them: they are not the suite's specs. The directory is one the agent writes into, so a symbolic link in it is never walked, whatever it points at, and `dir` is not one either: no name from outside it is listed, nothing is listed twice, and a link back up cannot make the walk run away. A link to a directory is named as unwalked, since a tool that does follow it (tsc, ESLint, Playwright) would reach specs that nothing here checks, and so is a link that cannot be examined and a directory that cannot be listed; a link to nothing, or to a file that is no spec, leads to nothing to run and is left out. A file named like a spec is listed by its own name; what it points at is for the confined reader to refuse. A `dir` that is not a real directory (missing, a file, a link) has nothing to walk and is for the caller to judge. The agent can also make a directory as large as the disk lets it, so the directories are read entry by entry and no more than `maxEntries` entries are looked at in all: a directory with entries past that is named as unwalked, as is every directory reached once the cap is spent, since none of their entries was looked at. */
+export function scanSpecTree(dir: string, maxEntries: number = MAX_SPEC_WALK_ENTRIES): SpecTree {
   const tree: SpecTree = { specs: [], unwalked: [] };
   try {
     /* A directory itself, not a link to one: judged by lstat of the path without a trailing separator, since `lstat("link/")` would follow the link. */
@@ -217,7 +219,7 @@ export function scanSpecTree(dir: string): SpecTree {
   } catch {
     return tree;
   }
-  walkSpecFiles(dir, "", tree);
+  walkSpecFiles(dir, "", tree, { left: maxEntries, cap: maxEntries });
   return tree;
 }
 
@@ -226,20 +228,48 @@ export function listSpecFiles(dir: string): string[] {
   return scanSpecTree(dir).specs;
 }
 
-/* Each entry is told apart by what it is itself, never by what a link points at, so a link is never descended into. */
-function walkSpecFiles(dir: string, rel: string, tree: SpecTree): void {
-  let entries: Dirent[];
+/* How many entries a walk may still look at, and how many it was given. */
+interface WalkBudget {
+  left: number;
+  cap: number;
+}
+
+/* The entries of a directory, taken one at a time and no more than the walk has left to look at: `cut` says there were more. A directory that cannot be opened or read to its end is undefined, since half a listing is not one. */
+function readWalkEntries(dir: string, budget: WalkBudget): { entries: Dirent[]; cut: boolean } | undefined {
+  let handle: Dir;
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    handle = opendirSync(dir);
   } catch {
+    return undefined;
+  }
+  try {
+    const entries: Dirent[] = [];
+    for (let entry = handle.readSync(); entry !== null; entry = handle.readSync()) {
+      if (budget.left === 0) return { entries, cut: true };
+      budget.left -= 1;
+      entries.push(entry);
+    }
+    return { entries, cut: false };
+  } catch {
+    return undefined;
+  } finally {
+    handle.closeSync();
+  }
+}
+
+/* Each entry is told apart by what it is itself, never by what a link points at, so a link is never descended into. */
+function walkSpecFiles(dir: string, rel: string, tree: SpecTree, budget: WalkBudget): void {
+  const read = readWalkEntries(dir, budget);
+  if (read === undefined) {
     tree.unwalked.push({ path: rel, reason: DIRECTORY_UNLISTED });
     return;
   }
-  for (const entry of entries) {
+  if (read.cut) tree.unwalked.push({ path: rel, reason: `holds more entries than the ${budget.cap} the walk looks at in all, so not all of them are walked` });
+  for (const entry of read.entries) {
     const entryRel = join(rel, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      walkSpecFiles(join(dir, entry.name), entryRel, tree);
+      walkSpecFiles(join(dir, entry.name), entryRel, tree, budget);
     } else if (entry.name.endsWith(".spec.ts")) {
       tree.specs.push(entryRel);
     } else if (entry.isSymbolicLink()) {
@@ -247,6 +277,66 @@ function walkSpecFiles(dir: string, rel: string, tree: SpecTree): void {
       if (reason !== undefined) tree.unwalked.push({ path: entryRel, reason });
     }
   }
+}
+
+/* What a walk of a repository's files is held to: the entries it looks at in all, and the files it takes. Far beyond any repository (a very large monorepo is some hundreds of thousands of entries once its installed packages are left out). */
+export interface RepoWalkLimits {
+  maxEntries: number;
+  maxFiles: number;
+}
+
+export const REPO_WALK_LIMITS: RepoWalkLimits = { maxEntries: 500_000, maxFiles: 200_000 };
+
+/* The files a walk of a repository's mirror took, relative to its root and "/"-separated, in the order of the names: `cut` says that entries or files past the limits were not looked at, `unlisted` how many directories could not be listed, `odd` how many entries were neither a directory, a regular file nor a link (a named pipe, a socket, a device: none belongs in a repository, so they are counted, while a link is an ordinary thing and is not), and `refused` why the root itself was not walked (it is a link or no directory). */
+export interface RepoWalk {
+  files: string[];
+  cut: boolean;
+  unlisted: number;
+  odd: number;
+  refused?: string;
+}
+
+/* The regular files of a repository's mirror that `accept` takes (given the file's name and its path below `root`), for a caller that reads them for something other than the suite: a topology resolver, the staging of a service's context. The mirror is a directory the agent writes into, and a repository's tree can hold committed links, so each entry is told apart by what it is itself and never by what a link points at: a directory is entered (unless it is one of `skipDirs`), a regular file is offered to `accept`, and a link, a named pipe or anything else is neither, so a link back up cannot make the walk run away and nothing outside the root is listed or opened. The directories are read entry by entry and no more than `limits.maxEntries` of them are looked at in all, and no more than `limits.maxFiles` files are taken, so that a directory as large as the disk lets it be cannot fill the memory or the time of the orchestrator. The entries of a directory are visited in the order of their names, so what the walk finds does not depend on the filesystem. The files are read, one by one, through readOwnedSpecFile, which judges each again. */
+export function walkRepoFiles(root: string, accept: (name: string, rel: string) => boolean, skipDirs: ReadonlySet<string>, limits: RepoWalkLimits = REPO_WALK_LIMITS): RepoWalk {
+  const walk: RepoWalk = { files: [], cut: false, unlisted: 0, odd: 0 };
+  const start = resolve(root);
+  try {
+    const stats = lstatSync(start);
+    if (!stats.isDirectory()) {
+      walk.refused = stats.isSymbolicLink() ? "the repository directory is a symbolic link" : "the repository directory is not a directory";
+      return walk;
+    }
+  } catch {
+    return walk;
+  }
+  const budget: WalkBudget = { left: limits.maxEntries, cap: limits.maxEntries };
+  const visit = (dir: string, rel: string): void => {
+    const read = readWalkEntries(dir, budget);
+    if (read === undefined) {
+      walk.unlisted += 1;
+      return;
+    }
+    if (read.cut) walk.cut = true;
+    const byName = new Map(read.entries.map((entry) => [entry.name, entry]));
+    for (const name of [...byName.keys()].sort()) {
+      const entry = byName.get(name)!;
+      const entryRel = rel === "" ? name : `${rel}/${name}`;
+      if (entry.isDirectory()) {
+        if (!skipDirs.has(name)) visit(join(dir, name), entryRel);
+      } else if (entry.isFile()) {
+        if (!accept(name, entryRel)) continue;
+        if (walk.files.length >= limits.maxFiles) {
+          walk.cut = true;
+          return;
+        }
+        walk.files.push(entryRel);
+      } else if (!entry.isSymbolicLink()) {
+        walk.odd += 1;
+      }
+    }
+  };
+  visit(start, "");
+  return walk;
 }
 
 /* Why a link that is no spec by its name is not walked, or undefined when there is nothing behind it to walk. It is followed here for a look at what it is, and for nothing else. */
@@ -371,8 +461,19 @@ function discard(path: string): void {
   }
 }
 
-/* Replaces the file at `rel` below the spec directory with `text`, strictly (see the header), creating the directories above it. The text goes into a temporary file created in the same directory, exclusively and without following a link, and the temporary file is renamed over the target: a rename replaces a link at the target instead of following it, so nothing is ever written through one. Where the platform names the file a descriptor is, the temporary file must be where it was asked for; the path is walked once more after it is made, so that a directory swapped meanwhile is refused too. Throws ConfinedPathError for a refusal and the failure itself for any other; a temporary file that was made is removed on every failure, from where the platform says it is and else from where it was asked for. */
-export function writeOwnedSpecFile(root: SpecRoot, rel: string, text: string, deps: SpecWriteDeps = defaultSpecWriteDeps): void {
+/* Makes the directory at `rel` below the spec directory, and the ordinary directories above it that are not there yet, strictly (see the header), and leaves one that is there as it is. Nothing is made through a link: a directory on the way, or the one asked for, that is a link, a named pipe or a file is refused. Throws ConfinedPathError for a refusal and the failure itself for any other. */
+export function ensureOwnedSpecDir(root: SpecRoot, rel: string): void {
+  const normalized = rel.replaceAll("\\", "/");
+  const refused = lexicalRefusal(normalized);
+  if (refused !== undefined) throw new ConfinedPathError(rel, refused);
+  const spec = confineSpecDir(root);
+  if ("reason" in spec) throw new ConfinedPathError(rel, spec.reason);
+  const walked = walkDirectories(spec.dir, normalized.split("/"), true);
+  if ("reason" in walked) throw new ConfinedPathError(rel, walked.reason);
+}
+
+/* Replaces the file at `rel` below the spec directory with `text`, strictly (see the header), creating the directories above it. The text goes into a temporary file created in the same directory, exclusively and without following a link, and the temporary file is renamed over the target: a rename replaces a link at the target instead of following it, so nothing is ever written through one. Where the platform names the file a descriptor is, the temporary file must be where it was asked for; the path is walked once more after it is made, so that a directory swapped meanwhile is refused too. Throws ConfinedPathError for a refusal and the failure itself for any other; a temporary file that was made is removed on every failure, from where the platform says it is and else from where it was asked for. The text is a string, or the bytes of a file that need not be text. */
+export function writeOwnedSpecFile(root: SpecRoot, rel: string, text: string | Uint8Array, deps: SpecWriteDeps = defaultSpecWriteDeps): void {
   const owned = walkOwned(root, rel, true);
   if ("reason" in owned) throw new ConfinedPathError(rel, owned.reason);
   const temp = join(owned.dir, `${basename(owned.file)}.${deps.randomSuffix()}.tmp`);
@@ -408,4 +509,79 @@ export function writeOwnedSpecFile(root: SpecRoot, rel: string, text: string, de
     discard(temp);
     throw err;
   }
+}
+
+/* ── removing what refuses the strict read ─────────────────────────────────────────────────────── */
+
+/* What a path is by lstat, which describes a link itself and not what it points at. */
+export interface PurgeStat {
+  isDirectory(): boolean;
+  isFile(): boolean;
+  size: number | bigint;
+}
+
+/* The calls a purge makes: what an entry is (undefined when nothing is there), the removal of a name, the rename that sets a directory aside, and the name it gets. Real in production; a test makes a call fail. */
+export interface SpecPurgeDeps {
+  lstat(path: string): PurgeStat | undefined;
+  unlink(path: string): void;
+  rename(from: string, to: string): void;
+  randomSuffix(): string;
+}
+
+export const defaultSpecPurgeDeps: SpecPurgeDeps = {
+  lstat: (path) => {
+    try {
+      return lstatSync(path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw err;
+    }
+  },
+  unlink: (path) => unlinkSync(path),
+  rename: (from, to) => renameSync(from, to),
+  randomSuffix: () => randomBytes(4).toString("hex"),
+};
+
+/* What a purge did: the entry it removed, as a path below the spec directory, and how, or that there was nothing to remove. */
+export type PurgeResult = { removed: string; how: "unlinked" | "set aside" } | { nothing: true };
+
+/* Whatever ends the call, a name that is gone is a name that is free. */
+function ignoreGone(run: () => void): void {
+  try {
+    run();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+}
+
+/* Removes what keeps the strict read of `rel` below the spec directory from vouching for it, so that a read that was refused can be tried again, and nothing else. It walks the path from the real spec directory one lstat at a time and stops at the first entry that is not what the read needs: a directory above the file that is a link, a named pipe, a socket, a device or a file, or the file itself when it is no regular file or is over `maxBytes`. That entry is the one that goes, and it goes without being opened or followed: a link, a pipe and the rest are unlinked (the name goes, a link's target is not touched), and a directory is set aside by a rename in its own parent (nothing below it is read or deleted). A regular file within the cap, an ordinary path and a path that is not there are not what refused the read: nothing is removed. Nothing outside the spec directory can be reached, since every name removed is one found by lstat under a directory that was itself found to be an ordinary one. Throws ConfinedPathError for a spec directory or a path that is refused, and any failure of a call as it is. */
+export function purgeRefusedPath(root: SpecRoot, rel: string, maxBytes: number, deps: SpecPurgeDeps = defaultSpecPurgeDeps): PurgeResult {
+  const normalized = rel.replaceAll("\\", "/");
+  const refused = lexicalRefusal(normalized);
+  if (refused !== undefined) throw new ConfinedPathError(rel, refused);
+  const spec = confineSpecDir(root);
+  if ("reason" in spec) throw new ConfinedPathError(rel, spec.reason);
+
+  /* An empty or `.` segment is no step of the path, as everywhere in this module: it names the directory it is in, which is never the entry to remove. */
+  const segments = normalized.split("/").filter((segment) => segment !== "" && segment !== ".");
+  let dir = spec.dir;
+  for (const [index, segment] of segments.entries()) {
+    const entry = join(dir, segment);
+    const stats = deps.lstat(entry);
+    if (stats === undefined) return { nothing: true };
+    const last = index === segments.length - 1;
+    if (stats.isDirectory() && !last) {
+      dir = entry;
+      continue;
+    }
+    if (last && stats.isFile() && Number(stats.size) <= maxBytes) return { nothing: true };
+    const removed = relative(spec.dir, entry).split(sep).join("/");
+    if (stats.isDirectory()) {
+      ignoreGone(() => deps.rename(entry, join(dir, `${segment}.refused-${deps.randomSuffix()}`)));
+      return { removed, how: "set aside" };
+    }
+    ignoreGone(() => deps.unlink(entry));
+    return { removed, how: "unlinked" };
+  }
+  return { nothing: true };
 }

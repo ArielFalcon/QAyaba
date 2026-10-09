@@ -1,9 +1,9 @@
 /* E2E Playwright runner against live DEV. Timeouts and recordAudit are injected — this module never reads process.env and never imports src/orchestrator. */
 
 import { spawn } from "node:child_process";
-import { writeFileSync, readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { QaCase, CaseStatus } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -14,6 +14,8 @@ import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandb
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { authSessionEnv } from "../../../shared-infrastructure/process-sandbox/auth-session-env.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
+import { describeReasons, scanRunOutputDir, type RunOutputLimits } from "../../../shared-infrastructure/run-output-reader.ts";
+import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 import { parsePlaywrightReport } from "./playwright-report.ts";
 import { PLAYWRIGHT_INFRA_RE } from "../domain/playwright-infra.ts";
 
@@ -320,33 +322,73 @@ export interface FailureDump {
   runtimeErrors?: { type: string; text: string }[];
 }
 
-export function readFailureDumps(dir: string): FailureDump[] {
-  let files: string[] = [];
-  try { files = readdirSync(dir); } catch { return []; }
-  const RETRY_RE = /__(\d+)\.json$/;
-  const out: FailureDump[] = [];
-  for (const f of files) {
-    const m = RETRY_RE.exec(f);
-    if (!m) continue;
-    try {
-      const body = JSON.parse(readFileSync(join(dir, f), "utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown };
-      const runtimeErrors = parseRuntimeErrors(body.runtimeErrors);
-      out.push({
-        project: typeof body.project === "string" ? body.project : "",
-        ...(typeof body.file === "string" ? { file: body.file } : {}),
-        title: typeof body.title === "string" ? body.title : "",
-        retry: typeof body.retry === "number" ? body.retry : parseInt(m[1]!, 10),
-        ...(typeof body.yaml === "string" ? { yaml: body.yaml } : {}),
-        /* Runtime evidence (HTTP status, final URL, runtime errors) — parsed defensively: absent/garbage → undefined, never throw. */
-        ...(typeof body.httpStatus === "number" && Number.isInteger(body.httpStatus) ? { httpStatus: body.httpStatus } : {}),
-        ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
-        ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
-      });
-    } catch (err) {
-      console.warn(`[qa] WARNING: failed to read failure capture dump ${f}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+/* What the Playwright child leaves in the two directories this module makes for a run: the JSON report and the failure-capture dumps. The child runs the repo's specs, which are code the agent wrote, and it knows both paths, so a named pipe, a link or a file of any size can be there instead of what the reporter or the fixture wrote. Both are read through the strict read of spec-path-confinement, under these caps, which are far beyond any real run: a Playwright report holds a few kilobytes per test, and an aria snapshot of a very large page a few megabytes. */
+export const MAX_PLAYWRIGHT_REPORT_BYTES = 128 * 1024 * 1024;
+export const MAX_FAILURE_DUMP_BYTES = 8 * 1024 * 1024;
+export const MAX_FAILURE_DUMPS_TOTAL_BYTES = 128 * 1024 * 1024;
+export const MAX_FAILURE_DUMP_FILES = 4_096;
+export const FAILURE_DUMP_LIMITS: RunOutputLimits = {
+  maxFileBytes: MAX_FAILURE_DUMP_BYTES,
+  maxTotalBytes: MAX_FAILURE_DUMPS_TOTAL_BYTES,
+  maxFiles: MAX_FAILURE_DUMP_FILES,
+};
+
+/* Why a report that was there is no report: said in words that quote nothing it holds, since a parser's message does. */
+const REPORT_NOT_JSON = "the report is not valid JSON";
+
+/* The report, or that the run has none: with the reason when there was a report that could not be used, and with none when there was no report at all. */
+export type PlaywrightReportRead = { ran: true; report: unknown } | { ran: false; reason: string } | { ran: false };
+
+/* The report the child left at `jsonPath`, parsed, or why there is none. A report that is not there is a run that did not report (no reason to give); one that is there and cannot be used (a link, a named pipe, a directory, one over the cap, one that cannot be read, one that is not JSON) is refused with the reason of the module's own. Either way the run has no result, which is infrastructure and never a pass. Never throws and never waits on a pipe. */
+export function readPlaywrightReport(jsonPath: string, maxBytes: number = MAX_PLAYWRIGHT_REPORT_BYTES): PlaywrightReportRead {
+  const dir = dirname(jsonPath);
+  let read: OwnedSpecRead;
+  try {
+    read = readOwnedSpecFile({ mirrorDir: dir, specDir: dir }, basename(jsonPath), maxBytes);
+  } catch (err) {
+    return { ran: false, reason: readFailureReason(err) };
   }
-  return out;
+  if ("absent" in read) return { ran: false };
+  if ("reason" in read) return { ran: false, reason: read.reason };
+  try {
+    return { ran: true, report: JSON.parse(read.bytes.toString("utf8")) };
+  } catch {
+    return { ran: false, reason: REPORT_NOT_JSON };
+  }
+}
+
+const DUMP_FILE_RE = /__(\d+)\.json$/;
+
+/* One dump, from the file the fixture wrote. Throws on what is not JSON; the reader says that the dump was left out and never quotes why. */
+function toFailureDump(name: string, bytes: Buffer): FailureDump {
+  const body = JSON.parse(bytes.toString("utf8")) as { project?: unknown; file?: unknown; title?: unknown; retry?: unknown; yaml?: unknown; httpStatus?: unknown; finalUrl?: unknown; runtimeErrors?: unknown };
+  const runtimeErrors = parseRuntimeErrors(body.runtimeErrors);
+  return {
+    project: typeof body.project === "string" ? body.project : "",
+    ...(typeof body.file === "string" ? { file: body.file } : {}),
+    title: typeof body.title === "string" ? body.title : "",
+    retry: typeof body.retry === "number" ? body.retry : parseInt(DUMP_FILE_RE.exec(name)![1]!, 10),
+    ...(typeof body.yaml === "string" ? { yaml: body.yaml } : {}),
+    /* Runtime evidence (HTTP status, final URL, runtime errors) — parsed defensively: absent/garbage → undefined, never throw. */
+    ...(typeof body.httpStatus === "number" && Number.isInteger(body.httpStatus) ? { httpStatus: body.httpStatus } : {}),
+    ...(typeof body.finalUrl === "string" ? { finalUrl: body.finalUrl } : {}),
+    ...(runtimeErrors.length > 0 ? { runtimeErrors } : {}),
+  };
+}
+
+/* The failure-capture dumps in `dir`, in the order of their names. Each dump stands for its own failed case, so what cannot be used is left out and the rest is used: the case that lost its dump runs without grounding, which the harvest says case by case. What was left out is said once for the directory, by how many and why, naming no file (the child chooses the names) and quoting nothing a dump holds. Never throws and never waits on a pipe. */
+export function readFailureDumps(dir: string, limits: RunOutputLimits = FAILURE_DUMP_LIMITS): FailureDump[] {
+  const scan = scanRunOutputDir({ mirrorDir: dir, specDir: dir }, ".", (name) => DUMP_FILE_RE.test(name), toFailureDump, limits, { readCut: true });
+  if ("absent" in scan) return [];
+  if ("unusable" in scan) {
+    console.warn(`[qa] WARNING: ${dir} was not read (${scan.unusable}); no failure capture dump is used, so every failed case runs without grounding.`);
+    return [];
+  }
+  if (scan.cut) console.warn(`[qa] WARNING: ${dir}: more than ${limits.maxFiles} entries; only the first ${limits.maxFiles} were looked at.`);
+  if (scan.leftOut.length > 0) {
+    console.warn(`[qa] WARNING: ${dir}: ${scan.leftOut.length} failure capture dump(s) not read — ${describeReasons(scan.leftOut)}; the cases they would have grounded run without grounding.`);
+  }
+  return scan.files;
 }
 
 /* Defensively parses the `runtimeErrors` field of a capture dump: a malformed entry (wrong shape, non-string `text`/`type`) is DROPPED rather than throwing or poisoning the whole array — the fixture that writes these dumps is best-effort and self-contained (see qa-failure-capture in config/e2e/fixtures.ts), so the harvest side must tolerate a partially-garbage array. Never throws. */
@@ -533,16 +575,11 @@ export function createDefaultE2eExecuteDeps(
         child.stderr.on("data", (d: string) => stderr.append(d));
         child.on("error", (err) => { try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ } settle(() => reject(err)); });
         child.on("close", (code) => {
-          let report: unknown = {};
-          let ran = false;
-          try {
-            report = JSON.parse(readFileSync(jsonPath, "utf8"));
-            ran = true;
-          } catch {
-            ran = false;
-          }
+          /* The child is gone, and the path it was handed is the one thing it could still have changed: the report is read strictly (see readPlaywrightReport), never waited on and never followed. */
+          const read = readPlaywrightReport(jsonPath);
           try { rmSync(work, { recursive: true, force: true }); } catch { /* best-effort */ }
-          settle(() => resolve({ report, logs: stderr.text(), ran, exitCode: code ?? undefined }));
+          const refusal = !read.ran && "reason" in read ? `\n[qa] the Playwright report was not read (${read.reason}); this run has no result.` : "";
+          settle(() => resolve({ report: read.ran ? read.report : {}, logs: stderr.text() + refusal, ran: read.ran, exitCode: code ?? undefined }));
         });
       }),
   };

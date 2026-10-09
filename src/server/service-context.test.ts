@@ -260,6 +260,7 @@ test("idempotent re-stage: a second call wipes the previous staged content befor
     deps,
   );
   assert.equal(deps.written[`${first.dir}/contracts/openapi-v1.yaml`]?.toString("utf8"), "v1");
+  assert.equal(deps.removed.length, 0, "a first staging has nothing to wipe");
 
   /* Simulate the mirror moving on: v1.yaml is gone, v2.yaml appears. Same deps instance reused
      across runs, matching production (a single defaultStageDeps handles every run).

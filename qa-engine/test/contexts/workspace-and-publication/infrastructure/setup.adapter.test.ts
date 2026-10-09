@@ -58,6 +58,7 @@ function orchestrationFs(opts: { hasPackageJson: boolean; onBootstrap?: (dest: s
       return { absent: true };
     },
     writeOwned: () => {},
+    purgeRefused: () => ({ nothing: true }),
   };
 }
 

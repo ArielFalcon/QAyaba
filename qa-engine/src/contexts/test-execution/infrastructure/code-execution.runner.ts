@@ -1,9 +1,9 @@
 /* Code-mode runner: install the repo's deps and classify by exit code (binary pass/fail, no flaky). Sandbox is injected — this module never reads process.env. A missing runtime is infra-error, never a pass. Local result type so this file stays src/-free. */
 
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { QaCase } from "@kernel/qa-case.ts";
 import type { RunVerdict } from "@kernel/run-verdict.ts";
 import { sanitizeText, type SecretDetection } from "@contexts/generation/infrastructure/sanitize-text.ts";
@@ -15,6 +15,7 @@ import { ProcessKillAdapter } from "../../../shared-infrastructure/process-sandb
 import type { ProcessKillPort } from "@kernel/process-sandbox/process-kill.port.ts";
 import { scrubEnv } from "../../../shared-infrastructure/process-sandbox/scrub-env.ts";
 import { sandboxSpawnOptions, type Sandbox } from "../../../shared-infrastructure/process-sandbox/sandbox.ts";
+import { readFailureReason, readOwnedSpecFile, type OwnedSpecRead } from "../../../shared-infrastructure/spec-path-confinement.ts";
 
 /** Local result shape so this file stays src/-free. */
 export interface CodeRunResult {
@@ -44,11 +45,28 @@ export interface DetectDeps {
   readJson(path: string): Record<string, unknown> | null;
 }
 
+/* A package.json is a few kilobytes, a monorepo root's some hundreds. */
+export const MAX_PACKAGE_JSON_BYTES = 1024 * 1024;
+
+/* The manifest of the working copy, which the agent writes into: it is read strictly and under a cap, so a named pipe at its name is never waited on and a link is never followed. One that is not there, or is not JSON, is no manifest as it always was; one that is there and is refused (a link, a pipe, a directory, one over the cap) is no manifest too, and is said aloud with the reason of the module's own and nothing the file held. */
 export const realDetectDeps: DetectDeps = {
   exists: existsSync,
   readJson: (p) => {
+    const dir = dirname(p);
+    let read: OwnedSpecRead;
     try {
-      return JSON.parse(readFileSync(p, "utf8")) as Record<string, unknown>;
+      read = readOwnedSpecFile({ mirrorDir: dir, specDir: dir }, basename(p), MAX_PACKAGE_JSON_BYTES);
+    } catch (err) {
+      console.warn(`[qa] WARNING: ${p} was not read (${readFailureReason(err)}); the test command is chosen without it.`);
+      return null;
+    }
+    if ("absent" in read) return null;
+    if ("reason" in read) {
+      console.warn(`[qa] WARNING: ${p} was not read (${read.reason}); the test command is chosen without it.`);
+      return null;
+    }
+    try {
+      return JSON.parse(read.bytes.toString("utf8")) as Record<string, unknown>;
     } catch {
       return null;
     }

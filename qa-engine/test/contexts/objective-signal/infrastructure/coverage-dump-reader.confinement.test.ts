@@ -10,7 +10,7 @@ import {
   MAX_V8_DUMP_BYTES,
   MAX_V8_DUMP_FILES,
   readNativeReports,
-  readV8Dumps,
+  readV8Coverage,
 } from "@contexts/objective-signal/infrastructure/coverage-dump-reader.ts";
 import { makeTargetCoverageCollector } from "@contexts/objective-signal/infrastructure/target-coverage-collector.ts";
 import { NullValueOracleAdapter } from "@contexts/objective-signal/infrastructure/null-value-oracle.adapter.ts";
@@ -25,6 +25,10 @@ const NS = "qa-bot-abc1234-run1";
 const SECRET_MARK = "SECRETv1-hunter2";
 const ENTRY = { url: "https://dev/src/svc.ts", source: "export const x = 1;", functions: [] };
 const DUMP_TEXT = JSON.stringify([ENTRY]);
+
+/* The dumps of a run, read for the one changed file the dumps above are of: what comes back is a list with one entry for each dump that was used, and the cases below are about which dumps those are. */
+const CHANGED = ["src/svc.ts"];
+const readV8Dumps = (e2e: string, namespace: string, limits?: Parameters<typeof readV8Coverage>[3]) => readV8Coverage(e2e, namespace, CHANGED, limits);
 
 /* <tmp>/e2e is where the tests ran (and the repository, for a code run); <tmp>/outside is what no read may reach. */
 interface Run {
@@ -204,16 +208,22 @@ test("a dump that cannot be read leaves the set unused, said aloud by the failur
   });
 });
 
-test("a dump of a few megabytes is read, and the dumps come back in the order of their names", async () => {
+test("a dump of a few megabytes is read, and the dumps are decoded one after the other in the order of their names", async () => {
   await withRun(async (r) => {
     const big = JSON.stringify([{ url: "https://dev/big.js", source: "x".repeat(3 * 1024 * 1024) }]);
     writeDump(r.e2e, "b-big.json", big);
     writeDump(r.e2e, "a-small.json");
+    const decoded: Array<{ url: string | undefined; length: number | undefined }> = [];
 
-    const { value, warnings } = await capturing(() => readV8Dumps(r.e2e, NS));
+    const { value, warnings } = await capturing(() =>
+      readV8Coverage(r.e2e, NS, CHANGED, undefined, (entries) => {
+        decoded.push({ url: entries[0]?.url, length: entries[0]?.source?.length });
+        return new Map();
+      }),
+    );
 
-    assert.deepEqual(value.map((d) => d.path), [join(dumpDirOf(r.e2e), "a-small.json"), join(dumpDirOf(r.e2e), "b-big.json")]);
-    assert.equal(value[1]!.entries[0]!.source!.length, 3 * 1024 * 1024);
+    assert.deepEqual(decoded, [{ url: ENTRY.url, length: ENTRY.source.length }, { url: "https://dev/big.js", length: 3 * 1024 * 1024 }]);
+    assert.equal(value.length, 2);
     assert.deepEqual(warnings, []);
   });
 });
@@ -231,7 +241,7 @@ test("a dump of exactly the production cap is read, and one byte more leaves the
     writeFileSync(path, paddedDump(MAX_V8_DUMP_BYTES + 1));
     const over = await capturing(() => readV8Dumps(r.e2e, NS));
 
-    assert.deepEqual(exact.value.map((d) => d.entries.length), [1, 0], "exactly the cap is read: the dump is an empty list");
+    assert.equal(exact.value.length, 2, "exactly the cap is read, beside the dump within it: the padded dump is an empty list");
     assert.deepEqual(exact.warnings, []);
     assert.deepEqual(over.value, [], "one byte more, and the dump within the cap beside it is not used either");
     assert.equal(over.warnings.length, 1);
@@ -249,7 +259,7 @@ test("a dump of exactly the file cap is read and one byte more leaves the whole 
     writeDump(r.e2e, "over.json", `${DUMP_TEXT} `);
     const over = await capturing(() => readV8Dumps(r.e2e, NS, limits));
 
-    assert.deepEqual(exact.value.map((d) => d.path), [join(dumpDirOf(r.e2e), "exact.json")]);
+    assert.equal(exact.value.length, 1, "the dump of exactly the cap is the one that is read");
     assert.deepEqual(exact.warnings, []);
     assert.deepEqual(over.value, [], "the dump within the cap is not used beside the one over it");
     assert.equal(over.warnings.length, 1);

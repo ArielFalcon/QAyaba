@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listOwnedSpecDir, listSpecFiles, scanSpecTree, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
+import { MAX_SPEC_WALK_ENTRIES, listOwnedSpecDir, listSpecFiles, scanSpecTree, type SpecRoot } from "../../src/shared-infrastructure/spec-path-confinement.ts";
 import { withoutWaitingOnNamedPipe } from "../support/named-pipe-watch.ts";
 
 /* <tmp>/mirror/e2e is the spec directory; <tmp>/outside is what no walk may enter. */
@@ -194,6 +194,82 @@ test("a walk that does not start from a real directory finds nothing and leaves 
   });
 });
 
+/* The agent can make a directory as large as the disk lets it. A walk lists a directory entry by entry and looks at no more than a cap of them, all the directories it walks together, so that neither a flood in one directory nor a crowd of small ones can fill its memory or its time; what it did not look at is named, never taken for a directory with nothing in it. */
+test("a walk looks at no more than the cap of entries: exactly the cap is walked whole, one more is cut where it falls, and what was looked at is listed", () => {
+  withFixture((f) => {
+    for (const name of ["a", "b", "c", "d"]) writeFileSync(join(f.specDir, `${name}.spec.ts`), "// x\n");
+
+    const whole = scanSpecTree(f.specDir, 4);
+    const cut = scanSpecTree(f.specDir, 3);
+
+    assert.deepEqual([...whole.specs].sort(), ["a.spec.ts", "b.spec.ts", "c.spec.ts", "d.spec.ts"]);
+    assert.deepEqual(whole.unwalked, []);
+    assert.equal(cut.specs.length, 3, "the entries that were looked at are listed");
+    assert.deepEqual(cut.unwalked.map((u) => u.path), [""], "the directory that was cut is named by its path below the walk's start, which is empty for the start itself");
+    assert.notEqual(cut.unwalked[0]!.reason, "");
+  });
+});
+
+test("the cap is of the whole walk, not of one directory: directories that are small by themselves and pass it together are cut as well", () => {
+  withFixture((f) => {
+    for (let i = 0; i < 6; i++) {
+      mkdirSync(join(f.specDir, `d${i}`));
+      writeFileSync(join(f.specDir, `d${i}`, "a.spec.ts"), "// a\n");
+      writeFileSync(join(f.specDir, `d${i}`, "b.spec.ts"), "// b\n");
+    }
+
+    const whole = scanSpecTree(f.specDir, 18);
+    const cut = scanSpecTree(f.specDir, 17);
+
+    assert.equal(whole.specs.length, 12, "six directories and twelve specs are eighteen entries");
+    assert.deepEqual(whole.unwalked, []);
+    assert.equal(cut.specs.length, 11, "the last entry of the walk is the one that is not looked at");
+    assert.equal(cut.unwalked.length, 1);
+    assert.match(cut.unwalked[0]!.path, /^d[0-5]$/);
+  });
+});
+
+test("every directory the walk reaches once the cap is spent is named, since none of its entries was looked at", () => {
+  withFixture((f) => {
+    for (let i = 0; i < 4; i++) {
+      mkdirSync(join(f.specDir, `d${i}`));
+      writeFileSync(join(f.specDir, `d${i}`, "a.spec.ts"), "// a\n");
+    }
+
+    const tree = scanSpecTree(f.specDir, 4);
+
+    assert.deepEqual(tree.specs, [], "the four directories used the cap");
+    assert.deepEqual(tree.unwalked.map((u) => u.path).sort(), ["d0", "d1", "d2", "d3"]);
+  });
+});
+
+test("an empty directory costs nothing once the cap is spent and is not named: there is nothing in it that was not looked at", () => {
+  withFixture((f) => {
+    mkdirSync(join(f.specDir, "empty"));
+    writeFileSync(join(f.specDir, "a.spec.ts"), "// a\n");
+
+    const tree = scanSpecTree(f.specDir, 2);
+
+    assert.deepEqual(tree.specs, ["a.spec.ts"]);
+    assert.deepEqual(tree.unwalked, []);
+  });
+});
+
+test("the cap a walk is held to by default is far beyond any suite, and one entry past it is cut", () => {
+  assert.ok(MAX_SPEC_WALK_ENTRIES >= 10_000 && MAX_SPEC_WALK_ENTRIES <= 100_000, `${MAX_SPEC_WALK_ENTRIES} entries`);
+  withFixture((f) => {
+    mkdirSync(join(f.specDir, "big"));
+    for (let i = 0; i < MAX_SPEC_WALK_ENTRIES + 1; i++) writeFileSync(join(f.specDir, "big", `s${i}.spec.ts`), "");
+
+    const tree = scanSpecTree(f.specDir);
+
+    assert.equal(tree.specs.length, MAX_SPEC_WALK_ENTRIES - 1, "the directory `big` itself is the first entry looked at");
+    assert.deepEqual(tree.unwalked.map((u) => u.path), ["big"]);
+    assert.equal(listSpecFiles(f.specDir).length, MAX_SPEC_WALK_ENTRIES - 1, "the plain listing is cut at the same place");
+  });
+});
+
+
 /* ── the listing of a directory the orchestrator keeps ─────────────────────────────────────────── */
 
 const REL = ".qa/coverage/run-1";
@@ -319,6 +395,23 @@ test("a listing releases its directory handle, whether it is whole, cut or refus
     }
 
     assert.ok(open() - before < 20, `${open() - before} descriptors were left open by 600 listings`);
+  });
+});
+
+test("a walk releases the handle of every directory it opened, whether it walked it whole, cut it or could not list it", { skip: NO_DESCRIPTOR_LISTING }, () => {
+  withFixture((f) => {
+    mkdirSync(join(f.specDir, "a", "b"), { recursive: true });
+    for (const name of ["x", "y", "z"]) writeFileSync(join(f.specDir, "a", "b", `${name}.spec.ts`), "// x\n");
+    const open = (): number => readdirSync("/dev/fd").length;
+    const before = open();
+
+    for (let i = 0; i < 200; i++) {
+      scanSpecTree(f.specDir);
+      scanSpecTree(f.specDir, 3);
+      scanSpecTree(join(f.specDir, "missing"));
+    }
+
+    assert.ok(open() - before < 20, `${open() - before} descriptors were left open by 600 walks`);
   });
 });
 

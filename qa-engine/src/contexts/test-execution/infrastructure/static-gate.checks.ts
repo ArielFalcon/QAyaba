@@ -69,7 +69,7 @@ export async function validateSpecs(
 }
 
 /* Deterministic check — scan *.spec.ts files under specDir/flows (the GENERATED-spec dir; qayaba writes generated specs there) and return one error per spec with NO assertion. Detects `expect(`, `await expect(`, `expect.soft(`, `expect.poll(`. A missing flows/ dir yields no errors.
-   The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. So is a path it could not walk (a link to a directory, which tsc, ESLint and Playwright may follow to specs that nothing here checked, and a directory it could not list). A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
+   The scan runs in the orchestrator, over files the agent writes, so it lists without following a link and reads through the confined reader: a named pipe cannot hold it, a link cannot lead it out of the spec directory and a device cannot fill its memory. A spec it cannot vouch for (a link out of the spec directory, a pipe, a file it cannot read or that is over the cap) is a finding of its own, never skipped and never taken for fine: the gate is fail-closed, the agent can fix it, and a spec that was not checked must not go on to be run. So is a path it could not walk (a link to a directory, which tsc, ESLint and Playwright may follow to specs that nothing here checked, a directory it could not list, and a directory with more entries than the walk looks at, since the entries past the cap were not checked). A flows/ that is itself a link or a file is a finding too: nothing under it was checked. */
 function checkZeroAssertionSpecs(specDir: string): string[] {
   const root: SpecRoot = { mirrorDir: specDir, specDir };
   const flows = join(specDir, "flows");
@@ -87,7 +87,7 @@ function checkZeroAssertionSpecs(specDir: string): string[] {
     }
   }
   for (const unwalked of tree.unwalked) {
-    errors.push(`[zero-assertions] ${join("flows", unwalked.path)} ${unwalked.reason} — the specs behind it are not checked: replace it with a real directory inside flows/ that can be listed`);
+    errors.push(`[zero-assertions] ${join("flows", unwalked.path)} ${unwalked.reason} — the specs behind it are not checked: it must be a real directory inside flows/ whose entries can all be listed`);
   }
   return errors;
 }

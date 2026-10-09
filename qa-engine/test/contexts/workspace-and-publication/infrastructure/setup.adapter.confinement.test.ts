@@ -1,9 +1,9 @@
-/* What setup reads and replaces in the e2e project is in a directory the agent writes into, and some of it outlives a run: `git clean -fd -e node_modules` leaves the install marker in place from one run to the next, so a named pipe planted there would hold the orchestrator on every later run, and a link at the fixtures file or at the ignore file would have the capture block or a line appended to a file outside the project. Setup reads those files strictly and replaces them through a temporary file renamed over the target: a file it cannot vouch for fails the setup, aloud (an infra-error), and is never waited on, followed or skipped. Every case runs against real files, links and pipes under os.tmpdir(); the pipe cases run under the watch of test/support/named-pipe-watch.ts, so a regression fails fast instead of holding the run. */
+/* What setup reads and replaces in the e2e project is in a directory the agent writes into, and some of it outlives a run: `git clean -fd -e node_modules` leaves the install marker in place from one run to the next, so a named pipe planted there would hold the orchestrator on every later run, and a link at the fixtures file or at the ignore file would have the capture block or a line appended to a file outside the project. Setup reads those files strictly and replaces them through a temporary file renamed over the target: a file it cannot vouch for fails the setup, aloud (an infra-error), and is never waited on, followed or skipped. The one thing that would then fail every later run for good, a marker or a node_modules that is refused, is removed without being opened or followed, once, and the marker is read again; the seed is copied in and flows/ is made through the same strict calls, so nothing is made or written through a link. Every case runs against real files, links and pipes under os.tmpdir(); the pipe cases run under the watch of test/support/named-pipe-watch.ts, so a regression fails fast instead of holding the run. */
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,20 +100,36 @@ const temporaryFilesIn = (dir: string): string[] => readdirSync(dir).filter((nam
 
 /* ── the install marker and the lock file ──────────────────────────────────────────────────────── */
 
-test("an install marker that is a named pipe fails the setup and is not waited on, and no install runs", { skip: NO_NAMED_PIPES }, async () => {
+/* What setup says on the way, which goes to logs. */
+async function capturing<T>(run: () => Promise<T>): Promise<{ value: T; warnings: string[] }> {
+  const warnings: string[] = [];
+  const warn = mock.method(console, "warn", (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  });
+  try {
+    return { value: await run(), warnings };
+  } finally {
+    warn.mock.restore();
+  }
+}
+
+/* The marker and node_modules survive `git clean -fd -e node_modules` from one run to the next, so what refuses the strict read of the marker there refuses it on every later run unless setup removes it: it does, without opening it or following it, says so, and reads the marker once more. With no marker the install is not skipped, so it runs. */
+test("an install marker that is a named pipe is removed without being opened, said aloud, and the install it could not skip runs", { skip: NO_NAMED_PIPES }, async () => {
   await withProject(async (p) => {
     writeFileSync(lockOf(p.e2e), LOCK);
     mkdirSync(join(p.e2e, "node_modules"));
     execFileSync("mkfifo", [markerOf(p.e2e)]);
     const { runner, installs } = runnerThat();
 
-    await withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => adapterOver(runner).setup(p.e2e), refusedAt(markerOf(p.e2e))));
+    const { warnings } = await capturing(() => withoutWaitingOnNamedPipe(markerOf(p.e2e), () => adapterOver(runner).setup(p.e2e)));
 
-    assert.equal(installs(), 0, "an install that a refused marker could not have skipped is not run in its place either");
+    assert.equal(installs(), 1);
+    assert.equal(readFileSync(markerOf(p.e2e), "utf8"), LOCK_HASH, "and leaves a marker of its own");
+    assert.ok(warnings.some((w) => w.includes(markerOf(p.e2e))), `the removal is said: ${JSON.stringify(warnings)}`);
   });
 });
 
-test("an install marker that is a link fails the setup, though the file it points at holds the lock's hash, and the install is not skipped on its word", async () => {
+test("an install marker that is a link is removed, the file it points at is not touched, and the install is not skipped on its word", async () => {
   await withProject(async (p) => {
     writeFileSync(lockOf(p.e2e), LOCK);
     mkdirSync(join(p.e2e, "node_modules"));
@@ -121,23 +137,153 @@ test("an install marker that is a link fails the setup, though the file it point
     symlinkSync(join(p.outside, "marker.txt"), markerOf(p.e2e));
     const { runner, installs } = runnerThat();
 
-    await assert.rejects(() => adapterOver(runner).setup(p.e2e), refusedAt(markerOf(p.e2e)));
+    await capturing(() => adapterOver(runner).setup(p.e2e));
 
+    assert.equal(installs(), 1, "the marker behind the link said the install was current, and was not believed");
+    assert.equal(lstatSync(markerOf(p.e2e)).isFile(), true, "the marker is a file of the project again");
+    assert.equal(readFileSync(join(p.outside, "marker.txt"), "utf8"), LOCK_HASH, "and the file the link pointed at is as it was");
+  });
+});
+
+test("a node_modules that is a link is removed, nothing in the directory it points at is touched, and the marker behind it is not believed", async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    mkdirSync(join(p.outside, "nm", "pkg"), { recursive: true });
+    writeFileSync(join(p.outside, "nm", ".install-hash"), LOCK_HASH);
+    writeFileSync(join(p.outside, "nm", "pkg", "index.js"), "module.exports = 1;\n");
+    symlinkSync(join(p.outside, "nm"), join(p.e2e, "node_modules"));
+    const { runner, installs } = runnerThat();
+
+    const { warnings } = await capturing(() => adapterOver(runner).setup(p.e2e));
+
+    assert.equal(installs(), 1);
+    assert.equal(lstatSync(join(p.e2e, "node_modules")).isDirectory(), true, "node_modules is a directory of the project again");
+    assert.deepEqual(readdirSync(join(p.outside, "nm")).sort(), [".install-hash", "pkg"], "the directory it pointed at is as it was");
+    assert.equal(readFileSync(join(p.outside, "nm", "pkg", "index.js"), "utf8"), "module.exports = 1;\n");
+    assert.ok(warnings.some((w) => w.includes(join(p.e2e, "node_modules"))), JSON.stringify(warnings));
+  });
+});
+
+test("a node_modules that is a named pipe is removed without being opened and the install runs", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    execFileSync("mkfifo", [join(p.e2e, "node_modules")]);
+    const { runner, installs } = runnerThat();
+
+    await capturing(() => withoutWaitingOnNamedPipe(join(p.e2e, "node_modules"), () => adapterOver(runner).setup(p.e2e)));
+
+    assert.equal(installs(), 1);
+    assert.equal(lstatSync(join(p.e2e, "node_modules")).isDirectory(), true);
+  });
+});
+
+test("a node_modules that is a regular file is removed and the install runs", async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    writeFileSync(join(p.e2e, "node_modules"), "not a directory");
+    const { runner, installs } = runnerThat();
+
+    await capturing(() => adapterOver(runner).setup(p.e2e));
+
+    assert.equal(installs(), 1);
+    assert.equal(lstatSync(join(p.e2e, "node_modules")).isDirectory(), true);
+  });
+});
+
+test("an install marker that is a directory is set aside with what is in it, nothing is deleted, and the install runs", async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    mkdirSync(join(markerOf(p.e2e), "deep"), { recursive: true });
+    writeFileSync(join(markerOf(p.e2e), "deep", "file.txt"), "kept");
+    const { runner, installs } = runnerThat();
+
+    await capturing(() => adapterOver(runner).setup(p.e2e));
+
+    assert.equal(installs(), 1);
+    assert.equal(readFileSync(markerOf(p.e2e), "utf8"), LOCK_HASH);
+    const aside = readdirSync(join(p.e2e, "node_modules")).filter((name) => name.startsWith(".install-hash.refused-"));
+    assert.equal(aside.length, 1);
+    assert.equal(readFileSync(join(p.e2e, "node_modules", aside[0]!, "deep", "file.txt"), "utf8"), "kept");
+  });
+});
+
+test("a refusal with nothing to remove fails the setup, after one look and no more, and no install runs", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    mkdirSync(join(p.e2e, "node_modules"));
+    execFileSync("mkfifo", [markerOf(p.e2e)]);
+    let purges = 0;
+    const fs = { ...nodeFsDeps, purgeRefused: () => { purges += 1; return { nothing: true } as const; } };
+    const { runner, installs } = runnerThat();
+
+    await withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(markerOf(p.e2e))));
+
+    assert.equal(purges, 1, "tried once");
     assert.equal(installs(), 0);
   });
 });
 
-test("a node_modules that is a link fails the setup, though the marker behind it is current: nothing outside the project says the install is up to date", async () => {
+test("a refusal that survives a removal fails the setup, after one removal and no more, and no install runs", { skip: NO_NAMED_PIPES }, async () => {
   await withProject(async (p) => {
     writeFileSync(lockOf(p.e2e), LOCK);
-    mkdirSync(join(p.outside, "nm"));
-    writeFileSync(join(p.outside, "nm", ".install-hash"), LOCK_HASH);
-    symlinkSync(join(p.outside, "nm"), join(p.e2e, "node_modules"));
+    mkdirSync(join(p.e2e, "node_modules"));
+    execFileSync("mkfifo", [markerOf(p.e2e)]);
+    let purges = 0;
+    /* A removal that says the name is free while the pipe is still there, as one that something plants again would: the marker is refused a second time. */
+    const fs = { ...nodeFsDeps, purgeRefused: () => { purges += 1; return { removed: "node_modules/.install-hash", how: "unlinked" } as const; } };
     const { runner, installs } = runnerThat();
 
-    await assert.rejects(() => adapterOver(runner).setup(p.e2e), refusedAt(markerOf(p.e2e)));
+    const { warnings } = await capturing(() => withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(markerOf(p.e2e)))));
+
+    assert.equal(purges, 1, "removed once, and not again for the second refusal");
+    assert.equal(installs(), 0);
+    assert.equal(warnings.filter((w) => w.includes(markerOf(p.e2e))).length, 1, `the removal is said once: ${JSON.stringify(warnings)}`);
+    assert.equal(lstatSync(markerOf(p.e2e)).isFIFO(), true, "and the pipe is where it was");
+  });
+});
+
+test("a removal that fails fails the setup with the refusal, said with the code of the failure and nothing else", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    mkdirSync(join(p.e2e, "node_modules"));
+    execFileSync("mkfifo", [markerOf(p.e2e)]);
+    const fs = { ...nodeFsDeps, purgeRefused: () => { throw Object.assign(new Error(`denied ${SECRET_MARK}`), { code: "EPERM" }); } };
+    const { runner, installs } = runnerThat();
+
+    const { warnings } = await capturing(() => withoutWaitingOnNamedPipe(markerOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(markerOf(p.e2e)))));
 
     assert.equal(installs(), 0);
+    assert.ok(warnings.some((w) => w.includes("EPERM")), JSON.stringify(warnings));
+    assert.ok(!warnings.join("\n").includes(SECRET_MARK), "an error's message is not quoted");
+  });
+});
+
+test("a lock file that is a named pipe is not removed: only the marker and the node_modules above it are", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    mkdirSync(join(p.e2e, "node_modules"));
+    writeFileSync(markerOf(p.e2e), LOCK_HASH);
+    execFileSync("mkfifo", [lockOf(p.e2e)]);
+    let purges = 0;
+    const fs = { ...nodeFsDeps, purgeRefused: (...args: Parameters<typeof nodeFsDeps.purgeRefused>) => { purges += 1; return nodeFsDeps.purgeRefused(...args); } };
+    const { runner } = runnerThat();
+
+    await withoutWaitingOnNamedPipe(lockOf(p.e2e), () => assert.rejects(() => new SetupAdapter({ fs, runner, seedDir: REAL_SEED_DIR }).setup(p.e2e), refusedAt(lockOf(p.e2e))));
+
+    assert.equal(purges, 0);
+    assert.equal(lstatSync(lockOf(p.e2e)).isFIFO(), true, "the pipe is where it was");
+  });
+});
+
+test("after the removal and the install the next setup finds the install current and runs nothing", async () => {
+  await withProject(async (p) => {
+    writeFileSync(lockOf(p.e2e), LOCK);
+    writeFileSync(join(p.e2e, "node_modules"), "not a directory");
+    const { runner, installs } = runnerThat();
+
+    await capturing(() => adapterOver(runner).setup(p.e2e));
+    await capturing(() => adapterOver(runner).setup(p.e2e));
+
+    assert.equal(installs(), 1);
   });
 });
 
@@ -319,7 +465,7 @@ test("a link that an install leaves at the marker fails the setup, and the file 
   });
 });
 
-test("a marker of exactly the cap is read, and one byte more fails the setup", async () => {
+test("a marker of exactly the cap is read, and one byte more is removed and the install runs", async () => {
   await withProject(async (p) => {
     const padded = (bytes: number): string => `${LOCK_HASH}${" ".repeat(bytes - LOCK_HASH.length)}`;
     installed(p.e2e, padded(MAX_INSTALL_MARKER_BYTES));
@@ -329,8 +475,9 @@ test("a marker of exactly the cap is read, and one byte more fails the setup", a
 
     writeFileSync(markerOf(p.e2e), padded(MAX_INSTALL_MARKER_BYTES + 1));
     const over = runnerThat();
-    await assert.rejects(() => adapterOver(over.runner).setup(p.e2e), refusedAt(markerOf(p.e2e)));
-    assert.equal(over.installs(), 0);
+    await capturing(() => adapterOver(over.runner).setup(p.e2e));
+    assert.equal(over.installs(), 1, "a marker over the cap says nothing, and the install it was to skip runs");
+    assert.equal(readFileSync(markerOf(p.e2e), "utf8"), LOCK_HASH, "and leaves a marker of its own");
   });
 });
 
@@ -571,5 +718,155 @@ test("a login setup that is missing is given the current seed, as a regular file
     assert.equal(readFileSync(join(p.e2e, "auth.setup.ts"), "utf8"), readFileSync(join(REAL_SEED_DIR, "auth.setup.ts"), "utf8"));
     assert.deepEqual(temporaryFilesIn(p.e2e), []);
     assert.ok(existsSync(join(p.e2e, "auth.setup.ts")));
+  });
+});
+
+/* ── the seed copy and flows/ ──────────────────────────────────────────────────────────────────── */
+
+/* A small seed of the shape the real one has: files, a directory of assets (one of them binary) and a node_modules that is never copied. */
+function writeSeed(seed: string): void {
+  mkdirSync(join(seed, "assets"), { recursive: true });
+  mkdirSync(join(seed, "node_modules", "pkg"), { recursive: true });
+  writeFileSync(join(seed, "package.json"), '{"name":"seed"}');
+  writeFileSync(join(seed, "fixtures.ts"), "export const seed = true;\n");
+  writeFileSync(join(seed, "assets", "notes.txt"), "a note\n");
+  writeFileSync(join(seed, "assets", "photo.bin"), Buffer.from([0, 255, 128, 10, 13, 0, 1]));
+  writeFileSync(join(seed, "node_modules", "pkg", "index.js"), "never copied\n");
+}
+
+/* An unseeded project: no package.json, so setup copies the seed in. */
+async function withUnseededProject(run: (p: Project & { seed: string }) => Promise<void> | void): Promise<void> {
+  await withProject((p) => {
+    rmSync(join(p.e2e, "package.json"));
+    const seed = join(p.tmp, "seed");
+    writeSeed(seed);
+    return run({ ...p, seed });
+  });
+}
+
+test("an unseeded project is given the whole seed, byte for byte, except its node_modules", async () => {
+  await withUnseededProject(async (p) => {
+    const { runner } = runnerThat();
+
+    await capturing(() => adapterOver(runner, p.seed).setup(p.e2e));
+
+    assert.equal(readFileSync(join(p.e2e, "package.json"), "utf8"), '{"name":"seed"}');
+    assert.equal(readFileSync(join(p.e2e, "assets", "notes.txt"), "utf8"), "a note\n");
+    assert.deepEqual([...readFileSync(join(p.e2e, "assets", "photo.bin"))], [0, 255, 128, 10, 13, 0, 1], "a binary file is copied as it is");
+    assert.ok(readFileSync(join(p.e2e, "fixtures.ts"), "utf8").startsWith("export const seed = true;\n"));
+    assert.equal(existsSync(join(p.e2e, "node_modules", "pkg")), false, "the seed's node_modules is never copied");
+    assert.deepEqual(temporaryFilesIn(p.e2e), []);
+    assert.deepEqual(temporaryFilesIn(join(p.e2e, "assets")), []);
+  });
+});
+
+test("a directory of the project that is a link out of it is not copied into: the seed's files are not written to the directory it points at", async () => {
+  await withUnseededProject(async (p) => {
+    mkdirSync(join(p.outside, "elsewhere"));
+    symlinkSync(join(p.outside, "elsewhere"), join(p.e2e, "assets"));
+    const { runner, installs } = runnerThat();
+
+    await assert.rejects(() => adapterOver(runner, p.seed).setup(p.e2e), refusedAt(join(p.e2e, "assets")));
+
+    assert.deepEqual(readdirSync(join(p.outside, "elsewhere")), [], "nothing was written outside the project");
+    assert.equal(installs(), 0);
+  });
+});
+
+test("a directory of the seed with nothing in it is refused all the same where the project has a link: the refusal is of the directory, not of a file below it", async () => {
+  await withUnseededProject(async (p) => {
+    mkdirSync(join(p.seed, "empty"));
+    mkdirSync(join(p.outside, "elsewhere"));
+    symlinkSync(join(p.outside, "elsewhere"), join(p.e2e, "empty"));
+
+    await assert.rejects(() => adapterOver(runnerThat().runner, p.seed).setup(p.e2e), refusedAt(join(p.e2e, "empty")));
+
+    assert.deepEqual(readdirSync(join(p.outside, "elsewhere")), []);
+    assert.equal(lstatSync(join(p.e2e, "empty")).isSymbolicLink(), true, "the link is as it was");
+  });
+});
+
+test("a file of the project that is a link out of it fails the setup, and the file it points at is not written", async () => {
+  await withUnseededProject(async (p) => {
+    symlinkSync(p.victim, join(p.e2e, "fixtures.ts"));
+
+    await assert.rejects(() => adapterOver(runnerThat().runner, p.seed).setup(p.e2e), refusedAt(join(p.e2e, "fixtures.ts")));
+
+    assert.equal(readFileSync(p.victim, "utf8"), PRECIOUS);
+  });
+});
+
+test("a project directory that is a link is not copied into", async () => {
+  await withUnseededProject(async (p) => {
+    rmSync(p.e2e, { recursive: true });
+    mkdirSync(join(p.outside, "project"));
+    symlinkSync(join(p.outside, "project"), p.e2e);
+
+    await assert.rejects(() => adapterOver(runnerThat().runner, p.seed).setup(p.e2e), refusedAt(p.e2e));
+
+    assert.deepEqual(readdirSync(join(p.outside, "project")), []);
+  });
+});
+
+test("a project directory that is a link is refused as itself when the seed has nothing to copy into it", async () => {
+  await withProject(async (p) => {
+    rmSync(p.e2e, { recursive: true });
+    mkdirSync(join(p.outside, "project"));
+    symlinkSync(join(p.outside, "project"), p.e2e);
+    const emptySeed = join(p.tmp, "empty-seed");
+    mkdirSync(emptySeed);
+
+    await assert.rejects(() => adapterOver(runnerThat().runner, emptySeed).setup(p.e2e), refusedAt(p.e2e));
+
+    assert.deepEqual(readdirSync(join(p.outside, "project")), []);
+  });
+});
+
+test("a project directory that is not there yet is made and given the seed", async () => {
+  await withUnseededProject(async (p) => {
+    rmSync(p.e2e, { recursive: true });
+
+    await capturing(() => adapterOver(runnerThat().runner, p.seed).setup(p.e2e));
+
+    assert.equal(readFileSync(join(p.e2e, "package.json"), "utf8"), '{"name":"seed"}');
+  });
+});
+
+test("flows/ is made when it is not there, and left as it is when it is a directory", async () => {
+  await withProject(async (p) => {
+    adapterOver(runnerThat().runner).ensureSpecDir(p.e2e);
+    writeFileSync(join(p.e2e, "flows", "keep.spec.ts"), "kept");
+    adapterOver(runnerThat().runner).ensureSpecDir(p.e2e);
+
+    assert.equal(lstatSync(join(p.e2e, "flows")).isDirectory(), true);
+    assert.equal(readFileSync(join(p.e2e, "flows", "keep.spec.ts"), "utf8"), "kept");
+  });
+});
+
+test("a flows/ that is a link out of the project fails the setup, and nothing is made or written through it", async () => {
+  await withProject(async (p) => {
+    mkdirSync(join(p.outside, "flows-elsewhere"));
+    symlinkSync(join(p.outside, "flows-elsewhere"), join(p.e2e, "flows"));
+
+    assert.throws(() => adapterOver(runnerThat().runner).ensureSpecDir(p.e2e), (err: unknown) => err instanceof ConfinedPathError && err.path === join(p.e2e, "flows") && err.reason !== "");
+
+    assert.equal(lstatSync(join(p.e2e, "flows")).isSymbolicLink(), true, "the link is as it was: it is not setup's to remove");
+    assert.deepEqual(readdirSync(join(p.outside, "flows-elsewhere")), []);
+  });
+});
+
+test("a flows/ that is a named pipe fails the setup, and the pipe is not waited on", { skip: NO_NAMED_PIPES }, async () => {
+  await withProject(async (p) => {
+    execFileSync("mkfifo", [join(p.e2e, "flows")]);
+
+    await withoutWaitingOnNamedPipe(join(p.e2e, "flows"), () => assert.throws(() => adapterOver(runnerThat().runner).ensureSpecDir(p.e2e), (err: unknown) => err instanceof ConfinedPathError));
+  });
+});
+
+test("a flows/ that is a regular file fails the setup", async () => {
+  await withProject(async (p) => {
+    writeFileSync(join(p.e2e, "flows"), "not a directory");
+
+    assert.throws(() => adapterOver(runnerThat().runner).ensureSpecDir(p.e2e), (err: unknown) => err instanceof ConfinedPathError);
   });
 });

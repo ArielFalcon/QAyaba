@@ -1,31 +1,14 @@
-/* Config-driven EVENT boundary resolver. App-specific patterns come from the injected EventBoundaryProfile — no watched-app literals here. resolveLinks never throws: a per-repo/per-file error skips that unit; an unknown eventPattern.kind fails open to an empty result. Publisher symbols resolve to the enclosing class of the publish call, not the first class in the file. */
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+/* Config-driven EVENT boundary resolver. App-specific patterns come from the injected EventBoundaryProfile — no watched-app literals here. resolveLinks never throws: a per-repo/per-file error skips that unit; an unknown eventPattern.kind fails open to an empty result. Publisher symbols resolve to the enclosing class of the publish call, not the first class in the file. The sources are listed and read through one RepoReader (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository.
+   DETERMINISM (project invariant #1: stable, deterministic behavior): this resolver's JOIN is first-match-wins (`publishers.find(...)` in resolveLinks) — when two publishers in the scanned pool publish the SAME event name (realistic: nname's dual-transport NATS+Rabbit setup makes a relay/dual-publish of one event plausible), a walk in filesystem order would make the emitted link's `from` symbol depend on it, i.e. non-deterministic across runs/environments. The walk visits the entries in the order of their names. */
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
 import type { RepoRef, ServiceLink, ServiceSymbolRef, EventBoundaryProfile } from "../domain/index.ts";
+import { RepoReader } from "../../../shared-infrastructure/repo-reader.ts";
 import { EventPatternCatalog, type EventPatternOccurrence } from "./event-pattern-catalog.ts";
 import { compileFileGlob } from "./glob-suffix.ts";
+import { MAX_TOPOLOGY_SOURCE_BYTES, SKIP_VENDOR_DIRS } from "./repo-walk.ts";
 
 const EXACT_MATCH_CONFIDENCE = 1.0;
 const STEM_MATCH_CONFIDENCE = 0.7;
-
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "target", ".next", ".cache"]);
-
-/** Recursively walk a directory, collecting files matching the predicate. Mirrors openapi-http-resolver.adapter.ts's `walk()` helper — same recursive-readdir shape, adapted here for the profile's `files` glob (`.java` in nname's real usage, but generic). DETERMINISM (project invariant #1: stable, deterministic behavior): `readdirSync` order is filesystem-dependent (not guaranteed alphabetical on every OS/filesystem). This resolver's JOIN is first-match-wins (`publishers.find(...)` in resolveLinks) — when two publishers in the scanned pool publish the SAME event name (realistic: nname's dual-transport NATS+Rabbit setup makes a relay/dual-publish of one event plausible), an unsorted walk would make the emitted link's `from` symbol depend on raw filesystem order, i.e. non-deterministic across runs/environments. Sorting here fixes the file COLLECTION order deterministically; it is local to this function and does not require the caller to also sort. */
-function walk(dir: string, predicate: (name: string) => boolean, out: string[] = []): string[] {
-  let entries: string[];
-  try { entries = readdirSync(dir).sort(); } catch { return out; }
-  for (const entry of entries) {
-    const full = join(dir, entry);
-    let st;
-    try { st = statSync(full); } catch { continue; }
-    if (st.isDirectory()) {
-      if (SKIP_DIRS.has(entry)) continue;
-      walk(full, predicate, out);
-    } else if (predicate(entry)) out.push(full);
-  }
-  return out;
-}
 
 /** Flat resolved occurrence with its ORIGIN repo attached (the catalog is per-file, this resolver is the layer that knows which repo a file came from). */
 interface RepoOccurrence {
@@ -64,15 +47,15 @@ export class EventResolver implements ServiceBoundaryResolverPort {
 
     const occurrences: RepoOccurrence[] = [];
     for (const repo of pool) {
-      const files = walk(repo.mirrorDir, (name) => this.isEventFile(name));
-      for (const full of files) {
-        let text: string;
-        try { text = readFileSync(full, "utf8"); } catch { continue; }
-        const relFile = full.slice(repo.mirrorDir.length + 1);
+      const reader = new RepoReader(repo.mirrorDir);
+      for (const relFile of reader.files((name) => this.isEventFile(name), SKIP_VENDOR_DIRS)) {
+        const text = reader.listedText(relFile, MAX_TOPOLOGY_SOURCE_BYTES);
+        if (text === undefined) continue;
         for (const occurrence of extractor(text, this.profile.eventPattern)) {
           occurrences.push({ repo, file: relFile, occurrence });
         }
       }
+      reader.warn(repo.repo);
     }
 
     const modelOfBrokerInterface = new Map<string, string>();

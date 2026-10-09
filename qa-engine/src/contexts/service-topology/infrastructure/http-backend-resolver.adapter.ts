@@ -1,6 +1,4 @@
-/* OpenAPI-anchored BE→BE HTTP link resolver. App-specific patterns come from the injected HttpBackendBoundaryProfile. resolveLinks never throws: per-repo/per-file errors skip that unit; an unknown callPattern.kind degrades to an empty result. */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+/* OpenAPI-anchored BE→BE HTTP link resolver. App-specific patterns come from the injected HttpBackendBoundaryProfile. resolveLinks never throws: per-repo/per-file errors skip that unit; an unknown callPattern.kind degrades to an empty result. The OpenAPI document and the sources are read through one RepoReader for each repository (see repo-walk.ts): a mirror is a directory the agent writes into, so no link is followed, no named pipe is opened and neither the entries looked at nor the size of a file is unbounded; what could not be used is skipped, and said once for the repository. */
 import type { ServiceBoundaryResolverPort, ResolveLinksResult } from "../application/ports/index.ts";
 import type {
   RepoRef, ServiceLink, ServiceSymbolRef, ContractDrift, ExternalCall, UnresolvedCall,
@@ -9,8 +7,9 @@ import type {
 import { CallPatternCatalog } from "./call-pattern-catalog.ts";
 import { compilePrefixTemplate, compileRepoTemplate, type PrefixMatch } from "./boundary-template.ts";
 import { compileFileGlob } from "./glob-suffix.ts";
-import { walkRepoFiles } from "./repo-walk.ts";
+import { MAX_TOPOLOGY_OPENAPI_BYTES, MAX_TOPOLOGY_SOURCE_BYTES, SKIP_VENDOR_DIRS } from "./repo-walk.ts";
 import { parseOpenApiYaml, findOp, findOpAnyService, segs, type IngressOp } from "./openapi-ingress.ts";
+import { RepoReader } from "../../../shared-infrastructure/repo-reader.ts";
 
 const EMPTY: ResolveLinksResult = { links: [], drift: [], external: [], unresolved: [] };
 
@@ -63,13 +62,13 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
       pool.push(repo);
     }
 
+    const readers = new Map<string, RepoReader>(pool.map((repo) => [repo.repo, new RepoReader(repo.mirrorDir)]));
     const ingress: IngressOp[] = [];
     const knownServices = new Set<string>();
     const repoOfService = new Map<string, RepoRef>();
     for (const repo of pool) {
-      const openapiPath = join(repo.mirrorDir, this.profile.openApiPath);
-      let content: string;
-      try { content = readFileSync(openapiPath, "utf8"); } catch { continue; }
+      const content = readers.get(repo.repo)!.optionalText(this.profile.openApiPath, MAX_TOPOLOGY_OPENAPI_BYTES);
+      if (content === undefined) continue;
       const service = this.serviceOfRepo(repo);
       knownServices.add(service);
       repoOfService.set(service, repo);
@@ -82,11 +81,10 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
     const unresolved: UnresolvedCall[] = [];
 
     for (const repo of pool) {
-      const files = walkRepoFiles(repo.mirrorDir, (name) => this.isSourceFile(name));
-      for (const full of files) {
-        let text: string;
-        try { text = readFileSync(full, "utf8"); } catch { continue; }
-        const relFile = full.slice(repo.mirrorDir.length + 1);
+      const reader = readers.get(repo.repo)!;
+      for (const relFile of reader.files((name) => this.isSourceFile(name), SKIP_VENDOR_DIRS)) {
+        const text = reader.listedText(relFile, MAX_TOPOLOGY_SOURCE_BYTES);
+        if (text === undefined) continue;
         for (const occ of extractor(text, this.profile.callPattern)) {
           const path = resolveLiteralPath(occ.rawArg);
           const fromSymbol = occ.enclosingMethod ?? occ.enclosingClass ?? occ.rawArg;
@@ -129,6 +127,7 @@ export class HttpBackendResolver implements ServiceBoundaryResolverPort {
           }
         }
       }
+      reader.warn(repo.repo);
     }
 
     return { links, drift, external, unresolved };

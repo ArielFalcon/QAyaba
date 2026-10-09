@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { VerdictParserAdapter } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
+import { VerdictParserAdapter, listSuiteSpecFiles } from "@contexts/generation/infrastructure/verdict-parser.adapter.ts";
 import { GENERATION_NOTE_MAX_CHARS } from "@contexts/generation/domain/generation-end.ts";
 
 test("parseReview delegates and forwards blockingCount + parsed + valid + issues (no behavior drop)", () => {
@@ -171,4 +171,30 @@ test("specs inside installed packages never make a bare name ambiguous", () => {
 
 test("without a spec dir (code target) reported names are kept as they are", () => {
   assert.deepEqual(reportedPaths(["login.spec.ts"], undefined).specs, ["login.spec.ts"]);
+});
+
+/* The suite is a directory the agent writes into: it is walked by the one walk of the specs, which follows no link and looks at no more than a cap of entries. */
+test("the suite listing is every spec below the suite as a suite-relative, '/'-separated path, and follows no link out of it", () => {
+  const specDir = suiteWith(["a.spec.ts", "flows/b.spec.ts", "flows/deep/c.spec.ts", "flows/notes.txt", "node_modules/pkg/x.spec.ts", ".cache/y.spec.ts"]);
+  const outside = mkdtempSync(join(tmpdir(), "verdict-outside-"));
+  try {
+    writeFileSync(join(outside, "elsewhere.spec.ts"), "export {};\n");
+    symlinkSync(outside, join(specDir, "flows", "hop"));
+
+    assert.deepEqual(listSuiteSpecFiles(specDir).sort(), ["a.spec.ts", "flows/b.spec.ts", "flows/deep/c.spec.ts"]);
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("the suite listing looks at no more than the cap of entries it is given, so a suite the agent flooded does not fill the orchestrator", () => {
+  const specDir = suiteWith(["a.spec.ts", "b.spec.ts", "c.spec.ts", "d.spec.ts"]);
+  try {
+    assert.equal(listSuiteSpecFiles(specDir, 4).length, 4, "exactly the cap is listed whole");
+    assert.equal(listSuiteSpecFiles(specDir, 3).length, 3, "one entry past it is not looked at");
+    assert.ok(listSuiteSpecFiles(specDir).length > 0, "without a cap of its own it is held to the production one");
+  } finally {
+    rmSync(specDir, { recursive: true, force: true });
+  }
 });

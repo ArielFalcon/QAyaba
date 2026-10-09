@@ -6,13 +6,24 @@
  * in-root keeps every read inside the session. Path is a pure function of (workingCopyDir, repo),
  * not sha, so composition can compute it before checkout. Every fs/git side effect is injected
  * via StageDeps.
+ *
+ * Both sides are directories the agent can write into: the service's mirror (a repository's tree
+ * can hold committed links, and the agent can plant a link, a named pipe or a file of any size in
+ * any mirror) and the front's working copy the context is staged into. So the service's files are
+ * listed by the one walk of the files of a repository and read through the strict, capped read
+ * (spec-path-confinement): a link is never followed and a named pipe never opened, and what cannot
+ * be used is omitted with a reason of the module's own. The staging directory is emptied, made and
+ * written through the strict calls rooted at the working copy, so nothing is made or written
+ * through a link the agent planted in it.
  */
 
 import { dirname, join, relative, sep } from "node:path";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, rmSync } from "node:fs";
 import type { Git } from "../integrations/repo-mirror";
 import { realGit } from "../integrations/repo-mirror";
 import { rethrowIfUntrusted } from "@kernel/domain-error";
+import { ConfinedPathError, ensureOwnedSpecDir, readOwnedSpecFile, writeOwnedSpecFile, type SpecRoot } from "../../qa-engine/src/shared-infrastructure/spec-path-confinement";
+import { RepoReader } from "../../qa-engine/src/shared-infrastructure/repo-reader";
 
 export interface StageServiceContextInput {
   workingCopyDir: string;  /* the FRONT repo's working copy (the agent session root) */
@@ -42,12 +53,14 @@ export interface ServiceContextManifest {
 export interface StageDeps {
   git: Git;
   exists(path: string): boolean;
-  mkdir(path: string): void;  /* recursive (mkdir -p semantics) */
-  rm(path: string): void;  /* recursive + force (rm -rf semantics) */
+  /* The paths below are all below a root — the front's working copy for what is staged, the service's mirror for what is read — which the real calls anchor on: a link anywhere below it is never followed (see the header). */
+  mkdir(path: string, root: string): void;  /* recursive (mkdir -p semantics) */
+  rm(path: string, root: string): void;  /* recursive + force (rm -rf semantics) */
   /** All FILES (not directories) under `dir`, recursively, as POSIX-style paths relative to `dir`. */
   listFiles(dir: string): string[];
-  readFile(path: string): Buffer;
-  writeFile(path: string, data: string | Buffer): void;
+  /** The bytes of the regular file at `path` below `root`; throws ConfinedPathError for a file that is refused (a link, a named pipe, a directory, a file over the cap). */
+  readFile(path: string, root: string): Buffer;
+  writeFile(path: string, data: string | Buffer, root: string): void;
   now(): number;  /* epoch millis — matches the now()/deploy-gate.ts, mirror-prune.ts precedent */
 }
 
@@ -121,8 +134,8 @@ export async function stageServiceContext(
    * Idempotent re-stage: wipe any prior run's content first so a stale file from a previous sha
    * (or a hint that has since changed) never survives into this run's snapshot.
    */
-  if (deps.exists(dir)) deps.rm(dir);
-  deps.mkdir(dir);
+  if (deps.exists(dir)) deps.rm(dir, workingCopyDir);
+  deps.mkdir(dir, workingCopyDir);
 
   const contracts: string[] = [];
   const changed: string[] = [];
@@ -135,8 +148,8 @@ export async function stageServiceContext(
     if (buf.byteLength > MAX_FILE_BYTES) return "file too large (> 512KB)";
     if (totalBytes + buf.byteLength > MAX_TOTAL_BYTES) return "total size cap (2MB) exceeded";
     const destAbs = join(dir, destRelPath);
-    deps.mkdir(dirname(destAbs));
-    deps.writeFile(destAbs, buf);
+    deps.mkdir(dirname(destAbs), workingCopyDir);
+    deps.writeFile(destAbs, buf, workingCopyDir);
     totalBytes += buf.byteLength;
     fileCount++;
     return true;
@@ -147,8 +160,9 @@ export async function stageServiceContext(
     if (!deps.exists(srcAbs)) return "not found in the service mirror (deleted/renamed)";
     let buf: Buffer;
     try {
-      buf = deps.readFile(srcAbs);
+      buf = deps.readFile(srcAbs, service.mirrorDir);
     } catch (e) {
+      if (e instanceof ConfinedPathError) return `refused: ${e.reason}`;
       return `unreadable: ${e instanceof Error ? e.message : String(e)}`;
     }
     if (isBinary(buf)) return "binary file (skipped)";
@@ -176,13 +190,17 @@ export async function stageServiceContext(
    * (context-mode services carry no per-run commit; contracts-only staging applies then).
    */
   if (sha) {
+    let patch: string | undefined;
     try {
-      const patch = await deps.git(["show", "--stat", "--patch", sha], service.mirrorDir);
-      const result = tryStageBuffer("CHANGE.patch", Buffer.from(patch, "utf8"));
-      if (result !== true) omitted.push({ path: "CHANGE.patch", reason: result });
+      patch = await deps.git(["show", "--stat", "--patch", sha], service.mirrorDir);
     } catch (e) {
       rethrowIfUntrusted(e); /* a service mirror whose git dir is not the orchestrator's is a security refusal, not an omitted file */
       omitted.push({ path: "CHANGE.patch", reason: `git show --patch failed: ${e instanceof Error ? e.message : String(e)}` });
+    }
+    /* Outside the try above: a write the strict calls refuse is the working copy's fault and fails the staging, never a file omitted for git's. */
+    if (patch !== undefined) {
+      const result = tryStageBuffer("CHANGE.patch", Buffer.from(patch, "utf8"));
+      if (result !== true) omitted.push({ path: "CHANGE.patch", reason: result });
     }
 
     let changedPaths: string[] = [];
@@ -212,43 +230,54 @@ export async function stageServiceContext(
     omitted,
   };
   const manifestPath = join(dir, "manifest.json");
-  deps.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+  deps.writeFile(manifestPath, JSON.stringify(manifest, null, 2), workingCopyDir);
 
   return { dir, manifestPath };
 }
 
 /*
  * Excludes VCS internals and installed deps from the default sweep's directory walk — mirrors
- * getDirectorySize's own recursive-walk precedent (mirror-prune.ts), best-effort (an unreadable
- * subtree is skipped, never thrown).
+ * getDirectorySize's own recursive-walk precedent (mirror-prune.ts). The walk is the one walk of
+ * the files of a repository (spec-path-confinement): it follows no link, opens no named pipe,
+ * looks at no more than a cap of entries and visits them in the order of their names; what it
+ * could not walk is said once for the service, naming no file.
  */
-function listFilesRecursive(dir: string, base: string = dir): string[] {
-  let out: string[] = [];
-  let entries;
+const SWEEP_SKIP_DIRS: ReadonlySet<string> = new Set(["node_modules", ".git"]);
+
+const strictRoot = (root: string): SpecRoot => ({ mirrorDir: root, specDir: root });
+const below = (root: string, path: string): string => relative(root, path).split(sep).join("/");
+
+/* Whether anything is at the path, a link to nothing included: a path that is followed is not there when it leads nowhere, so a link to nothing at the staging directory would be neither removed nor made, and would fail every later staging. */
+const somethingAt = (path: string): boolean => {
   try {
-    entries = readdirSync(dir, { withFileTypes: true });
+    lstatSync(path);
+    return true;
   } catch {
-    return out;
+    return false;
   }
-  for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === ".git") continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      out = out.concat(listFilesRecursive(full, base));
-    } else if (entry.isFile()) {
-      out.push(relative(base, full).split(sep).join("/"));
-    }
-  }
-  return out;
-}
+};
 
 export const defaultStageDeps: StageDeps = {
   git: realGit,
-  exists: existsSync,
-  mkdir: (path) => mkdirSync(path, { recursive: true }),
-  rm: (path) => rmSync(path, { recursive: true, force: true }),
-  listFiles: (dir) => listFilesRecursive(dir),
-  readFile: (path) => readFileSync(path),
-  writeFile: (path, data) => writeFileSync(path, data),
+  exists: somethingAt,
+  mkdir: (path, root) => ensureOwnedSpecDir(strictRoot(root), below(root, path)),
+  rm: (path, root) => {
+    /* The path to what is removed must be ordinary directories of the working copy: a removal through a link the agent planted above it would remove what the link points at. What is at the path itself is removed as it is, a link as a link. */
+    ensureOwnedSpecDir(strictRoot(root), below(root, dirname(path)));
+    rmSync(path, { recursive: true, force: true });
+  },
+  listFiles: (dir) => {
+    const reader = new RepoReader(dir);
+    const files = reader.files(() => true, SWEEP_SKIP_DIRS);
+    reader.warn(dir);
+    return files;
+  },
+  readFile: (path, root) => {
+    const rel = below(root, path);
+    const read = readOwnedSpecFile(strictRoot(root), rel, MAX_FILE_BYTES);
+    if ("bytes" in read) return read.bytes;
+    throw new ConfinedPathError(rel, "reason" in read ? read.reason : "the file is not there");
+  },
+  writeFile: (path, data, root) => writeOwnedSpecFile(strictRoot(root), below(root, path), data),
   now: () => Date.now(),
 };

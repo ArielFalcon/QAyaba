@@ -5,7 +5,7 @@ import { LcovCoverageAdapter } from "./lcov-coverage.adapter.ts";
 import { C8CoverageAdapter } from "./c8-coverage.adapter.ts";
 import { JacocoCoverageAdapter } from "./jacoco-coverage.adapter.ts";
 import { CoverageCollectorAdapter } from "./coverage-collector.adapter.ts";
-import { readV8Dumps, readNativeReports } from "./coverage-dump-reader.ts";
+import { readV8Coverage, readNativeReports } from "./coverage-dump-reader.ts";
 
 export interface TargetCoverageCollectorInput {
   target: "e2e" | "code";
@@ -17,7 +17,7 @@ export interface TargetCoverageCollectorInput {
 /** Builds the real, target-selected CoverageCollectorPort. "e2e" -> V8 browser dumps (the ONLY signal source for browser-driven runs); "code" -> the composite of every native report kind this project's declared Java + JS/TS scope emits (lcov, Istanbul JSON, JaCoCo XML) — an ecosystem with no matching report simply contributes an empty result to the merge (CoverageCollectorAdapter's own fail-open contract), never a false signal. The reports of all the kinds are read together, once per collection: a kind whose report cannot be used would otherwise be missing from the merge while the others were in it, and the ratio of the change would be one of a part. */
 export function makeTargetCoverageCollector(input: TargetCoverageCollectorInput): CoverageCollectorPort {
   if (input.target === "e2e") {
-    return new V8BrowserCoverageAdapter(readV8Dumps, input.changedFiles);
+    return new V8BrowserCoverageAdapter((specDir, namespace, changedFiles) => readV8Coverage(specDir, namespace, changedFiles), input.changedFiles);
   }
   return {
     async collect(specDir: string, namespace: string, changedFiles?: string[]): Promise<CoverageReport> {

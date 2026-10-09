@@ -126,12 +126,16 @@ test("the spec-path-confinement preset mutates the confined reader and the stric
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/bridges/pre-generation-grounding-port.adapter.ts",
     "qa-engine/src/contexts/workspace-and-publication/infrastructure/setup.adapter.ts",
     "qa-engine/src/contexts/qa-run-orchestration/infrastructure/auth-session.adapter.ts",
+    "qa-engine/src/contexts/generation/infrastructure/verdict-parser.adapter.ts",
   ]);
   for (const tests of [
     "shared-infrastructure/spec-path-confinement.test.ts",
     "shared-infrastructure/spec-path-confinement.seam.test.ts",
     "shared-infrastructure/spec-path-confinement.owned.test.ts",
     "shared-infrastructure/spec-path-confinement.listing.test.ts",
+    "shared-infrastructure/spec-path-confinement.purge.test.ts",
+    "shared-infrastructure/spec-path-confinement.repo-walk.test.ts",
+    "infrastructure/verdict-parser.adapter.test.ts",
     "bridges/generation-port.adapter.test.ts",
     "bridges/review-dom-grounding-port.adapter.test.ts",
     "prompt-builders/prompts.test.ts",
@@ -155,19 +159,90 @@ test("the run-output-readers preset mutates the strict capped readers of what a 
   const preset = PRESETS["run-output-readers"];
   assert.ok(preset, "the run-output-readers preset exists");
   assert.deepEqual(preset.mutate.map(sourcePathOf), [
-    "qa-engine/src/contexts/objective-signal/infrastructure/run-output-reader.ts",
+    "qa-engine/src/shared-infrastructure/run-output-reader.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/coverage-dump-reader.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/target-coverage-collector.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-counter-reader.ts",
     "qa-engine/src/contexts/objective-signal/infrastructure/fault-injection-oracle.adapter.ts",
   ]);
   for (const tests of [
+    "shared-infrastructure/run-output-reader.test.ts",
     "infrastructure/coverage-dump-reader.test.ts",
     "infrastructure/coverage-dump-reader.confinement.test.ts",
     "infrastructure/fault-injection-counter-reader.test.ts",
     "infrastructure/fault-injection-oracle.adapter.test.ts",
     "infrastructure/target-coverage-collector.test.ts",
     "rewritten-engine-factory.fault-injection.test.ts",
+    "infrastructure/e2e-execution.runner.confinement.test.ts",
+  ]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the e2e-run-reads preset mutates only the lines of the e2e runner that read back what the Playwright child leaves, against the runner's own tests", () => {
+  const preset = PRESETS["e2e-run-reads"];
+  assert.ok(preset, "the e2e-run-reads preset exists");
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], ["qa-engine/src/contexts/test-execution/infrastructure/e2e-execution.runner.ts"]);
+  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of the runner is other code, so every entry is a line range");
+  for (const tests of ["infrastructure/e2e-execution.runner.confinement.test.ts", "infrastructure/e2e-execution.runner.test.ts"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the v8-coverage-decode preset mutates the decoding of a V8 dump alone, against its parse tests, its adapter's and the reader and collector that reduce each dump as it is read", () => {
+  const preset = PRESETS["v8-coverage-decode"];
+  assert.ok(preset, "the v8-coverage-decode preset exists");
+  assert.deepEqual(preset.mutate.map(sourcePathOf), ["qa-engine/src/contexts/objective-signal/infrastructure/v8-browser-coverage.adapter.ts"]);
+  for (const tests of ["infrastructure/v8-browser-coverage.parse.test.ts", "infrastructure/v8-browser-coverage.adapter.test.ts", "infrastructure/coverage-dump-reader.test.ts", "infrastructure/target-coverage-collector.test.ts"]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the repo-reads preset mutates the reader of a repository's files, the lines of the three resolvers that read through it and of the staging of a service's context that list, read and write, against their own tests", () => {
+  const preset = PRESETS["repo-reads"];
+  assert.ok(preset, "the repo-reads preset exists");
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
+    "qa-engine/src/shared-infrastructure/repo-reader.ts",
+    "qa-engine/src/contexts/service-topology/infrastructure/repo-walk.ts",
+    "qa-engine/src/contexts/service-topology/infrastructure/event-resolver.adapter.ts",
+    "qa-engine/src/contexts/service-topology/infrastructure/http-backend-resolver.adapter.ts",
+    "qa-engine/src/contexts/service-topology/infrastructure/openapi-http-resolver.adapter.ts",
+    "src/server/service-context.ts",
+  ]);
+  assert.ok(
+    preset.mutate.filter((entry) => !entry.endsWith("repo-reader.ts") && !entry.endsWith("repo-walk.ts")).every((entry) => /:\d+-\d+$/.test(entry)),
+    "the rest of each resolver and of the staging is other code, so every entry of them is a line range",
+  );
+  for (const tests of [
+    "shared-infrastructure/repo-reader.test.ts",
+    "infrastructure/resolvers.confinement.test.ts",
+    "infrastructure/event-resolver.adapter.test.ts",
+    "infrastructure/http-backend-resolver.adapter.test.ts",
+    "infrastructure/openapi-http-resolver.adapter.test.ts",
+    "server/service-context.confinement.test.ts",
+    "server/service-context.test.ts",
+  ]) {
+    assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
+  }
+  assert.equal(preset.thresholds.break, null, "a new preset starts in signal mode");
+});
+
+test("the code-run-reads preset mutates only the lines of a code run's manifest read and of the mutation oracle's config write and report read, against their own tests", () => {
+  const preset = PRESETS["code-run-reads"];
+  assert.ok(preset, "the code-run-reads preset exists");
+  assert.deepEqual([...new Set(preset.mutate.map(sourcePathOf))], [
+    "qa-engine/src/contexts/test-execution/infrastructure/code-execution.runner.ts",
+    "qa-engine/src/contexts/objective-signal/infrastructure/stryker-mutation-oracle.adapter.ts",
+  ]);
+  assert.ok(preset.mutate.every((entry) => /:\d+-\d+$/.test(entry)), "the rest of both files is other code, so every entry is a line range");
+  for (const tests of [
+    "infrastructure/code-execution.detect.confinement.test.ts",
+    "infrastructure/code-execution.runner.test.ts",
+    "infrastructure/stryker-mutation-oracle.confinement.test.ts",
+    "infrastructure/stryker-mutation-oracle.adapter.test.ts",
   ]) {
     assert.ok(preset.tests.some((t) => t.endsWith(tests)), `${tests} runs against every mutant`);
   }
